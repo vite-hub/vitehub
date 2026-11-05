@@ -17,6 +17,7 @@ import type { RealtimeCheckpoint, RealtimeDocumentStatus, RealtimeEditor, Realti
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
 import { RealtimeCaret } from "./caret.ts"
 import { createRealtimeEditorExtensions } from "./editor.ts"
+import { keepRealtimeSocketAlive } from "./keepalive.ts"
 import { readRealtimeStatus, realtimeDocumentLayout } from "./layout.ts"
 
 /** Reads a room document as Markdown and fields with the editor codec, such as the `previous` document of a reset. */
@@ -224,6 +225,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
       params: { workspace: "events" },
     })
     nextWorkspaceProvider.awareness.setLocalState(null)
+    keepRealtimeSocketAlive(nextWorkspaceProvider)
     nextWorkspaceProvider.messageHandlers[messageWorkspaceChange] = (_encoder, decoder) => {
       const change = decodeWorkspaceChangePayload(decoder as decoding.Decoder)
       if (change) workspaceChange.value = change
@@ -238,6 +240,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     const nextDocument = markRaw(new Y.Doc())
     const room = id.split("/").map(encodeURIComponent).join("/")
     const nextProvider = new WebsocketProvider(serverURL(), room, nextDocument, { disableBc: true, params: {} })
+    keepRealtimeSocketAlive(nextProvider)
     nextProvider.messageHandlers[messageRealtimeControl] = (_encoder, decoder) => {
       if (provider.value !== nextProvider) return
       // SAFETY: y-websocket passes the lib0 decoder positioned after the message type.

@@ -251,7 +251,7 @@ interface PendingUpdate {
   resolve: (record: AgentInvocationRecord | undefined) => void
 }
 
-export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationStoreOptions = {}): AgentInvocationStore {
+export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationStoreOptions = {}): Required<AgentInvocationStore> {
   if (!options.client && !options.url) {
     throw agentDiagnostics.AGENT_R0633({ message: "[vitehub] SQLite Agent Invocations require url or client." })
   }

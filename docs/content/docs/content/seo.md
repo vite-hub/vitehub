@@ -34,9 +34,25 @@ export const content = defineContent({
 })
 ```
 
-Every read of a routable collection carries `url`: `get()`, `list()`, `save()`, and the Console. Pattern values are encoded per path segment, so the id `2026/hello` becomes `/blog/2026/hello`. A pattern whose field has no value, or a function that returns `null`, gives `url: null`: that document has no page. Collections without `url` leave the key out, and `collection.routable` is `false`.
+Every read of a routable collection carries `url`: `get()`, `list()`, `save()`, and the Console. Pattern values are encoded per path segment, so the id `2026/hello` becomes `/blog/2026/hello`. A pattern whose field has no value, or a function that returns `null`, gives `url: null`: that document has no page. Collections without `url` leave the key out, and `collection.routable` is `false`. [`content.resolve(path)`](/docs/content/configure#find-the-document-of-a-page) uses the same `url` to find the document of a page.
 
 A pattern must start with `/` and may only name `:id` and defined fields; anything else throws `CONTENT_R0006` when the definition loads.
+
+### Source URLs
+
+A read-only Source has no `url` until you give it one with `contentSource(input, { url })`. The id of a Source document is its path without the leading slash, so `content/guides/start.md` read by `glob({ cwd: 'content' })` has the id `guides/start`. A `:<name>` in the pattern reads a frontmatter value.
+
+```ts [server/content.ts]
+import { contentSource, defineContent } from 'vite-hub/content'
+import { glob } from 'vite-hub/source/glob'
+
+export const content = defineContent({
+  source: contentSource(glob({ cwd: 'content', include: 'guides/*.md' }), { url: '/:id' }),
+  seo: { sitemap: true },
+})
+```
+
+A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt). Reads of a Source do not carry `document.url`. `content.resolve()`, Markdown copies, and `seo()` fields work only with collections.
 
 ## SEO fields
 
@@ -120,7 +136,7 @@ export const content = defineContent({
 | `sitemap` | `true` serves `/sitemap.xml`. |
 | `robots` | `true` serves `/robots.txt` that allows every crawler, or `{ disallow }` to keep paths out. It names `/sitemap.xml` when the sitemap is on. |
 
-The sitemap lists every published document of a routable collection that has a URL. It leaves out documents with `seo.noindex`, and documents whose `seo.canonical` points to another URL. `lastmod` is the document's `updatedAt` on `published`. Drafts never reach it. One sitemap holds 50,000 URLs; beyond that `content.sitemap()` throws `CONTENT_R0009` instead of returning an incomplete sitemap.
+The sitemap lists every published document of a routable collection that has a URL. It leaves out documents with `seo.noindex`, and documents whose `seo.canonical` points to another URL. `lastmod` is the document's `updatedAt` on `published`. Drafts never reach it. Then it lists every document of a Source with a [`url`](#source-urls), without `lastmod`. A read-only Source without `url` is not in the sitemap. One sitemap holds 50,000 URLs; beyond that `content.sitemap()` throws `CONTENT_R0009` instead of returning an incomplete sitemap.
 
 ViteHub generates both routes the same way it generates `/api/content/**`: the `vitehub()` Vite plugin and the Nuxt module read the `defineContent()` call in `server/content.ts` without running it. The routes are generated when the call sets `seo` with `sitemap` or `robots` that is not literally `false`. They run on Nitro 3, on Nuxt 4 with Nitro 2, and on every preset. A server route of your own at `/sitemap.xml` or `/robots.txt` conflicts with them and fails the build; a file in `public/` is served first.
 

@@ -21,6 +21,8 @@ const agentStatus = vi.hoisted(() => ({
 }));
 
 vi.mock("@vite-hub/agent", () => ({
+  claudeCodeDriver: (options: object) => ({ ...options, kind: "claude-code" }),
+  codexDriver: (options: object) => ({ ...options, kind: "codex" }),
   defineAgent: (definition: unknown) => {
     agentStatus.definitions.push(definition);
     return definition;

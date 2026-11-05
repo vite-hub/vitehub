@@ -35,6 +35,8 @@ const recorded = computed(() => [
   { label: "ETag", mono: Boolean(props.object?.httpEtag), value: props.object?.httpEtag ?? "Not recorded" },
   { label: "Provider URL", value: props.object?.urlAvailable ? "Available" : "Not available" },
 ]);
+// The full pathname wraps after a slash, so a folder or file name stays on one line.
+const pathSegments = computed(() => props.file.pathname.split(/(?<=\/)/));
 const sorted = (entries: Record<string, string> | undefined) =>
   Object.entries(entries ?? {}).sort(([left], [right]) => left.localeCompare(right)).map(([label, value]) => ({ label, mono: true, value }));
 const httpMetadata = computed(() => sorted(props.object?.httpMetadata));
@@ -74,8 +76,10 @@ async function copy(value: string): Promise<void> {
         </div>
         <div class="grid gap-1">
           <span class="text-xs text-dimmed">Pathname</span>
-          <div class="flex min-w-0 items-center gap-1 rounded-md bg-elevated/60 py-1 ps-2 pe-1">
-            <code class="min-w-0 flex-1 truncate text-xs" :title="file.pathname">{{ file.pathname }}</code>
+          <div class="flex min-w-0 items-start gap-1 rounded-md bg-elevated/60 py-1 ps-2 pe-1">
+            <code class="min-w-0 flex-1 py-0.5 text-xs leading-5">
+              <span v-for="(segment, index) in pathSegments" :key="index" class="inline-block max-w-full [overflow-wrap:anywhere]">{{ segment }}</span>
+            </code>
             <UButton variant="ghost" size="xs" icon="i-lucide-copy" aria-label="Copy pathname" @click="copy(file.pathname)" />
           </div>
         </div>

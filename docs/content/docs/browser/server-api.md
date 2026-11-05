@@ -14,13 +14,14 @@ Browser Definitions are the default path. Use Browser actions for one stateless 
 | --- | --- |
 | `defineBrowser`, `runBrowser` from `vite-hub/browser` | Declare and run Browser Definitions. |
 | `runBrowserAction`, `runBrowserContent` from `vite-hub/browser/actions` | Run one stateless Browser Run action. |
+| `isBrowserAvailable` from `vite-hub/browser` or `vite-hub/browser/actions` | Check whether this build enables Browser. See [Builds without Browser](/docs/browser/hosts#builds-without-browser). |
 | `createBrowser` from `vite-hub/browser` | Create a low-level Browser Client. |
 | `cloudflareBrowser` from `vite-hub/browser/providers/cloudflare` | Low-level Cloudflare Browser Run provider. |
 | `localBrowser` from `vite-hub/browser/providers/local` | Low-level local Chromium provider for trusted Node hosts. |
 | `playwright`, `cdp` from `vite-hub/browser/controllers/playwright` and `vite-hub/browser/controllers/cdp` | Attach Playwright or CDP control to a low-level session. |
 | `hubBrowser` from `@vite-hub/browser/vite` | Register the Vite Integration without the `vite-hub` distribution. |
 
-Libraries and custom Vite compositions import the same APIs from `@vite-hub/browser` and its subpaths. The package requires Node.js 24.15 or newer.
+Libraries and custom Vite compositions import the same APIs from `@vite-hub/browser` and its subpaths. The package requires Node.js 22.18 or newer.
 
 ## Definition API
 

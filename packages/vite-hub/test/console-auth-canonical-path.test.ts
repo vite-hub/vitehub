@@ -1,7 +1,7 @@
 import { H3Event, normalizeRoute } from "h3"
 import { createApp, createRouter, eventHandler, toWebHandler } from "h3-v1"
 import { describe, expect, it, vi } from "vitest"
-import { createConsoleAppAuthAccess } from "../src/console/auth.ts"
+import { createConsoleAppAuthAccess } from "../src/console/auth-pages.ts"
 import { consoleEventPath } from "../src/console/auth-path.ts"
 import { handleCloudflareAccessConsoleRequest } from "../src/console/auth-cloudflare-access.ts"
 

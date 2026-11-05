@@ -32,12 +32,13 @@ import type {
 } from "./types.ts"
 
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
-import { resolveDatabaseContributionTargets } from "./contributions.ts"
+import { implicitDefaultDatabaseContributions, resolveDatabaseContributionTargets, resolveImplicitDefaultDialect } from "./contributions.ts"
 
 import type { CollectedDatabaseContributions, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
 import type { Expression, ObjectExpression, ScannedModule, StaticProperty } from "@vite-hub/internal/build/scan-module"
 
 export { resolveConfigValue } from "./config-value.ts"
+export { parseDatabaseLocation, type DatabaseLocation } from "./database-location.ts"
 export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
 
 /** Serialize generated registries without invoking the legacy __proto__ setter. */
@@ -704,10 +705,11 @@ const implicitDefaultSource = "implicit-default"
 
 /**
  * The empty default Database of an app that enables `database` without a Database Definition, for example for the
- * tables of Connections. It is `defineDatabase({ schema: {} })` from a module that this package ships.
+ * tables of Comments or the data of Connections. It is `defineDatabase({ schema: {} })` from a module that this
+ * package ships, with the dialect that the contributions for it need.
  */
-function implicitDefaultDatabase(): DiscoveredDatabaseDefinition {
-  const handler = resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/default-database")
+function implicitDefaultDatabase(dialect: DatabaseDialect): DiscoveredDatabaseDefinition {
+  const handler = resolveRuntimeModule(computePackageDir(import.meta.url), dialect === "postgresql" ? "runtime/default-database-postgresql" : "runtime/default-database")
   return { handler, mode: "default", name: "default", schemaSources: [{ handler, tableNames: [] }], source: implicitDefaultSource, tableNames: [] }
 }
 
@@ -717,11 +719,15 @@ export function isImplicitDefaultDatabase(definition: Pick<DiscoveredDatabaseDef
 }
 
 export interface DatabaseDiscoveryOptions {
-  /** Database Definitions that Vite plugins contribute. See `collectDatabaseContributions()`. */
-  definitions?: readonly CollectedDatabaseDefinitionContribution[]
   /**
-   * Without a Database Definition, return the implicit default Database. The Vite plugin sets it: an enabled
-   * database always has a default Database.
+   * What Vite plugins contribute. See `collectDatabaseContributions()`. Contributed Definitions are discovered. Without
+   * a Database Definition, tables and uses for the default Database get the implicit default Database, with their
+   * dialect.
+   */
+  contributions?: Partial<CollectedDatabaseContributions>
+  /**
+   * Without a Database Definition, return the implicit default Database also when no contribution needs it. The Vite
+   * plugin sets it, because an enabled database always has a default Database.
    */
   implicitDefault?: boolean
   serverDirs?: string[]
@@ -753,7 +759,10 @@ function createContributedDatabaseDefinition(
 
 export function discoverDatabaseDefinitions(rootDir: string, options: DatabaseDiscoveryOptions = {}): DiscoveredDatabaseDefinition[] {
   const definitions = discoverAppDatabaseDefinitions(rootDir, options)
-  return definitions.length || !options.implicitDefault ? definitions : [implicitDefaultDatabase()]
+  if (definitions.length) return definitions
+  // The Database primitive adds the default Database once, for every contribution that needs it.
+  const implicit = options.implicitDefault || implicitDefaultDatabaseContributions(options.contributions).length > 0
+  return implicit ? [implicitDefaultDatabase(resolveImplicitDefaultDialect(options.contributions))] : []
 }
 
 function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscoveryOptions): DiscoveredDatabaseDefinition[] {
@@ -762,7 +771,7 @@ function discoverAppDatabaseDefinitions(rootDir: string, options: DatabaseDiscov
     ...serverDirs.flatMap((serverDir, layer) => discoverServerDatabases(serverDir).map(definition => ({ definition, layer }))),
     ...discoverViteDatabases(rootDir).map(definition => ({ definition, layer: 0 })),
   ].filter((entry, index, all) => all.findIndex(item => item.definition.handler === entry.definition.handler) === index)
-  for (const contribution of options.definitions ?? []) {
+  for (const contribution of options.contributions?.definitions ?? []) {
     const existing = found.find(entry => entry.definition.name === contribution.name)?.definition
     found.push({ definition: createContributedDatabaseDefinition(contribution, rootDir, serverDirs, existing), layer: 0 })
   }
@@ -876,13 +885,13 @@ export function resolveDBViteConfig(
   if (options === false) return
 
   const definitions = discoverDatabaseDefinitions(rootDir, {
-    definitions: context.contributions?.definitions,
+    contributions: context.contributions,
     implicitDefault: context.implicitDefault,
     serverDirs: context.serverDirs,
   })
   if (!definitions.length) {
-    // Contributed tables need a Database, so this fails when a plugin contributes tables.
-    resolveDatabaseContributionTargets([], context.contributions?.tables ?? [])
+    // Contributed tables and uses need a Database, so this fails when a plugin contributes one.
+    resolveDatabaseContributionTargets([], [...context.contributions?.tables ?? [], ...context.contributions?.uses ?? []])
     return
   }
 
@@ -948,11 +957,10 @@ export function resolveDBViteConfig(
     }
   }
 
-  const tableContributionsByDatabase = resolveDatabaseContributionTargets(
-    definitions.map(definition => definition.name),
-    context.contributions?.tables ?? [],
-    Object.fromEntries(definitions.map(definition => [definition.name, databases[definition.name]!.dialect])),
-  )
+  const dialects = Object.fromEntries(definitions.map(definition => [definition.name, databases[definition.name]!.dialect]))
+  const tableContributionsByDatabase = resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions?.tables ?? [], dialects)
+  // Uses add no tables, but their target must exist and have their dialect, as for tables.
+  resolveDatabaseContributionTargets(definitions.map(definition => definition.name), context.contributions?.uses ?? [], dialects)
   const definitionDefaults: ResolvedDBViteConfig["definitionDefaults"] = { cloudflareProjections }
   if (options && options.driver === "d1") definitionDefaults.cloudflare = cloudflareOptions(options) ?? {}
   if (options && options.connection) definitionDefaults.connection = options.connection

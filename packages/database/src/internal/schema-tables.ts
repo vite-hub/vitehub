@@ -163,6 +163,11 @@ export async function loadContributedDatabaseSchema(
   parent: string,
   options: DatabaseTableNameOptions = {},
 ): Promise<LoadedDatabaseSchema> {
+  // A contribution that lists its tables is described without loading its module or drizzle-orm.
+  if (contribution.tables) {
+    const keys = Object.keys(contribution.tables)
+    return { keys, loaded: true, sqlNames: new Map(Object.entries(contribution.tables)), tableNames: keys }
+  }
   const source = describeDatabaseContribution(contribution)
   let module: Record<string, unknown>
   try {

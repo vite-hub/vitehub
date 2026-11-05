@@ -23,6 +23,10 @@ Management routes return `{ error: { code, message, fix, docs } }`. The connect 
 
 See the `why` and `fix` fields in the error response.
 
+### CONNECTIONS_AUTHORIZATION_EXPIRED
+
+The callback carried a `state` that the server does not know. Each authorization link works one time, for 10 minutes, so the sign-in took longer, the link was used before, or the server lost the pending authorization. `vitehub connections connect` waits for the same 10 minutes and prints when the link expires. Run `vitehub connections connect <name>` again, or connect again from the Console, and finish the sign-in before that time.
+
 ### CONNECTIONS_AUTHORIZATION_CANCELLED
 
 See the `why` and `fix` fields in the error response.

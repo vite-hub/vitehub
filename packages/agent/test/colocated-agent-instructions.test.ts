@@ -6,7 +6,7 @@ import { resolvePublicUrl } from "@vite-hub/runtime"
 import { MockLanguageModelV3 } from "ai/test"
 import { describe, expect, it, vi } from "vitest"
 
-import { agentWithColocatedInstructions, defineAgent, runAgent } from "../src/index.ts"
+import { agentWithColocatedInstructions, codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { markDiscoveredAgentName, readDiscoveredAgentName } from "../src/internal/discovered-agent-name.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 import { createViteWorkspaceAgentLoader, loadViteAgent } from "../src/vite/runtime-adapter.ts"
@@ -75,7 +75,7 @@ describe("colocated Agent instructions", () => {
   })
 
   it("adds instructions to provider Agents without a Workspace", () => {
-    const agent = defineAgent({ driver: { execution: { attachments: { maxBytes: 1024 } }, kind: "codex" }, runtime: false })
+    const agent = defineAgent({ driver: codexDriver({ execution: { attachments: { maxBytes: 1024 } } }), runtime: false })
     const resolved = agentWithColocatedInstructions(agent, "Review the local invocation.")
 
     expect(resolved).not.toBe(agent)
@@ -149,13 +149,13 @@ describe("colocated Agent instructions", () => {
   })
 
   it("adds instructions to provider Agents with a Workspace", () => {
-    const agent = defineAgent({ driver: "codex", runtime: false, workspace: {} })
+    const agent = defineAgent({ driver: codexDriver(), runtime: false, workspace: {} })
     const resolved = agentWithColocatedInstructions(agent, "Workspace instructions.")
 
     expect(resolved).not.toBe(agent)
     expect(settings(resolved)?.driver?.instructions).toBe("Workspace instructions.")
     const explicit = defineAgent({
-      driver: { instructions: "Use explicit instructions.", kind: "codex" },
+      driver: codexDriver({ instructions: "Use explicit instructions." }),
       runtime: false,
       workspace: {},
     })
@@ -280,7 +280,7 @@ describe("colocated Agent instructions", () => {
           ...(sourceConfiguration !== "discovered" ? { sourceRootDir: join(root, "support") } : {}),
           ...(sourceConfiguration === "override" ? { sources: { __vitehubAgentInstructions: explicitInstructions } } : {}),
         },
-        driver: "codex",
+        driver: codexDriver(),
       })
       const server = { config: { plugins: [] }, ssrLoadModule: async () => ({ default: agent }) } as unknown as ViteDevServer
 

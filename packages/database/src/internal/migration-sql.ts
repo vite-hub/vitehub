@@ -1,7 +1,11 @@
+import type { DatabaseDialect } from "../types.ts"
+
 /** A statement in a pending migration that removes data. */
 export interface DataLossStatement {
   reason: string
   statement: string
+  /** The tables that lose data. Empty or missing when the loss is wider than tables, like `DROP SCHEMA`. */
+  tables?: string[]
 }
 
 /** Columns of each table before a migration, from the previous Drizzle snapshot. `undefined` when the snapshot is missing. */
@@ -9,6 +13,7 @@ export type TableColumns = ReadonlyMap<string, readonly string[]>
 
 const identifier = String.raw`(?:"(?:[^"]|"")+"|\x60(?:[^\x60]|\x60\x60)+\x60|\[[^\]]+\]|[\w$]+)`
 const qualifiedName = String.raw`(?:${identifier}\s*\.\s*)?${identifier}`
+const schemaQualifiedTable = new RegExp(String.raw`^${identifier}\.${identifier}$`)
 
 /** Splits SQL into statements at semicolons outside of quotes and comments. Comments are removed. */
 export function splitSqlStatements(sql: string): string[] {
@@ -65,6 +70,15 @@ export function splitSqlStatements(sql: string): string[] {
   return statements
 }
 
+/** Names a table the same way in every statement: unquoted parts in lower case, quoted parts as written. */
+function tableKey(name: string): string {
+  return [...name.matchAll(new RegExp(identifier, "g"))].map(([part]) => {
+    const value = /^["`[]/.test(part) ? unquote(part) : part.toLowerCase()
+    // Keep separators inside quoted names distinct from schema separators.
+    return /^[\w$]+$/.test(value) ? value : `"${value.replaceAll('"', '""')}"`
+  }).join(".")
+}
+
 /** Removes the quotes and the schema of a table or column name. */
 function unquote(name: string): string {
   const last = name.match(new RegExp(`${identifier}$`))?.[0] ?? name
@@ -80,7 +94,8 @@ function listNames(list: string): string[] {
 const dropTable = new RegExp(String.raw`^DROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(${qualifiedName}(?:\s*,\s*${qualifiedName})*)`, "i")
 // Postgres allows `ALTER TABLE t DROP c` without COLUMN. Other DROP forms of ALTER TABLE keep the rows.
 const alterDrop = new RegExp(String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(${qualifiedName})\s+DROP\s+(?!CONSTRAINT\b|DEFAULT\b|NOT\s+NULL\b|EXPRESSION\b|IDENTITY\b)(?:COLUMN\s+)?(?:IF\s+EXISTS\s+)?(${identifier})`, "i")
-const truncate = new RegExp(String.raw`^TRUNCATE\s+(?:TABLE\s+)?(?:ONLY\s+)?(${qualifiedName})`, "i")
+const truncateTarget = String.raw`(?:ONLY\s+)?(${qualifiedName})(?:\s*\*)?`
+const truncate = new RegExp(String.raw`^TRUNCATE\s+(?:TABLE\s+)?(${truncateTarget}(?:\s*,\s*${truncateTarget})*)`, "i")
 const deleteFrom = new RegExp(String.raw`^DELETE\s+FROM\s+(${qualifiedName})`, "i")
 const dropSchema = new RegExp(String.raw`^DROP\s+SCHEMA\s+(?:IF\s+EXISTS\s+)?(${identifier})`, "i")
 const renameTable = new RegExp(String.raw`^ALTER\s+TABLE\s+(${qualifiedName})\s+RENAME\s+TO\s+(${qualifiedName})`, "i")
@@ -128,30 +143,45 @@ export function findDataLoss(statements: readonly string[], before?: TableColumn
   const rebuilds = findRebuilds(split)
   const found: DataLossStatement[] = []
   for (const statement of split) {
-    const reason = classifyStatement(statement, rebuilds, before)
-    if (reason) found.push({ reason, statement })
+    const loss = classifyStatement(statement, rebuilds, before)
+    if (loss) found.push({ ...loss, statement })
   }
   return found
 }
 
-function classifyStatement(statement: string, rebuilds: ReadonlyMap<string, Rebuild>, before: TableColumns | undefined): string | undefined {
+function classifyStatement(statement: string, rebuilds: ReadonlyMap<string, Rebuild>, before: TableColumns | undefined): Omit<DataLossStatement, "statement"> | undefined {
   let match = statement.match(dropTable)
   if (match) {
-    const reasons = listQualifiedNames(match[1]!).map((table) => {
+    const losses = [...match[1]!.matchAll(new RegExp(qualifiedName, "g"))].flatMap(([name]) => {
+      const table = unquote(name)
       const rebuild = rebuilds.get(table.toLowerCase())
-      return rebuild ? describeRebuild(table, rebuild, before) : `drops table "${table}"`
-    }).filter(Boolean)
-    return reasons.length ? reasons.join("; ") : undefined
+      const reason = rebuild ? describeRebuild(table, rebuild, before) : `drops table "${table}"`
+      return reason ? [{ reason, table: tableKey(name) }] : []
+    })
+    return losses.length ? { reason: losses.map(loss => loss.reason).join("; "), tables: losses.map(loss => loss.table) } : undefined
   }
-  if ((match = statement.match(alterDrop))) return `drops column "${unquote(match[2]!)}" from "${unquote(match[1]!)}"`
-  if ((match = statement.match(truncate))) return `deletes every row of "${unquote(match[1]!)}"`
-  if ((match = statement.match(deleteFrom)) && !hasKeywordOutsideQuotes(statement, "WHERE")) return `deletes every row of "${unquote(match[1]!)}"`
-  if ((match = statement.match(dropSchema))) return `drops schema "${unquote(match[1]!)}"`
+  if ((match = statement.match(alterDrop))) return { reason: `drops column "${unquote(match[2]!)}" from "${unquote(match[1]!)}"`, tables: [tableKey(match[1]!)] }
+  if ((match = statement.match(truncate))) {
+    const targets = [...match[1]!.matchAll(new RegExp(truncateTarget, "gi"))]
+    const names = targets.map(target => target[1]!)
+    // CASCADE adds referencing tables; without ONLY PostgreSQL also truncates descendants.
+    const explicitOnly = targets.every(target => /^ONLY\b/i.test(target[0]))
+      && !hasKeywordOutsideQuotes(statement.slice(match[0].length), "CASCADE")
+    return { reason: names.map(name => `deletes every row of "${unquote(name)}"`).join("; "), tables: explicitOnly ? names.map(tableKey) : [] }
+  }
+  if ((match = statement.match(deleteFrom)) && !hasKeywordOutsideQuotes(statement, "WHERE")) return { reason: `deletes every row of "${unquote(match[1]!)}"`, tables: [tableKey(match[1]!)] }
+  if ((match = statement.match(dropSchema))) return { reason: `drops schema "${unquote(match[1]!)}"`, tables: [] }
   return undefined
 }
 
 /** Finds a SQL keyword while ignoring quoted identifiers and string literals. */
 function hasKeywordOutsideQuotes(sql: string, keyword: string): boolean {
+  return keywordIndexes(sql, keyword).length > 0
+}
+
+/** Lists where a SQL keyword starts, ignoring quoted identifiers and string literals. */
+function keywordIndexes(sql: string, keyword: string): number[] {
+  const found: number[] = []
   let quote: "'" | '"' | "`" | "]" | undefined
   for (let index = 0; index < sql.length; index++) {
     const char = sql[index]!
@@ -173,11 +203,157 @@ function hasKeywordOutsideQuotes(sql: string, keyword: string): boolean {
     }
     if (sql.slice(index, index + keyword.length).toUpperCase() === keyword
       && (index === 0 || !/[\w$]/.test(sql[index - 1]!))
-      && (index + keyword.length === sql.length || !/[\w$]/.test(sql[index + keyword.length]!))) return true
+      && (index + keyword.length === sql.length || !/[\w$]/.test(sql[index + keyword.length]!))) found.push(index)
   }
-  return false
+  return found
 }
 
-function listQualifiedNames(list: string): string[] {
-  return [...list.matchAll(new RegExp(qualifiedName, "g"))].map(match => unquote(match[0]))
+/** A migration with the statements it runs and the data loss that `findDataLoss()` found in them. */
+export interface DataLossMigration {
+  dataLoss: DataLossStatement[]
+  statements: readonly string[]
+}
+
+const createTable = new RegExp(String.raw`^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TABLE\s+(IF\s+NOT\s+EXISTS\s+)?(${qualifiedName})`, "i")
+const renameTo = new RegExp(String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(${qualifiedName})\s+RENAME\s+TO\s+(${qualifiedName})`, "i")
+const setSchema = new RegExp(String.raw`^ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?${qualifiedName}\s+SET\s+SCHEMA\b`, "i")
+const writeInto = new RegExp(String.raw`^(?:(?:INSERT|REPLACE)(?:\s+OR\s+\w+)?\s+INTO|UPDATE(?:\s+OR\s+\w+)?(?:\s+ONLY)?)\s+(${qualifiedName})`, "i")
+// Statements that cannot put rows of one table into another.
+const keepsRows = /^(?:ALTER\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX|DROP\s+(?:INDEX|VIEW|TRIGGER|TYPE|SEQUENCE|SCHEMA)|CREATE\s+(?:TYPE|SCHEMA|SEQUENCE|EXTENSION)|DELETE|TRUNCATE|PRAGMA|COMMENT\s+ON|SELECT)\b/i
+const sourceTable = new RegExp(String.raw`^\s+(?:ONLY\s+)?(${qualifiedName})(?:\s+(?:AS\s+)?${identifier})?(\s*,)?`, "i")
+
+/**
+ * Lists the tables read after `FROM`, `JOIN`, or a PostgreSQL `TABLE` query, or `undefined` when it cannot tell,
+ * for example with a comma join. A `CREATE TABLE` prefix must be removed before calling this.
+ */
+function readTables(statement: string): string[] | undefined {
+  const tables: string[] = []
+  for (const keyword of ["FROM", "JOIN", "TABLE"]) {
+    for (const index of keywordIndexes(statement, keyword)) {
+      const match = statement.slice(index + keyword.length).match(sourceTable)
+      // A subquery in parentheses names its own tables after its own FROM.
+      if (!match) {
+        if (/^\s*\(/.test(statement.slice(index + keyword.length))) continue
+        return
+      }
+      if (match[2]) return
+      tables.push(tableKey(match[1]!))
+    }
+  }
+  return tables
+}
+
+interface NewTables {
+  dialect: DatabaseDialect
+  /** Tables that hold only rows written by this run, or that this run dropped. */
+  noOlderRows: Set<string>
+  /** Tables that a trigger writes into. A later write to another table can copy older rows into them. */
+  fedByTrigger: Set<string>
+  /** True between `CREATE TRIGGER` and its `END`, which the statement split cuts into parts. */
+  inTrigger: boolean
+  /** Temporary SQLite tables make unqualified names switch schemas after a drop or rename. */
+  temporaryTableSeen: boolean
+}
+
+const createTrigger = /^CREATE\s+(?:TEMP(?:ORARY)?\s+)?TRIGGER\b/i
+
+function feedByTrigger(statement: string, tables: NewTables) {
+  const match = statement.match(writeInto)
+  if (!match) return
+  tables.fedByTrigger.add(tableKey(match[1]!))
+  tables.noOlderRows.delete(tableKey(match[1]!))
+}
+
+/** Updates the tables that hold no rows from before this run of migrations, after a statement runs. */
+function trackNewTables(statement: string, tables: NewTables) {
+  const { noOlderRows } = tables
+  if (tables.temporaryTableSeen) return
+  if (tables.inTrigger) {
+    if (/^END\b/i.test(statement)) tables.inTrigger = false
+    else feedByTrigger(statement, tables)
+    return
+  }
+  if (createTrigger.test(statement)) {
+    const begin = keywordIndexes(statement, "BEGIN")[0]
+    if (begin === undefined) {
+      noOlderRows.clear()
+      return
+    }
+    feedByTrigger(statement.slice(begin + "BEGIN".length).trim(), tables)
+    tables.inTrigger = true
+    return
+  }
+  const readsOnlyNewRows = (query = statement) => readTables(query)?.every(table => noOlderRows.has(table)) ?? false
+  const add = (table: string) => {
+    // An unqualified PostgreSQL name can resolve to a different table after a drop or rename.
+    if (tables.dialect === "postgresql" && !schemaQualifiedTable.test(table)) return
+    if (!tables.fedByTrigger.has(table)) noOlderRows.add(table)
+  }
+  const forget = (table: string) => {
+    // An unqualified target may refer to any tracked schema's table.
+    if (tables.dialect === "postgresql" && !schemaQualifiedTable.test(table)) noOlderRows.clear()
+    else noOlderRows.delete(table)
+  }
+  let match = statement.match(createTable)
+  if (match) {
+    if (tables.dialect === "sqlite"
+      && (/^CREATE\s+TEMP(?:ORARY)?\s+TABLE\b/i.test(statement) || tableKey(match[2]!).toLowerCase().startsWith("temp."))) {
+      // Without resolving SQLite schemas, later names could refer to older permanent tables.
+      noOlderRows.clear()
+      tables.temporaryTableSeen = true
+      return
+    }
+    // With IF NOT EXISTS, an older table keeps its rows. A table that this run dropped is new again.
+    if (!match[1]) {
+      const table = tableKey(match[2]!)
+      if (readsOnlyNewRows(statement.slice(match[0].length))) add(table)
+      else forget(table)
+    }
+    return
+  }
+  if ((match = statement.match(renameTo))) {
+    const from = tableKey(match[1]!)
+    const target = tableKey(match[2]!)
+    const schema = from.match(new RegExp(String.raw`^(${identifier})\.`))?.[1]
+    const to = schema && !schemaQualifiedTable.test(target) ? `${schema}.${target}` : target
+    if (noOlderRows.has(from)) add(to)
+    else forget(to)
+    add(from)
+    return
+  }
+  if ((match = statement.match(dropTable))) {
+    for (const [name] of match[1]!.matchAll(new RegExp(qualifiedName, "g"))) add(tableKey(name))
+    return
+  }
+  if ((match = statement.match(writeInto))) {
+    if (!readsOnlyNewRows()) forget(tableKey(match[1]!))
+    return
+  }
+  // Schema moves can replace a tracked identity; partitions and inheritance can expose older descendants.
+  if (setSchema.test(statement) || (/^ALTER\s+TABLE\b/i.test(statement)
+    && (hasKeywordOutsideQuotes(statement, "ATTACH") || hasKeywordOutsideQuotes(statement, "INHERIT")))) noOlderRows.clear()
+  // A `WITH` query, a function, or another statement that ViteHub does not read could copy older rows anywhere.
+  if (!keepsRows.test(statement)) noOlderRows.clear()
+}
+
+/**
+ * Removes the data loss on tables that an earlier statement of the same run created or dropped, because those tables
+ * hold no rows from before the run. `migrations` are the pending migrations in the order they run. A table that gets
+ * rows copied from an older table, like a SQLite rebuild of an existing table, keeps its data loss. PostgreSQL names
+ * must be schema-qualified because the search path can resolve the same unqualified name to different tables.
+ */
+export function withoutNewTableDataLoss<T extends DataLossMigration>(migrations: readonly T[], dialect: DatabaseDialect = "sqlite"): T[] {
+  const tables: NewTables = { dialect, fedByTrigger: new Set(), inTrigger: false, noOlderRows: new Set(), temporaryTableSeen: false }
+  return migrations.map((migration) => {
+    const losses = [...migration.dataLoss]
+    const dataLoss: DataLossStatement[] = []
+    for (const statement of migration.statements.flatMap(splitSqlStatements)) {
+      if (losses[0]?.statement === statement) {
+        const loss = losses.shift()!
+        if (!loss.tables?.length || !loss.tables.every(table => tables.noOlderRows.has(table))) dataLoss.push(loss)
+      }
+      trackNewTables(statement, tables)
+    }
+    return { ...migration, dataLoss: [...dataLoss, ...losses] }
+  })
 }

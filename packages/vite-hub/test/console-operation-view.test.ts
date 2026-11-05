@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { parseConsoleContributedSection, parseConsoleSectionContent } from "../src/console/runtime/definitions.ts"
 import { loadOperationItems, operationCell, operationItems, operationLink, operationValue } from "../src/console/runtime/client/operation-view.ts"
+import { consoleCommentsTransport, consoleCommentSubjectLabel, isConsoleCommentThread, readConsoleCommentSession } from "../src/console/runtime/client/comment-thread.ts"
 import { ConsoleRequestError, requestConsoleOperation } from "../src/console/runtime/client/request.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 import { describeViteHubConsoleSection, readViteHubConsoleSection } from "@vite-hub/internal/console"
@@ -15,6 +16,7 @@ const section: ViteHubConsoleOperationSection = {
   label: "Fixtures",
   view: {
     columns: [{ key: "name|id", label: "Name" }, { format: "datetime", key: "at", label: "At" }, { format: "excerpt", key: "text", label: "Text" }],
+    detail: { kind: "comment-thread" },
     filters: [{ id: "all", input: {}, label: "All" }, { id: "mine", input: { mine: true }, label: "Mine" }],
     kind: "operation-view",
     link: { label: "Open", template: "/items/{id}", when: { equals: "page", path: "kind" } },
@@ -86,6 +88,48 @@ describe("operation view", () => {
     const catalog = installConsoleDefinitions("/operation-view-test", { fixtures: { kind: "operation-view" } }, [described as never])
     expect(catalog.sections[0]!.view).toEqual(section.view)
     expect(catalog.content.fixtures).toEqual({ kind: "operation-view" })
+  })
+
+  it("drops a detail panel that the Console does not know", () => {
+    const described = describeViteHubConsoleSection({ ...section, view: { ...section.view, detail: { kind: "chart" } } as never })
+    expect(parseConsoleContributedSection(described)?.view).not.toHaveProperty("detail")
+  })
+
+  it("runs each comments transport call as its comments operation with the Console user", async () => {
+    const calls: Array<{ input: unknown, operation: string }> = []
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      expect(url).toBe("/portal/_vitehub/rpc/__call")
+      const body = JSON.parse(String(init?.body))
+      calls.push(body)
+      if (body.operation === "comments.session") return Response.json({ ok: true, value: { canRead: true, canWrite: false, capabilities: { reply: false, resolve: true, deleteThread: false, edit: ["m1"], delete: ["m2"] }, user: { id: "u1", name: "Ann" } } })
+      if (body.operation === "comments.reply") return Response.json({ code: "COMMENTS_R0009", message: "You may not write here.", ok: false, status: 403 }, { status: 403 })
+      return Response.json({ ok: true, value: { id: "t1" } })
+    })
+    const transport = consoleCommentsTransport("/portal/api/_vitehub/console/definitions")
+    await transport.resolve({ threadId: "t1" })
+    await transport.users({ query: "an" })
+    await expect(transport.reply({ body: "Hi @Ann", mentions: ["u1"], threadId: "t1" })).rejects.toMatchObject({ code: "COMMENTS_R0009", message: "You may not write here.", status: 403 })
+    expect(calls).toEqual([
+      { input: { threadId: "t1" }, operation: "comments.resolve" },
+      { input: { query: "an" }, operation: "comments.users" },
+      { input: { body: "Hi @Ann", mentions: ["u1"], threadId: "t1" }, operation: "comments.reply" },
+    ])
+    expect(await readConsoleCommentSession("/portal/api/_vitehub/console/definitions", { id: "/pricing", kind: "page" }, undefined, "t1")).toEqual({ canWrite: false, capabilities: { reply: false, resolve: true, deleteThread: false, edit: ["m1"], delete: ["m2"] }, user: { id: "u1", name: "Ann" } })
+    expect(calls.at(-1)).toEqual({ input: { subject: { id: "/pricing", kind: "page" }, threadId: "t1" }, operation: "comments.session" })
+  })
+
+  it("reads a signed-out comments session as read-only", async () => {
+    vi.stubGlobal("fetch", async () => Response.json({ ok: true, value: { canRead: false, canWrite: false, user: null } }))
+    expect(await readConsoleCommentSession("/api/_vitehub/console/definitions", { id: "/", kind: "page" })).toEqual({ canWrite: false, capabilities: { reply: false, resolve: false, deleteThread: false, edit: [], delete: [] }, user: undefined })
+  })
+
+  it("opens only list items that have the fields of a thread", () => {
+    const thread = { author: { id: "u1" }, id: "t1", messages: [], n: 3, subject: { id: "/pricing", kind: "page" } }
+    expect(isConsoleCommentThread(thread)).toBe(true)
+    expect(isConsoleCommentThread({ ...thread, n: "3" })).toBe(false)
+    expect(isConsoleCommentThread({ id: "t1" })).toBe(false)
+    expect(consoleCommentSubjectLabel(thread.subject)).toBe("/pricing")
+    expect(consoleCommentSubjectLabel({ id: "posts/hello", kind: "content" })).toBe("content posts/hello")
   })
 
   it("calls the operation over the RPC and keeps the failure fields", async () => {

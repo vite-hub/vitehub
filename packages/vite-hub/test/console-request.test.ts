@@ -363,6 +363,15 @@ describe("Console requests", () => {
     expect(mocks.call).toHaveBeenCalledTimes(1)
   })
 
+  it("requests the page tools session once per loaded Console, so the app's pages load the allowed tools", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
+    const base = "/page-tools-app/api/_vitehub/console/sections"
+    await loadConsoleNavigation(base)
+    await loadConsoleNavigation(base)
+    const sessions = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/_vitehub/page/session"))
+    expect(sessions).toEqual([["/page-tools-app/_vitehub/page/session", { credentials: "same-origin", headers: { accept: "application/json" } }]])
+  })
+
   it("keeps permitted operations alongside read-only section metadata", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { operations: ["workflow.start", 7, "schedule.run"], readOnly: ["kv"], sections: ["kv"] } })
 
@@ -408,18 +417,18 @@ describe("Console requests", () => {
     ).resolves.toEqual({ auth: false, contributions: { queues }, operations: [], readOnly: [], scoped: false, sections: ["kv", "queues"] })
   })
 
-  it.each(["", "/admin"])("visits allowed sections under the app mount %s", async (mount) => {
-    const comments = { id: "comments", label: "Comments", description: "Page comments", icon: "i-lucide-message-circle", view: { kind: "definition-catalog", notice: "Page comments" }, visit: `${mount}/api/_vitehub/comments/session` }
-    const hidden = { ...comments, id: "hidden", visit: "/api/hidden/session" }
+  it.each(["", "/admin"])("requests the shared page session under the app mount %s", async (mount) => {
+    const comments = { id: "comments", label: "Comments", description: "Page comments", icon: "i-lucide-message-circle", view: { kind: "definition-catalog", notice: "Page comments" } }
+    const hidden = { ...comments, id: "hidden" }
     const navigation = { ok: true, value: { contributions: [comments, hidden], sections: ["comments"] } }
-    // Navigation uses RPC; the contributed visit is an ordinary GET that sets the app cookie.
+    // Navigation uses RPC; the shared page session is an ordinary GET that sets the app cookie.
     const fetch = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST" ? Response.json(navigation) : new Response())
     vi.stubGlobal("fetch", fetch)
-    const base = `${mount}/api/_vitehub/console/sections?visit-test`
+    const base = `${mount}/api/_vitehub/console/sections?page-session-test`
     await expect(loadConsoleNavigation(base)).resolves.toMatchObject({ sections: ["comments"] })
     await loadConsoleNavigation(base)
     expect(fetch).toHaveBeenCalledTimes(2)
-    expect(fetch).toHaveBeenLastCalledWith(`${mount}/api/_vitehub/comments/session`, { credentials: "same-origin" })
+    expect(fetch).toHaveBeenLastCalledWith(`${mount}/_vitehub/page/session`, { credentials: "same-origin", headers: { accept: "application/json" } })
   })
 
   it("stops waiting for an RPC result when navigation is aborted", async () => {

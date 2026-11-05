@@ -136,7 +136,7 @@ async function expectDenoLauncherToStart(appRoot: string, context: FixtureTestCo
     "--unstable-cron",
     "--allow-env",
     "--allow-read=.output",
-    `--allow-net=0.0.0.0:${port}`,
+    `--allow-net=127.0.0.1:${port}`,
     ".output/main.ts",
   ], {
     cwd: appRoot,
@@ -260,6 +260,8 @@ describe("host documentation fixtures", () => {
 
     try {
       await cp(join(fixturesRoot, host), appRoot, { recursive: true })
+      // These snippets run inside an ESM application, like the documented scaffold.
+      await writeFile(join(appRoot, "package.json"), JSON.stringify({ private: true, type: "module" }))
       await symlink(join(repoRoot, "node_modules"), join(appRoot, "node_modules"), "dir")
       await mkdir(join(appRoot, "src"), { recursive: true })
       await writeFile(join(appRoot, "index.html"), '<main id="app">ViteHub host fixture</main><script type="module" src="/src/main.ts"></script>\n', "utf8")

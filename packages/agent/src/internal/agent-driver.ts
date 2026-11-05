@@ -9,6 +9,8 @@ import { isChatGPTGateway, aiGatewayAsks } from "@vite-hub/gateways/internal"
 import { assertAgentDriverGatewaySupports, normalizeAgentDriverGateway } from "./agent-gateway.ts"
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeString } from "./runtime-value.ts"
 import { normalizeRetention } from "./retention-policy.ts"
+import { providerAgentRuntime } from "./provider-driver-runtime.ts"
+import type { ProviderAgentRuntimeLoader } from "./provider-driver-runtime.ts"
 import type { NormalizedRetention } from "./retention-policy.ts"
 
 import type {
@@ -44,6 +46,8 @@ export type NormalizedAgentDriver<
 > = { capacity?: AgentDriverCapacityOptions } & (
   | {
     execution?: AgentModelExecutionOptions<TRuntimeConfig, CALL_OPTIONS>
+    /** The ChatGPT plan gateway. `model` is then a model ID from the Connection's catalog. */
+    gateway?: ChatGPTGateway
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
     kind: "model"
     model: AgentModelResolver<TRuntimeConfig>
@@ -69,6 +73,8 @@ export type NormalizedAgentDriver<
     requirements?: readonly string[]
     /** Codex home retention. Undefined when the Driver sets no retention. */
     retention?: NormalizedRetention
+    /** Loads the provider Agent runtime. Only `codexDriver()` and `claudeCodeDriver()` provide it. */
+    runtime: ProviderAgentRuntimeLoader
     sessionStorePath?: string
     toolchain?: SandboxToolchain
   }
@@ -169,10 +175,24 @@ export function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacit
   return normalized
 }
 
-const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
+const modelDriverKeys = new Set(["capacity", "execution", "gateway", "instructions", "maxRetries", "model", "output"])
 const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "gateway", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "retention", "sessionStorePath", "toolchain"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
 const askDriverKeys = new Set(["ask", "capacity", "gateway"])
+
+/**
+ * A model-backed Driver takes the ChatGPT plan gateway, with a model ID. Another gateway gives the model itself:
+ * `model: languageModel(gateway, id)`, so an app bundles only the AI SDK provider that it uses.
+ */
+function modelDriverGateway(value: unknown, model: unknown): ChatGPTGateway {
+  if (!isChatGPTGateway(value)) {
+    throw agentDiagnostics.AGENT_R0976({ message: "[vitehub] defineAgent({ driver: { model, gateway } }) accepts only chatgpt() as gateway. For another gateway, set model: languageModel(gateway, id) from vite-hub/gateways/ai-sdk." })
+  }
+  if (!isRuntimeString(model) || !model.trim() || model !== model.trim()) {
+    throw agentDiagnostics.AGENT_R0514({ message: "[vitehub] defineAgent({ driver: { model, gateway: chatgpt() } }) needs model to be a model ID, such as \"gpt-5.5\". List the IDs with vitehub connections models chatgpt." })
+  }
+  return Object.freeze({ ...value })
+}
 
 function isResolver(value: unknown): value is { resolve: (...args: never[]) => unknown } {
   return isPlainObject(value) && isRuntimeFunction(value.resolve)
@@ -251,7 +271,13 @@ function normalizeProviderExecution(value: unknown): { attachments?: AgentAttach
   return { attachments: maxBytes === undefined ? {} : { maxBytes } }
 }
 
+const providerDriverFactories = { "claude-code": "claudeCodeDriver", codex: "codexDriver" } as const
+
 function normalizeProviderDriver(provider: "claude-code" | "codex", value: Record<string, unknown>): NormalizedAgentDriver {
+  const runtime: unknown = Reflect.get(value, providerAgentRuntime)
+  if (!isRuntimeFunction(runtime)) {
+    throw agentDiagnostics.AGENT_R0492({ message: `[vitehub] defineAgent({ driver: { kind: "${provider}" } }) must come from ${providerDriverFactories[provider]}(). Use driver: ${providerDriverFactories[provider]}({ ... }) from vite-hub/agent.` })
+  }
   assertNoUnsupportedOptions(value, providerDriverKeys, `defineAgent({ driver: { kind: "${provider}" } })`)
   if (value.model !== undefined && (!isRuntimeString(value.model) || !value.model.trim())) {
     throw agentDiagnostics.AGENT_R0474({ message: "[vitehub] defineAgent({ driver.model }) must be a non-empty string." })
@@ -377,6 +403,8 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     // SAFETY: requirements is either absent or validated as a list of command names above.
     requirements: value.requirements === undefined ? undefined : [...value.requirements as string[]],
     retention,
+    // SAFETY: Only the provider Driver factories set this symbol, and they set it to the provider runtime loader.
+    runtime: runtime as ProviderAgentRuntimeLoader,
     sessionStorePath: isRuntimeString(value.sessionStorePath) ? value.sessionStorePath.trim() : undefined,
     // SAFETY: validateProviderToolchain checks the declaration shape; @vite-hub/sandbox validates versions at invocation time.
     toolchain: value.toolchain as SandboxToolchain | undefined,
@@ -399,13 +427,11 @@ function validateProviderToolchain(value: unknown) {
 
 function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
   if (isRuntimeString(driver)) {
-    if (driver !== "codex" && driver !== "claude-code") {
-      throw agentDiagnostics.AGENT_R0490({ message: `[vitehub] Unknown Agent Driver "${driver}". Expected "codex", "claude-code", or a custom { model }, { run }, or { ask } driver.` })
-    }
-    return normalizeProviderDriver(driver, {})
+    const hint = driver === "codex" || driver === "claude-code" ? ` Use driver: ${providerDriverFactories[driver]}() from vite-hub/agent.` : ""
+    throw agentDiagnostics.AGENT_R0490({ message: `[vitehub] defineAgent({ driver: "${driver}" }) is not an Agent Driver. Expected codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver.${hint}` })
   }
   if (!isPlainObject(driver)) {
-    throw agentDiagnostics.AGENT_R0491({ message: "[vitehub] defineAgent({ driver }) must be a built-in name, tagged built-in configuration, or custom driver object." })
+    throw agentDiagnostics.AGENT_R0491({ message: "[vitehub] defineAgent({ driver }) must be codexDriver(), claudeCodeDriver(), or a custom driver object." })
   }
   if (hasOwnDefined(driver, "kind")) {
     if (driver.kind !== "codex" && driver.kind !== "claude-code") {
@@ -459,11 +485,13 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
     if (driver.maxRetries !== undefined && execution?.callSettings?.maxRetries !== undefined) {
       throw agentDiagnostics.AGENT_R0495({ message: "[vitehub] defineAgent({ driver }) accepts maxRetries either directly or in execution.callSettings, not both." })
     }
+    const gateway = driver.gateway === undefined ? undefined : modelDriverGateway(driver.gateway, driver.model)
     return {
       capacity,
       execution: driver.maxRetries === undefined
         ? execution
         : { ...execution, callSettings: { ...execution?.callSettings, maxRetries: driver.maxRetries } },
+      ...(gateway ? { gateway } : {}),
       // SAFETY: The typed AgentSettings boundary establishes the model instructions contract.
       instructions: driver.instructions as AgentAdapterInstructions | undefined,
       kind: "model",
@@ -495,5 +523,5 @@ export function normalizeAgentDriver<
   const record = options as Record<string, unknown>
   // SAFETY: normalizeExplicitAgentDriver validates the runtime shape; options carries the matching compile-time driver contract.
   if (hasOwnDefined(record, "driver")) return normalizeExplicitAgentDriver(record.driver) as NormalizedAgentDriver<TRuntimeConfig, CALL_OPTIONS>
-  throw agentDiagnostics.AGENT_R0497({ message: "[vitehub] Agent Driver is required. Expected a built-in driver name, tagged built-in configuration, or custom { model }, { run }, or { ask } driver." })
+  throw agentDiagnostics.AGENT_R0497({ message: "[vitehub] Agent Driver is required. Expected codexDriver(), claudeCodeDriver(), or a custom { model }, { run }, or { ask } driver." })
 }

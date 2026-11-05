@@ -1,0 +1,10 @@
+{
+  // The page tools loader runs in the browser. The DOM types conflict with the Node stream types of the other sources.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  "include": ["src/runtime/page-tools-loader.ts"],
+  "exclude": ["dist", "node_modules"]
+}

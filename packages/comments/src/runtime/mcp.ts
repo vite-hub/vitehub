@@ -5,13 +5,13 @@ import { describeCommentContext } from "../context.ts"
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders, text } from "../identity.ts"
 import { commentsPageScope, normalizeCommentPage } from "../page.ts"
-import { resolveCommentsUser } from "./session.ts"
+import { resolveCommentsIdentity } from "./session.ts"
 
 import type { ViteHubMcpTool, ViteHubMcpToolContext, ViteHubMcpToolResult } from "@vite-hub/internal/runtime/mcp-tools"
 import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
-import type { CommentsAction, CommentsUser, CommentThread } from "../types.ts"
-import type { CommentsSessionOptions } from "./session.ts"
+import type { CommentAction, CommentListCursor, CommentsUser, CommentThread, CommentUser } from "../types.ts"
+import type { CommentsIdentity, CommentsSessionOptions } from "./session.ts"
 
 /** A user supplied by an app's own MCP server. Missing identities remain anonymous. */
 function commentsUser(user: Record<string, unknown> | null): CommentsUser | null {
@@ -28,17 +28,17 @@ function failure(why: string): ViteHubMcpToolResult {
 }
 
 /** The catalog's COMMENTS_FORBIDDEN, as the overlay API answers it. */
-function forbidden(action: CommentsAction): ViteHubMcpToolResult {
+function forbidden(action: CommentAction): ViteHubMcpToolResult {
   const error = commentsErrors.COMMENTS_FORBIDDEN({ action })
   return failure(`${error.why} ${error.fix}`)
 }
 
 /** Issued after `authorize` allows a tool's action on a thread. The reply and resolve writes need it. */
-const toolGrant = defineGrant("vitehub.comments.mcp-action", (input: { action: CommentsAction, threadId: string }) => Object.freeze({ ...input }))
+const toolGrant = defineGrant("vitehub.comments.mcp-action", (input: { action: CommentAction, threadId: string }) => Object.freeze({ ...input }))
 
 type ToolGrant = ReturnType<typeof toolGrant.issue>
 
-function spend(grant: ToolGrant, action: CommentsAction, threadId: string): void {
+function spend(grant: ToolGrant, action: CommentAction, threadId: string): void {
   const allowed = toolGrant.consume(grant)
   if (allowed.action !== action || allowed.threadId !== threadId) throw new TypeError(`[vitehub] A Comments tool wrote ${action} with the grant of ${allowed.action}.`)
 }
@@ -46,24 +46,29 @@ function spend(grant: ToolGrant, action: CommentsAction, threadId: string): void
 /** One thread as text an Agent reads: where it is, what the person saw, and the conversation. */
 function describeThread(thread: CommentThread): string {
   const lines = [
-    `Thread #${thread.number} ${thread.id} (${thread.status}) on ${thread.page}`,
-    ...(thread.anchor ? [`Anchor: ${thread.anchor.field ? `Content field ${thread.anchor.field}` : thread.anchor.label} (${thread.anchor.selector})`] : []),
-    ...describeCommentContext(thread.context).map(field => `${field.label}: ${field.value}`),
+    `Thread #${thread.n} ${thread.id} (${thread.status}) on ${thread.subject.id}`,
+    ...(thread.anchor.kind === "element" ? [`Anchor: ${thread.anchor.field ? `Content field ${thread.anchor.field}` : thread.anchor.label ?? thread.anchor.selector} (${thread.anchor.selector})`] : []),
+    ...describeCommentContext(thread.context ?? null).map(field => `${field.label}: ${field.value}`),
     "",
-    ...thread.comments.map(comment => `${comment.author.name}${comment.author.guest ? " (guest)" : ""}, ${comment.createdAt}: ${comment.body}`),
+    ...thread.messages.map(message => `${nameOf(message.author)}, ${new Date(message.createdAt).toISOString()}: ${message.body}`),
   ]
-  if (thread.resolvedBy) lines.push("", `Resolved by ${thread.resolvedBy.name} at ${thread.resolvedAt}`)
+  if (thread.resolvedBy) lines.push("", `Resolved by ${nameOf(thread.resolvedBy)} at ${new Date(thread.resolvedAt ?? thread.updatedAt).toISOString()}`)
   return lines.join("\n")
+}
+
+function nameOf(person: CommentUser): string {
+  return `${person.name ?? person.id}${person.guest ? " (guest)" : ""}`
 }
 
 function summary(thread: CommentThread): Record<string, unknown> {
   return {
     id: thread.id,
-    page: thread.page,
+    n: thread.n,
+    page: thread.subject.id,
     status: thread.status,
-    comment: thread.comments[0]?.body ?? "",
-    author: thread.createdBy.name,
-    replies: Math.max(0, thread.comments.length - 1),
+    comment: thread.messages[0]?.body ?? "",
+    author: thread.author.name ?? thread.author.id,
+    replies: Math.max(0, thread.messages.length - 1),
     components: thread.context?.components?.map(component => component.name) ?? [],
     updatedAt: thread.updatedAt,
   }
@@ -72,24 +77,24 @@ function summary(thread: CommentThread): Record<string, unknown> {
 /**
  * The Comments tools of the ViteHub MCP server. Each call resolves the Comments identity and checks `authorize`,
  * as the overlay does. Pass the overlay's session reader; an app's own MCP server can instead supply `context.user`.
- * With a request event, Console denial is final; otherwise `identify` takes precedence over the session user.
- * Without an event, the tools use the checked `context.user` directly. Replies and resolves show that user as the author.
+ * With a request event, the user comes from `resolveCommentsIdentity()`, as in the overlay API. Without an event, the
+ * tools use the checked `context.user` directly. Replies and resolves show that user as the author.
  */
 export function commentsMcpTools(comments: Comments, options: CommentsSessionOptions = {}): ViteHubMcpTool[] {
-  async function userFor(context: ViteHubMcpToolContext, action: CommentsAction): Promise<CommentsUser | null | false> {
-    if (context.event === undefined || context.event === null) return commentsUser(context.user)
+  async function identityFor(context: ViteHubMcpToolContext, action: CommentAction): Promise<CommentsIdentity | false> {
+    // The ViteHub MCP server lists these tools only for people with Console access to Comments.
+    if (context.event === undefined || context.event === null) return { user: commentsUser(context.user), gate: { console: Boolean(options.consoleSession) } }
     // SAFETY: The MCP transport passes its request event to owner identity readers.
-    return resolveCommentsUser(comments, context.event as H3Event, { ...options, session: options.session ?? (async () => commentsUser(context.user)) }, action)
+    return resolveCommentsIdentity(comments, context.event as H3Event, { ...options, session: options.session ?? (async () => commentsUser(context.user)) }, action)
   }
 
-  async function threadFor(input: Record<string, unknown>, user: CommentsUser | null | false, action: CommentsAction): Promise<{ thread: CommentThread, grant: ToolGrant } | ViteHubMcpToolResult> {
-    if (user === false) return forbidden(action)
+  async function threadFor(input: Record<string, unknown>, { user, gate }: CommentsIdentity, action: CommentAction): Promise<{ thread: CommentThread, grant: ToolGrant } | ViteHubMcpToolResult> {
     const id = text(input.id)
     if (!id) return failure("Give the thread id from comments_list_threads.")
     const [error, thread] = await comments.get(id)
     if (error) return failure(error.why)
-    if (thread.scope !== commentsPageScope) return failure(`No thread ${id} on the app's pages.`)
-    if (!await comments.can({ user, action, thread })) return forbidden(action)
+    if (thread.subject.kind !== "page") return failure(`No thread ${id} on the app's pages.`)
+    if (!await comments.can({ user, action, thread }, gate)) return forbidden(action)
     return { thread, grant: toolGrant.issue({ action, threadId: thread.id }) }
   }
 
@@ -111,19 +116,34 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
         additionalProperties: false,
       },
       async call(input, context) {
-        const user = await userFor(context, "read")
-        if (user === false || !await comments.can({ user, action: "read" })) return forbidden("read")
-        const status = input.status === "resolved" ? "resolved" : "open"
+        const identity = await identityFor(context, "read")
+        if (identity === false) return forbidden("read")
+        const { user, gate } = identity
         const page = text(input.page)
+        const subject = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
+        if (!await comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)) return forbidden("read")
+        const status = input.status === "resolved" ? "resolved" : "open"
         const search = text(input.search)?.toLowerCase()
         const limit = Math.min(Math.max(Number(input.limit) || 25, 1), 100)
-        const [error, threads] = await comments.list({ scope: commentsPageScope, status, limit: search ? 500 : limit, ...(page ? { page: normalizeCommentPage(page) } : {}) })
-        if (error) return failure(error.why)
-        const found = (search ? threads.filter(thread => thread.comments.some(comment => comment.body.toLowerCase().includes(search))) : threads).slice(0, limit)
+        const found: CommentThread[] = []
+        const batchSize = search ? 500 : limit
+        let before: CommentListCursor | undefined
+        while (found.length < limit) {
+          const [error, listed] = await comments.list({ scope: commentsPageScope, subjectKind: "page", status, limit: batchSize, ...(subject ? { subject } : {}), ...(before ? { before } : {}) })
+          if (error) return failure(error.why)
+          for (const thread of listed) {
+            if (await comments.can({ user, action: "read", thread }, gate)
+              && (!search || thread.messages.some(message => message.body.toLowerCase().includes(search)))) found.push(thread)
+            if (found.length === limit) break
+          }
+          if (listed.length < batchSize) break
+          const last = listed.at(-1)!
+          before = { id: last.id, updatedAt: last.updatedAt }
+        }
         const line = (thread: CommentThread) => {
           const components = thread.context?.components?.map(component => component.name) ?? []
-          const replies = Math.max(0, thread.comments.length - 1)
-          return `- ${thread.id} ${thread.page}: ${(thread.comments[0]?.body ?? "").slice(0, 120)} (${thread.createdBy.name}, ${replies} replies${components.length ? `, in ${components.join(" › ")}` : ""})`
+          const replies = Math.max(0, thread.messages.length - 1)
+          return `- ${thread.id} ${thread.subject.id}: ${(thread.messages[0]?.body ?? "").slice(0, 120)} (${nameOf(thread.author)}, ${replies} replies${components.length ? `, in ${components.join(" › ")}` : ""})`
         }
         return {
           text: found.length ? found.map(line).join("\n") : `No ${status} threads.`,
@@ -139,7 +159,9 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
       annotations: { readOnlyHint: true },
       inputSchema: { type: "object", properties: { id: { type: "string", description: "The thread id." } }, required: ["id"], additionalProperties: false },
       async call(input, context) {
-        const found = await threadFor(input, await userFor(context, "read"), "read")
+        const identity = await identityFor(context, "read")
+        if (identity === false) return forbidden("read")
+        const found = await threadFor(input, identity, "read")
         if (!("thread" in found)) return found
         const { thread } = found
         return { text: describeThread(thread), structured: { thread: { ...thread } } }
@@ -152,21 +174,23 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
       section: "comments",
       inputSchema: {
         type: "object",
-        properties: { id: { type: "string", description: "The thread id." }, body: { type: "string", description: "Plain text, at most 4,000 characters." } },
+        properties: { id: { type: "string", description: "The thread id." }, body: { type: "string", description: "Markdown, at most 10,000 characters." } },
         required: ["id", "body"],
         additionalProperties: false,
       },
       async call(input, context) {
-        const user = await userFor(context, "comment")
-        const found = await threadFor(input, user, "comment")
+        const identity = await identityFor(context, "write")
+        if (identity === false) return forbidden("write")
+        const found = await threadFor(input, identity, "write")
         if (!("thread" in found)) return found
         const { thread, grant } = found
-        const author = user ? authorOf(user) : guestFor(context)
-        if (!author) return forbidden("comment")
-        spend(grant, "comment", thread.id)
-        const [error, comment] = await comments.reply(thread.id, { body: text(input.body) ?? "", author })
+        const author = identity.user ? authorOf(identity.user) : guestFor(context)
+        if (!author) return forbidden("write")
+        spend(grant, "write", thread.id)
+        const [error, message] = await comments.reply(thread.id, { body: text(input.body) ?? "", author })
         if (error) return failure(error.why)
-        return { text: `Replied to thread ${thread.id}.`, structured: { comment: { ...comment } } }
+        await comments.flush()
+        return { text: `Replied to thread ${thread.id}.`, structured: { message: { ...message } } }
       },
     },
     {
@@ -181,14 +205,16 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
         additionalProperties: false,
       },
       async call(input, context) {
-        const user = await userFor(context, "resolve")
-        const found = await threadFor(input, user, "resolve")
+        const identity = await identityFor(context, "resolve")
+        if (identity === false) return forbidden("resolve")
+        const found = await threadFor(input, identity, "resolve")
         if (!("thread" in found)) return found
         const { thread, grant } = found
         spend(grant, "resolve", thread.id)
-        const author = user ? authorOf(user) : guestFor(context) ?? { id: "anonymous", name: "Someone" }
+        const author = identity.user ? authorOf(identity.user) : guestFor(context) ?? { id: "anonymous", name: "Someone" }
         const [error, updated] = input.resolved === false ? await comments.reopen(thread.id) : await comments.resolve(thread.id, { by: author })
         if (error) return failure(error.why)
+        await comments.flush()
         return { text: `Thread ${updated.id} is ${updated.status}.`, structured: { thread: summary(updated) } }
       },
     },

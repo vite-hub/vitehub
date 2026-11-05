@@ -12,6 +12,7 @@ icon: i-lucide-code-2
 | --- | --- |
 | `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
 | `useDatabase` from `@vite-hub/database/drizzle` | Select a generated Drizzle database and its schema by name. |
+| `chunkParameters` from `@vite-hub/database/drizzle` | Split values so each statement stays under the bound parameter limit of D1. |
 | `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve database config values and discovery config. |
 | `@vite-hub/database/cli` | Use the package-owned database CLI contribution. |
@@ -21,7 +22,7 @@ All Database Definition, integration, connection, Cloudflare D1, Drizzle, and ru
 
 ## Use it at runtime
 
-Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`.
+Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. For a name that has no Database Definition it returns `undefined`, so destructuring the result fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`.
 
 ```ts [server/api/notes.get.ts]
 import { useDatabase } from '@vite-hub/database/drizzle'
@@ -61,6 +62,39 @@ export default defineEventHandler(() => {
   return db.select().from(schema.events)
 })
 ```
+
+### Stay under the bound parameter limit
+
+Cloudflare D1 binds at most 100 parameters in one statement. A longer `inArray()` list or a multi-row insert fails on D1, even when it works on local SQLite. `chunkParameters(values, options)` splits the values into arrays that fit one statement each:
+
+```ts [server/utils/files.ts]
+import { and, eq, inArray } from 'drizzle-orm'
+import { chunkParameters, useDatabase } from '@vite-hub/database/drizzle'
+
+const { db, schema } = useDatabase('default')
+
+export async function saveFiles(rows: (typeof schema.files.$inferInsert)[]) {
+  // For rows of plain values, allow one parameter for each column of each row.
+  for (const chunk of chunkParameters(rows, { per: schema.files })) await db.insert(schema.files).values(chunk)
+}
+
+export async function deleteFiles(ownerId: string, ids: string[]) {
+  // `reserved` keeps room for the other parameter of the statement, `ownerId`.
+  for (const chunk of chunkParameters(ids, { reserved: 1 })) {
+    await db.delete(schema.files).where(and(eq(schema.files.ownerId, ownerId), inArray(schema.files.id, chunk)))
+  }
+}
+```
+
+| Option | Default | Use |
+| --- | --- | --- |
+| `per` | `1` | Bound parameters that one value takes. A Drizzle table counts its columns for inserts binding at most one parameter per column. |
+| `reserved` | `0` | Other bound parameters in the same statement. |
+| `limit` | `100` | The most bound parameters in one statement. 100 is the D1 limit and the lowest of the supported drivers. |
+
+The helper uses the counts you supply; it does not inspect row contents or SQL defaults. SQL expressions can bind several parameters in one column. For example, a one-column row containing `` sql`${first} || ${second}` `` binds two parameters, so use `{ per: 2 }` instead of the table shorthand. Choose a numeric `per` that covers the maximum bindings of a whole row, including SQL defaults.
+
+Each array has at most `(limit - reserved) / per` values. When one value does not fit, it throws a `RangeError`. The chunks are separate statements, so wrap them in `db.batch()` or a transaction when they must apply together.
 
 ## See database work on each request
 

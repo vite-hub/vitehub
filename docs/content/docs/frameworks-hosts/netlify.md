@@ -57,6 +57,8 @@ The `netlify` preset selects the Netlify Blobs driver and the Agent function out
 
 A Netlify-shaped build writes the generated functions and wrappers to their provider-owned directories.
 
+The server function comes from Nitro's `netlify` preset, and ViteHub follows the directory Nitro writes. Nitro 3.0.261029-rc and later write it to `.netlify/v1/functions/server`, which Netlify finds without `netlify.toml` functions settings or redirects. Earlier Nitro betas write `.netlify/functions-internal/server`, and ViteHub adds `.netlify/functions/server.mjs` so Netlify finds it. Either way, `.netlify/deployment.json` records the server entry.
+
 ```bash [Terminal]
 pnpm build
 find .netlify/v1/functions -maxdepth 2 -type f | sort

@@ -38,6 +38,7 @@ export type {
   BlobResult,
   BlobSignedRequest,
   BlobSignOptions,
+  BlobServeAnonymousAuthorize,
   BlobServeAuthorize,
   BlobServeResponseOptions,
   BlobSize,

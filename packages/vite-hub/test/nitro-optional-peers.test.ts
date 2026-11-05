@@ -7,6 +7,8 @@ import { afterEach, expect, it, vi } from "vitest"
 
 import { nitroOptionalPeers } from "../src/internal/nitro-optional-peers.ts"
 
+const nodeMajor = Number(process.versions.node.split(".")[0])
+
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 
@@ -58,7 +60,8 @@ it("externalizes only absent optional dependencies declared by the importing pac
   await expect(resolve("native")).rejects.toBe(failure)
 })
 
-it("preserves optional packages supplied by registered resolution hooks without node_modules", async () => {
+// Node.js 22 require.resolve() does not run module.registerHooks resolve hooks.
+it.skipIf(nodeMajor < 24)("preserves optional packages supplied by registered resolution hooks without node_modules", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-optional-pnp-"))
   roots.push(root)
   const importer = join(root, "runtime.js")

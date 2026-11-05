@@ -11,7 +11,6 @@ import { importSealKey } from "@vite-hub/env/seal"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
-import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
@@ -241,6 +240,7 @@ afterEach(() => {
   delete process.env.VITEHUB_CONSOLE_MCP_KEY
   kvValues.clear()
   resourceScopes = ["openid", "profile", "email"]
+  vi.restoreAllMocks()
   resetConsoleMcp()
   installConsoleAccess({ mode: "open" })
   installConsoleOperations([])
@@ -287,11 +287,12 @@ describe("MCP client section", () => {
     expect(isConsoleMcpClientEnabled({ auth: false, mcpClient: true })).toBe(true)
     expect(isConsoleMcpClientEnabled({ auth: "app" })).toBe(false)
     expect(resolveConsoleSectionIds({ console: { auth: false, mcpClient: true } })).toEqual(["mcp-client"])
-    expect(resolveConsoleSectionIds({ agent: true, console: { auth: false, mcpClient: true }, workflow: false })).toEqual(["agents", "usage", "channels", "mcp-client"])
+    expect(resolveConsoleSectionIds({ agent: true, console: { auth: false, mcpClient: true }, workflow: false })).toEqual(["agents", "skills", "usage", "channels", "mcp-client"])
     expect(resolveConsoleSectionIds({ console: { auth: false } })).toEqual([])
   })
 
-  it("bundles the MCP client only into apps that turn the section on", async () => {
+  it("loads the MCP client lazily only in apps that turn the section on", async () => {
+    const { writeConsoleNitroPlugin } = await import("../src/console/plugin.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-mcp-client-"))
     try {
       const generated = async (sections: string[]) => {
@@ -299,7 +300,8 @@ describe("MCP client section", () => {
         return readFile(join(root, "plugin.mjs"), "utf8")
       }
       const withMcp = await generated(["mcp-client"])
-      expect(withMcp).toContain('import { consoleMcpClientOperations as vitehubConsoleMcpClientOperations } from "vite-hub/console/mcp-client"')
+      expect(withMcp).toContain('import("vite-hub/console/mcp-client")')
+      expect(withMcp).not.toMatch(/^import .* from "vite-hub\/console\/mcp-client"/m)
       expect(withMcp).toContain('installConsoleOperations([{ operations: vitehubConsoleMcpClientOperations, plugin: "vite-hub" }]')
       expect(await generated(["env"])).not.toContain("vite-hub/console/mcp-client")
     }
@@ -316,6 +318,193 @@ describe("MCP client section", () => {
       servers: [{ authorizationServer: origin, label: "Test Finance", url: `${origin}/mcp` }, { auth: "console", label: "ViteHub MCP", url: `${origin}/_vitehub/mcp` }],
       sharedSession: false,
     })
+  })
+
+  it("preserves an MCP endpoint advertised at the app's root", async () => {
+    install()
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ resource: `${origin}/` }))
+    const overview = await rpc<ConsoleMcpOverview>("mcp-client.list")
+    expect(overview.value.servers).toEqual([{ label: "This app", url: `${origin}/` }, { auth: "console", label: "ViteHub MCP", url: `${origin}/_vitehub/mcp` }])
+  })
+
+  it.each([
+    { advertised: true, issuer: undefined, accepted: false },
+    { advertised: true, issuer: "matching", accepted: true },
+    { advertised: true, issuer: "https://another.example", accepted: false },
+    { advertised: false, issuer: undefined, accepted: true },
+    { advertised: false, issuer: "https://another.example", accepted: false },
+  ])("validates the callback issuer before exchanging a code: %j", async ({ advertised, issuer, accepted }) => {
+    install()
+    const nativeFetch = globalThis.fetch
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input instanceof Request ? input.clone() : input, init)
+      const response = await nativeFetch(input, init)
+      if (request.url === `${origin}/.well-known/oauth-authorization-server`) {
+        return Response.json({ ...await response.json(), authorization_response_iss_parameter_supported: advertised })
+      }
+      return response
+    })
+    const started = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" })
+    const callback = await signIn(started.value.authorizationUrl!, "maxi")
+    const grants = seen.grants.length
+    const completed = await rpc<ConsoleMcpConnection>("mcp-client.complete", { ...callback, iss: issuer === "matching" ? origin : issuer })
+    if (accepted) {
+      expect(completed.failure).toBeUndefined()
+      expect(completed.value.status).toBe("connected")
+      expect(seen.grants).toHaveLength(grants + 1)
+    }
+    else {
+      expect(completed.failure).toMatchObject({ code: "CONSOLE_MCP_AUTHORIZATION_FAILED" })
+      expect(seen.grants).toHaveLength(grants)
+    }
+  })
+
+  it.each([
+    "http://external.example/mcp",
+    "https://person:secret@mcp.example/mcp",
+    "https://mcp.example/mcp#fragment",
+  ])("rejects an MCP redirect to %s before fetching it", async (target) => {
+    install()
+    const requests: Request[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      requests.push(new Request(input, init))
+      return new Response(null, { headers: { location: target }, status: 307 })
+    })
+    const connected = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "https://mcp.example/mcp", token: "secret" })
+    expect(connected.failure).toBeDefined()
+    expect(requests.map(request => [request.url, request.redirect])).toEqual([["https://mcp.example/mcp", "manual"]])
+  })
+
+  it.each(["discovery", "token"])("rejects HTTPS to external HTTP redirects in OAuth %s traffic", async (stage) => {
+    install()
+    const nativeFetch = globalThis.fetch
+    const redirected: Request[] = []
+    const endpoint = `https://oauth.example/${stage === "discovery" ? ".well-known/oauth-authorization-server" : "token"}`
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input instanceof Request ? input.clone() : input, init)
+      if (request.url.startsWith("https://oauth.example/")) {
+        redirected.push(request)
+        return new Response(null, { headers: { location: "http://external.example/oauth" }, status: 307 })
+      }
+      // No test request may reach the external plaintext endpoint, even if discovery retries.
+      expect(request.url).not.toBe("http://external.example/oauth")
+      const response = await nativeFetch(input, init)
+      if (stage === "discovery" && new URL(request.url).pathname.startsWith("/.well-known/oauth-protected-resource")) {
+        return Response.json({ ...await response.json(), authorization_servers: ["https://oauth.example"] })
+      }
+      if (stage === "token" && request.url === `${origin}/.well-known/oauth-authorization-server`) {
+        return Response.json({ ...await response.json(), token_endpoint: endpoint })
+      }
+      return response
+    })
+    const started = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" })
+    if (stage === "token") {
+      const completed = await rpc<ConsoleMcpConnection>("mcp-client.complete", await signIn(started.value.authorizationUrl!, "maxi"))
+      expect(completed.failure).toBeDefined()
+    }
+    expect(redirected.some(request => request.url === endpoint)).toBe(true)
+    expect(redirected.every(request => request.redirect === "manual")).toBe(true)
+  })
+
+  it("follows relative redirects while preserving an MCP POST body and bearer token", async () => {
+    install()
+    const nativeFetch = globalThis.fetch
+    const redirected: Request[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input instanceof Request ? input.clone() : input, init)
+      if (request.url === `${origin}/mcp-redirect`) {
+        redirected.push(request)
+        return new Response(null, { headers: { location: "/mcp" }, status: 307 })
+      }
+      return nativeFetch(input, init)
+    })
+    const connected = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp-redirect", token: "fin_lucia" })
+    expect(connected.failure).toBeUndefined()
+    expect(connected.value.connection.status).toBe("connected")
+    expect(redirected[0]!.method).toBe("POST")
+    expect(redirected[0]!.headers.get("authorization")).toBe("Bearer fin_lucia")
+    expect(await redirected[0]!.json()).toMatchObject({ method: "initialize" })
+  })
+
+  it.each([
+    "http://external.example/revoke",
+    "https://person:secret@oauth.example/revoke",
+    "https://oauth.example/revoke#fragment",
+  ])("rejects an OAuth revocation redirect to %s before fetching it", async (target) => {
+    install()
+    const nativeFetch = globalThis.fetch
+    const redirected: Request[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input instanceof Request ? input.clone() : input, init)
+      if (request.url === "https://oauth.example/revoke") {
+        redirected.push(request)
+        return new Response(null, { headers: { location: target }, status: 307 })
+      }
+      // The invalid target must never be passed to fetch.
+      expect(request.url).not.toBe(target)
+      const response = await nativeFetch(input, init)
+      if (request.url === `${origin}/.well-known/oauth-authorization-server`) {
+        return Response.json({ ...await response.json(), revocation_endpoint: "https://oauth.example/revoke" })
+      }
+      return response
+    })
+    const connected = await connectAs("maxi")
+    const disconnected = await rpc<{ revoked: boolean }>("mcp-client.disconnect", { id: connected.id })
+    expect(disconnected.value.revoked).toBe(false)
+    expect(redirected.map(request => request.redirect)).toEqual(["manual", "manual"])
+  })
+
+  it("bounds session deletion redirect loops", async () => {
+    install()
+    const connected = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp", token: "fin_lucia" })
+    const nativeFetch = globalThis.fetch
+    const redirected: Request[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input instanceof Request ? input.clone() : input, init)
+      if (request.method === "DELETE") {
+        redirected.push(request)
+        return new Response(null, { headers: { location: "/loop" }, status: 307 })
+      }
+      return nativeFetch(input, init)
+    })
+    const disconnected = await rpc<{ sessionEnded: boolean }>("mcp-client.disconnect", { id: connected.value.connection.id })
+    expect(disconnected.value.sessionEnded).toBe(false)
+    expect(redirected).toHaveLength(21)
+    expect(redirected.every(request => request.redirect === "manual")).toBe(true)
+  })
+
+  it("does not forward a bearer token to another origin after a session deletion redirect", async () => {
+    install()
+    const connected = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp", token: "fin_lucia" })
+    const forwarded: Request[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input instanceof Request ? input.clone() : input, init)
+      if (request.url === `${origin}/mcp`) return new Response(null, { headers: { location: "https://other.example/mcp" }, status: 307 })
+      forwarded.push(request)
+      return new Response(null, { status: 200 })
+    })
+    const disconnected = await rpc<{ sessionEnded: boolean }>("mcp-client.disconnect", { id: connected.value.connection.id })
+    expect(disconnected.value.sessionEnded).toBe(true)
+    expect(forwarded).toHaveLength(1)
+    expect(forwarded[0]!.url).toBe("https://other.example/mcp")
+    expect(forwarded[0]!.headers.has("authorization")).toBe(false)
+  })
+
+  it("keeps one deadline across redirect hops", async () => {
+    install()
+    const connected = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp", token: "fin_lucia" })
+    const deadline = new AbortController()
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal)
+    const deadlines: number[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      deadlines.push(timeout.mock.calls.length)
+      if (deadlines.length === 2) deadline.abort(new Error("Request deadline reached"))
+      return new Response(null, { headers: { location: "/loop" }, status: 307 })
+    })
+    const disconnected = await rpc<{ sessionEnded: boolean }>("mcp-client.disconnect", { id: connected.value.connection.id })
+    expect(disconnected.value.sessionEnded).toBe(false)
+    expect(deadlines).toHaveLength(2)
+    expect(deadlines[0]).toBe(deadlines[1])
   })
 
   it("says when the Console shares its session with the app's own sign-in", async () => {
@@ -447,7 +636,7 @@ describe("MCP client section", () => {
   })
 
   it("binds each sealed record to its KV key and to the key that sealed it", async () => {
-    const connection = { auth: "bearer" as const, bearer: "fin_secret", createdAt: 1, id: "mcp_a", label: "A", labelled: false, owner: "user:a", sameOrigin: true, status: "connected" as const, url: `${origin}/mcp` }
+    const connection = { auth: "bearer" as const, bearer: "fin_secret", consoleOrigin: origin, createdAt: 1, id: "mcp_a", label: "A", labelled: false, owner: "user:a", sameOrigin: true, status: "connected" as const, url: `${origin}/mcp` }
     const records = kvConsoleMcpRecords(kv, await importSealKey(new Uint8Array(32).fill(1)))
     await records.save(connection)
     expect(await records.connection("user:a", "mcp_a")).toEqual(connection)

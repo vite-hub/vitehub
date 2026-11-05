@@ -400,8 +400,8 @@ describe("chat error Console link", () => {
     ...(invocation ? { invocation } : {}),
   }) as never
 
-  it("adds the Console URL of the failed Invocation when errorConsoleLink is on", async () => {
-    await expect(resolveChatErrorFallbackText({ errorConsoleLink: true }, args({ id: "inv-1", consoleUrl })))
+  it("adds the Console URL of the failed Invocation when consoleLink is on", async () => {
+    await expect(resolveChatErrorFallbackText({ consoleLink: true }, args({ id: "inv-1", consoleUrl })))
       .resolves.toBe(`Sorry, I couldn't process that message.\n\nDetails: ${consoleUrl}`)
   })
 
@@ -411,23 +411,23 @@ describe("chat error Console link", () => {
   })
 
   it("adds the link after custom fallback text once", async () => {
-    await expect(resolveChatErrorFallbackText({ errorConsoleLink: true, errorFallbackText: "It failed." }, args({ id: "inv-1", consoleUrl })))
+    await expect(resolveChatErrorFallbackText({ consoleLink: true, errorFallbackText: "It failed." }, args({ id: "inv-1", consoleUrl })))
       .resolves.toBe(`It failed.\n\nDetails: ${consoleUrl}`)
     await expect(resolveChatErrorFallbackText({
-      errorConsoleLink: true,
+      consoleLink: true,
       errorFallbackText: ({ invocation }) => `It failed. See ${invocation?.consoleUrl}`,
     }, args({ id: "inv-1", consoleUrl }))).resolves.toBe(`It failed. See ${consoleUrl}`)
   })
 
   it("does not add a link when the Invocation or its URL is unknown", async () => {
-    await expect(resolveChatErrorFallbackText({ errorConsoleLink: true }, args()))
+    await expect(resolveChatErrorFallbackText({ consoleLink: true }, args()))
       .resolves.toBe("Sorry, I couldn't process that message.")
-    await expect(resolveChatErrorFallbackText({ errorConsoleLink: true }, args({ id: "inv-1" })))
+    await expect(resolveChatErrorFallbackText({ consoleLink: true }, args({ id: "inv-1" })))
       .resolves.toBe("Sorry, I couldn't process that message.")
   })
 
   it("does not add a link when the fallback is disabled", async () => {
-    await expect(resolveChatErrorFallbackText({ errorConsoleLink: true, errorFallbackText: null }, args({ id: "inv-1", consoleUrl })))
+    await expect(resolveChatErrorFallbackText({ consoleLink: true, errorFallbackText: null }, args({ id: "inv-1", consoleUrl })))
       .resolves.toBeUndefined()
   })
 })

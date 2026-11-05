@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 
 Create a user with an email and password, then read their session using the cookie returned by sign-up. ViteHub discovers your Auth Definition; Better Auth handles the sign-up and session endpoints.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root. This example uses an in-memory store, so restarting the server removes its users and sessions. Add a [database adapter](/docs/auth/configure#storage-placement-metadata) before using this setup in production.
+You need Node.js 22.18 or newer, pnpm, and a Vite application. Run the commands from its root. This example uses an in-memory store, so restarting the server removes its users and sessions. Keep users in a database with [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) before using this setup in production.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
@@ -82,9 +82,9 @@ curl -i -b cookies.txt http://localhost:5173/api/auth/get-session
 ```
 
 The JSON response includes the signed-in user and session expiry. The default
-store is for discovery and local checks, not durable production sessions. Read
-[Storage placement](/docs/auth/configure#storage-placement-metadata) before
-adding a database adapter, or use [Sessions without a database](/docs/auth/configure#sessions-without-a-database)
+store is for discovery and local checks, not durable production sessions. Use
+[`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) to keep
+users in the app Database, or use [Sessions without a database](/docs/auth/configure#sessions-without-a-database)
 for social sign-in only. Read [Server API](/docs/auth/server-api) for route
 guards.
 ::

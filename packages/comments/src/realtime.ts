@@ -1,8 +1,11 @@
 import { text } from "./identity.ts"
+import { commentRoom, normalizeCommentPage } from "./page.ts"
+import { resolveCommentsIdentity } from "./runtime/session.ts"
 
 import type { RealtimeDefinition, RealtimeUser } from "@vite-hub/realtime"
 import type { H3Event } from "h3"
 import type { Comments } from "./index.ts"
+import type { CommentsIdentity, CommentsSessionOptions } from "./runtime/session.ts"
 import type { CommentsUser } from "./types.ts"
 
 function toRealtimeUser(user: CommentsUser): RealtimeUser {
@@ -22,33 +25,28 @@ function toRealtimeUser(user: CommentsUser): RealtimeUser {
  * that Comments resolves. Guests name themselves in the browser. ViteHub adds it as the `comments` definition when the
  * host has a room authority.
  */
-export function commentsRealtime(comments: Comments, options: {
-  /** Auth fallback, skipped when custom `identify` is configured. */
-  session?: (event: H3Event) => Promise<CommentsUser | null | undefined>
-  /** Console section access, checked before custom `identify` or Comments policies. */
-  consoleSession?: (event: H3Event) => Promise<CommentsUser | null | undefined | false>
-} = {}): RealtimeDefinition {
-  // Realtime keeps only the id, name, email, and image of a user. Decide access in `identify`, with the whole user that
-  // `authorize` policies read, such as a role, and answer `authorize` for the same request.
-  const readers = new WeakMap<H3Event, boolean>()
+export function commentsRealtime(comments: Comments, options: CommentsSessionOptions = {}): RealtimeDefinition {
+  // Realtime drops policy fields such as role. Keep the whole identity for this request's page-aware check.
+  const readers = new WeakMap<H3Event, CommentsIdentity | false>()
   return {
     async identify({ event }) {
-      const consoleUser = await options.consoleSession?.(event).catch(() => false as const)
-      if (consoleUser === false) {
-        readers.set(event, false)
-        return null
-      }
-      const user = comments.options.identify
-        ? await comments.options.identify({ event })
-        : options.consoleSession
-          ? consoleUser
-          : await options.session?.(event).catch(() => null)
-      readers.set(event, await comments.can({ user: user ?? null, action: "read" }))
+      const identity = await resolveCommentsIdentity(comments, event, options)
+      readers.set(event, identity)
+      if (identity === false || !identity.user) return null
       // Browser WebSockets carry no guest headers. Keep Console guests' browser identities in awareness instead of
       // binding them to the shared session fallback. Custom identify results, including guests, remain server-bound.
-      return user && (comments.options.identify || user.guest !== true) ? toRealtimeUser(user) : null
+      return comments.options.identify || identity.user.guest !== true ? toRealtimeUser(identity.user) : null
     },
-    authorize: ({ event, mode }) => mode === "read" && readers.get(event) === true,
+    async authorize({ event, mode, documentId, request }) {
+      const identity = readers.get(event)
+      if (mode !== "read" || identity === undefined || identity === false) return false
+      const page = new URL(request.url).searchParams.get("page")
+      if (!page) return false
+      const subject = { kind: "page", id: normalizeCommentPage(page) }
+      // Comments hints travel in page awareness. The definition-wide events room exposes other pages' activity.
+      if (documentId !== commentRoom(subject.id)) return false
+      return await comments.can({ user: identity.user, action: "read", subject }, identity.gate)
+    },
     document: {
       kind: "comments",
       load: async () => ({ body: "", digest: null }),

@@ -23,7 +23,7 @@ export function inspectSandboxTaskDefinitions(options: SandboxTaskInspectionOpti
 /** Console section that lists discovered Sandbox Task Definitions. `vitehub inspect definitions` reads the same data. */
 export const sandboxTaskConsoleSection: ViteHubConsoleSectionContribution<SandboxTaskInspectionOptions> = {
   description: 'Inspect discovered Sandbox Task Definitions without starting runtime resources.',
-  icon: 'i-lucide-container',
+  icon: 'i-vitehub-sandbox',
   id: 'sandbox-tasks',
   label: 'Sandbox Tasks',
   read: inspectSandboxTaskDefinitions,

@@ -15,10 +15,10 @@ it("adds canonical sources for discovered gateway and Channel fields", async () 
   try {
     await mkdir(join(root, "server", "agents"), { recursive: true })
     await writeFile(join(root, "server", "agents", "support.ts"), [
-      'import { defineAgent } from "vite-hub/agent"',
+      'import { codexDriver, defineAgent } from "vite-hub/agent"',
       'import { cliproxy, cloudflareAccess } from "vite-hub/gateways"',
       'import { telegram } from "vite-hub/agent/channels"',
-      'export default defineAgent({ driver: { kind: "codex", gateway: cliproxy({ headers: cloudflareAccess() }) }, channels: { telegram: telegram() } })',
+      'export default defineAgent({ driver: codexDriver({ gateway: cliproxy({ headers: cloudflareAccess() }) }), channels: { telegram: telegram() } })',
     ].join("\n"))
     const envPlugin = hubEnv()
     // Match the framework integration: discovery runs before Server Env reads the config.

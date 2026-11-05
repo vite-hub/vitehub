@@ -1,5 +1,5 @@
 title: Database
-icon: i-lucide-database
+icon: i-vitehub-database
 order: 11
 category: Data
 related: [kv, blob]

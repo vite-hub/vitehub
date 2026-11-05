@@ -48,6 +48,7 @@ export const FileTree = defineComponent({
     model: { type: Object as PropType<FileTreeModel> },
     options: { type: Object as PropType<Omit<PierreFileTreeOptions, "paths">> },
     paths: { default: () => [], type: Array as PropType<readonly string[]> },
+    searchLabel: { default: "Search files", type: String },
   },
   setup(props, { attrs, expose }) {
     let host: HTMLElement | null = null;
@@ -72,8 +73,11 @@ export const FileTree = defineComponent({
       if (mountedModel !== model) releaseMountedModel();
       model.render({ fileTreeContainer: host });
       mountedModel = model;
+      // Pierre has no option to name the tree or its search input, which has only a placeholder.
       host.shadowRoot?.querySelector<HTMLElement>("[role='tree']")
         ?.setAttribute("aria-label", attrs["aria-label"] == null ? "Files" : String(attrs["aria-label"]));
+      host.shadowRoot?.querySelector<HTMLElement>("[data-file-tree-search-input]")
+        ?.setAttribute("aria-label", props.searchLabel);
     };
     const setHost = (node: Element | null) => {
       host = node instanceof HTMLElement ? node : null;

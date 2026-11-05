@@ -1,9 +1,11 @@
-import type { BranchRules, MergeMethod } from "forges"
+import type { BaseOptions, BranchRules, ForgeProvider, MergeMethod, RepoRef } from "forges"
 
 import { forgeDiagnostics } from "../error-diagnostics.ts"
-import { isRecord } from "./github.ts"
+import { forgeErrorStatus } from "../provider.ts"
+import { isRecord, repositoryPath } from "./github.ts"
 
 // Gap: forges `BranchRules` has no required workflows, ruleset merge methods or classic protection source.
+// Gap: forges `repos.branchRules()` rejects when GitHub refuses rulesets to a private repository on a plan without them.
 
 /** What GitHub branch rules ask for beyond `BranchRules` from `provider.repos.branchRules()`. */
 export interface GitHubBranchRuleDetails {
@@ -79,4 +81,28 @@ export function githubBranchRuleDetails(rules: BranchRules): GitHubBranchRuleDet
   }
   else if (protection !== undefined && protection.enabled !== false) throw invalid("Branch protection summary is incomplete.")
   return { requiredWorkflows, ...(allowed ? { mergeMethods: [...allowed] } : {}), classicSource }
+}
+
+/**
+ * Read branch rules with `provider.repos.branchRules()`. GitHub answers 403 for the rules of a private repository
+ * on a plan without rulesets or branch protection. When it gives that reason and the branch summary reports the
+ * branch unprotected, this returns no rules. Any other 403 still rejects, so a missing permission never reads as no rules.
+ */
+export async function forgeBranchRules(provider: ForgeProvider, repo: RepoRef, branch: string, options?: BaseOptions): Promise<BranchRules> {
+  try {
+    return await provider.repos.branchRules(repo, branch, options)
+  }
+  catch (error) {
+    if (provider.forge !== "github" || !planWithoutRules(error)) throw error
+    const path = `${repositoryPath(repo)}/branches/${branch.split("/").map(encodeURIComponent).join("/")}`
+    const summary = (await provider.request<unknown>("GET", path, { signal: options?.signal })).data
+    if (!isRecord(summary) || summary.protected !== false) throw error
+    return { branch, requiredChecks: [], requiredApprovals: 0, raw: { branch: summary, rules: [] } }
+  }
+}
+
+function planWithoutRules(error: unknown): boolean {
+  if (forgeErrorStatus(error) !== 403 || !(error instanceof Error)) return false
+  const body = "body" in error && typeof error.body === "string" ? error.body : ""
+  return /Upgrade to GitHub Pro or make this repository public/i.test(`${error.message}\n${body}`)
 }

@@ -126,6 +126,9 @@ describe("describeDeploymentPlanOutput", () => {
     expect(describeDeploymentPlanOutput(resolveDeploymentPlan("netlify"), "/app", "/app/custom/functions-internal").map(entry => entry.path)).toEqual([
       "/app/custom/deployment.json", "/app/custom/functions-internal", "/app/custom/functions/server.mjs", "/app/custom/v1",
     ])
+    expect(describeDeploymentPlanOutput(resolveDeploymentPlan("netlify"), "/app", "/app/.netlify/v1/functions").map(entry => entry.path)).toEqual([
+      "/app/.netlify/deployment.json", "/app/.netlify/v1/functions", "/app/.netlify/v1",
+    ])
   })
   it.each([
     ["cloudflare", ["/app/.output/deployment.json", "/app/.output/server/wrangler.json"]],

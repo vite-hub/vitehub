@@ -31,7 +31,7 @@ const labels: Record<AuthConsoleEvent["type"], string> = {
       :key="event.id"
       class="grid gap-x-4 gap-y-1 px-4 py-3 text-sm"
       :class="
-        compact ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto]'
+        compact ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_auto] sm:items-baseline'
       "
     >
       <span class="font-medium text-highlighted">{{ labels[event.type] }}</span>

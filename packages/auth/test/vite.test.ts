@@ -125,7 +125,7 @@ describe("hubAuth", () => {
     expect(plugin.api.refresh()?.definition.handler).toBe(definition)
     expect(config).toMatchObject({
       nitro: { handlers: expect.arrayContaining([
-        { handler: join(root, ".vitehub/auth/route.ts"), route: "/api/auth/**" },
+        { handler: join(root, ".vitehub/auth/route.ts"), lazy: true, route: "/api/auth/**" },
         { handler: join(root, ".vitehub/auth/access-middleware.ts"), middleware: true, route: "/**" },
       ]) },
     })
@@ -160,15 +160,18 @@ describe("hubAuth", () => {
     expect(ambientTypes).toContain("interface AuthRegistry { definition: typeof import(\"../../server/auth.js\").default }")
   })
 
-  it("connects the virtual Auth server helper to ViteHub Env when available", async () => {
+  it("connects the virtual Auth Definition to ViteHub Env when available", async () => {
     const root = await createTempProject()
     await writeAuth(root)
 
     const plugin = hubAuth()
     await resolvePluginConfig(plugin, root, [{ name: "@vite-hub/env/vite" }])
 
-    expect(loadAuthServer(plugin)).toContain("setAuthRuntimeEnvResolver")
-    expect(loadAuthServer(plugin)).toContain("from \"#vitehub/env/server\"")
+    // The definition module sets the resolver, so code that imports `@vite-hub/auth/server` before the lazy Auth route gets it.
+    expect(loadAuthDefinition(plugin)).toContain("setAuthRuntimeEnvResolver(useServerEnv, definition)")
+    expect(loadAuthDefinition(plugin)).toContain("from \"@vite-hub/auth/runtime/server\"")
+    expect(loadAuthDefinition(plugin)).toContain("from \"#vitehub/env/server\"")
+    expect(loadAuthServer(plugin)).not.toContain("setAuthRuntimeEnvResolver")
     const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
     expect(ambientTypes).toContain("import type { ServerEnv } from \"#vitehub/env/server\"")
     expect(ambientTypes).toContain("interface AuthRuntimeEnv extends ServerEnv")
@@ -264,7 +267,7 @@ describe("hubAuth", () => {
     expect(nitro.cloudflare.wrangler.secrets.required).toEqual(["VITEHUB_TOKEN"])
     expect(nitro.plugins).toEqual(["/app/plugin.ts"])
     expect(createAuthNitroConfig(hubAuth(), { nitro: inlineConfig.nitro, projectRoot: root })).toEqual(nitro)
-    expect(nitro.handlers).toEqual([middleware, { handler: resolve(root, ".vitehub/auth/route.ts"), route: "/api/auth/**" }])
+    expect(nitro.handlers).toEqual([middleware, { handler: resolve(root, ".vitehub/auth/route.ts"), lazy: true, route: "/api/auth/**" }])
     expect(resolved.server.watch?.ignored).toEqual(["**/dist/**", "**/.vitehub/**"])
     expect(resolved.ssr.noExternal).toEqual(["existing", "@vite-hub/auth"])
     expect(resolved.environments.ssr?.resolve.noExternal).toEqual(["existing", "@vite-hub/auth"])
@@ -319,6 +322,7 @@ describe("hubAuth", () => {
         handlers: [
           {
             handler: resolve(root, ".vitehub/auth/route.ts"),
+            lazy: true,
             route: "/api/auth/**",
           },
           {
@@ -332,7 +336,7 @@ describe("hubAuth", () => {
 
     await resolvePluginConfig(plugin, root)
     const middleware = await readFile(join(root, ".vitehub", "auth", "access-middleware.ts"), "utf8")
-    expect(middleware).toContain('export default createAuthAccessHandler([{"route":"/app"},{"route":"/app/**"},{"route":"/api/app","authorize":true,"method":"POST"}])')
+    expect(middleware).toContain('export default createLazyAuthAccessHandler([{"route":"/app"},{"route":"/app/**"},{"route":"/api/app","authorize":true,"method":"POST"}], () => import("#vitehub/auth/server"))')
   })
 
   it("uses custom Auth base paths for generated Nitro routes", async () => {
@@ -348,6 +352,7 @@ describe("hubAuth", () => {
       nitro: {
         handlers: [{
           handler: resolve(root, ".vitehub/auth/route.ts"),
+          lazy: true,
           route: "/auth/**",
         }],
       },
@@ -376,9 +381,9 @@ describe("hubAuth", () => {
     await expect(readFile(join(root, ".vitehub", "auth", "route.ts"), "utf8")).resolves.toContain("export { default } from \"#vitehub/auth/server\"")
     const accessMiddleware = await readFile(join(root, ".vitehub", "auth", "access-middleware.ts"), "utf8")
     expect(accessMiddleware).toBe([
-      'import { createAuthAccessHandler } from "#vitehub/auth/server"',
+      'import { createLazyAuthAccessHandler } from "@vite-hub/auth/runtime/server"',
       "",
-      "export default createAuthAccessHandler([])",
+      'export default createLazyAuthAccessHandler([], () => import("#vitehub/auth/server"))',
       "",
     ].join("\n"))
   })
@@ -600,6 +605,22 @@ describe("hubAuth", () => {
     finally { auth.mockRestore() }
   })
 
+  it("lets Nitro serve the Auth route when Nitro runs in the dev server", async () => {
+    const root = await createTempProject()
+    await writeAuth(root)
+    const plugin = hubAuth()
+    await resolvePluginConfig(plugin, root)
+    const use = vi.fn()
+    const configureServer = plugin.configureServer as unknown as (server: unknown) => void
+    configureServer({
+      environments: { nitro: { dispatchFetch: async () => new Response() }, ssr: { runner: {} } },
+      middlewares: { use },
+      ssrLoadModule: async () => ({ default: defineAuth({ appName: "ViteHub" }) }),
+    })
+    // One Auth instance serves `/api/auth` and the Console, so they share users and sessions.
+    expect(use).not.toHaveBeenCalled()
+  })
+
   it("accepts comma-separated forwarded protocols in the dev middleware", async () => {
     const root = await createTempProject()
     await writeAuth(root)
@@ -651,4 +672,81 @@ it("only passes Better Auth 404 responses through for the root base path", () =>
   expect(shouldPassThroughAuthResponse("/", 404)).toBe(true)
   expect(shouldPassThroughAuthResponse("/auth", 404)).toBe(false)
   expect(shouldPassThroughAuthResponse("/", 200)).toBe(false)
+})
+
+describe("Auth tables in the app Database", () => {
+  async function writeAuthDatabase(root: string, call: string) {
+    const file = join(root, "server", "auth.ts")
+    await mkdir(dirname(file), { recursive: true })
+    await writeFile(file, [
+      "import { defineAuth } from 'vite-hub/auth'",
+      "import { authDatabase } from 'vite-hub/auth/database'",
+      `export default defineAuth({ database: ${call}, emailAndPassword: { enabled: true } })`,
+      "",
+    ].join("\n"))
+  }
+
+  async function contributions(root: string, plugin = hubAuth(undefined, { importBase: "vite-hub/auth" })) {
+    const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
+    return await collectDatabaseContributions([plugin], { projectRoot: root, root, rootDir: root })
+  }
+
+  it("adds the Better Auth tables to the implicit default Database", async () => {
+    const root = await createTempProject()
+    await writeAuthDatabase(root, "authDatabase()")
+    const { tables } = await contributions(root)
+    expect(tables).toMatchObject([{
+      database: "default",
+      definition: { export: "authSqliteSchema", module: "vite-hub/auth/schema" },
+      dialect: "sqlite",
+      name: "auth",
+      plugin: "@vite-hub/auth/vite",
+    }])
+    const { discoverDatabaseDefinitions } = await import("@vite-hub/database/config")
+    expect(discoverDatabaseDefinitions(root, { contributions: { tables } }).map(definition => definition.name)).toEqual(["default"])
+  })
+
+  it("uses the Postgres tables for a Postgres Database", async () => {
+    const root = await createTempProject()
+    await writeAuthDatabase(root, "authDatabase('accounts')")
+    await mkdir(join(root, "server", "databases", "accounts"), { recursive: true })
+    await writeFile(join(root, "server", "databases", "accounts", "config.ts"), "import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: 'accounts', dialect: 'postgresql', schema: {} })\n")
+    expect((await contributions(root)).tables).toMatchObject([{ database: "accounts", definition: { export: "authPostgresSchema" }, dialect: "postgresql" }])
+  })
+
+  it("uses the dialect of a sibling plugin's Database Definition", async () => {
+    const root = await createTempProject()
+    await writeAuthDatabase(root, "authDatabase('accounts')")
+    const definition = join(root, "accounts.ts")
+    await writeFile(definition, "export default defineDatabase({ name: 'accounts', dialect: 'postgresql', schema: {} })\n")
+    const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
+    const { discoverDatabaseDefinitions, resolveDBViteConfig } = await import("@vite-hub/database/config")
+    const collected = await collectDatabaseContributions([
+      hubAuth(),
+      { name: "accounts-owner", vitehub: { databases: [{ name: "accounts", definition }] } },
+    ], { projectRoot: root, root, rootDir: root })
+    expect(collected.tables).toMatchObject([{ database: "accounts", dialect: "postgresql", definition: { export: "authPostgresSchema" } }])
+    expect(discoverDatabaseDefinitions(root, { contributions: collected }).map(entry => entry.name)).toEqual(["accounts"])
+    expect(() => resolveDBViteConfig(undefined, root, { contributions: collected })).not.toThrow()
+  })
+
+  it("uses the dialect contributed for the implicit default Database", async () => {
+    const root = await createTempProject()
+    await writeAuthDatabase(root, "authDatabase()")
+    const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
+    const { resolveDBViteConfig } = await import("@vite-hub/database/config")
+    const collected = await collectDatabaseContributions([
+      hubAuth(),
+      { name: "postgres-owner", vitehub: { databases: [{ name: "postgres-data", dialect: "postgresql" }] } },
+    ], { projectRoot: root, root, rootDir: root })
+    expect(collected.tables).toMatchObject([{ database: "default", dialect: "postgresql", definition: { export: "authPostgresSchema" } }])
+    expect(() => resolveDBViteConfig(undefined, root, { contributions: collected })).not.toThrow()
+  })
+
+  it("adds no tables without authDatabase()", async () => {
+    const root = await createTempProject()
+    await writeAuth(root)
+    expect((await contributions(root)).tables).toEqual([])
+    expect((await contributions(root, hubAuth(false))).tables).toEqual([])
+  })
 })

@@ -4,7 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import { consoleMcpAccount, requestConsoleMcp } from "../client/mcp-client";
 import { useConsoleToast } from "../client/toast";
-import ConsoleFrame from "./console-frame.vue";
+import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 
 /**
@@ -12,7 +12,13 @@ import ConsoleState from "./console-state.vue";
  * exchanges it with the PKCE verifier that never left the server, then opens the new connection. The code leaves the
  * address bar as soon as the page has read it.
  */
-const props = defineProps<{ sectionsBase: string }>();
+const props = defineProps<{
+  agentsBase: string;
+  definitionsBase: string;
+  kvBase: string;
+  searchBase: string;
+  sectionsBase: string;
+}>();
 
 const route = useRoute();
 const router = useRouter();
@@ -47,18 +53,23 @@ onMounted(async () => {
 </script>
 
 <template>
-  <ConsoleFrame active="mcp-client" :sections-base="sectionsBase">
-    <UDashboardPanel id="mcp-client-callback" :ui="{ body: 'grid min-h-0 place-items-center p-6' }">
-      <ConsoleState
-        v-if="error"
-        :error="error"
-        title="Couldn't finish the sign-in"
-        :actions="[{ label: 'Back to MCP client', icon: 'i-lucide-arrow-left', to: { name: 'vitehub-console-mcp-client' } }]"
-      />
-      <div v-else class="grid justify-items-center gap-3 text-center" role="status" aria-live="polite">
-        <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted motion-reduce:animate-none" aria-hidden="true" />
-        <p class="text-[13px] text-muted">Finishing the sign-in…</p>
-      </div>
-    </UDashboardPanel>
-  </ConsoleFrame>
+  <ConsoleSearch
+    :agents-base="agentsBase"
+    :definitions-base="definitionsBase"
+    :kv-base="kvBase"
+    :search-base="searchBase"
+    :sections-base="sectionsBase"
+  />
+  <UDashboardPanel id="mcp-client-callback" :ui="{ body: 'grid min-h-0 place-items-center p-6' }">
+    <ConsoleState
+      v-if="error"
+      :error="error"
+      title="Couldn't finish the sign-in"
+      :actions="[{ label: 'Back to MCP client', icon: 'i-lucide-arrow-left', to: { name: 'vitehub-console-mcp-client' } }]"
+    />
+    <div v-else class="grid justify-items-center gap-3 text-center" role="status" aria-live="polite">
+      <UIcon name="i-lucide-loader-circle" class="size-5 animate-spin text-muted motion-reduce:animate-none" aria-hidden="true" />
+      <p class="text-[13px] text-muted">Finishing the sign-in…</p>
+    </div>
+  </UDashboardPanel>
 </template>

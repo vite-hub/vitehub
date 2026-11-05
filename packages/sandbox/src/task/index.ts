@@ -3,5 +3,5 @@ export { readRequestPayload, type RequestPayloadEvent } from './internal/shared/
 export { readValidatedPayload } from './internal/shared/validation'
 export { runSandboxTask } from './runtime/public'
 export { resolveSandboxTaskRunner, type SandboxTaskRunner } from './runtime/runtime'
-export { unsupportedHostedSandboxTaskProviderError } from './runtime/provider-loader'
+export { unsupportedHostedSandboxTaskProviderError } from './runtime/provider-resolution'
 export type * from './module-types'

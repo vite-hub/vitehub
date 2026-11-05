@@ -1,4 +1,5 @@
 import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { encodeUIMessageStream } from "./stream-output.ts"
 
 interface AgentStreamResult {
   toTextStreamResponse?: () => Response
@@ -93,14 +94,7 @@ export function toAgentUiMessageStreamResponse({
   stream,
   ...init
 }: AgentUiMessageStreamResponseInit): Response {
-  let sseStream = stream.pipeThrough(new TransformStream<unknown, string>({
-    flush(controller) {
-      controller.enqueue("data: [DONE]\n\n")
-    },
-    transform(chunk, controller) {
-      controller.enqueue(`data: ${JSON.stringify(chunk)}\n\n`)
-    },
-  }))
+  let sseStream = encodeUIMessageStream(stream)
   if (consumeSseStream) {
     const [responseStream, consumedStream] = sseStream.tee()
     sseStream = responseStream

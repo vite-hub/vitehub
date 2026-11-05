@@ -54,7 +54,10 @@ export async function readAuthConsole<K extends keyof AuthResults>(
   // The owner and the synthetic fixture share this response contract. Only the selected operation determines its type.
   return (await request(base, { operation, ...input }, signal)) as AuthResults[K];
 }
-export async function changeAuthConsole(base: string, input: AuthConsoleMutation): Promise<void> {
+export async function changeAuthConsole(
+  base: string,
+  input: AuthConsoleMutation | { action: "stopImpersonating" },
+): Promise<void> {
   await request(base, input);
 }
 export const authDate = (value: string | null) =>
@@ -67,3 +70,12 @@ export const authFieldValue = (value: unknown) =>
     : Array.isArray(value)
       ? value.join(", ")
       : String(value);
+/** A session length in words, such as "1 hour" or "1 hour 30 minutes". */
+export function authDuration(seconds: number): string {
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  const unit = (value: number, name: string) => `${value} ${name}${value === 1 ? "" : "s"}`;
+  if (!hours) return unit(rest, "minute");
+  return rest ? `${unit(hours, "hour")} ${unit(rest, "minute")}` : unit(hours, "hour");
+}

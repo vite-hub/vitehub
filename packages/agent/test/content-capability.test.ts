@@ -7,7 +7,7 @@ import { historyWorkspace } from "../../content/test/history-workspace.ts"
 import { content } from "../src/capabilities.ts"
 import { resolveChatTriggerInvoker } from "../src/chat-message-input.ts"
 import { webChat } from "../src/channels.ts"
-import { createAgentInspectionMetadata, defineAgent, defineAgentInvoker, runAgent } from "../src/index.ts"
+import { codexDriver, createAgentInspectionMetadata, defineAgent, defineAgentInvoker, runAgent } from "../src/index.ts"
 import { createChannelChatRouteHandler } from "../src/server/internal.ts"
 import { applyAgentToolPolicies } from "../src/tool-runtime.ts"
 
@@ -611,7 +611,7 @@ describe("content capability", () => {
   it("lists the Content tools in Agent inspection", () => {
     const inspected = createAgentInspectionMetadata(defineAgent({
       capabilities: [content({ collections: ["posts"], operations: ["read", "write"] })],
-      driver: "codex",
+      driver: codexDriver(),
       workspace: { mode: "write" },
     }))
     expect(inspected.tools).toContainEqual(expect.objectContaining({

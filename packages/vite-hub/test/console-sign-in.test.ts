@@ -11,7 +11,7 @@ import consoleSignInMiddleware from "../src/console/runtime/server/sign-in.ts"
 
 const origin = "http://vitehub.local"
 const unsafePages = ["/..//evil.example/sign-in", "/%2e%2e//evil.example/sign-in"]
-const signedOut = () => new Response(null, { status: 401 })
+const signedOut = async () => new Response(null, { status: 401 })
 const visit = (path: string) => ({ req: new Request(`${origin}${path}`, { headers: { accept: "text/html" } }) })
 const page = (signInPage: string) => ({
   document: { querySelector: () => ({ getAttribute: () => signInPage }) },
@@ -23,7 +23,7 @@ afterEach(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console
 describe("Console sign-in URL normalization", () => {
   it.each(unsafePages)("rejects %s before it can become a redirect", (signInPage) => {
     expect(isConsoleSignInPage(signInPage)).toBe(false)
-    expect(() => installConsoleAccess({ mode: "open", authorize: signedOut, signInPage })).toThrow("must be a path on the same origin")
+    expect(() => installConsoleAccess({ mode: "auth", check: signedOut, signInPage })).toThrow("must be a path on the same origin")
   })
 
   it.each([...unsafePages, "/\\evil.example/sign-in"])("does not link to %s", (signInPage) => {
@@ -31,7 +31,7 @@ describe("Console sign-in URL normalization", () => {
   })
 
   it.each(["", "/portal"])("preserves the sign-in fragment below mount %s", async (mount) => {
-    installConsoleAccess({ mode: "open", authorize: signedOut, signInPage: "/?from=console#/sign-in" })
+    installConsoleAccess({ mode: "auth", check: signedOut, signInPage: "/?from=console#/sign-in" })
     const response = await consolePageHandler(visit(`${mount}/_vitehub/auth?tab=users`))
     expect(response.status).toBe(302)
     expect(response.headers.get("location")).toBe(`${mount}/?from=console&redirect=${encodeURIComponent(`${mount}/_vitehub/auth?tab=users`)}#/sign-in`)
@@ -42,7 +42,7 @@ describe("Console sign-in URL normalization", () => {
   })
 
   it("normalizes the configured page before adding the mount base", async () => {
-    installConsoleAccess({ mode: "open", authorize: signedOut, signInPage: "/../sign-in" })
+    installConsoleAccess({ mode: "auth", check: signedOut, signInPage: "/../sign-in" })
     const response = await consolePageHandler(visit("/portal/_vitehub/auth"))
     expect(response.headers.get("location")).toBe("/portal/sign-in?redirect=%2Fportal%2F_vitehub%2Fauth")
   })
@@ -83,6 +83,45 @@ describe("Console sign-in before app Auth", () => {
       }
     }
     finally { database.close() }
+  })
+
+  it.each([undefined, "/sign-in"])("answers a signed-out request that is not a page visit with the 401 of the check, with signInPage=%s", async (signInPage) => {
+    const fetches = [
+      { method: "GET", headers: { accept: "application/json" } },
+      { method: "GET", headers: { accept: "application/json, text/html;q=0" } },
+      { method: "GET", headers: { accept: "application/json, text/html;q=0.000" } },
+      { method: "GET", headers: { accept: "TEXT/HTML; Q=0, application/json" } },
+      { method: "GET", headers: { accept: "*/*" } },
+      { method: "GET", headers: {} },
+    ]
+    for (const init of fetches) {
+      const denied = new Response("Sign in first.", { status: 401 })
+      installConsoleAccess({ mode: "auth", check: async () => denied, ...(signInPage ? { signInPage } : {}) })
+      const request = (path: string) => ({ req: new Request(`${origin}${path}`, init) })
+      await expect(consoleSignInMiddleware(request("/_vitehub/kv/dev"))).resolves.toBeUndefined()
+      const response = await consolePageHandler(request("/_vitehub/kv/dev"))
+      expect(response, JSON.stringify(init)).toBe(denied)
+      expect(response.headers.get("location")).toBeNull()
+    }
+  })
+
+  it("redirects a signed-out page visit when HTML has positive quality", async () => {
+    for (const accept of ["text/html", "application/json, text/html;q=0.5", "TEXT/HTML; Q=1"]) {
+      installConsoleAccess({ mode: "auth", check: signedOut, signInPage: "/sign-in" })
+      const request = () => ({ req: new Request(`${origin}/_vitehub/auth`, { headers: { accept } }) })
+      for (const handler of [consoleSignInMiddleware, consolePageHandler]) {
+        const response = await handler(request())
+        expect(response?.status, accept).toBe(302)
+        expect(response?.headers.get("location")).toBe("/sign-in?redirect=%2F_vitehub%2Fauth")
+      }
+    }
+  })
+
+  it("passes a Response from console.authorize through to a request that is not a page visit", async () => {
+    const notFound = new Response("Not found", { status: 404 })
+    installConsoleAccess({ mode: "auth", check: async () => undefined, user: async () => ({ id: "u1", email: "member@vitehub.dev" }), authorize: () => notFound, signInPage: "/sign-in" })
+    const response = await consolePageHandler({ req: new Request(`${origin}/_vitehub/unknown`, { headers: { accept: "application/json" } }) })
+    expect(response).toBe(notFound)
   })
 
   it("leaves Auth redirects and authorization rejections to the app middleware", async () => {

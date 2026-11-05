@@ -1,14 +1,17 @@
-import { and, asc, desc, eq, inArray, lt, or, sql } from "drizzle-orm"
+import { and, asc, desc, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm"
 import type { SQL } from "drizzle-orm"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
 
+import { guestIdPrefix } from "../identity.ts"
 import { commentsErrorDiagnostics } from "./errors.ts"
 import { commentCounters, commentMessages, commentThreads } from "./database.ts"
 import type {
   CommentActor,
   CommentAnchor,
+  CommentContext,
   CommentListQuery,
   CommentMessage,
+  CommentMetadata,
   CommentStatus,
   CommentSubject,
   CommentThread,
@@ -56,8 +59,9 @@ function parseJson<T>(value: string | null, fallback: T): T {
   }
 }
 
+
 function user(id: string, name: string | null, image: string | null): CommentUser {
-  return { id, ...(name ? { name } : {}), ...(image ? { image } : {}) }
+  return { id, ...(name ? { name } : {}), ...(image ? { image } : {}), ...(id.startsWith(guestIdPrefix) ? { guest: true } : {}) }
 }
 
 function messageOf(row: MessageRow): CommentMessage {
@@ -78,6 +82,8 @@ function messageOf(row: MessageRow): CommentMessage {
 function threadOf(row: ThreadRow, messages: CommentMessage[]): CommentThread {
   const actor = parseJson<CommentActor | undefined>(row.actor, undefined)
   const resolvedBy = parseJson<CommentUser | undefined>(row.resolvedBy, undefined)
+  const metadata = parseJson<CommentMetadata | undefined>(row.metadata, undefined)
+  const context = parseJson<CommentContext | undefined>(row.context, undefined)
   return {
     anchor: parseJson<CommentAnchor>(row.anchor, { kind: "page" }),
     author: user(row.authorId, row.authorName, row.authorImage),
@@ -92,6 +98,9 @@ function threadOf(row: ThreadRow, messages: CommentMessage[]): CommentThread {
     ...(actor ? { actor } : {}),
     ...(resolvedBy ? { resolvedBy } : {}),
     ...(row.resolvedAt === null ? {} : { resolvedAt: row.resolvedAt }),
+    ...(metadata ? { metadata } : {}),
+    ...(context ? { context } : {}),
+    ...(row.revision === null ? {} : { revision: row.revision }),
   }
 }
 
@@ -133,24 +142,40 @@ export interface NewThread extends NewMessage {
   scope: string
   subject: CommentSubject
   threadId: string
+  metadata?: CommentMetadata
+  context?: CommentContext
+  revision?: number
 }
+
+/** What `list` filters by. `userId` is the signed-in user, for `mine` and `mentions`. */
+export type StoreListQuery = CommentListQuery & { userId?: string, scope?: string }
 
 export interface CommentsStore {
   /** Newest first: by `updatedAt`, then `id`. `before` continues after the last thread of an earlier page. */
-  list: (query: CommentListQuery & { userId?: string }) => Promise<CommentThread[]>
+  list: (query: StoreListQuery) => Promise<CommentThread[]>
   getById: (id: string) => Promise<CommentThread | null>
   getByNumber: (scope: string, n: number) => Promise<CommentThread | null>
+  /** The thread that holds a message. */
+  getByMessage: (messageId: string) => Promise<CommentThread | null>
+  /** Threads listing `key` in a page of matching messages. `cursor` continues after those candidates. */
+  getByAttachment: (key: string, cursor?: string) => Promise<{ threads: CommentThread[], cursor?: string }>
   /**
    * Inserts the thread and its first message together, with the next number of its scope. Several creators at once each
    * get their own number, and a number is never handed out twice.
    */
   createThread: (input: NewThread) => Promise<CommentThread>
-  addMessage: (threadId: string, input: NewMessage) => Promise<CommentThread>
+  /**
+   * Adds a message. A resolved thread takes it only with `allowResolved`; otherwise it fails with `COMMENTS_R0016`,
+   * checked in the same statement as the insert.
+   */
+  addMessage: (threadId: string, input: NewMessage, options?: { allowResolved?: boolean }) => Promise<CommentThread>
   editMessage: (threadId: string, messageId: string, input: { body: string, mentions: string[], now: number }) => Promise<CommentThread>
   deleteMessage: (threadId: string, messageId: string, now: number) => Promise<CommentThread>
   /** With `ownerId`, delete only if every message still belongs to that owner at mutation time. */
   deleteThread: (threadId: string, ownerId?: string) => Promise<boolean>
   setStatus: (threadId: string, status: CommentStatus, by: CommentUser, now: number) => Promise<CommentThread>
+  /** Deletes every thread of a scope with its messages, and returns their ids. Numbers of the scope are never reused. */
+  deleteScope: (scope: string) => Promise<string[]>
   /**
    * The people that wrote in a thread, for a store without an Auth adapter. Only authors of threads that `canRead`
    * accepts count, and a message without a thread never shows.
@@ -173,9 +198,29 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     return rows.map(row => threadOf(row, byThread.get(row.id) ?? []))
   }
 
+  /**
+   * The threads that match, newest activity first, with their messages. On libSQL and D1 one batch reads both, so a
+   * read costs one round trip: both statements select the same threads, because the order ends on the unique id and a
+   * batch reads one snapshot.
+   */
+  async function read(where: SQL | undefined, limit: number): Promise<CommentThread[]> {
+    const order = [desc(threads.updatedAt), desc(threads.id)]
+    const batch = Reflect.get(Object(db), "batch")
+    if (typeof batch !== "function") return attach(await db.select().from(threads).where(where).orderBy(...order).limit(limit))
+    // SAFETY: a batch answers each select with its rows, in order.
+    const [rows, messageRows] = await Reflect.apply(batch, db, [[
+      db.select().from(threads).where(where).orderBy(...order).limit(limit),
+      db.select().from(messages)
+        .where(inArray(messages.threadId, db.select({ id: threads.id }).from(threads).where(where).orderBy(...order).limit(limit)))
+        .orderBy(asc(messages.createdAt), asc(messages.id)),
+    ]]) as [ThreadRow[], MessageRow[]]
+    const byThread = new Map<string, CommentMessage[]>()
+    for (const row of messageRows) byThread.set(row.threadId, [...(byThread.get(row.threadId) ?? []), messageOf(row)])
+    return rows.map(row => threadOf(row, byThread.get(row.id) ?? []))
+  }
+
   async function find(id: string): Promise<CommentThread | null> {
-    const [row] = await db.select().from(threads).where(eq(threads.id, id)).limit(1)
-    return row ? (await attach([row]))[0]! : null
+    return (await read(eq(threads.id, id), 1))[0] ?? null
   }
 
   async function one(id: string): Promise<CommentThread> {
@@ -189,8 +234,11 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     batch?: (statements: unknown[]) => Promise<unknown>
     transaction?: (run: (target: CommentsDatabase) => Promise<void>) => Promise<unknown>
   }
-  /** Whether the driver can run several writes as one unit: `batch()` on libSQL and D1, a transaction on Postgres. */
-  const groups = typeof driver.batch === "function" || typeof driver.transaction === "function"
+  /**
+   * Whether the driver can run several writes as one unit: `batch()` on libSQL and D1, a transaction on Postgres. Read
+   * on use: a D1 Database connects only when a request brings its binding.
+   */
+  const groups = () => typeof driver.batch === "function" || typeof driver.transaction === "function"
 
   /**
    * Runs the writes together where the driver can. Otherwise they run in order, and the caller orders them so that a
@@ -210,9 +258,9 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     for (const statement of build(db)) await statement
   }
 
-  function touching(target: CommentsDatabase, id: string, now: number, values: Partial<typeof threads.$inferInsert> = {}) {
+  function touching(target: CommentsDatabase, id: string, now: number, values: Partial<typeof threads.$inferInsert> = {}, only?: SQL) {
     // Each mutation needs a newer snapshot even when the clock has not advanced.
-    return target.update(threads).set({ ...values, updatedAt: sql`case when ${threads.updatedAt} >= ${now} then ${threads.updatedAt} + 1 else ${now} end` }).where(eq(threads.id, id))
+    return target.update(threads).set({ ...values, updatedAt: sql`case when ${threads.updatedAt} >= ${now} then ${threads.updatedAt} + 1 else ${now} end` }).where(and(eq(threads.id, id), only))
   }
 
   function messageRow(threadId: string, input: NewMessage): typeof messages.$inferInsert {
@@ -249,7 +297,8 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     return db.select({ createdAt: messages.createdAt, messageId: messages.id, id: messages.authorId, image: messages.authorImage, name: messages.authorName, threadId: messages.threadId })
       .from(messages)
       .innerJoin(threads, eq(threads.id, messages.threadId))
-      .where(where)
+      // Guests name themselves, so nobody can mention them.
+      .where(and(where, sql`${messages.authorId} not like ${`${guestIdPrefix}%`}`))
       .orderBy(desc(messages.createdAt), desc(messages.id))
   }
 
@@ -259,7 +308,10 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       const before = query.before
       const where = [
         ...(subject ? [eq(threads.subjectKind, subject.kind), eq(threads.subjectId, subject.id)] : []),
+        ...(query.subjectKind === undefined ? [] : [eq(threads.subjectKind, query.subjectKind)]),
+        ...(query.scope === undefined ? [] : [eq(threads.scope, query.scope)]),
         ...(query.status ? [eq(threads.status, query.status)] : []),
+        ...(query.revision ? [lte(threads.revision, query.revision.lte)] : []),
         ...(query.mine ? [query.userId ? eq(threads.authorId, query.userId) : sql`1 = 0`] : []),
         ...(query.mentions
           ? [query.userId
@@ -269,13 +321,28 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
         ...(before ? [or(lt(threads.updatedAt, before.updatedAt), and(eq(threads.updatedAt, before.updatedAt), lt(threads.id, before.id)))!] : []),
       ]
       const limit = Math.min(Math.max(Math.trunc(query.limit ?? defaultListLimit), 1), maximumListLimit)
-      const rows = await db.select().from(threads).where(where.length ? and(...where) : undefined).orderBy(desc(threads.updatedAt), desc(threads.id)).limit(limit)
-      return attach(rows)
+      return read(where.length ? and(...where) : undefined, limit)
     },
     getById: find,
     async getByNumber(scope, n) {
-      const [row] = await db.select().from(threads).where(and(eq(threads.scope, scope), eq(threads.n, n))).limit(1)
-      return row ? (await attach([row]))[0]! : null
+      return (await read(and(eq(threads.scope, scope), eq(threads.n, n)), 1))[0] ?? null
+    },
+    async getByMessage(messageId) {
+      const [row] = await db.select({ threadId: messages.threadId }).from(messages).where(eq(messages.id, messageId)).limit(1)
+      return row ? find(row.threadId) : null
+    },
+    async getByAttachment(key, cursor) {
+      // `attachments` is a JSON list of strings, so the quoted key matches one whole entry. The parsed list decides.
+      const pattern = `%${JSON.stringify(key).replaceAll(/[\\%_]/g, character => `\\${character}`)}%`
+      const rows = await db.select({ id: messages.id, threadId: messages.threadId, attachments: messages.attachments }).from(messages)
+        .where(and(sql`${messages.attachments} LIKE ${pattern} ESCAPE '\\'`, cursor === undefined ? undefined : gt(messages.id, cursor)))
+        .orderBy(asc(messages.id)).limit(candidateLimit)
+      const ids = [...new Set(rows.filter(row => parseJson<string[]>(row.attachments, []).includes(key)).map(row => row.threadId))]
+      const found = await Promise.all(ids.map(id => find(id)))
+      return {
+        threads: found.filter(thread => thread !== null),
+        ...(rows.length === candidateLimit ? { cursor: rows.at(-1)!.id } : {}),
+      }
     },
     async createThread(input) {
       for (let attempt = 0; attempt < allocationAttempts; attempt++) {
@@ -295,6 +362,9 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
           status: "open" as const,
           subjectId: input.subject.id,
           subjectKind: input.subject.kind,
+          metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+          context: input.context ? JSON.stringify(input.context) : null,
+          revision: input.revision ?? null,
           updatedAt: input.now,
         }
         try {
@@ -304,7 +374,7 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
         }
         catch (error) {
           // A driver without a batch or a transaction may have kept the message. A failed cleanup must not hide the original error.
-          if (!groups) await db.delete(messages).where(eq(messages.id, input.id)).catch(() => undefined)
+          if (!groups()) await db.delete(messages).where(eq(messages.id, input.id)).catch(() => undefined)
           // The unique index is a backstop for a counter that lags the threads. Claim the next number.
           if (isUniqueViolation(error)) continue
           throw error
@@ -313,29 +383,37 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       }
       throw commentsErrorDiagnostics.COMMENTS_R0011()
     },
-    async addMessage(threadId, input) {
-      await one(threadId)
+    async addMessage(threadId, input, { allowResolved = false } = {}) {
+      const before = await one(threadId)
+      if (before.status === "resolved" && !allowResolved) throw commentsErrorDiagnostics.COMMENTS_R0016()
       await together(target => [
         // Lock the thread before reading its messages. Deletion takes the same lock, and an insert after deletion
-        // selects no thread. This also serializes replies so their timestamps preserve insertion order.
-        touching(target, threadId, input.now),
+        // selects no thread. This also serializes replies so their timestamps preserve insertion order. A resolved
+        // thread that takes no replies keeps its activity time.
+        touching(target, threadId, input.now, {}, allowResolved ? undefined : eq(threads.status, "open")),
         target.insert(messages).select(sql`select
           ${input.id}, ${threadId}, ${input.body}, ${input.author.id}, ${input.author.name ?? null}, ${input.author.image ?? null},
           ${input.actor ? JSON.stringify(input.actor) : null}, ${JSON.stringify(input.mentions)}, ${JSON.stringify(input.attachments)},
           (select case when max(${messages.createdAt}) >= ${input.now} then max(${messages.createdAt}) + 1 else ${input.now} end
             from ${messages} where ${messages.threadId} = ${threadId}), null
-          from ${threads} where ${threads.id} = ${threadId}`),
+          from ${threads} where ${threads.id} = ${threadId}${allowResolved ? sql`` : sql` and ${threads.status} = 'open'`}`),
       ])
-      return one(threadId)
+      const after = await one(threadId)
+      // Someone resolved the thread between the read and the insert: the insert selected no row.
+      if (!after.messages.some(message => message.id === input.id)) throw commentsErrorDiagnostics.COMMENTS_R0016()
+      return after
     },
     async editMessage(threadId, messageId, input) {
       const found = await one(threadId)
       if (!found.messages.some(message => message.id === messageId)) throw commentsErrorDiagnostics.COMMENTS_R0003({ messageId })
       await together(target => [
         target.update(messages).set({ body: input.body, editedAt: input.now, mentions: JSON.stringify(input.mentions) }).where(and(eq(messages.id, messageId), eq(messages.threadId, threadId))),
-        touching(target, threadId, input.now),
+        // A message that someone deleted meanwhile leaves the activity time as it was.
+        touching(target, threadId, input.now, {}, sql`exists (select 1 from ${messages} where ${messages.id} = ${messageId} and ${messages.threadId} = ${threadId})`),
       ])
-      return one(threadId)
+      const after = await one(threadId)
+      if (!after.messages.some(message => message.id === messageId)) throw commentsErrorDiagnostics.COMMENTS_R0003({ messageId })
+      return after
     },
     async deleteMessage(threadId, messageId, now) {
       await together(target => [target.delete(messages).where(and(eq(messages.id, messageId), eq(messages.threadId, threadId))), touching(target, threadId, now)])
@@ -359,6 +437,31 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
         ? { resolvedAt: now, resolvedBy: JSON.stringify(by), status }
         : { resolvedAt: null, resolvedBy: null, status })
       return one(threadId)
+    },
+    async deleteScope(scope) {
+      const remove = (target: CommentsDatabase) => [
+        target.delete(messages).where(inArray(messages.threadId, target.select({ id: threads.id }).from(threads).where(eq(threads.scope, scope)))),
+        target.delete(threads).where(eq(threads.scope, scope)).returning({ id: threads.id }),
+      ] as const
+      let removed: Array<{ id: string }> = []
+      if (typeof driver.batch === "function") {
+        // SAFETY: a batch answers each statement in order; the second one returns the ids of the deleted threads.
+        removed = (await driver.batch([...remove(db)]) as [unknown, Array<{ id: string }>])[1]
+      }
+      else if (typeof driver.transaction === "function") {
+        await driver.transaction(async (target) => {
+          // Deleting locks the same rows as addMessage. A reply that already holds the lock finishes first;
+          // a later reply selects no thread. The next statement sees messages committed before deletion.
+          removed = await target.delete(threads).where(eq(threads.scope, scope)).returning({ id: threads.id })
+          for (const part of chunks(removed.map(row => row.id))) await target.delete(messages).where(inArray(messages.threadId, part))
+        })
+      }
+      else {
+        // Without a unit of work, the threads go first, so no message of a listed thread is left behind.
+        removed = await db.delete(threads).where(eq(threads.scope, scope)).returning({ id: threads.id })
+        for (const part of chunks(removed.map(row => row.id))) await db.delete(messages).where(inArray(messages.threadId, part))
+      }
+      return removed.map(row => row.id)
     },
     async knownUsersByIds(ids, canRead) {
       const seen = new Map<string, CommentUser>()

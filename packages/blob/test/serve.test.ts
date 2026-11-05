@@ -7,7 +7,9 @@ import { pathToFileURL } from "node:url"
 import { H3, H3Event } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { createDriver as createR2Driver } from "../src/drivers/cloudflare.ts"
 import { createDriver } from "../src/drivers/fs.ts"
+import { clearActiveCloudflareEnv, setActiveCloudflareEnv } from "../src/runtime/state.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import type { BlobStorage } from "../src/types.ts"
 
@@ -334,6 +336,16 @@ describe("Blob response transforms", () => {
       expect(request.res.status).toBe(304)
     }
     expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  it("answers 404 when a route rethrows a missing object", async () => {
+    const app = new H3().get("/files/**", async (event) => {
+      const [error, body] = await storage.serve(event, "missing.txt")
+      if (error) throw error
+      return body
+    })
+    const response = await app.fetch(new Request("https://example.test/files/missing.txt"))
+    expect(response.status).toBe(404)
   })
 
   it("does not serve a cached derivative after the source is deleted", async () => {
@@ -748,5 +760,153 @@ describe("Blob byte ranges", () => {
     expect(text).toBe(content.toUpperCase())
     expect(request.res.headers.get("accept-ranges")).toBeNull()
     expect(request.res.headers.get("content-range")).toBeNull()
+  })
+})
+
+describe("Blob streams on an R2 binding", () => {
+  const encode = (text: string) => new TextEncoder().encode(text)
+  type Range = { offset: number, length?: number } | { suffix: number }
+  type Read = { onlyIf?: { etagMatches: string }, range?: Range }
+  let calls: Array<["get", Read] | ["head"]>
+  let object: { body: Uint8Array, etag: string }
+  let changeAfterGet: (() => void) | undefined
+  let contentType = "video/mp4"
+  const describeObject = () => ({
+    httpEtag: `"${object.etag}"`,
+    httpMetadata: { contentType },
+    key: "media/video.mp4",
+    size: object.body.byteLength,
+    uploaded: new Date(0),
+  })
+  const bucket = {
+    async get(key: string, options: Read = {}) {
+      if (key !== "media/video.mp4") return null
+      calls.push(["get", options])
+      const meta = describeObject()
+      const size = object.body.byteLength
+      // Like R2: a failed condition answers the metadata without a body.
+      if (options.onlyIf && options.onlyIf.etagMatches !== object.etag) return meta
+      const { range } = options
+      const start = !range ? 0 : "suffix" in range ? size - range.suffix : range.offset
+      const end = !range || "suffix" in range || range.length === undefined ? size : range.offset + range.length
+      if (range && ("suffix" in range ? range.suffix <= 0 || size === 0 : range.offset >= size)) {
+        changeAfterGet?.()
+        changeAfterGet = undefined
+        throw new Error("get: The requested range is not satisfiable (10039)")
+      }
+      const bytes = object.body.slice(Math.max(0, start), end)
+      changeAfterGet?.()
+      changeAfterGet = undefined
+      return { ...meta, arrayBuffer: () => { throw new Error("read into memory") }, body: new Blob([bytes]).stream() }
+    },
+    async head(key: string) {
+      if (key !== "media/video.mp4") return null
+      calls.push(["head"])
+      return describeObject()
+    },
+  }
+
+  beforeEach(() => {
+    calls = []
+    contentType = "video/mp4"
+    object = { body: encode("0123456789abcdefghij"), etag: "v1" }
+    setActiveCloudflareEnv({ BLOB: bucket })
+  })
+
+  afterEach(() => {
+    clearActiveCloudflareEnv()
+  })
+
+  async function serve(headers?: Record<string, string>) {
+    const storage = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }))
+    const event = new H3Event(new Request("https://example.test/video", { headers }))
+    const [error, body] = await storage.serve(event, "media/video.mp4")
+    expect(error).toBeNull()
+    return { event, text: await new Response(body).text() }
+  }
+
+  it("streams the whole object and its metadata from one read", async () => {
+    const { event, text } = await serve()
+    expect(event.res.status).not.toBe(206)
+    expect(text).toBe("0123456789abcdefghij")
+    expect(event.res.headers.get("content-length")).toBe("20")
+    expect(event.res.headers.get("content-type")).toBe("video/mp4")
+    expect(event.res.headers.get("etag")).toMatch(/^"[^"]+"$/)
+    expect(calls).toEqual([["get", { onlyIf: undefined, range: undefined }]])
+  })
+
+  it("reads only the requested bytes in one read", async () => {
+    const { event, text } = await serve({ range: "bytes=15-" })
+    expect(event.res.status).toBe(206)
+    expect(text).toBe("fghij")
+    expect(event.res.headers.get("content-range")).toBe("bytes 15-19/20")
+    expect(event.res.headers.get("content-length")).toBe("5")
+    expect(event.res.headers.get("content-type")).toBe("video/mp4")
+    expect(event.res.headers.get("accept-ranges")).toBe("bytes")
+    expect(calls).toEqual([["get", { onlyIf: undefined, range: { offset: 15 } }]])
+  })
+
+  it("reads bounded and suffix ranges in one read", async () => {
+    const bounded = await serve({ range: "bytes=2-4" })
+    expect(bounded.text).toBe("234")
+    expect(bounded.event.res.headers.get("content-range")).toBe("bytes 2-4/20")
+    const suffix = await serve({ range: "bytes=-3" })
+    expect(suffix.text).toBe("hij")
+    expect(suffix.event.res.headers.get("content-range")).toBe("bytes 17-19/20")
+    expect(calls.map(call => call[1]?.range)).toEqual([{ offset: 2, length: 3 }, { suffix: 3 }])
+  })
+
+  it("answers a matching If-None-Match with 304 from one read", async () => {
+    const etag = (await serve()).event.res.headers.get("etag")!
+    calls = []
+    const { event, text } = await serve({ "if-none-match": etag })
+    expect(event.res.status).toBe(304)
+    expect(text).toBe("")
+    expect(calls).toHaveLength(1)
+  })
+
+  it("answers an unsatisfiable range with 416 and the size", async () => {
+    const { event, text } = await serve({ range: "bytes=20-" })
+    expect(event.res.status).toBe(416)
+    expect(text).toBe("")
+    expect(event.res.headers.get("content-range")).toBe("bytes */20")
+    expect(calls).toEqual([["get", { onlyIf: undefined, range: { offset: 20 } }], ["head"]])
+  })
+
+  it("sends the whole body of the same version for a stale If-Range", async () => {
+    const { event, text } = await serve({ "if-range": "\"old\"", range: "bytes=0-1" })
+    expect(event.res.status).not.toBe(206)
+    expect(text).toBe("0123456789abcdefghij")
+    // R2 rejects a quoted ETag in onlyIf.
+    expect(calls).toEqual([["get", { onlyIf: undefined, range: { offset: 0, length: 2 } }], ["get", { onlyIf: { etagMatches: "v1" }, range: undefined }]])
+  })
+
+  it("serves the new version when the object changes before a stale If-Range reads the whole body", async () => {
+    changeAfterGet = () => {
+      object = { body: encode("ABCDEFGHIJ"), etag: "v2" }
+    }
+    const { event, text } = await serve({ "if-range": "\"old\"", range: "bytes=0-1" })
+    expect(text).toBe("ABCDEFGHIJ")
+    expect(event.res.headers.get("content-length")).toBe("10")
+  })
+
+  it("reads again when the object grows to fit a range that R2 rejected", async () => {
+    changeAfterGet = () => {
+      object = { body: encode("0123456789abcdefghijKLMNO"), etag: "v2" }
+    }
+    const { event, text } = await serve({ range: "bytes=20-" })
+    expect(event.res.status).toBe(206)
+    expect(text).toBe("KLMNO")
+    expect(event.res.headers.get("content-range")).toBe("bytes 20-24/25")
+  })
+
+  it("reads again when a stale If-Range whole read finds another content type", async () => {
+    changeAfterGet = () => {
+      contentType = "video/webm"
+    }
+    const { event, text } = await serve({ "if-range": "\"old\"", range: "bytes=0-1" })
+    expect(text).toBe("0123456789abcdefghij")
+    expect(event.res.headers.get("content-type")).toBe("video/webm")
+    expect(calls).toHaveLength(4)
   })
 })

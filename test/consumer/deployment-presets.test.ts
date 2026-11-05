@@ -244,7 +244,7 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
     })
     await expect(readFile(join(root, ".output/nitro.json"), "utf8").then(JSON.parse)).resolves.toMatchObject({
       commands: {
-        deploy: "npx wrangler --cwd ./server deploy --containers-rollout=gradual",
+        deploy: "npx wrangler deploy --config ./server/wrangler.json --containers-rollout=gradual",
       },
     })
     const wrangler = JSON.parse(await readFile(join(root, ".output/server/wrangler.json"), "utf8"))

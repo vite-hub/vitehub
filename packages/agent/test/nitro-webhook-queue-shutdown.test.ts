@@ -8,13 +8,13 @@ import { promisify } from "node:util"
 
 import { expect, it } from "vitest"
 
-import { syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
+import { packedWorkspacePackages, syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(import.meta.dirname, "..")
 const workspaceRoot = resolve(packageRoot, "../..")
-const packedPackages = ["agent", "env", "forge", "gateways", "markdown-template", "rate-limit", "runtime", "sandbox", "source", "workflow", "workspace"] as const
+const packedPackages = await packedWorkspacePackages(workspaceRoot, ["agent", "env", "forge", "gateways", "markdown-template", "rate-limit", "runtime", "sandbox", "source", "workflow", "workspace"])
 
 async function runPnpm(args: string[], cwd: string): Promise<void> {
   const npmExecPath = process.env.npm_execpath

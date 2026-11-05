@@ -82,19 +82,23 @@ export function createCloudflareQueueBindings(definitions: DiscoveredQueueDefini
 function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig: NormalizedQueueOptions, cloudflareQueues: boolean, queueDefinitions: Record<string, string>, development: boolean) {
   const cloudflareRuntime = queueConfig !== false && queueConfig.provider === "cloudflare"
   const vercelRuntime = queueConfig !== false && queueConfig.provider === "vercel"
+  const localRuntime = queueConfig !== false && queueConfig.provider === "local"
   const cloudflare = cloudflareQueues && cloudflareRuntime
   const cloudflareGlobals = cloudflareRuntime && !development
   const runtimeClientFactory = cloudflareRuntime
     ? "createCloudflareQueueRuntimeClient"
     : vercelRuntime
       ? "createVercelQueueRuntimeClient"
-      : undefined
+      : localRuntime
+        ? "createLocalQueueRuntimeClient"
+        : undefined
   return [
     "import { definePlugin } from 'nitro'",
     ...(vercelRuntime ? [`import * as __vitehubVercelQueue from ${JSON.stringify(createImportPath(pluginFile, resolvePackageDependency("@vercel/queue")))}`] : []),
     ...(cloudflareGlobals ? ["import * as vitehubCloudflareWorkers from 'cloudflare:workers'"] : []),
     ...(cloudflare ? [`import { createQueueCloudflareWorker } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/cloudflare-vite")))}`] : []),
     ...(cloudflareRuntime ? [`import { createCloudflareQueueRuntimeClient } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/cloudflare-client")))}`] : []),
+    ...(localRuntime ? [`import { closeLocalQueues, createLocalQueueRuntimeClient, startLocalQueue } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/local-client")))}`] : []),
     ...(vercelRuntime ? [`import { createVercelQueueRuntimeClient } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/vercel-client")))}`] : []),
     `import { setQueueRuntimeConfig, setQueueRuntimeEventDefaults, setQueueRuntimeRegistry } from ${JSON.stringify(createImportPath(pluginFile, resolveRuntimeModule("internal/runtime/state")))}`,
     `import queueRegistry from ${JSON.stringify(createImportPath(pluginFile, registryFile))}`,
@@ -104,11 +108,12 @@ function renderNitroPlugin(pluginFile: string, registryFile: string, queueConfig
     `const queueConfig = ${JSON.stringify(queueConfig, null, 2)}`,
     ...(cloudflare ? [`const queueDefinitions = ${JSON.stringify(queueDefinitions, null, 2)}`, "const queueWorker = createQueueCloudflareWorker({ definitions: queueDefinitions, queue: queueConfig, registry: queueRegistry })"] : []),
     "",
-    `export default definePlugin((${cloudflare ? "nitro" : ""}) => {`,
+    `export default definePlugin((${cloudflare || localRuntime ? "nitro" : ""}) => {`,
     `  setQueueRuntimeConfig(queueConfig${runtimeClientFactory ? `, ${runtimeClientFactory}` : ""})`,
     "  setQueueRuntimeRegistry(queueRegistry)",
     ...(cloudflareGlobals ? ["  setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })"] : []),
     ...(cloudflare ? ["  nitro.hooks.hook('cloudflare:queue', ({ batch, context, env }) => queueWorker.queue(batch, env, context))"] : []),
+    ...(localRuntime ? ["  startLocalQueue(queueConfig)", "  nitro.hooks.hook('close', closeLocalQueues)"] : []),
     "})",
     "",
   ].join("\n")

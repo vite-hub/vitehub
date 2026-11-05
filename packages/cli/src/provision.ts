@@ -160,10 +160,11 @@ async function runProvision(args: string[], context: ProvisionFeatureContext, op
   // Reject unreadable state before providers can create resources whose IDs would be lost.
   if (!parsed.dryRun) await readProvisionState(context.rootDir)
 
-  const { actions, warnings } = await planProvision(provider, context, options, parsed.json)
+  const { actions, checked, warnings } = await planProvision(provider, context, options, parsed.json)
   if (!parsed.json) {
+    if (!checked) context.stdout.write("provision: plan not checked.\n")
     if (!actions.length) {
-      context.stdout.write(`provision: no ${provider} resources to create.\n`)
+      if (checked) context.stdout.write(`provision: no ${provider} resources to create.\n`)
       return 0
     }
     writeActions(actions, context.stdout)

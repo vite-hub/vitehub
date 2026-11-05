@@ -35,7 +35,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_DEFINITION_NOT_FOUND: {
       why: ({ queue }: { queue?: string }) => queue ? `No Queue Definition has the name "${queue}".` : "No Queue Definition has the requested name.",
-      fix: "Add `server/queues/<name>.ts` with a default `defineQueue()` export, and build again. The generated server output loads the Queue Definitions, so a script that runs outside of it finds none.",
+      fix: "Add `server/queues/<name>.ts` with a default `defineQueue()` export, and build again with Queue enabled. The generated server output loads the Queue Definitions, so a script that runs outside of it, or an app built without Queue, finds none.",
     },
     QUEUE_DISABLED: {
       why: "Queue is disabled in this runtime.",
@@ -48,6 +48,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     QUEUE_MISSING_REGION: {
       why: "The installed `@vercel/queue` needs a region, and ViteHub cannot find one.",
       fix: "Set `queue.region` in the Vite config, or set the `QUEUE_REGION` environment variable.",
+    },
+    QUEUE_MISSING_QUEUE: {
+      why: "A direct local queue client needs a `queue` name.",
+      fix: "Pass the name of a Queue Definition as `queue` to `createQueueClient()`, or use `getQueue()`.",
     },
     QUEUE_MISSING_TOPIC: {
       why: "A direct Vercel queue client needs a `topic`.",
@@ -97,11 +101,11 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     QUEUE_INVALID_PROVIDER: {
       why: ({ provider }: { provider: string }) => `\`queue.provider\` "${provider}" is not a Queue provider.`,
-      fix: "Set `queue.provider` to \"cloudflare\" or \"vercel\".",
+      fix: "Set `queue.provider` to \"cloudflare\", \"vercel\", or \"local\".",
     },
     QUEUE_MISSING_PROVIDER: {
       why: ({ hosting }: { hosting: string }) => `ViteHub cannot select a Queue provider for ${hosting} hosting.`,
-      fix: "Set `queue.provider`, select the Cloudflare or Vercel deployment preset, or set `queue: false`.",
+      fix: "Set `queue.provider`, select the Cloudflare, Vercel, or Node deployment preset, or set `queue: false`.",
     },
     QUEUE_NAME_COLLISION: {
       why: ({ first, resolved, second }: { first: string, resolved: string, second: string }) => `The Queue Definitions "${first}" and "${second}" have the same provider name "${resolved}".`,

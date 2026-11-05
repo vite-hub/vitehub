@@ -1,22 +1,46 @@
 import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
+import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 
 import { installComments } from "../index.ts"
-import { commentsApiRoute, commentsHintCookie, commentsHintQuery, commentsRoute } from "../page.ts"
+import { normalizeCommentPage } from "../page.ts"
 import { commentsMcpTools } from "./mcp.ts"
+import { resolveCommentsIdentity } from "./session.ts"
 
-import type { Comments } from "../index.ts"
-import type { CommentsDatabase } from "../store.ts"
+import type { H3Event } from "h3"
+import type { Comments, InstallCommentsOptions } from "../index.ts"
+import type { CommentsDatabase } from "../operations-core/store.ts"
+import type { CommentsGitHubLogin } from "./github-login.ts"
 import type { CommentsSessionOptions } from "./session.ts"
 
 export interface CommentsPluginOptions extends CommentsSessionOptions {
   comments: Comments
+  /** Offers GitHub sign-in or account switching through the overlay, even before read access is granted. */
+  githubLogin?: CommentsGitHubLogin
   /** The Database of `defineComments({ database })`, or undefined when the app has none. */
   database: () => CommentsDatabase | undefined
-  /** URL of the overlay script that pages load in comment mode. */
-  overlay: string
+  /**
+   * Path of the overlay script below the app base, such as `/api/_vitehub/comments/assets/overlay.js`. The page tools
+   * loader imports it for people that may read comments.
+   */
+  overlay: string | false
+  /** The app base, such as `/portal/`. The page tools use it for the loader tag of Nitro 3 pages. Default: the root. */
+  base?: string
+  /** Vite's serve/build identity, recorded by the generated plugin. Defaults to false. */
+  development?: boolean
+  /** What the server log says when `database()` returns nothing. */
+  missingDatabase?: string
+  /** The Auth users for `@` suggestions, when the app has Auth. */
+  users?: InstallCommentsOptions["users"]
+  /** The Blob store for attachments, when the app has Blob. */
+  attachments?: InstallCommentsOptions["attachments"]
+  /** Who keeps the tables up to date: `comments` for a Database that `comments()` opens itself. Default `app`. */
+  schema?: InstallCommentsOptions["schema"]
+  /** The tables of a Postgres Database. Default: the SQLite tables. */
+  tables?: InstallCommentsOptions["tables"]
+  dialect?: InstallCommentsOptions["dialect"]
 }
 
-const runtimeKey = Symbol.for("vitehub.comments.runtime")
+const runtimeKey = Symbol.for("vitehub.comments.installed")
 
 /** The Comments definition that the Nitro plugin installed, for the Console reader. */
 export function installedComments(): Comments | undefined {
@@ -25,111 +49,51 @@ export function installedComments(): Comments | undefined {
   return value === undefined ? undefined : value as Comments
 }
 
-/** Whether a request asks for comment mode: the `?comments` query or the hint cookie that the session route sets. */
-export function wantsCommentMode(request: Request, base = ""): boolean {
-  const url = new URL(request.url)
-  if (base && url.pathname !== base && !url.pathname.startsWith(`${base}/`)) return false
-  const path = url.pathname.slice(base.length)
-  if (path.startsWith("/_vitehub") || path.startsWith("/api/")) return false
-  if (url.searchParams.has(commentsHintQuery)) return true
-  const cookie = request.headers.get("cookie")
-  return Boolean(cookie && cookie.split(";").some(part => part.trim() === `${commentsHintCookie}=1`))
-}
-
-function scriptTag(src: string, nonce?: string): string {
-  return `<script type="module" src="${src.replace(/"/g, "&quot;")}"${nonce ? ` nonce="${nonce}"` : ""} data-vitehub-comments></script>`
-}
-
 /**
- * The script nonce of a page's Content Security Policy. A policy with `'strict-dynamic'`, such as the one of
- * nuxt-security, blocks a script without it, even from the same origin.
- */
-export function scriptNonce(headers: Headers): string | undefined {
-  const directives = (headers.get("content-security-policy") ?? "").split(";").map(part => part.trim())
-  // Browsers read `script-src-elem`, else `script-src`, else `default-src` for a script element.
-  const directive = ["script-src-elem", "script-src", "default-src"]
-    .map(name => directives.find(part => part.toLowerCase().startsWith(`${name} `)))
-    .find(Boolean)
-  return directive ? /'nonce-([\w+/=-]+)'/.exec(directive)?.[1] : undefined
-}
-
-/** Inserts the overlay script before `</body>` of a streamed HTML body, or at its end when it has none. */
-export function injectOverlay(response: Response, src: string): Response {
-  const type = response.headers.get("content-type") ?? ""
-  if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
-  const tag = scriptTag(src, scriptNonce(response.headers))
-  const decoder = new TextDecoder()
-  const encoder = new TextEncoder()
-  let tail = ""
-  let done = false
-  const transform = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      if (done) {
-        controller.enqueue(chunk)
-        return
-      }
-      const text = tail + decoder.decode(chunk, { stream: true })
-      const index = text.search(/<\/body\s*>/i)
-      if (index !== -1) {
-        done = true
-        controller.enqueue(encoder.encode(text.slice(0, index) + tag + text.slice(index)))
-        tail = ""
-        return
-      }
-      // Keep the end, so a `</body>` split across chunks is still found.
-      const keep = Math.max(0, text.length - 8)
-      controller.enqueue(encoder.encode(text.slice(0, keep)))
-      tail = text.slice(keep)
-    },
-    flush(controller) {
-      const rest = tail + decoder.decode()
-      controller.enqueue(encoder.encode(done ? rest : rest + tag))
-    },
-  })
-  const headers = new Headers(response.headers)
-  headers.delete("content-length")
-  headers.set("cache-control", "private, no-store")
-  return new Response(response.body.pipeThrough(transform), { headers, status: response.status, statusText: response.statusText })
-}
-
-/**
- * The Nitro plugin of Comments. It connects the definition to its Database, and adds the overlay script to HTML pages
- * of requests in comment mode. Pages without the hint are returned unchanged.
+ * The Nitro plugin of Comments. It connects the definition to its Database, and registers the overlay as the
+ * `comments` page tool: a visitor may load it when `authorize` allows `read` or GitHub sign-in is available.
  */
 export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp: unknown) => void {
-  const base = commentsApiRoute(new URL(options.overlay, "http://localhost").href).slice(0, -commentsRoute.length)
   return (nitroApp) => {
     const database = options.database()
-    if (database) installComments(options.comments, { database })
-    else console.warn("[vitehub] Comments has no Database. Enable one with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.")
+    if (database) {
+      installComments(options.comments, {
+        database,
+        development: options.development === true,
+        ...(options.schema ? { schema: options.schema } : {}),
+        ...(options.tables ? { tables: options.tables } : {}),
+        ...(options.dialect ? { dialect: options.dialect } : {}),
+        ...(options.users ? { users: options.users } : {}),
+        ...(options.attachments ? { attachments: options.attachments } : {}),
+      })
+    }
+    else console.warn(options.missingDatabase ?? "[vitehub] Comments has no Database. Enable one with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.")
     Reflect.set(globalThis, runtimeKey, options.comments)
     // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.
     registerViteHubMcpTools("comments", commentsMcpTools(options.comments, { session: options.session, consoleSession: options.consoleSession }))
 
-    if (nitroApp === null || typeof nitroApp !== "object") return
-    // Nitro 3: the Web fetch entry that every preset calls.
-    const fetch: unknown = Reflect.get(nitroApp, "fetch")
-    if (fetch instanceof Function) {
-      Reflect.set(nitroApp, "fetch", async (request: Request, ...rest: unknown[]) => {
-        const response: unknown = await Reflect.apply(fetch, nitroApp, [request, ...rest])
-        return response instanceof Response && request instanceof Request && wantsCommentMode(request, base) ? injectOverlay(response, options.overlay) : response
-      })
-      return
-    }
-    // Nitro 2 with Nuxt: the HTML render hook.
-    const hooks: unknown = Reflect.get(nitroApp, "hooks")
-    const hook: unknown = hooks !== null && typeof hooks === "object" ? Reflect.get(hooks, "hook") : undefined
-    if (hook instanceof Function) {
-      Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: { web?: { request?: Request }, node?: { req?: { url?: string, headers?: Record<string, string> }, res?: { setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown } } } }) => {
-        const node = context.event.node?.req
-        const request = context.event.web?.request ?? (node?.url ? new Request(new URL(node.url, "http://localhost"), { headers: node.headers }) : undefined)
-        if (!request || !wantsCommentMode(request, base)) return
-        const res = context.event.node?.res
-        const policy = res?.getHeader?.("content-security-policy")
-        html.bodyAppend.push(scriptTag(options.overlay, typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined))
-        // As on the fetch path: a page with the overlay must never reach a shared cache.
-        res?.setHeader?.("cache-control", "private, no-store")
-      }])
-    }
+    // `overlay: false` leaves the page tool out; the API, the operations, and the Console stay.
+    if (options.overlay === false) return
+    const script = options.overlay
+    registerViteHubPageTool(nitroApp, {
+      id: "comments",
+      label: "Comments",
+      icon: "i-lucide-message-square-text",
+      script,
+      lazy: true,
+      // A link to a thread, `<page>?comment=<n>`, opens it.
+      param: "comment",
+      async allowed({ event, request }) {
+        // SAFETY: the page tools session passes the H3 event of its Nitro route, which the session readers accept.
+        const identity = await resolveCommentsIdentity(options.comments, event as H3Event, { ...options, session: options.session ?? options.githubLogin?.user })
+        if (identity === false) return false
+        const { user, gate } = identity
+        const page = new URL(request.url).searchParams.get("page")
+        const subject = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
+        return await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)
+          || Boolean(!options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github))
+      },
+    })
+    installViteHubPageTools(nitroApp, { base: options.base })
   }
 }

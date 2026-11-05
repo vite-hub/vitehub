@@ -1,7 +1,7 @@
 # vite-hub
 
-[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=vite-hub&icon=npm)](https://www.npmjs.com/package/vite-hub)
-[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=vite-hub&period=month&icon=npm)](https://www.npmjs.com/package/vite-hub)
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=vite-hub&icon=npm)](https://npmx.dev/package/vite-hub)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=vite-hub&period=month&icon=npm)](https://npmx.dev/package/vite-hub)
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
@@ -15,11 +15,31 @@ Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or b
 pnpm add vite-hub
 ```
 
-You need Node.js 24.15 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
+`vite-hub` includes Blob, KV, Queue, Env, Email, Rate Limit, Channels, Browser, Sandbox Tasks, Workflows, Source, Logs, and the Console. Other features are optional peers, so an app installs only what it enables. Add their packages before you enable them:
+
+| Feature | Add these packages |
+| --- | --- |
+| `agent` | `@vite-hub/agent` |
+| `auth` | `@vite-hub/auth better-auth` |
+| `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `realtime` | `@vite-hub/realtime` |
+| `schedule` | `@vite-hub/schedule` |
+| `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |
+| `server/content.ts` | `@vite-hub/content`, and `@vite-hub/cms` for the `cms` preset |
+| `server/comments.ts` | `@vite-hub/comments` |
+| Console with Agents | `@libsql/client drizzle-orm` |
+| Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
+| `vite-hub/ui` | `@vite-hub/ui` |
+| `vite-hub/docs/*` | `@vite-hub/docs` |
+| `vite-hub/presets/*` | `@vite-hub/presets` |
+
+A build with an enabled feature whose package is missing fails with the `pnpm add` command to run. Provider SDKs, such as `workflow` and `@workflow/builders` for Vercel Workflow or `@vercel/sandbox` for Sandbox Tasks, stay with their feature guides.
+
+You need Node.js 22.22 or newer, Vite 8 or newer, and an ESM package with `"type": "module"` or a `vite.config.mts` file. Hosted primitives and model providers can also require credentials, network access, and billed accounts. Their feature guides list those requirements before the first provider call.
 
 ## Configure ViteHub
 
-Choose one built-in deployment preset. Application routes and feature imports stay unchanged when the target changes.
+Choose one built-in deployment preset. Application routes and feature imports stay unchanged when the target changes. When you omit `preset`, ViteHub detects it from `VITEHUB_HOSTING`, then `NITRO_PRESET` or `SERVER_PRESET`, then the build variables of Cloudflare Workers Builds (`WORKERS_CI`), Netlify (`NETLIFY`), Vercel (`NOW_BUILDER`, `VERCEL`, `VERCEL_ENV`), and Deno Deploy (`DENO_DEPLOY`, `DENO_DEPLOYMENT_ID`). Without any of them, it builds for `node`. `detectPreset()` from `vite-hub/deployment` returns the same detected preset, or `undefined`, so a config can choose host-specific options.
 
 ```ts
 // vite.config.ts
@@ -35,7 +55,7 @@ This registers ViteHub's build integration. Your application still needs a serve
 
 On a Node host with persistent storage, set `dataDir` once. Enabled Agent State, Console, KV, Blob, and Workspace integrations derive local paths from it. For example, `vitehub({ preset: "node", dataDir: "/var/lib/app", agent: true, kv: true, blob: true, workspace: true })` uses that directory without per-store environment variables. Relative paths resolve from the configuration process's working directory. The host must mount persistent storage there; `dataDir` does not create a volume. Other presets require their own storage providers.
 
-Set `publicUrl` to the public origin of the deployed application, for example `vitehub({ preset: "node", publicUrl: "https://agents.example.com" })`. Console invocation links, GitHub activity links, telemetry session links, and the default Auth base URL use it. A function receives each discovered Agent name. It applies to builds. In `vite dev`, request-bound Console and Auth flows use the request origin. GitHub activity and telemetry links have no request-origin fallback. Use the GitHub Channel `activity.publicUrl` override or the evlog `sessionUrl` callback to supply links in development.
+Set `publicUrl` to the public origin of the deployed application, for example `vitehub({ preset: "node", publicUrl: "https://agents.example.com" })`. Console invocation links, GitHub activity links, telemetry session links, and the default Auth base URL use it. A function receives each discovered Agent name. It applies to builds. In `vite dev`, request-bound Console and Auth flows use the request origin. GitHub activity and telemetry links have no request-origin fallback. Use the GitHub Channel `activity.publicUrl` override or the evlog `sessionUrl` callback to supply links in development. Server code reads the origin with `resolvePublicUrl()` from `vite-hub/runtime`, also in Workflows. A string `publicUrl` is also the default `--url` of `vitehub channels sync` and `channels history`. On the `cloudflare` preset, it adds the custom-domain route and `workers_dev: false` to `wrangler.json` unless the app configures Worker routing.
 
 Explicit store paths, remote URLs, and disabled services remain authoritative. Set `console.databaseUrl` to preserve an existing journal location; `VITEHUB_CONSOLE_DATABASE_URL` remains a runtime override. Changing paths does not migrate existing data.
 
@@ -55,7 +75,7 @@ and a fresh memo cache. Without a real host lifetime API, await the
 returned `flushWaitUntil()` before responding. See the
 [Runtime Context guide](https://vitehub.dev/docs/reference/runtime-context).
 
-The public presets are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters; do not also set `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING`.
+The public presets are `cloudflare`, `netlify`, `vercel`, `deno`, and `node`. Each resolves once to a host, runtime, Nitro output, packaging policy, and service adapters. The build fails when `nitro.preset`, `NITRO_PRESET`, `SERVER_PRESET`, or `VITEHUB_HOSTING` selects a different host than `preset`.
 
 ViteHub derives one deployment identity from the nearest `package.json` name, falling back to the Vite root directory name. Set `name` to pin the identity explicitly. Cloudflare Workers Builds supplies its connected Worker through `WRANGLER_CI_OVERRIDE_NAME`; the Cloudflare preset uses it after explicit `name` and fails when the two resolve to different values because the connected Worker remains the deployment target. Cloudflare uses the resolved identity for the default Worker, Blob bucket, Queue prefix, Rate Limit namespace, Sandbox, and Container names. Explicit Wrangler Worker names remain authoritative outside Workers Builds, while explicit Blob bucket, driver, and store options still win. The Workers Builds fallback derives deterministic names but does not provision the corresponding R2 bucket or Queue.
 
@@ -89,7 +109,9 @@ If an enabled capability is not supported by the preset, the build fails. You ca
 
 The Deno preset uses Nitro's Deno entrypoint, so it rejects Schedule and `agent.runtime: "deno"`; those owner-package outputs require an explicit deployment integration.
 
-The Deno preset emits `.output/deno.json`, stages emitted runtime packages and installed optional native dependencies under `.output/node_modules`, and writes `.output/deploy.mjs`, a non-interactive create-or-update runner used by the `node ./deploy.mjs` command in `.output/nitro.json`; set `DENO_DEPLOY_ORG` before deployment. The runner uses the resolved deployment identity as its app name, with `DENO_DEPLOY_APP` as an optional override, and uploads node modules when it creates or updates an app. The Node preset emits a plain Node server artifact suitable for a VPS or container image; Docker is not a hosting preset.
+The Deno preset emits `.output/deno.json`, stages under `.output/node_modules` the packages that the server bundle keeps external and the Linux glibc binaries that bundled packages load at runtime, such as libSQL's native module, and writes `.output/deploy.mjs`, a non-interactive create-or-update runner used by the `node ./deploy.mjs` command in `.output/nitro.json`; set `DENO_DEPLOY_ORG` before deployment. The runner uses the resolved deployment identity as its app name, with `DENO_DEPLOY_APP` as an optional override, and uploads node modules when it creates or updates an app. The Node preset emits a plain Node server artifact suitable for a VPS or container image; Docker is not a hosting preset.
+
+Literal package calls through `createRequire` are staged when they survive tree shaking and their resolution base is an absolute path, a file URL, `import.meta.url`, or a static `new URL(..., import.meta.url)`. For a base computed at runtime, import the package or mark it external so the build can stage it.
 
 ## Build, inspect, and deploy
 
@@ -97,7 +119,9 @@ The preset tells ViteHub which integrations and Provider Output to generate. Dep
 
 Nuxt's Cloudflare preset enables Nitro deployment configuration by default and
 writes `.output/server/wrangler.json`. Set `nitro.cloudflare.deployConfig: false`
-only when you manage that configuration yourself.
+only when you manage that configuration yourself. With `cloudflare: { secretsFile: ".env" }`,
+`nitro deploy --prebuilt` also uploads that file's values as Worker secrets when the file exists at build time.
+See [Upload secrets from a file](https://vitehub.dev/docs/frameworks-hosts/cloudflare#upload-secrets-from-a-file).
 
 A successful build proves that ViteHub discovered the configured definitions and wrote the selected output. It does not prove that remote resources exist, credentials are valid, deployment succeeded, or a hosted provider completed a live operation. Follow the selected [host guide](https://vitehub.dev/docs/frameworks-hosts) for provisioning, environment variables, deployment commands, and current proof.
 
@@ -105,7 +129,7 @@ Generated files are for inspection and deployment. Application code must not imp
 
 Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled request error as `[vitehub] Unhandled error in <method> <path>` with the thrown error's message, stack, status, and cause chain, while the response stays sanitized. Without it, Cloudflare Workers log only `{"status":500,"unhandled":true,"message":"HTTPError"}`. `vitehub({ observability })` replaces it with evlog.
 
-`vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report internal imports, server-only imports in client code, and unchecked KV and Blob results. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
+`vitehub()` and `vite-hub/nuxt` register ViteHub rules with [Vite Doctor](https://github.com/onmax/vite-doctor) when the app runs it. The rules report misuse of every Server Primitive, for example internal or server-only imports, unchecked `[error, value]` results, secret Server Env values used as strings, unknown Definition names, and removed APIs. Read [Doctor rules](https://vitehub.dev/docs/reference/doctor-rules).
 
 ## Run tasks
 
@@ -204,6 +228,8 @@ Retention defaults to 30 days and 10,000 terminal records. To change a limit, pa
 
 ## Invoke Agents from the Console
 
+The Console **Skills** page shows the bundled files of each discovered Agent Definition in a searchable tree. Read Markdown previews or file source, including supporting references and scripts. Source-mounted Skills are available in the session Workspace. See [Inspect Skills](https://vitehub.dev/docs/development/console#inspect-skills).
+
 The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/development/console#inspect-usage) for the identity, coverage, and pagination contract.
 
 `console: true` reuses the app Auth Definition and its server access policy, with built-in social provider sign-in. Enable app Auth and authorize the Console routes in that Definition. A `console` object requires an explicit `auth` choice. Use `console: { auth: false }` for no sign-in, `console: { auth: "app" }` to reuse the Primary Auth Definition, `console: { auth: { ... } }` for an independent Console session, or `console: { auth: { provider: "cloudflare-access" } }` to verify a Cloudflare Access token on each Console request. `auth: false` also works in production, but the build and the production server log a warning.
@@ -216,7 +242,9 @@ Set `console.mcpClient: true` to add the MCP client section. It runs on the serv
 
 `invoke` defaults to `true` on the development server and `false` in a production build. Invocation also enables the Schedules page **Run now** button and `POST /_vitehub/schedules/run` for Static Schedule Definitions that set `manual: true`; see [Run Schedules on demand](https://vitehub.dev/docs/development/cli#run-a-schedule-on-demand).
 
-All Console paths include the resolved Vite `base` pathname. With `base: "/portal/"`, host middleware that you keep in front of the Console must protect `/portal/_vitehub/**` and `/portal/api/_vitehub/console/**` for every method, including assets, RPC, and invocation actions. Root-only policies do not protect these mounted routes. Update host policies when changing the base or upgrading to base-aware Console routes. An absolute base such as `https://cdn.example/portal/` uses the same `/portal/` prefix. Relative bases (`""` or `"./"`) use root routes. Host middleware is an optional first layer; `authorize` is the check that ViteHub enforces.
+`impersonation: true` lets a Console user with the `auth` section open the app as one of its users. It is off by default. It needs app Auth with Better Auth's admin plugin and `events.store`, and the app session must have Better Auth's `impersonate` permission. The session lasts one hour by default, cannot create credentials, and never opens the Console. See [Impersonate users](https://vitehub.dev/docs/development/console#impersonate-users).
+
+All Console paths use the application base: an explicit ViteHub application base (set from Nuxt `app.baseURL`), otherwise a root-relative Vite `base`. With `base: "/portal/"`, host middleware that you keep in front of the Console must protect `/portal/_vitehub/**` and `/portal/api/_vitehub/console/**` for every method, including assets, RPC, and invocation actions. Update host policies when changing the application base or upgrading to base-aware Console routes. Absolute and protocol-relative Vite bases such as `https://cdn.example/portal/` and `//cdn.example/portal/` are asset CDN URLs; without an explicit application base, protect `/_vitehub/**` and `/api/_vitehub/console/**` at root. Relative bases (`""` or `"./"`) also use root routes. When Nitro `baseURL` matches the application base, Nitro adds it once, so the Console is at `/portal/_vitehub`. Host middleware is an optional first layer; `authorize` is the check that ViteHub enforces.
 
 The Console RPC transport accepts browser requests only from its own origin, including in development. It uses browser Fetch Metadata through reverse proxies and checks the request origin when that metadata is absent. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata. Requests with neither same-origin Fetch Metadata nor an `Origin` header must send `x-vitehub-console: 1`. The built-in Console client adds this header to its RPC calls. Server clients must add it too and still require the configured authentication. Each Console operation is one stateless `POST /_vitehub/rpc/__call` request with the JSON body `{ method, input }`, so hosts such as Cloudflare Workers can send consecutive calls to different instances.
 
@@ -226,7 +254,7 @@ Set `console.observations` to configure the fallback journal's observation count
 
 On the `cloudflare` preset, production builds store the fallback journal in the D1 binding of the default or only Database Definition. Its Cloudflare config takes precedence over the `driver: "d1"` integration binding. Without a discovered Definition, the Console keeps libSQL. The D1 store creates its table on first use. Development, `console.databaseUrl`, and `VITEHUB_CONSOLE_DATABASE_URL` keep libSQL. See [Cloudflare journal](https://vitehub.dev/docs/development/console#know-what-the-console-stores).
 
-The D1 journal supports Drizzle queries and atomic writes through `console.resolve(context).invocations.db.batch()`. Check the returned `driver` before destructuring to narrow the D1 or libSQL database and schema types. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill. The D1 `db.transaction()` method rejects before the callback runs. Use `db.batch()` to group D1 writes. On Cloudflare Workers, the default file journal is an in-memory journal, so `console.resolve(context).invocations` is an `AgentInvocations` value without `.db` or `.schema`; configure D1 or a remote libSQL URL when Drizzle access is required.
+The server opens the journal database on first use, when an Agent records a run or the Console reads the journal, so libSQL and Drizzle do not load at server start. `console.resolve(context).invocations` is the `AgentInvocations` journal. `await console.resolve(context).invocationsDatabase()` opens the journal database for Drizzle queries and atomic writes, such as `db.batch()` on D1. Check the returned `driver` before destructuring to narrow the D1 or libSQL database and schema types. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill. The D1 `db.transaction()` method rejects before the callback runs. Use `db.batch()` to group D1 writes. On Cloudflare Workers, the default file journal is an in-memory journal, so `invocationsDatabase()` resolves to `undefined`; configure D1 or a remote libSQL URL when Drizzle access is required.
 
 `inputCommands({ debug: true })` from `vite-hub/agent/capabilities` adds a `/debug` input command. It replies with the Console URL of the previous Invocation of the same Agent. When the current Invocation has a Channel thread, it uses the previous Invocation in that thread. The Agent Driver does not run. `/debug` needs `vitehub({ console })`; without it, the command replies that the Console is not enabled. A `debug` entry in `commands` replaces the built-in command.
 

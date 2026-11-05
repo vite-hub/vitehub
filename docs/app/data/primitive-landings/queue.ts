@@ -11,7 +11,7 @@ const setup: PrimitiveProjectFile = {
   language: "markdown",
   content: `# Queue on Cloudflare
 
-Use Node.js 24.15 or newer. Run pnpm install, then pnpm build.
+Use Node.js 22.22 or newer. Run pnpm install, then pnpm build.
 The build discovers the welcome-email Queue and emits provider configuration.
 The handler logs each delivery; replace it with your idempotent background work.
 
@@ -38,7 +38,7 @@ function packageFile(framework: "vite" | "nitro" | "nuxt"): PrimitiveProjectFile
       dependencies: { "vite-hub": "latest" },
       devDependencies: framework === "nuxt"
         ? { nuxt: "^4.5.2", typescript: "^6.0.3" }
-        : { vite: "^8.2.2", "@types/node": "^24.0.0", typescript: "^6.0.3", ...(framework === "nitro" ? { nitro: "3.0.260903-beta" } : {}) },
+        : { vite: "^8.2.2", "@types/node": "^24.0.0", typescript: "^6.0.3", ...(framework === "nitro" ? { nitro: "3.0.261102-rc" } : {}) },
     }, null, 2),
   };
 }

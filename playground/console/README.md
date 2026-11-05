@@ -23,7 +23,7 @@ the read-only Usage, KV, Workflow, Queue, and search responses needed by the
 Console. `rpc.ts` connects the Console's SSE RPC transport to those local fixture
 routes. It also serves a synthetic Connections management API
 with three OAuth Connections, one API key Connection, their activity, and one pending approval. Usage filters and pagination use the real usage aggregation code.
-Blob, Databases, Email, Rate Limits, Sandboxes, Workspaces, Schedules, Workflows, and Queues answer from synthetic stores, records, and definitions in `mock-api.ts`, so every Console section renders without a provider. The `passkey` Database table has no rows, so it shows the empty table state. The Email outbox uses the real development outbox driver and Console reader.
+Blob, Databases, Email, Rate Limits, Sandboxes, Workspaces, Schedules, Workflows, and Queues answer from synthetic stores, records, and definitions in `mock-api.ts`, so every Console section renders without a provider. Comments answers the `comments.*` operations from three synthetic threads in `comments.ts`, in memory, as a signed-in Maxi who may write, so its rows open the thread panel with replies, resolve, and `@` mentions. A restart resets the threads. The `passkey` Database table has no rows, so it shows the empty table state. The Email outbox uses the real development outbox driver and Console reader.
 This playground does not change the Console routes generated for Vite
 or Nuxt applications.
 
@@ -36,6 +36,8 @@ CONSOLE_TEST_URL=http://127.0.0.1:3087 node --test packages/vite-hub/test/consol
 ```
 
 The check uses installed Playwright Chromium, the real Console components, and intercepted RPC responses with nine synthetic documents. Saves and publishes change only the fixture in that browser test. It covers delayed and failed loads, retry, empty filters, Rich hydration, mode switching, failed saves and publishes, keyboard controls, and mobile layouts. Set `CONSOLE_TEST_ARTIFACTS` to a project-local directory to save screenshots and element bounds. Stop the dev server when the check ends.
+
+`packages/vite-hub/test/console-empty-states.browser.mjs` uses the same server. It answers some RPC calls with empty results or a failure and checks that the empty and error states of Env, Blob, Email, Workspaces, and KV sit in the middle of their pane, on desktop and narrow screens.
 
 To see an error state, set the `playground-fail` cookie to `<route>=<status>` pairs. A route is the path after
 `/api/_vitehub/console/`, and it also matches the paths under it:
@@ -56,6 +58,6 @@ cloudflared tunnel --url http://127.0.0.1:5173
 Quick Tunnel URLs are public and have no uptime guarantee. Keep playground data
 synthetic.
 
-Auth serves 1,048 synthetic users from `auth-fixture.ts`. It covers Users, profile details, Sessions, Organizations, and Agents, with a plan field, a computed project count, read-only roles, and the OAuth provider's grant revocation limit. Ban, unban, field edits, removal, and session revocation change only this in-memory fixture. Restart the playground to reset it. The real Better Auth fixture is `packages/auth/test/console.test.ts`.
+Auth serves 1,048 synthetic users from `auth-fixture.ts`. It covers Users, profile details, Sessions, Organizations, and Agents, with a plan field, a computed project count, read-only roles, and the OAuth provider's grant revocation limit. Ban, unban, field edits, removal, and session revocation change only this in-memory fixture. Impersonate is on: start it from a non-admin user, and the playground root returns to the Console, where the Auth section shows the banner and **Stop impersonating**. Admins and the banned user show Better Auth's refusal. Restart the playground to reset it. The real Better Auth fixture is `packages/auth/test/console.test.ts`.
 
 Auth opens on Overview. The fixture has 30 days of sign-ins and sign-ups, sign-in methods, and recent events across all Activity groups. Activity supports subject user IDs and cursor pagination. User panels include their recent events. To check both pages without event storage, restart with `VITEHUB_PLAYGROUND_AUTH_EVENTS=off pnpm exec vp run console:dev`. Database totals remain visible and both pages show the setup snippet. Omit the variable to restore events.

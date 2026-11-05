@@ -26,7 +26,7 @@ export const LogsLanding = {
               dependencies: {
                 "vite-hub": "latest",
                 evlog: "^2.28.1",
-                nitro: "3.0.260903-beta",
+                nitro: "3.0.261102-rc",
                 vite: "^8.2.2",
               },
             },
@@ -64,7 +64,7 @@ export default defineHandler((event) => {
           language: "markdown",
           content: `# Local Logs
 
-Use Node.js 24.15 or newer. Run pnpm install, then pnpm dev.
+Use Node.js 22.22 or newer. Run pnpm install, then pnpm dev.
 Request /api/status, then open /_vitehub/logs to inspect the event.
 This starter uses temporary development capture. It has no production build script.
 For production, connect an existing backend with logs.source.

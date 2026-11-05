@@ -1,223 +1,130 @@
 import type { H3Event } from "h3"
 
-/** The person who wrote a comment. The row keeps a copy, so the name stays when the Auth user changes. */
-export interface CommentAuthor {
-  id: string
-  name: string
-  image?: string
-  /** True for a guest that named itself in the browser. Show the name, never trust it. */
-  guest?: boolean
-}
+import type { CommentsDefinition, CommentsUser } from "./operations-core/define.ts"
+import type {
+  CommentAnchor,
+  CommentContext,
+  CommentListCursor,
+  CommentMetadata,
+  CommentStatus,
+  CommentSubject,
+  CommentThread,
+  CommentUser,
+} from "./operations-core/types.ts"
 
-/** A person that a comment mentions with `@`. */
-export interface CommentMention {
-  id: string
-  name: string
+export type * from "./operations-core/types.ts"
+export type {
+  CommentAction,
+  CommentMentionEvent,
+  CommentMessageEvent,
+  CommentsAttachmentFile,
+  CommentsAuthorize,
+  CommentsAuthorizeContext,
+  CommentsCanMentionContext,
+  CommentsDefinition,
+  CommentsGitHubAccess,
+  CommentsPeople,
+  CommentsReadAttachmentContext,
+  CommentsStoreAttachmentContext,
+  CommentSubjectDefinition,
+  CommentsUser,
+} from "./operations-core/define.ts"
+
+export interface CommentsForgeTarget {
+  repository: string
+  pullRequest: number
 }
 
 /**
- * Where a thread sits on its page. The overlay tries each hint in order and uses the first one it finds: the Content
- * field, the CSS path checked against the label, the label alone, then the page point.
+ * Posts each thread to the pull request of the build that served its page: one comment per message, and one summary
+ * comment that lists every thread. Credentials come from Server Env: a GitHub App (`VITEHUB_GITHUB_APP_ID` with
+ * `VITEHUB_GITHUB_PRIVATE_KEY`), else `VITEHUB_GITHUB_TOKEN`.
  */
-export interface CommentAnchor {
-  /** The `data-content-field` address of the element or its closest ancestor, such as `about#hero.title`. */
-  field?: string
-  /** CSS path of the element, at most 10 levels, from its closest ancestor with an id or a Content field. */
-  selector: string
-  /** Tag and the first 40 characters of the element text, to check that `selector` still finds the same element. */
-  label: string
-  /** Position of the pin in the element box, in thousandths of its width and height. */
-  x: number
-  y: number
-  /** Fallback position: thousandths of the document width, and CSS pixels from the document top. */
-  page: { x: number, y: number }
-  /** Viewport width when the pin was dropped. */
-  viewport: { width: number }
-}
-
-/** A Vue component that renders the element of a thread. */
-export interface CommentComponent {
-  /** The component name, such as `PricingCard`. `<script setup>` components get the name of their file. */
-  name: string
+export interface CommentsForgeOptions {
+  /** Only GitHub for now. */
+  provider: "github"
+  /** `owner/name`. Default: the repository of the build that served the thread's page. */
+  repository?: string
   /**
-   * Source files that may define it, relative to the project root. Production builds keep only the name, so a
-   * name that two files share, such as `index`, gets both.
+   * The pull request of a thread. Default: the one the build names, else the open pull request whose head is the
+   * build's branch. Return `undefined` to keep the thread off GitHub.
    */
-  files?: string[]
-}
-
-/**
- * What a person saw when they started a thread, so a teammate or an Agent can find the code to change. The overlay
- * reads the page, the element, the Vue components, and the browser; the server adds the build.
- */
-export interface CommentContext {
-  /** The page origin and pathname, without credentials, query parameters, or a hash. */
-  url: string
+  pullRequest?: (thread: CommentThread) => number | undefined | Promise<number | undefined>
+  /**
+   * The GitHub token of the person who wrote a message, such as the user token of their GitHub sign-in, so the
+   * comment posts as them. Without one, the GitHub App posts it with their name.
+   */
+  token?: (author: CommentUser) => string | undefined | Promise<string | undefined>
+  /** The heading of the summary comment. Default `"Preview comments"`. */
   title?: string
-  /** The Vue Router route pattern, such as `/blog/:id(.*)*`. */
-  route?: string
-  element?: {
-    tag: string
-    id?: string
-    /** `data-testid`, `data-test`, or `data-cy` of the element or its closest ancestor. */
-    testId?: string
-    /** The `role` attribute, or the role of the tag, such as `button` or `heading`. */
-    role?: string
-    /** `aria-label`, `alt`, `title`, or the first 120 characters of the text. */
-    name?: string
-    classes?: string[]
-  }
-  /** Outermost first. Empty on pages that Vue does not render. */
-  components?: CommentComponent[]
-  environment?: {
-    viewport: { width: number, height: number }
-    devicePixelRatio: number
-    userAgent: string
-    language?: string
-    colorScheme?: "light" | "dark"
-    timeZone?: string
-  }
-  /** The commit and branch of the build that served the page, when the build could read them. */
-  build?: { commit?: string, branch?: string }
-}
-
-export interface Comment {
-  id: string
-  threadId: string
-  /** Plain text, at most 4,000 characters. */
-  body: string
-  mentions: CommentMention[]
-  author: CommentAuthor
-  /** ISO time. */
-  createdAt: string
-  editedAt: string | null
-}
-
-export type CommentThreadStatus = "open" | "resolved"
-
-/**
- * Fields that app code keeps on a thread, such as where its own UI anchors it: at most 50 keys, and strings of at most
- * 4,000 characters.
- */
-export type CommentMetadata = Record<string, string | number | boolean | null>
-
-export interface CommentThread {
-  id: string
-  /**
-   * The list the thread belongs to. `"pages"` for threads that people pin on the app's pages; app code picks its own,
-   * such as `doc:42`, for threads in its own UI.
-   */
-  scope: string
-  /** 1, 2, 3, … in the order threads start in their scope, so people can say "#3". */
-  number: number
-  /** Normalized pathname of the page, such as `/pricing`. */
-  page: string
-  /** Where the overlay places the pin. Null for a thread that app code anchors itself, in `metadata`. */
-  anchor: CommentAnchor | null
-  metadata: CommentMetadata | null
-  /** Null for threads that server code created without it. */
-  context: CommentContext | null
-  status: CommentThreadStatus
-  createdBy: CommentAuthor
-  resolvedBy: CommentAuthor | null
-  resolvedAt: string | null
-  createdAt: string
-  updatedAt: string
-  /** Oldest first. The first comment opened the thread. */
-  comments: Comment[]
-}
-
-/**
- * - `read`: see pins and threads, and join the page room.
- * - `comment`: start threads and reply; signed-in authors can delete their own comments.
- * - `resolve`: resolve and reopen; signed-in users can delete any thread or comment.
- */
-export type CommentsAction = "read" | "comment" | "resolve"
-
-/** The user that `identify` or the ViteHub Auth session resolved. `null` for an anonymous request. */
-export type CommentsUser = Record<string, unknown> & { id: string }
-
-export interface CommentsAuthorizeContext {
-  user: CommentsUser | null
-  action: CommentsAction
-  /** The scope of the threads, such as `"pages"` for the overlay and the Console. */
-  scope: string
-  /** The thread the action changes. Undefined for reads and new threads. */
-  thread?: CommentThread
+  /** GitHub Enterprise API base. Default `https://api.github.com`. */
+  apiUrl?: string
+  fetch?: typeof fetch
 }
 
 export interface CommentsIdentifyContext {
   event: H3Event
 }
 
-export interface CommentsPeopleContext {
-  /** Text after `@`, possibly empty. */
-  query: string
-  user: CommentsUser | null
-}
-
-export interface CommentCreatedEvent {
-  thread: CommentThread
-  comment: Comment
-  /** People the comment mentions. */
-  mentions: CommentMention[]
-}
-
-export interface DefineCommentsOptions {
-  /**
-   * Who may read, comment, and resolve. Return `false` to deny. Without it, any signed-in user may do everything and
-   * anonymous requests may do nothing. Return `true` for `user: null` to let guests comment under a name they choose.
-   */
-  authorize?: (context: CommentsAuthorizeContext) => boolean | void | Promise<boolean | void>
+export interface DefineCommentsOptions extends CommentsDefinition {
   /** Resolves the user of a request. Without it, Comments reads the ViteHub Auth session. Return `null` for anonymous. */
   identify?: (context: CommentsIdentifyContext) => CommentsUser | null | undefined | Promise<CommentsUser | null | undefined>
   /** Name of the Database that stores comments. Defaults to the `default` Database, or the only one. */
   database?: string
-  /** People that `@` suggests. Without it, the authors of earlier comments. */
-  people?: (context: CommentsPeopleContext) => CommentMention[] | Promise<CommentMention[]>
-  /** Runs after a comment saves, such as to notify mentioned people by Email. Errors are logged, not returned. */
-  onComment?: (event: CommentCreatedEvent) => void | Promise<void>
+  /** Posts threads to the pull request that the page previews. */
+  forge?: CommentsForgeOptions
 }
 
 export interface ListCommentThreadsOptions {
-  /** Only the threads of this scope. Without it, threads of every scope. */
-  scope?: string
-  /** Only the threads of this page. */
+  subject?: CommentSubject
+  /** Only threads about this kind of subject, across all its ids. */
+  subjectKind?: string
+  /** An app path. The same as a `page` subject. */
   page?: string
-  status?: CommentThreadStatus
+  /** Only the threads of this numbering scope, such as `site`. */
+  scope?: string
+  status?: CommentStatus
+  /** Only threads started on this version of the subject or an earlier one. */
+  revision?: { lte: number }
   /** Newest activity first. Default 200, at most 500. */
   limit?: number
+  /** Where the next page starts: the `updatedAt` and `id` of the last thread of the page before. */
+  before?: CommentListCursor
 }
 
 export interface CreateCommentThreadInput {
-  /** Default `"pages"`, which needs an `anchor`. */
-  scope?: string
-  page: string
+  /** What the thread is about. Or set `page`. */
+  subject?: CommentSubject
+  /** An app path, for a thread on a page. The same as `subject: { kind: "page", id: page }`. */
+  page?: string
+  /** Default `{ kind: "page" }`. */
   anchor?: CommentAnchor
   context?: CommentContext
   metadata?: CommentMetadata
+  /** The version of the subject, such as a document version. */
+  revision?: number
   body: string
-  author: CommentAuthor
-  mentions?: CommentMention[]
+  author: CommentUser
+  /** Ids of the people that `body` names with `@`. */
+  mentions?: string[]
+  attachments?: string[]
 }
 
 export interface EditCommentInput {
   body: string
   /** Replaces the mentions. Default: none. */
-  mentions?: CommentMention[]
+  mentions?: string[]
 }
 
 export interface ReplyInput {
   body: string
-  author: CommentAuthor
-  mentions?: CommentMention[]
+  author: CommentUser
+  mentions?: string[]
+  attachments?: string[]
 }
 
 export interface ReplyOptions {
-  /**
-   * Reply to a resolved thread, and keep it resolved, for apps whose own UI allows that. Default `false`: the reply
-   * fails with `COMMENTS_RESOLVED`, as on the overlay.
-   */
+  /** Reply to a resolved thread, and keep it resolved. Default `false`: the reply fails with `COMMENTS_RESOLVED`. */
   allowResolved?: boolean
 }
 
@@ -227,6 +134,7 @@ export type CommentsErrorCode =
   | "COMMENTS_NOT_FOUND"
   | "COMMENTS_INVALID_INPUT"
   | "COMMENTS_FORBIDDEN"
+  | "COMMENTS_POLICY_MISSING"
   | "COMMENTS_RESOLVED"
   | "COMMENTS_CONTENT_MISSING"
   | "COMMENTS_FIELD_INVALID"

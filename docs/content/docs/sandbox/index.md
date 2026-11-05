@@ -1,5 +1,6 @@
 ---
 title: Sandbox
+layout: landing
 navigation.title: Overview
 description: Run a small package as a Sandbox Task in an isolated cloud machine on Vercel or Cloudflare, and use its result in your app.
 navigation.order: 1

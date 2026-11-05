@@ -1,19 +1,5 @@
 <script setup lang="ts">
 import PropertyHelp from "./PropertyHelp.vue"
-import highlighter from "#mdc-highlighter"
-import * as v from "valibot"
-
-type HastNode = {
-  type: string
-  tagName?: string
-  properties?: {
-    [key: string]: unknown
-    className?: string | string[]
-    language?: string
-  }
-  children?: HastNode[]
-  value?: string
-}
 
 type ProjectFile = {
   path: string
@@ -64,7 +50,7 @@ const projects: ExampleProject[] = [
         path: "server/agents/review/agent.ts",
         label: "agent.ts",
         content: `import githubTools from "@github-tools/eve-extension"
-import { defineAgent } from "@vite-hub/agent"
+import { codexDriver, defineAgent } from "@vite-hub/agent"
 import { github } from "@vite-hub/agent/channels"
 import {
   browser,
@@ -72,7 +58,7 @@ import {
 } from "@vite-hub/agent/capabilities"
 
 export default defineAgent({
-  driver: "codex",
+  driver: codexDriver(),
   workspace: {
     name: "repository",
     mode: "write",
@@ -127,7 +113,7 @@ description: Review one pull request end to end.
       {
         path: "server/agents/nuxt/agent.ts",
         label: "agent.ts",
-        content: `import { defineAgent } from "@vite-hub/agent"
+        content: `import { codexDriver, defineAgent } from "@vite-hub/agent"
 import {
   mcp,
   rateLimit,
@@ -145,7 +131,7 @@ const messages = createRateLimiter({
 })
 
 export default defineAgent({
-  driver: "codex",
+  driver: codexDriver(),
   capabilities: [
     rateLimit({ limiter: messages }),
     mcp({
@@ -197,7 +183,7 @@ description: Answer one Nuxt question from official sources.
       {
         path: "server/agents/research/agent.ts",
         label: "agent.ts",
-        content: `import { defineAgent, workflow } from "@vite-hub/agent"
+        content: `import { claudeCodeDriver, defineAgent, workflow } from "@vite-hub/agent"
 import { webChat } from "@vite-hub/agent/channels"
 import {
   browser,
@@ -208,7 +194,7 @@ import {
 } from "@vite-hub/agent/capabilities"
 
 export default defineAgent({
-  driver: "claude-code",
+  driver: claudeCodeDriver(),
   runtime: workflow("agent"),
   workspace: {
     name: "research",
@@ -315,11 +301,10 @@ const agentPropertyOrder: readonly AgentPropertyKey[] = [
   "capabilities",
   "channels",
 ]
-const highlightLanguageSchema = v.string()
 
 const driverOptions = [
-  { code: '"codex"', icon: "i-simple-icons-openai", key: "codex", label: "Codex provider" },
-  { code: "{ kind: 'claude-code', permissions: 'ask' }", icon: "i-simple-icons-anthropic", key: "claude", label: "Claude Code provider" },
+  { code: "codexDriver()", icon: "i-simple-icons-openai", key: "codex", label: "Codex provider" },
+  { code: "claudeCodeDriver({ permissions: 'ask' })", icon: "i-simple-icons-anthropic", key: "claude", label: "Claude Code provider" },
   { code: "{ model: 'openai/gpt-5.1-mini' }", icon: "i-simple-icons-vercel", key: "model", label: "Bare model" },
   { code: "{ run: customAgent }", icon: "i-lucide-braces", key: "custom", label: "Custom runner" },
 ] satisfies PlaygroundOption[]
@@ -529,73 +514,7 @@ const availableChannelItems = computed(() => channelOptions
     label: option.label,
     value: option.key,
   })))
-const syntaxThemes = {
-  light: "material-theme-lighter",
-  default: "material-theme",
-  dark: "material-theme-palenight",
-}
-const highlightedSource = computed(() => {
-  const language = selectedFile.value.path.endsWith(".ts") ? "ts" : "md"
-  return `\`\`\`${language}\n${selectedFile.value.content}\n\`\`\``
-})
-const highlightedContent = shallowRef()
-
-function nodeText(node: HastNode): string {
-  if (node.type === "text") {
-    return node.value ?? ""
-  }
-
-  return node.children?.map(nodeText).join("") ?? ""
-}
-
-function syntaxHighlightPlugin() {
-  return async (tree: HastNode) => {
-    const tasks: Promise<void>[] = []
-    const styles = new Set<string>()
-
-    function visit(node: HastNode) {
-      const language = v.safeParse(highlightLanguageSchema, node.properties?.language)
-
-      if (node.tagName === "pre" && language.success && language.output !== "text") {
-        tasks.push(highlighter(nodeText(node), language.output, syntaxThemes).then((result) => {
-          const className = Array.isArray(node.properties?.className)
-            ? node.properties.className.join(" ")
-            : String(node.properties?.className ?? "")
-          const code = node.children?.find(child => child.tagName === "code")
-
-          node.properties = {
-            ...node.properties,
-            className: `${className} ${result.className}`.trim(),
-            style: result.inlineStyle,
-          }
-
-          if (code) {
-            // SAFETY: The markdown highlighter returns HAST children for the code node.
-            code.children = result.tree as HastNode[]
-          }
-
-          if (result.style) {
-            styles.add(result.style)
-          }
-        }))
-      }
-
-      node.children?.forEach(visit)
-    }
-
-    visit(tree)
-    await Promise.all(tasks)
-
-    if (styles.size) {
-      tree.children?.push({
-        type: "element",
-        tagName: "style",
-        properties: {},
-        children: [{ type: "text", value: [...styles].join("") }],
-      })
-    }
-  }
-}
+const highlightedLines = shallowRef<string>()
 
 watchEffect(async (onCleanup) => {
   let cancelled = false
@@ -605,26 +524,14 @@ watchEffect(async (onCleanup) => {
   })
 
   if (selectedFile.value.path.endsWith(".ts")) {
-    highlightedContent.value = undefined
+    highlightedLines.value = undefined
     return
   }
 
-  const content = await parseMarkdown(highlightedSource.value, {
-    highlight: {
-      highlighter,
-      theme: syntaxThemes,
-    },
-    rehype: {
-      plugins: {
-        highlight: {
-          instance: syntaxHighlightPlugin,
-        },
-      },
-    },
-  })
+  const lines = await highlightCodeLines(selectedFile.value.content, "md")
 
   if (!cancelled) {
-    highlightedContent.value = content
+    highlightedLines.value = lines
   }
 })
 
@@ -1046,12 +953,11 @@ function selectHost(key: string) {
           </div>
         </div>
         <div v-else class="editor-code">
-          <MDCRenderer
-            v-if="highlightedContent"
-            :body="highlightedContent.body"
-            :data="highlightedContent.data"
-            class="code-block-wrapper"
-          />
+          <div v-if="highlightedLines" class="code-block-wrapper">
+            <ProsePre language="md" :code="selectedFile.content" :class="['language-md', highlightedPreClass]">
+              <code v-html="highlightedLines" />
+            </ProsePre>
+          </div>
           <p v-else role="status" class="p-4 text-xs text-muted">Loading file...</p>
         </div>
       </div>

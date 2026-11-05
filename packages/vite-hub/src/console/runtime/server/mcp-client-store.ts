@@ -32,6 +32,7 @@ export interface StoredOAuth {
 export interface StoredConnection {
   auth: ConsoleMcpAuth
   bearer?: string
+  consoleOrigin: string
   createdAt: number
   error?: string
   id: string
@@ -110,6 +111,7 @@ const clientSchema = v.custom<OAuthClientInformationMixed>(value => OAuthClientI
 const connectionSchema = v.object({
   auth: v.picklist(["bearer", "console", "none", "oauth"]),
   bearer: optionalText,
+  consoleOrigin: v.string(),
   createdAt: v.number(),
   error: optionalText,
   id: v.string(),

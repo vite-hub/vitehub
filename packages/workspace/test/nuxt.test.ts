@@ -15,7 +15,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-async function createNuxtHook(store: WorkspaceModuleOptions["store"] = { provider: "memory" }, aliases?: Record<string, string>) {
+async function createNuxtHook(store: WorkspaceModuleOptions["store"] = { provider: "memory" }, aliases?: Record<string, string>, dev = false) {
   const root = await mkdtemp(join(tmpdir(), "vitehub-workspace-nuxt-artifacts-"))
   tempDirs.push(root)
   let nitroConfigHook: ((nitroConfig: Record<string, unknown>) => void | Promise<void>) | undefined
@@ -25,7 +25,7 @@ async function createNuxtHook(store: WorkspaceModuleOptions["store"] = { provide
     },
     options: {
       alias: aliases,
-      dev: false,
+      dev,
       rootDir: root,
       srcDir: root,
       vite: { plugins: [] as unknown[] },
@@ -38,6 +38,21 @@ async function createNuxtHook(store: WorkspaceModuleOptions["store"] = { provide
 }
 
 describe("Workspace Nuxt module", () => {
+  it.each([false, true])("configures the bundled Workspace assets registry for Nuxt (dev: %s)", async (dev) => {
+    const { nitroConfigHook, root } = await createNuxtHook({ provider: "memory" }, undefined, dev)
+    await mkdir(join(root, "server", "workspaces", "pages"), { recursive: true })
+    await writeFile(join(root, "server", "workspaces", "pages", "config.ts"), "export default {}\n")
+    const alias = { "#existing": join(root, "existing.ts") }
+    const nitroConfig: Record<string, unknown> = { alias, preset: "cloudflare-module" }
+
+    await nitroConfigHook(nitroConfig)
+
+    expect(nitroConfig.alias).toEqual(dev ? alias : {
+      ...alias,
+      "#vitehub-workspace-assets-registry": join(root, ".vitehub/vite-runtime/workspace/assets/registry.mjs"),
+    })
+  })
+
   it("preserves Nitro preset hosting in the registered Vite plugin", async () => {
     const { nitroConfigHook, root, vitePlugin } = await createNuxtHook({
       provider: "github",

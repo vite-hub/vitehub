@@ -1,0 +1,455 @@
+import type { FileSystemAPI, FileSystemTree, WebContainer as StackBlitzWebContainer } from "@webcontainer/api"
+
+import { restoreLinksScript, snapshotLinksFile } from "./links.ts"
+
+export type { FileSystemAPI, FileSystemTree } from "@webcontainer/api"
+
+/** One step of a boot checklist, in the order a UI shows it. */
+export type WebContainerStage =
+  | "checking"
+  | "unsupported"
+  | "booting"
+  | "mounting"
+  | "installing"
+  | "starting"
+  | "ready"
+  | "error"
+
+export interface WebContainerStep {
+  stage: WebContainerStage
+  /** `performance.now()` when the stage started. */
+  startedAt: number
+  /** Milliseconds the stage took. Unset while the stage runs. */
+  ms?: number
+}
+
+export interface WebContainerStatus {
+  /** The latest stage. */
+  stage: WebContainerStage
+  /** Every stage so far, with its timing. */
+  steps: readonly WebContainerStep[]
+  /** Set when `stage` is `unsupported` or `error`. */
+  error?: Error
+}
+
+/** Files to mount, keyed by a relative path such as `server/index.js`. */
+export type WebContainerFiles = Record<string, string | Uint8Array>
+
+export interface BootWebContainerOptions {
+  /** Files to write into the working directory. */
+  files?: WebContainerFiles
+  /**
+   * A binary snapshot from `container.export()`, `fetchSnapshot()`, or `createNodeModulesSnapshot()` of
+   * `@vite-hub/web-container/snapshot`, such as `node_modules` that are already installed. Mounted before `files`.
+   * A promise loads while the WebContainer boots.
+   */
+  snapshot?: Uint8Array | ArrayBuffer | Promise<Uint8Array | ArrayBuffer>
+  /**
+   * The Cross-Origin-Embedder-Policy of the page.
+   * @default "credentialless"
+   */
+  coep?: "credentialless" | "require-corp"
+  /** Folder name of the working directory. */
+  workdirName?: string
+  /**
+   * The port of the server to preview. `run()` passes it to every process as `PORT`, which Nitro's `vite dev` and
+   * `node .output/server/index.mjs` listen on. A run with its own `env.PORT` previews that port instead. Servers on
+   * other ports, such as the workers that Nitro starts on random ports first, do not become the preview.
+   * @default 3000
+   */
+  port?: number
+  /** Called on every status change, from the first check on. */
+  onStatus?: (status: WebContainerStatus) => void
+}
+
+/** `install`, `dev`, and `build` run the npm scripts of the mounted app. An array runs that command line. */
+export type WebContainerCommand = "install" | "dev" | "build" | readonly [string, ...string[]]
+
+export interface WebContainerRunOptions {
+  /** Environment variables for this process only. They stay in the browser tab. `PORT` defaults to the `port` of `bootWebContainer()`. */
+  env?: Record<string, string>
+  /** Working directory, relative to the container root. */
+  cwd?: string
+  /** Kills the process when aborted. */
+  signal?: AbortSignal
+}
+
+export interface WebContainerRun {
+  /** Terminal output of the process and its children. Read it once. Buffers up to 65,536 characters; excess output is dropped until the reader catches up. */
+  output: ReadableStream<string>
+  /** Resolves with the exit code. */
+  exit: Promise<number>
+  /** Resolves with the last 65,536 characters of output after the process exits. */
+  text: () => Promise<string>
+  /** Writes to the process stdin. */
+  write: (input: string) => Promise<void>
+  kill: () => void
+}
+
+export interface WebContainerPreviewServer {
+  url: string
+  port: number
+}
+
+export interface WebContainerPreview {
+  /** The URL of the latest server that became ready. */
+  readonly url: string | undefined
+  readonly port: number | undefined
+  /** Resolves when the server on `port`, or on the `env.PORT` of a run, becomes ready. Rejects on startup failure or teardown before readiness. */
+  ready: Promise<WebContainerPreviewServer>
+}
+
+export interface ViteHubWebContainer {
+  readonly status: WebContainerStatus
+  preview: WebContainerPreview
+  fs: FileSystemAPI
+  /** Only one `dev` run may be active. Stop it and await its exit before starting another. */
+  run: (command: WebContainerCommand, options?: WebContainerRunOptions) => Promise<WebContainerRun>
+  /** Serializes the working directory to a binary snapshot that `bootWebContainer({ snapshot })` mounts. */
+  export: (options?: { path?: string, excludes?: string[], includes?: string[] }) => Promise<Uint8Array>
+  on(event: "status", listener: (status: WebContainerStatus) => void): () => void
+  on(event: "server-ready", listener: (server: WebContainerPreviewServer) => void): () => void
+  /** Stops every process and frees the container. Boot a new one afterwards if needed. */
+  teardown: () => void
+}
+
+export type WebContainerSupport =
+  | { supported: true }
+  | { supported: false, reason: string }
+
+export class WebContainerUnsupportedError extends Error {
+  override name: string = "WebContainerUnsupportedError"
+}
+
+/** Checks the page, not the browser name: a WebContainer needs a cross-origin isolated page with SharedArrayBuffer. */
+export function checkWebContainerSupport(): WebContainerSupport {
+  if (Reflect.get(globalThis, "document") === undefined) return { supported: false, reason: "WebContainers run in a browser page, not on the server." }
+  if (Reflect.get(globalThis, "crossOriginIsolated") !== true) {
+    return {
+      supported: false,
+      reason: "The page is not cross-origin isolated. Serve it with Cross-Origin-Opener-Policy: same-origin and Cross-Origin-Embedder-Policy: credentialless (see @vite-hub/web-container/vite).",
+    }
+  }
+  if (typeof SharedArrayBuffer === "undefined") return { supported: false, reason: "This browser has no SharedArrayBuffer." }
+  return { supported: true }
+}
+
+const commandLines = {
+  install: ["npm", "install", "--no-audit", "--no-fund", "--no-progress"],
+  dev: ["npm", "run", "dev"],
+  build: ["npm", "run", "build"],
+} as const
+
+const commandStages: Partial<Record<string, WebContainerStage>> = { install: "installing", dev: "starting" }
+
+/** Turns `{ "server/index.js": "..." }` into the nested tree that WebContainer mounts. */
+export function toFileSystemTree(files: WebContainerFiles): FileSystemTree {
+  const root: FileSystemTree = {}
+  for (const [path, contents] of Object.entries(files)) {
+    const segments = path.split("/")
+    if (path.startsWith("/") || segments.includes("..")) throw new TypeError(`Invalid WebContainer file path: ${path}`)
+    const parts = segments.filter(part => part && part !== ".")
+    const name = parts.pop()
+    if (!name) throw new TypeError(`Invalid WebContainer file path: ${path}`)
+    let tree = root
+    for (const part of parts) {
+      let node = Object.hasOwn(tree, part) ? tree[part] : undefined
+      if (!node) {
+        node = { directory: {} }
+        Object.defineProperty(tree, part, { value: node, enumerable: true, configurable: true, writable: true })
+      }
+      if (!("directory" in node)) throw new TypeError(`WebContainer path ${path} goes through the file ${part}.`)
+      tree = node.directory
+    }
+    if (Object.hasOwn(tree, name) && "directory" in tree[name]) throw new TypeError(`WebContainer path ${path} replaces the directory ${name}.`)
+    Object.defineProperty(tree, name, { value: { file: { contents } }, enumerable: true, configurable: true, writable: true })
+  }
+  return root
+}
+
+function createStatusTracker(onStatus?: (status: WebContainerStatus) => void) {
+  const listeners = new Set<(status: WebContainerStatus) => void>()
+  if (onStatus) listeners.add(onStatus)
+  const steps: WebContainerStep[] = []
+  let status: WebContainerStatus = { stage: "checking", steps }
+
+  function finishOpenStep() {
+    const open = steps.at(-1)
+    if (open && open.ms === undefined) open.ms = performance.now() - open.startedAt
+  }
+
+  function emit(next: WebContainerStatus) {
+    status = next
+    for (const listener of listeners) listener(status)
+  }
+
+  return {
+    get current() { return status },
+    listeners,
+    enter(stage: WebContainerStage) {
+      finishOpenStep()
+      steps.push({ stage, startedAt: performance.now() })
+      emit({ stage, steps: [...steps] })
+    },
+    finish(stage: WebContainerStage) {
+      const open = steps.at(-1)
+      if (open?.stage !== stage || open.ms !== undefined) return
+      finishOpenStep()
+      emit({ ...status, steps: [...steps] })
+    },
+    fail(stage: "unsupported" | "error", error: Error) {
+      finishOpenStep()
+      steps.push({ stage, startedAt: performance.now(), ms: 0 })
+      emit({ stage, steps: [...steps], error })
+    },
+  }
+}
+
+const outputLimit = 64 * 1024
+
+function wrapProcess(spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]>>, signal?: AbortSignal): WebContainerRun {
+  let captured = ""
+  let outputCancelled = false
+  let outputController!: ReadableStreamDefaultController<string>
+  const output = new ReadableStream<string>({
+    start(controller) { outputController = controller },
+    cancel() { outputCancelled = true },
+  }, { highWaterMark: outputLimit, size: chunk => chunk.length })
+  // Drain the process even when the terminal is idle, without tee()'s unbounded queue.
+  const collected = spawned.output.pipeTo(new WritableStream<string>({
+    write(chunk) {
+      captured = (captured + chunk).slice(-outputLimit)
+      const available = outputController.desiredSize ?? 0
+      if (!outputCancelled && available > 0 && chunk.length > 0) outputController.enqueue(chunk.slice(0, available))
+    },
+    close() { if (!outputCancelled) outputController.close() },
+    abort(error) { if (!outputCancelled) outputController.error(error) },
+  })).catch(() => {})
+  const kill = () => spawned.kill()
+  signal?.addEventListener("abort", kill, { once: true })
+  if (signal?.aborted) kill()
+  const exit = spawned.exit.finally(() => signal?.removeEventListener("abort", kill))
+  return {
+    output,
+    exit,
+    kill,
+    async text() {
+      await exit
+      await collected
+      return captured
+    },
+    async write(input) {
+      const writer = spawned.input.getWriter()
+      try { await writer.write(input) }
+      finally { writer.releaseLock() }
+    },
+  }
+}
+
+/** A snapshot from `createNodeModulesSnapshot()` lists its symlinks and executable files. Restore them in one Node run. */
+async function restoreSnapshotLinks(container: StackBlitzWebContainer): Promise<void> {
+  const listed = await container.fs.readFile(`node_modules/${snapshotLinksFile}`, "utf8").then(() => true, () => false)
+  if (!listed) return
+  const script = "node_modules/.vitehub-restore-links.cjs"
+  await container.fs.writeFile(script, restoreLinksScript)
+  const process = await container.spawn("node", [script])
+  const code = await process.exit
+  if (code !== 0) throw new Error(`Restoring the links of the snapshot exited with code ${code}.`)
+}
+
+/** The part of the Cache Storage API that `fetchSnapshot` uses. The package does not load the DOM types. */
+interface SnapshotCache {
+  match: (url: string) => Promise<Response | undefined>
+  put: (url: string, response: Response) => Promise<void>
+  keys: () => Promise<readonly Request[]>
+  delete: (request: Request) => Promise<boolean>
+}
+
+function isCacheStorage(value: unknown): value is { open: (name: string) => Promise<SnapshotCache> } {
+  return typeof value === "object" && value !== null && "open" in value && typeof value.open === "function"
+}
+
+export interface FetchSnapshotOptions {
+  /**
+   * A Cache Storage name. Parts found there are not downloaded again, so later boots work from the cache. Give each
+   * snapshot version its own URLs, such as names with a content hash. Parts of other URLs in this cache are deleted.
+   */
+  cache?: string
+}
+
+/**
+ * Downloads the parts that `packSnapshot()` of `@vite-hub/web-container/snapshot` wrote, joins them in order, and
+ * inflates the gzip stream. Pass the result, or the promise, to `bootWebContainer({ snapshot })`.
+ */
+export async function fetchSnapshot(urls: readonly string[], options: FetchSnapshotOptions = {}): Promise<Uint8Array> {
+  const storage: unknown = Reflect.get(globalThis, "caches")
+  const cache = options.cache && isCacheStorage(storage) ? await storage.open(options.cache).catch(() => undefined) : undefined
+  if (cache) {
+    // `Request` resolves a relative URL against the page, as the cache keys do.
+    const keep = new Set(urls.map(url => new Request(url).url))
+    for (const request of await cache.keys()) if (!keep.has(request.url)) void cache.delete(request)
+  }
+  const parts = urls.map(async (url) => {
+    const cached = await cache?.match(url)
+    if (cached) return cached.blob()
+    const response = await fetch(url)
+    if (!response.ok) throw new Error(`Snapshot part ${url} returned ${response.status}.`)
+    const blob = await response.blob()
+    await cache?.put(url, new Response(blob)).catch(() => {})
+    return blob
+  })
+  const joined = new Blob(await Promise.all(parts))
+  return new Uint8Array(await new Response(joined.stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer())
+}
+
+/**
+ * Boots a WebContainer in this browser tab and mounts an app into it.
+ *
+ * Only one WebContainer can run per page. Call `teardown()` before you boot another.
+ */
+export async function bootWebContainer(options: BootWebContainerOptions = {}): Promise<ViteHubWebContainer> {
+  const status = createStatusTracker(options.onStatus)
+  status.enter("checking")
+  const support = checkWebContainerSupport()
+  if (!support.supported) {
+    const error = new WebContainerUnsupportedError(support.reason)
+    status.fail("unsupported", error)
+    throw error
+  }
+
+  let booted: StackBlitzWebContainer | undefined
+  try {
+    status.enter("booting")
+    const loading = Promise.resolve(options.snapshot)
+    // The boot does not wait for the snapshot. A failed load still rejects below.
+    loading.catch(() => {})
+    const { WebContainer } = await import("@webcontainer/api")
+    booted = await WebContainer.boot({ coep: options.coep ?? "credentialless", workdirName: options.workdirName })
+    if (options.snapshot || options.files) {
+      status.enter("mounting")
+      const snapshot = await loading
+      if (snapshot) {
+        await booted.mount(snapshot)
+        await restoreSnapshotLinks(booted)
+      }
+      if (options.files) await booted.mount(toFileSystemTree(options.files))
+    }
+    status.finish(status.current.stage)
+  }
+  catch (cause) {
+    const error = cause instanceof Error ? cause : new Error(String(cause))
+    booted?.teardown()
+    status.fail("error", error)
+    throw error
+  }
+  const container = booted
+
+  let server: WebContainerPreviewServer | undefined
+  let resolveReady!: (server: WebContainerPreviewServer) => void
+  let rejectReady!: (error: Error) => void
+  let readySettled = false
+  let serverReadyCount = 0
+  let devRunning = false
+  const ready = new Promise<WebContainerPreviewServer>((resolve, reject) => { resolveReady = resolve; rejectReady = reject })
+  // Readiness is optional: consumers may use status events without awaiting it.
+  void ready.catch(() => {})
+  function rejectPendingReady(error: Error) {
+    if (readySettled) return
+    readySettled = true
+    rejectReady(error)
+  }
+  function fail(error: Error) {
+    rejectPendingReady(error)
+    status.fail("error", error)
+  }
+  const defaultPort = String(options.port ?? 3000)
+  const previewPorts = new Map<number, number>()
+  container.on("server-ready", (port, url) => {
+    if (!previewPorts.has(port)) return
+    serverReadyCount++
+    server = { port, url }
+    if (!readySettled) {
+      readySettled = true
+      resolveReady(server)
+    }
+    if (status.current.stage === "starting") status.enter("ready")
+  })
+  container.on("error", ({ message }) => fail(new Error(message)))
+
+  return {
+    get status() { return status.current },
+    preview: {
+      get url() { return server?.url },
+      get port() { return server?.port },
+      ready,
+    },
+    fs: container.fs,
+    async run(command, runOptions = {}) {
+      const [file, ...args] = typeof command === "string" ? commandLines[command] : command
+      const stage = typeof command === "string" ? commandStages[command] : undefined
+      if (stage === "starting") {
+        if (devRunning) throw new Error("A dev process is already running. Stop it and await its exit before starting another.")
+        // Reserve the slot before spawn yields so an overlapping call cannot share readiness.
+        devRunning = true
+      }
+      const readyCountAtStart = serverReadyCount
+      if (stage) status.enter(stage)
+      // Vite runs the WASI build of Rolldown here, and Node warns on each load that WASI is experimental.
+      const env = { PORT: defaultPort, NODE_OPTIONS: "--disable-warning=ExperimentalWarning", ...runOptions.env }
+      const previewPort = Number(env.PORT)
+      previewPorts.set(previewPort, (previewPorts.get(previewPort) ?? 0) + 1)
+      function releasePreviewPort() {
+        const remaining = previewPorts.get(previewPort)! - 1
+        if (remaining) previewPorts.set(previewPort, remaining)
+        else previewPorts.delete(previewPort)
+      }
+      let spawned: Awaited<ReturnType<StackBlitzWebContainer["spawn"]>>
+      try {
+        spawned = await container.spawn(file, args, { cwd: runOptions.cwd, env })
+      }
+      catch (cause) {
+        releasePreviewPort()
+        const error = cause instanceof Error ? cause : new Error(String(cause))
+        if (stage === "starting") devRunning = false
+        if (stage) fail(error)
+        throw error
+      }
+      const run = wrapProcess(spawned, runOptions.signal)
+      void run.exit.then(releasePreviewPort, releasePreviewPort)
+      if (stage === "installing") {
+        void run.exit.then(async (code) => {
+          if (code === 0) return status.finish("installing")
+          fail(new Error(`npm install exited with code ${code}.\n${(await run.text()).slice(-2000)}`))
+        })
+      }
+      if (stage === "starting") {
+        void run.exit.then((code) => {
+          devRunning = false
+          if (serverReadyCount === readyCountAtStart) fail(new Error(`The dev server exited with code ${code} before it was ready.`))
+        })
+      }
+      return run
+    },
+    export(exportOptions = {}) {
+      const { path = ".", ...rest } = exportOptions
+      return container.export(path, { ...rest, format: "binary" })
+    },
+    on(...args:
+      | [event: "status", listener: (status: WebContainerStatus) => void]
+      | [event: "server-ready", listener: (server: WebContainerPreviewServer) => void]
+    ) {
+      if (args[0] === "server-ready") {
+        const listener = args[1]
+        return container.on("server-ready", (port, url) => listener({ port, url }))
+      }
+      const listener = args[1]
+      status.listeners.add(listener)
+      return () => status.listeners.delete(listener)
+    },
+    teardown() {
+      rejectPendingReady(new Error("The WebContainer was torn down before the preview was ready."))
+      status.listeners.clear()
+      container.teardown()
+    },
+  }
+}

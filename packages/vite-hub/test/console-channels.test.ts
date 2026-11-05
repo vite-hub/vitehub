@@ -42,7 +42,7 @@ afterEach(() => {
 
 describe("Channels section", () => {
   it("is a section of every Console with an Agent, next to Agents and Usage", () => {
-    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "usage", "channels"])
+    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "skills", "usage", "channels"])
     expect(consoleSectionDetails.channels).toMatchObject({ label: "Channels", routeName: "vitehub-console-channels" })
   })
 

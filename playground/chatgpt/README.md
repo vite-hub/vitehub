@@ -1,6 +1,6 @@
 # ChatGPT plan playground
 
-This playground discovers one Connection and one Codex Agent through ViteHub. It needs Node.js 24.15 or newer, pnpm, Codex on PATH, and your own eligible ChatGPT account. The local proof used Codex 0.164.0. No API key or `codex login` is needed.
+This playground discovers one Connection and one Codex Agent through ViteHub. It needs Node.js 22.18 or newer, pnpm, Codex on PATH, and your own eligible ChatGPT account. The local proof used Codex 0.164.0. No API key or `codex login` is needed.
 
 OpenAI plan usage is available to open-source projects, personal local apps and selected private apps. Paid or remotely hosted apps must join [OpenAI's waitlist](https://developers.openai.com/siwc) first.
 

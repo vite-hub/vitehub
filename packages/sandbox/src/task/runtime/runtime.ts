@@ -156,6 +156,8 @@ async function createSandboxTaskRunner(
       const cloudflareSandboxId = provider.provider === 'cloudflare'
         ? createCloudflareExecutionSandboxId(name, options.sandboxId || provider.sandboxId)
         : undefined
+      // A per-run Cloudflare Sandbox, or one the provider asks to close, ends with the run.
+      const closesAfterRun = provider.closeAfterRun !== false || (provider.provider === 'cloudflare' && !options.sandboxId && !provider.sandboxId)
       const attempts = provider.provider === 'cloudflare'
         ? CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length + 1
         : 1
@@ -171,7 +173,7 @@ async function createSandboxTaskRunner(
             const session = options.signal
               ? await sandbox.open({ id: cloudflareSandboxId, signal: options.signal })
               : await sandbox.open({ id: cloudflareSandboxId })
-            taskSandbox = createTaskSandbox(session, provider.provider)
+            taskSandbox = createTaskSandbox(session, provider.provider, closesAfterRun)
             const lifecycle = {
               onExecution(execution: Promise<unknown>) {
                 executionSettled = execution.then(() => undefined, () => undefined)
@@ -206,7 +208,7 @@ async function createSandboxTaskRunner(
           }
           finally {
             await executionSettled
-            if (options.signal?.aborted || readSandboxTaskErrorMetadata(runError)?.code === 'SANDBOX_TASK_TIMEOUT' || provider.closeAfterRun !== false || (provider.provider === 'cloudflare' && !options.sandboxId && !provider.sandboxId)) {
+            if (options.signal?.aborted || readSandboxTaskErrorMetadata(runError)?.code === 'SANDBOX_TASK_TIMEOUT' || closesAfterRun) {
               try {
                 await taskSandbox?.close()
               }
@@ -237,7 +239,9 @@ export async function resolveSandboxTaskRunner<TPayload = unknown, TResult = unk
   const config = getSandboxTaskRuntimeConfig()
   const definition = await loadSandboxTaskDefinition(name)
   if (!definition)
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0053({ message: `[vitehub] Unknown Sandbox Task "${name}".` })
+    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0053({ message: getSandboxTaskRuntimeRegistry()
+      ? `[vitehub] Unknown Sandbox Task "${name}".`
+      : `[vitehub] Unknown Sandbox Task "${name}". Sandbox Tasks are not enabled in this build. Set \`sandboxTask: true\` on a preset that supports Sandbox.` })
   if (!hasValidSandboxTaskBundle(definition))
     throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0054({ message: `[vitehub] Sandbox "${name}" is invalid.` })
 
