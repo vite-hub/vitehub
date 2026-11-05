@@ -52,6 +52,31 @@ async function run(body: Record<string, unknown>): Promise<{ body: Record<string
 const binary = Uint8Array.from([0, 255, 1, 128, 10, 13, 0xef, 0xbb, 0xbf, 0xc3, 0x28])
 
 describe("blob operations", () => {
+  it("runs a store grant on its store only, and keeps the other stores private", async () => {
+    await run({ operation: "put", pathname: "private.json", data: Buffer.from("internal").toString("base64") })
+    const editor = { access: { mode: "auth", sections: ["content", "blob:media"] }, surface: "mcp", user: null } as const
+    const call = async (name: string, input: Record<string, unknown>) => await runOperation(registry, `blob.${name}`, input, editor)
+
+    expect(await call("put", { store: "media", pathname: "guides/hero.txt", data: Buffer.from("hero").toString("base64") })).toMatchObject({ ok: true, value: { created: true, store: "media" } })
+    expect(await call("list", { store: "media" })).toMatchObject({ ok: true, value: { blobs: [{ pathname: "guides/hero.txt" }], stores: ["media"] } })
+    expect(await call("get", { store: "media", pathname: "guides/hero.txt" })).toMatchObject({ ok: true, value: { data: Buffer.from("hero").toString("base64") } })
+
+    for (const [name, input] of [
+      ["list", {}],
+      ["get", { pathname: "private.json" }],
+      ["put", { pathname: "private.json", data: Buffer.from("changed").toString("base64") }],
+      ["del", { pathname: "private.json", store: "default" }],
+      ["head", { pathname: "a.txt", store: "archive" }],
+    ] as const) {
+      const refused = await call(name, input)
+      expect(refused, name).toMatchObject({ code: "INTERNAL_R0023", ok: false, status: 403 })
+      expect(refused.ok === false && refused.message, name).toContain(`"blob:${"store" in input ? input.store : "default"}"`)
+    }
+    expect(await call("del", { store: "media", pathname: "guides/hero.txt" })).toMatchObject({ ok: true, value: { deleted: true } })
+    // The private object is unchanged.
+    expect(await run({ operation: "get", pathname: "private.json" })).toMatchObject({ body: { data: Buffer.from("internal").toString("base64") }, status: 200 })
+  })
+
   it("reports the pre-write metadata result even when it is stale", async () => {
     await run({ operation: "put", pathname: "recent.txt", data: Buffer.from("original").toString("base64") })
     const missing = await blob.head("absent.txt")

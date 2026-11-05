@@ -69,7 +69,7 @@ describe("durable Agent data handoff", () => {
     const start = record.observations.find(observation => observation.name === "agent.invocation.start")
     expect(start?.attributes?.["input.hasAbortSignal"]).toBe(source === "legacy" ? undefined : source === "restored-caller")
     if (resolvedInvoker) {
-      expect(start?.attributes).toMatchObject({ "input.hasInvoker": true, "input.hasContext": true })
+      expect(start?.attributes).toMatchObject({ "input.hasInvoker": false, "input.hasContext": false, "input.hasResolvedInvoker": true })
       expect(agentInvocationRerunInput(record)).toEqual({ available: false, reason: source === "legacy" ? "replay-metadata-unavailable" : "input-has-invoker" })
     }
     // Workflow origin and resolved authority independently block replay. Isolate caller-signal provenance.
@@ -81,6 +81,51 @@ describe("durable Agent data handoff", () => {
       : source === "restored-caller"
         ? { available: false, reason: "input-has-abort-signal" }
         : { available: true, prompt: "Original request." })
+  })
+
+  it.each(["profile", "invoker", "actor", "custom", "legacy"])("preserves prepared %s caller provenance through serialized Workflow dispatch", async source => {
+    const invocations = defineAgentInvocations({ metadataContent: ["input.prompt"], store: createMemoryAgentInvocationStore() })
+    const createAgent = () => defineAgent({
+      driver: { run: () => "completed" }, invocations,
+      invoker: { profiles: [{ id: "reviewer", kind: "user" }] }, runtime: workflow("prepared-profile"),
+    })
+    let payload: AgentWorkflowInvocationPayload | undefined
+    setAgentWorkflowRuntimeLoaders({
+      state: async () => ({ ...await import("@vite-hub/workflow/runtime/state"), getWorkflowRuntimeConfig: () => ({ provider: "openworkflow" }) }),
+      workflow: async () => ({ ...await import("@vite-hub/workflow"), createWorkflow: () => ({
+        run: async (input: AgentWorkflowInvocationPayload) => {
+          payload = JSON.parse(JSON.stringify(input))
+          return { id: "prepared-profile", provider: "openworkflow", status: "queued" }
+        },
+      }) as never }),
+    })
+    const input = withResolvedAgentInvokerInput({ prompt: "Hi", context: {
+      invokerProfileId: "reviewer",
+      ...(source === "invoker" || source === "actor" ? { [source]: { id: "caller", kind: "user" } } : {}),
+      ...(source === "custom" ? { tenant: "acme" } : {}),
+    } }, { id: "request-owner", kind: "user" })
+    await startAgentInvocation(createAgent(), { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, input)
+    if (!payload) throw new Error("Expected a dispatched Workflow payload.")
+    if (source === "legacy") delete payload.resolvedInvokerReplay
+    await expect(runAgentWorkflowDefinition(createAgent(), {
+      id: "prepared-profile", name: "prepared-profile", payload, provider: "openworkflow",
+    }, runAgentInline)).resolves.toBe("completed")
+    const summary = (await invocations.list()).invocations.find(record => record.origin === "workflow:openworkflow")
+    if (!summary) throw new Error("Expected the worker journal.")
+    const record = await invocations.get(summary.id)
+    if (!record) throw new Error("Expected the worker record.")
+    expect(record.observations.find(observation => observation.name === "agent.invocation.start")?.attributes).toMatchObject({
+      "agent.invoker.profile.id": "reviewer",
+      "input.hasInvoker": ["invoker", "actor", "legacy"].includes(source),
+      "input.hasContext": source !== "profile",
+      "input.hasResolvedInvoker": false,
+    })
+    // Workflow origin remains unavailable independently; isolate the prepared identity contract.
+    const identityRecord = { observations: record.observations.map(observation => observation.name === "agent.invocation.start"
+      ? { ...observation, attributes: { ...observation.attributes, "input.hasRunMetadata": false } } : observation) }
+    expect(agentInvocationRerunInput(identityRecord)).toEqual(source === "profile"
+      ? { available: true, invokerProfileId: "reviewer", prompt: "Hi" }
+      : { available: false, reason: source === "custom" ? "input-has-context" : "input-has-invoker" })
   })
 
   it.each([false, true])("preserves caller cancellation provenance across remote dispatch: %s", async (supplied) => {

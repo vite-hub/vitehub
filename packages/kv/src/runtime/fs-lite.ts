@@ -1,5 +1,6 @@
-import { opendir, stat } from "node:fs/promises"
-import { join, relative, resolve, sep } from "node:path"
+import { randomUUID } from "node:crypto"
+import { link, mkdir, opendir, rm, stat, writeFile } from "node:fs/promises"
+import { dirname, join, relative, resolve, sep } from "node:path"
 
 import createDriver from "unstorage/drivers/fs-lite"
 
@@ -7,6 +8,9 @@ import type { KVListOptions, ResolvedFsLiteKVStoreConfig } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createKVContinuations } from "./continuations.ts"
+
+// unstorage's fs-lite getKeys() skips files with this name, which its atomic writes and setIfAbsentItem() stage values in.
+const temporaryFile = /^\.unstorage-tmp-[\da-z-]+$/
 
 export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfig): KVRuntimeDriver {
   const root = resolve(options.base)
@@ -33,6 +37,28 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
       // A key can be removed between the existence check and stat.
       if (error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return false
       throw error
+    }
+  }
+  // link() publishes the complete file and fails when the key exists, in one step, also across processes on one disk.
+  // fs-lite never expires keys, so the TTL does not apply.
+  driver.setIfAbsentItem = async (key, value) => {
+    // The underlying driver validates the key before it resolves the file path.
+    if (await driver.hasItem(key, {})) return false
+    const path = join(root, key.replace(/:/g, "/"))
+    await mkdir(dirname(path), { recursive: true })
+    // Beside the destination, so link() stays on one disk. Key listings skip unstorage's temporary file names.
+    const temporary = join(dirname(path), `.unstorage-tmp-${randomUUID()}`)
+    await writeFile(temporary, value, "utf8")
+    try {
+      await link(temporary, path)
+      return true
+    }
+    catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "EEXIST" && (await stat(path)).isFile()) return false
+      throw error
+    }
+    finally {
+      await rm(temporary, { force: true })
     }
   }
   const expired = () => kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "expired" })
@@ -73,7 +99,7 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
             continue
           }
           // Skipped entries still consume directory traversal work.
-          yield entry.isFile() ? relative(root, path) : undefined
+          yield entry.isFile() && !temporaryFile.test(entry.name) ? relative(root, path) : undefined
         }
       }
     }

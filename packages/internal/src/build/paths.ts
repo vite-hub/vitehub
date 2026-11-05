@@ -3,6 +3,17 @@ import { fileURLToPath } from "node:url"
 
 import { basename, dirname, relative, resolve } from "pathe"
 
+interface NuxtLayerDirectoryConfig {
+  rootDir?: string
+  serverDir?: string
+  srcDir?: string
+}
+
+/** The Nuxt options that locate the server directory of each layer. */
+export interface NuxtServerDirOptions extends NuxtLayerDirectoryConfig {
+  _layers?: ReadonlyArray<{ config?: NuxtLayerDirectoryConfig, cwd?: string }>
+}
+
 export function generatedDirSegments(productName: string): readonly [".vitehub", string] {
   return [".vitehub", productName] as const
 }

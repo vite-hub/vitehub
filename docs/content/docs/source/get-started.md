@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Read `docs/intro.md` from a server route with a glob Source. A Source describes where to find read-only data, and `createSource()` opens the reader. This example returns the Markdown file without parsing it into a Content document.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root. All files stay local and no provider account is needed. Use [Workspace](/docs/workspace) if the application must also write files.
+You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. All files stay local and no provider account is needed. Use [Workspace](/docs/workspace) if the application must also write files.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure

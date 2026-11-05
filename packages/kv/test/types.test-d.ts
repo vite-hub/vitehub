@@ -5,7 +5,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import type { Result } from "@vite-hub/runtime"
 
-import { kv, type KVErrorCode, type KVListPage, type KVModuleOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
+import { kv, type KVErrorCode, type KVListPage, type KVModuleOptions, type KVSetIfAbsentOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
 import { hubKv } from "../src/vite.ts"
 
 describe("types", () => {
@@ -48,6 +48,15 @@ describe("types", () => {
     expectTypeOf(config.kv).toMatchTypeOf<KVModuleOptions | undefined>()
   })
 
+  it("types kv.get() and kv.getAndDelete() by their type option", () => {
+    expectTypeOf(kv.get("code", { type: "text" })).toEqualTypeOf<Promise<Result<string | null, "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.get("code", { type: "bytes" })).toEqualTypeOf<Promise<Result<Uint8Array | null, "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.get<{ theme: string }>("settings")).toEqualTypeOf<Promise<Result<{ theme: string } | null, "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.getAndDelete("code", { type: "text" })).toEqualTypeOf<Promise<Result<string | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
+    // @ts-expect-error getAndDelete() converts only to text.
+    void kv.getAndDelete("code", { type: "bytes" })
+  })
+
   it("exposes the intended kv runtime surface", () => {
     expectTypeOf(kv.clear).returns.toEqualTypeOf<Promise<Result<void, "KV_OPERATION_FAILED">>>()
     expectTypeOf(kv.del).returns.toEqualTypeOf<Promise<Result<void, "KV_OPERATION_FAILED">>>()
@@ -57,6 +66,8 @@ describe("types", () => {
     expectTypeOf(kv.increment).returns.toEqualTypeOf<Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
     expectTypeOf(kv.keys).returns.toEqualTypeOf<Promise<Result<string[], "KV_OPERATION_FAILED">>>()
     expectTypeOf(kv.list).returns.toEqualTypeOf<Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>>()
+    expectTypeOf(kv.setIfAbsent<string>).returns.toEqualTypeOf<Promise<Result<boolean, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>>()
+    expectTypeOf(kv.setIfAbsent<string>).parameter(2).toEqualTypeOf<KVSetIfAbsentOptions | undefined>()
     expectTypeOf(kv.set<string>).returns.toEqualTypeOf<Promise<Result<void, "KV_OPERATION_FAILED">>>()
   })
 

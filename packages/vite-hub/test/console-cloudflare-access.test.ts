@@ -180,6 +180,21 @@ describe("Cloudflare Access Console Auth", () => {
     expect(verify).not.toHaveBeenCalled()
   })
 
+  it.each(["/", "/portal/"])("leaves page tools to their own authorization under %s", async (mountBaseURL) => {
+    const settings = vi.fn(() => ({ audience, teamDomain }))
+    const verify = vi.fn<CloudflareAccessVerifier>()
+    for (const path of ["_vitehub/page/session", "_vitehub/page/assets/loader.js?v=1"]) {
+      const event = consoleEvent(`https://app.example.com${mountBaseURL}${path}`)
+      expect(await handleCloudflareAccessConsoleRequest(event, settings, mountBaseURL, verify)).toBeUndefined()
+    }
+    expect(settings).not.toHaveBeenCalled()
+    expect(verify).not.toHaveBeenCalled()
+    for (const path of ["_vitehub", "_vitehub/page/session-extra", "_vitehub/page/assets-extra/loader.js"]) {
+      const event = consoleEvent(`https://app.example.com${mountBaseURL}${path}`)
+      expect((await handleCloudflareAccessConsoleRequest(event, settings, mountBaseURL, verify))?.status).toBe(401)
+    }
+  })
+
   it("bundles a generated guard that reads Env and verifies tokens on Node", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-cf-access-node-"))
     try {
@@ -313,21 +328,27 @@ describe("Cloudflare Access Console Auth", () => {
   })
 
   it.each([
-    ["", ""],
-    ["./", ""],
-    ["/", ""],
-    ["/portal/", "/portal"],
-    ["https://assets.example.com/", ""],
-    ["https://assets.example.com/portal/", "/portal"],
-  ])("guards mounted Console routes with Vite base %j", async (base, mount) => {
+    { base: "", mount: "" },
+    { base: "./", mount: "" },
+    { base: "/", mount: "" },
+    { base: "/portal/", mount: "/portal" },
+    { base: "https://assets.example.com/", mount: "" },
+    { base: "https://assets.example.com/portal/", mount: "" },
+    { base: "//assets.example.com/portal/", mount: "" },
+    { base: "https://assets.example.com/portal/", __vitehubAppBaseURL: "/app/", mount: "/app" },
+    { base: "https://assets.example.com/portal/", define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/app/") }, mount: "/app" },
+  ])("guards Console routes at the application mount: %j", async ({ mount, ...bases }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-cf-access-vite-base-"))
     try {
       const plugin = consoleVitePlugin({ console: { auth: { provider: "cloudflare-access", audience, teamDomain } }, preset: "cloudflare" })
       const hook = plugin.config
       if (!hook) throw new TypeError("Expected Console config hook.")
       const handler = "handler" in hook ? hook.handler : hook
-      const config: { root: string, base: string, nitro?: { handlers: Array<{ handler: string, middleware?: boolean }> } } = { root, base }
+      const config: { root: string, base: string, nitro?: { handlers: Array<{ handler: string, middleware?: boolean }> } } = { root, ...bases }
       await Reflect.apply(handler, {}, [config, { command: "build", mode: "production" }])
+      expect(config.nitro?.handlers).toEqual(expect.arrayContaining([
+        expect.objectContaining({ route: `${mount}/_vitehub` }),
+      ]))
       const middleware = config.nitro?.handlers.find(entry => entry.middleware)?.handler
       if (!middleware) throw new TypeError("Expected Console auth middleware.")
       const bundled = await bundleMiddleware(root, "node", middleware)
@@ -346,7 +367,11 @@ describe("Cloudflare Access Console Auth", () => {
     }
   })
 
-  it("guards the final mount when a later Vite plugin changes the base", async () => {
+  it.each([
+    { base: "/portal/", mount: "/portal" },
+    { base: "https://assets.example.com/portal/", mount: "" },
+    { base: "https://assets.example.com/portal/", __vitehubAppBaseURL: "/app/", mount: "/app" },
+  ])("guards the final application mount when a later Vite plugin changes the base: %j", async ({ mount, ...bases }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-cf-access-vite-final-base-"))
     try {
       await resolveConfig({
@@ -355,7 +380,7 @@ describe("Cloudflare Access Console Auth", () => {
         base: "/early/",
         plugins: [
           consoleVitePlugin({ console: { auth: { provider: "cloudflare-access", audience, teamDomain } }, preset: "cloudflare" }),
-          { name: "change-console-base", config: () => ({ base: "/portal/" }) },
+          { name: "change-console-base", config: () => bases },
         ],
       }, "build", "production")
       const bundled = await bundleMiddleware(root, "node", resolve(root, ".vitehub/nitro/console/auth-middleware.mjs"))
@@ -364,7 +389,7 @@ describe("Cloudflare Access Console Auth", () => {
       const { default: guard } = await import(pathToFileURL(file).href) as { default: (event: ReturnType<typeof consoleEvent>) => Promise<Response | undefined> }
       for (const path of ["/_vitehub", "/_vitehub/rpc/__call", "/api/_vitehub/console/auth/identity"]) {
         for (const method of ["GET", "POST"]) {
-          expect((await guard(consoleEvent(`https://app.example.com/portal${path}`, undefined, method)))?.status).toBe(401)
+          expect((await guard(consoleEvent(`https://app.example.com${mount}${path}`, undefined, method)))?.status).toBe(401)
         }
       }
       expect(await guard(consoleEvent("https://app.example.com/api/app"))).toBeUndefined()

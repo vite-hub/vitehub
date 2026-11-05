@@ -8,12 +8,13 @@ export default defineConfig({
     deps: {
       // Editor dependencies must share their ProseMirror and Yjs constructors.
       alwaysBundle: [/^@tiptap\/(?:extension-collaboration|y-tiptap)/, /^@vite-hub\/internal/],
-      neverBundle: ["vite", /^prosemirror-(?:model|state|transform|view)$/],
+      neverBundle: [/^#vitehub\/realtime\//, "vite", /^prosemirror-(?:model|state|transform|view)$/],
       onlyBundle: false,
     },
     entry: [
       "src/client.ts",
       "src/index.ts",
+      "src/internal/runtime/unavailable.ts",
       "src/server.ts",
       "src/vite.ts",
       "src/vue.ts",

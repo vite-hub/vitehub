@@ -6,7 +6,7 @@ navigation.order: 8
 icon: i-lucide-users-round
 ---
 
-The Auth section is at `/_vitehub/auth` on your app's origin. It appears when the app has a primary Auth Definition. It needs a Better Auth database adapter to read stored data. Stateless Auth shows why the data is unavailable.
+The Auth section is at `/_vitehub/auth` on your app's origin. It appears when the app has a primary Auth Definition. It needs a Better Auth database adapter, such as [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database), to read stored data. Stateless Auth shows why the data is unavailable.
 
 Enable and protect the [Console](/docs/development/console). The section id for `console.authorize` is `auth`. That scope covers every Auth page and management request. Console access permits inspection. Changes also need a signed-in session from the primary Auth Definition and the matching Better Auth permissions. A separate Console login does not grant app admin rights.
 
@@ -31,17 +31,14 @@ Add `events.store` to `defineAuth()` in your Auth Definition. This example uses 
 
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
+import { authDatabase } from 'vite-hub/auth/database'
 import { useDatabase } from 'vite-hub/database/drizzle'
-import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 
-export default defineAuth(() => {
-  const { db, schema } = useDatabase('auth')
-  return {
-    database: drizzleAdapter(db, { provider: 'sqlite', schema }),
-    emailAndPassword: { enabled: true },
-    events: { store: createDatabaseAuthEventStore({ db }) },
-  }
-})
+export default defineAuth(() => ({
+  database: authDatabase('auth'),
+  emailAndPassword: { enabled: true },
+  events: { store: createDatabaseAuthEventStore({ db: useDatabase('auth').db }) },
+}))
 ```
 
 The event store supports Node SQLite and Cloudflare D1. It records new events after setup. Read the [event log contract](/docs/auth/events) for retention, event coverage, and storage failure limits. The Console checks `console.authorize` for the `auth` section before reading either store. `events.authorize` controls the separate CLI endpoint and is not required for the Console.
@@ -51,6 +48,8 @@ Activity returns event IDs, types, times, and actor and subject names and IDs. I
 ## Declare fields and policy
 
 Better Auth `user.additionalFields` become columns and profile fields. Fields with `returned: false` stay private. All fields start read-only. Opt in to editing each field under `console.fields`.
+
+Use a Better Auth adapter and schema that include those columns. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) owns a fixed `user` table and rejects `user.additionalFields` with `AUTH_C0055`.
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'
@@ -100,11 +99,33 @@ A field policy accepts `label`, `editable`, and `reason`. `roles` and each entry
 
 The `console` option also works in a request-time Auth Definition callback. It has no Nuxt, Vite, or Console host dependency. Apps with external roles can mirror those fields into Better Auth and mark them read-only with a source note.
 
+### Computed roles
+
+When the app computes roles, for example from an environment variable, add `read` to `roles`. The Console then shows those roles and its Admins filter uses them, also for users who have not signed in since the rule changed. It writes nothing.
+
+```ts [server/auth.ts]
+console: {
+  roles: {
+    editable: false,
+    reason: 'Admins come from ADMIN_EMAILS.',
+    read: users => Object.fromEntries(users.map(user => [user.id, adminEmails.includes(user.email) ? 'admin' : 'user'])),
+  },
+},
+```
+
+`read` gets public core users and returns a role per user id, like a computed column. `null` keeps the stored role. A computed role can't be filtered in the database, so the Admins filter calls `read` for every user, 500 users at a time. Impersonation also refuses a user whose computed role is an admin role.
+
+Better Auth's admin endpoints still check the stored `user.role` of the signed-in admin. Write that role when the user signs in, for example in a `session.create.after` database hook.
+
 ## Changes and limits
 
 Ban, unban, remove, role changes, field edits, session revocation, and impersonation call Better Auth plugin APIs. They do not write through the adapter. Better Auth checks the current app session and runs its hooks. A successful action returns an actor receipt in the form `user:<id>`.
 
 The client never receives session tokens, account passwords, access tokens, refresh tokens, or OAuth client secrets. Session revocation resolves the stored token on the server. Impersonation forwards only Better Auth's HttpOnly cookies and opens the app.
+
+Impersonation is off unless the host turns it on. The Console turns it on with `console.impersonation: true`. Server code passes `getAuthConsoleForRequest(request, event, { impersonation: true })`, and `inspect.stopImpersonating(request)` ends it. It also needs `events.store`, so that each start and stop is recorded. With it on, `describe(request)` returns `impersonation` with the session length and the user that the request's session impersonates, and `user(id, request)` returns whether Better Auth accepts that user as a target. See [Impersonate users](/docs/development/console#impersonate-users).
+
+With the admin plugin, Auth bounds every impersonation session, whoever starts it. The session never refreshes past its `impersonationSessionDuration`, and it cannot create OAuth, MCP, or device grants, API keys, passkeys, passwords, email or phone number changes, username changes, linked accounts, two-factor settings, one-time tokens, or another impersonation. It also cannot unlink an account, or read or refresh a linked account's provider tokens through `/get-access-token`, `/refresh-token`, or `/account-info`. Those requests return `403` with `IMPERSONATION_FORBIDDEN`, and so does a server call such as `auth.api.setPassword()` that uses the impersonation session. Grant and client reads, such as `/oauth2/get-consents`, still work.
 
 Better Auth OAuth Provider 1.7.7 has no admin endpoint that revokes one user's grant. Its consent-delete endpoint is owner-only and does not revoke issued tokens. The Console shows Revoke disabled with this reason. It does not impersonate users or delete token rows to bypass the provider.
 

@@ -11,6 +11,7 @@ import type { ExecutionBudget } from "@vite-hub/runtime"
 import type { ShellNetworkGrantExecutor } from "../providers/just-bash.ts"
 import type { WorkspaceShellFileSystem } from "./filesystem.ts"
 import type { SearchableShellWorkspace } from "./types.ts"
+import type { SimpleCommandNode, WordNode } from "just-bash"
 
 interface WorkspaceInspectionCommandOptions {
   budget?: ExecutionBudget
@@ -36,7 +37,10 @@ export async function runWorkspaceInspectionCommand(
     ? 30_000
     : normalizeOutputLength(options.maxOutputLength)
   const timeout = options.timeout ?? 30_000
-  const provider = options.networkGrants && usesWorkspaceNetworkGrant(command) ? undefined : options.provider
+  // Only controlled curl commands may replace the injected execution provider.
+  const provider = options.provider && options.networkGrants && await usesWorkspaceNetworkGrant(command)
+    ? undefined
+    : options.provider
   const chargeRejected = () => {
     if (!options.budgetCharged) options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
   }
@@ -182,14 +186,37 @@ function preflightPipedSearchWithoutPath(command: string, broadSearchPaths: stri
   }
 }
 
-function usesWorkspaceNetworkGrant(command: string) {
+async function usesWorkspaceNetworkGrant(command: string) {
   try {
-    return analyzeWorkspaceInspectionCommand(command)
-      .some(segment => workspaceExecutable(segment.words)?.name === "curl")
+    const { Bash } = await import("just-bash/browser")
+    // The browser entry point exposes its parser through transform(), without executing the command.
+    return containsCurlCommand(new Bash({ commands: [] }).transform(command).ast)
   }
   catch {
     return false
   }
+}
+
+function containsCurlCommand(node: object): boolean {
+  if ("type" in node && node.type === "SimpleCommand") {
+    const { name } = node as SimpleCommandNode
+    if (name && staticCommandWord(name.parts) === "curl") return true
+  }
+  return Object.values(node).some(value => value && typeof value === "object" && containsCurlCommand(value))
+}
+
+function staticCommandWord(parts: WordNode["parts"]): string | undefined {
+  let word = ""
+  for (const part of parts) {
+    if (part.type === "Literal" || part.type === "SingleQuoted" || part.type === "Escaped") word += part.value
+    else if (part.type === "DoubleQuoted") {
+      const quoted = staticCommandWord(part.parts)
+      if (quoted === undefined) return undefined
+      word += quoted
+    }
+    else return undefined
+  }
+  return word
 }
 
 async function preflightWorkspaceInspectionCommand(command: string, fs: WorkspaceShellFileSystem, broadSearchPaths: string[] = [], cwd = workspaceMountPoint, signal?: AbortSignal): Promise<ShellObservation | undefined> {
@@ -370,7 +397,8 @@ function searchNoMatchFeedback(command: string, result: ShellObservation, broadS
 function preflightUnsupportedWorkspaceCommand(command: string, commands?: string[], strictProvider = false): ShellObservation | undefined {
   const syntax = preflightUnsupportedWorkspaceSyntax(command, commands, strictProvider)
   if (syntax) return syntax
-  if (!strictProvider && usesCompoundShellSyntax(command)) return undefined
+  // Just Bash enforces its command registry inside substitutions and compound commands.
+  if (!strictProvider && (usesShellSubstitution(command) || usesCompoundShellSyntax(command))) return undefined
   if (!commands) return undefined
   const allowed = new Set([...commands, "cd", "false", "true"])
   for (const segment of analyzeWorkspaceInspectionCommand(command)) {
@@ -382,7 +410,7 @@ function preflightUnsupportedWorkspaceCommand(command: string, commands?: string
 
 function preflightUnsupportedWorkspaceSyntax(command: string, commands?: string[], strictProvider = false): ShellObservation | undefined {
   if (usesShellSubstitution(command)) {
-    if (strictProvider || commands) return unsupportedWorkspaceCommandFeedback(command, "shell substitution", commands)
+    if (strictProvider) return unsupportedWorkspaceCommandFeedback(command, "shell substitution", commands)
     return undefined
   }
   if (usesCompoundShellSyntax(command)) {

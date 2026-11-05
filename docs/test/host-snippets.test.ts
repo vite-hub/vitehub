@@ -40,7 +40,7 @@ describe("launch-critical documentation snippets", () => {
     const contracts = await readContracts()
     const pages = [...new Set(contracts.map(contract => contract.page))]
 
-    expect(contracts).toHaveLength(20)
+    expect(contracts).toHaveLength(21)
 
     for (const page of pages) {
       const blocks = sourceBlocks(await readFile(resolve(docsRoot, "content/docs", page), "utf8"))

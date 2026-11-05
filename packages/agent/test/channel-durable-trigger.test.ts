@@ -18,7 +18,11 @@ afterEach(async () => {
 
 const runtime = { ...createAgentRuntimeContext({ runtime: "unknown", waitUntil: vi.fn() }), capabilities: {} }
 
-function agentWith(durableState: boolean, invoke: (channelState: AgentChannelStateBinding | undefined) => AgentTriggerInvokeResult) {
+function agentWith(
+  durableState: boolean,
+  invoke: (channelState: AgentChannelStateBinding | undefined) => AgentTriggerInvokeResult,
+  webhooks: { secretToken: false, stateScope?: string } = { secretToken: false },
+) {
   const seen = vi.fn(invoke)
   const run = vi.fn(() => "ok")
   const opened = durableState
@@ -29,7 +33,7 @@ function agentWith(durableState: boolean, invoke: (channelState: AgentChannelSta
       tickets: defineChannel("tickets", {
         messages: false,
         triggers: { opened },
-        webhooks: { secretToken: false },
+        webhooks,
       }),
     },
     driver: { run },
@@ -95,5 +99,46 @@ describe("defineChannelTrigger({ durableState: true })", () => {
 
     await expect(resolveAgentTriggerInvocation(agent, runtime, "tickets.opened", {})).resolves.toMatchObject({ input: { prompt: "triage" } })
     expect(seen).toHaveBeenCalledWith(undefined)
+  })
+})
+
+describe("webhooks.stateScope", () => {
+  const queued = () => ({ input: { prompt: "triage" }, webhook: { concurrencyLimit: 1, deliveryId: "ticket-1" } })
+
+  async function queuedRoute(webhooks?: { secretToken: false, stateScope?: string }) {
+    const { agent, run, seen } = agentWith(true, () => ({ ...queued(), webhook: { ...queued().webhook, rehydrate: queued } }), webhooks)
+    const { send, state } = await routeFor(agent)
+    const enqueue = vi.spyOn(state, "enqueueWebhookDelivery")
+    return { enqueue, run, seen, send }
+  }
+
+  it("keeps queued deliveries and Channel State under the declared scope", async () => {
+    const { enqueue, run, seen, send } = await queuedRoute({ secretToken: false, stateScope: "webhook:bot-dev:tickets:tickets" })
+
+    expect((await send()).status).toBe(200)
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+    expect(enqueue.mock.calls[0]![0]).toMatchObject({ scope: "webhook:bot-dev:tickets:tickets:" })
+    // The route and the queue replay both bind the Channel State under the declared scope.
+    expect(seen.mock.calls.map(([channelState]) => channelState?.keyPrefix)).toEqual([
+      "webhook:bot-dev:tickets:tickets:channel-state:",
+      "webhook:bot-dev:tickets:tickets:channel-state:",
+    ])
+  })
+
+  it("uses the owner's scope without stateScope", async () => {
+    const { enqueue, run, seen, send } = await queuedRoute()
+
+    expect((await send()).status).toBe(200)
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+    expect(enqueue.mock.calls[0]![0]).toMatchObject({ scope: "webhook:support:tickets:tickets:" })
+    expect(seen.mock.calls[0]![0]?.keyPrefix).toBe("webhook:support:tickets:tickets:channel-state:")
+  })
+
+  it.each(["", " ", "::", 1])("rejects stateScope %j", async (stateScope) => {
+    // SAFETY: The test passes a value that the type rejects, as JavaScript configuration can.
+    const { seen, send } = await queuedRoute({ secretToken: false, stateScope: stateScope as string })
+
+    await expect(send()).rejects.toThrow(new TypeError('[vitehub] Webhook registration "tickets" stateScope must be a non-empty string.'))
+    expect(seen).not.toHaveBeenCalled()
   })
 })

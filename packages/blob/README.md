@@ -82,6 +82,7 @@ When your own middleware checks access before the serve route, use `private, no-
 
 Application routes can call `blob.serve(event, pathname, { cacheControl, transform: { key, run } })` after their own authorization or database lookup. Both direct calls and generated serving routes accept Nuxt H3 v1 and Nitro H3 v2 events. `run` receives the original `Blob` and returns a response `Blob`. ViteHub stores the derived result in a reserved namespace in the same store, using the store's configured access, leaves the original unchanged, and invalidates the cache when the source or transform key changes. Source changes replace each cached variant on its next request; `blob.del(originalPath)` clears all its variants. Version the key when the transformation changes and include output variants such as size or format. The method handles conditional GET and HEAD requests and returns `null` for a `304` response. Without a `transform`, it also answers one `Range: bytes=` request with `206` and `Content-Range`, or `416` when the range starts past the end, so media can seek. See [the server API](https://vitehub.dev/docs/blob/server-api#serve-a-transformed-object) for cache lifetimes, an example, and failure behavior.
 The serve route is public by default. Set `serve.authorize: true` to require a signed-in `@vite-hub/auth` session through the Auth Vite plugin; the build fails without an Auth Definition. Export `authorize` (type `BlobServeAuthorize`) from `server/blob.ts` to decide each request with the Auth access signature. ViteHub runs the check before the store read and before conditional `304` handling. It returns `401` without a session, `403` for `false`, and a returned `Response` as-is. Authorized responses default to `Cache-Control: private, no-cache`.
+For files shared by public link, add `serve.anonymous: true`. Then signed-out requests also run the `authorize` export (type `BlobServeAnonymousAuthorize`), with `session` and `user` set to `null`, and `false` returns `401` for them. This needs an explicit option because a callback written for `authorize: true` can expect a user.
 
 Use `detectContentType()` when an application needs to classify leading bytes before storage. It returns a detected MIME type for common images and PDFs, or `undefined` when the signature is unknown. Storage `contentType` remains caller-provided metadata, and recognizing a signature does not prove that a complete file is valid or safe.
 
@@ -111,7 +112,11 @@ export default defineConfig({
 
 Blob stores binary objects and small object metadata. Keep catalogs, indexes, permissions, search records, domain records, and richer metadata queries in KV, Database, or another NoSQL/catalog store next to Blob.
 
-Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded files-sdk listings fail if they cannot decode the cursor.
+Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded UploadThing listings fail if they cannot decode the cursor.
+
+With `folded: true`, files-sdk drivers whose provider has folders (S3 and S3-compatible stores, R2, GCS, Azure, Google Drive, Dropbox, Box, OneDrive, and Supabase) ask the provider for the folders, so each page is one provider request. A page then holds at most `limit` blobs and folders together. UploadThing has no folders, so ViteHub reads every key under `prefix` and folds them itself.
+
+With a partial prefix such as `docs/re`, a native page can be empty while `hasMore` is true. Continue with the returned cursor to reach the matching entries.
 
 Filesystem listings skip child directories removed or replaced by files during traversal, so unaffected blobs remain visible. Permission and path-safety errors still propagate. A store root that is a regular file still fails.
 
@@ -160,7 +165,7 @@ const image = responsiveImage(record!, { sizes: "100vw", art: [{ media: "(max-wi
 // image.img: { src, srcset, sizes, width, height, alt, style }, image.sources: <picture> sources
 ```
 
-The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Sizes snap to an allowed list and never upscale. `blob.images.transformer` picks sharp on Node (optional peer), the Cloudflare Images binding on Workers, or passthrough, which serves originals. `@vite-hub/blob/media` exports the browser-safe helpers.
+The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Sizes snap to an allowed list and never upscale. `blob.images.transformer` picks sharp on Node (optional peer), the Cloudflare Images binding on Workers, or passthrough, which serves originals. `transformer: "photon"` uses `@cf-wasm/photon` (optional peer), a WebAssembly image library that runs on Workers and Node without a binding. `@vite-hub/blob/media` exports the browser-safe helpers.
 
 `responsiveImage()` uses the same default size list for its `srcset` widths. If you set `blob.images.sizes`, pass that list as `responsiveImage(record, { imageSizes })` so the width descriptors match the served variants.
 

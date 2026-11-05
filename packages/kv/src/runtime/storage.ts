@@ -100,10 +100,10 @@ function createKVStorage(name = "default"): KVStorage {
     async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
     async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options)) },
     async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options)) },
-    async getAndDelete<T>(key: string) {
+    async getAndDelete(key, options) {
       return runKVOperation("getAndDelete", name, async (storage) => {
         if (!storage.getAndDeleteItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "getAndDelete", store: name })
-        return storage.getAndDeleteItem<T>(key)
+        return storage.getAndDeleteItem(key, options)
       }, ["KV_UNSUPPORTED_OPERATION"])
     },
     async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options)) },
@@ -120,6 +120,14 @@ function createKVStorage(name = "default"): KVStorage {
       return runKVOperation("list", name, storage => storage.listKeys(options), ["KV_INVALID_CURSOR"])
     },
     async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options)) },
+    async setIfAbsent(key, value, options) {
+      return runKVOperation("setIfAbsent", name, async (storage) => {
+        if (!storage.setIfAbsentItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "setIfAbsent", store: name })
+        const ttl = options?.ttl
+        if (ttl !== undefined && (!Number.isFinite(ttl) || ttl <= 0 || !Number.isSafeInteger(Math.ceil(ttl)))) throw kvErrorDiagnostics.KV_INVALID_TTL()
+        return storage.setIfAbsentItem(key, value, ttl)
+      }, ["KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
+    },
     store(storeName: KVStoreName) { return createKVStorage(storeName) },
   }
 }

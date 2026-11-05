@@ -39,6 +39,8 @@ describe("Console display helpers", () => {
     expect(consoleStatusValue("Enabled")).toEqual({ label: "Enabled", tone: "success" })
     expect(consoleStatusValue("failed")).toEqual({ label: "Failed", tone: "error" })
     expect(consoleStatusValue("running")).toEqual({ label: "Running", pending: true, tone: "neutral" })
+    expect(consoleStatusValue("Sent")).toEqual({ label: "Sent", tone: "success" })
+    expect(consoleStatusValue("Captured only")).toEqual({ label: "Captured only", tone: "neutral" })
     expect(consoleStatusValue("Provider")).toBeUndefined()
     expect(consoleStatusValue("Not enabled")).toBeUndefined()
   })

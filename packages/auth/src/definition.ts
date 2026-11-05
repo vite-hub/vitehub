@@ -3,6 +3,7 @@ import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
   AuthAccessConfiguration,
+  AuthAppDatabase,
   AuthBetterAuthOptions,
   AuthDatabaseConfiguration,
   AuthDefinition,
@@ -11,6 +12,7 @@ import type {
   AuthResolvedDefinitionOptions,
   AuthSecondaryStorageConfiguration,
   AuthSignInConfiguration,
+  AuthViteHubOptions,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { applyAuthPreset } from "./preset-options.ts"
@@ -30,10 +32,11 @@ function validateNamedString(value: unknown, label: string): void {
   }
 }
 
-function validateAuthDatabase(value: AuthDatabaseConfiguration | undefined): void {
-  if (typeof value === "undefined" || value === true) return
+function validateAuthDatabase(value: AuthDatabaseConfiguration | AuthAppDatabase | undefined): void {
+  // `authDatabase()` resolves the Database of each request, so a static Definition can hold it.
+  if (typeof value === "undefined" || value === true || (typeof value === "function" && typeof value.vitehubDatabase === "string")) return
   if (!isPlainObject(value)) {
-    throw authErrorDiagnostics.AUTH_C0021({ message: "`defineAuth()` database must be `true` or an inline object with `name`." })
+    throw authErrorDiagnostics.AUTH_C0021({ message: "`defineAuth()` database must be `authDatabase()`, `true`, or an inline object with `name`. Return another Better Auth adapter from the Definition callback." })
   }
 
   const unknownKey = Object.keys(value).find(key => !databaseReferenceKeys.has(key))
@@ -134,7 +137,9 @@ export function defineAuth<const TOptions extends AuthResolvedDefinitionOptions>
   options: AuthDefinitionResolver<TOptions>,
 ): AuthDefinition<AuthDefinitionResolver<TOptions>>
 
-export function defineAuth<const TOptions extends AuthBetterAuthOptions>(
+// `runtime` in the constraint makes a wrong runtime object report its own error. Without it, TypeScript reports that
+// the object is not a resolver function.
+export function defineAuth<const TOptions extends AuthBetterAuthOptions & Pick<AuthViteHubOptions, "runtime">>(
   options: AuthDefinitionOptions<TOptions>,
 ): AuthDefinition<AuthDefinitionOptions<TOptions>>
 
@@ -193,7 +198,7 @@ function defineAuthOptions(
   }
 
   validateAuthEvents(options.events)
-  validateAuthDatabase(viteHubOptions.database as AuthDatabaseConfiguration | undefined)
+  validateAuthDatabase(viteHubOptions.database as AuthDatabaseConfiguration | AuthAppDatabase | undefined)
   validateAuthSecondaryStorage(viteHubOptions.secondaryStorage as AuthSecondaryStorageConfiguration | undefined)
   validateAuthAccess(viteHubOptions.access as AuthAccessConfiguration | undefined)
   // A callback or `runtime` can add options later, so ViteHub checks the preset again for each resolution.

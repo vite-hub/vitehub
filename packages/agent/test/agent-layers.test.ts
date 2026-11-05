@@ -1,7 +1,8 @@
+import { chatgpt, openai } from "@vite-hub/gateways"
 import { github } from "@vite-hub/workspace"
 import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 import { describe, expect, it, vi } from "vitest"
-import { agentWithSkills, defineAgent, runAgent } from "../src/index.ts"
+import { agentWithSkills, claudeCodeDriver, codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { withColocatedAgentSkills } from "../src/internal/colocated-agent-skills.ts"
 
 describe("Agent definition layers", () => {
@@ -32,7 +33,7 @@ describe("Agent definition layers", () => {
 
   it("merges driver configuration but replaces source definitions by key", () => {
     const base = defineAgent({
-      driver: { kind: "codex", model: "base", reasoningEffort: "high" },
+      driver: codexDriver({ model: "base", reasoningEffort: "high" }),
       workspace: { mode: "read", sources: { docs: github({ repo: "owner/base", mount: "docs", root: "documentation" }) } },
     })
     const source = github({ repo: "owner/development" })
@@ -42,14 +43,14 @@ describe("Agent definition layers", () => {
       workspace: { mode: "write", sources: { docs: source } },
     })
     const options = development.__vitehubWorkspaceAgentOptions
-    expect(options.driver).toMatchObject({ kind: "codex", model: "development", reasoningEffort: "high" })
+    expect(options.driver).toMatchObject(codexDriver({ model: "development", reasoningEffort: "high" }))
     expect(options.workspace).toMatchObject({ mode: "write" })
     expect((options.workspace as { sources: { docs: object } }).sources.docs).toBe(source)
     expect(base.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ model: "base" })
   })
 
   it("supports multiple generations without inheriting a registered name", () => {
-    const base = defineAgent({ name: "base", driver: { kind: "codex", model: "base" } })
+    const base = defineAgent({ name: "base", driver: codexDriver({ model: "base" }) })
     const second = defineAgent({ extends: base, driver: { model: "second" } })
     const third = defineAgent({ extends: second, description: "third" })
     expect(second.name).toBeUndefined()
@@ -70,15 +71,22 @@ describe("Agent definition layers", () => {
     expect(finish).toHaveBeenCalledTimes(1)
   })
 
-  it("normalizes shorthand drivers and replaces a different driver variant", () => {
-    const base = defineAgent({ driver: "codex", workspace: {} })
+  it("merges partial driver overrides and replaces a different driver variant", () => {
+    const base = defineAgent({ driver: codexDriver(), workspace: {} })
     const child = defineAgent({ extends: base, driver: { model: "development" } })
-    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind: "codex", model: "development" })
+    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual(codexDriver({ model: "development" }))
     const run = () => ({ text: "custom" })
     const custom = defineAgent({ extends: child, driver: { run } })
     expect(custom.__vitehubWorkspaceAgentOptions.driver).toEqual({ run })
-    const claude = defineAgent({ extends: child, driver: { kind: "claude-code" } })
-    expect(claude.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind: "claude-code" })
+    const claude = defineAgent({ extends: child, driver: claudeCodeDriver() })
+    expect(claude.__vitehubWorkspaceAgentOptions.driver).toEqual(claudeCodeDriver())
+  })
+
+  it("replaces an inherited gateway as a whole", () => {
+    const base = defineAgent({ workspace: {}, driver: codexDriver({ gateway: chatgpt() }) })
+    const gateway = openai()
+    const child = defineAgent({ extends: base, driver: { gateway, model: "gpt-5.1-mini" } })
+    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual(codexDriver({ gateway, model: "gpt-5.1-mini" }))
   })
 
   it.each([
@@ -88,21 +96,21 @@ describe("Agent definition layers", () => {
     () => ({ command: "child" }),
   ])("replaces the complete provider launch when a child supplies one (%j)", (launch) => {
     const parentLaunch = { command: "parent", args: ["parent-only"], onExit: vi.fn() }
-    const base = defineAgent({ workspace: {}, driver: { kind: "codex", launch: parentLaunch } })
+    const base = defineAgent({ workspace: {}, driver: codexDriver({ launch: parentLaunch }) })
     const child = defineAgent({ extends: base, driver: { launch } })
-    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind: "codex", launch })
-    expect(base.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind: "codex", launch: parentLaunch })
+    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual(codexDriver({ launch }))
+    expect(base.__vitehubWorkspaceAgentOptions.driver).toEqual(codexDriver({ launch: parentLaunch }))
   })
 
   it("inherits the provider launch when a child only changes the model", () => {
     const launch = { command: "parent", onExit: vi.fn() }
-    const base = defineAgent({ workspace: {}, driver: { kind: "codex", launch } })
+    const base = defineAgent({ workspace: {}, driver: codexDriver({ launch }) })
     const child = defineAgent({ extends: base, driver: { model: "child" } })
-    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind: "codex", model: "child", launch })
+    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual(codexDriver({ model: "child", launch }))
   })
 
   it("replaces registered workspace references without leaking inline sources", () => {
-    const base = defineAgent({ driver: "codex", workspace: { sources: { docs: github({ repo: "owner/base" }) } } })
+    const base = defineAgent({ driver: codexDriver(), workspace: { sources: { docs: github({ repo: "owner/base" }) } } })
     const child = defineAgent({ extends: base, workspace: { name: "registered" } })
     expect(child.__vitehubWorkspaceAgentOptions.workspace).toEqual({ name: "registered" })
   })
@@ -112,7 +120,7 @@ describe("Agent definition layers", () => {
     const parentWorkspace = { mode: "write" as const, sourceRootDir: "/parent/source", sources: { docs: source } }
     const childWorkspace = { mode: "read" as const }
     Object.setPrototypeOf(layer === "parent" ? parentWorkspace : childWorkspace, { name: "inherited" })
-    const base = defineAgent({ driver: "codex", workspace: parentWorkspace })
+    const base = defineAgent({ driver: codexDriver(), workspace: parentWorkspace })
     const child = defineAgent({ extends: base, workspace: childWorkspace })
 
     expect(child.__vitehubWorkspaceAgentOptions.workspace).toMatchObject({
@@ -149,11 +157,11 @@ describe("Agent definition layers", () => {
   })
 
   it("passes inherited driver requirements to a child function and replaces them with an array", () => {
-    const base = defineAgent({ workspace: {}, driver: { kind: "codex", requirements: ["git", "gh"] } })
+    const base = defineAgent({ workspace: {}, driver: codexDriver({ requirements: ["git", "gh"] }) })
     const appended = defineAgent({ extends: base, driver: { requirements: inherited => [...inherited, "kubectl"] } })
     const grandchild = defineAgent({ extends: appended, driver: { requirements: inherited => inherited.filter(command => command !== "gh") } })
     const replaced = defineAgent({ extends: base, driver: { requirements: ["unzip"] } })
-    const standalone = defineAgent({ workspace: {}, driver: { kind: "codex", requirements: inherited => [...inherited, "git"] } })
+    const standalone = defineAgent({ workspace: {}, driver: codexDriver({ requirements: inherited => [...inherited, "git"] }) })
     expect(appended.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ requirements: ["git", "gh", "kubectl"] })
     expect(grandchild.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ requirements: ["git", "kubectl"] })
     expect(replaced.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ requirements: ["unzip"] })
@@ -175,7 +183,7 @@ describe("Agent definition layers", () => {
 
   it("applies workspace.materialize to every Source without its own mode, including inherited Sources", () => {
     const base = defineAgent({
-      driver: "codex",
+      driver: codexDriver(),
       workspace: {
         materialize: "startup",
         sources: {
@@ -193,7 +201,7 @@ describe("Agent definition layers", () => {
     )
     expect(modes(base)).toEqual({ docs: "startup", pinned: "lazy" })
     expect(modes(child)).toEqual({ docs: "none", extra: "none", pinned: "lazy" })
-    expect(() => defineAgent({ driver: "codex", workspace: { materialize: "eager" as never } })).toThrow("materialize must be one of")
+    expect(() => defineAgent({ driver: codexDriver(), workspace: { materialize: "eager" as never } })).toThrow("materialize must be one of")
   })
 
   it("rejects arbitrary parents instead of copying a live agent runtime", () => {
@@ -203,20 +211,22 @@ describe("Agent definition layers", () => {
 
 
 describe("Agent instruction layers", () => {
-  it.each(["codex", "claude-code"] as const)("retains instruction templates with shorthand %s overrides", (kind) => {
+  it("retains instruction templates with provider Driver overrides", () => {
     const template = "Before\n{{{ instructions }}}\nAfter"
-    const base = defineAgent({ workspace: {}, driver: { kind: "codex", instructions: { template, content: "Default" } } })
-    const child = defineAgent({ extends: base, driver: kind })
-    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind, instructions: { template, content: "Default" } })
+    const base = defineAgent({ workspace: {}, driver: codexDriver({ instructions: { template, content: "Default" } }) })
+    const codex = defineAgent({ extends: base, driver: codexDriver() })
+    expect(codex.__vitehubWorkspaceAgentOptions.driver).toEqual({ ...codexDriver(), instructions: { template, content: "Default" } })
+    const claude = defineAgent({ extends: base, driver: claudeCodeDriver() })
+    expect(claude.__vitehubWorkspaceAgentOptions.driver).toEqual({ ...claudeCodeDriver(), instructions: { template, content: "Default" } })
   })
 
   it("retains instruction templates across providers without leaking provider options", () => {
     const template = "Before\n{{{ instructions }}}\nAfter"
-    const base = defineAgent({ workspace: {}, driver: { kind: "codex", model: "base", reasoningEffort: "high", instructions: { template, content: "Default" } } })
-    const inherited = defineAgent({ extends: base, driver: { kind: "claude-code" } })
-    expect(inherited.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind: "claude-code", instructions: { template, content: "Default" } })
-    const child = defineAgent({ extends: base, driver: { kind: "claude-code", instructions: "Child" } })
-    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual({ kind: "claude-code", instructions: { template, content: "Child" } })
+    const base = defineAgent({ workspace: {}, driver: codexDriver({ model: "base", reasoningEffort: "high", instructions: { template, content: "Default" } }) })
+    const inherited = defineAgent({ extends: base, driver: claudeCodeDriver() })
+    expect(inherited.__vitehubWorkspaceAgentOptions.driver).toEqual(claudeCodeDriver({ instructions: { template, content: "Default" } }))
+    const child = defineAgent({ extends: base, driver: claudeCodeDriver({ instructions: "Child" }) })
+    expect(child.__vitehubWorkspaceAgentOptions.driver).toEqual(claudeCodeDriver({ instructions: { template, content: "Child" } }))
     expect(base.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: { content: "Default" } })
   })
 
@@ -229,7 +239,7 @@ describe("Agent instruction layers", () => {
   })
 
   it("fills an inherited instruction template across generations without mutating its defaults", () => {
-    const base = defineAgent({ workspace: {}, driver: { kind: "codex", instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Default" } } })
+    const base = defineAgent({ workspace: {}, driver: codexDriver({ instructions: { template: "Before\n{{{ instructions }}}\nAfter", content: "Default" } }) })
     const child = defineAgent({ extends: base, driver: { instructions: "Child" } })
     const grandchild = defineAgent({ extends: child, driver: { instructions: "Grandchild" } })
     expect(base.__vitehubWorkspaceAgentOptions.driver).toMatchObject({ instructions: { content: "Default" } })

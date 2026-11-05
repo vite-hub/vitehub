@@ -13,6 +13,7 @@ icon: i-lucide-code-2
 | `createDatabaseAuthEventStore` from `@vite-hub/auth` | Create the opt-in SQLite or D1 [event log](/docs/auth/events). |
 | `getAuthEvents`, `listAuthEvents`, `aggregateAuthEvents` from `@vite-hub/auth/server` | Read events and daily counts from server code. |
 | `defineAuth` from `@vite-hub/auth` | Declare the Primary Auth Definition. |
+| `isGitHubOrgMember` from `@vite-hub/auth` | Check that a GitHub access token belongs to an active member of an organization. See [GitHub organization membership](#github-organization-membership). |
 | `stateless` from `@vite-hub/auth/presets` | Keep sessions in encrypted cookies, with no database. See [Sessions without a database](/docs/auth/configure#sessions-without-a-database). |
 | `hubAuth` from `@vite-hub/auth/vite` | Register Auth discovery, route exposure, and generated server aliases. |
 | `auth`, `getAuth`, `getAuthForRequest` from `@vite-hub/auth/server` | Access the Better Auth instance from server code. |
@@ -39,6 +40,8 @@ export const userSession = useUserSession()
 ```
 
 Import `createAuthClient` from the same entry when you use a custom `basePath` or Better Auth client plugins. The client loads Better Auth the first time you call it, so creating one up front adds nothing to a page that does not sign in. `loadAuthClient(client)` returns Better Auth's own client for members such as `$store`. Pass the same `basePath` to the client and the Definition. In a Nuxt app below `app.baseURL`, the default client uses that path, such as `/app/api/auth`; a custom client must include it in `basePath`.
+
+App Auth loads Better Auth with the first Auth request, the first request that an access route matches, or the first Console request with `console: { auth: "app" }`. An independent `console.auth` Definition still loads Better Auth at startup. Your code loads it when it imports `@vite-hub/auth/server`. Import it in routes, not in a Nitro plugin or global middleware, so a cold start does not compile it.
 
 Server code can read the discovered Auth instance or require a session for a request.
 
@@ -91,6 +94,7 @@ export const app = new H3()
 | `createAuthAccessHandler(routes, definition?)` | Creates a handler that matches discovered route metadata, then authenticates and runs every matching authorization rule. |
 | `withAuth(handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when a session exists. Otherwise it returns an unauthorized or sign-in response. |
 | `withAuthorization(authorize, handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when allowed. Otherwise it returns JSON `401` without a session, `403` when `authorize` returns `false`, or the callback's `Response`. |
+| `withAnonymousAuthorization(authorize, handler, definition?)` | Like `withAuthorization()`, but a signed-out caller also reaches `authorize`, with `session` and `user` set to `null`. `false` returns JSON `401` for a signed-out caller and `403` for a signed-in one. |
 | `requireAuth(definition?)` | Returns `(event, next)` route middleware for H3 2. It calls `next()` when a session exists. Otherwise it returns the same response as `withAuth()`. |
 | `requireAuthorization(authorize, definition?)` | Returns `(event, next)` route middleware for H3 2. It calls `next()` when allowed. Otherwise it returns the same response as `withAuthorization()`. |
 | `getAuthorization(event)` | Returns the `authorization` that `requireAuth()` or `requireAuthorization()` attached to the event. Throws `AUTH_R0017` when no Auth middleware accepted it. |
@@ -98,6 +102,23 @@ export const app = new H3()
 `auth`, `getAuth()`, `getAuthForRequest()`, and `assertAuthOrigin()` return the instance typed from your Auth Definition, with the endpoints and fields of its plugins. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`, so `getAuthForRequest(event.req).api.listUsers` type-checks when the definition uses the `admin()` plugin, without a cast. For another definition, `getAuthForDefinition(definition)` infers the type from its argument, and `AuthFor<typeof definition>` from `@vite-hub/auth` names it.
 
 The `authorization` argument and the `getAuthorization(event)` result are a frozen `{ request, session, user }` object. Only the guard or the middleware creates it. A caller cannot pass its own value to the returned handler.
+
+### GitHub organization membership
+
+`isGitHubOrgMember(accessToken, org, options?)` returns `true` only when GitHub says the token's user is an active member of `org`. The token needs the `read:org` scope. A pending invitation, a non-2xx response, a network error, or a timeout returns `false`, so a failed check never admits a user. It uses only `fetch` and Web Crypto, so it runs on Node, Workers, and the other hosts.
+
+| Option | Default | Use |
+| --- | --- | --- |
+| `cacheMs` | No cache | Keep a successful check for this many milliseconds per token and organization. A failed check is never kept. The cache keys are SHA-256 digests, not tokens, and expired keys are removed. |
+| `timeoutMs` | `5000` | Give up on the GitHub request after this many milliseconds. |
+
+```ts [server/utils/members.ts]
+import { isGitHubOrgMember } from '@vite-hub/auth'
+
+export const isTeamMember = (token: string | null | undefined) => isGitHubOrgMember(token, 'acme', { cacheMs: 300_000 })
+```
+
+The cache is in memory, so each Worker isolate or server process has its own. Inline Console Auth with `org` uses the same check at sign-in, without a cache.
 
 ### Authorize access routes
 
@@ -132,7 +153,7 @@ The callback receives the authenticated `user`, `session`, and request. ViteHub 
 
 The same callback signature protects [Blob serve routes](/docs/blob/configure#protect-served-objects) and [Collections](/docs/source/server-api#protect-a-collection). Their generated routes wrap the protected read with `withAuthorization(authorize, handler)`. Unlike `withAuth()`, it does not start a sign-in redirect, so image and fetch requests receive a status code.
 
-Generated access middleware calls `createAuthAccessHandler(routes, definition?)`. Manual hosts can use it with a Web `Request`, `{ req: Request }`, or an H3 1 event such as a Nuxt 4 server event. Pass `{ route, method?, authorize?: true }` metadata in the same order as the Definition's `access.routes`. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. All matching rules apply, and `authorize: true` requires the corresponding runtime callback. Unmatched requests do not load the Auth Definition or session.
+Generated access middleware loads `createAuthAccessHandler(routes, definition?)` on the first request that an access route matches. Manual hosts can use it with a Web `Request`, `{ req: Request }`, or an H3 1 event such as a Nuxt 4 server event. Pass `{ route, method?, authorize?: true }` metadata in the same order as the Definition's `access.routes`. A route ending in `/**` matches its base path and descendants. Exact routes match only that path. All matching rules apply, and `authorize: true` requires the corresponding runtime callback. Unmatched requests do not load the Auth Definition or session.
 
 `requireAuthAccessRoutes(input, routeIndexes, definition, requiredAuthorizeRouteIndexes, { redirectToSignIn: false })` returns `401` for an unauthenticated browser request instead of starting the configured provider sign-in redirect. Use it when the host shows its own sign-in page and starts provider sign-in after an explicit action. By default, it keeps the `access.signIn` redirect.
 

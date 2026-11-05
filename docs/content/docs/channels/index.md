@@ -1,5 +1,6 @@
 ---
 title: Channels
+layout: landing
 navigation.title: Overview
 description: Send messages from your server to Slack, Telegram, or any service through a named Channel.
 navigation.order: 1

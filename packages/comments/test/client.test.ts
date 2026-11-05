@@ -24,6 +24,18 @@ function setup() {
 afterEach(() => vi.restoreAllMocks())
 
 describe("createCommentsClient", () => {
+  it("preserves independent metadata copies in the memory transport", async () => {
+    const { store } = setup()
+    const metadata = { version: 3, emptyBody: true, category: "feedback" }
+    const created = await store.create({ subject, anchor, body: "First", metadata })
+    expect(created.metadata).toEqual(metadata)
+    metadata.version = 4
+    created.metadata!.category = "changed"
+    const stored = await store.get({ id: created.id })
+    expect(stored!.metadata).toEqual({ version: 3, emptyBody: true, category: "feedback" })
+    expect((await store.list({}))[0]!.metadata).toEqual(stored!.metadata)
+  })
+
   it.each(["mine", "mentions"] as const)("keeps transport-owned %s membership authoritative", async filter => {
     const store = createMemoryTransport({ user: ana });
     const included = await store.create({ subject, anchor, body: "Included", mentions: [ana.id] });
@@ -114,6 +126,9 @@ describe("createCommentsClient", () => {
   it("rejects an empty comment and an unknown thread with a coded error", async () => {
     const { client } = setup()
     await expect(client.create({ subject, anchor, body: "   " })).rejects.toMatchObject({ code: "COMMENTS_R0005" })
+    // A message of files alone has no text, as a pasted screenshot.
+    const shot = await client.create({ subject, anchor, body: "", attachments: ["shots/a.png"] })
+    expect(shot.messages[0]).toMatchObject({ attachments: ["shots/a.png"], body: "" })
     await expect(client.reply({ threadId: "nope", body: "Hi" })).rejects.toMatchObject({ code: "COMMENTS_R0002" })
   })
 
@@ -388,6 +403,30 @@ describe("createCommentsClient", () => {
 })
 
 describe("query reconciliation", () => {
+  it("keeps pushed threads within the subject kind and revision query", async () => {
+    const store = createMemoryTransport({ user: ana })
+    const client = createCommentsClient({ transport: store, user: ana, query: { subjectKind: "page", revision: { lte: 2 } } })
+    const stop = client.start()
+    try {
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      const included = await store.create({ subject, anchor, body: "Included", revision: 2 })
+      const older = await store.create({ subject, anchor, body: "Older", revision: 0 })
+      await store.create({ subject, anchor, body: "Too new", revision: 3 })
+      await store.create({ subject, anchor, body: "No revision" })
+      await store.create({ subject: { kind: "content", id: "about" }, anchor, body: "Other kind", revision: 1 })
+      expect(client.threads.map(thread => thread.id)).toEqual([included.id, older.id])
+      expect((await store.list(client.query)).map(thread => thread.id)).toEqual([included.id, older.id])
+      await client.refresh()
+      expect(client.threads.map(thread => thread.id)).toEqual([included.id, older.id])
+      client.query = { subjectKind: "page", revision: { lte: 0 } }
+      expect(client.threads.map(thread => thread.id)).toEqual([older.id])
+      await store.reply({ threadId: included.id, body: "Still excluded" })
+      expect(client.threads.map(thread => thread.id)).toEqual([older.id])
+    } finally {
+      stop()
+    }
+  })
+
   it.each(["mine", "mentions"] as const)("preserves listed %s membership when mutation reconciliation fails", async filter => {
     const store = createMemoryTransport({ user: ana })
     const thread = await store.create({ subject, anchor, body: "Here @Ana", mentions: [ana.id] })

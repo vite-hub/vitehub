@@ -2,8 +2,8 @@ import { createRuntimePackageResolver } from "./runtime-package-resolution.ts"
 import { randomUUID } from "node:crypto"
 import { access, cp, mkdir, mkdtemp, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises"
 import { builtinModules, createRequire } from "node:module"
-import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
-import { fileURLToPath } from "node:url"
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import type { Plugin } from "esbuild"
 import { satisfies, validRange } from "semver"
@@ -20,12 +20,27 @@ const builtinModuleNames = new Set([
   ...builtinModules,
   ...builtinModules.map((name) => `node:${name}`),
 ])
-const runtimeExtensions = new Set([".cjs", ".js", ".mjs", ".ts"])
 const activeDenoDeploymentStages = new Set<string>()
 const denoRuntimeTargets = [
   { cpu: "arm64", libc: "glibc", os: "linux" },
   { cpu: "x64", libc: "glibc", os: "linux" },
 ] as const
+
+/** The npm packages that the Nitro server bundle needs at runtime, read from the bundler's module graph. */
+export interface DenoServerPackages {
+  /** Root directories of the packages that the bundler bundled into the server. */
+  bundledPackageDirs: string[]
+  /** Package imports that the bundler kept external, including literal createRequire calls. */
+  externalImports: DenoExternalImport[]
+}
+
+export interface DenoExternalImport {
+  /** The importing module, createRequire base, or resolved external file to resolve the package from. */
+  importer: string
+  /** True when a server chunk loads the package with a static `import` statement. */
+  required: boolean
+  specifier: string
+}
 
 interface FinalizeDenoDeploymentOutputOptions {
   alias?: ViteAlias[]
@@ -38,6 +53,165 @@ interface FinalizeDenoDeploymentOutputOptions {
   outputDir?: string
   preserveSymlinks?: boolean
   rootDir: string
+  serverPackages: DenoServerPackages
+}
+
+interface ServerBundleChunk {
+  code: string
+  dynamicImports: string[]
+  imports: string[]
+  moduleIds: string[]
+  modules: Record<string, { code: string | null }>
+  type: "chunk"
+}
+
+interface ServerModuleGraph {
+  getModuleInfo(id: string): { code: string | null, dynamicallyImportedIds: readonly string[], importedIds: readonly string[], isExternal?: boolean } | null
+}
+
+/** Records the server bundle's external imports and bundled packages, so the Deno output does not rescan the emitted files. */
+export function denoServerPackagesPlugin(onPackages: (packages: DenoServerPackages) => void) {
+  return {
+    name: "vitehub:deno-server-packages",
+    generateBundle(this: ServerModuleGraph, _options: unknown, bundle: Record<string, ServerBundleChunk | { type: "asset" }>): void {
+      const chunks = Object.values(bundle).filter((output): output is ServerBundleChunk => output.type === "chunk")
+      const staticImports = new Set(chunks.flatMap(chunk => chunk.imports))
+      const dynamicImports = new Set(chunks.flatMap(chunk => chunk.dynamicImports))
+      const bundledPackageDirs = new Set<string>()
+      const externalImports: DenoExternalImport[] = []
+      for (const chunk of chunks) {
+        externalImports.push(...collectCreateRequirePackageImports(chunk))
+      }
+      for (const id of new Set(chunks.flatMap(chunk => chunk.moduleIds))) {
+        const bundledPackage = packageFromModuleId(id)
+        if (bundledPackage) bundledPackageDirs.add(bundledPackage.dir)
+        const info = this.getModuleInfo(id)
+        const imports = [
+          ...(info?.importedIds ?? []).map(importedId => ({ importedId, static: true })),
+          ...(info?.dynamicallyImportedIds ?? []).map(importedId => ({ importedId, static: false })),
+        ]
+        for (const { importedId, static: isStatic } of imports) {
+          // Module graph edges can outlive tree-shaken statements, including unused dynamic imports.
+          if (!(isStatic ? staticImports : dynamicImports).has(importedId)) continue
+          if (packageNameFromSpecifier(importedId)) {
+            externalImports.push({ importer: id, required: isStatic, specifier: importedId })
+            continue
+          }
+          // Nitro can keep an external as its resolved file, such as `file:///app/node_modules/sharp/dist/index.mjs`.
+          // Resolve the package by name from that file, so pnpm selects the same installation.
+          // Rollup marks externals with `isExternal`; Rolldown gives them no code.
+          const importedInfo = this.getModuleInfo(importedId)
+          if (importedInfo && !importedInfo.isExternal && importedInfo.code !== null) continue
+          const file = importedId.startsWith("file:") ? fileURLToPath(importedId) : importedId
+          const externalPackage = isAbsolute(file) ? packageFromModuleId(file) : undefined
+          if (externalPackage) externalImports.push({ importer: file, required: isStatic, specifier: externalPackage.name })
+        }
+      }
+      onPackages({ bundledPackageDirs: [...bundledPackageDirs].sort(), externalImports })
+    },
+  }
+}
+
+function literalString(node: Node | undefined): string | undefined {
+  return node?.type === "Literal" && typeof node.value === "string"
+    ? node.value
+    : node?.type === "TemplateLiteral" && node.expressions.length === 0 ? node.quasis[0]?.value.cooked ?? undefined : undefined
+}
+
+/** Reads a createRequire base without running application code. Unknown bases must not fall back to the source module. */
+function createRequireBase(node: Node | undefined, id: string): string | undefined {
+  const literal = literalString(node)
+  if (literal !== undefined) return literal
+  if (node?.type === "MemberExpression" && !node.computed && node.property.type === "Identifier" && node.property.name === "url"
+    && node.object.type === "MetaProperty" && node.object.meta.name === "import") {
+    return id.startsWith("file:") ? id : isAbsolute(id) ? pathToFileURL(id).href : undefined
+  }
+  if (node?.type === "NewExpression" && node.callee.type === "Identifier" && node.callee.name === "URL") {
+    const value = literalString(node.arguments[0])
+    const base = createRequireBase(node.arguments[1], id)
+    if (value !== undefined) {
+      try { return new URL(value, base).href }
+      catch { return }
+    }
+  }
+}
+
+function collectCreateRequirePackageImports(chunk: ServerBundleChunk): DenoExternalImport[] {
+  const factories = collectImportedCreateRequireFactories(chunk.code)
+  const modules = new Map<string, ScannedModule>()
+  const renderedModules = chunk.moduleIds.flatMap((id) => {
+    const source = chunk.modules[id]?.code
+    return source ? [{ id, source }] : []
+  })
+  const readModule = (id: string, source: string): ScannedModule => {
+    let module = modules.get(id)
+    if (!module) {
+      module = scanModule(source, id)
+      modules.set(id, module)
+    }
+    return module
+  }
+  // Re-exported factories use the chunk's imported binding. Dynamic node:module
+  // imports can also introduce factories in individual rendered modules.
+  for (const { id, source } of renderedModules) {
+    if (!source.includes("createRequire")) continue
+    for (const factory of collectCreateRequireFactories(maskInertImportText(readModule(id, source)))) factories.add(factory)
+  }
+  if (factories.size === 0) return []
+
+  const factoryBindings = [...factories].map(name => name.split(".")[0]!)
+  const mentionsFactory = (source: string): boolean => factoryBindings.some(name => source.includes(name))
+  const aliases = new Map<string, string>()
+  const imports: DenoExternalImport[] = []
+  const factoryBase = (node: Node | undefined, module: ScannedModule): string | undefined => {
+    if (node?.type !== "CallExpression") return
+    const name = module.source.slice(node.callee.start, node.callee.end).replace(/\s/g, "")
+    if (!factories.has(name)) return
+    const base = createRequireBase(node.arguments[0], module.file)
+    if (base === undefined) return
+    try {
+      const file = base.startsWith("file:") ? fileURLToPath(base) : base
+      if (isAbsolute(file)) return file.endsWith(sep) ? join(file, "__vitehub_require__.js") : file
+    }
+    catch { return }
+  }
+  // Bindings are shared across the rendered chunk, but import.meta.url must use
+  // the module that constructs the require alias, even when another module calls it.
+  for (const { id, source } of renderedModules) {
+    if (!mentionsFactory(source)) continue
+    const module = readModule(id, source)
+    walk(module.program, (node) => {
+      if (node.type !== "VariableDeclarator" || node.id.type !== "Identifier") return
+      const base = factoryBase(node.init ?? undefined, module)
+      if (base) aliases.set(node.id.name, base)
+    })
+  }
+  const aliasNames = [...aliases.keys()]
+  for (const { id, source } of renderedModules) {
+    // Alias calls have no graph edges. Parse only fragments mentioning a known
+    // factory or alias, and only rendered code so removed calls cannot affect staging.
+    if (!mentionsFactory(source) && !aliasNames.some(name => source.includes(name))) continue
+    const module = readModule(id, source)
+    walk(module.program, (node) => {
+      if (node.type !== "CallExpression") return
+      // Rolldown may inline a single-use alias as createRequire(base)("package").
+      const importer = node.callee.type === "Identifier" ? aliases.get(node.callee.name) : factoryBase(node.callee, module)
+      const specifier = literalString(node.arguments[0])
+      if (importer && specifier && packageNameFromSpecifier(specifier)) imports.push({ importer, required: false, specifier })
+    })
+  }
+  return imports
+}
+
+function packageFromModuleId(id: string): { dir: string, name: string } | undefined {
+  if (id.startsWith("\0")) return
+  const path = id.replaceAll("\\", "/")
+  const index = path.lastIndexOf("/node_modules/")
+  if (index < 0) return
+  const [first, second] = path.slice(index + "/node_modules/".length).split("/")
+  if (!first || (first.startsWith("@") && !second)) return
+  const segments = first.startsWith("@") ? [first, second!] : [first]
+  return { dir: join(path.slice(0, index), "node_modules", ...segments), name: segments.join("/") }
 }
 
 function packageNameFromSpecifier(specifier: string): string | undefined {
@@ -45,34 +219,13 @@ function packageNameFromSpecifier(specifier: string): string | undefined {
     !specifier ||
     specifier.startsWith(".") ||
     specifier.startsWith("/") ||
-    specifier.startsWith("#")
+    specifier.startsWith("#") ||
+    specifier.startsWith("\0")
   )
     return
   if (builtinModuleNames.has(specifier) || specifier.includes(":")) return
   const parts = specifier.split("/")
   return specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]
-}
-
-function collectBundledPackageNames(source: string): Set<string> {
-  const names = new Set<string>()
-  for (const match of source.matchAll(
-    /node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?((?:@[^/]+\/)?[^/\s]+)/g,
-  )) {
-    const name = packageNameFromSpecifier(match[1]!)
-    if (name) names.add(name)
-  }
-  return names
-}
-
-function collectBundledPackages(source: string): Array<{ name: string, path: string }> {
-  const packages: Array<{ name: string, path: string }> = []
-  for (const match of source.matchAll(
-    /(?:^|[\s"'`(])((?:[A-Za-z]:)?[^\s"'`()]*?node_modules[/\\](?:\.pnpm[/\\][^/\\]+[/\\]node_modules[/\\])?((?:@[^/\\]+[/\\])?[^/\\\s"'`()]+))/gm,
-  )) {
-    const name = packageNameFromSpecifier(match[2]!.replaceAll("\\", "/"))
-    if (name) packages.push({ name, path: match[1]! })
-  }
-  return packages
 }
 
 function isStandaloneCall(source: string, start: number) {
@@ -94,7 +247,7 @@ const identifierStart = String.raw`(?:[$_\p{ID_Start}]|\\u[\da-fA-F]{4}|\\u\{[\d
 const identifierContinue = String.raw`(?:[$\u200C\u200D\p{ID_Continue}]|\\u[\da-fA-F]{4}|\\u\{[\da-fA-F]+\})`
 const bindingIdentifier = `${identifierStart}${identifierContinue}*`
 
-function collectCreateRequireAliases(source: string): Set<string> {
+function collectImportedCreateRequireFactories(source: string): Set<string> {
   const factories = new Set<string>()
   for (const match of source.matchAll(/(?:^|[;\n])[^\S\r\n]*import\s*(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^}]*)\}\s*from\s*["'](?:node:)?module["']/gm)) {
     for (const specifier of match[1]!.split(",")) {
@@ -105,6 +258,11 @@ function collectCreateRequireAliases(source: string): Set<string> {
   for (const match of source.matchAll(/(?:^|[;\n])[^\S\r\n]*import\s+(?:[A-Za-z_$][\w$]*\s*,\s*)?(?:\*\s+as\s+)?([A-Za-z_$][\w$]*)\s+from\s*["'](?:node:)?module["']/gm)) {
     factories.add(`${match[1]}.createRequire`)
   }
+  return factories
+}
+
+function collectCreateRequireFactories(source: string): Set<string> {
+  const factories = collectImportedCreateRequireFactories(source)
   for (const match of source.matchAll(/\b(?:const|let|var)\s*\{[^}]*\bcreateRequire(?:\s*:\s*([A-Za-z_$][\w$]*))?[^}]*\}\s*=\s*(?:__require|require)\s*\(\s*["'](?:node:)?module["']\s*\)/g)) {
     factories.add(match[1] ?? "createRequire")
   }
@@ -120,6 +278,11 @@ function collectCreateRequireAliases(source: string): Set<string> {
   for (const match of source.matchAll(dynamicNamespace)) {
     factories.add(`${match[1]}.createRequire`)
   }
+  return factories
+}
+
+function collectCreateRequireAliases(source: string): Set<string> {
+  const factories = collectCreateRequireFactories(source)
   if (factories.size === 0) return new Set()
 
   const aliases = new Set<string>()
@@ -128,11 +291,6 @@ function collectCreateRequireAliases(source: string): Set<string> {
   for (const match of source.matchAll(declaration)) aliases.add(match[1]!)
   return aliases
 }
-
-const staticFromPattern = new RegExp(
-  String.raw`(?:^|(?<=;))[^\S\r\n]*(?:import|export)\s*(?:type\s+)?(?:\{[^}]*\}|\*\s+(?:as\s+${bindingIdentifier})?|${bindingIdentifier}(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+${bindingIdentifier}))?)\s*\bfrom\b\s*["']([^"']+)["']`,
-  "gmu",
-)
 
 interface ImportSourceAnalysis {
   createRequireAliases: Set<string>
@@ -146,104 +304,6 @@ function analyzeImportSource(source: string): ImportSourceAnalysis {
     createRequireAliases,
     executableSource: maskInertImportText(module, createRequireAliases),
   }
-}
-
-function cachedImportSourceAnalysis(source: string, cache?: Map<string, ImportSourceAnalysis>): ImportSourceAnalysis {
-  const existing = cache?.get(source)
-  if (existing) return existing
-  const analysis = analyzeImportSource(source)
-  cache?.set(source, analysis)
-  return analysis
-}
-
-function collectImportedPackageNamesFromAnalysis(analysis: ImportSourceAnalysis): Set<string> {
-  const names = new Set<string>()
-  const { createRequireAliases, executableSource } = analysis
-  const patterns = [
-    /(?:^|;)[^\S\r\n]*(?:import|export)\s*["']([^"']+)["']/gm,
-    staticFromPattern,
-  ]
-  for (const pattern of patterns) {
-    for (const match of executableSource.matchAll(pattern)) {
-      const name = packageNameFromSpecifier(match[1]!)
-      if (name) names.add(name)
-    }
-  }
-  const requireNames = ["__require", "require", ...createRequireAliases].map(escapeRegExp).join("|")
-  const requirePattern = new RegExp(String.raw`\b(?:` + requireNames + String.raw`)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*(["'\x60])((?:\\.|[^"'\x60\\])*)\1\s*(?:,|\))`, "g")
-  for (const match of executableSource.matchAll(requirePattern)) {
-    if (!isStandaloneCall(executableSource, match.index))
-      continue
-    const name = packageNameFromSpecifier(cookImportSpecifier(match[2]!))
-    if (name) names.add(name)
-  }
-  for (const { specifier } of findLiteralDynamicImports(executableSource)) {
-    const name = packageNameFromSpecifier(specifier)
-    if (name) names.add(name)
-  }
-  for (const match of executableSource.matchAll(
-    /\bimport\s*\.\s*meta\s*\.\s*resolve\s*\(\s*(["'`])((?:\\.|[^"'`\\])*)\1\s*(?:,|\))/g,
-  )) {
-    if (!isStandaloneCall(executableSource, match.index))
-      continue
-    const name = packageNameFromSpecifier(cookImportSpecifier(match[2]!))
-    if (name) names.add(name)
-  }
-  return names
-}
-
-function collectImportedPackageNames(source: string, analysis = analyzeImportSource(source)): Set<string> {
-  return collectImportedPackageNamesFromAnalysis(analysis)
-}
-
-function collectStaticPackageNames(analysis: ImportSourceAnalysis): Set<string> {
-  const names = new Set<string>()
-  const { executableSource } = analysis
-  for (const pattern of [
-    /(?:^|;)[^\S\r\n]*(?:import|export)\s*["']([^"']+)["']/gm,
-    staticFromPattern,
-  ]) {
-    for (const match of executableSource.matchAll(pattern)) {
-      const name = packageNameFromSpecifier(match[1]!)
-      if (name) names.add(name)
-    }
-  }
-  return names
-}
-
-function collectOptionalDynamicPackageNames(analysis: ImportSourceAnalysis): Set<string> {
-  const { createRequireAliases, executableSource } = analysis
-  const dynamicImports = findLiteralDynamicImports(executableSource)
-  const dynamicNames = new Set(dynamicImports
-    .filter(dynamicImport => !isUnconditionalTopLevelExpression(executableSource, dynamicImport.start, dynamicImport.literalEnd))
-    .map(({ specifier }) => packageNameFromSpecifier(specifier))
-    .filter((name): name is string => Boolean(name)))
-  if (!dynamicNames.size) return dynamicNames
-
-  let withoutDynamicImports = executableSource
-  for (const dynamicImport of dynamicImports.reverse()) {
-    withoutDynamicImports = withoutDynamicImports.slice(0, dynamicImport.start)
-      + " ".repeat(dynamicImport.literalEnd - dynamicImport.start)
-      + withoutDynamicImports.slice(dynamicImport.literalEnd)
-  }
-  for (const name of collectImportedPackageNamesFromAnalysis({ createRequireAliases, executableSource: withoutDynamicImports })) dynamicNames.delete(name)
-  return dynamicNames
-}
-
-function findClosingBrace(source: string, opening: number): number | undefined {
-  let depth = 0
-  for (let index = opening; index < source.length; index++) {
-    if (source[index] === "{") depth++
-    else if (source[index] === "}" && --depth === 0) return index
-  }
-}
-
-function isImmediatelyInvokedBlock(source: string, opening: number): boolean {
-  const closing = findClosingBrace(source, opening)
-  if (closing === undefined || !/^\s*(?:\)\s*(?:\?\.)?\s*)?\(/.test(source.slice(closing + 1)))
-    return false
-  const prefix = source.slice(0, opening).trimEnd()
-  return !/(?:^|[;\n])\s*(?:async\s+)?function(?:\s*\*)?\s+[\w$]+\s*\([^{};]*\)$/.test(prefix)
 }
 
 function isGuardedConciseArrow(source: string, expressionStart: number, expressionEnd: number): boolean {
@@ -285,55 +345,6 @@ function delimiterDepth(source: string): number {
     else if (character === ")" || character === "]" || character === "}") depth--
   }
   return depth
-}
-
-function tryBlockHasCatch(source: string, opening: number): boolean {
-  const closing = findClosingBrace(source, opening)
-  return closing !== undefined && /^\s*catch\b/.test(source.slice(closing + 1))
-}
-
-function collectOptionalRequirePackageNames(analysis: ImportSourceAnalysis): Set<string> {
-  const { createRequireAliases, executableSource } = analysis
-  const requireNames = ["__require", "require", ...createRequireAliases].map(escapeRegExp).join("|")
-  const requirePattern = new RegExp(String.raw`\b(?:` + requireNames + String.raw`)(?:\s*\.\s*resolve)?\s*(?:\?\.)?\s*\(\s*(["'\x60])((?:\\.|[^"'\x60\\])*)\1\s*(?:,|\))`, "g")
-  const optionalNames = new Set<string>()
-  const requiredNames = new Set<string>()
-  const openings: number[] = []
-  let braceCursor = 0
-  for (const match of executableSource.matchAll(requirePattern)) {
-    if (!isStandaloneCall(executableSource, match.index)) continue
-    const name = packageNameFromSpecifier(cookImportSpecifier(match[2]!))
-    if (!name) continue
-    for (; braceCursor < match.index!; braceCursor++) {
-      if (executableSource[braceCursor] === "{") openings.push(braceCursor)
-      else if (executableSource[braceCursor] === "}") openings.pop()
-    }
-    const guarded = isGuardedConciseArrow(executableSource, match.index!, match.index! + match[0].length) || openings.some((opening) => {
-      const prefix = executableSource.slice(0, opening).trimEnd()
-      if (/\btry$/.test(prefix)) return tryBlockHasCatch(executableSource, opening)
-      if (/\b(?:catch|if|for|while|switch|with)\s*(?:\([^{}]*\))?$/.test(prefix)) return true
-      const functionBody = /\bfunction(?:\s*\*)?(?:\s+[\w$]+)?\s*\([^{};]*\)$/.test(prefix)
-        || /=>\s*$/.test(prefix)
-      return functionBody && !isImmediatelyInvokedBlock(executableSource, opening)
-    })
-    if (guarded) optionalNames.add(name)
-    else requiredNames.add(name)
-  }
-  for (const name of requiredNames) optionalNames.delete(name)
-  return optionalNames
-}
-
-function maskBundledPackageRegions(source: string): string {
-  const regions: boolean[] = []
-  return source.split("\n").map((line) => {
-    if (/^\s*\/\/#region\b/.test(line)) {
-      regions.push(Boolean(regions.at(-1)) || /node_modules[/\\]/.test(line))
-      return regions.at(-1) ? " ".repeat(line.length) : line
-    }
-    const masked = Boolean(regions.at(-1))
-    if (/^\s*\/\/#endregion\b/.test(line)) regions.pop()
-    return masked ? " ".repeat(line.length) : line
-  }).join("\n")
 }
 
 interface LiteralDynamicImport {
@@ -524,6 +535,7 @@ function runtimePackageResolutionPlugin(
   rootDir: string,
   aliases: ViteAlias[] | undefined,
   packageJsonPaths: Map<string, string>,
+  packages: Map<string, RuntimePackage>,
 ): Plugin {
   return {
     name: "vitehub-deno-runtime-packages",
@@ -540,9 +552,9 @@ function runtimePackageResolutionPlugin(
         const fromDir = args.resolveDir || (isAbsolute(args.importer) ? dirname(args.importer) : rootDir)
         const resolver = createRequire(isAbsolute(args.importer) ? args.importer : join(fromDir, "package.json"))
         const packageJsonPath = await resolvePackageJson(name, resolver, fromDir)
-        if (!packageJsonPath) return
-        const resolvedPackageJsonPath = await realpath(packageJsonPath)
-        recordRuntimePackageResolution(packageJsonPaths, name, resolvedPackageJsonPath)
+        const resolvedPackageJsonPath = packageJsonPath && await realpath(packageJsonPath)
+        if (resolvedPackageJsonPath) recordRuntimePackageResolution(packageJsonPaths, name, resolvedPackageJsonPath)
+        addRuntimePackage(packages, { name, optional: args.kind !== "import-statement", packageJsonPath: resolvedPackageJsonPath })
       })
     },
   }
@@ -556,12 +568,63 @@ function recordRuntimePackageResolution(packageJsonPaths: Map<string, string>, n
   packageJsonPaths.set(name, packageJsonPath)
 }
 
-export function collectDenoRuntimePackageNames(source: string): string[] {
-  const analysis = analyzeImportSource(source)
-  return [...new Set([
-    ...collectBundledPackageNames(source),
-    ...collectImportedPackageNames(source, analysis),
-  ])].sort()
+function addRuntimePackage(packages: Map<string, RuntimePackage>, runtimePackage: { name: string, optional: boolean, packageJsonPath?: string }): void {
+  const existing = packages.get(runtimePackage.name)
+  packages.set(runtimePackage.name, {
+    includeOptionalDependencies: true,
+    includePeerDependencies: true,
+    name: runtimePackage.name,
+    optional: (existing?.optional ?? true) && runtimePackage.optional,
+    packageJsonPath: existing?.packageJsonPath ?? runtimePackage.packageJsonPath,
+  })
+}
+
+/** Resolves the server's external imports from their importers, and the Deno-compatible platform binaries of bundled packages. */
+async function addServerRuntimePackages(
+  serverPackages: DenoServerPackages,
+  rootDir: string,
+  packageJsonPaths: Map<string, string>,
+  packages: Map<string, RuntimePackage>,
+): Promise<void> {
+  const resolutions = new Map<string, Promise<string | undefined>>()
+  const resolveFrom = (name: string, fromDir: string): Promise<string | undefined> => {
+    const key = `${fromDir}\0${name}`
+    let resolution = resolutions.get(key)
+    if (!resolution) {
+      resolution = resolvePackageJson(name, createRequire(join(fromDir, "package.json")), fromDir).then(path => path && realpath(path))
+      resolutions.set(key, resolution)
+    }
+    return resolution
+  }
+  for (const { importer, required, specifier } of serverPackages.externalImports) {
+    const name = packageNameFromSpecifier(specifier)
+    if (!name) continue
+    const packageJsonPath = await resolveFrom(name, isAbsolute(importer) ? dirname(importer) : rootDir)
+    if (packageJsonPath) recordRuntimePackageResolution(packageJsonPaths, name, packageJsonPath)
+    addRuntimePackage(packages, { name, optional: !required, packageJsonPath })
+  }
+  // Bundled code loads platform binaries through computed requires, such as libsql's `@libsql/${target}`.
+  // Stage only the optional dependencies that declare a platform Deno can run, never the bundled package itself.
+  for (const packageDir of serverPackages.bundledPackageDirs) {
+    let packageJson: RuntimePackageJson
+    try {
+      packageJson = parseRuntimePackageJson(await readFile(join(packageDir, "package.json"), "utf8"))
+    }
+    catch (error) {
+      // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") continue
+      throw error
+    }
+    for (const name of Object.keys(packageJson.optionalDependencies ?? {})) {
+      const packageJsonPath = await resolveFrom(name, packageDir)
+      if (!packageJsonPath) continue
+      const dependency = parseRuntimePackageJson(await readFile(packageJsonPath, "utf8"))
+      if (!dependency.os?.length && !dependency.cpu?.length) continue
+      if (!supportsDenoRuntime(dependency)) continue
+      recordRuntimePackageResolution(packageJsonPaths, name, packageJsonPath)
+      addRuntimePackage(packages, { name, optional: true, packageJsonPath })
+    }
+  }
 }
 
 interface RuntimePackage {
@@ -570,7 +633,6 @@ interface RuntimePackage {
   includeOptionalDependencies?: boolean
   includePeerDependencies?: boolean
   name: string
-  onlyIfOptionalDependencies?: boolean
   optional?: boolean
   packageJsonPath?: string
   peerRange?: string
@@ -642,7 +704,7 @@ async function copyRuntimePackagesToNodeModules(options: { outputNodeModules: st
   const resolver = createRequire(join(options.rootDir, "package.json"))
   const packages = options.packages.toSorted((a, b) => Number(Boolean(b.packageJsonPath)) - Number(Boolean(a.packageJsonPath)))
   for (const runtimePackage of packages) {
-    if (!runtimePackage.packageJsonPath || runtimePackage.onlyIfOptionalDependencies) continue
+    if (!runtimePackage.packageJsonPath) continue
     const packageJsonPath = await realpath(runtimePackage.packageJsonPath)
     const packageJson = parseRuntimePackageJson(await readFile(packageJsonPath, "utf8"))
     rootPackagePaths.set(runtimePackage.name, {
@@ -686,7 +748,6 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   }
   let resolvedPackageJsonPath = await realpath(packageJsonPath)
   let packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
-  if (options.onlyIfOptionalDependencies && !Object.keys(packageJson.optionalDependencies || {}).length) return
   if (outputNodeModules === rootOutputNodeModules) {
     const existingPath = rootPackagePaths.get(name)
     const peerRanges = [...(existingPath?.peerRanges || []), ...(options.peerRange ? [normalizePeerRange(options.peerRange)] : [])]
@@ -770,10 +831,12 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
 }
 
 function supportsDenoRuntime(packageJson: RuntimePackageJson): boolean {
+  // napi-rs binaries such as `@libsql/linux-x64-musl` omit `libc` and name the C library instead.
+  const libc = packageJson.libc ?? (/-(?:linux)?musl/.test(packageJson.name ?? "") ? ["musl"] : undefined)
   return denoRuntimeTargets.some(target =>
     supportsConstraint(packageJson.os, target.os)
     && supportsConstraint(packageJson.cpu, target.cpu)
-    && supportsConstraint(packageJson.libc, target.libc),
+    && supportsConstraint(libc, target.libc),
   )
 }
 
@@ -783,191 +846,6 @@ function supportsConstraint(values: string[] | undefined, target: string): boole
   if (values.includes(`!${target}`)) return false
   const included = values.filter(value => !value.startsWith("!"))
   return included.length === 0 || included.includes(target)
-}
-
-async function runtimeSourceFiles(serverDir: string): Promise<string[]> {
-  if ((await stat(serverDir)).isFile()) return [serverDir]
-  const entries = await readdir(serverDir, { recursive: true, withFileTypes: true })
-  return entries
-    .filter((entry) => entry.isFile() && runtimeExtensions.has(extname(entry.name)))
-    .map((entry) => resolve(entry.parentPath, entry.name))
-}
-
-async function recordServerRuntimePackageResolutions(
-  serverDir: string,
-  rootDir: string,
-  resolvedPackageJsonPaths: Map<string, string>,
-  sourceAnalyses?: Map<string, ImportSourceAnalysis>,
-): Promise<void> {
-  const files = await runtimeSourceFiles(serverDir)
-  const sources = await Promise.all(files.map(file => readFile(file, "utf8")))
-  const bundledPackageJsonPaths = new Map<string, Set<string>>()
-  const bundledPackageJsonPathsByFile = new Map<string, Map<string, Set<string>>>()
-  for (const [index, file] of files.entries()) {
-    const source = sources[index]!
-    for (const { name, path: packagePath } of collectBundledPackages(source)) {
-      const candidate = resolve(isAbsolute(packagePath) ? packagePath : resolve(rootDir, packagePath), "package.json")
-      try {
-        const packageJsonPath = await realpath(candidate)
-        const paths = bundledPackageJsonPaths.get(name) ?? new Set<string>()
-        paths.add(packageJsonPath)
-        bundledPackageJsonPaths.set(name, paths)
-        const filePaths = bundledPackageJsonPathsByFile.get(file) ?? new Map<string, Set<string>>()
-        const packagePaths = filePaths.get(name) ?? new Set<string>()
-        packagePaths.add(packageJsonPath)
-        filePaths.set(name, packagePaths)
-        bundledPackageJsonPathsByFile.set(file, filePaths)
-      }
-      catch (error) {
-        // SAFETY: Node filesystem failures expose their stable error code through ErrnoException.
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-      }
-    }
-  }
-  const packageResolutions = new Map<string, Promise<string | undefined>>()
-  const resolvePackageFromFile = (name: string, file: string): Promise<string | undefined> => {
-    const fromDir = dirname(file)
-    const key = `${fromDir}\0${name}`
-    const existing = packageResolutions.get(key)
-    if (existing) return existing
-    const resolution = resolvePackageJson(name, createRequire(file), fromDir)
-      .then(path => path && realpath(path))
-    packageResolutions.set(key, resolution)
-    return resolution
-  }
-  for (const [index, file] of files.entries()) {
-    const source = sources[index]!
-    const externalSource = maskBundledPackageRegions(source)
-    const externalPackageNames = collectImportedPackageNames(externalSource, cachedImportSourceAnalysis(externalSource, sourceAnalyses))
-    for (const name of collectImportedPackageNames(source, cachedImportSourceAnalysis(source, sourceAnalyses))) {
-      const bundledPaths = bundledPackageJsonPaths.get(name)
-      const localBundledPaths = bundledPackageJsonPathsByFile.get(file)?.get(name)
-      const resolvedPackageJsonPath = localBundledPaths?.size && !externalPackageNames.has(name)
-        ? localBundledPaths.values().next().value
-        : await resolvePackageFromFile(name, file)
-      const resolvedPaths = new Set(bundledPaths)
-      if (resolvedPackageJsonPath) resolvedPaths.add(resolvedPackageJsonPath)
-      if (resolvedPaths.size > 1) {
-        throw internalErrorDiagnostics.INTERNAL_B0023({ message: `Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.` })
-      }
-      const packageJsonPath = resolvedPackageJsonPath ?? resolvedPaths.values().next().value
-      if (!packageJsonPath) continue
-      recordRuntimePackageResolution(
-        resolvedPackageJsonPaths,
-        name,
-        packageJsonPath,
-      )
-    }
-  }
-}
-
-async function readRuntimePackages(
-  runtimeDirs: string[],
-  rootDir: string,
-  resolvedPackageJsonPaths: Map<string, string>,
-  sourceAnalyses?: Map<string, ImportSourceAnalysis>,
-): Promise<RuntimePackage[]> {
-  const packages = new Map<string, RuntimePackage>()
-  const bundledPackageJsonPaths = new Map<string, Set<string>>()
-  const files = (await Promise.all(runtimeDirs.map(runtimeSourceFiles))).flat()
-  const sources = await Promise.all(files.map(file => readFile(file, "utf8")))
-  for (const [index, source] of sources.entries()) {
-    const file = files[index]!
-    for (const { name, path: packagePath } of collectBundledPackages(source)) {
-      const candidates = isAbsolute(packagePath)
-        ? [resolve(packagePath, "package.json")]
-        : [resolve(rootDir, packagePath, "package.json"), resolve(dirname(file), packagePath, "package.json")]
-      let packageJsonPath: string | undefined
-      for (const candidate of candidates) {
-        try {
-          packageJsonPath = await realpath(candidate)
-          break
-        }
-        catch (error) {
-          // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-        }
-      }
-      if (!packageJsonPath) continue
-      const packageJson = parseRuntimePackageJson(await readFile(packageJsonPath, "utf8"))
-      if (!Object.keys(packageJson.optionalDependencies ?? {}).length) continue
-      const bundledPaths = bundledPackageJsonPaths.get(name) ?? new Set<string>()
-      bundledPaths.add(packageJsonPath)
-      bundledPackageJsonPaths.set(name, bundledPaths)
-      if (bundledPaths.size > 1) {
-        throw internalErrorDiagnostics.INTERNAL_B0024({ message: `Deno output imports ${JSON.stringify(name)} from multiple package installations. Bundle one version before deployment.` })
-      }
-      const existing = packages.get(name)
-      packages.set(name, {
-        ...existing,
-        hoistOptionalDependencies: true,
-        includeOptionalDependencies: true,
-        includePeerDependencies: true,
-        name,
-        onlyIfOptionalDependencies: existing?.onlyIfOptionalDependencies ?? true,
-        optional: existing?.optional ?? true,
-        packageJsonPath,
-      })
-    }
-    for (const name of collectBundledPackageNames(source)) {
-      if (packages.has(name)) continue
-      const recordedPackageJsonPath = resolvedPackageJsonPaths.get(name)
-      const packageJsonPath = recordedPackageJsonPath
-        ?? await resolvePackageJson(name, createRequire(file), dirname(file))
-        ?? await resolvePackageJson(name, createRequire(join(rootDir, "package.json")), rootDir)
-      if (!packageJsonPath) continue
-      const resolvedPackageJsonPath = await realpath(packageJsonPath)
-      const packageJson = parseRuntimePackageJson(await readFile(resolvedPackageJsonPath, "utf8"))
-      if (!Object.keys(packageJson.optionalDependencies ?? {}).length) continue
-      packages.set(name, {
-        hoistOptionalDependencies: true,
-        includeOptionalDependencies: true,
-        includePeerDependencies: true,
-        name,
-        onlyIfOptionalDependencies: true,
-        optional: true,
-        packageJsonPath: resolvedPackageJsonPath,
-      })
-    }
-  }
-  for (const source of sources) {
-    const analysis = cachedImportSourceAnalysis(source, sourceAnalyses)
-    const staticNames = collectStaticPackageNames(analysis)
-    const optionalNames = new Set([
-      ...collectOptionalDynamicPackageNames(analysis),
-      ...collectOptionalRequirePackageNames(analysis),
-    ])
-    const requiredNames = new Set([
-      ...collectImportedPackageNames(source, analysis),
-      ...staticNames,
-    ])
-    for (const name of requiredNames) {
-      const existing = packages.get(name)
-      let resolvedPackageJsonPath = resolvedPackageJsonPaths.get(name)
-      if (resolvedPackageJsonPath) {
-        try {
-          await access(resolvedPackageJsonPath)
-        }
-        catch (error) {
-          // SAFETY: Node filesystem errors expose their stable code through ErrnoException.
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
-          resolvedPackageJsonPath = undefined
-        }
-      }
-      packages.set(name, {
-        ...existing,
-        includeOptionalDependencies: true,
-        includePeerDependencies: true,
-        name,
-        onlyIfOptionalDependencies: false,
-        optional: staticNames.has(name)
-          ? false
-          : (existing?.optional ?? true) && optionalNames.has(name),
-        packageJsonPath: resolvedPackageJsonPath ?? existing?.packageJsonPath,
-      })
-    }
-  }
-  return [...packages.values()].sort((a, b) => a.name.localeCompare(b.name))
 }
 
 export function assertSupportedRelocatedImports(source: string, outputName: string, allowedLocalImports: string[] = []): void {
@@ -1135,7 +1013,7 @@ export async function finalizeDenoDeploymentOutput(
     const previousOutputDir = join(stageRoot, "previous")
     try {
       await cp(outputDir, stagedOutputDir, { recursive: true })
-      await finalizeStagedDenoDeploymentOutput({ ...options, outputDir: stagedOutputDir }, join(outputDir, "server"))
+      await finalizeStagedDenoDeploymentOutput({ ...options, outputDir: stagedOutputDir })
       await rename(outputDir, previousOutputDir)
       try {
         await rename(stagedOutputDir, outputDir)
@@ -1255,15 +1133,14 @@ async function recoverInterruptedDenoDeploymentOutput(outputDir: string): Promis
 
 async function finalizeStagedDenoDeploymentOutput(
   options: FinalizeDenoDeploymentOutputOptions,
-  runtimeServerDir: string,
 ): Promise<void> {
   const outputDir = resolve(options.rootDir, options.outputDir ?? ".output")
   const serverDir = join(outputDir, "server")
   const scheduleSource = join(options.rootDir, ".vitehub", "schedule", "deno-cron.mjs")
   const applicationEntrySource = join(options.rootDir, "main.ts")
   const resolvedPackageJsonPaths = new Map<string, string>()
-  const sourceAnalyses = new Map<string, ImportSourceAnalysis>()
-  await recordServerRuntimePackageResolutions(runtimeServerDir, options.rootDir, resolvedPackageJsonPaths, sourceAnalyses)
+  const runtimePackages = new Map<string, RuntimePackage>()
+  await addServerRuntimePackages(options.serverPackages, options.rootDir, resolvedPackageJsonPaths, runtimePackages)
   let entrypoint = "server/index.mjs"
   let hasSchedule = false
   try {
@@ -1288,7 +1165,7 @@ async function finalizeStagedDenoDeploymentOutput(
       platform: "neutral",
       preserveSymlinks: options.preserveSymlinks,
       mainFields: options.mainFields,
-      plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths)],
+      plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths, runtimePackages)],
       rootDir: options.rootDir,
       workingDir: options.rootDir,
     })
@@ -1316,7 +1193,7 @@ async function finalizeStagedDenoDeploymentOutput(
         platform: "neutral",
         preserveSymlinks: options.preserveSymlinks,
         mainFields: options.mainFields,
-        plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths)],
+        plugins: [packageImportPlugin(), runtimePackageResolutionPlugin(options.rootDir, options.alias, resolvedPackageJsonPaths, runtimePackages)],
         rootDir: options.rootDir,
         workingDir: options.rootDir,
       })
@@ -1350,30 +1227,18 @@ async function finalizeStagedDenoDeploymentOutput(
       throw internalErrorDiagnostics.INTERNAL_B0033({ message: 'Deno Schedule output requires a project-root "main.ts" application entrypoint.', cause: error })
     }
   }
-  const packages = await readRuntimePackages([
-    runtimeServerDir,
-    ...(hasSchedule ? [join(outputDir, "schedule"), join(outputDir, "main.ts")] : []),
-  ], options.rootDir, resolvedPackageJsonPaths, sourceAnalyses)
-  sourceAnalyses.clear()
   const nodeTypesPackageJson = await resolvePackageJson(
     "@types/node",
     createRequire(join(options.rootDir, "package.json")),
     options.rootDir,
   ) ?? await resolvePackageJson("@types/node", createRequire(import.meta.url), dirname(fileURLToPath(import.meta.url)))
   const hasNodeTypes = nodeTypesPackageJson !== undefined
-  if (nodeTypesPackageJson && !packages.some(runtimePackage => runtimePackage.name === "@types/node")) {
-    packages.push({
-      includeOptionalDependencies: true,
-      includePeerDependencies: true,
-      name: "@types/node",
-      onlyIfOptionalDependencies: false,
-      optional: false,
-      packageJsonPath: await realpath(nodeTypesPackageJson),
-    })
+  if (nodeTypesPackageJson && !runtimePackages.has("@types/node")) {
+    addRuntimePackage(runtimePackages, { name: "@types/node", optional: false, packageJsonPath: await realpath(nodeTypesPackageJson) })
   }
   await copyRuntimePackagesToNodeModules({
     outputNodeModules: join(outputDir, "node_modules"),
-    packages,
+    packages: [...runtimePackages.values()].sort((a, b) => a.name.localeCompare(b.name)),
     rootDir: options.rootDir,
   })
 

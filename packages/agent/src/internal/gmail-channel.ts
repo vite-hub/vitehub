@@ -1,11 +1,15 @@
-import { requireAtomicAgentStateLock, type AgentStateCacheMutation } from "./state-lock.ts"
+import { requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "./state-lock.ts"
 import * as v from "valibot"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { acquireChannelStateLock } from "./channel-state.ts"
+import { redactCredentialText } from "./credential-redaction.ts"
+import { decodeText } from "./windows-1252.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 import type { ReplayChannelResult } from "../channel-replay.ts"
 import type { AgentChannelHistoryCollection, AgentChannelHistoryQuery, AgentChannelStateBinding } from "../types.ts"
+import type { AgentChannelRetryingMessage, AgentChannelSkippedMessage, AgentChannelStatus } from "./channel-status.ts"
 import type { AgentChannelSyncPlan, AgentChannelSyncProvider } from "./channel-sync.ts"
 
 const gmailApiBaseUrl = "https://gmail.googleapis.com/gmail/v1/users/me/"
@@ -19,6 +23,10 @@ const syncLockTtlMs = 10 * 60_000
 const watchRenewalMarginMs = 24 * 60 * 60_000
 const messageFetchConcurrency = 5
 export const gmailDefaultBodyLimit = 10_000
+export const gmailDefaultMaxAttempts = 5
+const maxSkippedMessages = 100
+const failingAfterSyncs = 2
+const maxErrorLength = 500
 const gmailWatchLabelIds: readonly string[] = ["INBOX"]
 
 // Gmail API: https://developers.google.com/workspace/gmail/api/reference/rest
@@ -45,6 +53,15 @@ export class GmailApiError extends Error {
     super(message)
     this.name = "GmailApiError"
     this.status = status
+  }
+}
+
+/** Token refresh failures concern the account, including transport and malformed-response errors. */
+class GmailOAuthRefreshError extends GmailApiError {
+  constructor(cause: unknown) {
+    // Transport failures have no HTTP status.
+    super(cause instanceof Error ? cause.message : String(cause), gmailErrorStatus(cause) ?? 0)
+    this.cause = cause
   }
 }
 
@@ -144,16 +161,68 @@ const tokenSchema = v.object({ access_token: v.string(), expires_in: v.optional(
 
 type GmailApiLabel = v.InferOutput<typeof labelSchema>
 
-/** Gmail label color. Gmail accepts only colors from its label palette. */
+/** Gmail label color. Both values must come from Gmail's label palette, `gmailLabelPalette`. */
 export interface GmailLabelColor {
   backgroundColor: string
   textColor: string
 }
 
+/** Colors that Gmail accepts for label text and background. Gmail rejects other values with HTTP 400. */
+export const gmailLabelPalette: readonly string[] = [
+  "#000000", "#434343", "#666666", "#999999", "#cccccc", "#efefef", "#f3f3f3", "#ffffff",
+  "#fb4c2f", "#ffad47", "#fad165", "#16a766", "#43d692", "#4a86e8", "#a479e2", "#f691b3",
+  "#f6c5be", "#ffe6c7", "#fef1d1", "#b9e4d0", "#c6f3de", "#c9daf8", "#e4d7f5", "#fcdee8",
+  "#efa093", "#ffd6a2", "#fce8b3", "#89d3b2", "#a0eac9", "#a4c2f4", "#d0bcf1", "#fbc8d9",
+  "#e66550", "#ffbc6b", "#fcda83", "#44b984", "#68dfa9", "#6d9eeb", "#b694e8", "#f7a7c0",
+  "#cc3a21", "#eaa041", "#f2c960", "#149e60", "#3dc789", "#3c78d8", "#8e63ce", "#e07798",
+  "#ac2b16", "#cf8933", "#d5ae49", "#0b804b", "#2a9c68", "#285bac", "#653e9b", "#b65775",
+  "#822111", "#a46a21", "#aa8831", "#076239", "#1a764d", "#1c4587", "#41236d", "#83334c",
+  "#464646", "#e7e7e7", "#0d3472", "#b6cff5", "#0d3b44", "#98d7e4", "#3d188e", "#e3d7ff",
+  "#711a36", "#fbd3e0", "#8a1c0a", "#f2b2a8", "#7a2e0b", "#ffc8af", "#7a4706", "#ffdeb5",
+  "#594c05", "#fbe983", "#684e07", "#fdedc1", "#0b4f30", "#b3efd3", "#04502e", "#a2dcc1",
+  "#c2c2c2", "#4986e7", "#2da2bb", "#b99aff", "#994a64", "#f691b2", "#ff7537", "#ffad46",
+  "#662e37", "#ebdbde", "#cca6ac", "#094228", "#42d692", "#16a765",
+]
+
+const gmailLabelPaletteSet = new Set(gmailLabelPalette)
+
 export interface GmailLabelSettings {
   color?: GmailLabelColor
   /** What the label means. The Channel adds it to the Agent instructions; Gmail does not store it. */
   description?: string
+  /** How the label appears in Gmail's label list (the sidebar). Defaults to `labelShow`. */
+  labelListVisibility?: "labelShow" | "labelShowIfUnread" | "labelHide"
+  /** Whether Gmail shows the label on messages in the message list. Defaults to `show`. */
+  messageListVisibility?: "show" | "hide"
+}
+
+const labelListVisibilities = new Set(["labelShow", "labelShowIfUnread", "labelHide"])
+const messageListVisibilities = new Set(["show", "hide"])
+
+/**
+ * Checks one declared label against Gmail's rules and returns it with lowercase colors, as Gmail reports them.
+ * Returns an error message for an invalid label.
+ */
+export function normalizeGmailLabelSettings(name: string, settings: GmailLabelSettings): GmailLabelSettings | string {
+  const { color, labelListVisibility, messageListVisibility } = settings
+  if (labelListVisibility !== undefined && !labelListVisibilities.has(labelListVisibility)) {
+    return `label "${name}" labelListVisibility must be "labelShow", "labelShowIfUnread", or "labelHide".`
+  }
+  if (messageListVisibility !== undefined && !messageListVisibilities.has(messageListVisibility)) {
+    return `label "${name}" messageListVisibility must be "show" or "hide".`
+  }
+  if (color === undefined) return settings
+  if (!isRuntimeRecord(color)) return `label "${name}" color must be { textColor, backgroundColor }.`
+  const normalized: GmailLabelColor = { backgroundColor: "", textColor: "" }
+  for (const key of ["textColor", "backgroundColor"] as const) {
+    const value = color[key]
+    const lower = hasRuntimeType(value, "string") ? value.toLowerCase() : undefined
+    if (!lower || !gmailLabelPaletteSet.has(lower)) {
+      return `label "${name}" color ${key} ${JSON.stringify(value)} is not in Gmail's label palette. Use a value from gmailLabelPalette, such as "#4a86e8". See https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.labels#color.`
+    }
+    normalized[key] = lower
+  }
+  return { ...settings, color: normalized }
 }
 
 /** One Gmail message: the `received` trigger input, the history item, and `event.message.data`. */
@@ -257,7 +326,7 @@ function accessToken(credentials: GmailOAuthCredentials, fetchImpl: typeof fetch
   const cached = accessTokens.get(cacheKey)
   if (cached && !refresh && cached.expiresAt > Date.now()) return cached.token
   // Google access tokens last one hour. Refresh a minute early.
-  const token = refreshAccessToken(credentials, fetchImpl)
+  const token = refreshAccessToken(credentials, fetchImpl).catch((error: unknown) => { throw new GmailOAuthRefreshError(error) })
   accessTokens.set(cacheKey, { expiresAt: Date.now() + 59 * 60_000, token })
   token.catch(() => {
     if (accessTokens.get(cacheKey)?.token === token) accessTokens.delete(cacheKey)
@@ -386,7 +455,7 @@ function decodeMimeBody(data: string, charset: string | undefined): string {
   catch {
     // Untrusted MIME labels outside this host's Encoding Standard support keep UTF-8 replacement decoding.
   }
-  return decoder.decode(bytes)
+  return decodeText(decoder, bytes)
 }
 
 function bodyText(parts: GmailApiPart[], limit: number): string {
@@ -586,8 +655,8 @@ async function listLabels(client: GmailClient, refresh = false): Promise<GmailAp
 function labelBody(name: string, settings: GmailLabelSettings | undefined) {
   return {
     ...(settings?.color ? { color: settings.color } : {}),
-    labelListVisibility: "labelShow",
-    messageListVisibility: "show",
+    labelListVisibility: settings?.labelListVisibility ?? "labelShow",
+    messageListVisibility: settings?.messageListVisibility ?? "show",
     name,
   }
 }
@@ -642,6 +711,50 @@ export async function modifyGmailMessage(client: GmailClient, id: string, input:
 
 export async function trashGmailMessage(client: GmailClient, id: string): Promise<void> {
   await client({ method: "POST", path: `messages/${encodeURIComponent(id)}/trash` })
+}
+
+/** Moves mail with `label` that is older than `olderThan` days to Trash. Starred mail stays. */
+export interface GmailCleanupRule {
+  /** Gmail label name. Nested labels use `Parent/Child`. */
+  label: string
+  /** Age in whole days. */
+  olderThan: number
+}
+
+export interface GmailCleanupRuleResult {
+  /** IDs of the matching messages, at most 500 per rule. */
+  messageIds: string[]
+  /** Gmail search query of the rule. */
+  query: string
+  rule: string
+}
+
+/** Gmail's largest search page. A later run finds the rest. */
+const cleanupLimit = 500
+
+function gmailCleanupQuery(rule: GmailCleanupRule): string {
+  // Quotes keep spaces and nested label names exact.
+  return `label:"${rule.label}" older_than:${rule.olderThan}d -is:starred -in:trash`
+}
+
+/** Finds the matches of each rule and, with `apply`, moves them to Trash. */
+export async function cleanupGmailMailbox(client: GmailClient, rules: Readonly<Record<string, GmailCleanupRule>>, apply: boolean): Promise<GmailCleanupRuleResult[]> {
+  const results: GmailCleanupRuleResult[] = []
+  for (const [rule, value] of Object.entries(rules)) {
+    const query = gmailCleanupQuery(value)
+    const { ids } = await listGmailMessageIds(client, { includeSpamTrash: true, limit: cleanupLimit, query })
+    for (let start = 0; apply && start < ids.length; start += messageFetchConcurrency) {
+      await Promise.all(ids.slice(start, start + messageFetchConcurrency).map(async (id) => {
+        try { await trashGmailMessage(client, id) }
+        catch (error) {
+          // A message deleted after the search needs no cleanup.
+          if (gmailErrorStatus(error) !== 404) throw error
+        }
+      }))
+    }
+    results.push({ messageIds: ids, query, rule })
+  }
+  return results
 }
 
 // Pub/Sub push authentication
@@ -807,15 +920,27 @@ export interface GmailMailboxSync {
   client: GmailClient
   /** Starts one Invocation per message with a stable Invocation ID. */
   dispatch: (messages: GmailMessage[]) => Promise<ReplayChannelResult>
-  /** History ID from the push notification. The first notification starts the cursor at it. */
-  notificationHistoryId: string
+  /** Sync attempts for one message before the Channel skips it. Defaults to `gmailDefaultMaxAttempts`. */
+  maxAttempts?: number
+  /**
+   * Where the cursor starts when none is stored: the history ID of the push notification, or a function that reads the
+   * current one for a poll. It is read only on the first sync.
+   */
+  notificationHistoryId: string | (() => Promise<string>)
   state: AgentChannelStateBinding
+  /** Reject on mailbox contention or after saving the retry checkpoint when message Invocations fail. */
+  throwOnDispatchFailure?: boolean
   /** Pub/Sub topic of the watch. The sync renews the watch when it expires within a day. */
   topic?: string
 }
 
 export async function gmailMailboxAddress(client: GmailClient): Promise<string> {
   return (await gmailRequest(client, profileSchema, { method: "GET", path: "profile" })).emailAddress
+}
+
+/** The current history ID of the mailbox. A poll starts the cursor at it, like the first push. */
+export async function gmailMailboxHistoryId(client: GmailClient): Promise<string> {
+  return (await gmailRequest(client, profileSchema, { method: "GET", path: "profile" })).historyId
 }
 
 interface GmailSyncProgress {
@@ -829,23 +954,119 @@ interface GmailSyncProgress {
   done: boolean
   pendingIds: string[]
   retryIds: string[]
+  /** Failed attempts of messages that are still retried. */
+  attempts?: Record<string, { attempts: number, error: string }>
 }
 
-async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew: () => Promise<void>, mutate: (mutations: readonly AgentStateCacheMutation[]) => Promise<void>): Promise<boolean> {
+interface GmailSyncHealth {
+  error: string
+  failingSince: string
+  failures: number
+}
+
+/** Mailbox State with the lease-fenced writes that the sync needs. */
+function mailboxState(binding: AgentChannelStateBinding): AtomicAgentStateLockAdapter {
+  const atomic = requireAtomicAgentStateLock(binding.state)
+  return requireAtomicAgentStateLock(atomic.forCacheLocks?.() ?? atomic)
+}
+
+/** Redacted and capped provider or sync error text. */
+function failureText(error: unknown): string {
+  return redactCredentialText(error instanceof Error ? error.message : String(error)).slice(0, maxErrorLength)
+}
+
+/** Authentication and rate limit errors concern the account, not the message, so they do not count as attempts. */
+function isMessageFailure(error: unknown): boolean {
+  if (error instanceof GmailOAuthRefreshError) return false
+  const status = gmailErrorStatus(error)
+  return status !== 401 && status !== 403 && status !== 429
+}
+
+/** Changes the skipped list under its own lock, so a replay and a sync cannot lose each other's writes. */
+async function updateSkippedMessages(
+  state: AtomicAgentStateLockAdapter,
+  keyPrefix: string,
+  update: (skipped: AgentChannelSkippedMessage[]) => AgentChannelSkippedMessage[],
+): Promise<void> {
+  const key = `${keyPrefix}sync-skipped`
+  const lock = await acquireChannelStateLock(state, `${key}:lock`)
+  try {
+    const current = await state.get<AgentChannelSkippedMessage[]>(key) ?? []
+    const next = update(current)
+    if (next === current) return
+    const mutation: AgentStateCacheMutation = next.length ? { key, type: "set", value: next } : { key, type: "delete" }
+    if (!await state.mutateWithLock(lock, [mutation])) throw new Error("Lost the lock of the Gmail skipped messages.")
+  }
+  finally {
+    await state.releaseLock(lock)
+  }
+}
+
+/** Sync health, retried messages, and skipped messages of a Gmail Channel. */
+export async function readGmailChannelStatus(binding: AgentChannelStateBinding): Promise<AgentChannelStatus> {
+  const state = mailboxState(binding)
+  const { keyPrefix } = binding
+  const [health, syncedAt, cursor, progress, skipped] = await Promise.all([
+    state.get<GmailSyncHealth>(`${keyPrefix}sync-health`),
+    state.get<string>(`${keyPrefix}synced-at`),
+    state.get<string>(`${keyPrefix}history-id`),
+    state.get<GmailSyncProgress>(`${keyPrefix}sync-progress`),
+    state.get<AgentChannelSkippedMessage[]>(`${keyPrefix}sync-skipped`),
+  ])
+  const retrying: AgentChannelRetryingMessage[] = progress?.startHistoryId === cursor
+    ? Object.entries(progress.attempts ?? {}).map(([id, attempt]) => ({ id, ...attempt }))
+    : []
+  return {
+    ...(health ? { error: health.error, failingSince: health.failingSince } : {}),
+    failures: health?.failures ?? 0,
+    retrying,
+    skipped: skipped ?? [],
+    status: (health?.failures ?? 0) >= failingAfterSyncs ? "failing" : "ok",
+    ...(syncedAt ? { syncedAt } : {}),
+  }
+}
+
+/** Removes messages from the skipped list, for example after a replay. */
+export async function clearGmailSkippedMessages(binding: AgentChannelStateBinding, ids: readonly string[]): Promise<void> {
+  const remove = new Set(ids)
+  await updateSkippedMessages(mailboxState(binding), binding.keyPrefix, skipped =>
+    skipped.some(message => remove.has(message.id)) ? skipped.filter(message => !remove.has(message.id)) : skipped)
+}
+
+async function recordSyncHealth(
+  state: AtomicAgentStateLockAdapter,
+  keyPrefix: string,
+  error: string | undefined,
+  mutate: (mutations: readonly AgentStateCacheMutation[]) => Promise<void>,
+): Promise<void> {
+  const key = `${keyPrefix}sync-health`
+  const current = await state.get<GmailSyncHealth>(key)
+  if (error === undefined) {
+    if (current) await mutate([{ key, type: "delete" }])
+    return
+  }
+  await mutate([{ key, type: "set", value: { error, failingSince: current?.failingSince ?? new Date().toISOString(), failures: (current?.failures ?? 0) + 1 } satisfies GmailSyncHealth }])
+}
+
+type MailboxSyncOutcome = "advanced" | "resumed" | "retrying"
+
+async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew: () => Promise<void>, mutate: (mutations: readonly AgentStateCacheMutation[]) => Promise<void>): Promise<MailboxSyncOutcome> {
   const { client, state } = sync
+  const maxAttempts = sync.maxAttempts ?? gmailDefaultMaxAttempts
   const progressKey = `${state.keyPrefix}sync-progress`
   // Keep the growing deduplication snapshot separate from per-message checkpoints.
   const seenKey = `${state.keyPrefix}sync-seen-ids`
   const cursor = await state.state.get<string>(cursorKey)
   if (!cursor) {
+    const historyId = hasRuntimeType(sync.notificationHistoryId, "string") ? sync.notificationHistoryId : await sync.notificationHistoryId()
     await renew()
     await mutate([
-      { key: cursorKey, type: "set", value: sync.notificationHistoryId },
+      { key: cursorKey, type: "set", value: historyId },
       { key: progressKey, type: "delete" },
       { key: seenKey, type: "delete" },
     ])
-    log("cursor.initialized", { historyId: sync.notificationHistoryId })
-    return false
+    log("cursor.initialized", { historyId })
+    return "advanced"
   }
   const stored = await state.state.get<GmailSyncProgress>(progressKey)
   const resumable = stored?.startHistoryId === cursor
@@ -870,28 +1091,57 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
     return true
   }
 
+  /**
+   * Settles one message. A failure is retried on later syncs until the message has failed `maxAttempts` times.
+   * Then the message is recorded as skipped, so the cursor can advance past it. Returns whether it will be retried.
+   */
+  const settle = async (id: string, failure: string | undefined, dispatched: boolean): Promise<boolean> => {
+    const { [id]: previous, ...attempts } = progress.attempts ?? {}
+    const count = (previous?.attempts ?? 0) + 1
+    const retry = failure !== undefined && count < maxAttempts
+    if (failure !== undefined && !retry) {
+      await renew()
+      const skippedAt = new Date().toISOString()
+      await updateSkippedMessages(requireAtomicAgentStateLock(state.state), state.keyPrefix, skipped =>
+        [{ attempts: count, error: failure, id, skippedAt }, ...skipped.filter(message => message.id !== id)].slice(0, maxSkippedMessages))
+      log("message.skipped", { attempts: count, error: failure, id })
+    }
+    // A fetch failure keeps the message pending, so the next sync checks its Inbox label again.
+    const pending = retry && !dispatched
+    await save({
+      ...progress,
+      attempts: retry ? { ...attempts, [id]: { attempts: count, error: failure } } : attempts,
+      pendingIds: pending ? progress.pendingIds : progress.pendingIds.filter(pendingId => pendingId !== id),
+      retryIds: retry && dispatched ? [...new Set([...progress.retryIds, id])] : retry ? progress.retryIds : progress.retryIds.filter(retryId => retryId !== id),
+    })
+    return retry
+  }
   const dispatchMessageIds = async (ids: readonly string[], retrying = false): Promise<void> => {
     for (let start = 0; start < ids.length; start += messageFetchConcurrency) {
       await renew()
       const batch = ids.slice(start, start + messageFetchConcurrency)
-      const fetched = retrying
-        ? await getGmailMessages(client, batch, sync.bodyLimit)
-        : (await Promise.all(batch.map(id => getGmailInboxMessage(client, id, sync.bodyLimit)))).filter(message => message !== undefined)
-      const messages = new Map(fetched.map(message => [message.id, message]))
-      for (const id of batch) {
-        const message = messages.get(id)
-        let failed = false
+      const fetched = await Promise.allSettled(batch.map(id => retrying
+        ? getGmailMessage(client, id, sync.bodyLimit)
+        : getGmailInboxMessage(client, id, sync.bodyLimit)))
+      for (const [index, id] of batch.entries()) {
+        const result = fetched[index]!
+        if (result.status === "rejected") {
+          if (!isMessageFailure(result.reason)) throw result.reason
+          // The sync stops so that the cursor stays. Later syncs retry the message until it is skipped.
+          if (await settle(id, failureText(result.reason), false)) throw result.reason
+          continue
+        }
+        const message = result.value
+        let failure: string | undefined
         if (message && (retrying || message.labelIds.includes("INBOX"))) {
           await renew()
-          const result = await sync.dispatch([message])
-          log("messages.dispatched", { failed: result.failed, processed: result.processed, skipped: result.skipped })
-          failed = result.failed > 0
+          const dispatched = await sync.dispatch([message])
+          log("messages.dispatched", { failed: dispatched.failed, processed: dispatched.processed, skipped: dispatched.skipped })
+          // A terminal journal entry deduplicates dispatch without recovering the failed message.
+          // Driver errors may echo the email, so keep them out of Channel State and status.
+          if (dispatched.failed > 0 || dispatched.items.some(item => item.reason === "existing" && item.invocationStatus === "failed")) failure = "The Invocation failed."
         }
-        await save({
-          ...progress,
-          pendingIds: progress.pendingIds.filter(pending => pending !== id),
-          retryIds: failed ? [...new Set([...progress.retryIds, id])] : progress.retryIds.filter(retry => retry !== id),
-        })
+        await settle(id, failure, true)
       }
     }
   }
@@ -949,16 +1199,20 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
     await dispatchMessageIds(progress.pendingIds)
     await save({ ...progress, pageToken: progress.nextPageToken, nextPageToken: undefined, pageLoaded: false, done: !progress.nextPageToken })
   }
-  if (progress.retryIds.length) return false
+  if (progress.retryIds.length) {
+    if (sync.throwOnDispatchFailure) throw new Error(`Gmail message dispatch failed for ${progress.retryIds.length} message(s); saved for retry.`)
+    return "retrying"
+  }
   if (progress.mode === "recovery") log("history.expired", { historyId: cursor, recovered: seen.size })
   // Completion and checkpoint cleanup commit only while this worker owns the mailbox lease.
   await renew()
   await mutate([
     { key: cursorKey, type: "set", value: progress.historyId },
+    { key: `${state.keyPrefix}synced-at`, type: "set", value: new Date().toISOString() },
     { key: progressKey, type: "delete" },
     { key: seenKey, type: "delete" },
   ])
-  return resumable
+  return resumable ? "resumed" : "advanced"
 }
 
 /**
@@ -968,8 +1222,7 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
  */
 export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
   const keyPrefix = sync.state.keyPrefix
-  const atomic = requireAtomicAgentStateLock(sync.state.state)
-  const state = requireAtomicAgentStateLock(atomic.forCacheLocks?.() ?? atomic)
+  const state = mailboxState(sync.state)
   sync = { ...sync, state: { keyPrefix, state } }
   const cursorKey = `${keyPrefix}history-id`
   const lockKey = `${keyPrefix}sync`
@@ -979,11 +1232,16 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
     await state.set(pendingKey, true)
     // The holder may have released the lock before it saw the pending mark.
     lock = await state.acquireLock(lockKey, syncLockTtlMs)
-    if (!lock) return
+    if (!lock) {
+      if (sync.throwOnDispatchFailure) throw new Error("Gmail mailbox synchronization is already running; retry polling after it completes.")
+      return
+    }
   }
   const failures: unknown[] = []
   for (;;) {
     const heldLock = lock
+    const previousFailures = failures.length
+    let outcome: MailboxSyncOutcome | undefined
     let ownershipLost = false
     const renew = async () => {
       if (ownershipLost || !await state.extendLock(heldLock, syncLockTtlMs)) {
@@ -1002,17 +1260,19 @@ export async function syncGmailMailbox(sync: GmailMailboxSync): Promise<void> {
       renewalTask = renewalTask.then(renew).catch(() => { ownershipLost = true })
     }, syncLockTtlMs / 3)
     try {
-      let resumedSnapshot = false
       do {
         await renew()
         await mutate([{ key: pendingKey, type: "delete" }])
-        resumedSnapshot = await syncMailboxOnce(sync, cursorKey, renew, mutate)
-      } while (resumedSnapshot || await state.get(pendingKey) !== null)
+        outcome = await syncMailboxOnce(sync, cursorKey, renew, mutate)
+      } while (outcome === "resumed" || await state.get(pendingKey) !== null)
     }
     catch (error) {
       failures.push(error)
     }
     finally {
+      // Persist this owner's outcome before a successor can acquire the lease, and fence a delayed write after lease loss.
+      const failure = failures.length > previousFailures ? failureText(failures.at(-1)) : outcome === "retrying" ? "Messages failed and will be retried on the next sync." : undefined
+      await recordSyncHealth(state, keyPrefix, failure, mutate).catch((error: unknown) => log("health.failed", { error: failureText(error) }))
       clearInterval(timer)
       await renewalTask
       await state.releaseLock(heldLock)
@@ -1049,6 +1309,8 @@ async function renewGmailWatchWhenDue(client: GmailClient, binding: AgentChannel
 // History Collection
 
 const historyQuerySchema = v.object({
+  /** Gmail message IDs to read instead of a search, such as the IDs that `vitehub channels status` lists as skipped. */
+  ids: v.optional(v.array(v.pipe(v.string(), v.minLength(1)))),
   /** Gmail label IDs that every message must have. */
   labelIds: v.optional(v.array(v.string())),
   /** Gmail search query, such as `in:inbox newer_than:7d`. */
@@ -1074,6 +1336,18 @@ export function gmailHistoryCollection(
     async page(options) {
       const query = v.parse(historyQuerySchema, options.query)
       const client = await resolveClient()
+      if (query.ids) {
+        // The cursor of an ID list is the offset of its next ID.
+        const ids = [...new Set(query.ids)]
+        let start = options.cursor === undefined ? 0 : Number(options.cursor)
+        if (options.cursor !== undefined && !(Number.isSafeInteger(start) && start > 0 && start < ids.length)) throw new GmailHistoryCursorError()
+        while (true) {
+          const end = Math.min(ids.length, start + Math.min(Math.max(options.limit ?? 50, 1), 100))
+          const items = await getGmailMessages(client, ids.slice(start, end), bodyLimit)
+          if (items.length || end === ids.length) return { items, nextCursor: end < ids.length ? String(end) : null }
+          start = end
+        }
+      }
       let cursor = options.cursor
       while (true) {
         let page: { ids: string[], nextPageToken?: string }
@@ -1095,9 +1369,10 @@ export function gmailHistoryCollection(
       }
     },
     async parseQuery(input: AgentChannelHistoryQuery): Promise<GmailHistoryQuery> {
-      const labelIds = input.labelIds
+      const { ids, labelIds } = input
       return v.parse(historyQuerySchema, {
         ...input,
+        ...(hasRuntimeType(ids, "string") ? { ids: [ids] } : {}),
         ...(hasRuntimeType(labelIds, "string") ? { labelIds: [labelIds] } : {}),
       })
     },
@@ -1109,29 +1384,53 @@ export function gmailHistoryCollection(
 
 function labelNeedsUpdate(label: GmailApiLabel, settings: GmailLabelSettings): boolean {
   const colorChanged = settings.color !== undefined
-    && (label.color?.textColor !== settings.color.textColor || label.color?.backgroundColor !== settings.color.backgroundColor)
-  return colorChanged || label.labelListVisibility !== "labelShow" || label.messageListVisibility !== "show"
+    && (label.color?.textColor.toLowerCase() !== settings.color.textColor || label.color?.backgroundColor.toLowerCase() !== settings.color.backgroundColor)
+  return colorChanged
+    || (label.labelListVisibility ?? "labelShow") !== (settings.labelListVisibility ?? "labelShow")
+    || (label.messageListVisibility ?? "show") !== (settings.messageListVisibility ?? "show")
 }
 
-async function planLabels(client: GmailClient, declared: Record<string, GmailLabelSettings>) {
+/**
+ * User labels that the Channel does not declare and that Gmail still lists in the sidebar.
+ * Parents of declared nested labels such as `GitHub` for `GitHub/Bots` stay visible, so the nested label stays reachable.
+ */
+function unmanagedVisibleLabels(labels: readonly GmailApiLabel[], declared: Record<string, GmailLabelSettings>): GmailApiLabel[] {
+  const names = Object.keys(declared)
+  return labels.filter(label => label.type === "user"
+    && !Object.hasOwn(declared, label.name)
+    && label.labelListVisibility !== "labelHide"
+    && !names.some(name => name.startsWith(`${label.name}/`)))
+}
+
+async function planLabels(client: GmailClient, declared: Record<string, GmailLabelSettings>, hideUnmanaged: boolean) {
   const labels = await listLabels(client, true)
   const create: string[] = []
   const update: { id: string, name: string }[] = []
-  const current: Record<string, unknown> = {}
+  const current: Record<string, unknown> = Object.create(null)
   for (const [name, settings] of Object.entries(declared)) {
-    const label = labels.find(candidate => candidate.name === name)
+    let label = labels.find(candidate => candidate.name === name)
     if (!label) {
       create.push(name)
       continue
     }
-    current[name] = { ...(label.color ? { color: label.color } : {}), id: label.id }
+    // labels.list omits color; fetch full state only when the declaration manages it.
+    if (settings.color) label = await gmailRequest(client, labelSchema, { method: "GET", path: `labels/${encodeURIComponent(label.id)}` })
+    current[name] = {
+      ...(label.color ? { color: label.color } : {}),
+      id: label.id,
+      ...(label.labelListVisibility ? { labelListVisibility: label.labelListVisibility } : {}),
+      ...(label.messageListVisibility ? { messageListVisibility: label.messageListVisibility } : {}),
+    }
     if (labelNeedsUpdate(label, settings)) update.push({ id: label.id, name })
   }
-  return { create, current, update }
+  const hide = hideUnmanaged ? unmanagedVisibleLabels(labels, declared).map(label => ({ id: label.id, name: label.name })) : []
+  return { create, current, hide, update }
 }
 
 export interface GmailSyncProviderOptions {
   client: (fetchImpl: typeof fetch) => GmailClient
+  /** Hide user labels that `labels` does not declare from Gmail's label list. Messages keep them. */
+  hideUnmanagedLabels?: boolean
   labels: Record<string, GmailLabelSettings>
   /** Gmail mailbox identity, shared even when separate credentials access the account. */
   resourceKey: string
@@ -1143,29 +1442,34 @@ export interface GmailSyncProviderOptions {
  * Gmail cannot report the current watch, so every plan with a topic renews it.
  */
 export function createGmailChannelSyncProvider(options: GmailSyncProviderOptions): AgentChannelSyncProvider {
+  const hideUnmanaged = options.hideUnmanagedLabels === true
   return {
     resourceKey: options.resourceKey,
     async apply(_plan, fetchImpl) {
       const client = options.client(fetchImpl)
       // Plan again: labels may have changed since the reviewed plan.
-      const { create, update } = await planLabels(client, options.labels)
+      const { create, hide, update } = await planLabels(client, options.labels, hideUnmanaged)
       for (const name of create) await createLabel(client, name, options.labels[name])
       for (const { id, name } of update) {
         await client({ body: labelBody(name, options.labels[name]), method: "PATCH", path: `labels/${encodeURIComponent(id)}` })
       }
+      for (const { id } of hide) {
+        await client({ body: { labelListVisibility: "labelHide" }, method: "PATCH", path: `labels/${encodeURIComponent(id)}` })
+      }
       labelCaches.delete(client)
       const watch = options.topic ? await startGmailWatch(client, options.topic) : undefined
       return {
-        labels: { created: create, updated: update.map(label => label.name) },
+        labels: { created: create, updated: update.map(label => label.name), ...(hideUnmanaged ? { hidden: hide.map(label => label.name) } : {}) },
         ...(watch ? { watch } : {}),
       }
     },
     mode: "account",
     async plan({ fetch: fetchImpl }): Promise<AgentChannelSyncPlan> {
-      const { create, current, update } = await planLabels(options.client(fetchImpl), options.labels)
+      const { create, current, hide, update } = await planLabels(options.client(fetchImpl), options.labels, hideUnmanaged)
       const changes = [
         ...create.map(name => `Create label "${name}"`),
         ...update.map(label => `Update label "${label.name}"`),
+        ...hide.map(label => `Hide unmanaged label "${label.name}" from the label list`),
         ...(options.topic ? [`Start or renew the Gmail watch on ${options.topic}`] : []),
       ]
       return {
@@ -1174,6 +1478,7 @@ export function createGmailChannelSyncProvider(options: GmailSyncProviderOptions
         current: { labels: current },
         desired: {
           labels: options.labels,
+          ...(hideUnmanaged ? { unmanagedLabels: "labelHide" } : {}),
           ...(options.topic ? { watch: { labelIds: gmailWatchLabelIds, topicName: options.topic } } : {}),
         },
         ...(options.topic ? { unverifiable: ["watch"] } : {}),

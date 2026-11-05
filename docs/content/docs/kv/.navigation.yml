@@ -1,5 +1,5 @@
 title: KV
-icon: i-lucide-database-zap
+icon: i-vitehub-kv
 order: 10
 category: Data
 related: [database, blob]

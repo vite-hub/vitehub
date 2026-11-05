@@ -72,6 +72,9 @@ export interface ConsoleMediaListing {
 
 export type ConsoleMediaType = "audio" | "document" | "image" | "other" | "video"
 
+/** Every media type, for the type filter. */
+export const consoleMediaTypes: readonly ConsoleMediaType[] = ["image", "video", "audio", "document", "other"]
+
 export interface ConsoleMediaListQuery {
   cursor?: string
   folder?: string

@@ -1,5 +1,6 @@
 ---
 title: Connections
+layout: landing
 navigation.title: Overview
 description: Connect a Google account or an API key once, then call the provider API from your server.
 navigation.order: 1

@@ -83,4 +83,40 @@ Standalone provider bundles receive the public origin and application base from 
 
 The value must be an `http(s)` origin without a path. ViteHub adds the application base path. It applies to `vite build` only. During `vite dev`, request-bound Console links and Auth use the request origin. GitHub activity and evlog session links have no request-origin fallback. Set `activity.publicUrl` on the GitHub Channel or the evlog `sessionUrl` callback to supply links in development. Without `publicUrl`, request-bound links and Auth use the request origin, and links created outside a request are omitted. Auth and Connections use the configured origin whose host matches the request host when the function form is set.
 
+### Read the public URL in server code
+
+`resolvePublicUrl()` from `vite-hub/runtime` returns the configured origin, or `undefined` when `publicUrl` is unset or during `vite dev`. It needs no request, so a Workflow step, a Schedule, or a Channel reply can build absolute links:
+
+```ts
+import { resolvePublicUrl } from "vite-hub/runtime"
+
+const dashboardUrl = new URL("/dashboard", resolvePublicUrl() ?? "http://localhost:3000").href
+```
+
+With the function form, pass the Agent name: `resolvePublicUrl({ agentName: "bot" })`. In a request handler, pass `{ request }` to fall back to the request origin.
+
+### Register webhooks at the public URL
+
+When `publicUrl` is one string, `vitehub channels sync` and `vitehub channels history` use it as their default `--url`. A `--url` flag still wins. `channels sync --apply` needs `--confirm-origin` only for a `--url` that you type. See [Synchronize Channel webhooks](/docs/development/cli#synchronize-channel-webhooks).
+
+### Serve a Cloudflare Worker on its custom domain
+
+On the `cloudflare` preset, a string `publicUrl` with an HTTPS DNS hostname outside `workers.dev` and without a port also writes the custom domain into the generated `wrangler.json`. IP addresses, `localhost`, and invalid DNS hostnames leave routing unchanged:
+
+```ts
+vitehub({
+  preset: "cloudflare",
+  publicUrl: process.env.APP_URL, // https://calories.example.com
+})
+```
+
+```json [.output/server/wrangler.json]
+{
+  "routes": [{ "pattern": "calories.example.com", "custom_domain": true }],
+  "workers_dev": false
+}
+```
+
+ViteHub leaves routing to you when `nitro.cloudflare.wrangler` or the project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` sets `route`, `routes`, or `workers_dev`. Nitro merges these keys from both places, so set all routing in one place. Without `publicUrl`, or with a `workers.dev` origin, the Worker keeps its `workers.dev` host.
+
 Use `agent.providers.state.url`, `console.databaseUrl`, `console.auth.databasePath`, or each store's path option to preserve an existing location. Existing runtime database URL overrides still take precedence. Changing the directory does not migrate stored data.

@@ -61,7 +61,7 @@ Pass Integration Options to `hubEnv()`.
 | --- | --- | --- | --- |
 | `source` | `EnvSource` or `EnvSourceResolver` | Section key lookup | Selects where the value comes from. |
 | `default` | `unknown` | None | Value used when the source is absent. |
-| `required` | `boolean` | `true` unless `optional` is set | Throws when a runtime value is missing. |
+| `required` | `boolean` | `true` unless `optional` is set | Throws when a runtime value is missing. Server Env checks every declared value together, so a missing required value also fails code that reads only another value. |
 | `optional` | `boolean` | `false` | Sets `required` to `false`. Cannot be combined with `required`. |
 | `mode` | `EnvMode` | `runtime` | Marks the value as Build Env or Runtime Env. Values: `build`, `runtime`. |
 | `schema` | Standard Schema-compatible parser | string parser | Validates and parses `env.public` and `env.define` values. `env.server` accepts only the built-in parsers below because the generated runtime must serialize them. |

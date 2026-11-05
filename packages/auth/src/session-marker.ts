@@ -1,3 +1,4 @@
+import { viteHubPageToolsCookie, viteHubPageToolsResetCookie, viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
 import { isRequestLike, resolveBaseURL } from "better-auth"
 import { getCookies } from "better-auth/cookies"
 import { readSetCookies } from "./set-cookie.ts"
@@ -9,7 +10,7 @@ import type { Auth } from "better-auth"
  * so a page script can skip a session request for a visitor who never signed in. It does not prove a session:
  * the server still decides.
  */
-export const authSessionMarkerCookie = "vitehub_session"
+export const authSessionMarkerCookie: typeof viteHubSessionMarkerCookie = viteHubSessionMarkerCookie
 
 const markerAttributes = ["domain", "expires", "max-age", "path", "samesite", "partitioned"]
 
@@ -22,7 +23,17 @@ function requestSource(input?: Request | ApiInput): Request | Headers | undefine
   return headers.has("host") || headers.has("x-forwarded-host") ? headers : undefined
 }
 
-function readSetCookie(cookie: string): { attributes: string[], cleared: boolean, name: string } {
+/** The value of one cookie in the request of an API call or a handler request. */
+function requestCookie(input: Request | ApiInput | undefined, name: string): string | undefined {
+  const headers = isRequestLike(input) ? input.headers : input?.headers ? new Headers(input.headers) : input?.request?.headers
+  for (const part of headers?.get("cookie")?.split(";") ?? []) {
+    const separator = part.indexOf("=")
+    if (separator !== -1 && part.slice(0, separator).trim() === name) return part.slice(separator + 1).trim()
+  }
+  return undefined
+}
+
+function readSetCookie(cookie: string): { attributes: string[], cleared: boolean, name: string, value: string } {
   const [pair = "", ...rest] = cookie.split(";").map(part => part.trim())
   const separator = pair.indexOf("=")
   const name = separator < 0 ? pair : pair.slice(0, separator)
@@ -34,12 +45,15 @@ function readSetCookie(cookie: string): { attributes: string[], cleared: boolean
   const maxAge = rest.find(part => part.toLowerCase().startsWith("max-age="))?.slice(8)
   const expires = rest.find(part => part.toLowerCase().startsWith("expires="))?.slice(8)
   const expired = (maxAge !== undefined && Number(maxAge) <= 0) || (maxAge === undefined && expires !== undefined && Date.parse(expires) <= Date.now())
-  return { attributes, cleared: !value || expired, name }
+  return { attributes, cleared: !value || expired, name, value }
 }
 
 /**
  * Sets `vitehub_session` next to the session cookie with the same lifetime, path, domain, and SameSite, and clears it
- * when Better Auth clears the session cookie, such as on sign-out.
+ * when Better Auth clears the session cookie, such as on sign-out. When a session starts or ends, it also clears the
+ * `vitehub-tools` hint of the page tools, so the next page asks the session route again for the new person: a person
+ * that a page tool, such as the Console, allows gets the ViteHub tools pill right after sign-in. A session refresh
+ * keeps the same session token and keeps the hint.
  */
 export function withSessionMarker(auth: Auth): Auth {
   async function markHeaders(original: Headers, input?: Request | ApiInput): Promise<Headers | undefined> {
@@ -60,10 +74,14 @@ export function withSessionMarker(auth: Auth): Auth {
       ...session.attributes,
       ...(session.cleared ? ["Max-Age=0"] : []),
     ].join("; ")
+    const changed = session.cleared || session.value !== requestCookie(input, sessionCookie)
     const headers = new Headers(original)
     headers.delete("set-cookie")
-    for (const cookie of setCookies) if (!cookie.startsWith(`${authSessionMarkerCookie}=`)) headers.append("set-cookie", cookie)
+    for (const cookie of setCookies) {
+      if (!cookie.startsWith(`${authSessionMarkerCookie}=`) && !(changed && cookie.startsWith(`${viteHubPageToolsCookie}=`))) headers.append("set-cookie", cookie)
+    }
     headers.append("set-cookie", marker)
+    if (changed) headers.append("set-cookie", viteHubPageToolsResetCookie)
     return headers
   }
 

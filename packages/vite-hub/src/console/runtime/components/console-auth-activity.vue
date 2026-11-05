@@ -3,8 +3,10 @@ import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import type { AuthConsoleActivity, AuthConsoleActivityQuery } from "@vite-hub/auth/console";
 import { readAuthConsole } from "../client/auth-management";
+import { querySelection, useConsoleQuery } from "../client/route-query";
 import ConsoleAuthEventList from "./console-auth-event-list.vue";
 import ConsoleAuthEventSetup from "./console-auth-event-setup.vue";
+import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleState from "./console-state.vue";
 
 const props = defineProps<{ base: string; enabled: boolean; revision: number }>();
@@ -23,8 +25,11 @@ const userInput = ref(userId.value);
 const data = shallowRef<AuthConsoleActivity>();
 const error = shallowRef<unknown>();
 const loading = ref(false);
-const cursors = ref<Array<string | undefined>>([undefined]);
-const page = ref(0);
+// The page cursor lives in the URL, so a reload or a shared link opens the same page of events.
+const { cursor } = useConsoleQuery({ cursor: querySelection() });
+// Cursors of the pages up to the open one. A page opened from a link knows only its own cursor.
+const cursors = ref<Array<string | undefined>>([cursor.value]);
+const page = computed(() => Math.max(0, cursors.value.indexOf(cursor.value)));
 let controller: AbortController | undefined;
 async function load() {
   controller?.abort();
@@ -45,7 +50,7 @@ async function load() {
           group:
             group.value === "all" ? undefined : (group.value as AuthConsoleActivityQuery["group"]),
           userId: userId.value || undefined,
-          cursor: cursors.value[page.value],
+          cursor: cursor.value,
           limit: 25,
         },
       },
@@ -62,6 +67,7 @@ function filter(nextGroup: string, nextUser: string) {
   void router.replace({
     query: {
       ...route.query,
+      cursor: undefined,
       group: nextGroup === "all" ? undefined : nextGroup,
       userId: nextUser.trim() || undefined,
     },
@@ -69,21 +75,19 @@ function filter(nextGroup: string, nextUser: string) {
 }
 function next() {
   if (!data.value?.nextCursor || loading.value) return;
-  cursors.value[page.value + 1] = data.value.nextCursor;
-  page.value++;
-  void load();
+  cursors.value = [...cursors.value.slice(0, page.value + 1), data.value.nextCursor];
+  cursor.value = data.value.nextCursor;
 }
 function previous() {
-  if (!page.value || loading.value) return;
-  page.value--;
-  void load();
+  if (!cursor.value || loading.value) return;
+  // A page opened from a link goes back to the newest events.
+  cursor.value = page.value ? cursors.value[page.value - 1] : undefined;
 }
 watch(
-  () => [props.enabled, props.revision, group.value, userId.value],
+  () => [props.enabled, props.revision, group.value, userId.value, cursor.value],
   () => {
     userInput.value = userId.value;
-    cursors.value = [undefined];
-    page.value = 0;
+    if (!cursors.value.includes(cursor.value)) cursors.value = [cursor.value];
     data.value = undefined;
     void load();
   },
@@ -95,35 +99,34 @@ onBeforeUnmount(() => controller?.abort());
 <template>
   <ConsoleAuthEventSetup v-if="!enabled" class="overflow-y-auto" />
   <div v-else class="flex min-h-0 flex-1 flex-col">
-    <form
-      class="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-default px-3 py-2 sm:px-4"
-      @submit.prevent="filter(group, userInput)"
-    >
-      <USelect
-        :model-value="group"
-        :items="groups"
-        aria-label="Event type group"
-        size="sm"
-        class="w-40"
-        @update:model-value="filter(String($event), userId)"
-      />
-      <UInput
-        v-model="userInput"
-        aria-label="Filter by subject user ID"
-        placeholder="Subject user ID"
-        size="sm"
-        class="min-w-40 flex-1 sm:max-w-64"
-      />
-      <UButton type="submit" color="neutral" variant="ghost" size="sm">Apply</UButton>
-      <UButton
-        v-if="userId || group !== 'all'"
-        color="neutral"
-        variant="ghost"
-        size="sm"
-        @click="filter('all', '')"
-        >Clear filters</UButton
-      >
-    </form>
+    <ConsolePageToolbar width="6xl">
+      <form class="contents" @submit.prevent="filter(group, userInput)">
+        <USelect
+          :model-value="group"
+          :items="groups"
+          aria-label="Event type group"
+          size="sm"
+          class="w-40"
+          @update:model-value="filter(String($event), userId)"
+        />
+        <UInput
+          v-model="userInput"
+          aria-label="Filter by subject user ID"
+          placeholder="Subject user ID"
+          size="sm"
+          class="min-w-40 flex-1 sm:max-w-64"
+        />
+        <UButton type="submit" color="neutral" variant="ghost" size="sm">Apply</UButton>
+        <UButton
+          v-if="userId || group !== 'all'"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          @click="filter('all', '')"
+          >Clear filters</UButton
+        >
+      </form>
+    </ConsolePageToolbar>
     <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading">
       <div class="mx-auto flex w-full max-w-6xl flex-col gap-3 p-4 sm:p-6">
       <ConsoleState v-if="error" :error="error" title="Could not load activity" :retry="load" />
@@ -141,13 +144,13 @@ onBeforeUnmount(() => controller?.abort());
     <footer
       class="flex items-center justify-between gap-3 text-xs text-muted"
     >
-      <span class="tabular-nums">Page {{ page + 1 }} · Newest first</span>
+      <span class="tabular-nums">{{ cursors[0] === undefined ? `Page ${page + 1} · ` : "" }}Newest first</span>
       <div class="flex gap-1">
         <UButton
           color="neutral"
           variant="ghost"
           size="xs"
-          :disabled="loading || page === 0"
+          :disabled="loading || !cursor"
           @click="previous"
           >Previous</UButton
         ><UButton

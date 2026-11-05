@@ -1,5 +1,6 @@
 ---
 title: Env
+layout: landing
 navigation.title: Overview
 description: Declare your settings and secrets once, then read them as typed values in browser and server code.
 navigation.order: 1

@@ -1,6 +1,7 @@
 import type { BetterAuthOptions, DBAdapter, User, Where } from "better-auth";
 import { defineErrors, type Result } from "@vite-hub/runtime";
 import { defineGrant } from "@vite-hub/runtime/internal/grant";
+import { adminEmailsPluginId, adminEmailsVariable } from "./admin-emails.ts";
 import { authConsoleActionNames, authConsoleEventGroups } from "./console-types.ts";
 import { parseAuthEventList } from "./events.ts";
 import type { AuthEventCounts, AuthEventListInput, AuthEventStore } from "./events.ts";
@@ -14,6 +15,7 @@ import type {
   AuthConsoleCapability,
   AuthConsoleDescription,
   AuthConsoleField,
+  AuthConsoleHostOptions,
   AuthConsoleList,
   AuthConsoleMutation,
   AuthConsoleOptions,
@@ -21,6 +23,7 @@ import type {
   AuthConsoleOrganizationDetail,
   AuthConsolePolicy,
   AuthConsoleQuery,
+  AuthConsoleRoles,
   AuthConsoleSession,
   AuthConsoleUser,
   AuthConsoleUserDetail,
@@ -38,7 +41,8 @@ export interface AuthConsole {
   users(
     query?: AuthConsoleQuery,
   ): Promise<Result<AuthConsoleList<AuthConsoleUser>, AuthConsoleErrorCode>>;
-  user(id: string): Promise<Result<AuthConsoleUserDetail, AuthConsoleErrorCode>>;
+  /** With `request`, the impersonation target check also counts the `impersonate-admins` permission of its session. */
+  user(id: string, request?: Request): Promise<Result<AuthConsoleUserDetail, AuthConsoleErrorCode>>;
   sessions(
     query?: AuthConsoleQuery,
   ): Promise<Result<AuthConsoleList<AuthConsoleSession>, AuthConsoleErrorCode>>;
@@ -56,6 +60,8 @@ export interface AuthConsole {
     input: AuthConsoleMutation,
     request: Request,
   ): Promise<Result<Response, AuthConsoleErrorCode>>;
+  /** End the impersonation of the request's app session and restore the administrator's session cookies. */
+  stopImpersonating(request: Request): Promise<Result<Response, AuthConsoleErrorCode>>;
 }
 
 type ConsoleAdapter = Pick<DBAdapter, "findMany" | "findOne" | "count">;
@@ -72,7 +78,9 @@ const date = (value: unknown): string => {
 const record = (value: unknown): Row =>
   value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Row) : {};
 const disabled = (reason: string): AuthConsoleCapability => ({ enabled: false, reason });
-const policyReason = (policy: AuthConsolePolicy | undefined): string | undefined =>
+const policyReason = (
+  policy: AuthConsolePolicy | AuthConsoleRoles | undefined,
+): string | undefined =>
   policy === false
     ? "Read-only in the Auth Definition."
     : typeof policy === "object"
@@ -84,7 +92,43 @@ const userSummary = (user: Row) => ({
   email: string(user.email),
   image: typeof user.image === "string" ? user.image : null,
 });
+/** Computed readers get public core user fields, never sessions, accounts, or credentials. */
+const publicUser = (row: Row): User => ({
+  ...userSummary(row),
+  emailVerified: row.emailVerified === true,
+  createdAt: new Date(date(row.createdAt)),
+  updatedAt: new Date(date(row.updatedAt)),
+});
+const publicUserFields = [
+  "id",
+  "name",
+  "email",
+  "image",
+  "emailVerified",
+  "createdAt",
+  "updatedAt",
+];
 const equality = (field: string, value: string): Where[] => [{ field, value }];
+const strings = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+/** The admin plugin options, with roles and user ids read as Better Auth reads them. */
+function adminPlugin(options: BetterAuthOptions) {
+  const plugin = options.plugins?.find((plugin) => plugin.id === "admin");
+  const settings = record(plugin?.options);
+  const configured = settings.adminRoles ?? ["admin"];
+  return {
+    settings,
+    roles: (Array.isArray(configured) ? strings(configured) : string(configured).split(",")).map(
+      (role) => role.trim(),
+    ),
+    userIds: strings(settings.adminUserIds),
+  };
+}
+/** Better Auth's admin check: one of the comma-separated roles is an admin role, or the id is an admin user id. */
+const isAdmin = (admin: ReturnType<typeof adminPlugin>, id: string, role: string): boolean =>
+  (role || string(admin.settings.defaultRole) || "user")
+    .split(",")
+    .some((name) => admin.roles.includes(name)) || admin.userIds.includes(id);
 const endpoints: Record<Exclude<AuthConsoleAction, "revokeConsent">, string> = {
   ban: "banUser",
   unban: "unbanUser",
@@ -254,14 +298,37 @@ export function describeAuthConsoleFields(
 /**
  * Read and manage the app's Better Auth data from trusted server code. HTTP hosts must check access before calling it.
  * Writes require a real Better Auth session and pass through its plugin APIs. No adapter writes are used here.
+ * Impersonation stays off unless `host.impersonation` is `true`.
  */
+/** The `VITEHUB_ADMIN_EMAILS` rule as an access note, so the Console shows why an account is an admin. */
+function adminEmailsAccess(plugins: BetterAuthOptions["plugins"]): string[] {
+  const options: unknown = plugins?.find((plugin) => plugin.id === adminEmailsPluginId)?.options;
+  if (!options || typeof options !== "object") return [];
+  const emails: unknown = Reflect.get(options, "emails");
+  const role: unknown = Reflect.get(options, "role");
+  if (!Array.isArray(emails) || typeof role !== "string") return [];
+  return [`${adminEmailsVariable} gives the ${role} role to new accounts of ${emails.join(", ")}.`];
+}
+
 export function createAuthConsole(
   auth: { api: object; $context: Promise<{ adapter: ConsoleAdapter; options: BetterAuthOptions }> },
   policy: AuthConsoleOptions = {},
   events?: AuthEventStore,
+  host: AuthConsoleHostOptions = {},
 ): AuthConsole {
+  const readRoles =
+    policy.roles && typeof policy.roles === "object" && "read" in policy.roles
+      ? policy.roles.read
+      : undefined;
   async function context() {
     return await auth.$context;
+  }
+  /** Role per user id: the app's computed role, else the stored one. */
+  async function rolesOf(rows: Row[]): Promise<Map<string, string>> {
+    const computed = readRoles ? await readRoles(rows.map(publicUser)) : {};
+    return new Map(
+      rows.map((row) => [string(row.id), string(computed[string(row.id)]) || string(row.role)]),
+    );
   }
   function endpoint(name: string) {
     const call: unknown = Reflect.get(auth.api, name);
@@ -285,6 +352,25 @@ export function createAuthConsole(
       throw new AuthConsoleError(409, "The required Better Auth plugin endpoint is not installed.");
     return await run({ headers: request.headers, body, asResponse });
   }
+  /** The stored app session of the request, without a cookie cache read or a refresh write. */
+  async function appSession(request: Request): Promise<{ session: Row; user: Row } | null> {
+    const value = record(
+      await endpoint("getSession")!({
+        headers: request.headers,
+        query: { disableCookieCache: true, disableRefresh: true },
+      }),
+    );
+    return value.session && value.user
+      ? { session: record(value.session), user: record(value.user) }
+      : null;
+  }
+  async function permitted(request: Request, permissions: Record<string, string[]>) {
+    try {
+      return record(await call("userHasPermission", request, { permissions })).success === true;
+    } catch {
+      return false;
+    }
+  }
   async function features() {
     const ctx = await context();
     const ids = new Set(ctx.options.plugins?.map((plugin) => plugin.id));
@@ -303,9 +389,18 @@ export function createAuthConsole(
           "Auth has no durable database. Configure a Better Auth database adapter to inspect stored users and sessions.",
         );
     const actions = {} as Record<AuthConsoleAction, AuthConsoleCapability>;
+    const session =
+      host.impersonation && request && storage.enabled
+        ? await appSession(request).catch(() => null)
+        : null;
+    const impersonatedBy = string(session?.session.impersonatedBy);
     await Promise.all(
       authConsoleActionNames.map(async (action) => {
         let reason =
+          action === "impersonate" && !host.impersonation
+            ? "Impersonation is off in the Console configuration."
+            : undefined;
+        reason ??=
           policyReason(policy.actions?.[action]) ??
           (action === "setRole" ? policyReason(policy.roles) : undefined);
         if (!reason && !storage.enabled) reason = storage.reason;
@@ -314,7 +409,12 @@ export function createAuthConsole(
             "Better Auth has no admin endpoint to revoke one user's client grant. Deleting a consent alone does not revoke issued tokens.";
         if (!reason && action !== "revokeConsent" && !endpoint(endpoints[action]))
           reason = "Enable the Better Auth admin plugin.";
+        // Every start and stop must leave a record that the Activity page can show.
+        if (!reason && action === "impersonate" && !events)
+          reason = "Add events.store to defineAuth() so that impersonation is recorded.";
         if (!reason && !request) reason = "Sign in with an app session to run this action.";
+        if (!reason && action === "impersonate" && impersonatedBy)
+          reason = "This browser already impersonates a user. Stop impersonating first.";
         if (!reason && request && action !== "revokeConsent") {
           try {
             const result = record(
@@ -334,7 +434,7 @@ export function createAuthConsole(
       edit: field.edit.enabled && !actions.editField.enabled ? actions.editField : field.edit,
     }));
     return {
-      access: [...(policy.access ?? [])],
+      access: [...(policy.access ?? []), ...adminEmailsAccess(ctx.options.plugins)],
       actions,
       fields,
       pages: [
@@ -349,7 +449,44 @@ export function createAuthConsole(
       events: events
         ? { enabled: true }
         : disabled("Add events.store to defineAuth() to record auth activity."),
+      ...(host.impersonation
+        ? {
+            impersonation: {
+              duration: impersonationDuration(ctx.options),
+              active:
+                impersonatedBy && session
+                  ? {
+                      user: userSummary(session.user),
+                      expiresAt: date(session.session.expiresAt),
+                    }
+                  : null,
+            },
+          }
+        : {}),
     };
+  }
+  /** Better Auth's default is one hour. */
+  function impersonationDuration(options: BetterAuthOptions): number {
+    const seconds = adminPlugin(options).settings.impersonationSessionDuration;
+    return typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0 ? seconds : 3600;
+  }
+  /** Better Auth refuses banned users and, unless the admin plugin allows it, administrators. */
+  async function impersonationTarget(row: Row, request?: Request): Promise<AuthConsoleCapability> {
+    const ban = new Date(date(row.banExpires) || NaN).getTime();
+    if (row.banned === true && !(ban < Date.now()))
+      return disabled("Better Auth does not open sessions for banned users.");
+    const admin = adminPlugin((await context()).options);
+    const id = string(row.id);
+    // Better Auth reads the stored role. A computed admin role also protects the user.
+    const computed = readRoles ? (await rolesOf([row])).get(id) : undefined;
+    if (
+      (isAdmin(admin, id, string(row.role)) ||
+        (computed !== undefined && isAdmin(admin, id, computed))) &&
+      admin.settings.allowImpersonatingAdmins !== true &&
+      !(request && (await permitted(request, { user: ["impersonate-admins"] })))
+    )
+      return disabled("Better Auth does not impersonate administrators.");
+    return { enabled: true };
   }
   async function activity(query: AuthConsoleActivityQuery = {}): Promise<AuthConsoleActivity> {
     let input: AuthEventListInput;
@@ -536,15 +673,12 @@ export function createAuthConsole(
           connector: "OR",
         },
       ]);
-    if (query.filter === "admins") {
-      const adminOptions = record(
-        ctx.options.plugins?.find((plugin) => plugin.id === "admin")?.options,
-      );
-      const configured = adminOptions.adminRoles ?? ["admin"];
-      const roles = Array.isArray(configured)
-        ? configured.filter((role): role is string => typeof role === "string")
-        : string(configured).split(",");
-      const matchesRole: Where[] = roles.flatMap((role) => [
+    if (query.filter === "admins" && readRoles) {
+      const adminIds = await computedAdminIds(adminPlugin(ctx.options));
+      matches = matches ? matches.filter((id) => adminIds.has(id)) : [...adminIds].sort();
+    } else if (query.filter === "admins") {
+      const admin = adminPlugin(ctx.options);
+      const matchesRole: Where[] = admin.roles.flatMap((role) => [
         { field: "role", value: role, connector: "OR" },
         { field: "role", value: `${role},`, operator: "starts_with", connector: "OR" },
         { field: "role", value: `,${role}`, operator: "ends_with", connector: "OR" },
@@ -552,9 +686,7 @@ export function createAuthConsole(
       ]);
       const adminIds = new Set([
         ...(matchesRole.length ? await ids("user", "id", matchesRole) : []),
-        ...(Array.isArray(adminOptions.adminUserIds)
-          ? adminOptions.adminUserIds.filter((id): id is string => typeof id === "string")
-          : []),
+        ...admin.userIds,
       ]);
       matches = matches ? matches.filter((id) => adminIds.has(id)) : [...adminIds].sort();
     }
@@ -584,22 +716,34 @@ export function createAuthConsole(
     }
     return { ...result, items: await enrichUsers(result.items) };
   }
+  /** A computed role can't be filtered in the database, so this reads every user once, 500 at a time. */
+  async function computedAdminIds(admin: ReturnType<typeof adminPlugin>): Promise<Set<string>> {
+    const db = await adapter();
+    const result = new Set<string>();
+    for (let offset = 0; ; offset += 500) {
+      const rows = await db.findMany<Row>({
+        model: "user",
+        select: [...publicUserFields, "role"],
+        offset,
+        limit: 500,
+        // Email is required and unique; Mongo's adapter sorts logical `id` on a missing field.
+        sortBy: { field: "email", direction: "asc" },
+      });
+      for (const [id, role] of await rolesOf(rows)) if (isAdmin(admin, id, role)) result.add(id);
+      if (rows.length < 500) return result;
+    }
+  }
   async function enrichUsers(rows: Row[]): Promise<AuthConsoleUser[]> {
     const db = await adapter();
     const fields = describeAuthConsoleFields((await context()).options, policy);
     const computed = new Map<string, Readonly<Record<string, AuthConsoleValue>>>();
-    // Computed readers get public core user fields, never sessions, accounts, or credentials.
-    const publicUsers: User[] = rows.map((row) => ({
-      ...userSummary(row),
-      emailVerified: row.emailVerified === true,
-      createdAt: new Date(date(row.createdAt)),
-      updatedAt: new Date(date(row.updatedAt)),
-    }));
-    await Promise.all(
-      Object.entries(policy.columns ?? {}).map(async ([key, column]) => {
+    const publicUsers = rows.map(publicUser);
+    const [roles] = await Promise.all([
+      rolesOf(rows),
+      ...Object.entries(policy.columns ?? {}).map(async ([key, column]) => {
         computed.set(key, await column.read(publicUsers));
       }),
-    );
+    ]);
     return await Promise.all(
       rows.map(async (row) => {
         const userId = string(row.id);
@@ -620,7 +764,7 @@ export function createAuthConsole(
         ]);
         return {
           ...userSummary(row),
-          role: string(row.role) || "user",
+          role: roles.get(userId) || "user",
           banned: row.banned === true,
           banReason: typeof row.banReason === "string" ? row.banReason : null,
           banExpires: date(row.banExpires) || null,
@@ -751,11 +895,11 @@ export function createAuthConsole(
       })),
     };
   }
-  async function user(id: string): Promise<AuthConsoleUserDetail> {
+  async function user(id: string, request?: Request): Promise<AuthConsoleUserDetail> {
     const row = await find("user", equality("id", id));
     if (!row) throw new AuthConsoleError(404, "User not found.");
     const { oauth, mcp, organization } = await features();
-    const [enriched, sessionRows, accounts, agentRows, memberships] = await Promise.all([
+    const [enriched, sessionRows, accounts, agentRows, memberships, target] = await Promise.all([
       enrichUsers([row]),
       sessions({ userId: id }),
       list("account", { limit: 100 }, equality("userId", id)),
@@ -763,8 +907,10 @@ export function createAuthConsole(
       organization
         ? list("member", { limit: 100 }, equality("userId", id))
         : { items: [], total: 0 },
+      host.impersonation ? impersonationTarget(row, request) : undefined,
     ]);
     return {
+      ...(target ? { impersonation: target } : {}),
       user: enriched[0]!,
       sessions: sessionRows,
       accountsTotal: accounts.total,
@@ -808,6 +954,13 @@ export function createAuthConsole(
         throw new AuthConsoleError(400, "The value does not match the declared field type.");
       if (field.values && input.value !== null && !field.values.includes(String(input.value)))
         throw new AuthConsoleError(400, "Choose one of the declared field values.");
+    }
+    // Better Auth checks only the stored role of the target, so the Console checks the computed one.
+    if (input.action === "impersonate" && readRoles) {
+      const target = await find("user", equality("id", input.userId));
+      const allowed = target ? await impersonationTarget(target, request) : { enabled: true };
+      if (!allowed.enabled)
+        throw new AuthConsoleError(403, allowed.reason ?? "Action not supported.");
     }
     return actionGrant.issue(input.action);
   }
@@ -884,18 +1037,37 @@ export function createAuthConsole(
       { headers },
     );
   }
+  async function stopImpersonating(request: Request): Promise<Response> {
+    if (!host.impersonation)
+      throw new AuthConsoleError(403, "Impersonation is off in the Console configuration.");
+    const response = await call("stopImpersonating", request, undefined, true);
+    if (!(response instanceof Response))
+      throw new AuthConsoleError(502, "Better Auth returned an invalid action response.");
+    if (!response.ok) {
+      const failure = record(await response.json().catch(() => ({})));
+      throw new AuthConsoleError(
+        response.status,
+        string(failure.message) || "Better Auth could not stop the impersonation.",
+      );
+    }
+    // Better Auth restores the administrator's session cookie. Its session body never reaches the client.
+    const headers = new Headers({ "cache-control": "no-store" });
+    for (const cookie of response.headers.getSetCookie()) headers.append("set-cookie", cookie);
+    return Response.json({ action: "stopImpersonating", ok: true }, { headers });
+  }
   return {
     describe: (request) => result(() => describe(request)),
     overview: () => result(overview),
     activity: (query) => result(() => activity(query)),
     users: (query) => result(() => users(query)),
-    user: (id) => result(() => user(id)),
+    user: (id, request) => result(() => user(id, request)),
     sessions: (query) => result(() => sessions(query)),
     organizations: (query) => result(() => organizations(query)),
     organization: (id, query) => result(() => organization(id, query)),
     agents: (query) => result(() => agents(query)),
     execute: (input, request) =>
       result(async () => await mutate(input, request, await authorize(input, request))),
+    stopImpersonating: (request) => result(() => stopImpersonating(request)),
   };
 }
 

@@ -18,6 +18,7 @@ export default defineConfig({
       "src/vite.ts",
       "src/internal/runtime/cloudflare-client.ts",
       "src/internal/runtime/cloudflare-vite.ts",
+      "src/internal/runtime/local-client.ts",
       "src/internal/runtime/state.ts",
       "src/runtime/hosted.ts",
       "src/internal/runtime/vercel-client.ts",

@@ -94,6 +94,10 @@ Use `invocations.getSummary(id)` to read metadata without observation payloads. 
 
 Custom stores must enforce `claim(id, claimId, leaseMs, { expectedClaimIds })` atomically. Unless `replaceExisting` is `true`, this form can claim an unclaimed record or replace one of the listed claim IDs. It must reject a different owner, including an expired claim. Journals rotate the claim ID for handoff and after an uncertain renewal so cleanup of a timed-out attempt cannot release a newer claim. `release(id, claimId)` must release only that claim ID. The memory, libSQL, and D1 stores enforce these rules.
 
+An update with `reopen: true` returns a `failed` record to `pending` and removes its `error`, `failedAt`, and `retryPending`. Other records stay unchanged. The webhook queue sends it when it retries a delivery whose earlier attempt failed. `applyAgentInvocationStoreUpdate()` applies it. A store that explicitly returns the unchanged `failed` record keeps terminal reuse behavior. An unconfirmed reopen blocks dispatch until the journal confirms its result.
+
+Failed queued attempts with another attempt available set `retryPending: true`. A cancellation request on such a record changes it to `cancelled`, records `cancelRequestedAt` and `cancelledAt`, and removes `error`, `failedAt`, and `retryPending`. This prevents the next attempt from reopening it. Failed records without another retry, and other terminal records, keep their terminal cancellation behavior. Custom stores can use `applyAgentInvocationStoreUpdate()` to apply these transitions atomically.
+
 Pass `observationNames` to read only the observations needed for an inspection:
 
 ```ts
@@ -489,7 +493,7 @@ Cancellation before Driver dispatch stops startup without a `notEnforcedBy` warn
 
 For a process-owned store, `createProcessAgentInvocations` from `vite-hub/agent/runtime/process` runs interrupted-invocation recovery before returning the journal. Pass the normal `defineAgentInvocations` options and a `recovery` object with a `recover(invocation)` ownership predicate. Use `recover: () => true` only when the database belongs exclusively to that service. Recovery failure rejects startup.
 
-With a libSQL Agent state provider, a persistent Nitro server runs this recovery at startup for each Agent journal, before it resumes queued webhook deliveries. It fails the Agent's pending or running invocations that started before the process, except invocations that a persisted queued delivery runs again under the same run ID. Agents with a durable Workflow runtime are skipped. A recovery failure is logged and the queue still resumes.
+With a libSQL Agent state provider, a persistent Nitro server runs this recovery for each Agent journal when it resumes queued webhook deliveries, one second after it starts or on the first request that loads the Agent routes. It fails the Agent's pending or running invocations that started before the process, except invocations that a persisted queued delivery runs again under the same run ID. Agents with a durable Workflow runtime are skipped. A recovery failure is logged and the queue still resumes.
 
 ## Next steps
 

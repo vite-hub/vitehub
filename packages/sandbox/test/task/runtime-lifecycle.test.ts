@@ -18,7 +18,7 @@ vi.mock("../../src/task/internal/shared/utils.ts", () => ({
   sleep: runtimeMocks.sleep,
 }))
 
-vi.mock("vitehub-sandbox-task-provider-loader", () => ({
+vi.mock("#vitehub-sandbox-task-provider-loader", () => ({
   loadSandboxTaskRuntimeProvider: async () => ({
     resolveTaskSandbox: runtimeMocks.resolveTaskSandbox,
   }),

@@ -2,14 +2,23 @@
 import { createClient } from "@libsql/client"
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 import { drizzle } from "drizzle-orm/libsql"
+import { H3Event } from "h3"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
-import { defineComments } from "../src/operations-core/define.ts"
+// Exercise the built Node transport without pulling its Vite helpers into Comments' DOM typecheck.
+import { createStandaloneOperationHandler } from "../../internal/dist/operations-dev.js"
+import { defineComments, installComments } from "../src/index.ts"
 import { commentsOperations } from "../src/operations-core/operations.ts"
-import { createAuthUsers, createCommentsStore, installComments } from "../src/operations-core/server.ts"
+import { createAuthUsers, installCommentsRuntime } from "../src/operations-core/server.ts"
+import { createCommentsStore } from "../src/operations-core/store.ts"
+import { createRpcTransport } from "../src/rpc.ts"
+import { createMemoryTransport } from "../src/testing.ts"
+import { commentsTables } from "../src/tables.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
-import type { CommentsDefinition } from "../src/operations-core/define.ts"
+import type { Comments } from "../src/index.ts"
+import type { CommentsDatabase } from "../src/operations-core/store.ts"
+import type { CommentsPeople, CommentsUser } from "../src/types.ts"
 import type { CommentCreateInput, CommentThread } from "../src/operations-core/types.ts"
 
 const registry = createOperationRegistry([{ operations: commentsOperations }])
@@ -22,19 +31,14 @@ let client: ReturnType<typeof createClient>
 
 beforeEach(async () => {
   client = createClient({ url: ":memory:" })
-  for (const sql of [
-    "create table vitehub_comment_threads (id text primary key, scope text not null, n integer not null, subject_kind text not null, subject_id text not null, anchor text not null, status text not null, resolved_by text, resolved_at integer, author_id text not null, author_name text, author_image text, actor text, created_at integer not null, updated_at integer not null)",
-    "create unique index vitehub_comment_threads_scope_n on vitehub_comment_threads (scope, n)",
-    "create table vitehub_comment_counters (scope text primary key, next integer not null)",
-    "create table vitehub_comment_messages (id text primary key, thread_id text not null, body text not null, author_id text not null, author_name text, author_image text, actor text, mentions text not null, attachments text not null, created_at integer not null, edited_at integer)",
-  ]) await client.execute(sql)
+  for (const sql of commentsTables) await client.execute(sql)
 })
 
 afterEach(async () => {
   vi.restoreAllMocks()
   await Promise.all(pending.splice(0))
   client.close()
-  installComments(() => { throw new Error("not installed") })
+  installCommentsRuntime(() => { throw new Error("not installed") })
 })
 
 it("scans past more than fifty hidden threads to fill a readable page", async () => {
@@ -42,6 +46,36 @@ it("scans past more than fifty hidden threads to fill a readable page", async ()
   const visible = await create(member, { ...input, body: "visible" })
   for (let i = 0; i < 51; i++) await create()
   expect(await call("comments.list", { limit: 1 })).toEqual({ ok: true, value: [visible] })
+})
+
+it.each(["rpc", "memory"])("filters subject kinds before limiting through the %s transport", async (kind) => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const message = { attachments: [], author: member, body: "Page", id: "page-message", mentions: [], now: 1 }
+  const visible = await store.createThread({ ...message, anchor: { kind: "page" }, scope: "site", subject: page, threadId: "page" })
+  const content = await store.createThread({ ...message, id: "content-message", now: 2, anchor: { kind: "page" }, scope: "site", subject: { kind: "content", id: "about" }, threadId: "content" })
+  const transport = kind === "memory"
+    ? createMemoryTransport({ user: member, threads: [visible, content] })
+    : createRpcTransport({ fetch: async (_url, init) => {
+        const { operation, input } = JSON.parse(String(init?.body))
+        return Response.json(await call(operation, input))
+      } })
+  expect(await transport.list({ subjectKind: "page", limit: 1 })).toEqual([visible])
+  expect(await transport.list({ subjectKind: "content" })).toEqual([content])
+  expect(await transport.list({ subjectKind: "missing" })).toEqual([])
+  expect(await transport.list({ subjectKind: "page", subject: content.subject })).toEqual([])
+})
+
+it("accepts attachment keys through the RPC transport for new comments and replies", async () => {
+  setup(defineComments({ authorize: () => true }))
+  const transport = createRpcTransport({ fetch: async (_url, init) => {
+    const { operation, input } = JSON.parse(String(init?.body))
+    return Response.json(await call(operation, input))
+  } })
+  const thread = await transport.create({ ...input, attachments: ["uploads/first.png"] })
+  expect(thread.messages[0]!.attachments).toEqual(["uploads/first.png"])
+  const replied = await transport.reply({ threadId: thread.id, body: "", attachments: ["uploads/reply.png"] })
+  expect(replied.messages[1]!.attachments).toEqual(["uploads/reply.png"])
+  expect(transport.supportsAttachments).not.toBe(false)
 })
 
 it("refuses ownership-based deletion when another author replies after authorization", async () => {
@@ -86,9 +120,9 @@ it("gives each same-millisecond mutation a strictly newer timestamp", async () =
   expect([created, replied, edited, resolved, reopened, deleted].map(thread => thread.updatedAt)).toEqual([1, 2, 3, 4, 5, 6])
 })
 
-function setup(definition: CommentsDefinition) {
+function setup(comments: Comments, users?: CommentsPeople) {
   const store = createCommentsStore(drizzle(client))
-  installComments({ definition, store })
+  installCommentsRuntime({ definition: comments.options, store, ...(users ? { users } : {}) })
   return store
 }
 
@@ -159,10 +193,8 @@ it("returns only the public session identity", async () => {
 })
 
 it("checks read access before searching mention suggestions", async () => {
-  const definition = defineComments({ authorize: ({ action }) => action !== "read" })
-  const store = setup(definition)
   const search = vi.fn(async () => [member])
-  installComments({ definition, store, users: { byIds: async () => [], search } })
+  setup(defineComments({ authorize: ({ action }) => action !== "read" }), { byIds: async () => [], search })
   expect(await call("comments.users", { query: "an" })).toMatchObject({ ok: false, status: 403, code: "COMMENTS_R0009" })
   expect(search).not.toHaveBeenCalled()
 })
@@ -226,14 +258,110 @@ it("uses Auth user fields to authorize mentions and keeps suggestions public", a
   const ben = { id: "ben", name: "Ben", role: "member", email: "ben@example.com" }
   const guest = { id: "guest", name: "Guest", role: "guest", email: "guest@example.com" }
   const onMention = vi.fn()
-  const definition = defineComments({ authorize: ({ action, user }) => action !== "read" || user?.role === "member", onMention })
-  const store = setup(definition)
   const users = createAuthUsers(() => ({ $context: Promise.resolve({ internalAdapter: { listUsers: async () => [ben, guest] } }) }))
-  installComments({ definition, store, users })
-  await create(member, { ...input, body: "Hello @Ben and @Guest.", mentions: [ben.id, guest.id] })
+  setup(defineComments({ authorize: ({ action, user }) => action !== "read" || user?.role === "member", onMention }), users)
+  // People that may not read the thread may not be mentioned in it.
+  expect(await call("comments.create", { ...input, body: "Hello @Ben and @Guest.", mentions: [ben.id, guest.id] })).toMatchObject({ ok: false, code: "COMMENTS_R0007", message: expect.stringContaining("Guest may not be mentioned here.") })
+  const thread = await create(member, { ...input, body: "Hello @Ben.", mentions: [ben.id] })
   await Promise.all(pending)
   expect(onMention).toHaveBeenCalledOnce()
-  expect(onMention.mock.calls[0]?.[0].mentioned.map((person: { id: string }) => person.id)).toEqual([ben.id])
-  expect(onMention.mock.calls[0]?.[0].mentioned).toEqual([{ id: ben.id, name: ben.name }])
-  expect(await call("comments.users", { query: "be" })).toEqual({ ok: true, value: [{ id: ben.id, name: ben.name }, { id: guest.id, name: guest.name }] })
+  expect(onMention.mock.calls[0]?.[0]).toEqual({ users: [{ id: ben.id, name: ben.name }], message: thread.messages[0], thread, link: `/pricing?comment=${thread.n}` })
+  // Suggestions leave out the people that may not be mentioned, and keep only public fields.
+  expect(await call("comments.users", { query: "e" })).toEqual({ ok: true, value: [] })
+  expect(await call("comments.users", { query: "be" })).toEqual({ ok: true, value: [{ id: ben.id, name: ben.name }] })
+})
+
+
+it("reports thread actions independently of writing, including ownership and root deletion", async () => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const thread = await create()
+  const mixed = await store.addMessage(thread.id, { author: admin, body: "Admin reply", id: "admin-reply", attachments: [], mentions: [], now: Date.now() })
+  await store.addMessage(thread.id, { author: member, body: "My reply", id: "own-reply", attachments: [], mentions: [], now: Date.now() })
+  installCommentsRuntime({ definition: defineComments({ authorize: ({ action, thread }) => Boolean(thread) && (action === "read" || action === "resolve") }).options, store })
+  expect(await call("comments.session", { threadId: thread.id })).toMatchObject({ ok: true, value: {
+    canWrite: false,
+    capabilities: { reply: false, resolve: true, deleteThread: false, edit: [thread.messages[0]!.id, "own-reply"], delete: [] },
+  } })
+  expect(await call("comments.resolve", { threadId: thread.id })).toMatchObject({ ok: true })
+  expect(await call("comments.reply", { body: "Denied", threadId: thread.id })).toMatchObject({ ok: false, status: 403 })
+  expect(await call("comments.edit", { body: "Allowed", messageId: thread.messages[0]!.id, threadId: thread.id })).toMatchObject({ ok: true })
+  expect(await call("comments.delete", { messageId: "own-reply", threadId: thread.id })).toMatchObject({ ok: false, status: 403 })
+  expect(await call("comments.delete", { messageId: thread.messages[0]!.id, threadId: thread.id })).toMatchObject({ ok: false, status: 403 })
+  expect((await store.getById(mixed.id))?.messages).toHaveLength(3)
+})
+
+it("does not grant resolve or delete from write permission and respects operation access", async () => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const thread = await create(admin)
+  installCommentsRuntime({ definition: defineComments({ authorize: ({ action }) => action === "read" || action === "write" }).options, store })
+  expect(await call("comments.session", { threadId: thread.id })).toMatchObject({ ok: true, value: {
+    capabilities: { reply: true, resolve: false, deleteThread: false, edit: [], delete: [] },
+  } })
+  installCommentsRuntime({ definition: defineComments({ authorize: () => true }).options, store })
+  const result = await runOperation(registry, "comments.session", { threadId: thread.id }, {
+    access: { mode: "auth", sections: ["comments:read"] }, user: admin,
+    development: false, surface: "console", request: new Request("https://example.com/"),
+  })
+  expect(result).toMatchObject({ ok: true, value: { capabilities: { reply: false, resolve: false, deleteThread: false, edit: [], delete: [] } } })
+  expect(await call("comments.session", { threadId: thread.id }, admin)).toMatchObject({ ok: true, value: { capabilities: { deleteThread: true, delete: [thread.messages[0]!.id], edit: [thread.messages[0]!.id] } } })
+})
+
+it.each([false, true])("matches owner deletion capabilities to the write policy (%s)", async write => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const thread = await create()
+  installCommentsRuntime({ definition: defineComments({ authorize: ({ action }) => action !== "write" || write }).options, store })
+  expect(await call("comments.session", { threadId: thread.id })).toMatchObject({ ok: true, value: {
+    capabilities: { reply: write, deleteThread: write, delete: write ? [thread.messages[0]!.id] : [] },
+  } })
+  expect(await call("comments.delete", { threadId: thread.id })).toMatchObject(write ? { ok: true } : { ok: false, status: 403 })
+})
+
+it.each(["admin", "stranger"])("identifies %s through the standalone CLI operation RPC", async (person) => {
+  const identified = { id: "admin", name: "Admin", role: "admin" }
+  const authorize = vi.fn(({ user }: { user: CommentsUser | null }) => user?.role === "admin")
+  const identify = vi.fn(({ event }: { event: H3Event }) => event.req.headers.get("x-person") === "admin" ? identified : null)
+  const comments = defineComments({ identify, authorize })
+  // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
+  installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
+  const handler = createStandaloneOperationHandler([{ operations: commentsOperations, plugin: "comments" }], "/project")
+  const request = new Request("http://localhost/_vitehub/rpc/__call", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-vitehub-console": "1", "x-person": person },
+    body: JSON.stringify({ operation: "comments.create", input }),
+  })
+  const event = new H3Event(request)
+  const response = await handler(event)
+  expect(response.status).toBe(person === "admin" ? 200 : 403)
+  expect(await response.json()).toMatchObject(person === "admin"
+    ? { ok: true, value: { author: { id: "admin", name: "Admin" } } }
+    : { ok: false, status: 403 })
+  expect(identify).toHaveBeenCalledWith({ event })
+  expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user: person === "admin" ? identified : null }))
+})
+
+it("gives authorize the user that identify builds for the request, not the Console user", async () => {
+  type DropUser = CommentsUser & { identity?: { role: string } }
+  const seen: Array<DropUser | null> = []
+  const comments = defineComments({
+    // The app's own session: the Console user carries no `identity`.
+    identify: ({ event }) => event.req.headers.get("x-person") === "admin" ? { id: "admin", name: "Admin", identity: { role: "admin" } } : null,
+    authorize: ({ user }) => {
+      seen.push(user as DropUser | null)
+      return (user as DropUser | null)?.identity?.role === "admin"
+    },
+  })
+  // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
+  installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
+  const request = new Request("http://site.test/_vitehub/rpc/__call", { headers: { "x-person": "admin" } })
+  const context = { access: { mode: "auth", sections: "all" }, surface: "console", user: { id: "admin", name: "Admin" }, request, event: new H3Event(request) } satisfies OperationContext
+  const created = await runOperation(registry, "comments.create", input, context)
+  expect(created).toMatchObject({ ok: true, value: { author: { id: "admin", name: "Admin" } } })
+  expect(await runOperation(registry, "comments.list", {}, context)).toMatchObject({ ok: true, value: [{ id: (created as { value: CommentThread }).value.id }] })
+  expect(seen.length).toBeGreaterThan(0)
+  expect(seen.every(user => user?.identity?.role === "admin")).toBe(true)
+
+  // A call without a request, such as an agent's, has no user for identify to build, so it reads nothing.
+  const { event: _event, request: _request, ...agent } = context
+  expect(await runOperation(registry, "comments.list", {}, { ...agent, surface: "agent" })).toEqual({ ok: true, value: [] })
+  expect(seen.at(-1)).toBeNull()
 })

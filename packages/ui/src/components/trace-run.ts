@@ -1,5 +1,5 @@
 import type { TraceRunView, TraceStepView } from "@vite-hub/runtime";
-import { defineComponent, h, type PropType, resolveComponent } from "vue";
+import { defineComponent, h, type PropType } from "vue";
 import { CodeBlock, CodeBlockContent } from "./code-block.ts";
 import {
   Trace,
@@ -12,6 +12,7 @@ import {
   TraceTitle,
   type TraceLineStatus,
 } from "./trace.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 type Status = TraceRunView["status"] | TraceStepView["status"];
 
@@ -58,7 +59,7 @@ export const TraceRun = defineComponent({
     run: { required: true, type: Object as PropType<TraceRunView> },
   },
   setup(props, { slots }) {
-    const UIcon = resolveComponent("UIcon");
+    const UIcon = useUIComponent("UIcon");
     const icon = (status: Status) => h(TraceIcon, () => h(UIcon, { name: Object.hasOwn(statusIcons, status) ? statusIcons[status] : "i-ph-circle-light" }));
 
     const step = (value: TraceStepView) => {

@@ -28,7 +28,7 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
     /** Whether the credential can read classic protection, which needs admin access. */
     protectionReadable: true,
     children: 0,
-    thread: { pullRequest: { id: "PR_123" }, isResolved: false },
+    thread: { id: "THREAD_1", isResolved: false },
     reviewPage: { nodes: [] as typeof pullRequest.latestOpinionatedReviews.nodes, pageInfo: page() },
     labelPage: { nodes: [] as { name: string }[], pageInfo: page() },
     run: { id: 123, head_sha: head, repository: { full_name: "acme/app" }, pull_requests: [] as { number: number, head: { sha: string } }[] },
@@ -43,7 +43,7 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
         if (state.mutationError) return Response.json({ data: null, errors: [{ message: "Head oid mismatch" }] })
         return { enablePullRequestAutoMerge: { pullRequest: { id: pullRequest.id, state: state.merged ? "MERGED" : "OPEN", headRefOid: pullRequest.headRefOid, autoMergeRequest: state.merged ? null : { enabledAt: "2026-09-13T00:00:00Z" } } } }
       case "PullRequestOperationChildren": return { repository: { pullRequests: { totalCount: state.children } } }
-      case "ForgeReviewThread": return { node: { id: request.variables?.id, ...state.thread } }
+      case "ReviewThreadPage": return { repository: { pullRequest: { reviewThreads: { nodes: [{ ...state.thread, comments: { nodes: [] } }], pageInfo: page() } } } }
       case "ResolveReviewThread": return { resolveReviewThread: { thread: { isResolved: true } } }
       case "PullRequestOperationLabels": return { node: { labels: state.labelPage } }
       case "PullRequestOperationReviews": return { node: { latestOpinionatedReviews: state.reviewPage } }
@@ -480,7 +480,6 @@ describe("host-owned repair operations", () => {
 
   it("rejects thread IDs owned by another PR", async () => {
     const f = await fixture()
-    f.state.thread.pullRequest.id = "PR_other"
     await expect(f.operations.resolveThread("THREAD_other")).rejects.toThrow("does not belong")
     expect(f.mutations()).toHaveLength(0)
   })

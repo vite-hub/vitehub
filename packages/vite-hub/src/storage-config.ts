@@ -1,10 +1,11 @@
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
-import { isImplicitDefaultDatabase, resolveDBViteConfig, resolveDefaultDatabase } from "@vite-hub/database/config"
 import type { BlobStoreConfig } from "@vite-hub/blob"
 import type { KVStoreConfig } from "@vite-hub/kv"
 import type { ViteHubOptions } from "./index.ts"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
+import { requireOptionalOwner } from "./internal/optional-owners.ts"
+import { ownerModules } from "./internal/owner-modules.ts"
 
 /** An explicit Node data directory selects local storage; the host owns durability. */
 export function withDataDir(options: ViteHubOptions): ViteHubOptions {
@@ -76,6 +77,7 @@ export function consoleD1Binding(
 ): string | undefined {
   if (preset !== "cloudflare" || !database) return
   if (!definitions) return
+  const { isImplicitDefaultDatabase, resolveDBViteConfig, resolveDefaultDatabase } = requireOptionalOwner(ownerModules.databaseConfig, "database")
   const options = database === true ? undefined : database
   const root = resolve(definitions.root, options?.projectRoot ?? ".")
   const serverDirs = options?.projectRoot !== undefined ? [resolve(root, "server")] : definitions.serverDirs
@@ -93,6 +95,20 @@ export function consoleD1Binding(
 export function resolveConsoleJournal(databaseUrl: string | undefined, d1Binding: string | undefined, build: boolean): ConsoleJournal | undefined {
   if (databaseUrl) return { databaseUrl }
   if (build && d1Binding) return { d1Binding }
+}
+
+/**
+ * Comments is on with the Console, unless `comments: false`. It keeps threads in the Database, so it enables `database`
+ * when it is unset. `database: false` with Comments on fails.
+ */
+export function withComments(options: ViteHubOptions): ViteHubOptions {
+  const comments = options.comments ?? (options.console ? true : undefined)
+  if (!comments) return options
+  if (options.database === false) {
+    const why = options.comments ? "the `comments` option turns Comments on" : "the Console turns Comments on"
+    throw viteHubErrorDiagnostics.VITE_HUB_B0018({ message: `[vitehub] Comments keeps its threads in the Database, and ${why}, but \`database\` is false. Remove \`database: false\`, or set \`comments: false\`.` })
+  }
+  return { ...options, comments, database: options.database ?? true }
 }
 
 /**

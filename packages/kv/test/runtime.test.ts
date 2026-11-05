@@ -27,6 +27,7 @@ let fsLiteDriver: Driver | Error | undefined
 let upstashEval: ReturnType<typeof vi.fn<(...args: unknown[]) => Promise<unknown>>> | undefined
 let upstashGetdel: ReturnType<typeof vi.fn<(key: string) => Promise<unknown>>> | undefined
 let upstashScan: ReturnType<typeof vi.fn> | undefined
+let upstashSetIfAbsent: ReturnType<typeof vi.fn<(key: string, value: string, ttl?: number) => Promise<boolean>>> | undefined
 // SAFETY: Tests install and restore an optional Deno runtime shim on globalThis.
 const originalDeno = (globalThis as typeof globalThis & { Deno?: unknown }).Deno
 
@@ -39,6 +40,7 @@ function resetStorage() {
   upstashEval = undefined
   upstashGetdel = undefined
   upstashScan = undefined
+  upstashSetIfAbsent = undefined
 }
 
 function createInspectableDriver(name: "upstash") {
@@ -51,6 +53,9 @@ function createInspectableDriver(name: "upstash") {
       },
       async incrementItem(key: string, ttl: number): Promise<number> {
         return Number(await upstashEval?.(key, ttl) ?? 1)
+      },
+      async setIfAbsentItem(key: string, value: string, ttl?: number) {
+        return await upstashSetIfAbsent?.(key, value, ttl) ?? true
       },
     }
   }
@@ -270,6 +275,42 @@ describe("kv runtime", () => {
     expect(upstashEval).toHaveBeenCalledWith("attempts", 60)
   })
 
+  it("reads numeric-looking strings back as text with { type: \"text\" }", async () => {
+    process.env.KV_REST_API_URL = "https://upstash.example.com"
+    process.env.KV_REST_API_TOKEN = "upstash-token"
+    // The Upstash adapter keeps raw text so both read paths decode it only when requested.
+    upstashGetdel = vi.fn(async () => "123456")
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    expectKVSuccess(await kv.set("invite", "123456"))
+    expect(expectKVSuccess(await kv.get("invite"))).toBe(123456)
+    expect(expectKVSuccess(await kv.get("invite", { type: "text" }))).toBe("123456")
+    expect(expectKVSuccess(await kv.get("missing", { type: "text" }))).toBeNull()
+    expect(expectKVSuccess(await kv.getAndDelete("code", { type: "text" }))).toBe("123456")
+    upstashGetdel.mockResolvedValueOnce('{"singleUse":true}')
+    expect(expectKVSuccess(await kv.getAndDelete("verification", { type: "text" }))).toBe('{"singleUse":true}')
+    upstashGetdel.mockResolvedValueOnce("null")
+    expect(expectKVSuccess(await kv.getAndDelete("null-token", { type: "text" }))).toBe("null")
+    upstashGetdel.mockResolvedValueOnce(null)
+    expect(expectKVSuccess(await kv.getAndDelete("used", { type: "text" }))).toBeNull()
+  })
+
+  it("writes a missing key once through the KV helper", async () => {
+    process.env.KV_REST_API_URL = "https://upstash.example.com"
+    process.env.KV_REST_API_TOKEN = "upstash-token"
+    upstashSetIfAbsent = vi.fn(async () => true)
+    const { kv } = await import("../src/runtime/storage.ts")
+
+    expect(expectKVSuccess(await kv.setIfAbsent("uploads/ticket", { user: "a" }, { ttl: 60 }))).toBe(true)
+    expect(upstashSetIfAbsent).toHaveBeenCalledWith("uploads:ticket", "{\"user\":\"a\"}", 60)
+    upstashSetIfAbsent.mockResolvedValueOnce(false)
+    expect(expectKVSuccess(await kv.setIfAbsent("uploads/ticket", 1))).toBe(false)
+    expect(upstashSetIfAbsent).toHaveBeenLastCalledWith("uploads:ticket", "1", undefined)
+
+    expect((await kv.setIfAbsent("uploads/ticket", 1, { ttl: 0 }))[0]).toMatchObject({ code: "KV_INVALID_TTL" })
+    expect(upstashSetIfAbsent).toHaveBeenCalledTimes(2)
+  })
+
   it("returns invalid arguments as KV results", async () => {
     process.env.KV_REST_API_URL = "https://upstash.example.com"
     process.env.KV_REST_API_TOKEN = "upstash-token"
@@ -461,7 +502,7 @@ describe("kv runtime", () => {
     await expect(driver.setItemRaw?.("greeting", Buffer.from("hello"), {})).resolves.toBeUndefined()
   })
 
-  it("preserves stored undefined from Deno through the public KV client", async () => {
+  it("reads a stored Deno undefined as null, as kv.get() documents for no value", async () => {
     const { data, openKv } = createDenoOpenKvMock()
     data.set("native-undefined", undefined)
     // SAFETY: This test provides the only Deno API used by the runtime adapter.
@@ -469,22 +510,22 @@ describe("kv runtime", () => {
     const { createHostedKVStorage } = await import("../src/runtime/hosted-storage.ts")
     const storage = createHostedKVStorage({ store: { driver: "deno-kv" } })
     expect(await storage.hasItem("native-undefined")).toBe(true)
-    expect(await storage.getItem("native-undefined")).toBeUndefined()
+    expect(await storage.getItem("native-undefined")).toBeNull()
     expect(await storage.getItem("missing")).toBeNull()
   })
 
-  it("preserves empty keys through the Deno KV adapter", async () => {
+  it("rejects empty keys and dot segments before they reach the provider", async () => {
     const { data, openKv } = createDenoOpenKvMock()
     // SAFETY: This test provides the only Deno API used by the runtime adapter.
     ;(globalThis as typeof globalThis & { Deno?: unknown }).Deno = { openKv }
-    const { createHostedKVStorage } = await import("../src/runtime/hosted-storage.ts")
-    const storage = createHostedKVStorage({ store: { driver: "deno-kv" } })
-    await storage.setItem("", "empty key")
-    expect(data.get("")).toBe("empty key")
-    expect(await storage.getItem("")).toBe("empty key")
-    expect(await storage.hasItem("")).toBe(true)
-    await storage.removeItem("")
-    expect(await storage.hasItem("")).toBe(false)
+    process.env.VITEHUB_HOSTING = "deno"
+    const { kv } = await import("../src/runtime/storage.ts")
+    for (const key of ["", ":", "/", "a/../b", "./a"]) {
+      const [error] = await kv.set(key, "empty key")
+      expect(error).toMatchObject({ code: "KV_OPERATION_FAILED", cause: { message: `[unstorage] Invalid key: ${JSON.stringify(key)}` } })
+      expect((await kv.get(key))[0]).toMatchObject({ code: "KV_OPERATION_FAILED" })
+    }
+    expect(data.size).toBe(0)
   })
 
   it("loads Deno KV through the lazy KV Store driver", async () => {

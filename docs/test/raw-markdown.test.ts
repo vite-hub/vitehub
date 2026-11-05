@@ -1,49 +1,52 @@
-import { createApp, defineEventHandler, toWebHandler } from "h3";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { toRawMarkdown } from "@vite-hub/docs/server";
+import { describe, expect, it } from "vitest";
+import { expandCapabilityTools } from "../modules/vitehub-docs/capability-references";
 
-const getItem = vi.fn<() => Promise<unknown>>();
-const fetchIndex = vi.fn<() => Promise<string>>();
-const storage = vi.fn(() => ({ getItem }));
-vi.stubGlobal("defineEventHandler", defineEventHandler);
-vi.stubGlobal("useStorage", storage);
-vi.stubGlobal("$fetch", fetchIndex);
-const { default: handler } = await import("../server/routes/raw/[...].get");
-const request = toWebHandler(createApp().use(handler));
+const docsRoot = resolve(import.meta.dirname, "..");
+const siteUrl = "https://vitehub.dev";
 
-beforeEach(() => vi.resetAllMocks());
-afterAll(() => vi.unstubAllGlobals());
-
-describe("raw Markdown responses", () => {
-  it.each(["# Introduction\n\nHello", ""])("returns stored Markdown unchanged: %j", async (markdown) => {
-    getItem.mockResolvedValue(markdown);
-    const response = await request(new Request("https://vitehub.dev/raw/docs/introduction.md"));
-
-    expect(response.status).toBe(200);
-    expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
-    expect(await response.text()).toBe(markdown);
-    expect(storage).toHaveBeenCalledWith("assets:vitehub-raw");
-    expect(getItem).toHaveBeenCalledWith("docs/introduction.md");
+describe("ViteHub raw Markdown", () => {
+  it("keeps the documentation learning paths readable without the navigation component", () => {
+    const raw = toRawMarkdown(readFileSync(resolve(docsRoot, "content/docs/index.md"), "utf8"), { siteUrl });
+    expect(raw).not.toContain("docs-learning-paths");
+    for (const path of ["getting-started", "getting-started/server-primitives", "agents", "ui", "getting-started/build-and-deploy", "reference"]) {
+      expect(raw).toContain(`(https://vitehub.dev/docs/${path})`);
+    }
   });
 
-  it.each([null, { body: "not a Markdown asset" }, 42])("returns 404 for invalid storage values: %j", async (value) => {
-    getItem.mockResolvedValue(value);
-    const response = await request(new Request("https://vitehub.dev/raw/missing.md"));
-    expect(response.status).toBe(404);
+  it("expands generated Capability tool contracts before the package conversion", () => {
+    const source = expandCapabilityTools([
+      "---",
+      "title: Database",
+      "---",
+      "::agent-capability-tools{name=\"db\" variant=\"read\"}",
+      "::",
+    ].join("\n"), {
+      "db.read": {
+        tools: [{
+          description: "Run one read-only query.",
+          inputSchema: { properties: { statement: { type: "string" } }, type: "object" },
+          name: "db_query",
+        }],
+      },
+    });
+    const raw = toRawMarkdown(source, { siteUrl });
+
+    expect(raw).toContain("#### `db_query`");
+    expect(raw).toContain("Run one read-only query.");
+    expect(raw).toContain('"statement"');
+    expect(raw).not.toContain("agent-capability-tools");
   });
 
-  it("rejects non-Markdown paths without reading storage", async () => {
-    const response = await request(new Request("https://vitehub.dev/raw/docs/introduction.html"));
-    expect(response.status).toBe(404);
-    expect(getItem).not.toHaveBeenCalled();
+  it("points agents at the rendered page when a Capability has no generated contract", () => {
+    const source = "::agent-capability-tools{name=\"missing\"}\n::";
+    expect(expandCapabilityTools(source, {})).toBe("_Agent-visible tool contract is available on the rendered documentation page._");
   });
 
-  it("serves the home page from the llms index", async () => {
-    fetchIndex.mockResolvedValue("# ViteHub\n\nDocumentation index");
-    const response = await request(new Request("https://vitehub.dev/raw/index.md"));
-
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("# ViteHub\n\nDocumentation index");
-    expect(fetchIndex).toHaveBeenCalledWith("/llms.txt", { responseType: "text" });
-    expect(getItem).not.toHaveBeenCalled();
+  it("expands Capability tools in the raw copy through the docs options", () => {
+    const config = readFileSync(resolve(docsRoot, "nuxt.config.ts"), "utf8");
+    expect(config).toContain("rawMarkdown: async (markdown: string) => expandCapabilityTools(markdown, await capabilityReferences()),");
   });
 });

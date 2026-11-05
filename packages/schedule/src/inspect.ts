@@ -3,12 +3,15 @@ import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { collectScheduleContributions } from "./contributions.ts"
 import { discoverScheduleDefinitions } from "./discovery.ts"
 import { readRuntimeDefinitionCrons, readStaticScheduleTimeZone } from "./internal/provider-output.ts"
+import { scheduleConsoleTiming } from "./runtime/console.ts"
 
-import type { ViteHubConsoleRecord, ViteHubConsoleSectionContribution } from "@vite-hub/internal/console"
+import type { ViteHubConsoleRecord, ViteHubConsoleRuntimeRecordTableSection } from "@vite-hub/internal/console"
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 
 export interface ScheduleInspectionOptions {
+  /** Cron per Schedule name that this build's host runs in place of the declared cron. */
+  cron?: Readonly<Record<string, string>>
   /** Vite plugins that can contribute Schedule Definitions through `vitehub.schedules`. */
   plugins?: readonly unknown[]
   projectRoot: string
@@ -26,14 +29,17 @@ function summarizeScheduleDefinition(
   projectRoot: string,
   definition: DiscoveredScheduleDefinition,
   crons: ReadonlyMap<string, string>,
+  overrides: Readonly<Record<string, string>> = {},
 ): ViteHubDefinitionSummary {
-  const cron = crons.get(definition.name)
+  const declaredCron = crons.get(definition.name)
+  const cron = Object.hasOwn(overrides, definition.name) ? overrides[definition.name] : declaredCron
   const fields: ViteHubDefinitionField[] = [
     { label: "Kind", value: "Static schedule" },
   ]
   if (cron) {
     fields.push(
       { label: "Cron", value: cron },
+      ...(declaredCron && declaredCron !== cron ? [{ label: "Declared cron", value: declaredCron }] : []),
       { label: "Time zone", value: inspectTimeZone(definition.handler) },
     )
   }
@@ -55,8 +61,8 @@ function summarizeScheduleDefinition(
 }
 
 /**
- * Lists Schedule Definitions with their static cron when the Definition declares one. Contributed Definitions name the
- * plugin that added them and its reason.
+ * Lists Schedule Definitions with their static cron when the Definition declares one, or the build's `cron` for it.
+ * Contributed Definitions name the plugin that added them and its reason.
  */
 export async function inspectScheduleDefinitions(options: ScheduleInspectionOptions): Promise<ViteHubDefinitionSummary[]> {
   const contributions = await collectScheduleContributions(options.plugins, {
@@ -79,7 +85,7 @@ export async function inspectScheduleDefinitions(options: ScheduleInspectionOpti
       // Inspection must not apply provider-output validation to runtime-valid Schedule Definitions.
     }
   }
-  return definitions.map(definition => summarizeScheduleDefinition(options.projectRoot, definition, crons))
+  return definitions.map(definition => summarizeScheduleDefinition(options.projectRoot, definition, crons, options.cron))
 }
 
 function definitionRecord(summary: ViteHubDefinitionSummary): ViteHubConsoleRecord {
@@ -90,7 +96,7 @@ function definitionRecord(summary: ViteHubDefinitionSummary): ViteHubConsoleReco
     cells: {
       manual: field("Manual") === "Enabled" ? "Yes" : "No",
       schedule: summary.name,
-      timing: !cron ? "-" : timeZone === "UTC" ? cron : `${cron} (${timeZone})`,
+      timing: cron && timeZone ? scheduleConsoleTiming(cron, timeZone) : "-",
     },
     fields: [
       ...summary.fields,
@@ -109,15 +115,18 @@ export async function inspectScheduleConsoleRecords(options: ScheduleInspectionO
 }
 
 /**
- * Console section for Schedules. Records list discovered Schedule Definitions. `vitehub inspect definitions` reads the
- * same Definitions, and `vitehub schedule runs <name>` lists the runs that a runtime recorded.
+ * Console section for Schedules. Records list discovered Schedule Definitions. When the server runs the Process Runtime,
+ * the cron and time zone come from the loaded Definitions, so any expression shows its real value.
+ * `vitehub inspect definitions` reads the same Definitions from source, and `vitehub schedule runs <name>` lists the runs
+ * that a runtime recorded.
  */
-export const scheduleConsoleSection: ViteHubConsoleSectionContribution<ScheduleInspectionOptions> = {
+export const scheduleConsoleSection: ViteHubConsoleRuntimeRecordTableSection<ScheduleInspectionOptions> = {
   description: "Inspect Schedule Definitions.",
-  icon: "i-lucide-calendar-clock",
+  icon: "i-vitehub-schedule",
   id: "schedules",
   label: "Schedules",
   read: inspectScheduleConsoleRecords,
+  runtime: { export: "readScheduleConsoleRecords", module: "@vite-hub/schedule/runtime/console" },
   view: {
     columns: [
       { key: "schedule", label: "Schedule" },
@@ -125,6 +134,6 @@ export const scheduleConsoleSection: ViteHubConsoleSectionContribution<ScheduleI
       { key: "manual", label: "Manual" },
     ],
     kind: "record-table",
-    notice: "The host runs each Schedule on its UTC cron. Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
+    notice: "The host runs each Schedule on its cron, in its time zone (UTC by default). Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
   },
 }

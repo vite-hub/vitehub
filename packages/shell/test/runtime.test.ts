@@ -349,6 +349,38 @@ describe("@vite-hub/shell just-bash runtime", () => {
     expect(stop).toHaveBeenCalledOnce()
   })
 
+  it("applies Just Bash execution limits copied at provider creation", async () => {
+    const loop = "i=0; while [ $i -lt 100 ]; do i=$((i+1)); done; echo $i"
+    const fs = createReadonlyWorkspaceFs(new MemoryWorkspace({}))
+    const executionLimits = { maxLoopIterations: 10 }
+    const limited = createShellRuntime({ provider: createJustBashProvider({ executionLimits, fs }) })
+    executionLimits.maxLoopIterations = 1_000
+
+    await expect(limited.exec(loop)).resolves.toMatchObject({
+      exitCode: 126,
+      stderr: expect.stringContaining("too many iterations (10)"),
+    })
+    await expect(createShellRuntime({ provider: createJustBashProvider({ fs }) }).exec(loop)).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "100\n",
+    })
+  })
+
+  it("passes exec stdin to Just Bash commands", async () => {
+    const runtime = createShellRuntime({
+      provider: createJustBashProvider({ fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})) }),
+    })
+
+    await expect(runtime.exec("jq -r .name", { stdin: "{\"name\":\"vitehub\"}" })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: "vitehub\n",
+    })
+    await expect(runtime.createSession().exec("wc -l", { stdin: "a\nb\n" })).resolves.toMatchObject({
+      exitCode: 0,
+      stdout: expect.stringMatching(/^\s*2\n$/),
+    })
+  })
+
   it.each([{ commands: ["curl"] }, { commands: undefined }])("runs controlled curl through the just-bash provider network boundary with commands $commands", async ({ commands }) => {
     const workspace = new MemoryWorkspace({})
     const executeSourceRequest = vi.fn(async () => ({ content: "ok\n" }))
@@ -372,6 +404,67 @@ describe("@vite-hub/shell just-bash runtime", () => {
       method: "POST",
       url: "https://portal.example.com/runtime/inventory-health",
     })
+  })
+
+  it.each([
+    {
+      name: "without Shell limits",
+      executionLimits: {},
+      execOptions: {},
+      expected: { event: "command_finished", exitCode: 0, outputTruncated: false, stdout: "éé" },
+    },
+    {
+      name: "with a Shell character limit",
+      executionLimits: {},
+      execOptions: { maxOutputLength: 1, timeout: 20 },
+      expected: { event: "command_finished", exitCode: 0, outputTruncated: true, stdout: "é\n[output truncated to 1 characters]\n" },
+    },
+    {
+      name: "with a Shell timeout",
+      executionLimits: {},
+      execOptions: { timeout: 5 },
+      expected: { event: "command_timed_out", exitCode: null, timedOut: true, stdout: "" },
+    },
+    {
+      name: "with an interpreter byte limit",
+      executionLimits: { maxOutputSize: 1 },
+      execOptions: {},
+      expected: { event: "command_finished", exitCode: 126, stderr: expect.stringContaining("executionLimits.maxOutputSize"), stdout: "" },
+    },
+    {
+      name: "with an interpreter deadline",
+      executionLimits: { maxExecutionTimeMs: 1 },
+      execOptions: {},
+      expected: { event: "command_finished", exitCode: 124, stderr: expect.stringContaining("execution deadline"), stdout: "" },
+    },
+  ])("applies interpreter and Shell controls to controlled curl $name", async ({ executionLimits, execOptions, expected }) => {
+    await import("just-bash/browser")
+    vi.useFakeTimers()
+    try {
+      const executeSourceRequest = vi.fn(async (input: { signal?: AbortSignal }) => {
+        await new Promise(resolve => setTimeout(resolve, 10))
+        input.signal?.throwIfAborted()
+        return { content: "éé" }
+      })
+      const provider = createJustBashProvider({
+        executionLimitProfile: "hardened",
+        executionLimits,
+        fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+        networkGrants: { executeSourceRequest },
+      })
+
+      const pending = provider.exec("curl https://portal.example.com/action", execOptions)
+      await vi.advanceTimersByTimeAsync(10)
+
+      await expect(pending).resolves.toMatchObject(expected)
+      expect(executeSourceRequest).toHaveBeenCalledOnce()
+      if (execOptions.timeout === 5 || executionLimits.maxExecutionTimeMs !== undefined) {
+        expect(executeSourceRequest.mock.calls[0]![0].signal?.aborted).toBe(true)
+      }
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 
   it("bounds controlled Source output before it reaches the Shell observation", async () => {
@@ -438,6 +531,45 @@ describe("@vite-hub/shell just-bash runtime", () => {
       signal: controller.signal,
       timeout: 100,
     })).rejects.toBe(reason)
+  })
+
+  it("runs controlled curl inside pipelines and command substitution", async () => {
+    const executeSourceRequest = vi.fn(async () => ({ content: "{\"status\":\"green\"}\n" }))
+    const runtime = createShellRuntime({
+      provider: createJustBashProvider({
+        cwd: workspaceMountPoint,
+        fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+        networkGrants: { executeSourceRequest },
+      }),
+    })
+
+    await expect(runtime.exec("curl -s https://portal.example.com/runtime/health | jq -r .status")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stdout: "green\n",
+    })
+    await expect(runtime.exec("echo \"status=$(curl https://portal.example.com/runtime/health | jq -r .status)\"")).resolves.toMatchObject({
+      event: "command_finished",
+      exitCode: 0,
+      stdout: "status=green\n",
+    })
+    expect(executeSourceRequest).toHaveBeenCalledTimes(2)
+  })
+
+  it("reports a denied controlled curl inside a pipeline as a policy denial", async () => {
+    const executeSourceRequest = vi.fn(async () => ({ content: "private" }))
+    const runtime = createShellRuntime({
+      provider: createJustBashProvider({
+        fs: createReadonlyWorkspaceFs(new MemoryWorkspace({})),
+        networkGrants: { executeSourceRequest },
+      }),
+    })
+
+    await expect(runtime.exec("curl -H 'Authorization: x' https://portal.example.com/action | cat")).resolves.toMatchObject({
+      event: "policy_denied",
+      stdout: expect.stringContaining("Controlled curl request was not run"),
+    })
+    expect(executeSourceRequest).not.toHaveBeenCalled()
   })
 
   it.each([{ commands: [] }, { commands: ["cat"] }])("rejects controlled curl when commands $commands do not permit it", async ({ commands }) => {

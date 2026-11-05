@@ -2,11 +2,15 @@ import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
-import { VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 
 import { discoverRealtimeDefinitions } from "./discovery.ts"
+export { discoverRealtimeDefinitions } from "./discovery.ts"
+import { realtimeDurableObjectKey } from "./durable-key.ts"
+import { realtimeKeepalivePing, realtimeKeepalivePong } from "./protocol.ts"
 import { summarizeRealtimeDefinitions } from "./inspect.ts"
 
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -14,6 +18,7 @@ import type { Plugin, UserConfig } from "vite"
 import type { RealtimeInspectionAuthority } from "./inspect.ts"
 import type { DiscoveredRealtimeDefinition, RealtimeModuleOptions } from "./types.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
+import unavailable from "./internal/runtime/unavailable.ts"
 
 /** Where a contributed definition runs. */
 export interface RealtimeContributionContext {
@@ -77,8 +82,8 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {}
 }
 
-function configureCloudflareRealtime(nitro: NitroConfig): void {
-  nitro.preset = "cloudflare-durable"
+function configureCloudflareRealtime(nitro: NitroConfig, nitro2: boolean): void {
+  nitro.preset = nitro2 ? "cloudflare-durable" : "cloudflare-module"
   const cloudflare = record(nitro.cloudflare)
   const wrangler = record(cloudflare.wrangler)
   const durableObjects = record(wrangler.durable_objects)
@@ -110,12 +115,16 @@ function applicationBaseURL(base: string | undefined): string {
   return base?.startsWith("/") && !base.startsWith("//") ? base : "/"
 }
 
+const realtimeAvailabilityId = "#vitehub/realtime/availability"
+const resolvedRealtimeAvailabilityId = `\0${realtimeAvailabilityId}`
+
 export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVitePlugin {
   const importBase = options.importBase ?? "@vite-hub/realtime"
   let inspectionRoot: string | undefined
   let inspectionServerDirs: string[] | undefined
   let inspectionAuthority: RealtimeInspectionAuthority = options.authority ?? "auto"
   let inspectionContributed: DiscoveredRealtimeDefinition[] = []
+  let hasRoomAuthority = false
   return {
     name: "@vite-hub/realtime/vite",
     enforce: "pre",
@@ -151,6 +160,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
           : authority === "auto" && provider === "cloudflare" ? "cloudflare"
             : authority === "memory" ? (!deploymentPreset || deploymentPreset === "node" ? "memory" : undefined)
               : environment?.command !== "build" ? "memory" : undefined
+      hasRoomAuthority = Boolean(available)
       const contribution = available && options.contribute
         ? await options.contribute({ authority: available, directory, projectRoot: root, serverDirs })
         : undefined
@@ -205,14 +215,18 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       let durablePlugin: string | undefined
       if (authority === "cloudflare" || (authority === "auto" && provider === "cloudflare")) {
         inspectionAuthority = "cloudflare"
-        configureCloudflareRealtime(nitro)
+        configureCloudflareRealtime(nitro, (config as { [VITEHUB_NITRO_MAJOR_VERSION]?: number })[VITEHUB_NITRO_MAJOR_VERSION] === 2)
         // Nitro 2 upgrades sockets in the Durable Object with only the request in hand: give Realtime its storage.
         durablePlugin = resolve(directory, "durable-object.mjs")
+        // The same global registerRealtimeDurableObject() writes, set without importing the Realtime server: a Nitro
+        // plugin loads with the Worker, and the server (Tiptap, ProseMirror, Yjs) would then load on every cold start.
         await writeFile(durablePlugin, [
-          `import { registerRealtimeDurableObject } from ${JSON.stringify(`${importBase}/server`)}`,
-          "",
           "export default (nitroApp) => {",
-          "  nitroApp.hooks.hook(\"cloudflare:durable:init\", (_durable, { state, env }) => registerRealtimeDurableObject(state, env))",
+          "  nitroApp.hooks.hook(\"cloudflare:durable:init\", (_durable, { state, env }) => {",
+          `    globalThis[Symbol.for(${JSON.stringify(realtimeDurableObjectKey)})] = { env, state }`,
+          "    // Answer the clients' keepalive without waking the Durable Object from hibernation.",
+          `    if (typeof WebSocketRequestResponsePair === "function") state.setWebSocketAutoResponse(new WebSocketRequestResponsePair(${JSON.stringify(realtimeKeepalivePing)}, ${JSON.stringify(realtimeKeepalivePong)}))`,
+          "  })",
           "}",
           "",
         ].join("\n"))
@@ -228,11 +242,20 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       }
       nitro.features = { ...nitro.features, websocket: true }
       const kit = createNitroServerKit(nitro)
-      kit.addHandler({ handler: handlerFile, route: "/api/_vitehub/realtime/**" })
+      const { mount } = viteHubPageToolsBase(config)
+      kit.addHandler({ handler: handlerFile, lazy: true, route: `${mount}/api/_vitehub/realtime/**` })
       if (durablePlugin) kit.addPlugin(durablePlugin)
       for (const plugin of contribution?.plugins ?? []) kit.addPlugin(plugin)
       Object.assign(nitro, kit.config)
       ;(config as UserConfig & { nitro?: NitroConfig }).nitro = nitro
+    },
+    resolveId(id) {
+      if (id === realtimeAvailabilityId) return resolvedRealtimeAvailabilityId
+    },
+    load(id) {
+      if (id === resolvedRealtimeAvailabilityId) {
+        return hasRoomAuthority ? "export default { available: true }\n" : `export default ${JSON.stringify(unavailable)}\n`
+      }
     },
   }
 }

@@ -36,8 +36,13 @@ const payloadMethods = new Set(["DELETE", "PATCH", "POST", "PUT"])
 const rawBodySymbol = Symbol.for("h3RawBody")
 const nodeEventRequests = new WeakMap<object, Request>()
 
-/** Return true for an event with an own `node.req` object, such as an H3 1 event. */
+/**
+ * Return true for an event with an own `node.req` object, such as an H3 1 event. An event whose `req` is already a Web
+ * Request is an H3 2 event, even with `node.req`: Nuxt 5 adds that legacy bridge to its H3 2 events. Rebuilding the
+ * request from the bridge would lose its body and its identity.
+ */
 export function isH3V1Event(input: object): input is H3V1Event {
+  if (isWebRequest(Reflect.get(input, "req"))) return false
   if (!Object.hasOwn(input, "node")) return false
   const node: unknown = Reflect.get(input, "node")
   return isObjectLike(node) && isObjectLike(Reflect.get(node, "req"))

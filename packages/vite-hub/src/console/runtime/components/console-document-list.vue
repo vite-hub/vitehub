@@ -14,6 +14,7 @@ import {
   consoleFixFieldsLabel,
   consoleInvalidDocument,
   consoleListQuery,
+  consolePublishedConflicts,
   consolePublishMismatches,
   parseConsoleListQuery,
   rememberConsoleListQuery,
@@ -256,9 +257,19 @@ async function publish(expect: readonly ConsoleDocumentPublishExpectation[] = pu
     page.value = before.page;
     selected.value = before.selected;
     const moved = consolePublishMismatches(publishError);
+    const site = consolePublishedConflicts(publishError);
     const invalid = consoleInvalidDocument(publishError);
     // A publish that stopped for a reason the reader must act on stays as a note above the list.
-    if (moved) {
+    if (site?.length) {
+      const first = site[0]!;
+      publishProblem.value = {
+        actions: [{ color: "neutral", label: `Open ${documentTitle(first.id)}`, onClick: () => open({ id: first.id }), variant: "outline" }],
+        color: "warning",
+        description: `Nothing was published. ${site.map(entry => documentTitle(entry.id)).join(", ")} also changed on the site after the draft started from ${site.length === 1 ? "it" : "them"}, for example with a Git commit. Open ${site.length === 1 ? "it" : "each one"} to compare and choose what to keep.`,
+        title: site.length === 1 ? "1 document changed on the site too" : `${site.length} documents changed on the site too`,
+      };
+    }
+    else if (moved) {
       const names = moved.map(entry => `${documentTitle(entry.id)}${entry.actual === null ? " (deleted)" : ""}`).join(", ");
       publishProblem.value = {
         actions: [{ color: "neutral", label: "Refresh", onClick: refreshAfterPublishProblem, variant: "outline" }],
@@ -276,7 +287,7 @@ async function publish(expect: readonly ConsoleDocumentPublishExpectation[] = pu
         title: `${documentTitle(invalid)} no longer validates`,
       };
     }
-    else toast.error("Couldn't publish. Try again.", { label: "Retry", onClick: () => publish(expect) });
+    else toast.error(`Couldn't publish. ${consoleErrorMessage(publishError, "Try again.")}`, { label: "Retry", onClick: () => publish(expect) });
   }
   finally {
     publishing.value = false;
@@ -430,7 +441,7 @@ onBeforeUnmount(() => {
   </div>
 
   <p class="sr-only" role="status">{{ publishing ? 'Publishing changes…' : loading ? 'Loading documents…' : error ? 'Documents could not be loaded.' : `${page?.total ?? 0} documents` }}</p>
-  <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading || loadingMore || publishing">
+  <div class="flex min-h-0 flex-1 flex-col overflow-y-auto" :aria-busy="loading || loadingMore || publishing">
     <UAlert
       v-if="publishProblem"
       class="m-4"
@@ -454,7 +465,7 @@ onBeforeUnmount(() => {
     />
     <UEmpty
       v-if="!loading && !error && !items.length"
-      class="m-4 py-12"
+      class="m-4 flex-1 py-12"
       icon="i-lucide-file-text"
       :title="emptyState?.title ?? `No ${collection.label.toLowerCase()} yet`"
       :description="emptyState?.description ?? (collection.access.write ? 'Create the first document.' : 'Documents appear here when someone saves one.')"
@@ -524,6 +535,7 @@ onBeforeUnmount(() => {
             <span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 sm:hidden">
               <ConsoleStatus :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" />
               <ConsoleStatus v-if="item.issues" tone="error" :label="item.issues === 1 ? '1 issue' : `${item.issues} issues`" />
+              <ConsoleStatus v-if="item.conflict" tone="warning" label="Changed on the site too" />
               <ConsoleStatus v-if="item.schedule" :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" />
             </span>
           </td>
@@ -532,6 +544,9 @@ onBeforeUnmount(() => {
               <ConsoleStatus :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" class="text-[13px]" />
               <UTooltip v-if="item.issues" :text="consoleFixFieldsLabel(item.issues)" :content="{ side: 'top' }">
                 <ConsoleStatus tone="error" :label="item.issues === 1 ? '1 issue' : `${item.issues} issues`" class="text-[13px]" />
+              </UTooltip>
+              <UTooltip v-if="item.conflict" text="Open it to compare with the site before you publish" :content="{ side: 'top' }">
+                <ConsoleStatus tone="warning" label="Changed on the site too" class="text-[13px]" />
               </UTooltip>
               <UTooltip v-if="item.schedule" :text="consoleDocumentScheduleHint(item.schedule, setup)" :content="{ side: 'top' }">
                 <ConsoleStatus :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" class="text-[13px]" />

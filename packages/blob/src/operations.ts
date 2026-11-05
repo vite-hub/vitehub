@@ -1,4 +1,4 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, operationAccessAllows, operationSection } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import { blobDevMaximumListLimit, blobPutRequestBytes } from "./results.ts"
@@ -13,9 +13,12 @@ const runtime = () => import("./runtime/operations.ts")
 const store = v.optional(v.pipe(v.string(), v.check(name => name.trim() !== "", "Name a store.")))
 const pathname = v.pipe(v.string(), v.nonEmpty("Give the pathname of a blob."))
 
-function defineBlobOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {
-  // The stores answer for the section. The operations never read the signed-in user.
-  return defineOperation({ ...definition, section: "blob", user: false })
+// Each call is scoped to its store: `"blob"` grants every store, `"blob:media"` only the `media` store.
+const storeAccess = { scope: (input: { store?: string }) => input.store ?? "default", section: "blob" }
+
+function defineBlobOperation<Input extends { store?: string }, Output>(definition: Omit<OperationDefinition<Input, Output>, "scope" | "section" | "user">): OperationDefinition<Input, Output> {
+  // The operations never read the signed-in user.
+  return defineOperation({ ...definition, ...storeAccess, user: false })
 }
 
 const list = defineBlobOperation<{ cursor?: string, folded?: boolean, limit?: number, prefix?: string, showVitehub?: boolean, store?: string }, BlobDevListResult>({
@@ -30,7 +33,11 @@ const list = defineBlobOperation<{ cursor?: string, folded?: boolean, limit?: nu
   }),
   kind: "read",
   name: "blob.list",
-  run: async input => await (await runtime()).runBlobOperation("list", input) as BlobDevListResult,
+  run: async (input, context) => {
+    const result = await (await runtime()).runBlobOperation("list", input) as BlobDevListResult
+    // Name only the stores that this access may use.
+    return { ...result, stores: result.stores.filter(name => operationAccessAllows(context.access, operationSection(storeAccess, { store: name }))) }
+  },
 })
 
 const head = defineBlobOperation<{ pathname: string, store?: string }, BlobDevHeadResult>({

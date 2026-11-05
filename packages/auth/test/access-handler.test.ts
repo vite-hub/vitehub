@@ -1,9 +1,9 @@
 import { runInNewContext } from "node:vm"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthAccessHandler, requireAuthAccessRoutes } from "../src/server.ts"
+import { createAuthAccessHandler, requireAuthAccessRoutes, setAuthAccessIdentityResolver } from "../src/server.ts"
 
 const provider = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -23,6 +23,44 @@ describe("Auth access handlers", () => {
     })
     provider.getSession.mockReset().mockResolvedValue(session)
     provider.handler.mockReset()
+  })
+
+  afterEach(() => setAuthAccessIdentityResolver("/portal/_vitehub/mcp", undefined))
+
+  it("checks overlapping route policies for an integration identity only on its exact path", async () => {
+    provider.getSession.mockResolvedValue(null)
+    const first = vi.fn(() => true)
+    const second = vi.fn(() => false)
+    const routes = [{ route: "/**", authorize: true as const }, { route: "/portal/_vitehub/**", authorize: true as const }]
+    const handler = createAuthAccessHandler(routes, defineAuth({ access: { routes: [
+      { route: "/**", authorize: first },
+      { route: "/portal/_vitehub/**", authorize: second },
+    ] } }))
+    const resolve = vi.fn(async () => ({ id: "token-user" }))
+    setAuthAccessIdentityResolver("/portal/_vitehub/mcp", resolve)
+    const request = new Request("https://app.example/portal/_vitehub/mcp", { method: "POST" })
+    expect((await handler({ req: request }))?.status).toBe(403)
+    expect(first).toHaveBeenCalledWith({ request, session: {}, user: { id: "token-user" } })
+    expect(second).toHaveBeenCalledOnce()
+    second.mockReturnValue(true)
+    await expect(handler(request)).resolves.toBeUndefined()
+    expect(resolve).toHaveBeenLastCalledWith(request, request, false)
+    for (const path of ["/portal/_vitehub/mcp/extra", "/portal/_vitehub/rpc/__call", "/_vitehub/mcp"]) {
+      expect((await handler(new Request(`https://app.example${path}`)))?.status).toBe(401)
+    }
+    expect(resolve).toHaveBeenCalledTimes(2)
+  })
+
+  it("preserves an integration's invalid-token response even with a valid browser session", async () => {
+    const authorize = vi.fn(() => true)
+    const handler = createAuthAccessHandler([{ route: "/**", authorize: true }], defineAuth({ access: { routes: [{ route: "/**", authorize }] } }))
+    const response = new Response("Invalid token", { headers: { "www-authenticate": 'Bearer error="invalid_token"' }, status: 401 })
+    const resolve = vi.fn(async () => response)
+    setAuthAccessIdentityResolver("/portal/_vitehub/mcp", resolve)
+    const request = new Request("https://app.example/portal/_vitehub/mcp")
+    await expect(handler(request)).resolves.toBe(response)
+    expect(resolve).toHaveBeenCalledWith(request, request, true)
+    expect(authorize).not.toHaveBeenCalled()
   })
 
   it("reuses an opted-in successful route check only for the same request, Definition, and rules", async () => {

@@ -32,7 +32,7 @@ export async function createProject(files: Record<string, string>): Promise<stri
 
 export const contentDefinition = [
   "import { defineContent, documents } from 'vite-hub/content'",
-  "import cms from 'vite-hub/content/presets/cms'",
+  "import cms from 'vite-hub/cms'",
   "import * as v from 'valibot'",
   "",
   "export const content = defineContent({",

@@ -422,7 +422,7 @@ async function generateTitleWithDriver(
   }
   const runContext = titleAdapterRunContext(context, input, prompt)
   if (driver.kind === "provider") {
-    const { createProviderAgentAdapter } = await import("#vitehub/agent/provider-agent")
+    const { createProviderAgentAdapter } = await driver.runtime()
     // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
     return await titleResultText(context, await createProviderAgentAdapter(driver).generate(runContext as never))
   }
@@ -430,6 +430,7 @@ async function generateTitleWithDriver(
   // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
   return await titleResultText(context, await createAiSdkAdapter({
     execution: driver.execution,
+    gateway: driver.gateway,
     instructions: options.instructions ?? driver.instructions,
     model: driver.model,
   // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.

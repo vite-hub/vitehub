@@ -1,11 +1,12 @@
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
 export { registerResponseConstructor } from "./internal/response.ts"
-import { readWorkflowJournalName } from "./internal/workflow-journal-name.ts"
+import { agentInvocationName } from "./internal/agent-invocation-name.ts"
 import { withForgeAccess } from "./internal/forge-access.ts"
 import type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 import { invocationUsageWithAuxiliaryCalls } from "./internal/auxiliary-usage.ts"
+import { hasChatMessageHeaders, stripEchoedChatMessageMetadata } from "./internal/chat-message-header.ts"
 import { agentLayerMetadata, agentLayerParents, createConfiguredAgentDefinition, rememberAgentLayerOptions, resolveAgentLayerOptions } from "./agent-layers.ts"
 import { readDiscoveredAgentName } from "./internal/discovered-agent-name.ts"
 import { agentHostCapabilities } from "./internal/host-capabilities.ts"
@@ -15,6 +16,8 @@ import { Diagnostic } from "nostics"
 import agentRegistry from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
+import { providerAgentRuntime } from "./internal/provider-driver-runtime.ts"
+import type { ProviderAgentRuntimeLoader } from "./internal/provider-driver-runtime.ts"
 import { createAgentHealthHandler } from "./health.ts"
 import { agentOutputEventObserverContextKey, progressSummaryOutputContextKey, type AgentOutputEventObserver } from "./internal/agent-output-events.ts"
 import { openAgentInvocationLifecycle, type AgentInvocationLifecycle } from "./internal/invocation-lifecycle.ts"
@@ -66,28 +69,21 @@ import {
 } from "./internal/channels.ts"
 import type { MessageChannelTitleDeliveryAttempt } from "./internal/channels.ts"
 import {
-  discord as builtInDiscord,
-  github as builtInGitHub,
-  http as builtInHttp,
   channelHasCustomTitleEffect,
   messageChannelSupportsTitleEffect,
   messageChannelDeliveredReplyBody,
   messageChannelReplyBody,
   messageChannelTitleSupportContextKey,
-  slack as builtInSlack,
-  teams as builtInTeams,
-  telegram as builtInTelegram,
-  webChat as builtInWebChat,
 } from "./channels.ts"
 import { registerMessageChannelDeferredReplyTrace, setChatFinalReplyText, setChatFinishDirectReplyTrace, setChatFinishPrimaryReplyTrace } from "./internal/chat-finish-delivery.ts"
 import { agentInvocationCallbackContextValues, agentInvocationConfigurationUpdatedContextKey, agentInvocationRunId, agentInvocationWorkflowBinding, createAgentInvocationContextStore } from "./invocation-context.ts"
 import { agentInvocationCallerAbortSignal, copyAgentInvocationCallerAbortSignal, markAgentInvocationCallerAbortSignal } from "./internal/invocation-input.ts"
 import { bindAgentRunEvents, type AgentRunEventPublisher } from "./run-events.ts"
-import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
+import { AgentInvocationClaimConflict, bindAgentInvocations, exclusiveAgentInvocation, inheritedAgentInvocationClaim, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, queuedAgentInvocation, type AgentInvocationJournal, type AgentInvocationWorkflowBinding } from "./invocations.ts"
 import { type AgentMessagePhase, type Message, blobArrayBuffer, createMessage, isArrayBufferValue, isAttachmentBlob, isAttachmentPart, isUint8ArrayValue, materializeMessageAttachmentData } from "./messages.ts"
 import {
   createFallbackAgentInvoker,
-  hasUnreplayableAgentInputContext,
+  agentInvokerInputReplayProvenance,
   hasResolvedAgentInvokerInput,
   normalizeAgentInvokerOptions,
   portableResolvedAgentInvokerInput,
@@ -116,6 +112,7 @@ import {
 } from "./capability-runtime.ts"
 import type { AgentCapabilityRegistries, AgentFinishDeliveryReminder, CapabilityCleanupOutcome, ResolvedAgentFinishExtensionProvider, ResolvedAgentOutputExtensionProvider } from "./capability-runtime.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
+import { readProviderStatusError } from "./internal/provider-status-error.ts"
 import { isResponse } from "./internal/response.ts"
 import { cancellableAsyncIterableSource, createAgentUIMessageStreamResponse, finalizeUiMessageStreamOutput, isUIMessageStreamResponse, isUIMessageStreamResult, normalizeUiMessageStream, normalizeUIMessageStreamResponse, uiMessageStreamFromResponse, uiMessageTextDelta, withReadableStreamCleanup } from "./stream-output.ts"
 import {
@@ -194,9 +191,9 @@ import type {
   AgentInterceptHandler,
   AgentDefinition,
   AgentDriver,
-  BuiltInAgentDriver,
-  BuiltInAgentDriverName,
+  ClaudeCodeDriver,
   ClaudeCodeDriverOptions,
+  CodexDriver,
   CodexDriverOptions,
   AgentDriverContribution,
   AgentDriverKind,
@@ -333,6 +330,8 @@ export type {
   AgentCallSettingsInstrumentationContext,
   BuiltInAgentDriver,
   BuiltInAgentDriverName,
+  ClaudeCodeDriver,
+  CodexDriver,
   AgentCapabilityHandle,
   AgentCapabilityContext,
   AgentCapabilityDefinition,
@@ -811,6 +810,7 @@ interface AgentWorkflowInvocationPayload<CALL_OPTIONS = unknown> {
   requestUrl?: string
   parsedMessageMeta?: ParsedAgentMessageMetaState
   resolvedInvoker?: boolean
+  resolvedInvokerReplay?: ReturnType<typeof agentInvokerInputReplayProvenance>
   run?: Partial<AgentRunMetadata>
   trace?: AgentRuntimeContext["trace"]
   runtime?: AgentRuntimeContext["runtime"]
@@ -886,11 +886,6 @@ type IdentityRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
   [agentIdentityOwner]?: object
   [agentWorkflowDiscovery]?: boolean
   [agentEnvIdentity]?: AgentRuntimeContext["agentIdentity"]
-}
-
-// Name journal records like the Console lists them: explicit name, host identity, then discovered file name.
-function agentInvocationName(agent: { name?: string }, context: Pick<AgentRuntimeContext, "agentIdentity">): string | undefined {
-  return agent.name || context.agentIdentity?.name || readWorkflowJournalName(context, agent) || readDiscoveredAgentName(agent)
 }
 
 interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding {
@@ -1312,7 +1307,7 @@ async function runAgentAsWorkflow<
     // Headers and bodies may contain webhook credentials and remain process-local by design.
     ...(context.request ? { requestUrl: context.request.url } : {}),
     ...(parsedMessageMeta !== undefined ? { parsedMessageMeta } : {}),
-    ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true } : {}),
+    ...(hasResolvedAgentInvokerInput(input) ? { resolvedInvoker: true, resolvedInvokerReplay: agentInvokerInputReplayProvenance(input) } : {}),
     runtime: context.runtime,
     runtimeConfig: resolvedContext.runtimeConfig,
     ...(inheritedRun ? { run: inheritedRun } : {}),
@@ -2102,62 +2097,23 @@ function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
   if (!inputs) return inputs
   let channels: AgentChannels<TRuntimeConfig> | undefined
   for (const [id, input] of Object.entries(inputs)) {
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-    const value = input as unknown
-    if (hasRuntimeType(value, "object") && value && "kind" in value && hasRuntimeType(value.kind, "string")) continue
-    const channel = hasRuntimeType(input, "function")
-      ? (() => {
-          const resolved = input()
-          if (resolved && hasRuntimeType(resolved, "object") && "kind" in resolved) return resolved
-          // SAFETY: Each built-in constructor validates the callback configuration selected by its channel key.
-          return id === "discord" ? builtInDiscord<TRuntimeConfig>(resolved as never)
-            // SAFETY: The constructor validates the GitHub callback configuration.
-            : id === "github" ? builtInGitHub<TRuntimeConfig>(resolved as never)
-              // SAFETY: The constructor validates the HTTP callback configuration.
-              : id === "http" ? builtInHttp<TRuntimeConfig>(resolved as never)
-                // SAFETY: The constructor validates the Slack callback configuration.
-                : id === "slack" ? builtInSlack<TRuntimeConfig>(resolved as never)
-                  // SAFETY: The constructor validates the Teams callback configuration.
-                  : id === "teams" ? builtInTeams<TRuntimeConfig>(resolved as never)
-                    // SAFETY: The constructor validates the Telegram callback configuration.
-                    : id === "telegram" ? builtInTelegram<TRuntimeConfig>(resolved as never)
-                      // SAFETY: The constructor validates the web chat callback configuration.
-                      : id === "webChat" ? builtInWebChat<TRuntimeConfig>(resolved as never)
-                        : undefined
-        })()
-      : id === "discord"
-        // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-        ? builtInDiscord<TRuntimeConfig>(input as never)
-        : id === "github"
-          // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-          ? builtInGitHub<TRuntimeConfig>(input as never)
-          : id === "http"
-            // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-            ? builtInHttp<TRuntimeConfig>(input as never)
-            : id === "slack"
-              // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-              ? builtInSlack<TRuntimeConfig>(input as never)
-              : id === "teams"
-                // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-                ? builtInTeams<TRuntimeConfig>(input as never)
-                : id === "telegram"
-                  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-                  ? builtInTelegram<TRuntimeConfig>(input as never)
-                  : id === "webChat"
-                    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
-                    ? builtInWebChat<TRuntimeConfig>(input as never)
-                    : undefined
-    if (!channel || !hasRuntimeType(channel, "object") || !hasRuntimeType(channel.kind, "string")) {
+    if (isAgentChannelDefinition(input)) continue
+    const channel: unknown = hasRuntimeType(input, "function") ? input() : undefined
+    if (!isAgentChannelDefinition<TRuntimeConfig>(channel)) {
       throw agentDiagnostics.AGENT_R0425({ message: hasRuntimeType(input, "function")
         ? `[vitehub] Channel factory "${id}" must return an Agent Channel definition.`
-        : `[vitehub] Channel "${id}" must be an Agent Channel definition or use a built-in Channel name.` })
+        : `[vitehub] Channel "${id}" must be an Agent Channel definition. Create it with a factory from vite-hub/agent/channels, such as webChat() or telegram({ ... }).` })
     }
-    // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+    // SAFETY: Factories are replaced by the definitions they return below.
     channels ||= { ...inputs } as AgentChannels<TRuntimeConfig>
     channels[id] = channel
   }
-  // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
+  // SAFETY: Every entry is an Agent Channel definition when no factory needed a call.
   return channels || (inputs as AgentChannels<TRuntimeConfig>)
+}
+
+function isAgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfig>(value: unknown): value is AgentChannelDefinition<TRuntimeConfig> {
+  return isRuntimeRecord(value) && hasRuntimeType(value.kind, "string")
 }
 
 function capabilitiesContributeWorkspace(capabilities: unknown): boolean {
@@ -2265,17 +2221,24 @@ function defineBaseAgent<
   })
   // Capabilities and Channels that contribute a Workspace reach this point through createWorkspaceAgentDefinition.
   if (sandbox !== undefined) validateAgentSandbox(sandbox, driver, { hasWorkspace: Boolean(workspace) })
+  const modelGateway = driver.kind === "model" ? driver.gateway : undefined
+  const inheritedModel: AgentModelResolver<TRuntimeConfig> | undefined = driver.kind === "model"
+    ? modelGateway
+      ? async context => (await import("./internal/chatgpt-model.ts")).chatgptLanguageModel(modelGateway, String(driver.model), context)
+      : driver.model
+    : undefined
   let providerAdapter: Promise<AgentAdapter<CALL_OPTIONS>> | undefined
   const resolveBaseAgent: BaseAgentResolver<TRuntimeConfig, CALL_OPTIONS> = async (context) => {
     const resolvedAdapter = driver.kind === "model"
       // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
       ? (await import("./ai-sdk.ts")).createAiSdkAdapter({
           execution: driver.execution,
+          gateway: driver.gateway,
           instructions: driver.instructions,
           model: driver.model,
         } as never) as AgentAdapter<CALL_OPTIONS>
       : driver.kind === "provider"
-          ? await (providerAdapter ??= import("#vitehub/agent/provider-agent").then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
+          ? await (providerAdapter ??= driver.runtime().then(module => module.createProviderAgentAdapter<CALL_OPTIONS, TRuntimeConfig>({
             sandbox,
             credentialProfile: driver.credentialProfile,
             credentials: driver.credentials,
@@ -2310,7 +2273,7 @@ function defineBaseAgent<
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
   const definition = {
     [baseAgentDriver]: driver,
-    ...(driver.kind === "model" ? { [baseAgentModel]: driver.model } : {}),
+    ...(driver.kind === "model" ? { [baseAgentModel]: inheritedModel } : {}),
     [baseAgentDriverKind]: driver.kind,
     ...(driver.output ? { [baseAgentOutput]: driver.output } : {}),
     ...(options.data ? { [baseAgentData]: options.data } : {}),
@@ -2340,7 +2303,7 @@ function defineBaseAgent<
       const checkedAt = new Date().toISOString()
       if (driver.kind !== "provider") return { agent: name ?? "agent", checkedAt, stale: false, readiness: "unsupported" }
       if (sandbox) return { agent: name ?? "agent", checkedAt, stale: false, readiness: "unsupported", reason: "Provider inspection inside an Agent Sandbox is not supported." }
-      const { inspectAgentProvider } = await import("#vitehub/agent/provider-agent")
+      const { inspectAgentProvider } = await driver.runtime()
       return inspectAgentProvider(driver, {
         ...createAgentCallbackContext(withAgentIdentityOwner(definition, context)),
         agentIdentity: { name: name ?? context.agentIdentity?.name ?? "agent" },
@@ -2625,29 +2588,23 @@ type ValidateStaticAgentCapabilities<TCapabilities> =
       : { readonly [TIndex in keyof TCapabilities]: ValidateStaticAgentCapability<TCapabilities[TIndex]> }
     : TCapabilities
 
-type ProviderDriver<
-  Name extends BuiltInAgentDriverName,
-  TOutput,
-> = Extract<BuiltInAgentDriver<unknown, TOutput>, { kind: Name }>
+// Only the provider Driver factories reference the provider runtime, so apps that never call one do not bundle it.
+// One promise for every load, so an Invocation and its concurrent title run share one module instance.
+let providerAgentRuntimeModule: ReturnType<ProviderAgentRuntimeLoader> | undefined
+const loadProviderAgentRuntime: ProviderAgentRuntimeLoader = () => providerAgentRuntimeModule ??= import("#vitehub/agent/provider-agent")
 
-function providerDriver<Name extends BuiltInAgentDriverName, TOutput>(
-  name: Name,
-  options: CodexDriverOptions<TOutput> | ClaudeCodeDriverOptions<TOutput>,
-): ProviderDriver<Name, TOutput> {
-  // SAFETY: The discriminant is added here and the option union is selected by the public wrapper.
-  return { ...options, kind: name } as ProviderDriver<Name, TOutput>
-}
-
+/** Run the Agent with Codex. Codex starts as a local process, so the Agent needs a Node.js host. */
 export function codexDriver<TOutput = unknown>(
   options: CodexDriverOptions<TOutput> = {},
-): ProviderDriver<"codex", TOutput> {
-  return providerDriver("codex", options)
+): CodexDriver<unknown, TOutput> {
+  return { ...options, kind: "codex", [providerAgentRuntime]: loadProviderAgentRuntime }
 }
 
+/** Run the Agent with Claude Code. Claude Code starts as a local process, so the Agent needs a Node.js host. */
 export function claudeCodeDriver<TOutput = unknown>(
   options: ClaudeCodeDriverOptions<TOutput> = {},
-): ProviderDriver<"claude-code", TOutput> {
-  return providerDriver("claude-code", options)
+): ClaudeCodeDriver<unknown, TOutput> {
+  return { ...options, kind: "claude-code", [providerAgentRuntime]: loadProviderAgentRuntime }
 }
 
 type AgentInvokerProfileOf<TOptions> = "invoker" extends keyof TOptions
@@ -4503,7 +4460,7 @@ async function createAgentInvocationContext<
     : undefined,
 ): Promise<AgentInvocationContext<TRuntimeConfig, CALL_OPTIONS>> {
   const startedAt = Date.now()
-  const replayHasContext = hasUnreplayableAgentInputContext(input.context)
+  const replayHasContext = agentInvokerInputReplayProvenance(input).hasContext
   const replayCallerAbortSignal = agentInvocationCallerAbortSignal(input)
   // Preparation can replace or mutate input. Replay must retain the caller's input metadata.
   const replayInput = {
@@ -4776,7 +4733,7 @@ async function createAgentInvocationContext<
       ? await resolveReadiness()
       : undefined
     if (readiness?.readiness === "unavailable" && !readiness.stale) {
-      throw agentDiagnostics.AGENT_R0726({ message: readiness.reason || "The provider is unavailable." })
+      throw readProviderStatusError(readiness) ?? agentDiagnostics.AGENT_R0726({ message: readiness.reason || "The provider is unavailable." })
     }
     // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
     const preparingCapabilities = resolveAgentCapabilities(capabilityOptions, runtimeContext, input, workspace as never, workspaceMode, {
@@ -4794,7 +4751,7 @@ async function createAgentInvocationContext<
     })
     const knownUnavailable = (capabilities: Awaited<typeof preparingCapabilities>) => resolveReadiness().then(status => {
       if (status?.readiness === "unavailable" && !status.stale) {
-        const error = agentDiagnostics.AGENT_R0726({ message: status.reason || "The provider is unavailable." })
+        const error = readProviderStatusError(status) ?? agentDiagnostics.AGENT_R0726({ message: status.reason || "The provider is unavailable." })
         // Input preparation owns resources even when provider preflight fails.
         const cleanup = capabilities.close()
         context.waitUntil?.(cleanup)
@@ -6770,7 +6727,7 @@ async function finishAgentInvocation<
         },
         ...(result !== undefined ? { result } : {}),
         runtime: context.runtimeContext,
-        ...(text !== undefined ? { text } : {}),
+        ...(text !== undefined ? { text: hasChatMessageHeaders(context.input.messages) ? stripEchoedChatMessageMetadata(text) : text } : {}),
         toolResults: [...context.toolResults],
       } satisfies Omit<AgentFinishEvent<TRuntimeConfig, CALL_OPTIONS>, "extensions">
       const provisionalEvent = provisionalFinishEvent(context, eventBase)
@@ -8472,6 +8429,8 @@ async function executeAgentInvocation<
   const exclusive = (context as AgentRuntimeContext & { [exclusiveAgentInvocation]?: boolean })[exclusiveAgentInvocation] === true
   // SAFETY: Only the trusted Workflow worker installs this private claim token.
   const inheritedClaim = (context as AgentRuntimeContext & { [inheritedAgentInvocationClaim]?: string })[inheritedAgentInvocationClaim]
+  // SAFETY: The webhook queue installs this private attempt metadata on its runtime context.
+  const queuedAttempt = (context as AgentRuntimeContext & { [queuedAgentInvocation]?: { reopenFailed: boolean, retryPending: boolean } })[queuedAgentInvocation]
   // SAFETY: hasAgentDefinition validated the object before this internal contract assertion.
   let activity = exclusive || inheritedClaim ? undefined : createActiveAgentActivity(definition as AgentDefinition<TRuntimeConfig> | undefined, context)
   await activity?.update("queued")
@@ -8501,6 +8460,7 @@ async function executeAgentInvocation<
         // Channel replay depends on the journal claim to prevent duplicate runs.
         ...(exclusive || inheritedClaim ? { enforcement: "strict" } : {}),
         ...(inheritedClaim ? { replaceClaimToken: inheritedClaim } : {}),
+        ...(queuedAttempt ? { reopenFailed: queuedAttempt.reopenFailed, retryPending: queuedAttempt.retryPending } : {}),
       })
       : undefined
     if ((exclusive || inheritedClaim) && invocationJournal?.claimStatus !== "owned") {

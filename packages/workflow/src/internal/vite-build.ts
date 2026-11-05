@@ -16,6 +16,7 @@ import { createImportPath, ensureGeneratedDir } from "@vite-hub/internal/build/p
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
 import { publishProviderSourcesToDeploymentOutputs, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveUserAppEntry } from "@vite-hub/internal/build/user-entry"
+import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { buildSync, transform } from "esbuild"
 import type { Plugin } from "esbuild"
 
@@ -594,6 +595,24 @@ function resolveWorkflowConfig(workflow: WorkflowModuleOptions | undefined, host
   return normalizeWorkflowOptions(workflow, { hosting }) ?? false
 }
 
+/**
+ * The Provider Output that a build writes. Without a host, both outputs are written.
+ * Only Vercel deploys the Vercel output, so other hosts skip it.
+ */
+export function resolveWorkflowProviderOutputs(workflow: WorkflowModuleOptions | undefined, hosting?: string): {
+  cloudflare: false | ResolvedWorkflowOptions
+  vercel: false | ResolvedWorkflowOptions
+} {
+  if (!hosting) {
+    return { cloudflare: resolveWorkflowConfig(workflow, "cloudflare"), vercel: resolveWorkflowConfig(workflow, "vercel") }
+  }
+  const config = resolveWorkflowConfig(workflow, hosting)
+  return {
+    cloudflare: config && config.provider === "cloudflare" ? config : false,
+    vercel: config && config.provider === "vercel" && getHostingProvider(hosting) === "vercel" ? config : false,
+  }
+}
+
 interface GeneratedWorkflowArtifacts {
   cloudflareWorkerFile: string
   cloudflareWorkflowConfig: false | ResolvedWorkflowOptions
@@ -1036,7 +1055,6 @@ function renderProviderEntry(
   ]
   if (spec.name === "cloudflare") {
     imports.push(`import { runCloudflareWorkflow } from ${JSON.stringify(`${workflowImportBase}/runtime/cloudflare-runner`)}`)
-    imports.push(`import { NonRetryableError } from "cloudflare:workflows"`)
   }
   if (userAppEntry) {
     imports.push(`import workflowApp from ${JSON.stringify(createImportPath(entryFile, userAppEntry))}`)
@@ -1050,6 +1068,8 @@ function renderProviderEntry(
         "}",
         "",
         "export async function runViteHubWorkflowDefinition(name, env, event, step) {",
+        // A prerender build loads this module in Node.js, which has no `cloudflare:workflows`. Only a run needs it.
+        "  const { NonRetryableError } = await import(\"cloudflare:workflows\")",
         "  return await runCloudflareWorkflow({ config: workflowConfig, createNonRetryableError: error => Object.defineProperty(new NonRetryableError(error.message, error.name), \"cause\", { value: error, configurable: true, writable: true }), env: env || {}, event, name, registry: workflowRegistry, step })",
         "}",
       ]
@@ -1438,19 +1458,7 @@ async function generateProviderOutputsWithinLock(
     workspace: options.workspaceImportBase,
     workspaceDependencies: options.workspaceDependencyRuntimeImports,
   }, options.serverDirs, options.includeUserAppEntry, options.transformRegistry, options.definitionRootDir)
-  const inferredWorkflowConfig = options.hosting
-    ? resolveWorkflowConfig(options.workflow, options.hosting)
-    : undefined
-  const cloudflareWorkflowConfig = inferredWorkflowConfig === undefined
-    ? resolveWorkflowConfig(options.workflow, "cloudflare")
-    : inferredWorkflowConfig && inferredWorkflowConfig.provider === "cloudflare"
-      ? inferredWorkflowConfig
-      : false
-  const vercelWorkflowConfig = inferredWorkflowConfig === undefined
-    ? resolveWorkflowConfig(options.workflow, "vercel")
-    : inferredWorkflowConfig && inferredWorkflowConfig.provider === "vercel"
-      ? inferredWorkflowConfig
-      : false
+  const { cloudflare: cloudflareWorkflowConfig, vercel: vercelWorkflowConfig } = resolveWorkflowProviderOutputs(options.workflow, options.hosting)
   const workflowTransformPlugin = vercelWorkflowConfig && vercelWorkflowConfig.provider === "vercel"
     ? await createVercelWorkflowTransformPlugin(options.rootDir)
     : undefined

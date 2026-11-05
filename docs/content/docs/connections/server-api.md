@@ -76,14 +76,17 @@ Agent tools record every call, reads included. MCP protocol messages record succ
 
 ## CLI
 
-The CLI calls the management route of a running development server with the Console enabled. `--url` defaults to `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`.
+The CLI calls the management route of a running development server with the Console enabled. `--url` defaults to `VITEHUB_CONNECTIONS_URL`, then the dev server that runs in the current project, then `VITEHUB_DEV_SERVER_URL`, then `http://localhost:5173`. The commands do not load the project, so they do not make a running dev server rebuild.
 
 | Command | Description |
 | --- | --- |
 | `vitehub connections list` | List Connections and their status. |
-| `vitehub connections status <name>` | Show one Connection. |
-| `vitehub connections activity [name]` | Show recent activity. |
-| `vitehub connections connect <name>` | Print a single-use connect URL. |
+| `vitehub connections inspect <name>` | Show one Connection: account, scopes, and actions. |
+| `vitehub connections connect <name>` | Grant access with the provider OAuth flow. For a loopback app, the CLI waits for the browser on `127.0.0.1`. For another app, it prints the Console connect URL. |
 | `vitehub connections set-key <name>` | Store the key of an API key Connection from stdin. |
-| `vitehub connections refresh <name>` | Refresh the access token now. |
-| `vitehub connections disconnect <name>` | Revoke the grant at the provider and delete it. If revocation fails, ViteHub still deletes the local grant and records the error in the `disconnect` activity. Revoke the app at the provider then. |
+| `vitehub connections activity <name>` | Show audited calls, refreshes, and denials. |
+| `vitehub connections approvals [approve\|deny <id>]` | List, approve, or deny writes that wait for approval. |
+| `vitehub connections models <name>` | List the models of a ChatGPT plan Connection. |
+| `vitehub connections export <name> --file <path>` | Move a ChatGPT grant into a protected file for another host. |
+| `vitehub connections import <name> --file <path>` | Import a ChatGPT credential file. |
+| `vitehub connections revoke <name> --confirm <name>` | Revoke the provider grant and delete the stored token. |

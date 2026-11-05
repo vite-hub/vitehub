@@ -2,10 +2,14 @@ import { createServer } from "node:http"
 import { spawn } from "node:child_process"
 import { constants } from "node:fs"
 import { open, rm } from "node:fs/promises"
+import { createRequire } from "node:module"
+import { join } from "node:path"
 import { chatgptTransferSchema } from "./internal/chatgpt-transfer.ts"
 
 import * as v from "valibot"
 
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { defaultViteHubDevServerUrl, findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 
 import { isLoopbackHost } from "./api-key.ts"
@@ -14,7 +18,7 @@ import { CONNECTIONS_ROUTE } from "./route.ts"
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFeature } from "@vite-hub/internal/cli"
 import type { ConnectionApproval, ConnectionInspection } from "./types.ts"
 
-type CliContext = Pick<ViteHubCliContext, "env" | "stderr" | "stdout">
+type CliContext = Pick<ViteHubCliContext, "env" | "stderr" | "stdout"> & Partial<Pick<ViteHubCliContext, "rootDir">>
 
 export interface ConnectionsCliOptions {
   fetch?: typeof fetch
@@ -22,8 +26,10 @@ export interface ConnectionsCliOptions {
   openBrowser?: false | ((url: string) => Promise<void>)
   /** Input for `set-key`. Defaults to `process.stdin`. */
   stdin?: AsyncIterable<string | Uint8Array> & { isTTY?: boolean }
-  /** Seconds to wait for the loopback callback. Defaults to 300. */
+  /** Seconds to wait for the loopback callback. Defaults to the time that the authorization link works, 10 minutes. */
   timeout?: number
+  /** Seconds to wait for each answer of the app. Defaults to 30, or 120 for OAuth completion. */
+  requestTimeout?: number
 }
 
 interface ParsedArgs {
@@ -39,7 +45,8 @@ class CliError extends Error {}
 
 const valueFlags = new Set(["--before", "--confirm", "--cookie", "--file", "--name", "--port", "--status", "--url"])
 
-function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
+function parse(args: string[], context: CliContext): ParsedArgs {
+  const env = context.env
   const flags = new Map<string, string | true>()
   const positionals: string[] = []
   for (let index = 0; index < args.length; index += 1) {
@@ -68,8 +75,14 @@ function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
     flags,
     json: flags.has("--json"),
     positionals,
-    url: stringFlag(url) ?? (env.VITEHUB_CONNECTIONS_URL || "http://localhost:5173"),
+    url: stringFlag(url) ?? (env.VITEHUB_CONNECTIONS_URL || devServerUrl(context)),
   }
+}
+
+/** The dev server that runs in this project writes its URL, with the app base, to the project root. */
+function devServerUrl(context: CliContext): string {
+  const roots = context.rootDir ? [...new Set([context.rootDir, resolveViteHubProjectRoot(context.rootDir)])] : []
+  return findViteHubDevServerUrl(roots, context.env) ?? defaultViteHubDevServerUrl
 }
 
 function stringFlag(value: string | true | undefined): string | undefined {
@@ -127,7 +140,7 @@ const approvalSchema = v.looseObject({
 })
 const connectionResponse = v.looseObject({ connection: inspectionSchema })
 const approvalResponse = v.looseObject({ approval: approvalSchema, result: v.optional(v.unknown()) })
-const authorizationResponse = v.looseObject({ state: v.string(), url: v.pipe(v.string(), v.url()) })
+const authorizationResponse = v.looseObject({ expiresAt: v.pipe(v.string(), v.isoTimestamp()), state: v.string(), url: v.pipe(v.string(), v.url()) })
 const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
   action: v.string(), actor: v.looseObject({ id: v.string(), kind: v.string() }), id: v.string(),
   operation: v.optional(v.string()), outcome: v.string(), timestamp: v.string(),
@@ -136,7 +149,11 @@ const activityResponse = v.looseObject({ activity: v.array(v.looseObject({
 async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, body: Record<string, unknown>, schema: v.BaseSchema<unknown, T, v.BaseIssue<unknown>>, redirect?: RequestInit["redirect"]): Promise<T> {
   const base = appUrl(parsed)
   const endpoint = managementUrl(base)
+  // Completion consumes one-use state before exchanging the token (up to 30 seconds), verifying identity,
+  // and persisting the grant. Leave time for that path to finish before reporting a client timeout.
+  const seconds = options.requestTimeout ?? (body.action === "complete" ? 120 : 30)
   let response: Response
+  let text: string
   try {
     const init: RequestInit = {
       body: JSON.stringify(body),
@@ -146,14 +163,19 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
         ...(parsed.cookie ? { cookie: parsed.cookie } : {}),
       },
       method: "POST",
+      signal: AbortSignal.timeout(seconds * 1_000),
     }
     if (redirect) init.redirect = redirect
     response = await (options.fetch ?? fetch)(endpoint, init)
+    text = await response.text()
   }
-  catch {
+  catch (error) {
+    // A dev server that rebuilds can accept a request and never answer it.
+    if (error instanceof DOMException && error.name === "TimeoutError") {
+      throw new CliError(`${endpoint.origin} did not answer in ${seconds} seconds. If the server is restarting, wait until it is ready, then run the command again.`)
+    }
     throw new CliError(`Could not reach ${endpoint.origin}. Start the development server, or pass --url.`)
   }
-  const text = await response.text()
   let value: unknown
   try {
     value = JSON.parse(text)
@@ -162,9 +184,9 @@ async function request<T>(parsed: ParsedArgs, options: ConnectionsCliOptions, bo
     throw new CliError(`${endpoint.href} returned ${response.status} without a Connections response. Check that the app uses Connections and that the management API is mounted.`)
   }
   if (!response.ok) {
-    const parsedError = v.safeParse(v.object({ error: v.object({ code: v.optional(v.string()), message: v.optional(v.string()) }) }), value)
+    const parsedError = v.safeParse(v.object({ error: v.object({ code: v.optional(v.string()), fix: v.optional(v.string()), message: v.optional(v.string()) }) }), value)
     const error = parsedError.success ? parsedError.output.error : undefined
-    throw new CliError(`${error?.message ?? `Request failed with ${response.status}.`}${error?.code ? ` (${error.code})` : ""}`)
+    throw new CliError(`${error?.message ?? `Request failed with ${response.status}.`}${error?.code ? ` (${error.code})` : ""}${error?.fix ? `\n${error.fix}` : ""}`)
   }
   const result = v.safeParse(schema, value)
   if (!result.success) throw new CliError(`${endpoint.href} returned an invalid Connections response.`)
@@ -187,6 +209,20 @@ function describeConnection(connection: ConnectionInspection): string {
 
 function describeApproval(approval: ConnectionApproval): string {
   return `${approval.id}  ${approval.status}  ${approval.name}  ${approval.action}  ${approval.actor}  ${approval.createdAt}`
+}
+
+/**
+ * The ChatGPT gateway runs the Codex package of the app and never a `codex` command from `PATH`. Without it, the
+ * first question fails with AGENT_R1026, so say it at sign-in. Only a loopback app shares this project folder.
+ */
+function warnMissingCodex(connection: ConnectionInspection, parsed: ParsedArgs, context: CliContext): void {
+  if (connection.credential !== "chatgpt" || !isLoopback(appUrl(parsed))) return
+  try {
+    createRequire(join(context.rootDir ?? process.cwd(), "package.json")).resolve("@openai/codex/bin/codex.js")
+  }
+  catch {
+    context.stderr.write("Codex is not installed in this app, so an Agent with the ChatGPT gateway cannot answer. Run `pnpm add @openai/codex`, then restart the server. The gateway does not use a codex command from PATH.\n")
+  }
 }
 
 /** Read a piped key. A key in an argument would stay in the shell history. */
@@ -256,15 +292,26 @@ async function connectLoopback(name: string, parsed: ParsedArgs, context: CliCon
     server.once("error", reject)
     server.listen(port(parsed), "127.0.0.1", () => resolve())
   })
-  const timeout = setTimeout(() => rejectCallback(new CliError("Timed out while waiting for the authorization callback.")), (options.timeout ?? 300) * 1_000)
+  let timeout: ReturnType<typeof setTimeout> | undefined
   try {
     const address = server.address()
     if (!address || v.is(v.string(), address)) throw new CliError("Could not start the loopback callback server.")
     const redirectUri = `http://127.0.0.1:${address.port}/callback`
     const authorization = await request(parsed, options, { action: "authorize", name, redirectUri }, authorizationResponse)
     expectedState = authorization.state
-    context.stderr.write(`Open this URL to connect "${name}":\n\n  ${authorization.url}\n\nWaiting for ${redirectUri} ...\n`)
-    if (options.openBrowser !== false) void (options.openBrowser ?? openBrowser)(authorization.url).catch(() => undefined)
+    // Wait as long as the server accepts the link, so a slow sign-in, such as a passkey step, can still finish.
+    const expiresAt = new Date(authorization.expiresAt)
+    const until = expiresAt.toTimeString().slice(0, 5)
+    timeout = setTimeout(
+      () => rejectCallback(new CliError(`The browser did not return to ${redirectUri} before ${until}, when the link expired. Run \`vitehub connections connect ${name}\` again.`)),
+      options.timeout === undefined ? Math.max(0, expiresAt.getTime() - Date.now()) : options.timeout * 1_000,
+    )
+    const minutes = Math.round((expiresAt.getTime() - Date.now()) / 60_000)
+    context.stderr.write(`Open this URL to connect "${name}":\n\n  ${authorization.url}\n\nThe link works one time, until ${until} (${minutes} minutes).\nWaiting for ${redirectUri} ...\n`)
+    // The browser returns to 127.0.0.1 on its own computer. On a server without one, that port must be forwarded.
+    const forward = () => context.stderr.write(`If the browser runs on another computer, forward port ${address.port} first. On that computer, run:\n\n  ssh -N -L ${address.port}:127.0.0.1:${address.port} <user>@<this computer>\n\n`)
+    if (context.env.SSH_CONNECTION) forward()
+    else if (options.openBrowser !== false) void (options.openBrowser ?? openBrowser)(authorization.url).catch(forward)
     const result = await callback
     return (await request(parsed, options, { action: "complete", ...result }, connectionResponse)).connection
   }
@@ -300,6 +347,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
     usage: "vitehub connections inspect <name> [--url <app>] [--json]",
     async run(parsed, context, options) {
       const { connection } = await request(parsed, options, { action: "inspect", name: requireName(parsed, "inspect") }, connectionResponse)
+      warnMissingCodex(connection, parsed, context)
       write(context, parsed, connection, () => [
         describeConnection(connection),
         `  granted scopes: ${connection.scopes.granted.join(" ") || "none"}`,
@@ -319,6 +367,7 @@ const commands: Record<string, { description: string, run: Command, usage: strin
         return
       }
       const connection = await connectLoopback(name, parsed, context, options)
+      warnMissingCodex(connection, parsed, context)
       write(context, parsed, connection, () => `Connected. ${describeConnection(connection)}`)
     },
   },
@@ -452,7 +501,7 @@ function usage(): string {
     ...Object.values(commands).map(command => `  ${command.usage}`),
     "",
     "Options:",
-    "  --url <url>   App URL, including its Vite base path. Defaults to VITEHUB_CONNECTIONS_URL or http://localhost:5173.",
+    "  --url <url>   App URL, including its base path. Defaults to VITEHUB_CONNECTIONS_URL, then the running dev server of this project, then http://localhost:5173.",
     "  --cookie <value>  Console session cookie (or VITEHUB_CONNECTIONS_COOKIE) for protected apps.",
     "  --port <port> Loopback callback port for connect. The OAuth client must allow http://127.0.0.1:<port>/callback.",
     "  --json        Print JSON.",
@@ -463,7 +512,7 @@ function usage(): string {
 /** Run one Connections CLI command. */
 export async function runConnectionsCli(command: string, args: string[], context: CliContext, options: ConnectionsCliOptions = {}): Promise<number> {
   try {
-    const parsed = parse(args, context.env)
+    const parsed = parse(args, context)
     const entry = commands[command]
     if (!entry || parsed.flags.has("--help")) {
       context.stdout.write(usage())

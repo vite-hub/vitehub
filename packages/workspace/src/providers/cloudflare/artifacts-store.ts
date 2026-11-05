@@ -377,18 +377,17 @@ class CloudflareArtifactsWorkspaceStore implements WorkspaceStore {
     const git = await import("isomorphic-git")
     const http = await import("isomorphic-git/http/web")
     const matrix = await git.statusMatrix({ dir, fs: this.#fs! as never, ignored: true })
-    let changed = false
+    const removed: string[] = []
+    const added: string[] = []
     for (const [filepath, head, workdir, stage] of matrix) {
       if (filepath.startsWith(".git/")) continue
-      if (workdir === 0 && (head !== 0 || stage !== 0)) {
-        await git.remove({ dir, filepath, fs: this.#fs! as never })
-        changed = true
-      }
-      else if (workdir !== stage) {
-        await git.add({ dir, filepath, force: true, fs: this.#fs! as never })
-        changed = true
-      }
+      if (workdir === 0 && (head !== 0 || stage !== 0)) removed.push(filepath)
+      else if (workdir !== stage) added.push(filepath)
     }
+    // Each call rewrites the Git index once, so stage the whole snapshot in two calls.
+    if (removed.length) await git.remove({ dir, filepath: removed, fs: this.#fs! as never })
+    if (added.length) await git.add({ dir, filepath: added, force: true, fs: this.#fs! as never })
+    const changed = removed.length > 0 || added.length > 0
 
     if (changed || (!this.#head && !this.#pendingCommit)) {
       this.#pendingCommit = await git.commit({

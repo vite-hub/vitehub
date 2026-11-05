@@ -1,4 +1,4 @@
-import discoveredRegistry, { activityRetention, database } from "#vitehub/connections/registry"
+import generatedRegistry, { activityRetention as generatedActivityRetention, database as generatedDatabase } from "#vitehub/connections/registry"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import * as v from "valibot"
 
@@ -12,11 +12,28 @@ import type { ConnectionStore } from "../store.ts"
 import { CONNECTION_NAME_MAX_LENGTH } from "../types.ts"
 import type { ConnectionClient, ConnectionFetchInit, ConnectionStatus, UseConnectionOptions } from "../types.ts"
 
+let discoveredRegistry = generatedRegistry
+let activityRetention = generatedActivityRetention
+let database = generatedDatabase
 let runtime: ConnectionsRuntime | undefined
+let defaultRuntime: ConnectionsRuntime | undefined
 
 /** Replace the Connections runtime, for example with a custom store in tests. Pass `undefined` to reset it. */
 export function setConnectionsRuntime(options: ConnectionsRuntimeOptions | undefined): void {
   runtime = options ? createConnectionsRuntime(options) : undefined
+  defaultRuntime = undefined
+}
+
+/**
+ * Hands the generated registry to this package. Node loads the package without Vite in `vite dev`, so
+ * `#vitehub/connections/registry` resolves to the empty fallback, and the `vite dev` Nitro plugin calls this at
+ * startup and after each reload.
+ */
+export function installConnectionsRegistry(module: typeof import("#vitehub/connections/registry")): void {
+  discoveredRegistry = module.default
+  activityRetention = module.activityRetention
+  database = module.database
+  defaultRuntime = undefined
 }
 
 function decodeKey(value: string): Uint8Array {
@@ -51,7 +68,7 @@ async function defaultStore(): Promise<ConnectionStore> {
 
 /** The active Connections runtime. */
 export function getConnectionsRuntime(): ConnectionsRuntime {
-  return runtime ??= createConnectionsRuntime({ definitions: discoveredRegistry, store: defaultStore })
+  return runtime ?? (defaultRuntime ??= createConnectionsRuntime({ definitions: discoveredRegistry, store: defaultStore }))
 }
 
 function methodProxy(client: Pick<ConnectionRuntimeClient, "call">, path: string): unknown {

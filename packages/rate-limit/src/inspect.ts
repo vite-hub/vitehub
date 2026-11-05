@@ -36,7 +36,7 @@ export function inspectRateLimitDefinitions(options: RateLimitInspectionOptions)
 /** Console section that lists discovered Rate Limit Definitions. `vitehub inspect definitions` reads the same data. */
 export const rateLimitConsoleSection: ViteHubConsoleSectionContribution<RateLimitInspectionOptions> = {
   description: "Inspect discovered Rate Limit policies and their source locations.",
-  icon: "i-lucide-gauge",
+  icon: "i-vitehub-rate-limit",
   id: "rate-limits",
   label: "Rate Limits",
   read: inspectRateLimitDefinitions,

@@ -42,3 +42,25 @@ export function asUnknownBoundary(value: unknown): unknown {
 export function isRuntimeObject(value: unknown): value is object {
   return value !== null && Object(value) === value
 }
+
+const nativeResponseStatus = hasRuntimeType(globalThis.Response, "function")
+  ? Object.getOwnPropertyDescriptor(Response.prototype, "status")?.get
+  : undefined
+// Node.js 22 runs the Response brand check through a Proxy. Node.js 24 does not.
+const isProxy = globalThis.process?.getBuiltinModule?.("node:util")?.types.isProxy
+
+/**
+ * Return whether `value` is a Response of this runtime.
+ * The native `status` getter checks the internal Response slot, so a copied prototype, an object tagged `Response`,
+ * and a Response from another Fetch implementation all fail. A proxy fails too. The check reads no property of `value`.
+ */
+export function isRuntimeResponse(value: unknown): value is Response {
+  if (!nativeResponseStatus || value === null || !hasRuntimeType(value, "object") || isProxy?.(value)) return false
+  try {
+    Reflect.apply(nativeResponseStatus, value, [])
+    return true
+  }
+  catch {
+    return false
+  }
+}

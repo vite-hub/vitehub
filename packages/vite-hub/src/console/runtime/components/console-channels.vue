@@ -7,10 +7,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { requestConsole } from "../client/request";
+import { queryText, useConsoleQuery } from "../client/route-query";
 import { rememberConsoleSection } from "../sections";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
+import ConsoleState from "./console-state.vue";
 import ConsoleStatus from "./console-status.vue";
 import { isSafeExternalUrl } from "./invocation/internal/url";
 
@@ -113,13 +114,17 @@ const selectedAgent = computed(() => queryString(route.query.agent));
 const selectedChannel = computed(() => queryString(route.query.channel));
 const selectedThread = computed(() => queryString(route.query.thread));
 const selected = computed(() => channels.value.find(entry => entry.agent === selectedAgent.value && entry.channel === selectedChannel.value));
+// The thread search lives in the URL with the Channel and the thread, so a reload or a shared link opens the same list.
+const { q: threadSearch } = useConsoleQuery({ q: queryText() });
+/** Loaded threads whose title, participants, or id contain the search. */
+const visibleThreads = computed(() => {
+  const query = threadSearch.value.trim().toLowerCase();
+  if (!query) return threads.value;
+  return threads.value.filter(thread => [thread.title ?? "", ...thread.participants, thread.thread].join(" ").toLowerCase().includes(query));
+});
 
 function isAbort(failure: unknown): boolean {
   return failure instanceof Object && "name" in failure && failure.name === "AbortError";
-}
-
-function errorMessage(failure: unknown): string | undefined {
-  return failure instanceof Error ? failure.message : failure ? "The Console could not load these Channels." : undefined;
 }
 
 async function loadChannels(): Promise<void> {
@@ -223,7 +228,9 @@ async function loadMessages(append = false): Promise<void> {
 }
 
 function select(query: { agent?: string; channel?: string; thread?: string }): void {
-  void router.push({ query: { ...query } });
+  // A thread of the same Channel keeps the thread search. Another Channel starts without it.
+  const search = query.thread && query.agent === selectedAgent.value && query.channel === selectedChannel.value ? threadSearch.value.trim() : "";
+  void router.push({ query: { ...query, ...(search ? { q: search } : {}) } });
 }
 
 function when(value: string | undefined): string {
@@ -293,7 +300,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame active="channels" :sections-base="sectionsBase">
     <ConsoleSearch
       :agents-base="agentsBase"
       :definitions-base="definitionsBase"
@@ -315,16 +321,7 @@ onBeforeUnmount(() => {
         </template>
       </ConsolePageHeader>
 
-      <UAlert
-        v-if="errorMessage(error)"
-        class="m-4"
-        color="error"
-        variant="subtle"
-        icon="i-lucide-cloud-off"
-        title="Couldn't load Channels"
-        :description="errorMessage(error)"
-        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: loadChannels }]"
-      />
+      <ConsoleState v-if="error" :error="error" title="Could not load Channels" :retry="loadChannels" />
       <div v-else class="flex min-h-0 flex-1 flex-col md:flex-row">
         <nav class="flex max-h-[40vh] min-h-0 shrink-0 flex-col gap-1 overflow-y-auto border-b border-default p-2 md:max-h-none md:w-80 md:border-r md:border-b-0" aria-label="Channels and threads">
           <template v-if="channelsLoading && !channels.length">
@@ -349,13 +346,24 @@ onBeforeUnmount(() => {
 
           <template v-if="selected">
             <p class="mt-3 px-2 text-xs font-medium text-muted">Threads</p>
+            <UInput
+              v-if="selected.conversations && threads.length"
+              v-model="threadSearch"
+              class="mt-1 w-full shrink-0"
+              icon="i-lucide-search"
+              size="sm"
+              placeholder="Filter threads…"
+              aria-label="Filter threads"
+              :ui="{ base: 'text-base sm:text-sm' }"
+            />
             <p v-if="!selected.conversations" class="px-2 py-1.5 text-xs text-muted">This Channel has its own history collection and no per-thread conversation.</p>
             <template v-else-if="threadsLoading && !threads.length">
               <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-10 rounded-md" />
             </template>
             <template v-else-if="threads.length">
+              <p v-if="!visibleThreads.length" class="px-2 py-1.5 text-xs text-muted">No loaded thread matches “{{ threadSearch.trim() }}”.</p>
               <button
-                v-for="thread in threads"
+                v-for="thread in visibleThreads"
                 :key="thread.thread"
                 type="button"
                 class="vitehub-console__section-link shrink-0 text-start"
@@ -376,7 +384,7 @@ onBeforeUnmount(() => {
           </template>
         </nav>
 
-        <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-live="polite" aria-label="Conversation">
+        <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Conversation">
           <UAlert
             v-if="(retention ?? selected?.retention)?.warning && (selectedThread || selected)"
             class="m-3"
@@ -392,12 +400,12 @@ onBeforeUnmount(() => {
           <UEmpty
             v-else-if="!selectedThread"
             variant="naked"
-            class="py-16"
-            icon="i-lucide-messages-square"
+            class="flex-1 py-16"
+            icon="i-vitehub-channels"
             :title="selected ? 'Choose a thread' : 'Choose a Channel'"
             description="Read a whole conversation from the provider history, the transcripts, and the Agent's runs, then download it."
           />
-          <UEmpty v-else-if="!messages.length" variant="naked" class="py-16" icon="i-lucide-message-square-off" title="No messages found" description="The provider and the transcripts have nothing for this thread." />
+          <UEmpty v-else-if="!messages.length" variant="naked" class="flex-1 py-16" icon="i-lucide-message-square-off" title="No messages found" description="The provider and the transcripts have nothing for this thread." />
           <ol v-else class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
             <li v-for="message in messages" :key="message.id">
               <ChatMessage :message="view(message)">
@@ -424,5 +432,4 @@ onBeforeUnmount(() => {
         </section>
       </div>
     </UDashboardPanel>
-  </ConsoleFrame>
 </template>

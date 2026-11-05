@@ -134,7 +134,7 @@ describe("Sandbox runtime selection", () => {
     void unknown;
   });
 
-  it("loads optional provider peers only after their built-in runtime is opened", async () => {
+  it("loads optional provider peers only where their runtime needs them", async () => {
     const dist = new URL("../dist/", import.meta.url);
     const [index, cloudflare, vercel] = await Promise.all([
       readFile(new URL("index.js", dist), "utf8"),
@@ -144,7 +144,8 @@ describe("Sandbox runtime selection", () => {
 
     expect(index).not.toContain("@cloudflare/sandbox");
     expect(index).not.toContain("@vercel/sandbox");
-    expect(cloudflare).toMatch(/\bimport\(["']@cloudflare\/sandbox["']\)/);
+    // The generated Durable Object passes @cloudflare/sandbox in, so the runtime never imports it.
+    expect(cloudflare).not.toContain("@cloudflare/sandbox");
     expect(cloudflare).not.toContain("@vercel/sandbox");
     expect(vercel).toMatch(/\bimport\(["']@vercel\/sandbox["']\)/);
     expect(vercel).not.toContain("@cloudflare/sandbox");

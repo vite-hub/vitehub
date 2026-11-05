@@ -8,7 +8,7 @@ import { execFile } from "node:child_process"
 import { promisify } from "node:util"
 
 import { build, buildSync } from "esbuild"
-import { afterAll, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { hasRuntimeType, isRuntimeRecord } from "../src/internal/runtime-type.ts"
 import { createDefaultCloudflareOutputRoot } from "@vite-hub/internal/build/deployment-output"
 import { retainProviderOutputSources } from "@vite-hub/internal/build/provider-output-sources"
@@ -238,7 +238,7 @@ it("seeds provider source retention with Workflow Definition handlers and steps"
   await expect(readFile(retained.resolve(mixedDependency), "utf8")).resolves.toContain('value = "retained"')
 })
 
-it("preserves literal parent Agent Workflow references without retaining their targets", async () => {
+it("preserves literal parent Agent Workflow references without retaining their targets", { timeout: buildOutputTestTimeout }, async () => {
   const container = await createWorkspaceTempDir("vitehub-workflow-parent-instructions-")
   const rootDir = join(container, "apps", "web")
   const agentRoot = join(rootDir, "server", "agents", "review")
@@ -883,6 +883,19 @@ it("removes only a prior Workflow-owned Vercel function when the active host cha
   })
 })
 
+it("writes no Vercel function for an inferred Vercel provider on a Node host", async () => {
+  const rootDir = await createWorkspaceTempDir("vitehub-workflow-node-host-")
+  const workflowFunction = join(rootDir, ".vercel", "output", "functions", "__server.func")
+
+  await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "vercel", rootDir, workflow: {} })
+  expect(existsSync(workflowFunction)).toBe(true)
+
+  await generateWorkflowProviderOutputs({ clientOutDir: join(rootDir, "dist"), hosting: "node-server", rootDir, workflow: {} })
+
+  expect(existsSync(workflowFunction)).toBe(false)
+  expect(existsSync(join(rootDir, ".vercel", "output", "config.json"))).toBe(false)
+})
+
 it("rolls back partial Vercel output when the server bundle fails", async () => {
   const rootDir = await createWorkspaceTempDir("vitehub-workflow-vercel-error-")
   const workflowDir = join(rootDir, "server", "workflows")
@@ -1160,9 +1173,9 @@ async function createPlaygroundCopy(prefix: string) {
   return rootDir
 }
 
-afterAll(async () => {
+afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
-})
+}, buildOutputTestTimeout)
 
 describe("Vite workflow provider outputs", () => {
   it("builds the playground and emits cloudflare and vercel workflow outputs", async () => {

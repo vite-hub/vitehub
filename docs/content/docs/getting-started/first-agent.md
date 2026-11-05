@@ -16,13 +16,22 @@ offline after installation and needs no model account or credentials.
 ## Before you start
 
 Complete [Installation](/docs/getting-started/installation) and check
-`/api/health` in your app. You need Node.js 24.15 or newer and pnpm.
+`/api/health` in your app. You need Node.js 22.22 or newer and pnpm.
 Continue in that project directory. The configuration below uses the Vite
 and Nitro path. In Nuxt, put the same ViteHub options in your module config;
 the Agent Definition and server route stay the same.
 
+::run-tutorial{to="/learn/first-agent"}
+::
+
 ::tutorial-step{title="Enable Agents"}
 ## Enable Agents
+
+Install the Agent package:
+
+```bash [commands/install-agent]
+pnpm add @vite-hub/agent
+```
 
 Add `agent: true` to the ViteHub options. Set `workflow: false` because this
 Agent finishes inside the HTTP request. Keep other features you already use.
@@ -159,3 +168,10 @@ Continue with [Build a chat app](/docs/agents/build-a-chat-app) for a complete
 chat UI with streaming, an offline Driver, and an optional model Driver. Read
 [Capabilities](/docs/agents/capabilities) when the Agent needs a tool or
 access to stored data.
+
+## Related guides
+
+Use [Deploy an Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel)
+to check the same inline Agent on two hosts. Read
+[Choose a TypeScript Agent framework](/docs/guides/typescript-agent-frameworks)
+to compare execution and state models before expanding the app.

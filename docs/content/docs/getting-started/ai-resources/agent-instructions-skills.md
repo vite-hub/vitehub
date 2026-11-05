@@ -64,6 +64,16 @@ To install for several agents at once, list them after `--agent`, for example `-
 Add `--global` to install the skill for every project of the current user instead of one project.
 Run `npx skills list` to see the installed project skills.
 
+### Install from your app
+
+An app with the [Console](/docs/development/console) also publishes the ViteHub skill, at `/_vitehub/.well-known/skills/`. That copy comes from the installed `vite-hub` package, so it matches the version that the app uses. Pass the Console URL of the dev server or the deployed app:
+
+```bash [Terminal]
+npx skills add http://localhost:3000/_vitehub --skill vitehub --agent claude-code
+```
+
+The skill files are static and need no Console sign-in, also in production. They contain only the public ViteHub skill, not data of the app.
+
 ## Ask for an outcome
 
 The skill activates from normal ViteHub requests.

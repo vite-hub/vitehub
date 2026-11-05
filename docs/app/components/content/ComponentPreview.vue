@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import highlighter from "#mdc-highlighter";
 import { useClipboard } from "@vueuse/core";
 import { computed, defineAsyncComponent, ref } from "vue";
 
@@ -115,6 +114,8 @@ const previewHeights = new Map(Object.entries({
   TraceTurnExample: 18,
 }));
 const previewHeight = computed(() => props.height ?? previewHeights.get(props.name) ?? 8);
+// Chat fills its parent's height, so its frame keeps a fixed height like the flush blocks.
+const fixedHeight = computed(() => props.flush || props.name === "ChatExample");
 
 const exampleModules = import.meta.glob("./examples/*.vue");
 // SAFETY: Vite's raw eager glob returns each matching file's default export as a string.
@@ -140,20 +141,8 @@ const example = defineAsyncComponent(loader as () => Promise<{ default: object }
 const source = (exampleSources[examplePath] || "").trim();
 const sourceHeight = Math.min(32, source.split("\n").length * 1.5 + 2);
 const fileName = `${props.name}.vue`;
-const sourceFence = "`".repeat(
-  Math.max(3, ...Array.from(source.matchAll(/`+/g), ([match]) => match.length + 1)),
-);
-const sourceBlock = `${sourceFence}vue\n${source}\n${sourceFence}`;
-const sourceParserOptions = {
-  highlight: {
-    highlighter,
-    theme: {
-      light: "material-theme-lighter",
-      default: "material-theme",
-      dark: "material-theme-palenight",
-    },
-  },
-};
+// The source renders on the server and in the payload, so the client highlights only after client navigation.
+const { data: sourceLines } = await useAsyncData(`component-preview:${props.name}`, () => highlightCodeLines(source, "vue"));
 
 const { copy, copied, isSupported } = useClipboard({ copiedDuring: 1600, legacy: true });
 const copyLabel = computed(() => (copied.value ? "Copied" : `Copy ${fileName}`));
@@ -204,15 +193,15 @@ function resetExample() {
 
     <div
       class="component-preview-stage min-w-0 bg-elevated/35"
-      :class="{ 'component-preview-flush': flush }"
+      :class="{ 'component-preview-flush': flush, 'component-preview-fixed': fixedHeight }"
       :style="{ '--preview-content-height': `${previewHeight}rem` }"
     >
       <Suspense>
         <component :is="example" :key="resetKey" />
 
         <template #fallback>
-          <div role="status" class="grid h-full place-items-center text-sm text-muted">
-            Loading preview...
+          <div role="status" class="grid min-h-(--preview-content-height) place-items-center text-sm text-muted">
+            Loading preview…
           </div>
         </template>
       </Suspense>
@@ -222,15 +211,18 @@ function resetExample() {
       class="component-preview-source border-t border-default"
       :style="{ height: `${sourceHeight}rem` }"
     >
-      <MDC :value="sourceBlock" :parser-options="sourceParserOptions" :tag="false" />
+      <ProsePre language="vue" :code="source" :class="['language-vue', highlightedPreClass]">
+        <code v-html="sourceLines" />
+      </ProsePre>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* The reserved height is a minimum. Text that wraps on a narrow screen grows the frame instead of scrolling inside it. */
 .component-preview-stage {
   --preview-stage-padding: 1rem;
-  height: calc(var(--preview-content-height) + 2 * var(--preview-stage-padding));
+  min-height: calc(var(--preview-content-height) + 2 * var(--preview-stage-padding));
   overflow: auto;
   padding: var(--preview-stage-padding);
   scrollbar-gutter: stable;
@@ -252,6 +244,10 @@ function resetExample() {
   --preview-stage-padding: 0rem;
 }
 
+.component-preview-stage.component-preview-fixed {
+  height: calc(var(--preview-content-height) + 2 * var(--preview-stage-padding));
+}
+
 /* The 44px toolbar fits 36px touch targets without growing. */
 @media (pointer: coarse) {
   .component-preview-action {
@@ -268,8 +264,16 @@ function resetExample() {
   overflow: auto;
 }
 
-.component-preview-source :deep(.code-block-wrapper) {
+/*
+  The source renders through Nuxt UI's ProsePre, not the docs code block.
+  Its outer margin left a blank band above the code, and its copy button repeated the toolbar copy.
+*/
+.component-preview-source > :deep(div) {
   margin: 0;
+}
+
+.component-preview-source > :deep(div > button) {
+  display: none;
 }
 
 .component-preview-source :deep(pre) {

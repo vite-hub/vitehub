@@ -11,9 +11,10 @@ import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } f
 export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
 
-import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobResult, BlobServeEvent, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobResult, BlobServeEvent, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
+import { byteRangeBounds } from "./internal/byte-range.ts"
 import isBlob from "./internal/is-blob.ts"
 import { readDerivedHeader } from "./internal/derived-header.ts"
 import { assertValidPathname } from "./internal/pathname.ts"
@@ -183,28 +184,38 @@ function normalizeBlobPath(pathname: string, options: BlobPutOptions) {
     : normalized)
 }
 
+/** Reads one `Range: bytes=` spec. Returns `undefined` for no range, several ranges, or a malformed header. */
+function parseByteRange(header: string | null): BlobDriverByteRange | undefined {
+  if (!header) return
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(header.trim())
+  if (!match || (!match[1] && !match[2])) return
+  if (!match[1]) return { suffix: Number(match[2]) }
+  const offset = Number(match[1])
+  if (!match[2]) return { offset }
+  const end = Number(match[2])
+  return end < offset ? undefined : { offset, length: end - offset + 1 }
+}
+
 /**
- * Reads one `Range: bytes=` spec. Returns `undefined` to send the whole body: no range, several ranges, a stale
- * `If-Range`, or a malformed header. Browsers need ranges to seek media, and Safari does not play video without them.
+ * Selects the bytes to send. Returns `undefined` to send the whole body: no range, several ranges, a stale `If-Range`,
+ * or a malformed header. Browsers need ranges to seek media, and Safari does not play video without them.
  */
 function selectByteRange(event: BlobServeEvent, etag: string | undefined, size: number): { start: number, end: number } | "unsatisfiable" | undefined {
   // RFC 9110 section 14.2 requires ignoring Range on methods other than GET.
   if (event.req.method !== "GET") return
-  const header = event.req.headers.get("range")
-  if (!header) return
+  const range = parseByteRange(event.req.headers.get("range"))
+  if (!range) return
   const ifRange = event.req.headers.get("if-range")
   // Only a strong ETag can validate If-Range. Without a match, send the current whole body.
   if (ifRange !== null && (!etag || ifRange !== etag)) return
-  const match = /^bytes=(\d*)-(\d*)$/i.exec(header.trim())
-  if (!match || (!match[1] && !match[2])) return
-  if (!match[1]) {
-    const length = Number(match[2])
-    return length > 0 && size > 0 ? { start: Math.max(0, size - length), end: size - 1 } : "unsatisfiable"
-  }
-  const start = Number(match[1])
-  const end = match[2] ? Number(match[2]) : Infinity
-  if (end < start) return
-  return start < size ? { start, end: Math.min(end, size - 1) } : "unsatisfiable"
+  return byteRangeBounds(range, size) ?? "unsatisfiable"
+}
+
+function setNotModified(event: BlobServeEvent, headers: Headers): void {
+  for (const [name, value] of headers) event.res.headers.set(name, value)
+  for (const name of ["content-length", "content-type", "content-encoding", "transfer-encoding"]) event.res.headers.delete(name)
+  event.res.status = 304
+  event.res.headers.set("X-Content-Type-Options", "nosniff")
 }
 
 /** Options of `createBlobStorage()`. The runtime fills them from the `blob` configuration. */
@@ -332,6 +343,60 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
   async function serveObject(event: BlobServeEvent, normalizedPath: string, options: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const [error, payload] = await blobResult("serve", store, async () => {
+        // A driver that streams reads the object, or the requested range of it, with its metadata in one call, and
+        // without holding it in memory. A video and every seek in it cost one read and only the bytes sent.
+        if (!options.transform && driver.getStream && event.req.method === "GET") {
+          const requested = parseByteRange(event.req.headers.get("range"))
+          let read = await driver.getStream(normalizedPath, { range: requested })
+          if (read === false) return false
+          if (!read) {
+            await clearDerived(normalizedPath)
+            return
+          }
+          const { object } = read
+          const etag = object.httpEtag ? `"${await hashCacheKey([object.httpEtag, object.contentType])}"` : undefined
+          const headers = new Headers({ "Cache-Control": options.cacheControl ?? event.res.headers.get("Cache-Control") ?? "private, no-cache" })
+          if (etag) headers.set("ETag", etag)
+          if (matchesETag(event.req.headers.get("if-none-match"), etag)) {
+            await read.body.cancel()
+            setNotModified(event, headers)
+            return null
+          }
+          const range = selectByteRange(event, etag, object.size)
+          if (requested && !range) {
+            // A stale If-Range: send the whole body of the version just read.
+            await read.body.cancel()
+            read = await driver.getStream(normalizedPath, { etag: object.httpEtag })
+            if (read === false) return false
+            if (!read) return
+            if (read.object.httpEtag !== object.httpEtag || read.object.contentType !== object.contentType) {
+              await read.body.cancel()
+              return false
+            }
+          }
+          headers.set("Accept-Ranges", "bytes")
+          headers.set("Content-Type", object.contentType || guessContentType(normalizedPath))
+          headers.set("X-Content-Type-Options", "nosniff")
+          let body = read.body
+          if (range === "unsatisfiable") {
+            await body.cancel()
+            body = new Blob([]).stream()
+            headers.set("Content-Range", `bytes */${object.size}`)
+            headers.set("Content-Length", "0")
+            event.res.status = 416
+          }
+          else if (range) {
+            headers.set("Content-Range", `bytes ${range.start}-${range.end}/${object.size}`)
+            headers.set("Content-Length", String(range.end - range.start + 1))
+            event.res.status = 206
+          }
+          else {
+            headers.set("Content-Length", String(object.size))
+          }
+          for (const [name, value] of headers) event.res.headers.set(name, value)
+          return body
+        }
+
         const meta = await driver.head(normalizedPath)
         if (!meta) {
           await clearDerived(normalizedPath)
@@ -361,10 +426,7 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
         if (etag) headers.set("ETag", etag)
         if (["GET", "HEAD"].includes(event.req.method)) {
           if (matchesETag(event.req.headers.get("if-none-match"), etag)) {
-            for (const [name, value] of headers) event.res.headers.set(name, value)
-            for (const name of ["content-length", "content-type", "content-encoding", "transfer-encoding"]) event.res.headers.delete(name)
-            event.res.status = 304
-            event.res.headers.set("X-Content-Type-Options", "nosniff")
+            setNotModified(event, headers)
             return null
           }
         }
