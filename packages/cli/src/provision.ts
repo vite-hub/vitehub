@@ -70,7 +70,7 @@ function writeUsage(command: ProvisionCommand, stream: ProvisionFeatureContext["
         `Usage: ${USAGE.run}`,
         "",
         "Idempotently creates missing provider resources for the app's Definitions.",
-        "Never deletes or mutates existing resources.",
+        "Never deletes resources. Changes an existing resource only for a planned update, such as D1 read replication.",
         "",
         "Options:",
         "  --provider <name>  Target provider: cloudflare or vercel (required).",
@@ -134,13 +134,14 @@ function serializeAction({ action, step }: PlannedProvisionAction) {
     kind: action.kind,
     name: action.name,
     step,
+    ...(action.update === undefined ? {} : { update: action.update }),
   }
 }
 
 function writeActions(actions: PlannedProvisionAction[], stdout: ProvisionFeatureContext["stdout"]): void {
   for (const { action } of actions) {
-    const status = !action.exists ? "create" : action.pending ? "pending" : "exists"
-    stdout.write(`${status}\t${action.kind}\t${action.name}\n`)
+    const status = !action.exists ? "create" : action.update ? "update" : action.pending ? "pending" : "exists"
+    stdout.write(`${status}\t${action.kind}\t${action.name}${action.update ? `\t${action.update}` : ""}\n`)
   }
 }
 

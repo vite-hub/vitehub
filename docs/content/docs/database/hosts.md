@@ -91,7 +91,7 @@ The bookmark cookie makes the next read of the same client see its own writes. O
 
 Every query of one request goes through the same session. Work outside a request, such as a Schedule or a Queue consumer, uses the primary database.
 
-`vitehub provision run --provider cloudflare` turns on replication for the D1 databases that set `readReplication`. For a database that ViteHub does not provision, turn it on in the Cloudflare dashboard, or call the D1 API: `PATCH /accounts/<account_id>/d1/database/<database_id>` with `{ "read_replication": { "mode": "auto" } }`. Without replication on the database, every session uses the primary database.
+`vitehub provision run --provider cloudflare` turns on replication for the D1 databases that set `readReplication`. The plan reads the replication mode of each existing database and shows `update  cloudflare-d1  <name>  read replication: disabled -> auto` when it is off. A database that already replicates shows `exists`, and `provision run` does not change it. Provision never turns replication off. For a database that ViteHub does not provision, turn it on in the Cloudflare dashboard, or call the D1 API: `PATCH /accounts/<account_id>/d1/database/<database_id>` with `{ "read_replication": { "mode": "auto" } }`. Without replication on the database, every session uses the primary database.
 
 `vitehub inspect definitions --kind database` shows `Read replication` for each Database that uses it. D1 over HTTP, libSQL, and local SQLite ignore the option.
 

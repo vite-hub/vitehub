@@ -66,8 +66,7 @@ describe("database provision step", () => {
     expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "POST")).toBe(false)
   })
 
-  it("turns on D1 read replication for a Definition that reads from replicas", async () => {
-    const rootDir = await createApp()
+  async function writeReplicatedDefinition(rootDir: string) {
     await writeFile(join(rootDir, "server", "databases", "primary", "config.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
       "export default defineDatabase({",
@@ -77,20 +76,53 @@ describe("database provision step", () => {
       "})",
       "",
     ].join("\n"), "utf8")
+  }
+
+  function replicationFetch(mode: string) {
     const requests: Array<{ method: string, url: string, body?: unknown }> = []
     const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      requests.push({ method: init?.method ?? "GET", url: String(input), ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
-      if (init?.method === "PATCH") return jsonResponse({ success: true, result: { name: "vitehub-playground-db", uuid: "uuid-1" } })
+      const url = String(input)
+      requests.push({ method: init?.method ?? "GET", url, ...(init?.body ? { body: JSON.parse(String(init.body)) } : {}) })
+      if (init?.method === "PATCH") return jsonResponse({ success: true, result: { name: "vitehub-playground-db", uuid: "uuid-1", read_replication: { mode: "auto" } } })
+      if (new URL(url).pathname.endsWith("/d1/database/uuid-1")) {
+        return jsonResponse({ success: true, result: { name: "vitehub-playground-db", uuid: "uuid-1", read_replication: { mode } } })
+      }
       return jsonResponse({ success: true, result: [{ name: "vitehub-playground-db", uuid: "uuid-1" }] })
     }) as unknown as typeof globalThis.fetch
+    return { fetchImpl, requests }
+  }
+
+  it("plans and applies a read replication update for an existing D1 database that does not replicate", async () => {
+    const rootDir = await createApp()
+    await writeReplicatedDefinition(rootDir)
+    const { fetchImpl, requests } = replicationFetch("disabled")
 
     const actions = await createDatabaseProvisionStep(() => rootDir).plan(provisionContext(fetchImpl))
+    expect(actions.map(({ exists, name, pending, update }) => ({ exists, name, pending, update }))).toEqual([
+      { exists: true, name: "vitehub-playground-db", pending: true, update: "read replication: disabled -> auto" },
+    ])
+    expect(requests.every(request => request.method === "GET")).toBe(true)
+
     await actions[0]!.apply()
     expect(requests.at(-1)).toEqual({
       method: "PATCH",
       url: "https://api.cloudflare.com/client/v4/accounts/acc/d1/database/uuid-1",
       body: { read_replication: { mode: "auto" } },
     })
+  })
+
+  it("plans no change for an existing D1 database that already replicates", async () => {
+    const rootDir = await createApp()
+    await writeReplicatedDefinition(rootDir)
+    const { fetchImpl, requests } = replicationFetch("auto")
+
+    const actions = await createDatabaseProvisionStep(() => rootDir).plan(provisionContext(fetchImpl))
+    expect(actions[0]).toMatchObject({ exists: true })
+    expect(actions[0]!.update).toBeUndefined()
+    expect(actions[0]!.pending).toBeUndefined()
+
+    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { d1: { primary: "uuid-1" } } } })
+    expect(requests.map(request => request.method)).toEqual(["GET", "GET"])
   })
 
   it("creates a missing D1 database and returns its id keyed by definition name", async () => {
