@@ -20,6 +20,7 @@ describe("workspace inventory", () => {
       "connections",
       "content",
       "database",
+      "decisions",
       "docs",
       "email",
       "env",

@@ -212,8 +212,8 @@ export function createDocsRedirectRouteRules(redirects: Record<string, string> =
   for (const [from, to] of Object.entries({
     "/databases": "/database",
     "/rate-limits": "/rate-limit",
-    "/blog": "/tutorials",
-    "/guides": "/tutorials",
+    "/blog": "/learn",
+    "/guides": "/learn",
   })) {
     routeRules[from] = { redirect: { statusCode: 301, to } };
     routeRules[`${from}/`] = { redirect: { statusCode: 301, to } };

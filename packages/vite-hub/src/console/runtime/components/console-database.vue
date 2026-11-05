@@ -10,7 +10,6 @@ import { resolveConsoleRouteName } from "../console-route";
 import { rememberConsoleSection } from "../sections";
 import { consoleDatabaseNumericColumns, consoleDatabaseRequestQuery, consoleDatabaseRowFields, parseConsoleDatabase } from "./console-database-model";
 import { useConsoleToast } from "../client/toast";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -198,6 +197,10 @@ function resetTableState(): void {
 
 async function loadDatabase(): Promise<void> {
   request?.abort();
+  if (database.value?.database !== routeDatabase.value) {
+    database.value = undefined;
+    openRow.value = undefined;
+  }
   const controller = new AbortController();
   request = controller;
   loading.value = true;
@@ -218,10 +221,12 @@ async function loadDatabase(): Promise<void> {
     );
     if (request !== controller) return;
     openRow.value = undefined;
-    database.value = value;
     error.value = undefined;
     if (props.view === "data") {
       const table = value.table ?? value.tables[0]?.name;
+      // An answer without a table has no rows. The skeleton stays until the first table's rows arrive, instead of an
+      // empty table that fills a moment later.
+      if (value.table || !table) database.value = value;
       if (table && (routeDatabase.value !== value.database || routeTable.value !== table)) {
         await router.replace({
           name: resolveConsoleRouteName(route.name, dataRouteName),
@@ -229,11 +234,14 @@ async function loadDatabase(): Promise<void> {
           query: route.query,
         });
       }
-    } else if (routeDatabase.value !== value.database) {
-      await router.replace({
-        name: resolveConsoleRouteName(route.name, schemaRouteName),
-        params: { database: value.database },
-      });
+    } else {
+      database.value = value;
+      if (routeDatabase.value !== value.database) {
+        await router.replace({
+          name: resolveConsoleRouteName(route.name, schemaRouteName),
+          params: { database: value.database },
+        });
+      }
     }
   } catch (requestError) {
     if (
@@ -343,7 +351,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame active="databases" :sections-base="sectionsBase">
     <UDashboardSidebar
       id="console-navigation"
       class="vitehub-console__nav"
@@ -600,7 +607,6 @@ onBeforeUnmount(() => {
         </dl>
       </template>
     </USlideover>
-  </ConsoleFrame>
 </template>
 
 <style scoped>

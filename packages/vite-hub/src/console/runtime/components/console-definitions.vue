@@ -13,7 +13,6 @@ import { isConsoleSectionReadOnly } from "../client/read-only";
 import { rememberConsoleSection } from "../sections";
 import { consoleStatusValue } from "../client/format";
 import { consoleInitials } from "../client/presence";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsolePropertyList from "./console-property-list.vue";
@@ -296,7 +295,6 @@ onBeforeUnmount(() => request?.abort());
 </script>
 
 <template>
-  <ConsoleFrame :active="section" :sections-base="sectionsBase">
     <!-- Records list in the page table, so only Definition catalogs need a sidebar. -->
     <UDashboardSidebar
       v-if="catalogView"
@@ -398,9 +396,11 @@ onBeforeUnmount(() => request?.abort());
         </template>
       </ConsolePageHeader>
 
-      <ConsolePageToolbar v-if="!catalogView && records.length" width="5xl">
+      <!-- The toolbar shows while the records load, so the list does not move down when it arrives. -->
+      <ConsolePageToolbar v-if="!catalogView && (records.length || (loading && !content))" width="5xl">
         <UInput
           v-model="search"
+          :disabled="!records.length"
           class="w-full sm:w-64"
           icon="i-lucide-search"
           size="sm"
@@ -426,7 +426,7 @@ onBeforeUnmount(() => request?.abort());
       <!-- Mount empty so assistive technology registers the status before its text changes. -->
       <p class="sr-only" role="status">{{ hasMounted && loading && !content ? "Loading…" : "" }}</p>
       <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <div v-if="loading && !content" class="mx-auto grid w-full max-w-3xl gap-3 p-4 sm:p-6" aria-busy="true">
+        <div v-if="loading && !content" class="mx-auto grid w-full gap-3 p-4 sm:p-6" :class="catalogView ? 'max-w-3xl' : 'max-w-5xl'" aria-busy="true">
           <USkeleton class="h-4 w-40" />
           <USkeleton v-for="index in 5" :key="index" class="h-9 w-full" />
         </div>
@@ -603,5 +603,4 @@ onBeforeUnmount(() => request?.abort());
         </article>
       </template>
     </USlideover>
-  </ConsoleFrame>
 </template>

@@ -9,7 +9,6 @@ import { useRoute, useRouter } from "vue-router";
 import { requestConsole } from "../client/request";
 import { queryText, useConsoleQuery } from "../client/route-query";
 import { rememberConsoleSection } from "../sections";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
@@ -301,7 +300,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame active="channels" :sections-base="sectionsBase">
     <ConsoleSearch
       :agents-base="agentsBase"
       :definitions-base="definitionsBase"
@@ -434,5 +432,4 @@ onBeforeUnmount(() => {
         </section>
       </div>
     </UDashboardPanel>
-  </ConsoleFrame>
 </template>

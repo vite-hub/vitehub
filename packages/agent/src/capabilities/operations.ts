@@ -1,4 +1,4 @@
-import { installedOperationRegistry, installedOperationSectionResolver, operationAccessAllows, operationCall, operationInputJsonSchema, parseOperationInput, runParsedOperation, toOperationFailure } from "@vite-hub/internal/operations"
+import { installedOperationRegistry, installedOperationSectionResolver, operationCall, operationListed, operationInputJsonSchema, parseOperationInput, runParsedOperation, toOperationFailure } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -98,7 +98,7 @@ async function operationTools(context: AgentCapabilityContext, options: { approv
     .filter(operation => options.include.some(pattern => matches(pattern, operation.name)))
     // An operation that reads its section from the input is checked again when it runs. A read-only grant keeps the
     // operations that read, and the ones with a dry run.
-    .filter(operation => typeof operation.section === "function" || operationAccessAllows(access, operation.section, { kind: operation.kind, readOnly: operation.readOnlyWhen !== undefined }))
+    .filter(operation => operationListed(access, operation, { kind: operation.kind, readOnly: operation.readOnlyWhen !== undefined }))
   const tools: AgentToolSet = {}
   for (const operation of selected) {
     const approval: AgentToolPolicyDecision = needsApproval(options.approve, operation) ? "require-approval" : "allow"

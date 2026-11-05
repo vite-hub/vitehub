@@ -10,7 +10,7 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
-| `@vite-hub/docs/nuxt` | The Nuxt module. Add it to `modules`. Its types are `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, and `DocsPublicConfig`. |
+| `@vite-hub/docs/nuxt` | The Nuxt module. Add it to `modules`. Its types are `DocsModuleOptions`, `DocsSiteOptions`, `DocsStartOptions`, `DocsCommentsOptions`, and `DocsPublicConfig`. |
 | `@vite-hub/docs` | The frontmatter schema, the manifest types, and the navigation helpers. |
 | `@vite-hub/docs/navigation` | The navigation helpers only. The root exports them too. |
 | `@vite-hub/docs/server` | Read a content folder without Nuxt: `createDocsManifest()`, `DocsContentError`, `createDocsParser()`, `docsSearchSections()`, `toRawMarkdown()`, and `docsPageResponse()`. |
@@ -40,8 +40,11 @@ Set them under `docs` in `nuxt.config.ts`. Every option is optional.
 | `github` | `{ repo, branch?, dir? }` or `false` | `false` | The repository of the site. The shell links to `https://github.com/<repo>`. `branch` (default `main`) and `dir` (default the `dir` option) are in `useDocsConfig().github` for your own components. |
 | `icons` | `Partial<DocsIcons>` | Lucide fallbacks | Icons of the rail and the sidebar: `rail`, `sections`, `pages`, `aliases`, `family`, `page`, and `section`. See [Icons](/docs/docs-site/configure#icons). |
 | `mcp` | `{ name?, guide? }` or `false` | On, named after `site.name` | The MCP server at `/mcp`. `guide` is a page that explains how to connect it. |
+| `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. Set the app's own `linkChecker` options to change this. |
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
+| `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to the `comments` option of `vite-hub/nuxt`. `false` sets `comments: false` there, which also keeps the Console from turning Comments on. |
 | `rawMarkdown` | `(markdown, page) => string` | None | Rewrites a page before its agent copy is written. It can be async. |
+| `parser` | `string` | None | Path of a module whose default export is `DocsParserOptions`, such as `{ plugins }`. The page route, search, and Console drafts parse with it. See [Add Comark plugins](/docs/docs-site/configure#add-comark-plugins). |
 
 The module also sets the options of the modules that it installs: `llms` from `site`, and `agentDiscovery` with the page routes and the MCP server card. Your own `llms` and `agentDiscovery` options win.
 
@@ -91,6 +94,7 @@ Dotted keys, such as `navigation.order: 2`, are the same as nested keys. `naviga
 | `/mcp` | `@nuxtjs/mcp-toolkit` | The MCP server with `list-pages` and `get-page`. Not added with `mcp: false`. |
 | `/.well-known/mcp/server-card.json` | `nuxt-agent-discovery` | The MCP server card. Not added with `mcp: false`. |
 | `/api/_vitehub/agents/<agent>/chat` | `vite-hub/nuxt` | The assistant chat, with `assistant` on. |
+| `/api/_vitehub/comments/**`, `/_vitehub/page/session` | `vite-hub/nuxt` | The Comments API and the page tools session, unless `comments: false`. |
 
 A production build prerenders every page, its page JSON, the search index, `/sitemap.xml`, and `/sitemap.md`, and follows the links between pages.
 

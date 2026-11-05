@@ -19,6 +19,8 @@ import { findContentEntry } from "@vite-hub/source/vite"
 import { defu } from "defu"
 
 import { setupDocsAssistant } from "./assistant-nuxt.ts"
+import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
+import { readModuleOptions } from "./module-options.ts"
 import { createDocsManifest } from "./manifest.ts"
 import { docsAppPath, docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsRawPath, docsSectionIcon, normalizeDocsBase, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
@@ -28,6 +30,8 @@ import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
 import type { DocsPage } from "./types.ts"
 
 export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
+export { DocsCommentsSetupError } from "./comments-nuxt.ts"
+export type { DocsCommentsOptions } from "./comments-nuxt.ts"
 
 export interface DocsSiteOptions {
   /** Name in titles, the rail, and llms.txt. */
@@ -77,13 +81,31 @@ export interface DocsModuleOptions {
    * suggest, and `guide` is the page that explains how to connect it. `false` turns it off.
    */
   mcp?: { name?: string, guide?: string } | false
+  /**
+   * Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors.
+   * Fragment checks are limited to the current page; fragments on other pages are not validated.
+   * Remote URLs are not fetched. Set the app's own `linkChecker` options to change that. `false` turns the check off.
+   */
+  linkChecker?: false
   /** The docs assistant: an Agent that answers from these pages. `true` uses the Agent named `docs`. */
   assistant?: boolean | { agent?: string }
+  /**
+   * ViteHub Comments on every page, through `vite-hub/nuxt`. On by default when the app installs `vite-hub/nuxt`: the
+   * module sets its `comments` option to `true`, or to these options. Threads belong to the page path, and the Console
+   * lists them. `false` turns Comments off.
+   */
+  comments?: boolean | DocsCommentsOptions
   /**
    * Rewrites a page's Markdown before it becomes the copy that agents read at `/raw/<page>.md`, for example to expand
    * a component into plain Markdown. The built-in rewrites run after it. Runs at build time.
    */
   rawMarkdown?: (markdown: string, page: DocsPage) => string | Promise<string>
+  /**
+   * Path of a module, relative to the app root, whose default export is the parser options, such as
+   * `{ plugins: [tabs()] }`. Comark plugins are functions, so they reach the server through a file and not through
+   * this config. The page route, search, and Console drafts parse with it.
+   */
+  parser?: string
 }
 
 /** Options as the client and the server read them from `runtimeConfig.public.docs`. */
@@ -146,7 +168,6 @@ interface DocsNuxtOptions {
   appConfig: { ui?: DocsThemeUi }
   _layers: ReadonlyArray<{ config: { appConfig?: { ui?: DocsThemeUi } } }>
   runtimeConfig: { public: { mdc?: unknown } }
-  docs?: DocsModuleOptions
   agentDiscovery?: AgentDiscoveryOptions
   llms?: LlmsOptions
 }
@@ -161,17 +182,22 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
   defaults: {},
   // Nuxt installs these after this module, so the options that the setup writes reach them. Most resolve from this
   // package, so the app does not list them. nuxt-agent-discovery feeds nuxt-llms only when nuxt-llms comes first.
-  moduleDependencies: (nuxt) => {
-    const { docs }: DocsNuxtOptions = nuxt.options
+  moduleDependencies: async (nuxt) => {
+    // Nuxt passes the inline options only to setup, so read them from the `modules` entry too.
+    // SAFETY: the `docs` key and the inline entry options of this module are its options.
+    const docs = (await readModuleOptions(nuxt, ["@vite-hub/docs", "@vite-hub/docs/nuxt", "vite-hub/docs/nuxt"], "docs") ?? {}) as DocsModuleOptions
     return {
+      // Comments keeps threads in a ViteHub Database, so it runs through `vite-hub/nuxt`, which the app installs.
+      ...await docsCommentsDependencies(nuxt, docs.comments),
       // Pages render with Nuxt UI prose components, and search and the outline are Nuxt UI content components.
       // A peer dependency: the app's own copy, so the app and the shell share one Nuxt UI.
       "@nuxt/ui": { defaults: { prose: true, content: true } },
       [dependency("@vite-hub/ui/nuxt")]: {},
       [dependency("nuxt-llms")]: {},
       [dependency("nuxt-agent-discovery")]: {},
+      ...docs.linkChecker === false ? {} : { [dependency("nuxt-link-checker")]: { defaults: { failOnError: true, fetchRemoteUrls: false, showLiveInspections: false } } },
       // The toolkit's own llms.txt block repeats what nuxt-agent-discovery writes.
-      ...docs?.mcp === false ? {} : { [dependency("@nuxtjs/mcp-toolkit")]: { defaults: { name: docs?.site?.name ?? "Docs", llms: false } } },
+      ...docs.mcp === false ? {} : { [dependency("@nuxtjs/mcp-toolkit")]: { defaults: { name: docs.site?.name ?? "Docs", llms: false } } },
     }
   },
   async setup(options, nuxt) {
@@ -277,6 +303,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       filename: "docs/content.mjs",
       write: true,
       getContents: () => contentEntry ? `export { content } from ${JSON.stringify(contentEntry)}\n` : "export const content = undefined\n",
+    }).dst
+
+    // The page route and search import the parser options. Without `parser` they parse with the built-in plugins only.
+    const parserEntry = options.parser ? resolve(nuxt.options.rootDir, options.parser) : null
+    const parserFile = addTemplate({
+      filename: "docs/parser.mjs",
+      write: true,
+      getContents: () => parserEntry ? `export { default } from ${JSON.stringify(parserEntry)}\n` : "export default {}\n",
     }).dst
 
     // Nuxt watches the app folder, and the content folder usually sits beside it, so the module watches it in development.
@@ -432,7 +466,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           }
         }
       }
-      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile }
+      nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile }
       // Nitro 2 development leaves absolute modules outside the app to Node. Bundle the generated modules, so the page
       // route reads the same Content runtime as ViteHub's Content routes instead of a second copy of `server/content.ts`.
       const inline = nitro.externals?.inline

@@ -39,7 +39,8 @@ beforeEach(() => {
 
 afterEach(() => {
   document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button.exit")?.click()
-  for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments")) element.remove()
+  for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments, vitehub-tools-off")) element.remove()
+  localStorage.removeItem("vitehub-tools-off")
   document.documentElement.className = ""
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -125,7 +126,7 @@ describe("the Comments page tool", () => {
     await vi.waitFor(() => expect(comment(bar)).toBeTruthy())
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "c" }))
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(true)
-    expect(comment(bar)!.getAttribute("aria-pressed")).toBe("true")
+    await vi.waitFor(() => expect(comment(bar)!.getAttribute("aria-pressed")).toBe("true"))
     comment(bar)!.click()
     expect(document.documentElement.classList.contains("vitehub-comment-mode")).toBe(false)
   })

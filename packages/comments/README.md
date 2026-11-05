@@ -38,15 +38,17 @@ export const comments = defineComments({
 })
 ```
 
+Without the file, the Console turns Comments on with `defineComments()`, and so do `vitehub({ comments: true })` and an object such as `{ database: "team" }`. `comments: false` turns it off. Docs sites of `@vite-hub/docs` on `vite-hub/nuxt` set it by default; `docs: { comments: false }` turns it off.
+
 ViteHub then adds the `vitehub_comment_threads`, `vitehub_comment_messages`, `vitehub_comment_counters`, and `vitehub_comment_forge` tables to the default Database (or the only one, or `defineComments({ database: "name" })`; without a Database Definition, the implicit `default` Database of `@vite-hub/database`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub db generate` and `vitehub db migrate`.
 
 A ViteHub Database with the tables of the earlier live-site model must move them once in a migration: see [Upgrade to one model](https://vitehub.dev/docs/comments/configure#upgrade-to-one-model). Until then every Comments request fails with `COMMENTS_R0019`, whose `fix` names `commentsMigrationSql({ from: "live" })`. `migrateComments(db)` from `@vite-hub/comments/database` moves them in place and keeps the old tables as a backup.
 
-Comments is a ViteHub page tool. Open any page with `?vitehub`, or `?vitehub=comments`. The server adds the page tools loader to that page. The loader calls `GET /_vitehub/page/session`, which allows Comments when `authorize` allows `read` or offers GitHub sign-in or account switching, and sets the `vitehub-tools` cookie so later pages open in comment mode too. The loader then draws the ViteHub tools pill at the bottom of the page and imports the overlay. The overlay draws its toolbar in its segment of the pill, and its pins, cursors, and cards in `<vitehub-comments>`. The pill's **×** button turns the page tools off, so the toolbar has no close button of its own. A short note then says how to turn them on again, with **Undo**. The cookie is a hint, never a credential: every Comments route checks `authorize` again. A request without the hint gets the page with a short inline bootstrap that loads the loader in the browser only when the hint is there, so prerendered pages that a host serves as static files work too. Opening the Console calls the same session route, so the Console's people see the toolbar on the app's pages. The session route and the loader do not need the Console.
+Comments is a ViteHub page tool. Open any page with `?vitehub`, or `?vitehub=comments`. The server adds the page tools loader to that page. The loader calls `GET /_vitehub/page/session`, which allows Comments when `authorize` allows `read` or offers GitHub sign-in or account switching, and sets the `vitehub-tools` cookie so later pages open in comment mode too. The loader then draws the ViteHub tools pill at the bottom of the page and imports the overlay. The overlay draws its toolbar in its segment of the pill, and its pins, cursors, and cards in `<vitehub-comments>`. The pill's **×** button turns the page tools off, so the toolbar has no close button of its own. A small ViteHub hexagon then stays at the pill's place, on every page, and pressing it turns them on again. The cookie is a hint, never a credential: every Comments route checks `authorize` again. A request without the hint gets the page with a short inline bootstrap that loads the loader in the browser only when the hint is there, so prerendered pages that a host serves as static files work too. Opening the Console calls the same session route, so the Console's people see the toolbar on the app's pages. The session route and the loader do not need the Console.
 
 A single page app whose `index.html` Vite serves or builds gets a short inline check in that file. It imports the loader in the browser when the page has the query or the cookie, so a built `index.html` that a host serves as a static file also gets the tools. When the app has a Vite `base` or a Nuxt `app.baseURL`, such as `/docs/`, every path follows it: `/docs/_vitehub/page/session`, `/docs/_vitehub/page/assets/loader.js`, and `/docs/api/_vitehub/comments/**`. The loader and the overlay find the base from their own URL, including the overlay's Realtime presence and live update connections.
 
-When the app has the Console, its Comments section controls access, and opening the Console enables the toolbar on the app's pages. Custom `identify` runs after that access check. Without the Console, custom `identify` takes precedence over ViteHub Auth, and Comments reads the Auth session only when `identify` is absent.
+Custom `identify` names the user of every surface, and `authorize` decides; Comments then reads neither the Auth session nor the Console's access. Without `identify`, when the app has the Console, its Comments section controls access, and opening the Console enables the toolbar on the app's pages. Otherwise Comments reads the Auth session.
 
 Console `comments:read` access allows reading threads and joining presence. Writes also require full `comments` access and the Comments policy.
 
@@ -205,6 +207,7 @@ A transport is the seam to the server. Each method has the name and the input of
 
 ```ts
 interface CommentsTransport {
+  supportsAttachments?: boolean; // Defaults to true for custom transports.
   list(query: CommentListQuery): Promise<CommentThread[]>;
   get(input: CommentGetInput): Promise<CommentThread | null>; // { id } or { scope, n }
   create(input: CommentCreateInput): Promise<CommentThread>;
@@ -219,6 +222,8 @@ interface CommentsTransport {
 ```
 
 A mutation returns the thread as it is afterwards. `delete` returns `null` when the thread is gone.
+
+Transports accept attachment keys by default, including the shipped `createRpcTransport()`. Custom transports that reject attachment keys should set `supportsAttachments: false` to disable file controls in comment surfaces.
 
 `createMemoryTransport()` keeps threads in memory. Use it in tests and docs examples:
 

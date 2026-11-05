@@ -304,6 +304,8 @@ export type CommentEvent =
  * A mutation returns the thread as it is afterwards, and `delete` returns `null` when the thread is gone.
  */
 export interface CommentsTransport {
+  /** Whether the server accepts attachment keys. Defaults to true for custom transports. */
+  supportsAttachments?: boolean
   list: (query: CommentListQuery) => Promise<CommentThread[]>
   get: (input: CommentGetInput) => Promise<CommentThread | null>
   create: (input: CommentCreateInput) => Promise<CommentThread>

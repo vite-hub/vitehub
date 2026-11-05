@@ -42,6 +42,25 @@ describe("Comments activation from the Console", () => {
     }
   })
 
+  it("keeps the Operations inbox for the comments option without server/comments.ts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-comments-console-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const config: UserConfig = { root }
+      for (const plugin of [hubComments({ enabled: true }), consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["comments"] })]) {
+        const hook = plugin.config
+        if (!hook) throw new Error("Expected a config hook")
+        await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
+      }
+      const generated = await readFile(resolveGeneratedConsolePlugin(root, undefined, undefined), "utf8")
+      expect(generated).toContain('"operation":"comments.list"')
+      expect(generated).not.toContain("readCommentsConsoleRecords")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it.each([
     { base: "/", mount: "" },
     { base: "/portal/", mount: "/portal" },

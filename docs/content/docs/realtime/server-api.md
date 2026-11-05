@@ -275,8 +275,10 @@ document changes, so create the editor again for each document. Pass
 
 ```ts
 import { connectRealtimeRoom } from '@vite-hub/realtime/client'
+import { commentRoom, normalizeCommentPage } from '@vite-hub/comments'
 
-const room = connectRealtimeRoom('comments', 'pages/home', { changes: true })
+const page = normalizeCommentPage(location.pathname)
+const room = connectRealtimeRoom('comments', commentRoom(page), { changes: true, params: { page } })
 room.setLocal('cursor', { x: 120, y: 80 })
 room.onUpdate(() => render(room.people(), room.states()))
 room.onChange(change => reload(change))
@@ -293,6 +295,8 @@ room.onChange(change => reload(change))
 | `destroy()` | Leaves the room. |
 
 `identity` sets the person this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's identity. When the room re-seeds, the client joins the new seed on its own.
+
+`params` sends query parameters on presence and workspace connections, so a definition can check context such as the current page. The definition must verify that context against the requested document before granting access.
 
 ## Saves, refresh, and resets
 

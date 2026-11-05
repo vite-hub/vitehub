@@ -21,8 +21,6 @@ import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
 import { consoleSignInURL } from "../client/sign-in";
 import { recentTimestamp } from "../client/time";
-import ConsoleConnectAgent from "./console-connect-agent.vue";
-import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
@@ -195,7 +193,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame :sections-base="sectionsBase">
 
     <ConsoleSearch
       :agents-base="agentsBase"
@@ -256,7 +253,9 @@ onBeforeUnmount(() => {
               </span>
               <div class="min-w-0">
                 <h1 class="truncate text-base font-semibold tracking-tight text-highlighted">
-                  {{ installedNavigation?.projectName || "ViteHub Console" }}
+                  <!-- The name comes with the sections, so a placeholder holds its line instead of a name that then changes. -->
+                  <USkeleton v-if="loading" class="my-0.5 h-5 w-40 rounded-sm" />
+                  <template v-else>{{ installedNavigation?.projectName || "ViteHub Console" }}</template>
                 </h1>
                 <p class="text-sm text-muted">
                   {{ loading ? "Loading the enabled primitives…" : summary }}
@@ -396,6 +395,22 @@ onBeforeUnmount(() => {
                 </section>
               </div>
 
+              <section class="vitehub-console__overview-block" aria-labelledby="console-home-connect">
+                <h2 id="console-home-connect" class="vitehub-console__overview-label">Connect</h2>
+                <ul class="vitehub-console__overview-list">
+                  <li>
+                    <button type="button" class="vitehub-console__overview-row" @click="openSection('vitehub-console-connect')">
+                      <UIcon name="i-lucide-bot" class="vitehub-console__overview-icon" />
+                      <span class="vitehub-console__overview-name">Connect an agent</span>
+                      <span class="vitehub-console__overview-description">Use this Console from Claude Code, Codex, Cursor, or any MCP client.</span>
+                      <span class="vitehub-console__overview-meta">
+                        <UIcon name="i-lucide-arrow-right" class="size-3" />
+                      </span>
+                    </button>
+                  </li>
+                </ul>
+              </section>
+
               <section v-if="notEnabledPrimitives.length" class="vitehub-console__overview-block" aria-labelledby="console-home-not-enabled">
                 <h2 id="console-home-not-enabled" class="vitehub-console__overview-label">Not enabled</h2>
                 <ul class="vitehub-console__overview-list">
@@ -420,7 +435,6 @@ onBeforeUnmount(() => {
                 </ul>
               </section>
 
-              <ConsoleConnectAgent v-if="installedNavigation" :auth="installedNavigation.auth" />
 
               <section class="vitehub-console__overview-block" aria-labelledby="console-home-learn">
                 <h2 id="console-home-learn" class="vitehub-console__overview-label">Learn</h2>
@@ -442,7 +456,6 @@ onBeforeUnmount(() => {
         </main>
       </template>
     </UDashboardPanel>
-  </ConsoleFrame>
 </template>
 
 <style>

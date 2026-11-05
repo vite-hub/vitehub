@@ -2,9 +2,12 @@
 import { createClient } from "@libsql/client"
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 import { drizzle } from "drizzle-orm/libsql"
+import { H3Event } from "h3"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
-import { defineComments } from "../src/index.ts"
+// Exercise the built Node transport without pulling its Vite helpers into Comments' DOM typecheck.
+import { createStandaloneOperationHandler } from "../../internal/dist/operations-dev.js"
+import { defineComments, installComments } from "../src/index.ts"
 import { commentsOperations } from "../src/operations-core/operations.ts"
 import { createAuthUsers, installCommentsRuntime } from "../src/operations-core/server.ts"
 import { createCommentsStore } from "../src/operations-core/store.ts"
@@ -14,7 +17,8 @@ import { commentsTables } from "../src/tables.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
 import type { Comments } from "../src/index.ts"
-import type { CommentsPeople } from "../src/types.ts"
+import type { CommentsDatabase } from "../src/operations-core/store.ts"
+import type { CommentsPeople, CommentsUser } from "../src/types.ts"
 import type { CommentCreateInput, CommentThread } from "../src/operations-core/types.ts"
 
 const registry = createOperationRegistry([{ operations: commentsOperations }])
@@ -59,6 +63,19 @@ it.each(["rpc", "memory"])("filters subject kinds before limiting through the %s
   expect(await transport.list({ subjectKind: "content" })).toEqual([content])
   expect(await transport.list({ subjectKind: "missing" })).toEqual([])
   expect(await transport.list({ subjectKind: "page", subject: content.subject })).toEqual([])
+})
+
+it("accepts attachment keys through the RPC transport for new comments and replies", async () => {
+  setup(defineComments({ authorize: () => true }))
+  const transport = createRpcTransport({ fetch: async (_url, init) => {
+    const { operation, input } = JSON.parse(String(init?.body))
+    return Response.json(await call(operation, input))
+  } })
+  const thread = await transport.create({ ...input, attachments: ["uploads/first.png"] })
+  expect(thread.messages[0]!.attachments).toEqual(["uploads/first.png"])
+  const replied = await transport.reply({ threadId: thread.id, body: "", attachments: ["uploads/reply.png"] })
+  expect(replied.messages[1]!.attachments).toEqual(["uploads/reply.png"])
+  expect(transport.supportsAttachments).not.toBe(false)
 })
 
 it("refuses ownership-based deletion when another author replies after authorization", async () => {
@@ -252,4 +269,99 @@ it("uses Auth user fields to authorize mentions and keeps suggestions public", a
   // Suggestions leave out the people that may not be mentioned, and keep only public fields.
   expect(await call("comments.users", { query: "e" })).toEqual({ ok: true, value: [] })
   expect(await call("comments.users", { query: "be" })).toEqual({ ok: true, value: [{ id: ben.id, name: ben.name }] })
+})
+
+
+it("reports thread actions independently of writing, including ownership and root deletion", async () => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const thread = await create()
+  const mixed = await store.addMessage(thread.id, { author: admin, body: "Admin reply", id: "admin-reply", attachments: [], mentions: [], now: Date.now() })
+  await store.addMessage(thread.id, { author: member, body: "My reply", id: "own-reply", attachments: [], mentions: [], now: Date.now() })
+  installCommentsRuntime({ definition: defineComments({ authorize: ({ action, thread }) => Boolean(thread) && (action === "read" || action === "resolve") }).options, store })
+  expect(await call("comments.session", { threadId: thread.id })).toMatchObject({ ok: true, value: {
+    canWrite: false,
+    capabilities: { reply: false, resolve: true, deleteThread: false, edit: [thread.messages[0]!.id, "own-reply"], delete: [] },
+  } })
+  expect(await call("comments.resolve", { threadId: thread.id })).toMatchObject({ ok: true })
+  expect(await call("comments.reply", { body: "Denied", threadId: thread.id })).toMatchObject({ ok: false, status: 403 })
+  expect(await call("comments.edit", { body: "Allowed", messageId: thread.messages[0]!.id, threadId: thread.id })).toMatchObject({ ok: true })
+  expect(await call("comments.delete", { messageId: "own-reply", threadId: thread.id })).toMatchObject({ ok: false, status: 403 })
+  expect(await call("comments.delete", { messageId: thread.messages[0]!.id, threadId: thread.id })).toMatchObject({ ok: false, status: 403 })
+  expect((await store.getById(mixed.id))?.messages).toHaveLength(3)
+})
+
+it("does not grant resolve or delete from write permission and respects operation access", async () => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const thread = await create(admin)
+  installCommentsRuntime({ definition: defineComments({ authorize: ({ action }) => action === "read" || action === "write" }).options, store })
+  expect(await call("comments.session", { threadId: thread.id })).toMatchObject({ ok: true, value: {
+    capabilities: { reply: true, resolve: false, deleteThread: false, edit: [], delete: [] },
+  } })
+  installCommentsRuntime({ definition: defineComments({ authorize: () => true }).options, store })
+  const result = await runOperation(registry, "comments.session", { threadId: thread.id }, {
+    access: { mode: "auth", sections: ["comments:read"] }, user: admin,
+    development: false, surface: "console", request: new Request("https://example.com/"),
+  })
+  expect(result).toMatchObject({ ok: true, value: { capabilities: { reply: false, resolve: false, deleteThread: false, edit: [], delete: [] } } })
+  expect(await call("comments.session", { threadId: thread.id }, admin)).toMatchObject({ ok: true, value: { capabilities: { deleteThread: true, delete: [thread.messages[0]!.id], edit: [thread.messages[0]!.id] } } })
+})
+
+it.each([false, true])("matches owner deletion capabilities to the write policy (%s)", async write => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const thread = await create()
+  installCommentsRuntime({ definition: defineComments({ authorize: ({ action }) => action !== "write" || write }).options, store })
+  expect(await call("comments.session", { threadId: thread.id })).toMatchObject({ ok: true, value: {
+    capabilities: { reply: write, deleteThread: write, delete: write ? [thread.messages[0]!.id] : [] },
+  } })
+  expect(await call("comments.delete", { threadId: thread.id })).toMatchObject(write ? { ok: true } : { ok: false, status: 403 })
+})
+
+it.each(["admin", "stranger"])("identifies %s through the standalone CLI operation RPC", async (person) => {
+  const identified = { id: "admin", name: "Admin", role: "admin" }
+  const authorize = vi.fn(({ user }: { user: CommentsUser | null }) => user?.role === "admin")
+  const identify = vi.fn(({ event }: { event: H3Event }) => event.req.headers.get("x-person") === "admin" ? identified : null)
+  const comments = defineComments({ identify, authorize })
+  // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
+  installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
+  const handler = createStandaloneOperationHandler([{ operations: commentsOperations, plugin: "comments" }], "/project")
+  const request = new Request("http://localhost/_vitehub/rpc/__call", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-vitehub-console": "1", "x-person": person },
+    body: JSON.stringify({ operation: "comments.create", input }),
+  })
+  const event = new H3Event(request)
+  const response = await handler(event)
+  expect(response.status).toBe(person === "admin" ? 200 : 403)
+  expect(await response.json()).toMatchObject(person === "admin"
+    ? { ok: true, value: { author: { id: "admin", name: "Admin" } } }
+    : { ok: false, status: 403 })
+  expect(identify).toHaveBeenCalledWith({ event })
+  expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user: person === "admin" ? identified : null }))
+})
+
+it("gives authorize the user that identify builds for the request, not the Console user", async () => {
+  type DropUser = CommentsUser & { identity?: { role: string } }
+  const seen: Array<DropUser | null> = []
+  const comments = defineComments({
+    // The app's own session: the Console user carries no `identity`.
+    identify: ({ event }) => event.req.headers.get("x-person") === "admin" ? { id: "admin", name: "Admin", identity: { role: "admin" } } : null,
+    authorize: ({ user }) => {
+      seen.push(user as DropUser | null)
+      return (user as DropUser | null)?.identity?.role === "admin"
+    },
+  })
+  // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
+  installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
+  const request = new Request("http://site.test/_vitehub/rpc/__call", { headers: { "x-person": "admin" } })
+  const context = { access: { mode: "auth", sections: "all" }, surface: "console", user: { id: "admin", name: "Admin" }, request, event: new H3Event(request) } satisfies OperationContext
+  const created = await runOperation(registry, "comments.create", input, context)
+  expect(created).toMatchObject({ ok: true, value: { author: { id: "admin", name: "Admin" } } })
+  expect(await runOperation(registry, "comments.list", {}, context)).toMatchObject({ ok: true, value: [{ id: (created as { value: CommentThread }).value.id }] })
+  expect(seen.length).toBeGreaterThan(0)
+  expect(seen.every(user => user?.identity?.role === "admin")).toBe(true)
+
+  // A call without a request, such as an agent's, has no user for identify to build, so it reads nothing.
+  const { event: _event, request: _request, ...agent } = context
+  expect(await runOperation(registry, "comments.list", {}, { ...agent, surface: "agent" })).toEqual({ ok: true, value: [] })
+  expect(seen.at(-1)).toBeNull()
 })

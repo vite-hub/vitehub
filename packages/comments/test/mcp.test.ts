@@ -24,6 +24,38 @@ async function setup(options: DefineCommentsOptions = {}) {
 }
 
 describe("Comments MCP tools", () => {
+  it.each([undefined, "matching"])("fills readable pages after denied and nonmatching threads (search: %s)", async (search) => {
+    const { comments, call } = await setup({ authorize: ({ thread }) => !thread?.messages[0]?.body.startsWith("Hidden") })
+    const [, oldest] = await comments.create({ page: "/pricing", body: "matching oldest", author: ada })
+    const [, newer] = await comments.create({ page: "/pricing", body: "matching newer", author: ada })
+    for (let index = 0; index < (search ? 500 : 2); index++) {
+      await comments.create({ page: "/pricing", body: `Hidden matching ${index}`, author: ada })
+    }
+    const answer = await call("comments_list_threads", { limit: 2, ...(search ? { search } : {}) })
+    expect(answer.structured).toMatchObject({ threads: expect.arrayContaining([expect.objectContaining({ id: newer!.id }), expect.objectContaining({ id: oldest!.id })]) })
+    expect(answer.structured?.threads).toHaveLength(2)
+    expect(answer.text).not.toContain("Hidden")
+  })
+
+  it("filters denied pages and threads from both list answers", async () => {
+    const { comments, call } = await setup({ authorize: ({ subject, thread }) => subject?.id !== "/private" && thread?.messages[0]?.body !== "Hidden thread" })
+    const [, visible] = await comments.create({ page: "/pricing", body: "Visible", author: ada })
+    await comments.create({ page: "/private", body: "Private page", author: ada })
+    await comments.create({ page: "/pricing", body: "Hidden thread", author: ada })
+    for (const input of [{}, { search: "thread" }, { page: "/pricing" }]) {
+      const answer = await call("comments_list_threads", input)
+      expect(answer.text).not.toMatch(/Private page|Hidden thread/)
+      expect(answer.structured).toEqual({ threads: input.search ? [] : [expect.objectContaining({ id: visible!.id })] })
+    }
+    expect((await call("comments_list_threads", { page: "/private" })).isError).toBe(true)
+  })
+
+  it("passes the requested page to the list read policy", async () => {
+    const { comments, call } = await setup({ authorize: ({ subject }) => subject?.id === "/pricing" })
+    const [, thread] = await comments.create({ page: "/pricing", body: "Allowed here", author: ada })
+    expect((await call("comments_list_threads", { page: "/pricing/" })).structured).toMatchObject({ threads: [{ id: thread!.id }] })
+  })
+
   it("fills the page limit when newer subjects share the site scope", async () => {
     const { comments, call } = await setup({ subjects: [defineCommentSubject({ kind: "content", scope: () => "site" })] })
     const [, page] = await comments.create({ page: "/pricing", body: "Page feedback", author: ada })
@@ -46,16 +78,15 @@ describe("Comments MCP tools", () => {
       expect(result.isError).toBe(readOnly && index >= 2 ? true : undefined)
     }
     expect(consoleAuthorize.mock.calls.map(([context]) => context.kind)).toEqual(["read", "read", "write", "write"])
-    expect(authorize).toHaveBeenCalledTimes(readOnly ? 2 : 4)
+    expect(authorize).toHaveBeenCalledTimes(readOnly ? 3 : 5)
     const [, after] = await comments.get(thread!.id)
     expect(after?.messages).toHaveLength(readOnly ? 1 : 2)
     expect(after?.status).toBe(readOnly ? "open" : "resolved")
   })
 
-  it.each([false, true])("preserves Console denial before Comments policies, with custom identity: %s", async (customIdentity) => {
-    const identify = vi.fn(() => ada)
+  it("preserves Console denial before Comments policies without custom identify", async () => {
     const authorize = vi.fn(() => true)
-    const comments = await createComments({ identify: customIdentity ? identify : undefined, authorize })
+    const comments = await createComments({ identify: undefined, authorize })
     const session = commentsConsoleSession({ authorize: async () => false, user: async () => ada, identify: async () => ada })
     const tools = commentsMcpTools(comments, { consoleSession: session })
     const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: ada })
@@ -63,14 +94,13 @@ describe("Comments MCP tools", () => {
     for (const [index, tool] of tools.entries()) {
       expect((await tool.call(inputs[index]!, { user: ada, event: event() })).isError).toBe(true)
     }
-    expect(identify).not.toHaveBeenCalled()
     expect(authorize).not.toHaveBeenCalled()
     const [, after] = await comments.get(thread!.id)
     expect(after?.messages).toHaveLength(1)
     expect(after?.status).toBe("open")
   })
 
-  it.each(["authorize", "user", "identify"] as const)("denies Console failures in %s before custom identity or policy", async (source) => {
+  it.each(["authorize", "user", "identify"] as const)("lets custom identify and authorize decide when the Console fails in %s", async (source) => {
     const identify = vi.fn(() => ada)
     const authorize = vi.fn(() => true)
     const comments = await createComments({ identify, authorize })
@@ -83,13 +113,13 @@ describe("Comments MCP tools", () => {
     const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: ada })
     const inputs = [{}, { id: thread!.id }, { id: thread!.id, body: "Denied" }, { id: thread!.id }]
     for (const [index, tool] of commentsMcpTools(comments, { consoleSession }).entries()) {
-      expect((await tool.call(inputs[index]!, { user: ada, event: event() })).isError).toBe(true)
+      expect((await tool.call(inputs[index]!, { user: ada, event: event() })).isError).toBeUndefined()
     }
-    expect(identify).not.toHaveBeenCalled()
-    expect(authorize).not.toHaveBeenCalled()
+    expect(identify).toHaveBeenCalled()
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user: ada }))
     const [, after] = await comments.get(thread!.id)
-    expect(after?.messages).toHaveLength(1)
-    expect(after?.status).toBe("open")
+    expect(after?.messages).toHaveLength(2)
+    expect(after?.status).toBe("resolved")
   })
 
   it.each([ada, null])("skips Auth when custom identify returns %j", async (person) => {
@@ -101,14 +131,14 @@ describe("Comments MCP tools", () => {
   })
 
   it("registers MCP tools with the plugin's Console access gate", async () => {
-    const identify = vi.fn(() => ada)
-    const comments = await createComments({ identify, authorize: () => true })
+    const authorize = vi.fn(() => true)
+    const comments = await createComments({ identify: undefined, authorize })
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
       defineCommentsPlugin({ comments, database: () => undefined, overlay: "/api/_vitehub/comments/assets/overlay.js", consoleSession: async () => false })(null)
       const tool = getViteHubMcpTools().find(tool => tool.name === "comments_list_threads")!
       expect((await tool.call({}, { user: ada, event: event() })).isError).toBe(true)
-      expect(identify).not.toHaveBeenCalled()
+      expect(authorize).not.toHaveBeenCalled()
     }
     finally {
       warn.mockRestore()
@@ -166,7 +196,7 @@ describe("Comments MCP tools", () => {
     expect(after?.messages.at(-1)?.author).toEqual({ id: "ben", name: "Ben" })
     expect(after?.resolvedBy).toEqual({ id: "ben", name: "Ben" })
     expect((await tools[3]!.call({ id: thread!.id, resolved: false }, { user })).isError).toBeUndefined()
-    expect(seen).toEqual(Array(5).fill(user))
+    expect(seen).toEqual(Array(6).fill(user))
     for (const [index, tool] of tools.entries()) {
       expect((await tool.call(inputs[index]!, { user: null })).isError).toBe(true)
     }

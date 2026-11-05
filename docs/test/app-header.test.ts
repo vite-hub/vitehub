@@ -33,7 +33,8 @@ describe("docs header", () => {
     expect(header).toContain("...(start?.links ?? []).filter(link => link.to !== base)");
     expect(config.docs?.start?.links?.map(link => [link.label, link.to])).toEqual([
       ["All docs", "/docs"],
-      ["Tutorials", "/tutorials"],
+      ["Learn", "/learn"],
+      ["Playground", "/playground"],
       ["Projects", "/projects"],
       ["Templates", "/templates"],
     ]);

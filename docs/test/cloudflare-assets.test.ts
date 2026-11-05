@@ -18,6 +18,10 @@ class Fetcher {
   fetch = fetchAsset;
 }
 vi.stubGlobal("useRuntimeConfig", () => ({ agentDiscovery: { userAgents: ["GPTBot"] } }));
+// Nitro matches the route rules of nuxt.config.ts. The Learn rule is the only one with headers.
+vi.stubGlobal("getRouteRules", (event: { path: string }) => event.path.startsWith("/learn")
+  ? { headers: { "Cross-Origin-Embedder-Policy": "credentialless", "Cross-Origin-Opener-Policy": "same-origin" } }
+  : {});
 const request = toWebHandler(createApp()
   .use(defineEventHandler((event) => {
     // Nitro's `cloudflare_module` preset passes the Worker request here.
@@ -87,5 +91,16 @@ describe("Cloudflare prerendered page middleware", () => {
 
     expect(await response.text()).toBe("prerendered: home");
     expect(response.headers.get("vary")).toBe("Accept, User-Agent");
+  });
+
+  it("keeps the cross-origin isolation of prerendered tutorials and adds it nowhere else", async () => {
+    const tutorial = await request(new Request("https://vitehub.dev/learn/first-agent", { headers: { Accept: "text/html" } }));
+    expect(fetchAsset).toHaveBeenCalledOnce();
+    expect(tutorial.headers.get("cross-origin-opener-policy")).toBe("same-origin");
+    expect(tutorial.headers.get("cross-origin-embedder-policy")).toBe("credentialless");
+
+    const docs = await request(new Request("https://vitehub.dev/docs/kv/agent-capability", { headers: { Accept: "text/html" } }));
+    expect(docs.headers.get("cross-origin-opener-policy")).toBeNull();
+    expect(docs.headers.get("cross-origin-embedder-policy")).toBeNull();
   });
 });

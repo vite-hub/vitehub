@@ -18,6 +18,7 @@ export const commentsConsoleSection: ViteHubConsoleOperationSection = {
       { key: "messages.0.body", label: "Comment", format: "excerpt" },
       { key: "updatedAt", label: "Updated", format: "datetime" },
     ],
+    detail: { kind: "comment-thread" },
     filters: [
       { id: "all", input: {}, label: "All" },
       { id: "open", input: { status: "open" }, label: "Open" },

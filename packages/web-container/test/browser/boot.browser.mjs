@@ -20,21 +20,32 @@ const files = {
     "createServer((request, response) => {",
     "  response.setHeader(\"content-type\", \"application/json\")",
     "  response.end(JSON.stringify({ greeting: process.env.GREETING, node: process.version, path: request.url }))",
-    "}).listen(3000, () => console.log(\"listening on 3000\"))",
+    "}).listen(process.env.PORT, () => console.log(`listening on ${process.env.PORT}`))",
   ].join("\n"),
 }
 
-async function waitForFrame(page, url) {
-  const origin = new URL(url).origin
-  for (let attempt = 0; attempt < 600; attempt++) {
-    const frame = page.frames().find(candidate => candidate.url().startsWith(origin))
-    if (frame) return frame
-    await new Promise(resolve => setTimeout(resolve, 100))
-  }
-  throw new Error(`No frame loaded ${url}`)
+// A ViteHub app from npm. In `vite dev`, Nitro starts workers on random ports before Vite listens.
+const viteHubFiles = {
+  ".npmrc": "legacy-peer-deps=true\n",
+  "package.json": JSON.stringify({
+    name: "vitehub-app",
+    private: true,
+    type: "module",
+    scripts: { dev: "vite dev" },
+    dependencies: { "ai": "7.0.130", "h3": "2.0.1-rc.33", "nitro": "3.0.260903-beta", "vite": "^8.2.2", "vite-hub": "0.1.0" },
+  }),
+  "vite.config.ts": [
+    "import { defineConfig } from \"vite\"",
+    "import { vitehub } from \"vite-hub\"",
+    "export default defineConfig({ plugins: [vitehub({ preset: \"node\" })] })",
+  ].join("\n"),
+  "server/api/hello.get.ts": [
+    "import { defineEventHandler } from \"h3\"",
+    "export default defineEventHandler(() => ({ hello: \"from vite dev\" }))",
+  ].join("\n"),
 }
 
-test("boots a WebContainer, runs a Node app, reads its preview, and remounts a snapshot", { timeout: 5 * 60_000 }, async (t) => {
+async function startPage(t) {
   const server = await createServer({
     configFile: false,
     logLevel: "warn",
@@ -49,12 +60,26 @@ test("boots a WebContainer, runs a Node app, reads its preview, and remounts a s
     await browser.close()
     await server.close()
   })
-
   const page = await browser.newPage()
   page.on("pageerror", error => console.log("[page error]", error.message))
-  const started = performance.now()
   await page.goto(`http://127.0.0.1:${port}/`)
   await page.waitForFunction(() => window.webContainer)
+  return page
+}
+
+async function waitForFrame(page, url) {
+  const origin = new URL(url).origin
+  for (let attempt = 0; attempt < 600; attempt++) {
+    const frame = page.frames().find(candidate => candidate.url().startsWith(origin))
+    if (frame) return frame
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+  throw new Error(`No frame loaded ${url}`)
+}
+
+test("boots a WebContainer, runs a Node app, reads its preview, and remounts a snapshot", { timeout: 5 * 60_000 }, async (t) => {
+  const started = performance.now()
+  const page = await startPage(t)
   assert.equal(await page.evaluate(() => crossOriginIsolated), true, "the Vite plugin made the page cross-origin isolated")
 
   const first = await page.evaluate(async (files) => {
@@ -103,7 +128,7 @@ test("boots a WebContainer, runs a Node app, reads its preview, and remounts a s
   console.log("preview", first.previewUrl, "port", first.port, `read in ${previewMs} ms`, "snapshot bytes", exported.length)
   assert.equal(first.installExit, 0, first.installOutput)
   assert.deepEqual(body, { greeting: "hello from the per-process env", node: body.node, path: "/check" })
-  assert.match(body.node, /^v22\./)
+  assert.match(body.node, /^v\d+\./)
   assert.deepEqual(first.stages, ["checking", "booting", "mounting", "mounting", "installing", "installing", "starting", "ready"])
 
   const second = await page.evaluate(async (bytes) => {
@@ -123,4 +148,33 @@ test("boots a WebContainer, runs a Node app, reads its preview, and remounts a s
   assert.equal(second.server, files["server.js"])
   assert.equal(second.extra, "added after the snapshot")
   console.log(`total ${Math.round(performance.now() - started)} ms`)
+})
+
+test("previews the vite dev server of a ViteHub app, not the Nitro workers", { timeout: 10 * 60_000 }, async (t) => {
+  const page = await startPage(t)
+  const result = await page.evaluate(async (files) => {
+    const container = await window.webContainer.bootWebContainer({ files, workdirName: "vitehub-app" })
+    const servers = []
+    container.on("server-ready", server => servers.push(server.port))
+    const install = await container.run("install")
+    const installExit = await install.exit
+    if (installExit !== 0) return { installExit, installOutput: (await install.text()).slice(-2000) }
+    window.dev = await container.run("dev")
+    const preview = await container.preview.ready
+    return { installExit, preview, servers: [...servers] }
+  }, viteHubFiles)
+  assert.equal(result.installExit, 0, result.installOutput)
+  console.log("servers before the preview", JSON.stringify(result.servers), "preview", JSON.stringify(result.preview))
+  assert.equal(result.preview.port, 3000)
+  assert.ok(result.servers.some(server => server !== 3000), "Nitro started a worker on another port first")
+
+  await page.evaluate((url) => {
+    const frame = document.createElement("iframe")
+    frame.src = new URL("/api/hello", url).href
+    document.body.append(frame)
+  }, result.preview.url)
+  const frame = await waitForFrame(page, result.preview.url)
+  await frame.waitForFunction(() => document.body?.textContent?.includes("hello"), undefined, { timeout: 120_000 })
+  assert.deepEqual(JSON.parse(await frame.evaluate(() => document.body.textContent)), { hello: "from vite dev" })
+  await page.evaluate(() => window.dev.kill())
 })

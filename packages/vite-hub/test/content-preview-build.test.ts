@@ -108,7 +108,9 @@ describe("Content preview in a built Nuxt 4 app", () => {
       const database = join(root, "history.sqlite")
       await createHistoryDatabase(database)
 
-      await promisify(execFile)(process.execPath, [join(nuxt, "bin/nuxt.mjs"), "build"], { cwd: root, env: { ...process.env, NODE_ENV: "production" } })
+      await promisify(execFile)(process.execPath, [join(nuxt, "bin/nuxt.mjs"), "build"], { cwd: root, env: { ...process.env, NODE_ENV: "production" } }).catch((error: Error & { stdout?: string }) => {
+        throw new Error(`${error.message}\n${error.stdout ?? ""}`, { cause: error })
+      })
 
       const server = await startBuiltServer(root, { CONTENT_FIXTURE_DATABASE: database, NODE_ENV: "production", VITEHUB_CONTENT_KEY: contentKey })
       try {

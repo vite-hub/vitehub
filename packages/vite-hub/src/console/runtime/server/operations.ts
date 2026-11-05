@@ -24,7 +24,7 @@ function disabledConsoleFeature(feature: string): Promise<never> {
 }
 
 /** Document actions that only read. A read-only section grant keeps them. */
-const consoleDocumentReadActions: ReadonlySet<string> = new Set(["get", "list", "overview", "raw", "references", "revisions", "search", "sessions"])
+const consoleDocumentReadActions: ReadonlySet<string> = new Set(["get", "list", "overview", "raw", "references", "resolve", "revisions", "search", "sessions"])
 /** Media actions that only read. */
 const consoleMediaReadActions: ReadonlySet<string> = new Set(["get", "info", "list", "usage"])
 

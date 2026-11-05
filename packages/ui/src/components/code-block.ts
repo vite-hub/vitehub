@@ -1,5 +1,6 @@
-import { defineComponent, Fragment, h, onBeforeUnmount, type PropType, ref, resolveComponent, Text, type VNode } from "vue";
+import { defineComponent, Fragment, h, onBeforeUnmount, type PropType, ref, Text, type VNode } from "vue";
 import { slotPart } from "../internal/slot-part.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 export type CodeBlockVariant = "default" | "destructive";
 export type CodeBlockSize = "default" | "sm";
@@ -29,7 +30,7 @@ export const CodeBlockCopyButton = defineComponent({
     value: { required: true, type: String },
   },
   setup(props, { attrs }) {
-    const UButton = resolveComponent("UButton");
+    const UButton = useUIComponent("UButton");
     const copied = ref(false);
     let timeout: ReturnType<typeof setTimeout> | undefined;
     onBeforeUnmount(() => clearTimeout(timeout));

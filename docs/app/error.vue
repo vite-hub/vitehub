@@ -14,7 +14,7 @@ const description = computed(() => isNotFound.value
 const sections = [
   { label: "Docs", to: "/docs" },
   { label: "Get started", to: "/docs/getting-started" },
-  { label: "Tutorials", to: "/tutorials" },
+  { label: "Learn", to: "/learn" },
   { label: "Projects", to: "/projects" },
   { label: "Templates", to: "/templates" },
 ];

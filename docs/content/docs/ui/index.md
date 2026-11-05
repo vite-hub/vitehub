@@ -25,7 +25,7 @@ Select a session to read its messages and reply. This example uses the package s
 ::ui-component-gallery
 - **Console:** [Chat app](/docs/ui/blocks/chat-app), [Code review](/docs/ui/blocks/code-review), [Collaborative editor](/docs/ui/blocks/collaborative-editor)
 - **Parts:** [Message](/docs/ui/message), [Bubble](/docs/ui/bubble), [Marker](/docs/ui/marker), [Attachment](/docs/ui/attachment), [Trace](/docs/ui/trace), [Code block](/docs/ui/code-block)
-- **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Prompt input](/docs/ui/prompt-input), [Chat session](/docs/ui/chat-session)
+- **Chat:** [Chat](/docs/ui/chat), [Chat message](/docs/ui/chat-message), [Message parts](/docs/ui/message-parts), [Markdown](/docs/ui/markdown), [Prompt input](/docs/ui/prompt-input), [Filter search](/docs/ui/filter-search), [Chat session](/docs/ui/chat-session)
 - **Collaboration:** [Comments](/docs/ui/comments), [Avatar stack](/docs/ui/avatar-stack), [Connection status](/docs/ui/connection-status), [Sync status](/docs/ui/sync-status), [Carets](/docs/ui/carets)
 - **Agent work:** [Tool list](/docs/ui/tool-list), [Diff](/docs/ui/diff), [Code view](/docs/ui/code-view), [File tree](/docs/ui/file-tree)
 - **Utilities:** [Attachments](/docs/ui/attachments), [Message scroller](/docs/ui/message-scroller)
@@ -49,7 +49,8 @@ The package does not send messages. Use `useChat()` from `@ai-sdk/vue` or the Vi
 | ------------------------- | ------------------------------------------------------------------------------ |
 | `@vite-hub/ui`            | Styled components, composables, display helpers, and Pierre diff helpers.      |
 | `@vite-hub/ui/<name>`     | One component or part family, such as `@vite-hub/ui/chat` or `@vite-hub/ui/trace`. |
-| `@vite-hub/ui/headless`   | Message scroller primitives without styles or Nuxt UI.                         |
+| `@vite-hub/ui/headless`   | Message scroller and Choices input primitives without styles or Nuxt UI.       |
+| `@vite-hub/ui/choices-input` | The headless Choices input parts of `FilterSearch`.                        |
 | `@vite-hub/ui/nuxt`       | The Nuxt module. It installs Nuxt UI, registers components, and loads the CSS. |
 | `@vite-hub/ui/vite`       | The Vite plugin for Vue applications. It configures Nuxt UI and Comark.        |
 | `@vite-hub/ui/styles.css` | The package stylesheet. Load it after Tailwind CSS and Nuxt UI.                |

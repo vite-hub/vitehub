@@ -2,8 +2,9 @@ import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 
 import { installComments } from "../index.ts"
-import { resolveCommentsUser } from "./session.ts"
+import { normalizeCommentPage } from "../page.ts"
 import { commentsMcpTools } from "./mcp.ts"
+import { resolveCommentsIdentity } from "./session.ts"
 
 import type { H3Event } from "h3"
 import type { Comments, InstallCommentsOptions } from "../index.ts"
@@ -80,11 +81,16 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       icon: "i-lucide-message-square-text",
       script,
       lazy: true,
-      async allowed({ event }) {
+      // A link to a thread, `<page>?comment=<n>`, opens it.
+      param: "comment",
+      async allowed({ event, request }) {
         // SAFETY: the page tools session passes the H3 event of its Nitro route, which the session readers accept.
-        const user = await resolveCommentsUser(options.comments, event as H3Event, { ...options, session: options.session ?? options.githubLogin?.user })
-        if (user === false) return false
-        return await options.comments.can({ user, action: "read" }, { console: Boolean(options.consoleSession) })
+        const identity = await resolveCommentsIdentity(options.comments, event as H3Event, { ...options, session: options.session ?? options.githubLogin?.user })
+        if (identity === false) return false
+        const { user, gate } = identity
+        const page = new URL(request.url).searchParams.get("page")
+        const subject = page ? { kind: "page", id: normalizeCommentPage(page) } : undefined
+        return await options.comments.can({ user, action: "read", ...(subject ? { subject } : {}) }, gate)
           || Boolean(!options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github))
       },
     })

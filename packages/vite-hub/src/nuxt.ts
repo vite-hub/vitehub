@@ -1,4 +1,4 @@
-import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withConnectionsDatabase, withDataDir, type ConsoleJournal } from "./storage-config.ts"
+import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withComments, withConnectionsDatabase, withDataDir, type ConsoleJournal } from "./storage-config.ts"
 import { readFileSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
 import { createRequire, findPackageJSON } from "node:module"
@@ -33,7 +33,7 @@ import { disabledKVConfigModule, disabledUpstashDriver, hasUpstashStore, upstash
 import { createConsoleCliNamespace } from "./console/cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
 import { createConsoleInvocationsIdentity, type ConsoleAuthMode } from "./console/internal.ts"
-import { importOptionalOwner, requireOptionalOwner } from "./internal/optional-owners.ts"
+import { importOptionalOwner, isPackageInstalled, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { ownerModules } from "./internal/owner-modules.ts"
 import { discoverConsoleBuildCatalog } from "./console/build.ts"
 import { assertConsoleRetention, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./console/plugin.ts"
@@ -171,8 +171,10 @@ type NuxtLike = {
     (name: "app:templatesGenerated", callback: (app: { components: Parameters<CommentsVitePlugin["api"]["setComponents"]>[0] }) => Promise<void>): void
     (name: "close" | "nitro:config", callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>)): void
     (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
+    (name: "modules:done", callback: () => void): void
   }
   options: {
+    _installedModules?: Array<{ meta: { name?: string } }>
     _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
     app?: {
@@ -190,6 +192,7 @@ type NuxtLike = {
     }
     modules?: unknown[]
     nitro?: Record<string, unknown>
+    plugins?: Array<string | { src: string }>
     routeRules?: Record<string, {
       headers?: Record<string, string>
       [key: string]: unknown
@@ -962,6 +965,27 @@ type ViteHubNuxtModule = {
   }>
 }
 
+/**
+ * An app that imports `vite-hub/ui` parts gets their runtime without adding `@vite-hub/ui/nuxt`: the plugin that gives
+ * them Nuxt UI's Nuxt icon, and their icons in the `@nuxt/icon` client bundle. `@vite-hub/ui` owns both. Headless apps
+ * do not need the optional Nuxt UI peer or its module, so they must not receive a plugin that imports it.
+ */
+async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
+  if (!nuxt.hook || !isPackageInstalled("@nuxt/ui")) return
+  const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
+  if (!ui) return
+  const hook = nuxt.hook
+  nuxt.hook("modules:done", () => {
+    // The package can be present for the Console alone. Only Nuxt UI's module generates its component themes.
+    // Wait until every module has installed, including modules that enable Nuxt UI after vite-hub/nuxt.
+    if (!nuxt.options._installedModules?.some(({ meta }) => meta.name === "@nuxt/ui")) return
+    ui.addViteHubUIRuntime({
+      hook: (name, callback) => Reflect.apply(hook, nuxt, [name, callback]),
+      options: { plugins: (nuxt.options.plugins ??= []) },
+    })
+  })
+}
+
 const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxtInstance): Promise<void> {
   if (!nuxtInstance) return
   // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the members this integration uses.
@@ -972,6 +996,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       entries.push(doctorExtensionEntry)
     }])
   }
+
+  await installViteHubUIRuntime(nuxt)
 
   const configuredModuleOptions = {
     ...nuxt.options.vitehub,
@@ -989,11 +1015,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   const nitroMajorVersion = resolveNuxtNitroMajor(rootDir)
   const projectRoot = resolveViteHubProjectRoot(rootDir)
   // The `cms` preset turns on Workspace, Database, and Blob. Nuxt knows the root here, so resolve it once.
-  const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures({
+  const options = markCmsPresetFeaturesResolved(withConnectionsDatabase(withDataDir(resolveCmsPresetFeatures(withComments({
     ...moduleOptions,
     console: resolveConsoleOptions(moduleOptions.console),
     env: envOptions,
-  } as Parameters<typeof vitehub>[0], { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }))))
+  } as Parameters<typeof vitehub>[0]), { projectRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) }))))
   const consoleOptions = resolveConsoleOptions(options.console)
   const plan = resolveDeploymentPlan(moduleOptions.preset)
   const configuredOptions = options.database && nuxt.options.database && typeof nuxt.options.database === "object"
@@ -1181,7 +1207,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       resolveViteHubProjectRoot(rootDir, { projectRoot: databaseOptions.projectRoot }),
       databaseOptions.projectRoot === undefined && nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
     )
-    const { hubDb: hubDatabaseNuxt } = requireOptionalOwner(await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/nuxt")), "database")
+    const { hubDb: hubDatabaseNuxt } = requireOptionalOwner(await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/nuxt")), options.connections ? "connections" : "database")
     await hubDatabaseNuxt(defaultD1 ? { driver: "d1", ...databaseOptions } : databaseOptions)(undefined, nuxt)
   }
 
@@ -1632,6 +1658,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (!include.includes("vite-hub/agent/vue")) include.push("vite-hub/agent/vue")
   }
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
+  addVueImports(nuxt, "vite-hub/decisions/vue", ["useChoices"])
   if (effectiveAuth) {
     const envOptions = options.env || {}
     const { default: hubAuthNuxt } = requireOptionalOwner(await importOptionalOwner("@vite-hub/auth", () => import("@vite-hub/auth/nuxt")), "auth")

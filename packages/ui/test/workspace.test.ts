@@ -234,6 +234,31 @@ describe("useWorkspace", () => {
     wrapper.unmount();
   });
 
+  it("ignores other server ports before readiness and after restart", async () => {
+    fake.autoReady = false;
+    const { workspace, wrapper } = mountWorkspace({ files: {}, install: false, port: 3000 });
+    await flushPromises();
+    fake.releaseBoot?.();
+    await flushPromises();
+
+    fake.serverListener?.({ port: 4321, url: "https://worker.example" });
+    expect(workspace.previewUrl.value).toBeUndefined();
+    expect(workspace.status.value).toBe("starting");
+    fake.ready?.("https://preview.example");
+    expect(workspace.previewUrl.value).toBe("https://preview.example");
+    fake.serverListener?.({ port: 4321, url: "https://worker.example" });
+    expect(workspace.previewUrl.value).toBe("https://preview.example");
+
+    await workspace.restart();
+    fake.serverListener?.({ port: 4321, url: "https://worker.example" });
+    expect(workspace.previewUrl.value).toBeUndefined();
+    expect(workspace.status.value).toBe("starting");
+    fake.ready?.("https://replacement.example");
+    expect(workspace.previewUrl.value).toBe("https://replacement.example");
+    expect(workspace.status.value).toBe("ready");
+    wrapper.unmount();
+  });
+
   it("serializes overlapping install and restart recovery", async () => {
     const { workspace, wrapper } = mountWorkspace({ files: {} });
     await flushPromises();
@@ -572,6 +597,12 @@ describe("ConnectPanel", () => {
     expect(wrapper.get("footer").text()).toContain("ViteHub servers never receive them.");
   });
 
+  it("says when a page needs no accounts", () => {
+    const wrapper = mount(ConnectPanel, { props: { connect: defineConnect({}), empty: "No accounts needed for this step." } });
+    expect(wrapper.text()).toBe("No accounts needed for this step.");
+    expect(wrapper.find("footer").exists()).toBe(false);
+  });
+
   it("asks for a token in a labeled password input", async () => {
     const wrapper = mount(ConnectPanel, { attachTo: document.body, props: { connect } });
     await wrapper.get("[aria-label='Connect Anthropic']").trigger("click");
@@ -619,6 +650,10 @@ describe("BrowserSupportNotice", () => {
 
     await wrapper.setProps({ browser: "unknown" });
     expect(wrapper.text()).toContain("does not run in this browser");
+
+    await wrapper.setProps({ description: "Download the files to run them on your machine." });
+    expect(wrapper.text()).toContain("Download the files to run them on your machine.");
+    expect(wrapper.text()).not.toContain("This tutorial still works as text.");
   });
 
   it("explains missing page isolation without recommending another browser", async () => {

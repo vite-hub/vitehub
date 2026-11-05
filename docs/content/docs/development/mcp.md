@@ -12,7 +12,7 @@ The endpoint uses Streamable HTTP without a session: each `POST` carries one JSO
 
 ## Connect an agent
 
-The Console home has a **Connect an agent** panel with these commands for your origin:
+The Console has a **Connect an agent** page at `/_vitehub/connect`, linked from the rail and the Overview. It shows the server URL, the setup for Claude Code, Codex, Cursor, and VS Code with your origin, how the agent signs in, and the sections its tools can use. For Claude Code and Codex:
 
 ```bash [Terminal]
 claude mcp add --transport http vitehub https://app.example.com/_vitehub/mcp
@@ -79,6 +79,8 @@ Each ability is one tool, named after its operation. The agent reads the same da
 | `blob` | `blob_list`, `blob_head`, `blob_get`, `blob_media`, `blob_variants` | `blob_put`, `blob_del` |
 | `databases` | `databases_tables`, `databases_browse` | none |
 | `content` | `content_collections`, `content_list`, `content_resolve`, `content_show`, `content_status`, `content_diff`, `content_revisions`, `content_schedules`, `content_sitemap` | `content_save`, `content_restore`, `content_remove`, `content_publish`, `content_schedule`, `content_unschedule` |
+
+The Blob tools also accept a store grant. `'blob:media'` allows them on the `media` store only, and a call to another store fails with `CONSOLE_ACCESS_DENIED`. See [Grant one Blob store](/docs/development/console#grant-one-blob-store).
 
 `content_save` requires `ifDigest`: the current draft digest from `content_show`, or explicit `null` to create a new document. A missing digest fails without saving, and a stale digest fails with a conflict.
 

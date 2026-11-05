@@ -112,8 +112,8 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "build": "vp pack",
-    "dev": "vp pack --watch",
+    "build": "vp pack && vp build --config overlay.vite.config.ts",
+    "dev": "vp pack && vp build --config overlay.vite.config.ts && vp pack --watch --no-clean",
     "typecheck": "vp run --cache -t @vite-hub/comments#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/comments#build && vp test"
   },
@@ -140,6 +140,7 @@
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
+    "vue": "catalog:ui",
     "@libsql/client": "catalog:database",
     "@vite-hub/database": "workspace:*",
     "vite": "catalog:vite"
@@ -154,6 +155,6 @@
     }
   },
   "engines": {
-    "node": ">=24.15.0"
+    "node": ">=22.22.0"
   }
 }

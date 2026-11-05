@@ -11,7 +11,7 @@ Deploy the same greeting Agent on Cloudflare Workers and Vercel. The Agent and
 route stay the same. The preset selects the deployment output.
 
 Start with the Vite app from [Installation](/docs/getting-started/installation).
-Use its pinned Nitro and H3 versions, Node.js 24.15 or newer, and pnpm.
+Use its pinned Nitro and H3 versions, Node.js 22.22 or newer, and pnpm.
 This example uses a function Driver. It checks Agent execution without a model
 account. Deployment requires an account with the selected host.
 

@@ -13,6 +13,14 @@ declare module "#docs/content" {
   export const content: DocsContentRuntime | undefined
 }
 
+/** The default export of the module that the `parser` option names, or `{}` without one. */
+declare module "#docs/parser" {
+  import type { DocsParserOptions } from "../../markdown.ts"
+
+  const parser: DocsParserOptions
+  export default parser
+}
+
 declare module "#imports" {
   import type { H3Event } from "h3"
 

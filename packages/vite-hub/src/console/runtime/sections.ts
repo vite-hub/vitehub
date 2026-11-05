@@ -122,7 +122,7 @@ export function groupConsoleSections<T extends { id: ConsoleSectionId }>(section
     .filter(group => group.length > 0)
 }
 
-const consoleDocsBase = "https://vitehub.dev/docs"
+export const consoleDocsBase = "https://vitehub.dev/docs"
 
 /** A primitive that the Console can show. The Overview lists the primitives that a project has not enabled yet. */
 export interface ConsolePrimitive {
@@ -303,6 +303,7 @@ export function resolveConsoleSectionIds(options: {
   connections?: unknown
   agent?: unknown;
   blob?: unknown;
+  comments?: unknown;
   database?: unknown;
   email?: unknown;
   kv?: unknown;
@@ -324,6 +325,8 @@ export function resolveConsoleSectionIds(options: {
     ...(options.connections ? ["connections"] : []),
     ...(options.agent ? ["agents", "skills", "usage", "channels"] : []),
     ...(options.blob ? ["blob"] : []),
+    // Without the option, `server/comments.ts` turns the section on through discovery.
+    ...(options.comments ? ["comments"] : []),
     ...(options.database ? ["databases"] : []),
     ...(options.email ? ["email"] : []),
     ...(options.kv ? ["kv"] : []),

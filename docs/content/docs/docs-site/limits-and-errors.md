@@ -14,7 +14,8 @@ icon: i-lucide-circle-alert
 - **Pages are read at build time.** The manifest, the agent copies, and the routes come from the files at build time. A production site does not see a file that you add after the build. In development, a body change shows on the next page load, and a new page, title, or order restarts the app.
 - **No page at `/docs` by default.** Add `content/docs/index.md`, or `/docs` is not found. The Docs links then open the first section.
 - **Search is in the browser.** The dialog loads the whole index the first time it opens. Each `h2` and `h3` is one entry. Page titles rank first, then headings, then text.
-- **The docs assistant runs on Node.js only**, and on the ChatGPT plan only in the development server. See the [assistant limits](/docs/docs-site/assistant#limits) for plan use, shell access, and the rate limit.
+- **Comments need `vite-hub/nuxt`.** Threads live in a ViteHub Database. A site without `vite-hub/nuxt` has no Comments. See [Comments](/docs/docs-site/configure#comments).
+- **The docs assistant** runs Codex on Node.js and a model-backed Driver on Cloudflare Workers, both on the ChatGPT plan. See the [assistant limits](/docs/docs-site/assistant#limits) for plan use, shell access, and the rate limit.
 
 ## Errors
 
@@ -32,15 +33,23 @@ Invalid docs frontmatter in content/docs/guide/install.md: layout: Invalid type:
 
 ### DocsAssistantSetupError
 
-The build shows it as `[@vite-hub/docs]` followed by the cause and the fix. It has two causes.
+The build shows it as `[@vite-hub/docs]` followed by the cause and the fix.
 
 **Why:** `assistant` is on, and the app has no `vite-hub/nuxt` module with `agent: true`.
 
 **Fix:** add `['vite-hub/nuxt', { agent: true, connections: true, database: true }]` to `modules`. Or set `assistant: false`. See [Turn it on](/docs/docs-site/assistant#turn-it-on).
 
-**Why:** `assistant` is on, and a production build uses a Nitro preset that is not Node.js, such as `cloudflare-module`. Codex needs a Node.js process.
+### DocsCommentsSetupError
 
-**Fix:** build for Node.js with `preset: 'node'` in the `vite-hub/nuxt` options. Or turn the assistant off for that build, for example `assistant: process.env.NITRO_PRESET !== 'cloudflare-module'`.
+The build shows it as `[@vite-hub/docs]` followed by the cause and the fix.
+
+**Why:** Comments is on, and it cannot run. One of these:
+
+- The app has `vite-hub/nuxt` but not `@vite-hub/comments`.
+- `vite-hub/nuxt` sets `database: false`. Comments keeps threads in the Database.
+- `docs.comments` is `true` or an object, and the app has no `vite-hub/nuxt`.
+
+**Fix:** run `pnpm add @vite-hub/comments`, remove `database: false`, or add `vite-hub/nuxt` to `modules`. Or set `comments: false`.
 
 ### Assistant errors in the panel
 

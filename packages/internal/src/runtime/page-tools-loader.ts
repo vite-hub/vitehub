@@ -8,7 +8,7 @@ import type { ViteHubPageToolsDock, ViteHubPageToolsEdge, ViteHubPageWindow, Vit
  * This file runs only in the browser. The package's Node program does not include it, because the DOM types conflict
  * with the Node stream types: `tsconfig.browser.json` checks it.
  */
-import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsHintCookie, viteHubPageToolsQuery, viteHubPageToolsWanted, viteHubPillButtonStyles } from "./page-tools-shared.ts"
+import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsQuery, viteHubPageToolsWanted, viteHubPillButtonStyles } from "./page-tools-shared.ts"
 
 import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
@@ -33,9 +33,9 @@ export interface ViteHubPageToolContext {
   onOpen(handler: (path?: string) => void): void
   beforeExit(check: () => boolean): void
   /**
-   * Turns the page tools off for this browser: sets the hint cookie to `0`, removes the query, stops every tool, and
-   * replaces the pill with a short note that says how to turn them on again, with **Undo**. The pill's exit button
-   * calls it, so a tool does not draw its own.
+   * Turns the page tools off for this browser: removes the query, stops every tool, and leaves a small ViteHub mark
+   * where the pill was, on this page and the next ones, that turns them on again. The pill's exit button calls it, so a
+   * tool does not draw its own.
    */
   exit(): void
 }
@@ -114,25 +114,32 @@ button{flex-shrink:0;padding:0}
 @media(any-pointer:coarse){:host{--vitehub-hex-h:40px}}
 @media(prefers-reduced-motion:reduce){:host,div,::slotted(*),.exit,.mark svg,:host([collapsed]) .mark{transition:none}}`
 
-// The note that replaces the pill when the tools turn off: the same glass, at the same place, with the way back.
-// `max-content` keeps the note from shrinking to the space between its `left` and the edge of the screen.
-const offNoteStyles = `:host([off]){--vitehub-pill-flow:row;width:max-content}
-div{gap:8px;padding-left:12px;animation:vitehub-off-in 150ms ease-out}
-:host([off]) div{align-items:center}
-p{margin:0;line-height:16px;color:var(--vitehub-pill-muted)}
-strong{font-weight:inherit;color:var(--vitehub-pill-strong)}
-code{font:inherit;white-space:nowrap;color:var(--vitehub-pill-strong)}
-button{padding:0 10px}
-@keyframes vitehub-off-in{from{opacity:0}}
-@media(prefers-reduced-motion:reduce){div{animation:none}}`
-/** How long the note stays after the tools turn off. It stays while the pointer or the keyboard focus is on it. */
-const offNoteTime = 8000
+// The mark that stays when the tools are off: the ViteHub mark itself at 14px high (20px on touch screens), dark with a
+// light hairline so it shows on light and dark pages, at the place of the pill. The way back is always there but covers
+// almost nothing of the page. It is half transparent until the pointer or the focus reaches it. Its hit area grows 6px
+// around it (10px on touch screens) and runs off the edge of the screen, so a pointer pushed against the edge finds
+// it, without taking more clicks from the page. The pill's clipped hexagon would round into a circle at this size.
+const offMarkStyles = `:host([off]){--vitehub-hex-h:14px;filter:drop-shadow(0 1px 2px rgb(0 0 0/25%))}
+:host([off]) button{position:relative;display:block;width:var(--vitehub-hex-w);min-width:0;height:var(--vitehub-hex-h);padding:0;border-radius:4px;pointer-events:auto;opacity:.55;transition:opacity 150ms ease-out;animation:vitehub-off-in 200ms cubic-bezier(.23,1,.32,1)}
+:host([off]) button::before{content:"";position:absolute;inset:-6px}
+svg{display:block;width:100%;height:100%;overflow:visible;fill:rgb(17 17 17/92%);stroke:rgb(255 255 255/18%);stroke-width:1px;vector-effect:non-scaling-stroke;transition:fill 150ms ease-out,scale 150ms ease-out}
+:host([off]) button:focus-visible{opacity:1}
+@media(hover:hover){:host([off]) button:hover{opacity:1;background:none}button:hover svg{fill:rgb(38 38 38/94%)}}
+button:active svg{scale:.96}
+@media(any-pointer:coarse){:host([off]){--vitehub-hex-h:20px}:host([off]) button{min-width:0;height:var(--vitehub-hex-h)}:host([off]) button::before{inset:-10px}}
+@keyframes vitehub-off-in{from{opacity:0;scale:.6}}
+@media(prefers-reduced-motion:reduce){:host([off]) button,svg{animation:none;transition:none}}`
+/** The key in `localStorage` that keeps the page tools off in this browser, so each page draws only the small mark. */
+const offKey = "vitehub-tools-off"
 
 /** The key in `localStorage` that keeps the pill collapsed to the ViteHub mark, on this page and the next ones. */
 const collapsedKey = "vitehub-tools-collapsed"
 /** The key in `localStorage` that keeps the edge and the place where the pill docks. */
 const dockKey = "vitehub-tools-dock"
 const edges: readonly ViteHubPageToolsEdge[] = ["top", "right", "bottom", "left"]
+
+/** The ViteHub mark, a hexagon with soft corners, in a 20 by 18 box. */
+const markPath = "M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z"
 
 function svgIcon(viewBox: string, path: string, attributes: Record<string, string>): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
@@ -146,6 +153,19 @@ function svgIcon(viewBox: string, path: string, attributes: Record<string, strin
 function storedCollapsed(): boolean {
   try { return localStorage.getItem(collapsedKey) === "1" }
   catch { return false }
+}
+
+function storedOff(): boolean {
+  try { return localStorage.getItem(offKey) === "1" }
+  catch { return false }
+}
+
+function rememberOff(off: boolean): void {
+  try {
+    if (off) localStorage.setItem(offKey, "1")
+    else localStorage.removeItem(offKey)
+  }
+  catch {}
 }
 
 function isEdge(value: unknown): value is ViteHubPageToolsEdge {
@@ -209,7 +229,7 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: (keyboard: boolean) => vo
   // The ViteHub mark collapses the pill to itself. The tools keep running: their windows, pins, and modes stay.
   const mark = document.createElement("button")
   mark.className = "mark"
-  mark.append(svgIcon("0 0 20 18", "M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z", { fill: "currentColor" }))
+  mark.append(svgIcon("0 0 20 18", markPath, { fill: "currentColor" }))
   const collapse = (collapsed: boolean) => {
     if (collapsed) toolbar.scrollTo(0, 0)
     pill.toggleAttribute("collapsed", collapsed)
@@ -358,49 +378,29 @@ function hexagonSize(pill: HTMLElement): { width: number, height: number } {
 }
 
 /**
- * Shows, where the pill was, that the tools are off and how to turn them on again: the Console sets the hint cookie
- * again when it loads, and the `?vitehub` query loads the tools on any page. **Undo** turns them on at once.
+ * Draws the small ViteHub mark that stays where the pill was while the tools are off. Its button turns them on again.
+ * The focus moves to it after a key press on the exit button, which is gone.
  */
-function mountOffNote(undo: () => void, keyboard: boolean): void {
-  const note = document.createElement("vitehub-tools-off")
-  note.setAttribute("off", "")
-  note.style.viewTransitionName = "vitehub-pill"
+function mountOffMark(turnOn: () => void, focus: boolean): void {
+  const mark = document.createElement("vitehub-tools-off")
+  mark.setAttribute("off", "")
+  mark.setAttribute("collapsed", "")
+  mark.style.viewTransitionName = "vitehub-pill"
   const dock = storedDock()
-  note.setAttribute("edge", dock.edge)
-  note.style.setProperty("--at", String(dock.at))
-  const shadow = note.attachShadow({ mode: "open" })
+  mark.setAttribute("edge", dock.edge)
+  mark.style.setProperty("--at", String(dock.at))
+  const shadow = mark.attachShadow({ mode: "open" })
   const style = document.createElement("style")
-  style.textContent = `${pillStyles}\n${offNoteStyles}`
-  const box = document.createElement("div")
-  box.setAttribute("role", "status")
-  const text = document.createElement("p")
-  const title = document.createElement("strong")
-  title.textContent = "ViteHub tools are off."
-  const query = document.createElement("code")
-  query.textContent = `?${viteHubPageToolsQuery}`
-  text.append(title, " Open the Console or add ", query, " to turn them on.")
+  style.textContent = `${pillStyles}\n${offMarkStyles}`
   const button = document.createElement("button")
   button.type = "button"
-  button.textContent = "Undo"
-  box.append(text, button)
-  shadow.append(style, box)
-  document.documentElement.append(note)
-  let timer: ReturnType<typeof setTimeout> | undefined
-  let hovered = false
-  let focused = false
-  const close = () => { clearTimeout(timer); note.remove() }
-  const wait = () => {
-    clearTimeout(timer)
-    if (!hovered && !focused) timer = setTimeout(close, offNoteTime)
-  }
-  box.addEventListener("pointerenter", () => { hovered = true; wait() })
-  box.addEventListener("pointerleave", () => { hovered = false; wait() })
-  box.addEventListener("focusin", () => { focused = true; wait() })
-  box.addEventListener("focusout", () => { focused = false; wait() })
-  button.addEventListener("click", () => { close(); undo() })
-  wait()
-  // The exit button had the keyboard focus and is gone, so the focus goes to the button that brings it back.
-  if (keyboard) button.focus({ preventScroll: true })
+  button.setAttribute("aria-label", "Turn on ViteHub tools")
+  button.title = "Turn on ViteHub tools"
+  button.append(svgIcon("0 0 20 18", markPath, {}))
+  shadow.append(style, button)
+  document.documentElement.append(mark)
+  button.addEventListener("click", () => { mark.remove(); turnOn() })
+  if (focus) button.focus({ preventScroll: true })
 }
 
 export interface LoadViteHubPageToolsOptions {
@@ -422,7 +422,9 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
   let session: ViteHubPageSession
   try {
-    const response = await fetch(options.session ?? viteHubPageSessionUrl(import.meta.url), { credentials: "same-origin", headers: { accept: "application/json" } })
+    const sessionUrl = new URL(options.session ?? viteHubPageSessionUrl(import.meta.url), location.href)
+    sessionUrl.searchParams.set("page", location.pathname)
+    const response = await fetch(sessionUrl.origin === location.origin ? `${sessionUrl.pathname}${sessionUrl.search}` : sessionUrl.href, { credentials: "same-origin", headers: { accept: "application/json" } })
     if (!response.ok) return []
     session = readViteHubPageSession(await response.json())
   }
@@ -430,29 +432,36 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
     return []
   }
   // One pill per page: a second loader on the same page does nothing.
-  if (session.tools.length === 0 || document.querySelector("vitehub-pill")) return []
+  if (session.tools.length === 0 || document.querySelector("vitehub-pill, vitehub-tools-off")) return []
+  const linkedTool = session.tools.find(tool => tool.param && query.has(tool.param))
+  // Explicit page-tool links turn the tools on again. Otherwise, tools that were turned off show only their small mark.
+  if (query.has(viteHubPageToolsQuery) || linkedTool) rememberOff(false)
+  else if (storedOff()) {
+    mountOffMark(() => { rememberOff(false); void loadViteHubPageTools(options) }, false)
+    return []
+  }
 
-  const open = query.get(viteHubPageToolsQuery)
+  // `?vitehub=<tool>` opens a tool, and so does the query parameter of a tool, such as `?comment=3` of Comments.
+  const open = query.get(viteHubPageToolsQuery) || linkedTool?.id
   const querySelected = session.tools.some(tool => tool.id === open)
   const pillController = new AbortController()
   const controllers = session.tools.map(() => new AbortController())
   const exitChecks = new Set<() => boolean>()
-  // `keyboard`: the exit button was pressed with a key, so the note takes the focus that the button had.
+  // `keyboard`: the exit button was pressed with a key, so the small mark takes the focus that the button had.
   const exit = (keyboard = false) => {
     if ([...exitChecks].some(check => !check())) return
     const opened = session.tools.filter(tool => restored(tool.id))
     for (const tool of session.tools) remember(tool.id, false)
-    // `0`, not a cleared cookie: a signed-in person would otherwise get the pill again on the next page.
-    document.cookie = viteHubPageToolsHintCookie(false)
+    // The hint cookie stays, so the next pages still ask the session route and show the mark only to people with access.
+    rememberOff(true)
     const url = new URL(location.href)
-    if (url.searchParams.has(viteHubPageToolsQuery)) {
-      url.searchParams.delete(viteHubPageToolsQuery)
-      history.replaceState(history.state, "", url)
-    }
+    url.searchParams.delete(viteHubPageToolsQuery)
+    for (const tool of session.tools) if (tool.param) url.searchParams.delete(tool.param)
+    if (url.href !== location.href) history.replaceState(history.state, "", url)
     for (const controller of controllers) controller.abort()
     pillController.abort()
-    mountOffNote(() => {
-      document.cookie = viteHubPageToolsHintCookie(true)
+    mountOffMark(() => {
+      rememberOff(false)
       for (const tool of opened) remember(tool.id, true)
       void loadViteHubPageTools(options)
     }, keyboard)

@@ -9,7 +9,7 @@ import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { resolveConfig } from "vite"
 
-import { commentsApiRoute } from "../src/page.ts"
+import { commentRoom, commentsApiRoute } from "../src/page.ts"
 import { comments, componentNames, githubRepository, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase } from "../src/vite.ts"
 
 import type { ConfigEnv, Plugin, UserConfig } from "vite"
@@ -73,6 +73,27 @@ describe("hubComments", () => {
     expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([])
   })
 
+  it("turns on without server/comments.ts when enabled, with the default definition", async () => {
+    const root = await project({})
+    const plugin = hubComments({ enabled: true })
+    const nitro = await configure(plugin, root)
+    expect(nitro?.handlers?.map(handler => handler.route)).toEqual(["/api/_vitehub/comments/**", "/_vitehub/page/session"])
+    const definition = join(root, ".vitehub/nitro/comments/definition.mjs")
+    expect(await readFile(definition, "utf8")).toContain("export const comments = defineComments()")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(pathToFileURL(definition).href)
+    expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([expect.objectContaining({ name: "comments", reason: "Stores the comment threads of `vitehub({ comments })`." })])
+    const realtime = await plugin.api.contributeRealtime({ authority: "memory", directory: join(root, ".vitehub/realtime"), projectRoot: root })
+    expect(realtime?.definitions).toEqual([expect.objectContaining({ name: "comments" })])
+    expect(await readFile(join(root, ".vitehub/realtime/comments.mjs"), "utf8")).toContain(pathToFileURL(definition).href)
+    // The Console, the CLI, and MCP get the comment operations too.
+    const operations = async (target: ReturnType<typeof hubComments>) => {
+      const entries = target.vitehub.operations
+      return typeof entries === "function" ? await entries() : entries
+    }
+    expect(await operations(plugin)).toEqual([expect.objectContaining({ export: "commentsOperations" })])
+    expect(await operations(hubComments())).toEqual([])
+  })
+
   it("serves the API, installs the runtime, and serves the overlay with the page tools routes", async () => {
     const root = await project({ "server/comments.ts": "export const comments = defineComments()", "server/content.ts": "export const content = {}" })
     const nitro = await configure(hubComments({ auth: true }), root)
@@ -129,7 +150,7 @@ describe("hubComments", () => {
     const plugin = hubComments()
     await configure(plugin, await project({ "server/comments.ts": "export const comments = defineComments()" }), "build", { base: "/portal/" })
     const page = transform(plugin, html)
-    expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=13\")")
+    expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=16\")")
     // A second owner, such as the Console, sees the loader and adds no other.
     expect(transform(plugin, page!)).toBeUndefined()
   })
@@ -261,10 +282,10 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const { default: room } = await import(pathToFileURL(join(directory, "comments.mjs")).href) as { default: RealtimeDefinition }
     // SAFETY: the room only keys access by this event; the Auth reader must never run.
     const event = {} as H3Event
-    const context = { event, definition: "comments", request: new Request("http://site.test") }
+    const context = { event, definition: "comments", request: new Request("http://site.test?page=%2F") }
     const user = await room.identify!(context)
     expect(user).toEqual({ id: "custom", name: "Custom" })
-    expect(await room.authorize!({ ...context, documentId: "pages/x", mode: "read", user: user ?? null })).toBe(true)
+    expect(await room.authorize!({ ...context, documentId: commentRoom("/"), mode: "read", user: user ?? null })).toBe(true)
     expect((await import(auth) as { calls: boolean[] }).calls).toEqual([])
   })
 
@@ -296,7 +317,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const transform = typeof hook === "function" ? hook : hook?.handler
     if (!transform) throw new Error("Expected a Comments HTML transform")
     const tags: unknown = await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])
-    expect(tags).toContain('import("/portal/_vitehub/page/assets/loader.js?v=13")')
+    expect(tags).toContain('import("/portal/_vitehub/page/assets/loader.js?v=16")')
   })
 
   it.each([
@@ -391,7 +412,7 @@ describe("comments() without vite-hub", () => {
     const transform = plugin.transformIndexHtml
     if (!transform) throw new Error("Expected a standalone Comments HTML transform")
     const page: unknown = await Reflect.apply(typeof transform === "function" ? transform : transform.handler, {}, ["<body>Guide</body>"])
-    expect(page).toContain('import("/portal/_vitehub/page/assets/loader.js?v=13")')
+    expect(page).toContain('import("/portal/_vitehub/page/assets/loader.js?v=16")')
   }, 30_000)
 
   it("turns on without server/comments.ts, with a SQLite file in development that Git ignores", async () => {

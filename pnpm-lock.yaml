@@ -52,6 +52,9 @@ catalogs:
     '@better-auth/oauth-provider':
       specifier: 1.7.15
       version: 1.7.15
+    '@noble/hashes':
+      specifier: ^2.2.0
+      version: 2.4.0
     better-auth:
       specifier: 1.7.15
       version: 1.7.15
@@ -62,6 +65,9 @@ catalogs:
     '@cloudflare/playwright':
       specifier: ^1.3.6
       version: 1.3.6
+    '@msgpack/msgpack':
+      specifier: 3.1.3
+      version: 3.1.3
     '@webcontainer/api':
       specifier: 1.6.4
       version: 1.6.4
@@ -91,6 +97,9 @@ catalogs:
     '@libsql/client':
       specifier: ^0.18.0
       version: 0.18.0
+    '@sqlite.org/sqlite-wasm':
+      specifier: 3.53.0-build1
+      version: 3.53.0-build1
     drizzle-kit:
       specifier: ^0.31.11
       version: 0.31.11
@@ -502,7 +511,7 @@ overrides:
   vue: 3.5.44
   workflow: 5.2.3
 
-packageExtensionsChecksum: sha256-3W+81jw2CtklKSJQur/NV91QGUaH7iecrjQfzS6YUy0=
+packageExtensionsChecksum: sha256-EN5fx8uOipDXMuAPAKPp6HUTszSWHhOJHioZQq82cSE=
 
 patchedDependencies:
   '@netlify/blobs@11.1.4':
@@ -664,12 +673,18 @@ importers:
       '@vite-hub/agent':
         specifier: workspace:*
         version: link:../packages/agent
+      '@vite-hub/comments':
+        specifier: workspace:*
+        version: link:../packages/comments
       '@vite-hub/docs':
         specifier: workspace:*
         version: link:../packages/docs
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../packages/ui
+      '@vite-hub/web-container':
+        specifier: workspace:*
+        version: link:../packages/web-container
       '@vueuse/core':
         specifier: catalog:ui
         version: 14.4.0(vue@3.5.44(typescript@6.0.3))
@@ -716,9 +731,9 @@ importers:
       '@takumi-rs/core':
         specifier: catalog:nuxt
         version: 2.14.0(csstype@3.2.3)(react@19.2.6)
-      nuxt-link-checker:
-        specifier: ^5.3.0
-        version: 5.3.0(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@10.7.5)(@nuxt/schema@4.6.3)(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(confbox@0.3.1)(db0@0.4.1)(dotenv@17.4.2)(giget@3.3.1)(ioredis@5.11.1)(jiti@2.7.0)(mlly@1.8.2)(nuxt@4.5.2(71d9cea1e46112ea77a2422b5bd21b32))(oxc-parser@0.151.0)(rolldown@1.2.12)(unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.64.0)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
+      playwright-core:
+        specifier: catalog:browser
+        version: 1.63.0
       typescript:
         specifier: catalog:tooling
         version: 6.0.3
@@ -795,6 +810,12 @@ importers:
       '@ai-sdk/gateway':
         specifier: catalog:ai
         version: 4.0.103(zod@4.6.7)
+      '@ai-sdk/openai':
+        specifier: catalog:ai
+        version: 4.0.88(zod@4.6.7)
+      '@ai-sdk/provider':
+        specifier: catalog:ai
+        version: 4.0.24
       '@cfworker/json-schema':
         specifier: 4.1.1
         version: 4.1.1
@@ -807,6 +828,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: catalog:ai
         version: 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.7)
+      '@sqlite.org/sqlite-wasm':
+        specifier: catalog:database
+        version: 3.53.0-build1
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
@@ -846,6 +870,9 @@ importers:
       '@vite-hub/sandbox':
         specifier: workspace:*
         version: link:../sandbox
+      '@vite-hub/web-container':
+        specifier: workspace:*
+        version: link:../web-container
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace
@@ -1005,6 +1032,9 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^5.20261016.1
         version: 5.20261019.1
+      '@noble/hashes':
+        specifier: catalog:auth
+        version: 2.4.0
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
@@ -1014,6 +1044,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@vite-hub/web-container':
+        specifier: workspace:*
+        version: link:../web-container
       better-auth:
         specifier: catalog:auth
         version: 1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
@@ -1537,6 +1570,9 @@ importers:
       vitest:
         specifier: catalog:tooling
         version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
+      vue:
+        specifier: 3.5.44
+        version: 3.5.44(typescript@6.0.3)
 
   packages/connections:
     dependencies:
@@ -1707,9 +1743,15 @@ importers:
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
+      '@sqlite.org/sqlite-wasm':
+        specifier: catalog:database
+        version: 3.53.0-build1
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      '@vite-hub/web-container':
+        specifier: workspace:*
+        version: link:../web-container
       drizzle-kit:
         specifier: catalog:database
         version: 0.31.11
@@ -1782,6 +1824,37 @@ importers:
         specifier: catalog:tooling
         version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)
 
+  packages/decisions:
+    dependencies:
+      '@vite-hub/gateways':
+        specifier: workspace:*
+        version: link:../gateways
+      nostics:
+        specifier: catalog:runtime
+        version: 1.3.0
+    devDependencies:
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.19.1
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
+      publint:
+        specifier: catalog:tooling
+        version: 0.3.25
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.3
+      vite-plus:
+        specifier: catalog:tooling
+        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
+      vitest:
+        specifier: catalog:tooling
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(happy-dom@21.0.3)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
+      vue:
+        specifier: 3.5.44
+        version: 3.5.44(typescript@6.0.3)
+
   packages/docs:
     dependencies:
       '@comark/vue':
@@ -1820,6 +1893,9 @@ importers:
       nuxt-agent-discovery:
         specifier: ^0.7.0
         version: 0.7.0(patch_hash=eae642b00b65c617dccc6c1131668445ffc39ae8b7fccab23438fe521d80c1d1)(ead39104f9b824a5681998d741f20a6b)
+      nuxt-link-checker:
+        specifier: ^5.3.0
+        version: 5.3.0(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@10.7.5)(@nuxt/schema@4.6.3)(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(confbox@0.3.1)(db0@0.4.1)(dotenv@17.4.2)(giget@3.3.1)(ioredis@5.11.1)(jiti@2.7.0)(mlly@1.8.2)(nuxt@4.5.2(71d9cea1e46112ea77a2422b5bd21b32))(oxc-parser@0.151.0)(rolldown@1.2.12)(unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.64.0)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
       nuxt-llms:
         specifier: ^0.2.0
         version: 0.2.0(@nuxt/schema@4.6.3)(confbox@0.3.1)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.3)(mlly@1.8.2)(oxc-parser@0.151.0)(rolldown@1.2.12)(unplugin@3.4.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.64.0))
@@ -2103,6 +2179,9 @@ importers:
 
   packages/internal:
     dependencies:
+      '@sqlite.org/sqlite-wasm':
+        specifier: catalog:database
+        version: 3.53.0-build1
       '@standard-schema/spec':
         specifier: catalog:runtime
         version: 1.1.0
@@ -2624,6 +2703,9 @@ importers:
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
+      picomatch:
+        specifier: catalog:workspace
+        version: 4.0.7
       semver:
         specifier: ^7.8.5
         version: 7.8.5
@@ -2643,6 +2725,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      '@types/picomatch':
+        specifier: catalog:tooling
+        version: 4.0.3
       '@types/semver':
         specifier: ^7.8.0
         version: 7.8.0
@@ -2973,6 +3058,9 @@ importers:
       '@iconify-json/ph':
         specifier: catalog:ui
         version: 1.2.2
+      '@nuxt/schema':
+        specifier: 4.6.3
+        version: 4.6.3
       '@nuxt/ui':
         specifier: catalog:nuxt
         version: 4.12.0(66d51cbe5087b4d63451adffacf03f6e)
@@ -3081,6 +3169,9 @@ importers:
       '@vite-hub/connections':
         specifier: workspace:*
         version: link:../connections
+      '@vite-hub/decisions':
+        specifier: workspace:*
+        version: link:../decisions
       '@vite-hub/email':
         specifier: workspace:*
         version: link:../email
@@ -3406,6 +3497,9 @@ importers:
 
   packages/web-container:
     dependencies:
+      '@msgpack/msgpack':
+        specifier: catalog:browser
+        version: 3.1.3
       '@webcontainer/api':
         specifier: catalog:browser
         version: 1.6.4
@@ -3740,6 +3834,9 @@ importers:
       '@vite-hub/cms':
         specifier: workspace:*
         version: link:../../packages/cms
+      '@vite-hub/comments':
+        specifier: workspace:*
+        version: link:../../packages/comments
       '@vite-hub/connections':
         specifier: workspace:*
         version: link:../../packages/connections
@@ -6530,6 +6627,10 @@ packages:
   '@mongodb-js/zstd@7.0.0':
     resolution: {integrity: sha512-mQ2s0pYYiav+tzCDR05Zptem8Ey2v8s11lri5RKGhTtL4COVCvVCk5vtyRYNT+9L8qSfyOqqefF9UtnW8mC5jA==}
     engines: {node: '>= 20.19.0'}
+
+  '@msgpack/msgpack@3.1.3':
+    resolution: {integrity: sha512-47XIizs9XZXvuJgoaJUIE2lFoID8ugvc0jzSHP+Ptfk8nTbnR8g788wv48N03Kx0UkAv559HWRQ3yzOgzlRNUA==}
+    engines: {node: '>= 18'}
 
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':
     resolution: {integrity: sha512-LCkGo6JDfaBhgST7UpPWgNgLINpcpabaHfyz5OBx75nUYxBsaEPxjnyNjWpeb/xBup/682QnBfRBy2/LvPutZQ==}
@@ -21680,6 +21781,8 @@ snapshots:
       prebuild-install: 7.1.3
     optional: true
 
+  '@msgpack/msgpack@3.1.3': {}
+
   '@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.4':
     optional: true
 
@@ -26239,6 +26342,7 @@ snapshots:
   '@nuxtjs/mcp-toolkit@0.22.0(@cfworker/json-schema@4.1.1)(@nuxt/schema@4.6.3)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(@vue/compiler-sfc@3.5.44)(confbox@0.3.1)(dotenv@17.4.2)(giget@3.3.1)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(jiti@2.7.0)(magic-string@1.4.3)(mlly@1.8.2)(oxc-parser@0.151.0)(rolldown@1.2.12)(rollup@4.64.0)(unplugin@3.4.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.64.0))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)':
     dependencies:
       '@modelcontextprotocol/sdk': 1.32.1(@cfworker/json-schema@4.1.1)(zod@4.6.7)
+      '@nuxt/devtools-kit': 3.4.2(@nuxt/schema@4.6.3)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(confbox@0.3.1)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.3)(mlly@1.8.2)(oxc-parser@0.151.0)(rolldown@1.2.12)(unplugin@3.4.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.64.0))
       '@nuxt/kit': 4.6.2(@nuxt/schema@4.6.3)(confbox@0.3.1)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.3)(mlly@1.8.2)(oxc-parser@0.151.0)(rolldown@1.2.12)(unplugin@3.4.0(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.64.0))
       '@vitejs/plugin-vue': 6.0.10(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))
       h3: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
@@ -28100,8 +28204,7 @@ snapshots:
 
   '@speed-highlight/core@1.2.24': {}
 
-  '@sqlite.org/sqlite-wasm@3.53.0-build1':
-    optional: true
+  '@sqlite.org/sqlite-wasm@3.53.0-build1': {}
 
   '@stablelib/base64@1.0.1':
     optional: true

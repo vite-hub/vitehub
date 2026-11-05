@@ -48,6 +48,13 @@ function pill() {
   }
 }
 
+function offMark() {
+  const marks = document.querySelectorAll("vitehub-tools-off")
+  expect(marks).toHaveLength(1)
+  const element = marks[0]!
+  return { element, button: element.shadowRoot!.querySelector<HTMLButtonElement>("button")! }
+}
+
 function lazyControl(): HTMLButtonElement {
   return document.querySelector("vitehub-tool")!.shadowRoot!.querySelector<HTMLButtonElement>("button")!
 }
@@ -106,7 +113,7 @@ describe("loadViteHubPageTools", () => {
     const fetch = session({ tools: [comments] })
     const { load, started } = modules()
     await expect(loadViteHubPageTools({ load })).resolves.toEqual([comments])
-    expect(fetch).toHaveBeenCalledWith("/_vitehub/page/session", { credentials: "same-origin", headers: { accept: "application/json" } })
+    expect(fetch).toHaveBeenCalledWith("/_vitehub/page/session?page=%2Fpricing", { credentials: "same-origin", headers: { accept: "application/json" } })
     expect(load.mock.calls).toEqual([["/comments.js"]])
     expect(started.map(context => [context.tool.id, context.open, context.signal.aborted])).toEqual([["comments", false, false]])
   })
@@ -118,7 +125,7 @@ describe("loadViteHubPageTools", () => {
     page("/portal/?vitehub")
     const fetch = session({ tools: [] })
     await loadViteHubPageTools({ load: modules().load, session: "/portal/_vitehub/page/session" })
-    expect(fetch).toHaveBeenCalledWith("/portal/_vitehub/page/session", { credentials: "same-origin", headers: { accept: "application/json" } })
+    expect(fetch).toHaveBeenCalledWith("/portal/_vitehub/page/session?page=%2Fportal%2F", { credentials: "same-origin", headers: { accept: "application/json" } })
   })
 
   it("does nothing more when no tool is allowed, or when the session fails", async () => {
@@ -363,7 +370,7 @@ describe("loadViteHubPageTools", () => {
     expect(started[1]!.tool.hotkey).toBe("k")
   })
 
-  it("stops every tool, removes the pill, and clears the hint cookie and the query on exit", async () => {
+  it("stops every tool, removes the pill and the query on exit, and keeps the hint cookie", async () => {
     page("/guide?vitehub=comments&tab=2")
     session({ tools: [comments, consoleTool] })
     const { load, started, stopped } = modules()
@@ -372,11 +379,12 @@ describe("loadViteHubPageTools", () => {
     expect(stopped).toEqual(["comments", "console"])
     expect(started.every(context => context.signal.aborted)).toBe(true)
     expect(document.querySelector("vitehub-pill")).toBeNull()
-    expect(document.cookie).toContain("vitehub-tools=0")
+    expect(document.cookie).toContain("vitehub-tools=1")
+    expect(localStorage.getItem("vitehub-tools-off")).toBe("1")
     expect(location.pathname + location.search).toBe("/guide?tab=2")
   })
 
-  it("says how to turn the tools on again after exit, and Undo brings them back with their windows", async () => {
+  it("leaves a small mark where the pill was, and the mark brings the tools back with their windows", async () => {
     page("/?vitehub=console")
     sessionStorage.setItem("vitehub-open:/_vitehub/page/session:console", "true")
     localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "right", at: 20 }))
@@ -385,76 +393,76 @@ describe("loadViteHubPageTools", () => {
     await loadViteHubPageTools({ load })
     pill().exit.click()
     expect(document.querySelector("vitehub-pill")).toBeNull()
-    const note = document.querySelector("vitehub-tools-off")!
-    expect([note.getAttribute("edge"), (note as HTMLElement).style.getPropertyValue("--at")]).toEqual(["right", "20"])
-    const status = note.shadowRoot!.querySelector("[role=status]")!
-    expect(status.textContent).toBe("ViteHub tools are off. Open the Console or add ?vitehub to turn them on.Undo")
-    expect(document.cookie).toContain("vitehub-tools=0")
+    const mark = offMark()
+    expect([mark.element.getAttribute("edge"), (mark.element as HTMLElement).style.getPropertyValue("--at")]).toEqual(["right", "20"])
+    expect(mark.button.getAttribute("aria-label")).toBe("Turn on ViteHub tools")
+    expect(mark.button.textContent).toBe("")
 
-    status.querySelector("button")!.click()
+    mark.button.click()
     await vi.waitFor(() => expect(started).toHaveLength(4))
     expect(document.querySelector("vitehub-tools-off")).toBeNull()
-    expect(document.cookie).toContain("vitehub-tools=1")
+    expect(localStorage.getItem("vitehub-tools-off")).toBeNull()
     expect(fetch).toHaveBeenCalledTimes(2)
     expect(started.slice(2).map(context => [context.tool.id, context.open])).toEqual([["comments", false], ["console", true]])
     pill()
   })
 
-  it.each([[0, true], [1, false]])("gives Undo the focus only after a key press on exit (click detail %i)", async (detail, focused) => {
+  it.each([[0, true], [1, false]])("gives the mark the focus only after a key press on exit (click detail %i)", async (detail, focused) => {
     page("/?vitehub")
     session({ tools: [comments] })
     await loadViteHubPageTools({ load: modules().load })
     pill().exit.dispatchEvent(new MouseEvent("click", { bubbles: true, detail }))
-    const note = document.querySelector("vitehub-tools-off")!
-    expect(note.shadowRoot!.activeElement === note.shadowRoot!.querySelector("button")).toBe(focused)
+    const { element, button } = offMark()
+    expect(element.shadowRoot!.activeElement === button).toBe(focused)
   })
 
-  it("removes the note after 8 seconds, but not while the pointer is on it", async () => {
+  it("keeps the mark on the next pages without starting a tool, until the mark or ?vitehub turns them on", async () => {
+    page("/guide?comment=3&tab=2")
+    const fetch = session({ tools: [{ ...comments, param: "comment" }, consoleTool] })
+    const { load, started } = modules()
+    await loadViteHubPageTools({ load })
+    pill().exit.click()
+    expect(location.pathname + location.search).toBe("/guide?tab=2")
+
+    // The next page: the session route still answers, so only people with access get the mark.
+    offMark().element.remove()
+    await expect(loadViteHubPageTools({ load })).resolves.toEqual([])
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(document.querySelector("vitehub-pill")).toBeNull()
+    expect(started).toHaveLength(2)
+    offMark().button.click()
+    await vi.waitFor(() => expect(started).toHaveLength(4))
+    pill().exit.click()
+
+    offMark().element.remove()
     page("/?vitehub")
-    session({ tools: [comments] })
-    await loadViteHubPageTools({ load: modules().load })
-    vi.useFakeTimers()
-    try {
-      pill().exit.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }))
-      const status = document.querySelector("vitehub-tools-off")!.shadowRoot!.querySelector("[role=status]")!
-      vi.advanceTimersByTime(7000)
-      status.dispatchEvent(new PointerEvent("pointerenter"))
-      vi.advanceTimersByTime(20_000)
-      expect(document.querySelector("vitehub-tools-off")).not.toBeNull()
-      status.dispatchEvent(new PointerEvent("pointerleave"))
-      vi.advanceTimersByTime(7999)
-      expect(document.querySelector("vitehub-tools-off")).not.toBeNull()
-      vi.advanceTimersByTime(1)
-      expect(document.querySelector("vitehub-tools-off")).toBeNull()
-    }
-    finally { vi.useRealTimers() }
+    await expect(loadViteHubPageTools({ load })).resolves.toHaveLength(2)
+    expect(localStorage.getItem("vitehub-tools-off")).toBeNull()
+    expect(document.querySelector("vitehub-tools-off")).toBeNull()
+    pill()
   })
 
-  it.each(["focus", "pointer"])("keeps the note while %s remains after the other interaction leaves", async (remaining) => {
-    page("/?vitehub")
-    session({ tools: [comments] })
-    await loadViteHubPageTools({ load: modules().load })
-    vi.useFakeTimers()
-    try {
-      pill().exit.click()
-      const note = document.querySelector("vitehub-tools-off")!
-      const status = note.shadowRoot!.querySelector("[role=status]")!
-      const undo = status.querySelector("button")!
-      expect(note.shadowRoot!.activeElement).toBe(undo)
-      status.dispatchEvent(new PointerEvent("pointerenter"))
-      if (remaining === "focus") status.dispatchEvent(new PointerEvent("pointerleave"))
-      else undo.blur()
-      vi.advanceTimersByTime(20_000)
-      expect(note.isConnected).toBe(true)
+  it("draws no mark once the session route allows no tool", async () => {
+    page("/")
+    localStorage.setItem("vitehub-tools-off", "1")
+    session({ tools: [] })
+    await expect(loadViteHubPageTools({ load: modules().load })).resolves.toEqual([])
+    expect(document.querySelector("vitehub-tools-off")).toBeNull()
+  })
 
-      if (remaining === "focus") undo.blur()
-      else status.dispatchEvent(new PointerEvent("pointerleave"))
-      vi.advanceTimersByTime(7999)
-      expect(note.isConnected).toBe(true)
-      vi.advanceTimersByTime(1)
-      expect(note.isConnected).toBe(false)
-    }
-    finally { vi.useRealTimers() }
+  it.each(["vitehub=comments", "comment=3"])("opens an explicit ?%s link after the tools were turned off", async (search) => {
+    page(`/guide?${search}`)
+    document.cookie = "vitehub-tools=0; Path=/"
+    localStorage.setItem("vitehub-tools-off", "1")
+    session({ tools: [{ ...comments, lazy: true, param: "comment" }, { ...consoleTool, lazy: true }] })
+    const { load, started } = modules()
+
+    await expect(loadViteHubPageTools({ load })).resolves.toHaveLength(2)
+    expect(started.map(context => [context.tool.id, context.open])).toEqual([["comments", true]])
+    expect(load.mock.calls).toEqual([["/comments.js"]])
+    expect(localStorage.getItem("vitehub-tools-off")).toBeNull()
+    expect(document.querySelector("vitehub-tools-off")).toBeNull()
+    pill()
   })
 
   it("starts the other tools when one script fails or has no default export", async () => {

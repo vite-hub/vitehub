@@ -57,6 +57,12 @@ export interface ViteHubConsoleOperationFilter {
  */
 export interface ViteHubConsoleOperationView {
   columns: readonly ViteHubConsoleOperationColumn[]
+  /**
+   * Opens the item of a row in a side panel. `comment-thread` shows an item of `comments.list` as a comment thread
+   * where the user reads, replies, resolves, reopens, and mentions people. The panel calls the `comments.*` operations
+   * with the Console user, and `?thread=<id>` in the URL opens it.
+   */
+  detail?: { kind: "comment-thread" }
   filters?: readonly ViteHubConsoleOperationFilter[]
   kind: "operation-view"
   /**
@@ -707,6 +713,13 @@ export interface ViteHubConsoleDocumentPreview {
   expiresAt: string
 }
 
+/** The document that a page of the site shows, from the `resolve` action. */
+export interface ViteHubConsoleDocumentResolved {
+  collection: string
+  id: string
+  state: ViteHubConsoleDocumentState
+}
+
 /** The signed-in Console user, or `null` when the Console access mode has no user. */
 export interface ViteHubConsoleDocumentActionContext {
   user: Record<string, unknown> | null
@@ -734,6 +747,12 @@ export interface ViteHubConsoleDocumentActions {
    * document first.
    */
   preview(input: { collection: string, id: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPreview>
+  /**
+   * Finds the document that the page at `path` shows, such as `/blog/hello`, from the collection `url` patterns. It
+   * looks in `published` first, then in `draft`. Null when no readable document has that URL. The page tools use it to
+   * offer the draft of the page that is open.
+   */
+  resolve(input: { path: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentResolved | null>
   /** Reads the stored file on the draft, or at one earlier `revision`, without validating it. Null when it does not exist there. */
   raw(input: { collection: string, id: string, revision?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleRawDocument | null>
   /**
@@ -780,7 +799,7 @@ export interface ViteHubConsoleDocumentActions {
 
 export type ViteHubConsoleDocumentActionName = Exclude<keyof ViteHubConsoleDocumentActions, "collections" | "mediaAccess" | "setup">
 
-export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "preview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"]
+export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "preview", "publish", "raw", "references", "remove", "resolve", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"]
 
 /** Creates the document actions from the namespace of the application module that `entry` found. */
 export type ViteHubConsoleDocumentActionsFactory = (module: Record<string, unknown>) => ViteHubConsoleDocumentActions

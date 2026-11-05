@@ -24,7 +24,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The module installs Nuxt UI, `@vite-hub/ui`, `nuxt-llms`, `nuxt-agent-discovery`, and `@nuxtjs/mcp-toolkit` for you. Do not add them to `modules`. Set `site.url` to the public origin: llms.txt, canonical links, and the raw Markdown links use it.
+The module installs Nuxt UI, `@vite-hub/ui`, `nuxt-llms`, `nuxt-agent-discovery`, `nuxt-link-checker`, and `@nuxtjs/mcp-toolkit` for you. Do not add them to `modules`. Set `site.url` to the public origin: llms.txt, canonical links, and the raw Markdown links use it.
 
 The shell uses Lucide, Phosphor, Simple Icons, and VS Code Icons. Install `@iconify-json/lucide`, `@iconify-json/ph`, `@iconify-json/simple-icons`, and `@iconify-json/vscode-icons` to serve them from your app. Without them, `@nuxt/icon` gets them from the Iconify API.
 
@@ -117,8 +117,11 @@ Most changes are options in `nuxt.config.ts`:
 | `icons` | Lucide fallbacks | Icon maps of the rail and the sidebar. |
 | `sitemap` | `[]` | More paths for `/sitemap.xml`. Every docs page is listed already. |
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
+| `linkChecker` | On | `false` turns off `nuxt-link-checker`, which fails the build on detected link errors in prerendered pages. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. Set the app's own `linkChecker` options to change it. |
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
+| `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
 | `rawMarkdown` | None | `(markdown, page) => string`. Rewrites a page before agents read it. |
+| `parser` | None | Path of a module whose default export is `{ plugins }`: more Comark plugins for every page. See [Comark plugins](#comark-plugins). |
 
 ### Components
 
@@ -137,6 +140,20 @@ The shell is a set of Nuxt components. Create a component with the same name in 
 Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, `layouts/default.vue`, or catch-all page also replaces the package one. A catch-all page replaces the docs page only when it answers every docs page, such as `pages/[...slug].vue`. One in another folder, such as `pages/blog/[...slug].vue`, does not.
 
 Components read the site with auto-imported composables: `useDocsConfig()`, `useDocsManifest()`, `useDocsPage()`, `useDocsSection()`, `useDocsIcons()`, and `useDocsAssistant()`.
+
+### Comark plugins
+
+The server parses each page with Comark, and the browser renders the nodes. Comark plugins are functions, so they go in a module that `parser` names:
+
+```ts
+// docs.parser.ts
+import type { DocsParserOptions } from "@vite-hub/docs/server"
+import tabs from "comark-tabs"
+
+export default { plugins: [tabs()] } satisfies DocsParserOptions
+```
+
+Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console drafts use these plugins after the built-in ones. A plugin with a built-in name, such as `alert`, replaces it. A plugin that adds a tag needs a component for it in `app/components/content/`.
 
 ### Theme
 
@@ -163,9 +180,26 @@ Every page has a Markdown copy for coding agents. You get these routes with no s
 
 Search indexes every page by heading. `⌘K` opens it. Page titles rank first, then headings, then text, and a typo still finds the page. The index loads the first time the dialog opens, from `/api/_docs/search.json`. `::agent-only` content is not indexed.
 
+## Comments
+
+A docs site on `vite-hub/nuxt` has ViteHub Comments on every page. The team pins comments, replies, mentions people with `@`, and resolves threads. Install `@vite-hub/comments` beside `vite-hub`:
+
+```sh
+pnpm add @vite-hub/comments
+```
+
+The module sets the `comments` option of `vite-hub/nuxt`, which turns on the Database. Run `vitehub db generate` and `vitehub db migrate` once. No `server/comments.ts` is needed; add one to set `authorize` or `people`.
+
+- A thread belongs to the page path, such as `/docs/kv`, so it stays on its page across deploys.
+- Readers see nothing. The overlay loads only with `?vitehub` or the `vitehub-tools` cookie, for people that `authorize` lets read. Without `authorize`, a production build admits the people of the Console's Comments section and people signed in with GitHub who can push to the repository.
+- `@` suggests the users of ViteHub Auth when the app has Auth, else the people who wrote in the threads.
+- The Console's Comments section lists the threads.
+
+Turn it off with `docs: { comments: false }`, which also keeps the Console from turning it on. An object goes to the `comments` option of `vite-hub/nuxt`, such as `{ database: "docs" }` or `{ overlay: false }`. A site without `vite-hub/nuxt` has no Comments; `comments: true` there fails the build with `DocsCommentsSetupError`.
+
 ## Docs assistant
 
-The docs assistant answers reader questions from your pages and links the pages that it used. It is a ViteHub Agent preset, `docsAssistant`. By default it runs Codex on your ChatGPT plan, so you need no API key.
+The docs assistant answers reader questions from your pages and links the pages that it used. It is a ViteHub Agent preset, `docsAssistant`. By default it runs on your ChatGPT plan, so you need no API key: with Codex on Node.js, and with a model-backed Driver in a Cloudflare Worker build.
 
 ```sh
 pnpm add vite-hub @vite-hub/agent @vite-hub/database drizzle-orm @openai/codex
@@ -184,10 +218,11 @@ export default defineNuxtConfig({
 
 ```ts
 // server/agents/docs.ts
+// server/agents/docs/agent.ts. `workspace: {}` says that this Agent owns the pages Workspace of the preset, so a build bundles the pages for hosts without a file system.
 import { docsAssistant } from "@vite-hub/docs/assistant"
 import { defineAgent } from "vite-hub/agent"
 
-export default defineAgent({ extends: docsAssistant })
+export default defineAgent({ extends: docsAssistant, workspace: {} })
 ```
 
 ```ts
@@ -216,8 +251,7 @@ The preset reads `content/**/*.md` from a read-only Workspace, answers in the `w
 
 Limits:
 
-- **Node.js host only.** Codex runs as a local process. A production build for Cloudflare or another non-Node Nitro preset fails with `DocsAssistantSetupError` while `assistant` is on.
-- **ChatGPT plan in the development server only.** `vite-hub/nuxt` does not support Connections in production builds yet. An API key gateway does not need Connections.
+- **Worker builds.** Under the `workerd` and `worker` conditions, `docsAssistant` uses `driver: { model: "gpt-6.1-sol", gateway: chatgpt() }`, because a Worker cannot start Codex. The model reads the pages with the read-only Workspace shell. Change the model with `driver: { model }`, from `vitehub connections models chatgpt`. An Agent that sets `codexDriver()` itself fails a Worker build with `AGENT_B0019`.
 - **Plan use.** OpenAI allows plan usage for open-source projects, personal apps that run locally, and selected private apps. Paid or remotely hosted apps must join OpenAI's waitlist first.
 - **Shell access.** Codex reads the pages with shell commands in a temporary copy. It cannot write outside that copy or use the network, but it can read other files that the server user can read, and a reader can ask for them. Run a public assistant as a user that can read only the app.
 - **Rate limit and budget.** The default limit is in process memory. It resets on restart, does not span processes, and one reader can use the whole hour. The token budget records an answer over 200,000 tokens; it does not stop it.
@@ -247,7 +281,7 @@ export const content = defineContent({
 | Error | When | Fix |
 | --- | --- | --- |
 | `DocsContentError` | A page frontmatter or a `.navigation.yml` file does not match the schema. The message names the file and the field. | Fix the field. The schema is `docsPageSchema` and `docsSectionSchema` from `@vite-hub/docs`. |
-| `DocsAssistantSetupError` | `assistant` is on, and `vite-hub/nuxt` with `agent: true` is missing, or a production build uses a non-Node Nitro preset. | Add `vite-hub/nuxt` with `agent: true` and `connections: true`, build for Node, or turn `assistant` off for that build. |
+| `DocsAssistantSetupError` | `assistant` is on, and `vite-hub/nuxt` with `agent: true` is missing. | Add `vite-hub/nuxt` with `agent: true` and `connections: true`, or turn `assistant` off. |
 
 ## Inspect
 

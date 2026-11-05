@@ -26,7 +26,8 @@ export function installConsolePageTool(nitroApp: unknown, options: ViteHubPageTo
     allowed: ({ event }) => consoleAllowsRequest(event),
   })
   registerViteHubPageTool(nitroApp, {
-    id: "content", label: "Content", icon: "i-lucide-file-pen", script, lazy: true,
+    // Eager, so the segment can offer the draft of the open page before the editor opens. The editor frame still waits.
+    id: "content", label: "Content", icon: "i-lucide-file-pen", script,
     allowed: async ({ event }) => getConsoleSections().includes("content") && await consoleAllowsRequest(event, "content", "write"),
   })
   installViteHubPageTools(nitroApp, options)

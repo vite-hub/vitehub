@@ -127,7 +127,7 @@ If a coding agent writes your app, install the ViteHub skill:
 npx skills add https://vitehub.dev --skill vitehub
 ```
 
-Requirements: Node 24.15 or newer and Vite 8 or newer. Presets: `cloudflare`, `netlify`, `vercel`, `deno`, and `node`.
+Requirements: Node.js 22.22 or newer and Vite 8 or newer. Presets: `cloudflare`, `netlify`, `vercel`, `deno`, and `node`.
 
 ## Agents
 

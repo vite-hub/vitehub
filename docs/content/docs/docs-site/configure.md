@@ -270,6 +270,26 @@ Lumen does not run on Node.js 22 or older.
 
 The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, and `::agent-only`.
 
+### Add Comark plugins
+
+The server parses every page with [Comark](https://comark.dev). To add Comark plugins, such as a plugin that turns `::code-group` into tabs, put them in a module and name it in `parser`. Plugins are functions, so they cannot go in `nuxt.config.ts` itself.
+
+```ts [docs.parser.ts]
+import type { DocsParserOptions } from '@vite-hub/docs/server'
+import tabs from 'comark-tabs'
+
+export default { plugins: [tabs()] } satisfies DocsParserOptions
+```
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/docs/nuxt'],
+  docs: { parser: './docs.parser.ts' },
+})
+```
+
+The page route, search, and Console drafts parse with these plugins after the built-in ones. A plugin with the name of a built-in plugin, such as `alert`, replaces it. The browser receives the parsed nodes, so a plugin that adds a tag needs a component for it in `app/components/content/`.
+
 ## Agent resources
 
 Coding agents read the same pages without HTML. You get these routes with no setup:
@@ -311,6 +331,43 @@ export default defineNuxtConfig({
 ## Search
 
 `⌘K` opens the search dialog. It finds text under each `h2` and `h3` heading of every page. The index loads the first time the dialog opens, from `/api/_docs/search.json`. Agent-only content is not in it.
+
+## Comments
+
+A docs site on `vite-hub/nuxt` has [Comments](/docs/comments) on every page. Your team pins comments on a page, replies, mentions each other, and resolves threads. Install the package next to the modules:
+
+```sh [commands/comments]
+pnpm add @vite-hub/comments
+```
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: [
+    ['vite-hub/nuxt', { preset: 'node', console: { auth: false } }],
+    '@vite-hub/docs/nuxt',
+  ],
+})
+```
+
+The docs module turns on the `comments` option of `vite-hub/nuxt`, which turns on the Database. The Console turns Comments on too. Apply the tables once with `vitehub db generate` and `vitehub db migrate`. You need no `server/comments.ts`. Add one to set `authorize`, `people`, or `onMention`. See [Configure Comments](/docs/comments/configure).
+
+- **Each page has its own threads.** A thread belongs to the page path, such as `/docs/kv`. A new deploy keeps the threads on their page. A renamed page starts with none.
+- **Readers see nothing.** The page loads the overlay only with `?vitehub` or the `vitehub-tools` cookie, and only for people that `authorize` lets read. Without `authorize`, a production build lets in the people that the Console admits to Comments, and people signed in with GitHub who can push to the repository. A reader who is not signed in gets no toolbar. When the app has no Console and no Auth, and GitHub sign-in is set up, `?vitehub` shows **Sign in with GitHub**. The development server lets everyone comment.
+- **`@` lists your people.** With [Auth](/docs/auth), it suggests the users of Auth that may read the thread. Without Auth, it suggests the people who wrote in threads that you can read.
+- **The Console lists the threads.** Open `/_vitehub` and select **Comments** to see every thread with its page, and open one.
+
+Turn Comments off with `comments: false`. It sets `comments: false` on `vite-hub/nuxt`, so the Console does not turn Comments on either. Pass the `comments` options of `vite-hub/nuxt` to change the Database or to leave the overlay out of the pages:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  docs: {
+    // Or `comments: false`.
+    comments: { database: 'docs', overlay: false },
+  },
+})
+```
+
+A site without `vite-hub/nuxt` has no server for the threads, so it has no Comments. Setting `comments` to `true` or to an object there stops the build with [`DocsCommentsSetupError`](/docs/docs-site/limits-and-errors#docscommentssetuperror).
 
 ## Edit in the Console
 

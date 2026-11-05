@@ -703,7 +703,8 @@ describe("the overlay session", () => {
     expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: ana })
     install(defineComments({ authorize: ({ thread }) => thread!.author.id === "ana" } satisfies DefineCommentsOptions), store)
     expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: ana })
-    // The optional subject is the only accepted input.
-    expect(await failure("comments.session", { threadId: "x" })).toMatchObject({ code: "INTERNAL_R0022" })
+    // A thread id is accepted, but missing threads and unknown options still fail.
+    expect(await failure("comments.session", { threadId: "x" })).toMatchObject({ code: "COMMENTS_R0002", status: 404 })
+    expect(await failure("comments.session", { thread: "x" })).toMatchObject({ code: "INTERNAL_R0022" })
   })
 })

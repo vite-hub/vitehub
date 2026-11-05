@@ -6,7 +6,6 @@ import { ConsoleRequestError, requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
 import { consoleSkillFileSchema, consoleSkillsSchema, type ConsoleSkillFile, type ConsoleSkills } from "../skills";
 import ConsolePageHeader from "./console-page-header.vue";
-import ConsoleFrame from "./console-frame.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleSkillTree from "./console-skill-tree.vue";
@@ -125,7 +124,6 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
 </script>
 
 <template>
-  <ConsoleFrame active="skills" :sections-base="sectionsBase">
     <ConsoleSearch :agents-base="agentsBase" :definitions-base="definitionsBase" :kv-base="kvBase" :search-base="searchBase" :sections-base="sectionsBase" />
     <UDashboardPanel id="skills" :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }">
       <template #header>
@@ -182,7 +180,6 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
         </main>
       </template>
     </UDashboardPanel>
-  </ConsoleFrame>
 </template>
 
 <style scoped>

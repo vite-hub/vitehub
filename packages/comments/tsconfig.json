@@ -1,6 +1,7 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
+    "allowArbitraryExtensions": true,
     "forceConsistentCasingInFileNames": true,
     "rootDir": "..",
     "paths": {
@@ -9,6 +10,15 @@
       ],
       "@vite-hub/internal/*": [
         "../internal/src/*.ts"
+      ],
+      "@vite-hub/ui/comments": [
+        "../ui/src/comments.ts"
+      ],
+      "@vite-hub/ui/headless": [
+        "../ui/src/headless.ts"
+      ],
+      "@vite-hub/ui/standalone/*": [
+        "../ui/src/standalone/*.ts"
       ]
     },
     "lib": [
@@ -20,6 +30,8 @@
   "include": [
     "src/**/*.ts",
     "src/**/*.d.ts",
+    "../ui/src/standalone/virtual.d.ts",
+    "src/overlay/css.d.ts",
     "test/**/*.ts",
     "test/**/*.test-d.ts"
   ],

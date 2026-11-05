@@ -1,4 +1,4 @@
-import { consoleD1Binding, consoleDatabaseUrl, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
+import { consoleD1Binding, consoleDatabaseUrl, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache.ts"
 import { existsSync, readFileSync } from "node:fs"
 import { basename, dirname, join, relative, resolve } from "node:path"
@@ -33,7 +33,7 @@ import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPrese
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
 import { assertFeaturePackages, isPackageInstalled, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
-import { optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
+import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
 import { disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
@@ -118,6 +118,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/connections": true,
   "@vite-hub/content": true,
   "@vite-hub/database": true,
+  "@vite-hub/decisions": true,
   "@vite-hub/docs": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
@@ -199,28 +200,24 @@ function frameworkWorkspaceDependencyRuntimeImports(sandboxTask: boolean) {
     ...(isPackageInstalled("@vite-hub/shell") ? { shellWorkspace: "vite-hub/shell/workspace" } : {}),
   }
 }
+// One resolve for the package root. A resolve per export (about 240) took 130 ms of every `vite` start.
+const frameworkPackageRoot = new URL(".", import.meta.resolve(`${frameworkPackageName}/package.json`))
+
+function frameworkExportAliases(include: (importTarget: string) => boolean): [string, string][] {
+  return Object.entries(frameworkPackageManifest.exports).flatMap(([subpath, target]): [string, string][] => {
+    const importTarget = packageExportImportTarget(target)
+    if (!subpath.startsWith("./") || importTarget === undefined || !include(importTarget)) return []
+    return [[`${frameworkPackageName}/${subpath.slice(2)}`, fileURLToPath(new URL(importTarget, frameworkPackageRoot))]]
+  })
+}
+
 const frameworkProviderImportAliases = Object.fromEntries(
-  Object.entries(frameworkPackageManifest.exports)
-    .filter(([subpath, target]) => subpath.startsWith("./") && packageExportImportTarget(target)?.endsWith(".js"))
-    .map(([subpath]): [string, string] => {
-      const specifier = `${frameworkPackageName}/${subpath.slice(2)}`
-      return [specifier, fileURLToPath(import.meta.resolve(specifier))]
-    })
+  frameworkExportAliases(importTarget => importTarget.endsWith(".js"))
     .sort(([left], [right]) => right.length - left.length),
 )
 // Exports that are not JavaScript, such as `vite-hub/ui/styles.css`. A Vite alias also matches the subpaths of its
 // specifier, so without its own entry `vite-hub/ui/styles.css` would resolve inside `dist/ui.js`.
-const frameworkAssetImportAliases = Object.fromEntries(
-  Object.entries(frameworkPackageManifest.exports)
-    .filter(([subpath, target]) => {
-      const importTarget = packageExportImportTarget(target)
-      return subpath.startsWith("./") && importTarget !== undefined && !importTarget.endsWith(".js")
-    })
-    .map(([subpath]): [string, string] => {
-      const specifier = `${frameworkPackageName}/${subpath.slice(2)}`
-      return [specifier, fileURLToPath(import.meta.resolve(specifier))]
-    }),
-)
+const frameworkAssetImportAliases = Object.fromEntries(frameworkExportAliases(importTarget => !importTarget.endsWith(".js")))
 
 // Generated server modules import Nitro and H3 by name. An app that lists only vite-hub cannot resolve them from its
 // root without hoisting, so these imports fall back to the Nitro that vite-hub installs, and to that Nitro's H3.
@@ -405,8 +402,13 @@ export interface ViteHubOptions {
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
-  /** Database, SQL dialect, and `overlay: false` (no page tool) for Comments in `server/comments.ts`. */
-  comments?: Pick<HubCommentsOptions, "database" | "dialect" | "overlay">
+  /**
+   * Comments on the app's pages. `true`, or an object with the Database, the SQL dialect, or `overlay: false` (no page
+   * tool), turns it on, with `server/comments.ts` or else the default `defineComments()`, and turns the Database on
+   * when `database` is unset. Default: on with the Console, else on when the app has `server/comments.ts`. `false`
+   * turns it off.
+   */
+  comments?: boolean | Pick<HubCommentsOptions, "database" | "dialect" | "overlay">
   rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
   /** Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or Vercel Sandbox. */
@@ -1106,9 +1108,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   assertFeaturePackages(([
     ["agent", options.agent || options.observability],
     ["auth", options.auth],
+    ["comments", options.comments],
     ["console agents", configuredConsole && options.agent],
     ["console sign-in", consoleSignIn],
-    ["database", options.database],
+    ["connections", options.connections],
+    // `withConnectionsDatabase()` turns `database` on for Connections, so name the feature that the app enabled.
+    ["database", options.database && !options.connections],
     ["realtime", options.realtime],
     ["schedule", options.schedule],
     ["workspace", options.workspace],
@@ -1347,10 +1352,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/rate-limit`,
     } as RateLimitModuleOptions)))
   }
-  // Comments in `server/comments.ts`: threads in the Database, the overlay on pages in comment mode, and page presence
-  // rooms where Realtime has an authority. Inert without the file, and absent without its package.
-  const commentsPlugin = ownerModules.commentsVite?.hubComments({
-    ...options.comments,
+  // Comments in `server/comments.ts`, or with the `comments` option: threads in the Database, the overlay on pages in
+  // comment mode, and page presence rooms where Realtime has an authority. Inert without either, and absent without its
+  // package.
+  const commentsPlugin = options.comments === false ? undefined : ownerModules.commentsVite?.hubComments({
+    ...options.comments === true ? {} : options.comments,
+    enabled: Boolean(options.comments),
     auth: Boolean(options.auth),
     // Attachments go to the app's Blob store.
     blob: blobEnabled,
@@ -1447,6 +1454,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     },
   }))
   if (commentsPlugin) plugins.push(commentsPlugin)
+  else if (options.comments === false) plugins.push(commentsOffPlugin())
   if (!ownerModules.commentsVite || !ownerModules.contentVite || !ownerModules.cmsVite) plugins.push(optionalOwnerEntriesPlugin())
   plugins.push(optionalOwnerImportsPlugin())
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
@@ -1467,7 +1475,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
 }
 
 export function vitehub(options: ViteHubOptions): PluginOption[] {
-  return withCmsPresetPlugins(options, resolved => createViteHubPlugins(resolved))
+  return withCmsPresetPlugins(withComments(options), resolved => createViteHubPlugins(resolved))
 }
 
 declare module "vite" {

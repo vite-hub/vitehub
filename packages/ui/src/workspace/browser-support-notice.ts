@@ -24,6 +24,8 @@ export const BrowserSupportNotice = defineComponent({
     reason: { default: undefined, type: String },
     /** Overrides the browser that the notice names. Detected from the user agent by default. */
     browser: { default: undefined, type: String as PropType<UnsupportedBrowser> },
+    /** What the reader can do instead, when the browser is the cause. Defaults to the text for a tutorial. */
+    description: { default: "This tutorial still works as text. To edit and run the code next to each step, open this page in Chrome, Edge, or Firefox on a desktop.", type: String },
     /** The link that Copy link copies. Defaults to the current page. */
     url: { default: undefined, type: String },
   },
@@ -71,7 +73,7 @@ export const BrowserSupportNotice = defineComponent({
           h("p", { class: "vh-ws-support-title", id: `${whyId}-title` }, isolation ? "This page needs workspace setup" : browser === "safari" ? "The live workspace does not run in Safari" : "The live workspace does not run in this browser"),
           h("p", { class: "vh-ws-muted" }, isolation
             ? "This tutorial still works as text. The site owner needs to enable cross-origin isolation for the live workspace."
-            : "This tutorial still works as text. To edit and run the code next to each step, open this page in Chrome, Edge, or Firefox on a desktop."),
+            : props.description),
           h("div", { class: "vh-ws-actions" }, [
             h("button", { class: "vh-ws-button", type: "button", onClick: copy }, [icon(copied.value ? "check" : "copy"), copied.value ? "Copied" : "Copy link"]),
             h("div", { class: "vh-ws-popover-anchor" }, [

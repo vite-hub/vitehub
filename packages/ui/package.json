@@ -71,6 +71,11 @@
       "import": "./dist/chat-session.js",
       "default": "./dist/chat-session.js"
     },
+    "./choices-input": {
+      "types": "./dist/choices-input.d.ts",
+      "import": "./dist/choices-input.js",
+      "default": "./dist/choices-input.js"
+    },
     "./code-block": {
       "types": "./dist/code-block.d.ts",
       "import": "./dist/code-block.js",
@@ -110,6 +115,11 @@
       "types": "./dist/file-view.d.ts",
       "import": "./dist/file-view.js",
       "default": "./dist/file-view.js"
+    },
+    "./filter-search": {
+      "types": "./dist/filter-search.d.ts",
+      "import": "./dist/filter-search.js",
+      "default": "./dist/filter-search.js"
     },
     "./headless": {
       "types": "./dist/headless.d.ts",
@@ -268,6 +278,7 @@
   },
   "devDependencies": {
     "@iconify-json/ph": "catalog:ui",
+    "@nuxt/schema": "4.6.3",
     "@nuxt/ui": "catalog:nuxt",
     "@pierre/diffs": "1.5.2",
     "@pierre/theme": "2.0.0",
@@ -311,6 +322,6 @@
     }
   },
   "engines": {
-    "node": ">=24.15.0"
+    "node": ">=22.22.0"
   }
 }

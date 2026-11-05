@@ -39,10 +39,11 @@ describe("defineComments", () => {
     await comments.create({ page: "/about", anchor, body: "Elsewhere", author: ada })
     vi.setSystemTime(3_000)
     const [, second] = await comments.create({ page: "/", anchor, body: "Second", author: ada })
-    const [, doc] = await comments.create({ subject: { kind: "doc", id: "42" }, body: "On the doc", author: ada })
     vi.setSystemTime(4_000)
-    await comments.resolve(second!.id, { by: ada })
+    const [, doc] = await comments.create({ subject: { kind: "doc", id: "42" }, body: "On the doc", author: ada })
     vi.setSystemTime(5_000)
+    await comments.resolve(second!.id, { by: ada })
+    vi.setSystemTime(6_000)
     await comments.reply(first!.id, { body: "Bump", author: grace })
 
     const [, home] = await comments.list({ page: "/" })

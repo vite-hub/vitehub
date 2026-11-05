@@ -240,9 +240,12 @@
   },
   "dependencies": {
     "@ai-sdk/gateway": "catalog:ai",
+    "@ai-sdk/openai": "catalog:ai",
+    "@ai-sdk/provider": "catalog:ai",
     "@cfworker/json-schema": "4.1.1",
     "@chat-adapter/telegram": "catalog:chat",
     "@libsql/client": "catalog:database",
+    "@sqlite.org/sqlite-wasm": "catalog:database",
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@standard-schema/spec": "catalog:runtime",
     "@valibot/to-json-schema": "catalog:runtime",
@@ -254,6 +257,7 @@
     "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
+    "@vite-hub/web-container": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@yarnpkg/parsers": "catalog:tooling",
     "ai": "catalog:ai",
@@ -386,6 +390,6 @@
     }
   },
   "engines": {
-    "node": ">=24.15.0"
+    "node": ">=22.18.0"
   }
 }
