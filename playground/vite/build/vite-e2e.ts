@@ -255,7 +255,7 @@ function renderKvRuntimeModule(file: string, config: false | ResolvedKVModuleOpt
     imports.push(`import { createCloudflareKVStorage } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(kvPackageDir, "runtime/cloudflare-kv")))}`)
   }
   else if (config.store.driver === "upstash") {
-    imports.push(`import createDriver from ${JSON.stringify(createImportPath(file, resolvePackageDependency(kvPackageDir, "unstorage/drivers/upstash")))}`)
+    imports.push(`import createDriver from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(kvPackageDir, "runtime/upstash-driver")))}`)
     imports.push(`import { resolveRuntimeKVOptions } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(kvPackageDir, "runtime/upstash")))}`)
   }
   else {

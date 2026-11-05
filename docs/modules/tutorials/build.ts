@@ -59,7 +59,7 @@ export async function readTree(root: string, directory = root): Promise<Tutorial
     if (ignoredEntries.has(entry.name)) continue;
     const path = join(directory, entry.name);
     if (entry.isDirectory()) Object.assign(files, await readTree(root, path));
-    else if (entry.isFile()) files[relative(root, path)] = await readFile(path, "utf8");
+    else if (entry.isFile()) files[relative(root, path).replaceAll("\\", "/")] = await readFile(path, "utf8");
   }
   return files;
 }
@@ -133,8 +133,8 @@ export async function buildRunnableTutorial(input: {
   versions: WorkspaceVersions
 }): Promise<RunnableTutorialData> {
   const { source, contentDir, fixturesDir, versions } = input;
-  const lesson = await readFile(resolve(contentDir, `${source.page.replace(/^\//, "")}.md`), "utf8");
-  const installation = await readFile(resolve(contentDir, "docs/getting-started/installation.md"), "utf8");
+  const lesson = (await readFile(resolve(contentDir, `${source.page.replace(/^\//, "")}.md`), "utf8")).replaceAll("\r\n", "\n");
+  const installation = (await readFile(resolve(contentDir, "docs/getting-started/installation.md"), "utf8")).replaceAll("\r\n", "\n");
   const fixture = await readTree(resolve(fixturesDir, source.fixture));
   if (fixture["package.json"]) fixture["package.json"] = resolveManifest(fixture["package.json"], versions);
 
