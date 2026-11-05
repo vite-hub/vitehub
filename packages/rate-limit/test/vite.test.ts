@@ -389,8 +389,10 @@ describe("hubRateLimit", () => {
 
       await expect(serve(hubRateLimit(), { nitro: { preset: "cloudflare-module" }, root }))
         .rejects.toMatchObject({ code: "RATE_LIMIT_R0016", message: expect.stringContaining("supports only 10s and 1m windows") })
-      // vitehub({ preset: "cloudflare" }) passes the Cloudflare provider to the plugin and runs memory in dev.
-      await expect(serve(hubRateLimit({ provider: "cloudflare" }), { rateLimit: { provider: "memory" }, root }))
+      await expect(serve(hubRateLimit({ provider: "cloudflare" }), { root }))
+        .rejects.toMatchObject({ code: "RATE_LIMIT_R0016" })
+      // vitehub({ preset: "cloudflare" }) records its deployment preset and runs memory in dev.
+      await expect(serve(hubRateLimit({ provider: "cloudflare" }), { rateLimit: { provider: "memory" }, root, vitehub: { preset: "cloudflare" } }))
         .rejects.toMatchObject({ code: "RATE_LIMIT_R0016" })
     })
 
@@ -399,6 +401,20 @@ describe("hubRateLimit", () => {
 
       await expect(serve(hubRateLimit(), { nitro: { preset: "cloudflare-module" }, root }))
         .rejects.toMatchObject({ code: "RATE_LIMIT_R0015" })
+      await expect(serve(hubRateLimit({ provider: "cloudflare" }), { rateLimit: { provider: "memory" }, root, vitehub: { preset: "cloudflare" } }))
+        .rejects.toMatchObject({ code: "RATE_LIMIT_R0015" })
+    })
+
+    it.each([
+      ["1h", "best-effort"],
+      ["1m", "strict"],
+    ])("honors a resolved memory override for %s with %s enforcement in dev and build", async (window, enforcement) => {
+      const root = await devRoot(window, enforcement)
+      const config = { nitro: { preset: "cloudflare-module" }, rateLimit: { provider: "memory" }, root }
+
+      await serve(hubRateLimit({ provider: "cloudflare" }), config)
+      await expect(readFile(join(root, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).resolves.toContain('{"provider":"memory"}')
+      await serve(hubRateLimit({ provider: "cloudflare" }), { ...config, command: "build" })
     })
 
     it("logs an unsupported policy that a saved file adds", async () => {
@@ -417,6 +433,8 @@ describe("hubRateLimit", () => {
     it("keeps the memory driver for supported policies and for dev without a Cloudflare build", async () => {
       const valid = await devRoot("10s")
       await serve(hubRateLimit(), { nitro: { preset: "cloudflare-module" }, root: valid })
+      await expect(readFile(join(valid, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).resolves.toContain('{"provider":"memory"}')
+      await serve(hubRateLimit({ provider: "cloudflare" }), { rateLimit: { provider: "memory" }, root: valid, vitehub: { preset: "cloudflare" } })
       await expect(readFile(join(valid, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).resolves.toContain('{"provider":"memory"}')
 
       const local = await devRoot("1h")

@@ -102,9 +102,10 @@ function resolveProvider(options: RateLimitModuleOptions, command: "build" | "se
   throw rateLimitErrorDiagnostics.RATE_LIMIT_B0003({ message: "[vitehub] Rate Limit provider cannot be inferred for a production build. Set rateLimit.provider to \"cloudflare\" or explicitly choose \"memory\" for a known single-process deployment." })
 }
 
-// `vitehub({ preset: "cloudflare" })` passes the Cloudflare provider to the plugin and memory to the dev server config.
-function buildTargetsCloudflare(options: RateLimitModuleOptions, configured: RateLimitModuleOptions, nitro: unknown): boolean {
-  if (options.provider === "cloudflare" || configured.provider === "cloudflare") return true
+function buildTargetsCloudflare(config: ResolvedConfig, configured: RateLimitModuleOptions, nitro: unknown): boolean {
+  // ViteHub records the deployment preset separately from its memory runtime provider in dev.
+  if ((config as { vitehub?: { preset?: string } }).vitehub?.preset === "cloudflare") return true
+  if (configured.provider === "cloudflare") return true
   return (configured.provider ?? "auto") === "auto" && getHostingProvider(resolveHost({ nitro })) === "cloudflare"
 }
 
@@ -192,7 +193,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       const nitroCloudflare = resolveHost({ nitro: configuredNitro }) === "cloudflare"
       provider = resolveProvider(rateLimit, config.command, configuredNitro)!
       cloudflareBindings = nitroCloudflare && provider === "cloudflare"
-      checkCloudflarePolicies = config.command === "serve" && buildTargetsCloudflare(options, rateLimit, configuredNitro)
+      checkCloudflarePolicies = config.command === "serve" && buildTargetsCloudflare(config, rateLimit, configuredNitro)
       collectDeclarations()
       if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations)
       ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(
