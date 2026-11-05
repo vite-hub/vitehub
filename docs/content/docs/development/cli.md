@@ -580,12 +580,15 @@ A failed command prints `<code>: <message>` and a `Fix:` line on stderr, and exi
 
 ## Run a Schedule on demand
 
-`schedule run` starts a Static Schedule Definition that sets `manual: true`. It prints the run status, duration, and run id. Add `--json` to print the run record. A run that fails still prints and exits with `0`: read `status` or `error` to tell. A name that is not available fails with `SCHEDULE_DEFINITION_NOT_FOUND` (`404`), and a definition without `manual: true` with `SCHEDULE_MANUAL_RUN_DISABLED` (`403`).
+`schedule run` starts a Static Schedule Definition that sets `manual: true`. It prints the run status, duration, run id, and scheduled time. Add `--json` to print the run record. A run that fails still prints and exits with `0`: read `status` or `error` to tell. A name that is not available fails with `SCHEDULE_DEFINITION_NOT_FOUND` (`404`), and a definition without `manual: true` with `SCHEDULE_MANUAL_RUN_DISABLED` (`403`).
 
 ```bash [Terminal]
 pnpm vitehub schedule run sync
+pnpm vitehub schedule run sync --at 2026-01-31T23:59:00Z
 pnpm vitehub schedule run sync --url https://app.example.com
 ```
+
+`--at` runs the definition as if its cron fired at that time. The handler gets it as `scheduledAt`, and `vitehub schedule runs <name>` lists the run under that time. Use it to test code that depends on the fire time, such as a daily job near midnight or a job on the last day of a month. The value is an ISO 8601 date-time with `Z` or an offset, such as `2026-01-31T23:59:00+01:00`. A value without a time zone, a date only, or a day that does not exist, such as `2026-02-30`, fails with `SCHEDULE_INVALID_SCHEDULED_AT` (`400`) and the run does not start. `--at` does not check the cron: the run starts at any time that you pass.
 
 `schedule run` is the `schedule.run` [operation](/docs/development/operations) of the Schedules section. Without `--url`, it calls the dev server of the project, which runs the definition in its Nitro runtime, so the handler has the Nitro plugins and dev bindings of the app, and the run appears in `vitehub schedule runs <name>`. With `--url`, it calls the deployment with the credentials in the [table above](#run-any-operation). The deployment runs only definitions that the Console installed, which needs the [Console](/docs/development/console) with `invoke: true`. `invoke` is on in development and off in a production build.
 
@@ -872,6 +875,7 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 | `INTERNAL_R0024` from an operation command | The command could not reach the app, or the app asked for sign-in. | Start `vite dev`, or pass `--url` and set `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or the Cloudflare Access variables. |
 | `vitehub schedule run` fails with `SCHEDULE_DEFINITION_NOT_FOUND` | The Definition does not set `manual: true`, is not discovered, or the Console did not install it because `console.invoke` is off. | Set `manual: true`, and keep `console.invoke` on. |
 | `vitehub schedule run` fails with `SCHEDULE_MANUAL_RUN_DISABLED` | The Definition exists but does not set `manual: true`. | Set `manual: true` in `defineSchedule()`. |
+| `vitehub schedule run --at` fails with `SCHEDULE_INVALID_SCHEDULED_AT` | The time has no time zone, has no time, or names a day that does not exist. | Pass an ISO 8601 date-time with `Z` or an offset, such as `2026-01-31T23:59:00Z`. |
 | `Unknown Workspace Dev target` | The named Workspace is not discovered by the running Vite dev server. | Check the Workspace Definition name and make sure `hubWorkspace()` is active. |
 | `Agent Dev Loop command requires workspace.mode: "write"` | A `!` command targeted an Agent without writable Workspace access. | Configure the selected Agent with `workspace: { mode: 'write' }`, or send a normal Agent message instead. |
 | Agent Dev Loop request times out | A streamed invocation emitted no events before the inactivity timeout, or a Capability CLI/Workspace command exceeded its wall-clock deadline. | Pass `--timeout <ms>` for the dev-loop operation or inspect the stalled work. |

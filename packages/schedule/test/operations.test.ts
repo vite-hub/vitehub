@@ -161,6 +161,25 @@ describe("schedule operations", () => {
     expect(effect).toHaveBeenCalledTimes(1)
   })
 
+  it("run a manual Schedule as if it fired at a given time and record that time", async () => {
+    const seen: Date[] = []
+    installRegistry({ close: async () => defineSchedule("59 23 * * *", ({ scheduledAt }) => { seen.push(scheduledAt) }, { manual: true }) })
+
+    const result = await call("run", { at: "2026-01-31T23:59:00+01:00", name: "close" })
+    expect(result).toMatchObject({ ok: true, value: { run: { scheduledAt: "2026-01-31T22:59:00.000Z", status: "succeeded" } } })
+    expect(seen.map(date => date.toISOString())).toEqual(["2026-01-31T22:59:00.000Z"])
+    expect(await call("runs", { id: "close" })).toMatchObject({ ok: true, value: { runs: [{ id: expect.stringMatching(/^srun_manual_close_2026-01-31T22:59:00\.000Z_/), scheduledAt: "2026-01-31T22:59:00.000Z" }] } })
+  })
+
+  it.each(["2026-02-30T00:00:00Z", "2026-01-31T23:59:00", "2026-01-31", "tomorrow", "2026-01-31T24:00:00Z", ""])("reject the run time %j with a named error and run nothing", async (at) => {
+    const effect = vi.fn()
+    installRegistry({ close: async () => defineSchedule("59 23 * * *", effect, { manual: true }) })
+
+    expect(await call("run", { at, name: "close" })).toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT", fix: expect.stringContaining("2026-01-31T23:59:00Z"), ok: false, status: 400 })
+    expect(effect).not.toHaveBeenCalled()
+    expect(await call("runs", { id: "close" })).toMatchObject({ ok: true, value: { runs: [] } })
+  })
+
   it("do not run anything when Console invocation installed no registry", async () => {
     expect(await call("run", { name: "sync" })).toMatchObject({
       code: "SCHEDULE_DEFINITION_NOT_FOUND",

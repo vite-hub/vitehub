@@ -68,7 +68,7 @@ const scheduleSummary = (name: string) => ({
   source: "server-schedules",
 })
 
-function installSchedules(handler: () => unknown = () => {}) {
+function installSchedules(handler: (context: { scheduledAt: Date }) => unknown = () => {}) {
   installConsoleOperations([{ operations: scheduleOperations, plugin: "@vite-hub/schedule/vite" }])
   installConsoleSections("/schedule-run", ["schedules"])
   installConsoleDefinitions("/schedule-run", { schedules: { definitions: [scheduleSummary("sync"), scheduleSummary("nightly")], kind: "definition-catalog" } })
@@ -206,6 +206,7 @@ describe("Console Schedule runs", () => {
           completedAt: expect.any(String),
           id: expect.stringMatching(/^srun_manual_sync_/),
           scheduleId: "sync",
+          scheduledAt: expect.any(String),
           startedAt: expect.any(String),
           status: "succeeded",
         },
@@ -236,6 +237,7 @@ describe("Console Schedule runs", () => {
           error: { message: "mailbox unavailable", name: "TypeError" },
           id: expect.stringMatching(/^srun_manual_sync_/),
           scheduleId: "sync",
+          scheduledAt: expect.any(String),
           startedAt: expect.any(String),
           status: "failed",
         },
@@ -259,6 +261,26 @@ describe("Console Schedule runs", () => {
     expect(await signed.json()).toMatchObject({ run: { scheduleId: "sync", status: "succeeded" } })
     expect([replay.status, otherDeployment.status]).toEqual([401, 401])
     expect(await replay.json()).toEqual({ message: "Dispatch nonce was already used." })
+  })
+
+  it("runs a signed dispatch as if the cron fired at `at`, and rejects a bad time", async () => {
+    const seen: string[] = []
+    installSchedules(({ scheduledAt }) => { seen.push(scheduledAt.toISOString()) })
+    const env = { VITEHUB_SECRET: "dispatch-root-secret-at-least-32-characters" }
+    const key = await resolveViteHubDispatchKey(env)
+    async function dispatch(input: Record<string, unknown>) {
+      const body = JSON.stringify(input)
+      const headers = { "content-type": "application/json", ...await signViteHubDispatch({ actor: "ci", body, key: key!, operation: "schedule.run" }) }
+      return await handleDispatchScheduleRunRequest(new Request("https://app.example/_vitehub/schedules/run", { body, headers, method: "POST" }), env)
+    }
+
+    const signed = await dispatch({ at: "2026-02-28T23:59:00Z", name: "sync" })
+    expect(await signed.json()).toMatchObject({ run: { scheduledAt: "2026-02-28T23:59:00.000Z", status: "succeeded" } })
+    const invalid = await dispatch({ at: "2026-02-30T00:00:00Z", name: "sync" })
+    const wrongType = await dispatch({ at: 1_769_903_940_000, name: "sync" })
+    expect([invalid.status, wrongType.status]).toEqual([400, 400])
+    expect(await invalid.json()).toEqual({ message: "Schedule scheduledAt value is invalid." })
+    expect(seen).toEqual(["2026-02-28T23:59:00.000Z"])
   })
 
   it("uses the request Cloudflare environment for the generated route", async () => {

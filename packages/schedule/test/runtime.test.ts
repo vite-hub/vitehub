@@ -488,6 +488,20 @@ describe("Manual Schedule runs", () => {
     expect(await getScheduleRunStore().getRun(run.id)).toEqual(run)
   })
 
+  it("runs a manual Definition as if its cron fired at a given Date or ISO 8601 string", async () => {
+    const seen: string[] = []
+    const registry = { close: async () => defineSchedule("0 0 1 * *", ({ scheduledAt }) => { seen.push(scheduledAt.toISOString()) }, { manual: true }) }
+
+    const fromString = await runSchedule("close", { registry, scheduledAt: "2026-03-01T00:00:00-05:00" })
+    const fromDate = await runSchedule("close", { registry, scheduledAt: new Date("2028-02-29T23:59:59.999Z") })
+
+    expect([fromString.scheduledAt.toISOString(), fromDate.scheduledAt.toISOString()]).toEqual(["2026-03-01T05:00:00.000Z", "2028-02-29T23:59:59.999Z"])
+    expect(seen).toEqual(["2026-03-01T05:00:00.000Z", "2028-02-29T23:59:59.999Z"])
+    await expect(runSchedule("close", { registry, scheduledAt: "2027-02-29T00:00:00Z" })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT", details: { field: "scheduledAt", valueType: "string" } })
+    await expect(runSchedule("close", { registry, scheduledAt: new Date("bad") })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    expect(seen).toHaveLength(2)
+  })
+
   it("creates distinct runs for concurrent manual invocations in one millisecond", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-09-29T10:00:00.000Z"))

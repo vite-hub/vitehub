@@ -37,7 +37,7 @@ function formatRun({ run }: { run: ManualScheduleRunSummary }): string {
   const completed = Date.parse(run.completedAt ?? "")
   const duration = Number.isNaN(started) || Number.isNaN(completed) ? undefined : Math.max(0, completed - started)
   const time = duration === undefined ? "" : ` in ${duration < 1_000 ? `${duration} ms` : `${(duration / 1_000).toFixed(1)} s`}`
-  return `${run.status} ${run.scheduleId}${time}${run.error ? `: ${run.error.message}` : ""}\nRun ${run.id}\n`
+  return `${run.status} ${run.scheduleId}${time}${run.error ? `: ${run.error.message}` : ""}\nRun ${run.id}\nScheduled at ${run.scheduledAt}\n`
 }
 
 function defineScheduleOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {
@@ -63,10 +63,10 @@ const attempts = defineScheduleOperation<{ id: string }, ScheduleAttemptsResult>
   run: async input => await (await runtime()).runScheduleAttempts(input),
 })
 
-const run = defineScheduleOperation<{ name: string }, ScheduleRunResult>({
+const run = defineScheduleOperation<{ at?: string, name: string }, ScheduleRunResult>({
   cli: { command: "run", dispatch: "/_vitehub/schedules/run", format: formatRun, namespace: "schedule", positional: ["name"] },
-  description: "Run a Static Schedule Definition now. The definition must set `manual: true`.",
-  input: v.object({ name: id }),
+  description: "Run a Static Schedule Definition now. The definition must set `manual: true`. `at` runs it as if the cron fired at that ISO 8601 date-time.",
+  input: v.object({ at: v.optional(v.string()), name: id }),
   invoke: true,
   kind: "write",
   name: "schedule.run",

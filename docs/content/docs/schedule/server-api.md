@@ -38,7 +38,9 @@ export default defineEventHandler(async () => {
 })
 ```
 
-When the handler fails, `runSchedule()` resolves with the failed run. It rejects with `SCHEDULE_DEFINITION_NOT_FOUND` for an unknown name and with `SCHEDULE_MANUAL_RUN_DISABLED` when the Definition does not set `manual: true`.
+Pass `scheduledAt` to run the Definition as if its cron fired at that time: `runSchedule('daily-report', { registry, scheduledAt: '2026-01-31T23:59:00Z' })`. It takes a `Date` or an ISO 8601 date-time with `Z` or an offset. The handler gets it as `scheduledAt`, and the run records it. It defaults to now.
+
+When the handler fails, `runSchedule()` resolves with the failed run. It rejects with `SCHEDULE_DEFINITION_NOT_FOUND` for an unknown name, with `SCHEDULE_MANUAL_RUN_DISABLED` when the Definition does not set `manual: true`, and with `SCHEDULE_INVALID_SCHEDULED_AT` when `scheduledAt` is not a valid date-time.
 
 ## Run Static Schedules in a custom Node process
 

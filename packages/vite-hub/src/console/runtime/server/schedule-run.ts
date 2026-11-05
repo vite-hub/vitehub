@@ -16,6 +16,8 @@ export interface ConsoleScheduleRun {
   error?: { message: string, name?: string }
   id: string
   scheduleId: string
+  /** The fire time that the handler received. */
+  scheduledAt: string
   startedAt?: string
   status: ScheduleRunRecord["status"]
 }
@@ -32,6 +34,7 @@ function consoleScheduleRun(run: ScheduleRunRecord): ConsoleScheduleRun {
     ...(run.error ? { error: { message: run.error.message, ...(run.error.name ? { name: run.error.name } : {}) } } : {}),
     id: run.id,
     scheduleId: run.scheduleId,
+    scheduledAt: run.scheduledAt.toISOString(),
     ...(run.startedAt ? { startedAt: run.startedAt.toISOString() } : {}),
     status: run.status,
   }
@@ -45,6 +48,9 @@ export async function runConsoleSchedule(body: unknown): Promise<ConsoleSchedule
   const name: unknown = body instanceof Object && "name" in body ? body.name : undefined
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Schedule run requests are untrusted JSON.
   if (typeof name !== "string" || !name) return { message: "Schedule run requires a Schedule Definition name.", ok: false, status: 400 }
+  const at: unknown = body instanceof Object && "at" in body ? body.at : undefined
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Schedule run requests are untrusted JSON.
+  if (at !== undefined && typeof at !== "string") return { message: "Schedule run `at` must be an ISO 8601 date-time string.", ok: false, status: 400 }
   await loadConsoleRuntime()
   const registry = getConsoleSections().includes("schedules") ? getConsoleSchedules() : {}
   if (!Object.hasOwn(registry, name)) {
@@ -52,11 +58,11 @@ export async function runConsoleSchedule(body: unknown): Promise<ConsoleSchedule
   }
   const { runSchedule } = await import("@vite-hub/schedule/runtime")
   try {
-    return { ok: true, run: consoleScheduleRun(await runSchedule(name, { registry })) }
+    return { ok: true, run: consoleScheduleRun(await runSchedule(name, { registry, scheduledAt: at })) }
   }
   catch (error) {
     const code = Reflect.get(Object(error), "code")
-    const status = code === "SCHEDULE_DEFINITION_NOT_FOUND" ? 404 : code === "SCHEDULE_MANUAL_RUN_DISABLED" ? 403 : 500
+    const status = code === "SCHEDULE_DEFINITION_NOT_FOUND" ? 404 : code === "SCHEDULE_MANUAL_RUN_DISABLED" ? 403 : code === "SCHEDULE_INVALID_SCHEDULED_AT" ? 400 : 500
     return { message: error instanceof Error ? error.message : "Schedule run failed.", ok: false, status }
   }
 }
