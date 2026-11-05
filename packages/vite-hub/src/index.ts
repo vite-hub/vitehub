@@ -15,7 +15,7 @@ import type { HubCommentsOptions } from "@vite-hub/comments/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
 import { hubEnv } from "@vite-hub/env/vite"
-import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig, type KVVitePlugin } from "@vite-hub/kv/vite"
+import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig, type KVVitePluginAPI } from "@vite-hub/kv/vite"
 import { hubQueue } from "@vite-hub/queue/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { hubSandboxTask } from "@vite-hub/sandbox/task/vite"
@@ -1247,7 +1247,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       },
       resolveKV: (kv, plugins) => {
         // SAFETY: The canonical KV plugin name identifies its framework-owned configuration API.
-        const kvPlugin = plugins?.find(plugin => plugin.name === "@vite-hub/kv/vite") as KVVitePlugin | undefined
+        const kvPlugin = plugins?.find(plugin => plugin.name === "@vite-hub/kv/vite") as { api?: KVVitePluginAPI } | undefined
         if (kvPlugin?.api?.getConfig) return Boolean(kvPlugin.api.getConfig().kv)
         if (kv === false) return false
         if (kv === undefined && !options.kv) return false

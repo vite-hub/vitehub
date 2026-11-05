@@ -943,10 +943,13 @@ describe("Agent invocation console", () => {
       const plugin = candidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
       if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
       const kvPlugin = hubKv({ driver: preset === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" })
+      const configuredPlugins: unknown[] = [kvPlugin]
+      if (order === "before") configuredPlugins.push(plugin)
+      else configuredPlugins.unshift(plugin)
       const config = {
         root,
         ...(enabled ? {} : { kv: false as const }),
-        plugins: order === "before" ? [kvPlugin, plugin] : [plugin, kvPlugin],
+        plugins: configuredPlugins,
       }
       await callPluginHook(kvPlugin.config, {}, [config, { command: "build", mode: "production" }])
       await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])

@@ -10,6 +10,7 @@ import { CallToolRequestSchema, ErrorCode, GetPromptRequestSchema, ListPromptsRe
 import { importSealKey } from "@vite-hub/env/seal"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+import * as v from "valibot"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
@@ -42,6 +43,7 @@ const people: Record<string, { email: string, name: string }> = {
   lucia: { email: "lucia@example.com", name: "Lucía" },
   maxi: { email: "maxi@example.com", name: "Maxi" },
 }
+const discoveryMetadataSchema = v.record(v.string(), v.unknown())
 
 /** What the authorization server and the MCP server saw, so tests can check the protocol, not only the Console. */
 const seen = { consoleRedirects: [] as IncomingMessage["headers"][], grants: [] as string[], mcpCookies: [] as string[], redirectedHeaders: [] as IncomingMessage["headers"][], registeredScopes: [] as unknown[], registrations: 0, revoked: new Set<string>(), sessions: new Set<string>() }
@@ -340,7 +342,7 @@ describe("MCP client section", () => {
       const request = new Request(input instanceof Request ? input.clone() : input, init)
       const response = await nativeFetch(input, init)
       if (request.url === `${origin}/.well-known/oauth-authorization-server`) {
-        return Response.json({ ...await response.json(), authorization_response_iss_parameter_supported: advertised })
+        return Response.json({ ...v.parse(discoveryMetadataSchema, await response.json()), authorization_response_iss_parameter_supported: advertised })
       }
       return response
     })
@@ -390,10 +392,10 @@ describe("MCP client section", () => {
       expect(request.url).not.toBe("http://external.example/oauth")
       const response = await nativeFetch(input, init)
       if (stage === "discovery" && new URL(request.url).pathname.startsWith("/.well-known/oauth-protected-resource")) {
-        return Response.json({ ...await response.json(), authorization_servers: ["https://oauth.example"] })
+        return Response.json({ ...v.parse(discoveryMetadataSchema, await response.json()), authorization_servers: ["https://oauth.example"] })
       }
       if (stage === "token" && request.url === `${origin}/.well-known/oauth-authorization-server`) {
-        return Response.json({ ...await response.json(), token_endpoint: endpoint })
+        return Response.json({ ...v.parse(discoveryMetadataSchema, await response.json()), token_endpoint: endpoint })
       }
       return response
     })
@@ -444,7 +446,7 @@ describe("MCP client section", () => {
       expect(request.url).not.toBe(target)
       const response = await nativeFetch(input, init)
       if (request.url === `${origin}/.well-known/oauth-authorization-server`) {
-        return Response.json({ ...await response.json(), revocation_endpoint: "https://oauth.example/revoke" })
+        return Response.json({ ...v.parse(discoveryMetadataSchema, await response.json()), revocation_endpoint: "https://oauth.example/revoke" })
       }
       return response
     })
