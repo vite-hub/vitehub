@@ -31,13 +31,18 @@ export default defineConfig({
       "src/nuxt.ts",
       "src/virtual.ts",
       "src/vite.ts",
+      "src/connect.ts",
+      "src/connect/node.ts",
       "src/runtime/agent.ts",
+      "src/runtime/chunk-parameters.ts",
       "src/runtime/d1.ts",
       "src/runtime/default-database.ts",
+      "src/runtime/default-database-postgresql.ts",
       "src/runtime/definition-defaults.ts",
       "src/runtime/definition-hosted.ts",
       "src/runtime/definition-local.ts",
       "src/runtime/hosted.ts",
+      "src/runtime/migrate-on-start.ts",
       "src/runtime/postgres.ts",
       "src/runtime/request-stats.ts",
       "src/runtime/state.ts",
@@ -48,7 +53,7 @@ export default defineConfig({
       customExports(exports) {
         return normalizePackageExports({
           ...Object.fromEntries(
-            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-")),
+            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-") && key !== "./runtime/chunk-parameters"),
           ),
           "./virtual": {
             types: "./dist/virtual.d.ts",

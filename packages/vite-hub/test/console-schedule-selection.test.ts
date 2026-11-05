@@ -61,8 +61,10 @@ describe("Console Schedule result selection", () => {
       expect(mocks.request).toHaveBeenCalledWith("/api/_vitehub/console/schedule-run", { body: { name }, method: "POST" })
       expect(state.selectedRun).toEqual({ id: "run-1", status: "succeeded" })
       state.selectDefinition("other")
+      await vi.waitFor(() => expect(state.selectedName).toBe("other"))
       expect(state.selectedRun).toBeUndefined()
       state.selectDefinition(name)
+      await vi.waitFor(() => expect(state.selectedName).toBe(name))
       expect(state.selectedRun).toEqual({ id: "run-1", status: "succeeded" })
     }
     finally {

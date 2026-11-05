@@ -78,6 +78,23 @@ function durableRealtimeRequest(exec: (query: string, ...bindings: unknown[]) =>
 }
 
 describe("realtime server handler", () => {
+  it.each(["", "/portal", "/nested/portal"])("accepts document and event connections below app base %s", async (base) => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    // A document can itself contain the reserved route's segments; only the first prefix identifies the route.
+    for (const room of ["page.md", "%40workspace?workspace=events", "docs/api/_vitehub/realtime/page.md"]) {
+      const response = await handler.fetch(new Request(`https://example.com${base}/api/_vitehub/realtime/docs/${room}`, {
+        headers: { upgrade: "websocket" },
+      })) as Response & { crossws?: unknown }
+      expect(response.status).toBe(426)
+      expect(response.crossws).toBeDefined()
+    }
+  })
+
   it("rejects malformed encoded room paths", async () => {
     const handler = createRealtimeHandler(realtimeRegistry())
 
@@ -493,6 +510,27 @@ describe("realtime server handler", () => {
     expect(peer.close).toHaveBeenCalledWith(4400, "Document updates cannot use the workspace room.")
     response.crossws.close(peer)
     updateDocument.destroy()
+  })
+
+  it("answers a keepalive ping with a pong", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    const response = await handler.fetch(new Request("https://example.com/api/_vitehub/realtime/docs/%40workspace?workspace=events", {
+      headers: { upgrade: "websocket" },
+    })) as Response & { crossws: { message(peer: object, message: object): void, open(peer: object): void } }
+    const peer = { close: vi.fn(), publish: vi.fn(), send: vi.fn(), subscribe: vi.fn(), unsubscribe: vi.fn() }
+    response.crossws.open(peer)
+    peer.send.mockClear()
+
+    response.crossws.message(peer, { uint8Array: () => new TextEncoder().encode("ping") })
+
+    expect(peer.send).toHaveBeenCalledExactlyOnceWith("pong")
+    expect(peer.close).not.toHaveBeenCalled()
+    expect(peer.publish).not.toHaveBeenCalled()
   })
 
   it("closes peers that send truncated realtime frames", async () => {

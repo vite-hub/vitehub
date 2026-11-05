@@ -1,0 +1,91 @@
+{
+  "name": "@vite-hub/web-container",
+  "version": "0.1.0",
+  "description": "Run a ViteHub app inside a StackBlitz WebContainer in the browser.",
+  "keywords": [
+    "browser",
+    "playground",
+    "stackblitz",
+    "typescript",
+    "vite",
+    "vitehub",
+    "webcontainer"
+  ],
+  "homepage": "https://vitehub.dev",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/web-container"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./connect": {
+      "types": "./dist/connect.d.ts",
+      "import": "./dist/connect.js",
+      "default": "./dist/connect.js"
+    },
+    "./env": {
+      "types": "./dist/env.d.ts",
+      "import": "./dist/env.js",
+      "default": "./dist/env.js"
+    },
+    "./snapshot": {
+      "types": "./dist/snapshot.d.ts",
+      "import": "./dist/snapshot.js",
+      "default": "./dist/snapshot.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "default": "./dist/vite.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "vp run --cache -t @vite-hub/web-container#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/web-container#build && vp test",
+    "test:browser": "vp run -t @vite-hub/web-container#build && node --test test/browser/boot.browser.mjs"
+  },
+  "dependencies": {
+    "@msgpack/msgpack": "catalog:browser",
+    "@webcontainer/api": "catalog:browser",
+    "@webcontainer/env": "catalog:browser"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "playwright-core": "catalog:browser",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

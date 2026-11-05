@@ -7,6 +7,8 @@ import {
 import { AgentHttpError } from "./http-error.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { isRuntimeFunction, isRuntimeString } from "./internal/runtime-value.ts"
+import { runInvocationReference } from "./invocations.ts"
+import { agentInvocationName } from "./internal/agent-invocation-name.ts"
 
 import type {
   AgentCallbackContext,
@@ -244,6 +246,8 @@ interface AgentTriggerResolutionOptions {
   rawBody?: string | Uint8Array
   /** Persisted queue delivery ID, used when replayed bytes were stored as text. */
   deliveryId?: string
+  /** When the webhook request first arrived, for timestamped signatures. See `AgentWebhookVerificationOptions.receivedAt`. */
+  receivedAt?: number
 }
 
 /** Binds `prepare` and each task of a trigger to the context that its `invoke` receives. */
@@ -535,7 +539,7 @@ function stripeSignatureTolerance(signature: AgentWebhookRegistrationDefinition[
 }
 
 // Verifies `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`. Any matching `v1` passes, as during secret rotation.
-async function verifyStripeSignature(secret: string, header: string, rawBody: Uint8Array, toleranceSeconds: number): Promise<boolean> {
+async function verifyStripeSignature(secret: string, header: string, rawBody: Uint8Array, toleranceSeconds: number, receivedAt = Date.now()): Promise<boolean> {
   if (!Number.isFinite(toleranceSeconds) || toleranceSeconds < 0) return false
   let timestamp: string | undefined
   let signatureCount = 0
@@ -554,7 +558,7 @@ async function verifyStripeSignature(secret: string, header: string, rawBody: Ui
   if (!timestamp || !/^\d+$/.test(timestamp) || !signatures.length) return false
   const timestampSeconds = Number(timestamp)
   if (!Number.isSafeInteger(timestampSeconds)) return false
-  if (Math.floor(Date.now() / 1000) - timestampSeconds > toleranceSeconds) return false
+  if (Math.floor(receivedAt / 1000) - timestampSeconds > toleranceSeconds) return false
   const prefix = new TextEncoder().encode(`${timestamp}.`)
   const payload = new Uint8Array(prefix.length + rawBody.length)
   payload.set(prefix)
@@ -571,6 +575,11 @@ function webhookVerificationError(message: string): AgentHttpError {
 
 export interface AgentWebhookVerificationOptions {
   rawBody?: Uint8Array
+  /**
+   * When the request first arrived, in milliseconds. Timestamped signatures are checked
+   * against it, so a replay of a stored request is not rejected as expired. Defaults to now.
+   */
+  receivedAt?: number
   requireSecretHeader?: boolean
 }
 
@@ -672,7 +681,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     const stripeTolerance = stripeSignatureTolerance(registration.signature)
     if (stripeTolerance !== undefined) {
       const rawBody = await readRawBody()
-      if (await verifyStripeSignature(secretToken, headerValue, rawBody, stripeTolerance)) {
+      if (await verifyStripeSignature(secretToken, headerValue, rawBody, stripeTolerance, options.receivedAt)) {
         return { registration, verified: true }
       }
       continue
@@ -760,6 +769,7 @@ export async function resolveAgentTriggerInvocation<
   }
   if (options?.verifyWebhook !== false && trigger.webhooks?.length && context.request) {
     await verifyAgentWebhookRequest(trigger.webhooks, context.request, createAgentCallbackContext(context), {
+      ...(options?.receivedAt === undefined ? {} : { receivedAt: options.receivedAt }),
       requireSecretHeader: requiresWebhookSecretHeader(trigger.webhooks),
     })
   }
@@ -893,25 +903,34 @@ export function agentTriggerTask<CALL_OPTIONS = unknown>(
 /**
  * Runs the preparation of an accepted invocation: the task's `prepare`, or the trigger's `prepare` without a task,
  * then a task's `run`. Returns the invocation to start, or the handled `Response` that settles it.
+ * `agentName` is the Agent that owns the trigger. A task Agent owns the Invocation of its task.
  */
 export async function prepareAgentTriggerInvocation<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
   CALL_OPTIONS = unknown,
 >(
   invocation: ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>,
+  agentName: string | undefined,
 ): Promise<ResolvedAgentTriggerInvocationResult<TRuntimeConfig, CALL_OPTIONS>> {
   if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation
   const task = invocation.task === undefined ? undefined : agentTriggerTask(invocation.trigger, invocation.task)
   // A task owns its preparation. Only an invocation without a task runs the trigger's `prepare`.
   const prepare = task ? task.prepare : invocation.trigger.prepare
+  if (!prepare && !task?.run) return invocation
+  const reference = await runInvocationReference(task?.agent ? taskAgentIdentity(task.agent).name : agentName, invocation.run)
+  const accepted = (input: AgentRunInput<CALL_OPTIONS>): AgentTriggerAcceptedInvocation<CALL_OPTIONS> => ({
+    input,
+    ...(reference ? { invocation: reference } : {}),
+    ...(invocation.run ? { run: invocation.run } : {}),
+  })
   let prepared = invocation
   if (prepare) {
-    const result = await prepare({ input: invocation.input, ...(invocation.run ? { run: invocation.run } : {}) })
+    const result = await prepare(accepted(invocation.input))
     if (isResponse(result)) return { response: result, trigger: invocation.trigger }
     if (result) prepared = { ...invocation, input: result }
   }
   if (!task?.run) return prepared
-  const output = await task.run({ input: prepared.input, ...(prepared.run ? { run: prepared.run } : {}) })
+  const output = await task.run(accepted(prepared.input))
   return { response: isResponse(output) ? output : new Response(null, { status: 204 }), trigger: invocation.trigger }
 }
 
@@ -952,7 +971,7 @@ export async function runAgentTriggerWith<
   triggerId: string,
   input: TInput,
 ): Promise<Response | AgentRunResult | unknown> {
-  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input))
+  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input), agentInvocationName(agent, context))
   if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation.response
   // SAFETY: A task Agent runs with the same runtime configuration as the Agent that owns the trigger.
   const executionAgent = (invocation.agent ?? agent) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
@@ -974,7 +993,7 @@ export async function streamAgentTriggerWith<
     output?: "events" | "ui-message-stream"
   } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input))
+  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input), agentInvocationName(agent, context))
   if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation.response
   await options.onInvocation?.(invocation)
   const output = options.output || (invocation.trigger.output === "ui-message-stream" ? "ui-message-stream" : "events")

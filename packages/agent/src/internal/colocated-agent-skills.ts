@@ -1,5 +1,5 @@
 import { agentDefinitionSourceSymbol } from "./agent-definition-source.ts"
-import { hasRuntimeType } from "./runtime-type.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 import type { WorkspaceSourceInput } from "@vite-hub/workspace"
 
 export const colocatedAgentSkillsSymbol: symbol = Symbol.for("vitehub.agent.colocatedSkills")
@@ -99,4 +99,30 @@ export function agentWithSkills<Agent extends object>(agent: Agent, skills: Reco
     },
   })
   return resolved
+}
+
+// The UTF-8 size of text without encoding it. A lone surrogate encodes as U+FFFD, which takes three bytes.
+function utf8ByteLength(text: string): number {
+  let length = 0
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0
+    length += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4
+  }
+  return length
+}
+
+/**
+ * List the bundled files that discovery and Agent layers will materialize at startup.
+ * `read()` returns a copy of one file, so a caller can check `size` before it copies the content.
+ */
+export function inspectAgentSkillFiles(agent: object): { path: string, size: number, read: () => Uint8Array }[] {
+  const sources: unknown = Reflect.get(agent, colocatedAgentSkillsSymbol)
+  if (!isRuntimeRecord(sources)) return []
+  return Object.values(sources).flatMap((source: unknown) => {
+    if (!isRuntimeRecord(source) || !hasRuntimeType(source.workspacePath, "string")) return []
+    const path = source.workspacePath
+    const content = source.content
+    if (hasRuntimeType(content, "string")) return [{ path, size: utf8ByteLength(content), read: () => new TextEncoder().encode(content) }]
+    return content instanceof Uint8Array ? [{ path, size: content.byteLength, read: () => content.slice() }] : []
+  }).sort((left, right) => left.path.localeCompare(right.path))
 }

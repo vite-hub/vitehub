@@ -28,6 +28,7 @@ jobs:
       - consumer-contracts
       - consumer-contracts-success
       - windows-agent-credentials
+      - node-22
       - docs
       - docs-deploy
       - verify-providers
@@ -56,24 +57,10 @@ jobs:
             "consumer-contracts",
             "consumer-contracts-success",
             "windows-agent-credentials",
-            "docs",
             "verify-providers",
           ])
           const skippedPushJobs = new Set(["prepublish-contracts"])
-          // These jobs fail on main for reasons tracked outside this gate.
-          // They still run and report here, but they do not fail ci.
-          const advisoryJobs = new Set([
-            "consumer-contracts",
-            "consumer-contracts-success",
-            "docs",
-            "docs-deploy",
-            "verify-providers",
-          ])
-          for (const [name, job] of Object.entries(results)) {
-            if (advisoryJobs.has(name) && job.result !== "success" && job.result !== "skipped") console.log(`::warning::${name} (advisory): ${job.result}`)
-          }
           const failures = Object.entries(results).filter(([name, job]) => {
-            if (advisoryJobs.has(name)) return false
             const maySkip = (process.env.GITHUB_EVENT_NAME === "pull_request"
               && process.env.REPAIR_MAIN !== "true"
               && skippedPullRequestJobs.has(name))
@@ -103,8 +90,7 @@ jobs:
       - uses: ./.github/actions/setup
 
       # Vite+ combines lint and TypeScript checks into one deterministic PR gate.
-      # Formatting currently loads generated fixture configs, so the full format
-      # check remains on the push-to-main validation path.
+      # Formatting loads generated fixture configs, so it is excluded here.
       - run: vp check --no-fmt
 
       # zizmor and actionlint do not check these inputs. The script explains why.
@@ -161,10 +147,6 @@ jobs:
 
       - name: Validate packed package metadata
         run: vp run package:metadata
-
-      - name: Fast contracts
-        if: ${{ github.event_name == 'pull_request' && !(startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
-        run: vp test --config vitest.config.ts --exclude test/docs-host-fixtures.test.ts
 
       - run: vp run --ignore-depends-on examples:verify
 
@@ -238,10 +220,12 @@ jobs:
   # times with no Vitest output. 30 minutes is about 2.5 times the slowest healthy shard.
   # Package tests were one 22-minute job. Agent test files run serially, so
   # Vitest splits them across three jobs. Workflow's playground builds take
-  # about 4 minutes and set the floor. The last shard excludes the named
-  # packages, so a new package always runs somewhere. A pull request tests
-  # only the packages it changes and their dependents. A shard without one
-  # passes after checkout and does not install dependencies.
+  # about 4 minutes and set the floor. Presets, Auth, and Schedule run in the
+  # shorter shards, so "other packages" is not the slowest job. The last
+  # shard excludes the named packages, so a new package always runs
+  # somewhere. A pull request tests only the packages it changes and their
+  # dependents. A shard without one passes after checkout and does not
+  # install dependencies.
   package-tests:
     name: package tests (${{ matrix.shard.name }})
     runs-on: ubuntu-latest
@@ -261,14 +245,14 @@ jobs:
             test-shard: 3/3
           - name: vite-hub
             args: --packages vite-hub
-          - name: workspace
-            args: --packages @vite-hub/workspace
+          - name: workspace and presets
+            args: --packages @vite-hub/workspace,@vite-hub/presets
           - name: content and workflow
             args: --packages @vite-hub/content,@vite-hub/workflow
-          - name: storage and delivery
-            args: --packages @vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue
+          - name: storage, delivery, and auth
+            args: --packages @vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
           - name: other packages
-            args: --exclude @vite-hub/agent,vite-hub,@vite-hub/workspace,@vite-hub/content,@vite-hub/workflow,@vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue
+            args: --exclude @vite-hub/agent,vite-hub,@vite-hub/workspace,@vite-hub/presets,@vite-hub/content,@vite-hub/workflow,@vite-hub/blob,@vite-hub/sandbox,@vite-hub/database,@vite-hub/email,@vite-hub/kv,@vite-hub/markdown-template,@vite-hub/queue,@vite-hub/auth,@vite-hub/schedule
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -313,9 +297,6 @@ jobs:
   # in successful runs, and pull requests already wait for package tests.
   consumer-contracts:
     name: consumer contracts (${{ matrix.shard }})
-    # Advisory until main passes it again: it failed on every push to main from 2026-10-19 to 10-22,
-    # and a red ci on main stopped the Babysitter from retesting PRs. The ci check reports it without failing.
-    continue-on-error: true
     if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -363,12 +344,50 @@ jobs:
         working-directory: packages/agent
         run: vp test test/provider-agent.test.ts -t "restricts Codex credential home ACLs on Windows"
 
+  # The standalone package floor is Node.js 22.18; Nitro integrations require
+  # 22.22. StackBlitz WebContainers run only Node.js 22. This job covers built-ins with
+  # different behavior on 22: fs glob, node:sqlite, module hooks, Response
+  # brand checks, TextDecoder, and structuredClone.
+  node-22:
+    name: node 22.18
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+      # Contributor dependencies require a newer runtime than the standalone
+      # package floor. Install them on Node 24, then test on the exact floor.
+      - uses: voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2
+        with:
+          node-version: "22.18.0"
+          run-install: false
+
+      - name: Require Node.js 22.18
+        run: node -e 'if (process.version !== "v22.18.0") throw new Error("Expected Node.js v22.18.0, got " + process.version)'
+      - name: Build tested packages
+        run: |
+          for task in @vite-hub/rate-limit#build @vite-hub/sandbox#build @vite-hub/database#build @vite-hub/auth#build @vite-hub/agent#build vite-hub#build; do
+            vp run -t "$task"
+          done
+      - run: vp test
+        working-directory: packages/rate-limit
+      - run: vp test test/runtime-type.test.ts
+        working-directory: packages/runtime
+      - run: vp test test/task/project.test.ts
+        working-directory: packages/sandbox
+      - run: vp test test/connect.test.ts test/cli.test.ts test/generated.test.ts
+        working-directory: packages/database
+      - run: vp test test/access-handler.test.ts
+        working-directory: packages/auth
+      - run: vp test test/console-auth.test.ts test/console-access-crossrealm-probe.test.ts test/nitro-optional-peers.test.ts
+        working-directory: packages/vite-hub
+      - run: vp test test/agent-invocations-journal-file.test.ts test/codex-home-retention.test.ts test/github-install.test.ts test/provider-runtime-packages.test.ts test/optional-capabilities-import.test.ts test/windows-1252.test.ts test/gmail-channel.test.ts test/response.test.ts test/crossrealm-trigger-response.test.ts test/stream-output-cross-realm-response.test.ts test/invocations.test.ts
+        working-directory: packages/agent
+
   docs:
     name: docs
-    # Advisory until main passes it again: it failed on every push to main from 2026-10-19 to 10-22,
-    # and a red ci on main stopped the Babysitter from retesting PRs. The ci check reports it without failing.
-    continue-on-error: true
-    if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -395,11 +414,17 @@ jobs:
   # The docs site deploys from the verified bundle on every push to main. The Production environment holds the Cloudflare token.
   docs-deploy:
     name: docs deploy
-    # A failed docs build uploads no bundle, so this job fails without deploying.
-    continue-on-error: true
     needs:
       - checks
+      - workflow-lint
+      - contracts-examples
+      - contract-tests
+      - package-tests-success
+      - consumer-contracts-success
+      - windows-agent-credentials
+      - node-22
       - docs
+      - verify-providers
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -449,9 +474,6 @@ jobs:
 
   verify-providers:
     name: verify providers
-    # Advisory until main passes it again: it failed on every push to main from 2026-10-19 to 10-22,
-    # and a red ci on main stopped the Babysitter from retesting PRs. The ci check reports it without failing.
-    continue-on-error: true
     if: ${{ github.event_name != 'pull_request' || (startsWith(github.head_ref, 'babysitter/repair-main-') && github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60

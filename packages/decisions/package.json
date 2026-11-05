@@ -1,0 +1,74 @@
+{
+  "name": "@vite-hub/decisions",
+  "version": "0.1.0",
+  "description": "Turn text into choices over options that you declare: filters, search facets, command palettes, and builders on a TypeSafe Jev decision model.",
+  "keywords": [
+    "ai",
+    "choices",
+    "decisions",
+    "filters",
+    "jev",
+    "search",
+    "typescript",
+    "vitehub"
+  ],
+  "homepage": "https://vitehub.dev",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/decisions"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./vue": {
+      "types": "./dist/vue.d.ts",
+      "import": "./dist/vue.js",
+      "default": "./dist/vue.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "vp run --cache -t @vite-hub/decisions#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/decisions#build && vp test"
+  },
+  "dependencies": {
+    "@vite-hub/gateways": "workspace:*",
+    "nostics": "catalog:runtime"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling",
+    "vue": "catalog:ui"
+  },
+  "peerDependencies": {
+    "vue": "catalog:ui"
+  },
+  "peerDependenciesMeta": {
+    "vue": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  }
+}

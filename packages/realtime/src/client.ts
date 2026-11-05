@@ -5,6 +5,7 @@ import { WebsocketProvider } from "y-websocket"
 import * as Y from "yjs"
 
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
+import { keepRealtimeSocketAlive } from "./keepalive.ts"
 import { createRealtimeIdentity, getRealtimePeople } from "./presence.ts"
 import {
   decodeRealtimeControlPayload,
@@ -21,6 +22,10 @@ import type { RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
 export type RealtimeRoomStatus = "connected" | "connecting" | "disconnected"
 
 export interface RealtimeRoomOptions {
+  /** The app base path for a prebuilt client, such as `/portal/`. Defaults to the app's build-time base. */
+  baseURL?: string
+  /** Query parameters sent to the definition's authorization on presence and workspace connections. */
+  params?: Record<string, string>
   /**
    * The person this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's
    * identity, so only public definitions show it as given.
@@ -28,8 +33,6 @@ export interface RealtimeRoomOptions {
   identity?: { id: string, name?: string, image?: string }
   /** Also join the workspace events room of the definition, for `notify()` and `onChange()`. Default `false`. */
   changes?: boolean
-  /** Application mount path for prebuilt clients. Defaults to the base supplied by the host integration. */
-  baseURL?: string
 }
 
 export interface RealtimeRoom {
@@ -71,17 +74,16 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
   }
   const url = () => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    const path = `/api/_vitehub/realtime/${encodeURIComponent(definition)}`
-    const mounted = options.baseURL === undefined ? resolveRealtimeApplicationPath(path) : `${options.baseURL.replace(/\/+$/, "")}${path}`
-    return `${protocol}//${window.location.host}${mounted}`
+    return `${protocol}//${window.location.host}${resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}`, options.baseURL)}`
   }
   const room = documentId.split("/").map(encodeURIComponent).join("/")
   const localState: Record<string, unknown> = {}
 
   function connect() {
     document = new Y.Doc()
-    provider = new WebsocketProvider(url(), room, document, { disableBc: true, params: {} })
+    provider = new WebsocketProvider(url(), room, document, { disableBc: true, params: { ...options.params } })
     const current = provider
+    keepRealtimeSocketAlive(current)
     current.messageHandlers[messageRealtimeControl] = (_encoder, decoder) => {
       // SAFETY: y-websocket passes the lib0 decoder positioned after the message type.
       const control = decodeRealtimeControlPayload(decoder as decoding.Decoder)
@@ -120,9 +122,10 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
   if (options.changes) {
     changes = new WebsocketProvider(url(), encodeURIComponent(workspaceRoomId), new Y.Doc(), {
       disableBc: true,
-      params: { workspace: "events" },
+      params: { ...options.params, workspace: "events" },
     })
     changes.awareness.setLocalState(null)
+    keepRealtimeSocketAlive(changes)
     changes.messageHandlers[messageWorkspaceChange] = (_encoder, decoder) => {
       // SAFETY: y-websocket passes the lib0 decoder positioned after the message type.
       const change = decodeWorkspaceChangePayload(decoder as decoding.Decoder)

@@ -170,6 +170,6 @@ describe("vitehub agent invocations --database", () => {
     const { runAgentInvocationsCli: runWithoutSqlite } = await import("../src/internal/agent-invocations-cli.ts")
     const stderr = stream()
     expect(await runWithoutSqlite(["list", "--database", path], { env: {}, stderr, stdout: stream() })).toBe(1)
-    expect(stderr.output()).toBe("--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 24, or pass --url.\n")
+    expect(stderr.output()).toBe("--database reads the journal with node:sqlite, which this runtime does not provide. Run the command with Node.js 22.18 or newer, or pass --url.\n")
   })
 })

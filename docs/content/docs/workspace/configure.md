@@ -151,7 +151,7 @@ The Store does not read the repository or the token when it is created. A missin
 
 - GitHub rate limits apply to every request. A revision view reads the whole tree of its commit.
 - Revisions of a repository root include every file of the repository. Use `rules` to limit writes. For example, `{ '**': { write: false } }` denies all writes, and a more specific rule such as `'content/**/*.md': { write: true }` allows one folder.
-- The Store does not create pull requests. See [CMS preset](/docs/content/cms-preset#github-store) for what Content does on top of it.
+- The Store does not create pull requests. See [GitHub store](/docs/cms/configure#github-store) for what the CMS does on top of it.
 
 ### Local path locks
 

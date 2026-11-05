@@ -1,16 +1,18 @@
 {
   "name": "@vite-hub/realtime",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Realtime document primitives and Vite integration for ViteHub.",
   "keywords": [
     "collaboration",
     "h3",
     "realtime",
+    "typescript",
     "vite",
     "vitehub",
+    "websocket",
     "yjs"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -26,35 +28,41 @@
   "type": "module",
   "sideEffects": false,
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub/realtime/availability": {
+      "types": "./dist/internal/runtime/unavailable.d.ts",
+      "default": "./dist/internal/runtime/unavailable.js"
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./client": {
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js",
-      "require": "./dist/client.js",
       "default": "./dist/client.js"
+    },
+    "./internal/runtime/unavailable": {
+      "types": "./dist/internal/runtime/unavailable.d.ts",
+      "import": "./dist/internal/runtime/unavailable.js",
+      "default": "./dist/internal/runtime/unavailable.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
-      "require": "./dist/server.js",
       "default": "./dist/server.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./vue": {
       "types": "./dist/vue.d.ts",
       "import": "./dist/vue.js",
-      "require": "./dist/vue.js",
       "default": "./dist/vue.js"
     },
     "./package.json": "./package.json"
@@ -117,6 +125,6 @@
     }
   },
   "engines": {
-    "node": ">=24.15.0"
+    "node": ">=22.18.0"
   }
 }

@@ -13,8 +13,8 @@ Better Auth is the only Auth provider. ViteHub does not replace its storage, OAu
 | Concern | Owner |
 | --- | --- |
 | Sign-in methods, OAuth providers, plugins | Better Auth options in the Auth Definition. |
-| User and session storage | A Better Auth database adapter that you return from the callback or `runtime`. |
-| Route mounting | `hubAuth()` in development and a generated Nitro handler in builds. Manual hosts mount `#vitehub/auth/server`. |
+| User and session storage | `authDatabase()`, which uses the app Database and adds the Better Auth tables to it, or a Better Auth database adapter that you return from the callback or `runtime`. |
+| Route mounting | A generated Nitro handler, also in development when Nitro runs in the Vite dev server. In plain Vite development, `hubAuth()` serves the route. Manual hosts mount `#vitehub/auth/server`. |
 | Roles and permissions | Your `authorize` callbacks. ViteHub defines no roles. |
 
 ## Provider output

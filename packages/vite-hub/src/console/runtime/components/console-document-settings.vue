@@ -50,8 +50,16 @@ function editorRoute(name: string) {
 <template>
   <ConsolePageHeader :title="label" />
 
-  <div class="min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto grid max-w-5xl gap-2 px-4 py-6 sm:px-6">
+  <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
+    <UEmpty
+      v-if="!error && !firstLoad && !singletons.length"
+      class="flex-1"
+      variant="naked"
+      icon="i-lucide-settings-2"
+      title="No singletons"
+      description="Define a singleton() in server/content.ts, such as settings.json, to edit it here."
+    />
+    <div v-else class="mx-auto grid w-full max-w-5xl gap-2 px-4 py-6 sm:px-6">
       <UAlert
         v-if="error"
         color="error"
@@ -64,13 +72,6 @@ function editorRoute(name: string) {
       <div v-else-if="firstLoad" class="grid gap-px">
         <USkeleton v-for="index in 2" :key="index" class="h-14 rounded-md" />
       </div>
-      <UEmpty
-        v-else-if="!singletons.length"
-        variant="naked"
-        icon="i-lucide-settings-2"
-        title="No singletons"
-        description="Define a singleton() in server/content.ts, such as settings.json, to edit it here."
-      />
       <template v-else>
         <h2 class="text-[13px] font-medium text-highlighted">
           Singletons

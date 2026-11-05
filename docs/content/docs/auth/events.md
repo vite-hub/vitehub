@@ -12,23 +12,20 @@ Auth events are opt-in. Set `events.store` on the Auth Definition. Apps that omi
 
 Use the same SQLite Drizzle database that the app already uses, or a separate one. The store uses the `run` and `all` contract used by the Env and Connections stores. It works with Node SQLite, libSQL, and Cloudflare D1. It does not support Postgres.
 
-This example assumes a discovered `auth` Database Definition with the Better Auth tables in its schema. Keep the existing Better Auth adapter and migrations.
+This example keeps users and events in a discovered `auth` Database Definition. [`authDatabase('auth')`](/docs/auth/configure#keep-users-in-the-app-database) adds the Better Auth tables to it.
 
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from '@vite-hub/auth'
+import { authDatabase } from '@vite-hub/auth/database'
 import { useDatabase } from '@vite-hub/database/drizzle'
-import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 
-export default defineAuth(() => {
-  const { db, schema } = useDatabase('auth')
-  return {
-    database: drizzleAdapter(db, { provider: 'sqlite', schema }),
-    emailAndPassword: { enabled: true },
-    events: {
-      store: createDatabaseAuthEventStore({ db }),
-    },
-  }
-})
+export default defineAuth(() => ({
+  database: authDatabase('auth'),
+  emailAndPassword: { enabled: true },
+  events: {
+    store: createDatabaseAuthEventStore({ db: useDatabase('auth').db }),
+  },
+}))
 ```
 
 The store creates `vitehub_auth_events` and four indexes on first use. There are no foreign keys to Better Auth users or sessions, so deletion of a user does not remove their history. Give the database role permission to create this table and its indexes. Each app must use its own event database. The table does not have a tenant namespace.
@@ -117,7 +114,7 @@ Each event has `id`, `type`, `time`, `actor`, `userId`, and `metadata`. The acto
 | `user.role_changed` | `role`. Admin changes the user's role. |
 | `user.updated` | `fields`. Admin updates user fields or sets a password. Field values and ban reasons are omitted. |
 | `user.removed` | No metadata. Better Auth deletes a user. |
-| `impersonation.started`, `impersonation.stopped` | `sessionId`. Admin starts or stops impersonation. |
+| `impersonation.started`, `impersonation.stopped` | `sessionId`. Admin starts or stops impersonation. A start that the store cannot record does not start. |
 | `oauth.consent_granted`, `oauth.consent_revoked` | `clientId`. OAuth Provider persists, updates, or deletes an `oauthConsent` record through its request adapter. A denied consent does not count. |
 | `organization.member_added` | `organizationId`, `memberId`, `role`. Add a member, accept an invitation, or create the owner membership. |
 | `organization.member_removed`, `organization.member_role_changed` | `organizationId`, `memberId`, `role`. Remove a member, leave, or change a role. |
@@ -139,7 +136,7 @@ createDatabaseAuthEventStore({
 
 Like Connections activity, one DELETE follows each append and removes expired records and records beyond the count limit. Reads exclude events past the age limit even when there have been no new writes. Physical deletion resumes on the next append. There is no timer or background service. Use the same retention options for every store instance that uses a database.
 
-An event write is awaited, but is separate from the auth mutation. If storage fails, Auth continues and writes the fixed warning `AUTH_EVENT_WRITE_FAILED` without provider error details. That event can be lost. This log is for activity and analytics; it is not an atomic or tamper-proof compliance ledger. A failed cleanup retries on the next append. Initialization retries after a failure.
+An event write is awaited, but is separate from the auth mutation. If storage fails, Auth continues and writes the fixed warning `AUTH_EVENT_WRITE_FAILED` without provider error details. That event can be lost. `impersonation.started` is the exception: when the store cannot write it, Auth deletes the new session and the request fails with `IMPERSONATION_NOT_RECORDED`. This log is for activity and analytics; it is not an atomic or tamper-proof compliance ledger. A failed cleanup retries on the next append. Initialization retries after a failure.
 
 Only operations that pass through the supported Better Auth hooks and endpoints are recorded. Direct SQL writes, bulk organization deletion cascades, and custom plugin paths are not covered. A stateless cookie has no stored session to revoke, so it cannot provide stored-session deletion events. Failed sign-ins rejected by a proxy, rate limiter, or earlier before-hook may not reach the recorder. Hosted OAuth-provider flows need their own application check; the local tests cover the provider's consent-adapter contract.
 

@@ -5,27 +5,39 @@ import { useVirtualList } from "@vueuse/core";
 import { logPageSchema, logSourceInfoSchema } from "../../../logs/source";
 import type { LogEntry, LogSourceInfo } from "../../../logs/source";
 import { requestConsole } from "../client/request";
-import ConsoleFrame from "./console-frame.vue";
+import { queryChoice, querySelection, queryText, useConsoleQuery } from "../client/route-query";
+import { consoleClockTime, exactTimestamps } from "../client/time";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
+import ConsoleSearch from "./console-search.vue";
+import ConsoleSetupHint from "./console-setup-hint.vue";
+import ConsoleState from "./console-state.vue";
 
 const props = defineProps<{ logsBase: string; sectionsBase: string }>();
-const mode = ref("explorer");
-const text = ref("");
-const level = ref("all");
+// The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
+const apiBase = props.sectionsBase.replace(/\/sections$/, "");
+const levelValues = ["all", "debug", "info", "warn", "error"] as const;
+// The view, search, level, and open event live in the URL, so a reload or a shared link opens the same view.
+const { entry: selectedId, level, q: text, view: mode } = useConsoleQuery({
+  entry: querySelection(),
+  level: queryChoice(levelValues, "all"),
+  q: queryText(),
+  view: queryChoice(["explorer", "stream"], "explorer", { history: "push" }),
+});
 const entries = ref<LogEntry[]>([]);
 const {
   list: visibleEntries,
   containerProps,
   wrapperProps,
   scrollTo,
-} = useVirtualList(entries, { itemHeight: 44, overscan: 8 });
+} = useVirtualList(entries, { itemHeight: 32, overscan: 8 });
 const source = ref<LogSourceInfo>();
-const selectedId = ref<string>();
-const selected = computed(() => entries.value.find((entry) => entry.id === selectedId.value));
+// Without an open event in the URL, or when the open event left the list, the newest event shows.
+const selected = computed(() => entries.value.find((entry) => entry.id === selectedId.value) ?? entries.value[0]);
 const cursor = ref<string>();
-const loading = ref(false);
-const error = ref("");
+// The first load starts on mount, so the page opens in its loading state instead of the empty state.
+const loading = ref(true);
+const error = ref<unknown>();
 const following = ref(false);
 const dropped = ref(0);
 let request: AbortController | undefined;
@@ -41,6 +53,17 @@ const retention = computed(() =>
     ? `Temporary · this process · ${source.value.retention.maxEntries} events maximum`
     : source.value?.retention.description,
 );
+const levels = [
+  { label: "All levels", value: "all" },
+  { label: "Debug", value: "debug" },
+  { label: "Info", value: "info" },
+  { label: "Warn", value: "warn" },
+  { label: "Error", value: "error" },
+];
+/** The color of a level in the event list and in the event details. */
+function levelClass(value: string): string {
+  return value === "error" ? "text-error" : value === "warn" ? "text-warning" : "text-muted";
+}
 const diagnostic = computed(() => {
   const data = selected.value?.data;
   if (!data) return undefined;
@@ -57,6 +80,10 @@ const docs = computed(() => {
     return undefined;
   }
 });
+function exactTitle(value: string): string | undefined {
+  const exact = exactTimestamps(value);
+  return exact && `${exact.local}\n${exact.utc}`;
+}
 function field(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
@@ -65,9 +92,9 @@ async function load(older = false) {
   const controller = new AbortController();
   request = controller;
   loading.value = true;
-  error.value = "";
+  error.value = undefined;
   const params = new URLSearchParams({ limit: "200" });
-  if (text.value) params.set("text", text.value);
+  if (text.value.trim()) params.set("text", text.value.trim());
   if (level.value !== "all") params.set("level", level.value);
   if (older && cursor.value) params.set("cursor", cursor.value);
   try {
@@ -95,11 +122,9 @@ async function load(older = false) {
     cursor.value = entries.value.length < 1000 ? page.cursor : undefined;
     if (!older) scrollTo(0);
     dropped.value = page.dropped ?? 0;
-    if (!entries.value.some((entry) => entry.id === selectedId.value))
-      selectedId.value = entries.value[0]?.id;
   } catch (cause) {
     if (!controller.signal.aborted && !disposed)
-      error.value = cause instanceof Error ? cause.message : "Could not read logs.";
+      error.value = cause;
   } finally {
     if (request === controller) loading.value = false;
   }
@@ -128,18 +153,20 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame active="logs" :sections-base="sectionsBase">
+    <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="`${apiBase}/definitions`" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
     <UDashboardPanel id="logs" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <ConsolePageHeader title="Logs" :description="source?.label" :toggle="false">
         <template #right>
-          <UButton
-            size="sm"
-            variant="ghost"
-            icon="i-lucide-refresh-cw"
-            aria-label="Refresh logs"
-            :loading="loading"
-            @click="load()"
-          />
+          <UTooltip text="Refresh logs">
+            <UButton
+              size="sm"
+              variant="ghost"
+              icon="i-lucide-refresh-cw"
+              aria-label="Refresh logs"
+              :loading="loading"
+              @click="load()"
+            />
+          </UTooltip>
           <UButton
             size="sm"
             :variant="following ? 'soft' : 'ghost'"
@@ -177,28 +204,28 @@ onBeforeUnmount(() => {
         />
         <USelect
           v-model="level"
-          :items="[{ label: 'All levels', value: 'all' }, 'debug', 'info', 'warn', 'error']"
+          :items="levels"
           aria-label="Log level"
           :disabled="!!source && !source.filters.includes('level')"
           class="w-32"
         />
       </ConsolePageToolbar>
-      <p v-if="error" role="alert" class="p-4 text-sm text-error">
-        {{ error }} <UButton variant="link" @click="load()">Retry</UButton>
-      </p>
-      <div v-if="!source && !loading && !error" class="m-auto max-w-sm p-8 text-center">
-        <h2 class="text-sm font-medium">Connect a log source</h2>
-        <p class="mt-2 text-sm text-muted">
-          Set logs.source to a server module that reads your existing backend. For local
-          development, enable logs: true.
-        </p>
+      <!-- A failed refresh keeps the loaded events on screen; a failed first load replaces them. -->
+      <div v-if="error && entries.length" class="shrink-0 px-4 pt-3">
+        <ConsoleState compact :error="error" title="Could not refresh logs" :retry="() => load()" />
       </div>
+      <ConsoleState v-if="error && !entries.length" :error="error" title="Could not load logs" :retry="() => load()" />
+      <ConsoleState v-else-if="!source && !loading" section="logs" icon="i-vitehub-logs" title="Connect a log source">
+        <p class="max-w-sm text-xs leading-5 text-pretty text-muted">
+          <ConsoleSetupHint :hint="{ message: 'Set `logs: true` to capture events in development, or set `logs.source` to a server module that reads your log backend.' }" />
+        </p>
+      </ConsoleState>
       <div v-else class="logs-workspace min-h-0 flex-1">
         <section aria-label="Log events" class="flex min-h-0 min-w-0 flex-col">
           <div
             class="sticky top-0 z-10 flex justify-between bg-default px-4 py-2 text-xs text-muted"
           >
-            <span>{{ entries.length }} events{{ following ? " · polling every 2s" : "" }}</span
+            <span class="tabular-nums">{{ entries.length === 1 ? "1 event" : `${entries.length} events` }}{{ following ? " · polling every 2s" : "" }}</span
             ><span>Newest first</span>
           </div>
           <p v-if="loading && !entries.length" role="status" class="p-6 text-sm text-muted">
@@ -213,30 +240,24 @@ onBeforeUnmount(() => {
                 v-for="{ data: entry } in visibleEntries"
                 :key="entry.id"
                 class="log-row w-full text-left hover:bg-elevated/50 focus-visible:outline-2 focus-visible:outline-primary"
-                :class="[{ 'bg-elevated': selectedId === entry.id }, mode]"
-                :aria-pressed="selectedId === entry.id"
+                :class="[{ 'bg-elevated': selected?.id === entry.id }, mode]"
+                :aria-pressed="selected?.id === entry.id"
                 @click="selectedId = entry.id"
               >
+                <!-- Local time, as in the rest of the Console. The tooltip has the date in the local zone and in UTC. -->
                 <time
                   class="font-mono text-xs text-muted tabular-nums"
                   :datetime="entry.timestamp"
-                  >{{ entry.timestamp.slice(11, 23) }}</time
+                  :title="exactTitle(entry.timestamp)"
+                  >{{ consoleClockTime(entry.timestamp) }}</time
                 >
-                <span
-                  class="font-mono text-[11px] uppercase"
-                  :class="
-                    entry.level === 'error'
-                      ? 'text-error'
-                      : entry.level === 'warn'
-                        ? 'text-warning'
-                        : 'text-muted'
-                  "
-                  >{{ entry.level }}</span
-                >
+                <span class="font-mono text-[11px] uppercase" :class="levelClass(entry.level)">{{
+                  entry.level
+                }}</span>
                 <span v-if="mode === 'explorer'" class="truncate text-xs text-muted">{{
                   entry.service
                 }}</span>
-                <span class="truncate text-sm">{{ entry.message }}</span>
+                <span class="truncate text-[13px]">{{ entry.message }}</span>
               </button>
             </div>
           </div>
@@ -253,7 +274,9 @@ onBeforeUnmount(() => {
           <template v-if="selected">
             <div class="mb-5 flex items-center justify-between gap-3">
               <h2 class="text-sm font-medium">Event details</h2>
-              <span class="font-mono text-xs text-muted">{{ selected.level }}</span>
+              <span class="font-mono text-[11px] uppercase" :class="levelClass(selected.level)">{{
+                selected.level
+              }}</span>
             </div>
             <h3 class="break-words text-sm font-medium">{{ selected.message }}</h3>
             <dl class="my-5 grid grid-cols-[auto_1fr] gap-x-5 gap-y-2 text-xs">
@@ -303,7 +326,6 @@ onBeforeUnmount(() => {
         ><span v-if="dropped">{{ dropped }} dropped or evicted</span><span>Read-only</span>
       </footer>
     </UDashboardPanel>
-  </ConsoleFrame>
 </template>
 
 <style scoped>
@@ -315,15 +337,15 @@ onBeforeUnmount(() => {
   display: grid;
   gap: 12px;
   align-items: center;
-  padding: 10px 16px;
-  height: 44px;
+  /* 32px rows, as in the other Console lists. The virtual list uses the same item height. */
+  height: 2rem;
+  padding: 0 16px;
 }
 .log-row.explorer {
   grid-template-columns: 84px 40px 90px minmax(0, 1fr);
 }
 .log-row.stream {
   grid-template-columns: 84px 40px minmax(0, 1fr);
-  padding-block: 7px;
 }
 @media (max-width: 900px) {
   .log-row.explorer {

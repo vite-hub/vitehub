@@ -80,7 +80,7 @@ onBeforeUnmount(() => {
   <div class="flex w-full flex-col border border-default bg-default">
     <MotionConfig reduced-motion="user">
       <div class="flex min-h-10 flex-wrap items-stretch justify-between border-b border-default">
-        <div class="flex items-stretch text-sm" role="group" aria-label="Install ViteHub">
+        <div class="flex items-stretch text-sm max-sm:min-h-10" role="group" aria-label="Install ViteHub">
           <button
             v-for="tab in commandTabs"
             :key="tab.value"
@@ -104,7 +104,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div
-          class="package-managers flex items-stretch max-sm:w-full max-sm:justify-end"
+          class="package-managers flex items-stretch max-sm:min-h-10 max-sm:w-full max-sm:justify-end max-sm:border-t max-sm:border-default"
           :class="activeTab === 'package' ? 'package-managers-visible' : 'package-managers-hidden'"
           role="group"
           aria-label="Package manager"

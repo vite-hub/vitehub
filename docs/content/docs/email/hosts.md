@@ -61,8 +61,13 @@ pnpm vitehub email preview welcome --data '{"user":{"name":"Ada"}}'
 
 ## Requirements
 
-- `vite-hub/email` requires Node.js 24.15 or later. The direct `@vite-hub/email` package requires Node.js 24 or later.
+- `vite-hub/email` requires Node.js 22.22 or later. The standalone `@vite-hub/email` package requires Node.js 22.18 or later.
 - Email provider configuration requires Vite 8 or later; explicit `createEmail()` clients do not require Vite.
 - Provider runtime support comes from the selected built-in or custom ViteHub driver.
 
 ViteHub owns the portable driver contract, the built-in Resend and Cloudflare Email transports, runtime delivery, normalized errors, dynamic Markdown composition, and test capture. Queue, Workflow, and Schedule remain the orchestration layer.
+
+## Related guides
+
+Use [Send email with Resend](/docs/guides/resend) for deployment credentials
+and delivery checks.

@@ -1,10 +1,11 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import { dirname, extname, isAbsolute, relative, resolve } from "node:path"
 
 import { createDefaultCloudflareOutputRoot, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { getViteMode } from "@vite-hub/internal/build/mode"
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
-import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { createNoExternalAddition, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHostPreset } from "@vite-hub/internal/hosting"
@@ -41,6 +42,7 @@ const WORKSPACE_PACKAGE_NAME = "@vite-hub/workspace"
 const WORKSPACES_ID = "#vitehub/workspaces"
 const WORKSPACE_PREFIX = "#vitehub/workspaces/"
 const WORKSPACE_ASSETS_REGISTRY_ID = "#vitehub-workspace-assets-registry"
+const workspaceAssetsRegistryPath = ".vitehub/vite-runtime/workspace/assets/registry.mjs"
 const WORKSPACE_REGISTRY_ID = "#vitehub-workspace-registry"
 const RESOLVED_WORKSPACES_ID = `\0${WORKSPACES_ID}`
 const RESOLVED_WORKSPACE_PREFIX = `\0${WORKSPACE_PREFIX}`
@@ -1400,12 +1402,20 @@ function shouldInstallNitroWorkspacePlugin(
     || (hasNitroConfig(config) && definitions.length > 0)
 }
 
-function mergeNitroWorkspaceConfig(value: unknown): NitroConfig {
+function mergeNitroWorkspaceConfig(value: unknown, dev: boolean): NitroConfig {
   const nitro: NitroConfig = isRecord(value) ? { ...value } : {}
   const kit = createNitroServerKit(nitro)
-  kit.addPlugin(generatedNitroWorkspacePlugin)
+  kit.addPlugin(generatedNitroWorkspacePlugin, dev ? "start" : "end")
   // SAFETY: The kit preserves the Nitro config object shape while adding the generated plugin.
   return kit.config as NitroConfig
+}
+
+function configureNitroWorkspaceAssets(nitro: NitroConfig, root: string): void {
+  // Nuxt 4 bundles the server with Nitro 2 outside Vite, so `resolveId` below never sees the assets registry. The
+  // alias gives that bundle the files that `buildStart` writes, for hosts without a file system.
+  // The Nitro types of the host decide the alias type, so read it as a plain record.
+  const alias: unknown = nitro.alias
+  nitro.alias = { ...(alias && typeof alias === "object" ? alias : {}), [WORKSPACE_ASSETS_REGISTRY_ID]: resolve(root, workspaceAssetsRegistryPath) }
 }
 
 function mergeNitroExternal(value: unknown, addition: string): unknown {
@@ -1533,9 +1543,10 @@ function renderNitroWorkspacePlugin(
     ...runtimeImports,
     `import registry from ${JSON.stringify(registryImport)}`,
     "",
+    "setWorkspaceRuntimeRegistry(registry)",
+    "",
     "export default function vitehubWorkspacePlugin() {",
     ...(cloudflareRuntime ? ["  setActiveCloudflareEnv(vitehubEnv)"] : []),
-    "  setWorkspaceRuntimeRegistry(registry)",
     ...runtimeSetup,
     "}",
     "",
@@ -1554,12 +1565,8 @@ async function writeNitroWorkspacePlugin(
   const pluginFile = resolve(root, generatedNitroWorkspacePlugin)
   const registryFile = resolve(root, generatedNitroWorkspaceRegistry)
   const runtimeConfig = runtimeWorkspaceConfig(config, options, cloudflareRuntime)
-  await Promise.all([
-    mkdir(dirname(pluginFile), { recursive: true }),
-    mkdir(dirname(registryFile), { recursive: true }),
-  ])
-  await writeFile(registryFile, createWorkspaceRegistryContents(registryFile, definitions, definitionOverrides), "utf8")
-  await writeFile(
+  await writeFileIfChanged(registryFile, createWorkspaceRegistryContents(registryFile, definitions, definitionOverrides))
+  await writeFileIfChanged(
     pluginFile,
     renderNitroWorkspacePlugin(
       runtimeConfig,
@@ -1568,7 +1575,6 @@ async function writeNitroWorkspacePlugin(
       cloudflareRuntime,
       importBase,
     ),
-    "utf8",
   )
 }
 
@@ -1600,7 +1606,8 @@ export async function createWorkspaceNitroConfig(options: WorkspaceNitroConfigOp
   const runtimeConfig = shouldConfigureRuntime(workspaceOptions, normalized) ? normalized : false
   const cloudflareRuntime = cloudflareArtifactsConfigs.length > 0 || getHostingProvider(hosting) === "cloudflare"
   await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, workspaceOptions, definitions, cloudflareRuntime, WORKSPACE_PACKAGE_NAME, definitionOverrides)
-  const nitro = mergeNitroWorkspaceConfig(options.nitro)
+  const nitro = mergeNitroWorkspaceConfig(options.nitro, options.command !== "build")
+  if (options.command === "build") configureNitroWorkspaceAssets(nitro, roots.projectRoot)
   for (const config of cloudflareArtifactsConfigs) configureCloudflareArtifacts(nitro, config)
   if (cloudflareRuntime) configureCloudflareNitroRuntime(nitro)
   return nitro
@@ -1733,7 +1740,8 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         const usesCloudflareArtifacts = artifacts.length > 0
         const usesCloudflareRuntime = usesCloudflareArtifacts || getHostingProvider(resolvedHosting) === "cloudflare"
         await writeNitroWorkspacePlugin(roots.projectRoot, runtimeConfig, runtimeOptions, definitions, usesCloudflareRuntime, importBase, definitionOverrides)
-        const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro)
+        const nitro = mergeNitroWorkspaceConfig((config as ViteConfigWithWorkspaceNitro).nitro, env?.command === "serve")
+        if (env?.command === "build") configureNitroWorkspaceAssets(nitro, roots.projectRoot)
         for (const artifactConfig of artifacts) configureCloudflareArtifacts(nitro, artifactConfig)
         if (usesCloudflareRuntime) configureCloudflareNitroRuntime(nitro)
         // Replace the Nitro config in place. A returned Nitro config would repeat its arrays when Vite merges it.
@@ -1765,16 +1773,16 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
         rootDir: roots.projectRoot,
       })
       if (resolvedOptions) contributions = await collectPluginWorkspaceContributions(config.plugins, roots, serverDirs)
-      assetsRegistryFile = resolve(roots.projectRoot, ".vitehub/vite-runtime/workspace/assets/registry.mjs")
+      assetsRegistryFile = resolve(roots.projectRoot, workspaceAssetsRegistryPath)
       await initializeWorkspaceAssetRegistry(assetsRegistryFile)
       await refreshManifest(roots)
     },
-    configEnvironment(name, config) {
+    configEnvironment(name, config, env) {
       if (!isServerEnvironment(name, config)) return
       return {
         resolve: {
           dedupe: dedupeAddition(config.resolve?.dedupe),
-          noExternal: noExternalAddition(config.resolve?.noExternal),
+          ...(loadsViteHubPackagesNatively(name, env) ? {} : { noExternal: noExternalAddition(config.resolve?.noExternal) }),
         },
       }
     },

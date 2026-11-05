@@ -1,9 +1,10 @@
 import type { ChatStatus, FileUIPart } from "ai";
-import { computed, defineComponent, h, onBeforeUnmount, type PropType, ref, resolveComponent } from "vue";
+import { computed, defineComponent, h, onBeforeUnmount, onMounted, type PropType, ref } from "vue";
 import { fileToUIPart } from "../composables/attachments.ts";
 import { nextPromptFiles } from "../internal/prompt-files.ts";
 import { ImagePreview } from "../internal/image-preview.ts";
 import { Attachment, AttachmentAction, AttachmentActions, AttachmentContent, AttachmentGroup, AttachmentMedia, AttachmentTitle } from "./attachment.ts";
+import { useUIComponent } from "../internal/nuxt-ui.ts";
 
 export interface PromptInputSubmit {
   files: readonly FileUIPart[];
@@ -24,6 +25,11 @@ const submitIcons: Record<ChatStatus, string> = {
   submitted: "i-ph-stop-fill",
 };
 
+/** Whether the device has only coarse pointers, such as a phone. A tablet with a trackpad or a mouse is not touch only. */
+function touchOnly(): boolean {
+  return typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches && !matchMedia("(any-pointer: fine)").matches;
+}
+
 // The shadcn/ui Prompt Input pattern: a framed textarea with attachments above it and the attach and send buttons below.
 export const PromptInput = defineComponent({
   name: "PromptInput",
@@ -32,6 +38,8 @@ export const PromptInput = defineComponent({
     accept: { type: String },
     attachments: { default: true, type: Boolean },
     files: { default: () => [], type: Array as PropType<readonly FileUIPart[]> },
+    /** Prevent adding and removing files while a consumer submits them. Text stays editable. */
+    filesDisabled: { default: false, type: Boolean },
     filterFiles: { type: Function as PropType<(files: readonly File[]) => readonly File[]> },
     modelValue: { default: "", type: String },
     multiple: { default: true, type: Boolean },
@@ -51,16 +59,24 @@ export const PromptInput = defineComponent({
       !preparingFiles.value &&
       (props.modelValue.trim().length > 0 || props.files.length > 0),
     );
+    // Read after mount, so server and client render the same first markup.
+    const touch = ref(false);
+    onMounted(() => {
+      touch.value = touchOnly();
+    });
     let disposed = false;
     let nextBatch = 0;
     const convertedBatches = new Map<number, readonly FileUIPart[]>();
     onBeforeUnmount(() => {
       disposed = true;
     });
-    const UButton = resolveComponent("UButton");
-    const UIcon = resolveComponent("UIcon");
-    const remove = (index: number) => emit("update:files", props.files.filter((_, current) => current !== index));
+    const UButton = useUIComponent("UButton");
+    const UIcon = useUIComponent("UIcon");
+    const remove = (index: number) => {
+      if (!props.filesDisabled) emit("update:files", props.files.filter((_, current) => current !== index));
+    };
     const addFiles = async (input: FileList | Iterable<File>, onAccepted?: () => void) => {
+      if (props.filesDisabled) return;
       const batch = nextBatch++;
       pendingFiles.value++;
       try {
@@ -113,7 +129,7 @@ export const PromptInput = defineComponent({
             ),
             h(AttachmentContent, () => h(AttachmentTitle, () => label)),
             h(AttachmentActions, () =>
-              h(AttachmentAction, { "aria-label": `Remove ${file.filename ?? "attachment"}`, icon: "i-ph-x-light", onClick: () => remove(index) }),
+              h(AttachmentAction, { "aria-label": `Remove ${file.filename ?? "attachment"}`, disabled: props.filesDisabled, icon: "i-ph-x-light", onClick: () => remove(index) }),
             ),
           ]);
         }),
@@ -126,10 +142,14 @@ export const PromptInput = defineComponent({
           h("textarea", {
             "aria-label": attrs["aria-label"] ?? "Message",
             "data-slot": "prompt-input-textarea",
+            // The on-screen key names what Enter does.
+            enterkeyhint: touch.value ? "enter" : "send",
             onInput: (event: Event) => emit("update:modelValue", (event.target as HTMLTextAreaElement).value),
-            // Enter sends and Shift+Enter adds a line. Composing text with an input method never sends.
+            // Enter sends and Shift+Enter adds a line. Composing text with an input method never sends. On a touch-only
+            // device the on-screen keyboard has no Shift+Enter, so Enter adds a line and the send button sends.
             onKeydown: (event: KeyboardEvent) => {
               if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return;
+              if (touchOnly()) return;
               event.preventDefault();
               if (props.status === "ready") form.value?.requestSubmit();
             },
@@ -143,6 +163,7 @@ export const PromptInput = defineComponent({
               accept: props.accept,
               "aria-label": "Add attachment",
               class: "vh-visually-hidden",
+              disabled: props.filesDisabled,
               multiple: props.multiple,
               onChange: async (event: Event) => {
                 const target = event.currentTarget;
@@ -159,6 +180,7 @@ export const PromptInput = defineComponent({
                 "aria-label": "Add attachment",
                 class: "rounded-full",
                 color: "neutral",
+                disabled: props.filesDisabled,
                 icon: "i-ph-plus",
                 onClick: () => input.value?.click(),
                 size: "sm",

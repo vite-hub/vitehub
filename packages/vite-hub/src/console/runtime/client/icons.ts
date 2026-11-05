@@ -1,4 +1,5 @@
-import { setCustomIconsLoader } from "@iconify/vue";
+import { addCollection, setCustomIconsLoader } from "@iconify/vue";
+import { icons } from "@vite-hub/icons";
 
 /**
  * Agent tools can declare any Lucide icon, and the Console CSP blocks the Iconify API.
@@ -6,4 +7,9 @@ import { setCustomIconsLoader } from "@iconify/vue";
  */
 export function deferLucideIcons(): void {
   setCustomIconsLoader(async () => (await import("@iconify-json/lucide/icons.json")).default, "lucide");
+}
+
+/** Bundles the ViteHub set, so `i-vitehub-*` section icons of the Console and of owner packages resolve offline. */
+export function addViteHubIcons(): void {
+  addCollection(icons);
 }

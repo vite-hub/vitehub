@@ -1,4 +1,5 @@
-import { computed, defineComponent, h, ref, resolveComponent, watch } from "vue";
+import { computed, defineComponent, h, ref, watch } from "vue";
+import { useUIComponent } from "./nuxt-ui.ts";
 
 function isImageUrl(value: string): boolean {
   if (!value) return false;
@@ -23,8 +24,8 @@ export const ImagePreview = defineComponent({
   setup(props) {
     const failed = ref(false);
     const label = computed(() => props.alt || props.title || "Image");
-    const UModal = resolveComponent("UModal");
-    const UButton = resolveComponent("UButton");
+    const UModal = useUIComponent("UModal");
+    const UButton = useUIComponent("UButton");
     watch(() => props.src, () => { failed.value = false; });
 
     return () => {

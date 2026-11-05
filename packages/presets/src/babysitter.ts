@@ -1,4 +1,4 @@
-import { defineAgent } from "@vite-hub/agent";
+import { claudeCodeDriver, codexDriver, defineAgent } from "@vite-hub/agent";
 import type {
   ConfiguredAgentDefinition,
   AgentDefinition,
@@ -376,14 +376,13 @@ export const babysitter: BabysitterAgent = defineAgent({
       description: "Repair selected pull requests and wait for their checks and reviews.",
       // Signed GitHub deliveries feed the PR inbox. They never start the Agent directly.
       channels: { github: babysitterIntake },
-      driver: {
-        kind: driver,
+      driver: (driver === "codex" ? codexDriver : claudeCodeDriver)({
         permissions: "allow-edits-unattended",
         instructions: {
           template: babysitterInstructions,
         },
         output: { schema: babysitterPassResultSchema },
-      },
+      }),
     });
     return withAgentProcessHost(Object.assign(definition, { reviewChecks, noFindingsReviews, mentionAllowlist, ignoreFeedbackAuthors, noProgressBudget, reviewPushBudget, dailyPassBudget, deferWhilePending, install, lifecycle }), babysitterHost);
   },

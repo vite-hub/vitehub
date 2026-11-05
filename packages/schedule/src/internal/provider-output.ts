@@ -18,6 +18,7 @@ import { discoverScheduleDefinitions } from "../discovery.ts"
 import { getVercelSchedulePath } from "../integrations/vercel.ts"
 
 import type { Plugin } from "esbuild"
+import type { DeploymentPreset } from "@vite-hub/internal/deployment"
 import type { DiscoveredScheduleDefinition } from "../types.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -76,8 +77,12 @@ interface GenerateProviderOutputsOptions {
   bundleAlias?: Record<string, string>
   bundleExternal?: string[]
   clientOutDir: string
+  /** Cron overrides of this build, so the Cloudflare Worker matches each trigger to its Schedule. */
+  cron?: ScheduleCronOverrides
   crons?: Map<string, string>
   definitions?: DiscoveredScheduleDefinition[]
+  /** The host this build targets. Schedule writes wake output only for it, and for every host when it is `undefined`. */
+  host?: DeploymentPreset
   rootDir: string
   runtimeImport?: string
   retainedSourcesDir?: string
@@ -210,7 +215,7 @@ function assertProviderTimeZone(file: string, scheduleName: string): void {
 }
 
 
-function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string, workflow?: ScheduleWorkflowRuntime) {
+function renderProviderEntry(file: string, registryFile: string, provider: "cloudflare" | "vercel", scheduleName?: string, workflow?: ScheduleWorkflowRuntime, cronOverrides: ScheduleCronOverrides = {}) {
   const runtimeImport = createImportPath(file, scheduleRuntimeEntry)
   const workflowRuntime = provider === "vercel" ? workflow : undefined
   return [
@@ -239,6 +244,12 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
     "  return unwrapScheduleDefinition(loaded)",
     "}",
     "",
+    `const cronOverrides = ${JSON.stringify(cronOverrides)}`,
+    "",
+    "function scheduleCron(name, definition) {",
+    "  return Object.hasOwn(cronOverrides, name) ? cronOverrides[name] : definition.cron",
+    "}",
+    "",
     "async function runSchedule(name, cron, scheduledAt) {",
     "  const definition = await loadScheduleDefinition(name)",
     "  if (!definition) {",
@@ -257,7 +268,7 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
           "    if (typeof event.cron !== 'string' || !event.cron.trim()) return",
           "    const tasks = Object.entries(scheduleRegistry).map(async ([name]) => {",
           "      const definition = await loadScheduleDefinition(name)",
-          "      if (!definition || normalizeCron(definition.cron) !== normalizeCron(event.cron)) return",
+          "      if (!definition || normalizeCron(scheduleCron(name, definition)) !== normalizeCron(event.cron)) return",
           "      await executeStaticSchedule({ cron: event.cron, definition, name, scheduledAt: new Date(event.scheduledTime), waitUntil: (promise) => ctx.waitUntil(promise) })",
           "    })",
           "    await Promise.all(tasks)",
@@ -291,8 +302,8 @@ function renderProviderEntry(file: string, registryFile: string, provider: "clou
               ]
             : []),
           workflowRuntime
-            ? "  await runWithVercelWorkflowRuntimeEvent(req, res, () => runSchedule(name, definition.cron, new Date()))"
-            : "  await runSchedule(name, definition.cron, new Date())",
+            ? "  await runWithVercelWorkflowRuntimeEvent(req, res, () => runSchedule(name, scheduleCron(name, definition), new Date()))"
+            : "  await runSchedule(name, scheduleCron(name, definition), new Date())",
           "  res.statusCode = 204",
           "  res.end()",
           "}",
@@ -325,9 +336,21 @@ function renderNetlifyScheduleFunction(file: string, registryFile: string, sched
   ].join("\n")
 }
 
-function sanitizeNetlifyScheduleFunctionName(name: string): string {
-  const safeName = name.toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "")
-  return `vitehub-schedule-${safeName || "schedule"}.mjs`
+/** Names one Netlify function per Schedule, and fails when two Schedules would get the same name. */
+export function netlifyScheduleFunctionNames(definitions: readonly Pick<DiscoveredScheduleDefinition, "name">[]): Map<string, string> {
+  const names = new Map<string, string>()
+  const emitted = new Map<string, string>()
+  for (const definition of definitions) {
+    const safeName = definition.name.toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "")
+    const functionName = `vitehub-schedule-${safeName || "schedule"}`
+    const existingName = emitted.get(functionName)
+    if (existingName) {
+      throw scheduleErrorDiagnostics.SCHEDULE_R0006({ message: `Schedule "${definition.name}" and "${existingName}" both emit the same Netlify function file: ${functionName}.mjs` })
+    }
+    emitted.set(functionName, definition.name)
+    names.set(definition.name, functionName)
+  }
+  return names
 }
 
 function renderDenoCronEntry(file: string, registryFile: string, crons: Map<string, string>, runtimeImport = scheduleStaticRuntimeImport) {
@@ -382,6 +405,7 @@ async function writeProviderEntries(
   rootDir: string,
   source?: DiscoveredScheduleDefinition["source"],
   providedDefinitions?: DiscoveredScheduleDefinition[],
+  cronOverrides?: ScheduleCronOverrides,
 ): Promise<GeneratedScheduleArtifacts> {
   const generatedDir = ensureGeneratedDir(rootDir, productName)
   const registryFile = resolve(generatedDir, generatedRegistryFileName)
@@ -392,14 +416,20 @@ async function writeProviderEntries(
   const cloudflareWorkerFile = resolve(generatedDir, "cloudflare-worker.mjs")
   const denoCronFile = resolve(generatedDir, denoCronFileName)
   const vercelServerFile = resolve(generatedDir, "vercel-server.mjs")
-  await writeFile(cloudflareWorkerFile, renderProviderEntry(cloudflareWorkerFile, registryFile, "cloudflare"), "utf8")
-  await writeFile(vercelServerFile, renderProviderEntry(vercelServerFile, registryFile, "vercel"), "utf8")
+  await writeFile(cloudflareWorkerFile, renderProviderEntry(cloudflareWorkerFile, registryFile, "cloudflare", undefined, undefined, cronOverrides), "utf8")
+  await writeFile(vercelServerFile, renderProviderEntry(vercelServerFile, registryFile, "vercel", undefined, undefined, cronOverrides), "utf8")
 
   return { cloudflareWorkerFile, denoCronFile, definitions, generatedDir, registryFile, vercelServerFile }
 }
 
-export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinition[]) {
+/** Cron per Schedule name for one build's host, in place of the cron that the Schedule Definition declares. */
+export type ScheduleCronOverrides = Readonly<Record<string, string>>
+
+export async function readDefinitionCrons(definitions: DiscoveredScheduleDefinition[], overrides?: ScheduleCronOverrides) {
   const crons = await readRuntimeDefinitionCrons(definitions)
+  for (const [name, cron] of Object.entries(overrides ?? {})) {
+    if (crons.has(name)) crons.set(name, cron)
+  }
   for (const [name, cron] of crons) validateProviderCron(cron, name)
   for (const definition of definitions) assertProviderTimeZone(definition.handler, definition.name)
   return crons
@@ -451,7 +481,7 @@ export async function writeVercelScheduleFunctions(options: {
     const wrapperFile = resolve(functionDir, "index.source.mjs")
     await mkdir(functionDir, { recursive: true })
     options.signal?.throwIfAborted()
-    await writeFile(wrapperFile, renderProviderEntry(wrapperFile, options.registryFile, "vercel", definition.name, options.workflow), "utf8")
+    await writeFile(wrapperFile, renderProviderEntry(wrapperFile, options.registryFile, "vercel", definition.name, options.workflow, { [definition.name]: crons.get(definition.name)! }), "utf8")
     await bundleEsmEntry(wrapperFile, functionFile, {
       alias: options.bundleAlias,
       define: options.bundleDefines,
@@ -595,22 +625,17 @@ export async function writeVercelScheduleFunctions(options: {
 }
 
 export async function createNetlifyScheduleFunctionOutputs(options: {
+  crons?: Map<string, string>
   definitions: DiscoveredScheduleDefinition[]
   functionRoot: string
   includedSourcesDir?: string
   registryFile: string
 }): Promise<NetlifyScheduleFunctionOutput[]> {
   const definitions = options.definitions
-  const crons = await readDefinitionCrons(definitions)
-  const emitted = new Map<string, string>()
+  const crons = options.crons ?? await readDefinitionCrons(definitions)
+  const functionNames = netlifyScheduleFunctionNames(definitions)
   return definitions.map((definition) => {
-    const fileName = sanitizeNetlifyScheduleFunctionName(definition.name)
-    const existingName = emitted.get(fileName)
-    if (existingName) {
-      throw scheduleErrorDiagnostics.SCHEDULE_R0006({ message: `Schedule "${definition.name}" and "${existingName}" both emit the same Netlify function file: ${fileName}` })
-    }
-    emitted.set(fileName, definition.name)
-    const file = resolve(options.functionRoot, fileName)
+    const file = resolve(options.functionRoot, `${functionNames.get(definition.name)!}.mjs`)
     return {
       cron: crons.get(definition.name)!,
       file,
@@ -624,6 +649,7 @@ async function writeNetlifyScheduleFunctions(options: {
   bundleAlias?: Record<string, string>
   bundleDefines?: Record<string, string>
   bundleExternal?: string[]
+  crons: Map<string, string>
   sourceRootDir?: string
   definitions: DiscoveredScheduleDefinition[]
   outputRoot: string
@@ -651,6 +677,7 @@ async function writeNetlifyScheduleFunctions(options: {
     await Promise.all(existingFiles.filter(file => /^vitehub-schedule-.+\.mjs$/.test(file)).map(file => rm(resolve(stagedFunctionRoot, file), { force: true, recursive: true })))
 
     const outputs = await createNetlifyScheduleFunctionOutputs({
+      crons: options.crons,
       definitions: options.definitions,
       functionRoot: stagedFunctionRoot,
       includedSourcesDir: existsSync(publishedSourcesDir) ? includedSourcesDir : undefined,
@@ -891,15 +918,17 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
     : cloudflareStateFile
   let publicationSettled = !coordinatesRetainedSources
   try {
-    let artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions)
+    let artifacts = await writeProviderEntries(options.rootDir, options.source, options.definitions, options.cron)
     if (options.retainedSourcesDir && artifacts.definitions.length > 0) {
       artifacts = await publishRetainedProviderSources(artifacts, options.retainedSourcesDir, options.signal)
     }
     options.signal?.throwIfAborted()
-    const discoveredCrons = options.crons ?? await readDefinitionCrons(artifacts.definitions)
+    const discoveredCrons = options.crons ?? await readDefinitionCrons(artifacts.definitions, options.cron)
     const crons = new Map(artifacts.definitions.map(definition => [definition.name, discoveredCrons.get(definition.name)!]))
+    // Other hosts get the same cleanup as a build without Schedules, so their stale Schedule output goes away.
+    const hostDefinitions = (host: DeploymentPreset) => options.host === undefined || options.host === host ? artifacts.definitions : []
     options.signal?.throwIfAborted()
-    if (artifacts.definitions.length > 0) {
+    if (hostDefinitions("deno").length > 0) {
       const stagedDenoCronInputFile = `${artifacts.denoCronFile}.vitehub-input-tmp.mjs`
       const stagedDenoCronFile = `${artifacts.denoCronFile}.vitehub-tmp`
       try {
@@ -923,7 +952,12 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
           rm(stagedDenoCronFile, { force: true }),
         ])
       }
-      options.signal?.throwIfAborted()
+    }
+    else {
+      await rm(artifacts.denoCronFile, { force: true })
+    }
+    options.signal?.throwIfAborted()
+    if (hostDefinitions("cloudflare").length > 0) {
       await writeCloudflareScheduleOutput({
         bundleAlias: options.bundleAlias,
         bundleDefines: options.bundleDefines,
@@ -937,13 +971,14 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
       })
     }
     else {
+      await cleanCloudflareScheduleOutput(options.rootDir, cloudflareStateFile, previousCloudflareStateFile)
+    }
+    if (artifacts.definitions.length === 0) {
       options.signal?.throwIfAborted()
       await Promise.all([
         rm(artifacts.cloudflareWorkerFile, { force: true }),
-        rm(artifacts.denoCronFile, { force: true }),
         rm(artifacts.registryFile, { force: true }),
         rm(artifacts.vercelServerFile, { force: true }),
-        cleanCloudflareScheduleOutput(options.rootDir, cloudflareStateFile, previousCloudflareStateFile),
       ])
     }
     options.signal?.throwIfAborted()
@@ -951,7 +986,7 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
       bundleAlias: options.bundleAlias,
       bundleDefines: options.bundleDefines,
       bundleExternal: options.bundleExternal,
-      definitions: artifacts.definitions,
+      definitions: hostDefinitions("vercel"),
       outputRoot: createDefaultVercelOutputRoot(options.rootDir),
       registryFile: artifacts.registryFile,
       rootDir: options.rootDir,
@@ -964,8 +999,9 @@ export async function generateProviderOutputsWithinLock(options: GenerateProvide
       bundleAlias: options.bundleAlias,
       bundleDefines: options.bundleDefines,
       bundleExternal: options.bundleExternal,
+      crons,
       sourceRootDir: options.sourceRootDir,
-      definitions: artifacts.definitions,
+      definitions: hostDefinitions("netlify"),
       outputRoot: createDefaultNetlifyOutputRoot(options.rootDir),
       registryFile: artifacts.registryFile,
       rootDir: options.rootDir,

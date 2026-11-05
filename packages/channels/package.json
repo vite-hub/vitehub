@@ -1,14 +1,16 @@
 {
   "name": "@vite-hub/channels",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Provider-neutral channel primitives and Vite integration for ViteHub.",
   "keywords": [
     "channels",
     "messaging",
+    "notifications",
+    "typescript",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -34,19 +36,16 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
-      "require": "./dist/server.js",
       "default": "./dist/server.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
-      "require": "./dist/vite.js",
       "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
@@ -79,6 +78,6 @@
     }
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=22.18.0"
   }
 }

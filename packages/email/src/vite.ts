@@ -410,6 +410,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   let materializationRequested = false
   let providerImportAliases: Promise<Record<string, string>> | undefined
   let watchFiles = new Set<string>()
+  let stopWatching: (() => Promise<void>) | undefined
   const previewRegistryPath = () => resolve(projectRoot, ".vitehub", "email", "preview.mjs")
 
   const updateTemplateRoots = (nextProjectRoot: string, nextServerDirs = serverDirs) => {
@@ -563,8 +564,9 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       for (const templatesRoot of templatesRoots) this.addWatchFile(templatesRoot)
       for (const file of watchFiles) this.addWatchFile(file)
     },
-    closeBundle() {
+    async closeBundle() {
       disposeEmailOutbox(outboxRuntimeId)
+      await stopWatching?.()
     },
     configureServer(server) {
       publishStandaloneOperationServer(server)
@@ -572,6 +574,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       server.watcher.add([...watchFiles])
       let refreshPending = false
       let refreshPromise: Promise<void> | undefined
+      let closed = false
       const refresh = async () => {
         let refreshed = false
         do {
@@ -585,10 +588,10 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
             server.config.logger.error(String(error))
           }
           finally {
-            server.watcher.add([...watchFiles])
+            if (!closed) server.watcher.add([...watchFiles])
           }
         } while (refreshPending)
-        if (refreshed) {
+        if (refreshed && !closed) {
           for (const module of server.moduleGraph.idToModuleMap.values()) {
             if (module.id) {
               const modulePath = module.id.split("?", 1)[0]
@@ -602,6 +605,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         }
       }
       const refreshForFile = (file: string) => {
+        if (closed) return
         if (!templatesRoots.some(root => isInside(root, file)) && !watchFiles.has(file)) return
         refreshPending = true
         refreshPromise ??= refresh().finally(() => {
@@ -611,6 +615,13 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       server.watcher.on("add", refreshForFile)
       server.watcher.on("change", refreshForFile)
       server.watcher.on("unlink", refreshForFile)
+      stopWatching = async () => {
+        closed = true
+        server.watcher.off("add", refreshForFile)
+        server.watcher.off("change", refreshForFile)
+        server.watcher.off("unlink", refreshForFile)
+        await refreshPromise
+      }
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return

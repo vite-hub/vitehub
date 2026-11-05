@@ -1,5 +1,5 @@
 title: Env
-icon: i-lucide-key-round
+icon: i-vitehub-env
 order: 31
 category: Access
 related: [auth, connections]

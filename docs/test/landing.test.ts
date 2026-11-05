@@ -8,6 +8,7 @@ import {
   landingPrimitives,
   portabilityExamples,
 } from "../app/components/landing/content";
+import { primitiveScenes } from "../app/components/landing/primitive-scenes";
 import { primitiveLandings } from "../app/data/primitive-landings";
 
 const landingFiles = [
@@ -23,31 +24,33 @@ const landingFiles = [
 ];
 
 describe("landing page", () => {
-  it("tells one Agent story where each step highlights its own field", () => {
+  it("annotates each Agent field on its own line", () => {
     const code = agentStory.code.join("\n");
 
     expect(agentStory.tutorialPath).toBe("/docs/getting-started/first-agent");
     expect(code).toContain("vite-hub/agent");
     expect(code).not.toContain("@vite-hub/");
-    expect(agentStory.steps.map((step) => step.id)).toEqual([
-      "channel",
+    expect(agentStory.notes.map((note) => note.id)).toEqual([
+      "channels",
       "driver",
       "workspace",
       "capabilities",
     ]);
 
-    const fields = {
-      channel: "channels:",
-      driver: "driver:",
-      workspace: "workspace:",
-      capabilities: "capabilities:",
-    } as const;
-    for (const step of agentStory.steps) {
-      const lines = step.lines.map((line) => agentStory.code[line]);
-      expect(lines.every((line) => line !== undefined)).toBe(true);
-      expect(lines.some((line) => line?.trimStart().startsWith(fields[step.id]))).toBe(true);
-      expect(step.to).toMatch(/^\/docs\//);
-      expect(step.description.length).toBeLessThan(80);
+    const files = [
+      { code: agentStory.code, notes: agentStory.notes },
+      { code: agentStory.route.code, notes: agentStory.route.notes },
+    ];
+    for (const file of files) {
+      for (const note of file.notes) {
+        // The note sits on the line that names its field, and that line is one of the lines it lights.
+        expect(file.code[note.line]).toContain(note.id);
+        expect((note.lines as readonly number[]).includes(note.line)).toBe(true);
+        expect(note.lines.every((line) => file.code[line] !== undefined)).toBe(true);
+        expect(note.to).toMatch(/^\/docs\//);
+        // Notes fit on one row beside the code.
+        expect(note.text.length).toBeLessThanOrEqual(56);
+      }
     }
   });
 
@@ -129,38 +132,36 @@ describe("landing page", () => {
     expect(source).not.toMatch(/role="(?:tab|tablist|radio|radiogroup)"/);
   });
 
-  it("keeps the full set of animated primitives", async () => {
-    const primitiveMotion = await readFile(
-      new URL("../app/components/landing/PrimitiveMotion.vue", import.meta.url),
-      "utf8",
-    );
-
+  it("keeps the full set of animated primitives", () => {
     expect(landingPrimitives.map((primitive) => primitive.id)).toEqual([
-      "logs",
+      "agent",
       "kv",
-      "blob",
       "database",
+      "blob",
       "queue",
       "workflow",
-      "schedule",
       "auth",
-      "connections",
+      "schedule",
       "workspace",
       "sandbox",
+      "env",
+      "logs",
+      "content",
+      "source",
+      "connections",
+      "gateways",
+      "realtime",
       "browser",
       "shell",
-      "source",
-      "content",
-      "email",
       "channels",
-      "env",
+      "email",
       "rate-limit",
-      "realtime",
-      "agent",
+      "cms",
+      "comments",
       "ui",
     ]);
     for (const primitive of landingPrimitives) {
-      expect(primitiveMotion).toContain(`name === '${primitive.id}'`);
+      expect(primitiveScenes).toHaveProperty(primitive.id);
       expect(primitive.to).toMatch(/^\/docs\//);
       expect(primitive.icon).toMatch(/^i-(?:lucide|ph)-/);
     }
@@ -224,7 +225,7 @@ describe("landing page", () => {
     expect(installCommand).toContain("transition: none;");
   });
 
-  it("wires landing-page metadata through Docus", async () => {
+  it("wires landing-page metadata through Nuxt SEO and Schema.org", async () => {
     const source = await readFile(new URL("../app/pages/index.vue", import.meta.url), "utf8");
 
     expect(source).toContain("<LandingHero />");
@@ -234,8 +235,10 @@ describe("landing page", () => {
     expect(source.indexOf("<LandingAgentStory />")).toBeLessThan(source.indexOf("<LandingClosing />"));
     expect(source).not.toContain("<LandingSharedApi />");
     expect(source).not.toContain("<LandingNuxtHubMigration />");
-    expect(source).toContain("useSeo({");
-    expect(source).toContain('type: "website"');
+    expect(source).toContain("useSeoMeta({");
+    expect(source).toContain('ogType: "website"');
+    expect(source).toContain('ogUrl: "https://vitehub.dev"');
+    expect(source).toContain("useSchemaOrg([\n  defineWebSite({");
     expect(source).not.toContain("defineOgImage");
     expect(source).toContain("deploy it across supported Vite hosts");
     expect(source).not.toContain("titleTemplate");

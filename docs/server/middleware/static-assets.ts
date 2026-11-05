@@ -1,4 +1,6 @@
-import { defineEventHandler, getRequestHeader } from "h3";
+import { appendResponseHeader, defineEventHandler, getCookie, getRequestHeader, getRequestURL, setResponseHeader } from "h3";
+import { docsTutorialNavigationCookie, findDocsPage } from "@vite-hub/docs";
+import manifest from "#docs/manifest";
 
 type CloudflareAssets = {
   fetch: (request: Request) => Promise<Response>;
@@ -12,14 +14,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Object.prototype.toString.call(value) === "[object Object]";
 }
 
+// The Workers binding is a `Fetcher`, not a plain object.
 function isCloudflareAssets(value: unknown): value is CloudflareAssets {
-  return isRecord(value) && Object.prototype.toString.call(value.fetch) === "[object Function]";
+  return typeof value === "object" && value !== null && "fetch" in value && typeof value.fetch === "function";
 }
 
-function getAssets(value: unknown): CloudflareAssets | undefined {
-  if (!isRecord(value) || !isRecord(value.env)) return;
+// Nitro keeps the Worker request in `event.context.cloudflare`. h3 v1 events have no `request`.
+function getCloudflareAssetRequest(value: unknown) {
+  if (!isRecord(value) || !isRecord(value.env) || !(value.request instanceof Request)) return;
   const assets = value.env.ASSETS;
-  return isCloudflareAssets(assets) ? assets : undefined;
+  return isCloudflareAssets(assets) ? { assets, request: value.request } : undefined;
 }
 
 function acceptsMarkdown(accept: string | undefined) {
@@ -60,20 +64,40 @@ export function shouldServePrerenderedAsset(input: {
 // This keeps Markdown negotiation and avoids slow server rendering of pages
 // that Nitro already prerendered.
 export default defineEventHandler(async (event) => {
-  const assets = getAssets(event.context.cloudflare);
+  const isTutorial = findDocsPage(manifest, getRequestURL(event).pathname)?.page.codePanel === true;
+  if (isTutorial) {
+    // The browser must request the layout again after the navigation cookie changes.
+    setResponseHeader(event, "Cache-Control", "private, no-store");
+    appendResponseHeader(event, "Vary", "Cookie");
+    // Prerendered tutorials have no navigation. Render saved open layouts with the
+    // request cookie so the server and client agree before hydration.
+    if (getCookie(event, docsTutorialNavigationCookie) === "true") return;
+  }
+
+  const cloudflare = getCloudflareAssetRequest(event.context.cloudflare);
   const agentDiscovery = useRuntimeConfig(event).agentDiscovery;
   const userAgents = isRecord(agentDiscovery) ? agentDiscovery.userAgents : undefined;
-  if (!assets || !shouldServePrerenderedAsset({
+  if (!cloudflare || !shouldServePrerenderedAsset({
     accept: getRequestHeader(event, "accept"),
     method: event.method,
     userAgent: getRequestHeader(event, "user-agent"),
     userAgents,
   })) return;
 
-  const response = await assets.fetch(event.request);
+  const response = await cloudflare.assets.fetch(cloudflare.request);
   if (response.status !== 404) {
     const headers = new Headers(response.headers);
-    headers.set("Vary", headers.get("Vary") ? `${headers.get("Vary")}, Accept` : "Accept");
+    // Same as the Vary that Markdown negotiation sends, since this choice also reads both headers.
+    // `_headers` already sets it for some pages.
+    const vary = new Set((headers.get("Vary") ?? "").split(",").map(value => value.trim()).filter(Boolean));
+    headers.set("Vary", [...vary.add("Accept").add("User-Agent")].join(", "));
+    // The asset response replaces the one that Nitro started, so it must carry the route rule headers too, such as
+    // the cross-origin isolation of `/learn/**`.
+    for (const [name, value] of Object.entries(getRouteRules(event).headers ?? {})) headers.set(name, value);
+    if (isTutorial) {
+      headers.set("Cache-Control", "private, no-store");
+      headers.append("Vary", "Cookie");
+    }
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   }
 });

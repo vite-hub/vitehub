@@ -108,7 +108,7 @@ describe("gateway.ask()", () => {
 
   it("asks TypeSafe through a Cloudflare AI Gateway custom provider", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () => typesafeAnswer())
-    const gateway = cloudflare({ accountId: "account", apiKey: "ts-key", fetch, gatewayId: "finance", model: "jev-1.14", token: "cf-token" })
+    const gateway = cloudflare({ accountId: "account", typesafeApiKey: "ts-key", fetch, gatewayId: "finance", model: "jev-1.14", token: "cf-token" })
     await expect(gateway.ask("Mercadona 23.10", questions)).resolves.toEqual(expected)
 
     const sent = request(fetch)
@@ -121,7 +121,7 @@ describe("gateway.ask()", () => {
   it("uses the custom provider slug and leaves out the token of an open gateway", async () => {
     vi.stubEnv("CLOUDFLARE_AI_GATEWAY_TOKEN", undefined)
     const fetch = vi.fn<typeof globalThis.fetch>(async () => typesafeAnswer())
-    await cloudflare({ accountId: "account", apiKey: "ts-key", fetch, gatewayId: "finance", slug: "jev" }).ask("state", questions)
+    await cloudflare({ accountId: "account", typesafeApiKey: "ts-key", fetch, gatewayId: "finance", slug: "jev" }).ask("state", questions)
 
     const sent = request(fetch)
     expect(sent.url).toBe("https://gateway.ai.cloudflare.com/v1/account/finance/custom-jev/v1/systemone")
@@ -151,33 +151,36 @@ describe("gateway.ask()", () => {
     for (const name of ["TYPESAFE_API_KEY", "VITEHUB_TYPESAFE_API_KEY", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_AI_GATEWAY_ID"]) vi.stubEnv(name, undefined)
     const fetch = vi.fn<typeof globalThis.fetch>(async () => typesafeAnswer())
     await expect(typesafe({ fetch }).ask("state", questions)).rejects.toMatchObject({ code: "GATEWAYS_R0002", message: expect.stringContaining("Set TYPESAFE_API_KEY, or pass apiKey") })
-    await expect(cloudflare({ apiKey: "ts-key", fetch, gatewayId: "finance" }).ask("state", questions)).rejects.toMatchObject({
+    await expect(cloudflare({ typesafeApiKey: "ts-key", fetch, gatewayId: "finance" }).ask("state", questions)).rejects.toMatchObject({
       code: "GATEWAYS_R0004",
       message: expect.stringContaining("Set CLOUDFLARE_ACCOUNT_ID, or pass accountId"),
     })
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it("names the key to rotate when the provider rejects it", async () => {
-    const rejected = vi.fn<typeof globalThis.fetch>(async () => Response.json({ error: "unauthorized" }, { status: 401 }))
-    const explicit = await cloudflare({ accountId: "account", apiKey: "ts-key", fetch: rejected, gatewayId: "finance" }).ask("state", questions).catch((error: unknown) => error)
+  it.each([401, 403])("names the key to rotate when the provider rejects it with %i", async (status) => {
+    const rejected = vi.fn<typeof globalThis.fetch>(async () => Response.json({ error: "unauthorized" }, { status }))
+    const explicit = await cloudflare({ accountId: "account", typesafeApiKey: "ts-key", fetch: rejected, gatewayId: "finance" }).ask("state", questions).catch((error: unknown) => error)
     expect(rejected).toHaveBeenCalledOnce()
-    expect(explicit).toMatchObject({ code: "GATEWAYS_R0008", providerStatus: 401, status: 503 })
-    expect(String((explicit as Error).message)).toContain("Cloudflare AI Gateway Jev provider rejected the API key with HTTP 401")
-    expect((explicit as { fix?: string }).fix).toContain("Pass a valid apiKey to the gateway")
+    expect(explicit).toMatchObject({ code: "GATEWAYS_R0008", providerStatus: status, status: 503 })
+    expect(String((explicit as Error).message)).toContain(`Cloudflare AI Gateway Jev provider rejected the API key with HTTP ${status}`)
+    expect((explicit as { fix?: string }).fix).toContain("Pass a valid typesafeApiKey to the gateway")
+
+    const otherExplicit = await typesafe({ apiKey: "ts-key", fetch: rejected }).ask("state", questions).catch((error: unknown) => error)
+    expect((otherExplicit as { fix?: string }).fix).toContain("Pass a valid apiKey to the gateway")
 
     vi.stubEnv("TYPESAFE_API_KEY", "env-ts-key")
     const fromEnv = await typesafe({ fetch: rejected }).ask("state", questions).catch((error: unknown) => error)
     expect((fromEnv as { fix?: string }).fix).toBe("Set or rotate TYPESAFE_API_KEY.")
   })
 
-  it("fails with a diagnostic when a Driver-only gateway is asked anyway", async () => {
+  it("fails with a diagnostic when a model-only gateway is asked anyway", async () => {
     const gateways = [cliproxy({ apiKey: "k", url: "https://proxy.example" }), defineAiGateway({ apiKey: "k", baseURL: { codex: "https://proxy.example/v1" }, name: "internal" })]
     for (const gateway of gateways) {
       // SAFETY: The types reject ask() on these gateways; the call checks the runtime diagnostic.
       await expect((gateway as unknown as ReturnType<typeof typesafe>).ask("state", questions)).rejects.toMatchObject({
         code: "GATEWAYS_R0005",
-        message: expect.stringContaining(`Gateway "${gateway.name}" routes Driver model requests and cannot answer Jev questions`),
+        message: expect.stringContaining(`Gateway "${gateway.name}" routes model requests and cannot answer Jev questions`),
       })
     }
   })

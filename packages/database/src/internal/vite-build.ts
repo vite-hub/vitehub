@@ -52,6 +52,7 @@ function renderRuntimeModule(file: string, runtimeConfig: ResolvedDBViteConfig) 
   ].join("\n"))
 
   return renderDatabaseRuntimeModule({
+    chunkParametersImport: createImportPath(file, resolveRuntimeModule("runtime/chunk-parameters")),
     createAgentDatabaseImport: createImportPath(file, resolveRuntimeModule("runtime/agent")),
     databaseEntries,
     imports: [

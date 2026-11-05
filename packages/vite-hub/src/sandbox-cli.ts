@@ -1,5 +1,7 @@
 import { parseArgs } from "node:util";
 
+import { assertFeaturePackages } from "./internal/optional-owners.ts";
+
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli";
 
 const serveUsage =
@@ -152,7 +154,8 @@ async function check(args: string[], context: ViteHubCliContext): Promise<number
   const timeout = Number(option(values, "timeout", env) ?? 25_000);
   if (!Number.isInteger(timeout) || timeout < 1)
     throw new TypeError("[vitehub] --timeout must be a positive number of milliseconds.");
-  const [{ defineAgent }, { cliproxy }, { createAgentStatusReader }, { sshLaunch }] = await Promise.all([
+  assertFeaturePackages(["agent"]);
+  const [{ claudeCodeDriver, codexDriver, defineAgent }, { cliproxy }, { createAgentStatusReader }, { sshLaunch }] = await Promise.all([
     import("@vite-hub/agent"),
     import("@vite-hub/gateways"),
     import("@vite-hub/agent/server"),
@@ -210,13 +213,12 @@ fi
     name: "vitehub-sandbox-check",
     driver:
       driver === "codex"
-        ? {
-            kind: "codex",
+        ? codexDriver({
             launch,
             env: { CODEX_AUTH_JSON: env.CODEX_AUTH_JSON },
             ...(gateway ? { gateway } : {}),
-          }
-        : { kind: "claude-code", launch, ...(gateway ? { gateway } : {}) },
+          })
+        : claudeCodeDriver({ launch, ...(gateway ? { gateway } : {}) }),
   });
   const { authenticated, installed, readiness, reason } = await createAgentStatusReader({
     timeoutMs: timeout,

@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs"
-import { existsSync, readdirSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 
 import { basename, dirname, relative, resolve } from "pathe"
@@ -380,6 +380,17 @@ export async function writeRuntimeRegistryFiles<TDefinition extends Pick<Discove
   }
 }
 
+/**
+ * Writes generated output only when its bytes change. A running dev server watches these files, so an identical
+ * rewrite, for example from a CLI command that loads the project, would rebuild it for nothing.
+ */
+export function writeFileIfChangedSync(file: string, contents: string): void {
+  if (existsSync(file) && readFileSync(file, "utf8") === contents) return
+  mkdirSync(resolve(file, ".."), { recursive: true })
+  writeFileSync(file, contents, "utf8")
+}
+
+/** `writeFileIfChangedSync` for async callers. */
 export async function writeFileIfChanged(file: string, contents: string): Promise<void> {
   const existing = await readFile(file, "utf8").catch(() => undefined)
   if (existing === contents) {

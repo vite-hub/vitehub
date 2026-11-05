@@ -129,7 +129,8 @@ export interface ConnectionsRuntime {
   /** Approve a pending write and run it under the actor that requested it. */
   approve: (input: { actor?: string, id: string }) => Promise<{ approval: ConnectionApproval, result?: unknown }>
   /** Start an authorization code flow with PKCE. Returns the provider URL. */
-  authorize: (input: { actor?: string, name: string, redirectUri: string }) => Promise<{ state: string, url: string }>
+  /** Start an OAuth flow. The `state` and its PKCE verifier work one time, until `expiresAt`. */
+  authorize: (input: { actor?: string, name: string, redirectUri: string }) => Promise<{ expiresAt: string, state: string, url: string }>
   client: (name: string, options: UseConnectionOptions) => ConnectionRuntimeClient
   /**
    * Exchange the authorization code and store the token. `state` is single-use. `actor` must be the
@@ -238,7 +239,14 @@ function isLoginDefinition(definition: ConnectionDefinition): definition is Conn
 
 /** Create the Connections runtime. Applications normally use `useConnection()` instead. */
 export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): ConnectionsRuntime {
-  const request = options.fetch ?? ((input: Parameters<typeof fetch>[0], init?: RequestInit) => fetch(input, init))
+  const fetchProvider = options.fetch ?? ((input: Parameters<typeof fetch>[0], init?: RequestInit) => fetch(input, init))
+  // Runtime-owned requests refuse redirects on Workers too. Public Connection requests keep the caller's options.
+  const request = async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
+    if (init?.redirect !== "error") return await fetchProvider(input, init)
+    const response = await fetchProvider(input, { ...init, redirect: "manual" })
+    if (response.type === "opaqueredirect" || [301, 302, 303, 307, 308].includes(response.status)) throw new TypeError("The provider answered with a redirect.")
+    return response
+  }
   const scheduler = createRequestScheduler()
   const hostId = options.chatgptHostId ?? (async () => (await import("./internal/chatgpt-host.ts")).chatgptHostId((await getStore()).secrets))
   const now = options.now ?? Date.now
@@ -870,7 +878,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       const inherited = callerInheritedActors(options)
       const loaded = await definition(name)
       if (isChatGPTProvider(loaded.provider)) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_CLIENT()
-      return { actor, definition: loaded, inherited, name, options, transport: createConnectionTransport(name, loaded, request, scheduler) }
+      return { actor, definition: loaded, inherited, name, options, transport: createConnectionTransport(name, loaded, fetchProvider, scheduler) }
     })())
     return {
       async call(action: string, input?: unknown, callOptions?: { signal?: AbortSignal }): Promise<unknown> {
@@ -942,7 +950,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     }
   }
 
-  async function authorize(input: { actor?: string, name: string, redirectUri: string }): Promise<{ state: string, url: string }> {
+  async function authorize(input: { actor?: string, name: string, redirectUri: string }): Promise<{ expiresAt: string, state: string, url: string }> {
     const loaded = await definition(input.name)
     const chatgpt = isChatGPTProvider(loaded.provider)
     const connections = await getStore()
@@ -959,9 +967,10 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const verifier = randomToken()
     const nonce = chatgpt ? randomToken() : undefined
     const host = chatgpt ? await hostId() : undefined
+    const expiresAt = now() + AUTHORIZATION_TTL_MS
     await connections.authorizations.put({
       actor: input.actor ?? "user:local",
-      expiresAt: now() + AUTHORIZATION_TTL_MS,
+      expiresAt,
       name: input.name,
       redirectUri: redirect.toString(), state, verifier,
       ...(nonce ? { chatgpt: { clientId, nonce, subject: registration?.accountId } } : {}),
@@ -983,14 +992,14 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       else if (registration?.accountEmail) url.searchParams.set("login_hint", registration.accountEmail)
       if (registration?.status === "connected" && !registration.scopes.includes("chatgpt.tokens.use.direct")) url.searchParams.set("prompt", "consent")
     }
-    return { state, url: url.toString() }
+    return { expiresAt: new Date(expiresAt).toISOString(), state, url: url.toString() }
   }
 
   async function complete(input: ConnectionCallback): Promise<ConnectionInspection> {
     const connections = await getStore()
     // Taking the state consumes it, so a rejected callback cannot be replayed.
     const authorization = await connections.authorizations.take(input.state)
-    if (!authorization || authorization.expiresAt <= now()) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ problem: "authorization-expired" })
+    if (!authorization || authorization.expiresAt <= now()) throw connectionsErrorDiagnostics.CONNECTIONS_AUTHORIZATION_EXPIRED()
     if (authorization.actor !== (input.actor ?? "user:local")) throw connectionsErrorDiagnostics.CONNECTIONS_FORBIDDEN({ problem: "authorization-actor" })
     if (input.error === "access_denied") throw connectionsErrorDiagnostics.CONNECTIONS_AUTHORIZATION_CANCELLED()
     if (input.error) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "token-request" })
@@ -1318,7 +1327,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       const stored = v.parse(approvalInputSchema, approval.input)
       const loaded = await definition(approval.name)
       const context: CallContext = {
-        transport: createConnectionTransport(approval.name, loaded, request, scheduler),
+        transport: createConnectionTransport(approval.name, loaded, fetchProvider, scheduler),
         actor: approval.actor,
         approved: true,
         approvedGrantId: stored.grantId,

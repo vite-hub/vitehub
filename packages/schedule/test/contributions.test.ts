@@ -276,6 +276,18 @@ describe("contributed Schedules on every host", () => {
     expect(vercel.crons).toContainEqual({ path: "/api/vitehub/schedules/vercel/content/publish", schedule: "*/5 * * * *" })
   })
 
+  it("accepts a cron for a Schedule that a plugin added after the config hook contributes", async () => {
+    const { definition, root } = await createRoot({ file: false })
+    const plugin = hubSchedule({ cron: { "content/publish": "0 0 * * *" }, projectRoot: root, providerOutput: "standalone" })
+
+    await (plugin.config as ConfigHook)({ plugins: [], root }, { command: "build", mode: "production" })
+    await resolvePlugin(plugin, root, [publishContributor(definition)])
+    await runProviderOutputHooks(plugin)
+
+    const vercel = JSON.parse(await readFile(join(root, ".vercel", "output", "config.json"), "utf8"))
+    expect(vercel.crons).toContainEqual({ path: "/api/vitehub/schedules/vercel/content/publish", schedule: "0 0 * * *" })
+  })
+
   it("registers contributed Schedules in the Node Process Runtime registry", async () => {
     const { definition, root } = await createRoot()
     const userConfig: Record<PropertyKey, unknown> = { plugins: [publishContributor(definition)], root }

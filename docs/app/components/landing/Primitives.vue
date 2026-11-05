@@ -11,6 +11,15 @@ const activeId = ref<PrimitiveId | null>(null);
 const focusedId = ref<PrimitiveId | null>(null);
 const indicatorId = `primitive-focus-${useId()}`;
 
+// The last tile spans the columns that are left in its row, so the grid never ends with a hole.
+// Keep these counts in sync with the grid-cols classes below.
+const lastTileSpans = Object.fromEntries(
+  Object.entries({ base: 2, sm: 3, xl: 7 }).map(([breakpoint, columns]) => [
+    `--last-span-${breakpoint}`,
+    String(columns - ((landingPrimitives.length - 1) % columns)),
+  ]),
+);
+
 useIntersectionObserver(grid, ([entry]) => {
   visible.value = entry?.isIntersecting ?? false;
 });
@@ -35,7 +44,12 @@ function blur() {
         aria-label="ViteHub APIs"
         @pointerleave="activeId = focusedId"
       >
-        <li v-for="(primitive, index) in landingPrimitives" :key="primitive.id" class="min-w-0 last:col-span-2 sm:last:col-span-1">
+        <li
+          v-for="(primitive, index) in landingPrimitives"
+          :key="primitive.id"
+          class="primitive-cell min-w-0"
+          :style="index === landingPrimitives.length - 1 ? lastTileSpans : undefined"
+        >
           <NuxtLink
             :to="primitive.to"
             class="primitive-tile group"
@@ -73,6 +87,22 @@ function blur() {
 .primitive-grid {
   border-top: 1px solid var(--ui-border);
   border-left: 1px solid var(--ui-border);
+}
+
+.primitive-cell:last-child {
+  grid-column: span var(--last-span-base);
+}
+
+@media (min-width: 640px) {
+  .primitive-cell:last-child {
+    grid-column: span var(--last-span-sm);
+  }
+}
+
+@media (min-width: 1280px) {
+  .primitive-cell:last-child {
+    grid-column: span var(--last-span-xl);
+  }
 }
 
 .primitive-tile {
@@ -120,7 +150,7 @@ function blur() {
   }
 }
 
-/* On phones 21 tiles with illustrations fill almost two screens. Show names only. */
+/* On phones the tiles with illustrations fill almost two screens. Show names only. */
 @media (max-width: 639px) {
   .primitive-lines {
     display: none;

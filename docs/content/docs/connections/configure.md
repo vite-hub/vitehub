@@ -163,7 +163,7 @@ export default defineConnection({
 })
 ```
 
-An Agent connects with `mcp({ servers: { crm: { connection: 'crm' } } })`, without a transport URL. Server code calls one tool with `callMcpTool({ connection: 'crm' }, 'search', { query })` from `vite-hub/agent/mcp`. See [MCP](/docs/agents/capabilities/mcp#authenticate-through-a-connection).
+An Agent connects with `mcp({ servers: { crm: { connection: 'crm' } } })`, without a transport URL. Server code calls one tool with `const [error, result] = await callMcpTool({ connection: 'crm' }, 'search', { query })` from `vite-hub/agent/mcp`. It returns an `[error, value]` tuple instead of rejecting. See [MCP](/docs/agents/capabilities/mcp#authenticate-through-a-connection).
 
 ## Request policy
 
@@ -244,11 +244,11 @@ The preset allows every method on the provider's `mcp` endpoint without approval
 | Option | Default | Description |
 | --- | --- | --- |
 | `activityRetention` | `{ maxAgeMs: 1209600000, maxRecords: 10000 }` | How long the database keeps activity. See [Activity retention](#activity-retention). |
-| `database` | `'default'` | Database that stores grants and activity. |
+| `database` | `'default'` | Database that stores grants and activity. An app with only named Databases sets one of them, such as `'users'`. |
 | `encryptionKey` | `env({ secret: true, optional: true, source: env.source('VITEHUB_CONNECTIONS_KEY') })` | Secret Env declaration for the key. It cannot use `env.provider()` or a default. |
 | `projectRoot` | Vite root | Where ViteHub discovers `server/connections/`. |
 
-`vitehub({ connections })` enables `database` when it is unset. Without a Database Definition, Connections use the empty Default Database. `database: false` fails with `VITE_HUB_R0124`. The Nuxt module does not support Connections yet.
+`vitehub({ connections })` and `vite-hub/nuxt` enable `database` when it is unset. Without a Database Definition, Connections use the empty `default` Database, and `vitehub inspect` shows why it exists. `database: false` fails with `VITE_HUB_R0124`. The Nuxt module builds Connections for production too, including Cloudflare Workers. Production mounts the management API only with `management`, which uses the Console sign-in.
 
 ## Activity retention
 

@@ -7,7 +7,7 @@ import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
 import { runSerializedWorkflowHandler } from "./execute.ts"
-import { getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
+import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
 import { getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
 import { cancelVercelWorkflow, inspectVercelWorkflowRun, resumeVercelWorkflowSignal, startVercelWorkflow } from "./vercel.ts"
@@ -204,7 +204,7 @@ function createCloudflareAdapter(config: ResolvedWorkflowOptions): WorkflowRunti
 
 function createOpenWorkflowAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter {
   return {
-    cancel: () => unsupportedOperation("openworkflow", "cancellation"),
+    cancel: async ({ id, name }) => await cancelOpenWorkflowRun(config, name, id),
     get: async ({ id, name }) => await getOpenWorkflowRun(config, name, id),
     resume: () => unsupportedOperation("openworkflow", "signals"),
     run: async ({ definition, event, name, options, payload }) => await runOpenWorkflow(config, name, payload, definition, options, resolveDispatchObserver(event)),

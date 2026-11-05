@@ -1,5 +1,6 @@
 ---
 title: Logs
+layout: landing
 navigation.title: Overview
 navigation.order: 1
 description: Logs for ViteHub Logs, powered by Evlog.

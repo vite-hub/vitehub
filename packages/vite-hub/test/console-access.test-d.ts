@@ -1,6 +1,8 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { defineConsoleAuthorize } from "vite-hub/console/auth"
+import { cmsConsoleAuthorize } from "vite-hub/cms/access"
+import { getAuthForRequest } from "@vite-hub/auth/server"
+import { createConsoleAppAuthPages, defineConsoleAuthorize } from "vite-hub/console/auth"
 import { bindConsoleAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 
 import type { ConsoleAccess } from "../src/console/runtime/server/access.ts"
@@ -10,6 +12,11 @@ declare const event: ConsoleRequestEvent
 declare const access: ConsoleAccess
 
 describe("Console access types", () => {
+  it("accepts synchronous and lazy app Auth resolvers", () => {
+    createConsoleAppAuthPages(getAuthForRequest)
+    createConsoleAppAuthPages(async (...input) => getAuthForRequest(...input))
+  })
+
   it("type checks", () => {
     const route = withConsoleAccess(async (_event: ConsoleRequestEvent, checked) => checked.mode, { section: "kv" })
     expectTypeOf(route).returns.toEqualTypeOf<Promise<ConsoleAccess["mode"] | Response>>()
@@ -50,6 +57,8 @@ describe("Console access types", () => {
     defineConsoleAuthorize(({ request }) => request.headers.get("x-role") === "admin")
     defineConsoleAuthorize(() => new Response("Sign in at the host.", { status: 401 }))
     defineConsoleAuthorize(({ user }) => user?.role === "editor" ? { sections: ["content"] } : true)
+    // The CMS roles grant Console sections without a wrapper.
+    defineConsoleAuthorize(cmsConsoleAuthorize)
     // @ts-expect-error An authorize function returns a boolean, a Response, or { sections }.
     defineConsoleAuthorize(() => "admin")
     // @ts-expect-error Section ids are strings.

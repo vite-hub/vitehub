@@ -43,7 +43,7 @@ export function inspectWorkflowDefinitions(options: WorkflowInspectionOptions): 
 /** Console section that lists discovered Workflow Definitions. `vitehub inspect definitions` reads the same data. */
 export const workflowConsoleSection: ViteHubConsoleSectionContribution<WorkflowInspectionOptions> = {
   description: "Inspect discovered Workflow Definitions and their source metadata.",
-  icon: "i-lucide-git-branch",
+  icon: "i-vitehub-workflow",
   id: "workflows",
   label: "Workflows",
   read: inspectWorkflowDefinitions,

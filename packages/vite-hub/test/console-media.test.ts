@@ -47,10 +47,12 @@ function actions(): ConsoleDocumentActions {
     list: unused,
     mediaAccess: () => roles[role]!,
     overview: unused,
+    preview: unused,
     publish: unused,
     raw: unused,
     references,
     remove: unused,
+    resolve: unused,
     restore: unused,
     revisions: unused,
     save: unused,
@@ -188,6 +190,24 @@ describe("Console media library", () => {
     await expect(media("list")).resolves.toMatchObject({ status: 200 })
     install(["content"])
     await expect(media("list")).resolves.toMatchObject({ status: 404 })
+  })
+
+  it("keeps the picker on the served store for an editor with a store grant", async () => {
+    const siteDirectory = await mkdtemp(join(tmpdir(), "vitehub-console-media-site-"))
+    try {
+      const site = createBlobStorage(createDriver({ base: siteDirectory, driver: "fs" }), "media", { images: false, url: pathname => `/media/${pathname}` })
+      installConsoleBlob("/app", { ...storage, store: (name: string) => name === "media" ? site : storage }, ["default", "media"])
+      setBlobRuntimeConfig({ images: false, serve: { route: "/media", store: "media" }, store: { base: directory, driver: "fs" }, stores: { default: { base: directory, driver: "fs" }, media: { base: siteDirectory, driver: "fs" } } })
+      // The policy of an app whose private Content store is `default` and whose Media library is `media`.
+      installConsoleAccess({ authorize: () => ({ sections: ["content", "comments", "blob:media"] }), mode: "open" })
+      await expect(media("info")).resolves.toMatchObject({ body: { value: { served: "/media/", store: "media" } }, status: 200 })
+      await expect(upload({ file: file("Hero.txt", "hero"), folder: "guides" })).resolves.toMatchObject({ body: { value: { file: { pathname: "guides/hero.txt", url: "/media/guides/hero.txt" } } }, status: 200 })
+      await expect(media("list", { folder: "guides" })).resolves.toMatchObject({ body: { value: { items: [{ pathname: "guides/hero.txt" }], store: "media" } }, status: 200 })
+      expect(await storage.head("guides/hero.txt")).toEqual([null, null])
+    }
+    finally {
+      await rm(siteDirectory, { force: true, recursive: true })
+    }
   })
 
   it("rejects cross-site and oversized uploads, and unknown actions", async () => {

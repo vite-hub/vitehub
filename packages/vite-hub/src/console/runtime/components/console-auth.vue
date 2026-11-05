@@ -14,16 +14,25 @@ import type {
 } from "@vite-hub/auth/console";
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { authDate, authFieldValue, readAuthConsole } from "../client/auth-management";
+import {
+  authDate,
+  authFieldValue,
+  changeAuthConsole,
+  readAuthConsole,
+} from "../client/auth-management";
+import { queryChoice, queryInteger, querySelection, queryText, useConsoleQuery } from "../client/route-query";
+import { consoleMountBase, consoleMountPath } from "../console-route";
 import { rememberConsoleSection } from "../sections";
 import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthDetail from "./console-auth-detail.vue";
 import ConsoleAuthOverview from "./console-auth-overview.vue";
 import ConsoleAuthActivity from "./console-auth-activity.vue";
-import ConsoleFrame from "./console-frame.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
+import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 const props = defineProps<{ sectionsBase: string; managementBase: string }>();
+// The rail's Search button and Cmd+K open the search of the page. Its API routes sit next to the sections route.
+const apiBase = props.sectionsBase.replace(/\/sections$/, "");
 const route = useRoute();
 const router = useRouter();
 const page = computed<AuthConsolePage>(() =>
@@ -39,15 +48,15 @@ const sessions = shallowRef<AuthConsoleSession[]>([]);
 const organizations = shallowRef<AuthConsoleOrganization[]>([]);
 const agents = shallowRef<AuthConsoleAgent[]>([]);
 const total = ref(0);
-const offset = ref(0);
 const limit = 25;
-const search = ref("");
-const filter = ref<NonNullable<AuthConsoleQuery["filter"]>>("all");
-const selectedUser = computed({
-  get: () => (typeof route.query.user === "string" ? route.query.user : undefined),
-  set: (user: string | undefined) => {
-    void router.replace({ query: { ...route.query, user } });
-  },
+const filters: ReadonlyArray<NonNullable<AuthConsoleQuery["filter"]>> = ["all", "admins", "banned", "agents"];
+// The search, filter, page, open user, and open organization live in the URL, so a reload or a shared link opens the same view.
+const { filter, offset, org: selectedOrgId, q: search, user: selectedUser } = useConsoleQuery({
+  filter: queryChoice(filters, "all"),
+  offset: queryInteger(0, { history: "push" }),
+  org: querySelection(),
+  q: queryText(),
+  user: querySelection(),
 });
 const selectedOrg = shallowRef<AuthConsoleOrganizationDetail>();
 const orgOffset = ref(0);
@@ -56,6 +65,8 @@ const error = shallowRef<unknown>();
 const orgError = shallowRef<unknown>();
 const action = ref<AuthConsoleAction>();
 const actionId = ref<string>();
+/** The email of the user that a Sessions or Agents row action changes, for the confirmation. */
+const actionName = ref<string>();
 const labels: Record<AuthConsolePage, string> = {
   overview: "Overview",
   activity: "Activity",
@@ -72,12 +83,34 @@ const icons: Record<AuthConsolePage, string> = {
   organizations: "i-lucide-building-2",
   agents: "i-lucide-bot",
 };
+// With Console Auth, the app session of this browser can be an impersonation session while the Console stays open.
+const impersonating = computed(() => description.value?.impersonation?.active ?? undefined);
+const appRoot = computed(() =>
+  impersonating.value ? consoleMountPath(consoleMountBase(window.location.pathname), "/") : "/",
+);
+const stopping = ref(false);
+const stopError = ref("");
+async function stopImpersonating() {
+  const target = impersonating.value?.user.id;
+  stopping.value = true;
+  stopError.value = "";
+  try {
+    await changeAuthConsole(props.managementBase, { action: "stopImpersonating" });
+    if (target) selectedUser.value = target;
+    await refresh();
+  } catch (cause) {
+    stopError.value = cause instanceof Error ? cause.message : "Could not stop impersonating.";
+  } finally {
+    stopping.value = false;
+  }
+}
 let controller: AbortController | undefined;
 let orgController: AbortController | undefined;
 function closeOrganization() {
   orgController?.abort();
   selectedOrg.value = undefined;
   orgError.value = undefined;
+  selectedOrgId.value = undefined;
 }
 let timer: ReturnType<typeof setTimeout> | undefined;
 async function refresh() {
@@ -102,7 +135,7 @@ async function refresh() {
     if (!config.storage.enabled) return;
     if (!config.pages.includes(page.value))
       throw new Error("This page needs a Better Auth plugin that the app has not enabled.");
-    const query = { offset: offset.value, limit, search: search.value, filter: filter.value };
+    const query = { offset: offset.value, limit, search: search.value.trim(), filter: filter.value };
     let list: AuthConsoleList<unknown>;
     if (page.value === "users") {
       const result = await readAuthConsole(
@@ -155,16 +188,18 @@ function navigate(target: AuthConsolePage) {
   });
 }
 watch(page, () => {
-  offset.value = 0;
-  closeOrganization();
   void refresh();
 });
 watch([search, filter], () => {
-  offset.value = 0;
   clearTimeout(timer);
   timer = setTimeout(() => void refresh(), 200);
 });
 watch(offset, () => void refresh());
+// The destination URL owns the open organization, including history across Auth pages.
+watch(selectedOrgId, (id) => {
+  if (!id) closeOrganization();
+  else if (selectedOrg.value?.id !== id) void openOrganization(id);
+}, { immediate: true });
 async function openOrganization(id: string, offset = 0) {
   orgController?.abort();
   const current = new AbortController();
@@ -193,7 +228,7 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-  <ConsoleFrame active="auth" :sections-base="sectionsBase">
+    <ConsoleSearch :agents-base="`${apiBase}/agents`" :definitions-base="`${apiBase}/definitions`" :kv-base="`${apiBase}/kv`" :search-base="`${apiBase}/search`" :sections-base="sectionsBase" />
     <UDashboardPanel id="auth" :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }">
       <template #header>
         <UDashboardNavbar title="Auth" :toggle="false"
@@ -222,9 +257,44 @@ onBeforeUnmount(() => {
           >
           </div>
         </nav>
+        <div v-if="impersonating" class="border-b border-warning/25 bg-warning/10">
+          <div
+            class="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6"
+          >
+            <div class="flex min-w-0 flex-[1_1_16rem] items-start gap-2">
+              <UIcon
+                name="i-lucide-venetian-mask"
+                class="mt-0.5 size-4 shrink-0 text-warning"
+                aria-hidden="true"
+              />
+              <div class="min-w-0 text-sm text-pretty">
+                <p role="status" class="text-highlighted">
+                  This browser uses the app as
+                  <span class="font-medium">{{
+                    impersonating.user.name || impersonating.user.email
+                  }}</span>
+                  until {{ authDate(impersonating.expiresAt) }}.
+                </p>
+                <p v-if="stopError" role="alert" class="text-error">{{ stopError }}</p>
+              </div>
+            </div>
+            <div class="flex shrink-0 gap-2">
+              <UButton :to="appRoot" external size="xs" color="neutral" variant="ghost"
+                >Open app</UButton
+              ><UButton
+                size="xs"
+                color="neutral"
+                :loading="stopping"
+                @click="stopImpersonating"
+                >Stop impersonating</UButton
+              >
+            </div>
+          </div>
+        </div>
         <ConsolePageToolbar v-if="page === 'users'" width="6xl">
           <UInput
             v-model="search"
+            @update:model-value="offset = 0"
             aria-label="Search users by name or email"
             placeholder="Search name or email…"
             icon="i-lucide-search"
@@ -232,6 +302,7 @@ onBeforeUnmount(() => {
             class="min-w-48 flex-1 sm:max-w-72"
           /><USelect
             v-model="filter"
+            @update:model-value="offset = 0"
             aria-label="Filter users"
             :items="[
               { label: 'All users', value: 'all' },
@@ -262,7 +333,7 @@ onBeforeUnmount(() => {
           />
           <ConsoleState
             v-else-if="description && !description.storage.enabled && page !== 'overview'"
-            icon="i-lucide-users-round"
+            icon="i-vitehub-auth"
             title="No stored Auth data"
             :description="description.storage.reason"
           />
@@ -286,7 +357,7 @@ onBeforeUnmount(() => {
                   <tr v-if="page === 'users'">
                     <th>User</th>
                     <th>Role</th>
-                    <th v-for="field in description?.fields" :key="field.key">{{ field.label }}</th>
+                    <th v-for="field in description?.fields" :key="field.key" :class="field.type === 'number' ? 'text-right' : ''">{{ field.label }}</th>
                     <th>Sign-in methods</th>
                     <th>Last active</th>
                     <th>Created</th>
@@ -332,12 +403,13 @@ onBeforeUnmount(() => {
                       </button>
                     </td>
                     <td>{{ user.role }}</td>
-                    <td v-for="field in description?.fields" :key="field.key" class="tabular-nums">
+                    <!-- Numbers align on the right, so their digits line up down the column. -->
+                    <td v-for="field in description?.fields" :key="field.key" class="tabular-nums" :class="field.type === 'number' ? 'text-right' : ''">
                       {{ authFieldValue(user.fields[field.key]) }}
                     </td>
                     <td>{{ user.providers.join(", ") || "None" }}</td>
-                    <td class="whitespace-nowrap text-muted">{{ authDate(user.lastActive) }}</td>
-                    <td class="whitespace-nowrap text-muted">{{ authDate(user.createdAt) }}</td>
+                    <td class="whitespace-nowrap text-muted tabular-nums">{{ authDate(user.lastActive) }}</td>
+                    <td class="whitespace-nowrap text-muted tabular-nums">{{ authDate(user.createdAt) }}</td>
                     <td :class="user.banned ? 'text-error' : 'text-muted'">
                       {{ user.banned ? "Banned" : "Active" }}
                     </td>
@@ -355,8 +427,8 @@ onBeforeUnmount(() => {
                       </button>
                     </td>
                     <td>{{ session.device }}</td>
-                    <td class="whitespace-nowrap text-muted">{{ authDate(session.createdAt) }}</td>
-                    <td class="whitespace-nowrap text-muted">{{ authDate(session.expiresAt) }}</td>
+                    <td class="whitespace-nowrap text-muted tabular-nums">{{ authDate(session.createdAt) }}</td>
+                    <td class="whitespace-nowrap text-muted tabular-nums">{{ authDate(session.expiresAt) }}</td>
                     <td class="text-right">
                       <UButton
                         color="neutral"
@@ -367,6 +439,7 @@ onBeforeUnmount(() => {
                         @click="
                           action = 'revokeSession';
                           actionId = session.id;
+                          actionName = session.user.email;
                         "
                         >Revoke</UButton
                       >
@@ -378,7 +451,7 @@ onBeforeUnmount(() => {
                     <td>
                       <button
                         class="text-left font-medium text-highlighted outline-none after:absolute after:inset-0"
-                        @click="openOrganization(org.id)"
+                        @click="selectedOrgId = org.id"
                       >
                         {{ org.name }}
                       </button>
@@ -415,6 +488,7 @@ onBeforeUnmount(() => {
                         @click="
                           action = 'revokeConsent';
                           actionId = client.id;
+                          actionName = client.user.email;
                         "
                         >Revoke</UButton
                       >
@@ -484,6 +558,7 @@ onBeforeUnmount(() => {
       :base="managementBase"
       :action="action"
       :id="actionId"
+      :name="actionName"
       @close="action = undefined"
       @changed="refresh"
     />
@@ -560,7 +635,6 @@ onBeforeUnmount(() => {
         ></template
       >
     </USlideover>
-  </ConsoleFrame>
 </template>
 <style scoped>
 .auth-table th {

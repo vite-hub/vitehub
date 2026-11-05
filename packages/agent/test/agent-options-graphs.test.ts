@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { defineAgent } from "../src/index.ts"
+import { codexDriver, defineAgent } from "../src/index.ts"
 
 describe("configured option graphs", () => {
   it.each([false, true])("keeps shared defaults separate from one overridden occurrence (reverse keys: %s)", reverse => {
@@ -7,7 +7,7 @@ describe("configured option graphs", () => {
     const defaults = reverse
       ? { right: shared, left: shared, untouched: shared }
       : { left: shared, right: shared, untouched: shared }
-    const configure = vi.fn((_options: typeof defaults) => defineAgent({ driver: "codex" }))
+    const configure = vi.fn((_options: typeof defaults) => defineAgent({ driver: codexDriver() }))
     const preset = defineAgent({ options: defaults, configure })
     const extended = defineAgent({ extends: preset, options: { left: { value: 2 }, right: undefined } })
     for (const options of [extended.options, configure.mock.calls.at(-1)![0]]) {
@@ -28,7 +28,7 @@ describe("configured option graphs", () => {
     shared.entries.push(shared)
     shared.map.set("self", shared)
     shared.set.add(shared)
-    const preset = defineAgent({ options: { left: shared, right: shared }, configure: () => defineAgent({ driver: "codex" }) })
+    const preset = defineAgent({ options: { left: shared, right: shared }, configure: () => defineAgent({ driver: codexDriver() }) })
     const extended = defineAgent({ extends: preset, options: { left: { value: 2 } } })
     expect(extended.options.left.value).toBe(2)
     expect(extended.options.right.value).toBe(1)
@@ -44,7 +44,7 @@ describe("configured option graphs", () => {
   it("preserves aliases for a repeated parent and override pair", () => {
     const shared = { value: 1 }
     const override = { value: 2 }
-    const preset = defineAgent({ options: { left: shared, right: shared, unchanged: shared }, configure: () => defineAgent({ driver: "codex" }) })
+    const preset = defineAgent({ options: { left: shared, right: shared, unchanged: shared }, configure: () => defineAgent({ driver: codexDriver() }) })
     const extended = defineAgent({ extends: preset, options: { left: override, right: override } })
     expect(extended.options.left.value).toBe(2)
     expect(extended.options.left).toBe(extended.options.right)
@@ -58,7 +58,7 @@ describe("configured option graphs", () => {
     const defaults: { value: number, self?: unknown, entries: unknown[], added?: { left: typeof shared, right: typeof shared } } = { value: 1, entries: [] }
     defaults.self = defaults
     defaults.entries.push(defaults)
-    const preset = defineAgent({ options: defaults, configure: () => defineAgent({ driver: "codex" }) })
+    const preset = defineAgent({ options: defaults, configure: () => defineAgent({ driver: codexDriver() }) })
     const extended = defineAgent({ extends: preset, options: { value: 2, self: undefined, added: { left: shared, right: shared } } })
     expect(extended.options.self).toBe(extended.options)
     expect(extended.options.entries[0]).toBe(extended.options)
@@ -70,7 +70,7 @@ describe("configured option graphs", () => {
 it("preserves child-only aliases across distinct merged parent records", () => {
   const extra = { value: 3 }
   const defaults: { left: { value: number, extra?: typeof extra }, right: { value: number, extra?: typeof extra } } = { left: { value: 1 }, right: { value: 2 } }
-  const preset = defineAgent({ options: defaults, configure: () => defineAgent({ driver: "codex" }) })
+  const preset = defineAgent({ options: defaults, configure: () => defineAgent({ driver: codexDriver() }) })
   const extended = defineAgent({ extends: preset, options: { left: { extra }, right: { extra } } })
   expect(extended.options.left.extra).toBe(extended.options.right.extra)
   expect(extended.options.left.extra).not.toBe(extra)
@@ -84,7 +84,7 @@ it("preserves option descriptors without invoking accessors during extension", (
   Object.defineProperty(defaults, "hidden", { value: { secret: true }, enumerable: false, writable: false })
   Object.defineProperty(defaults, "accessor", { get: getter, enumerable: true })
   Object.defineProperty(defaults, "nested", { value: defaults.nested, writable: false })
-  const preset = defineAgent({ options: defaults, configure: () => defineAgent({ driver: "codex" }) })
+  const preset = defineAgent({ options: defaults, configure: () => defineAgent({ driver: codexDriver() }) })
   const overrides = { sibling: 2, nested: { value: 2 } }
   Object.defineProperty(overrides, "nested", { value: overrides.nested, writable: false })
   const extended = defineAgent({ extends: preset, options: overrides })
@@ -102,7 +102,7 @@ it("preserves array accessors in callback and public option copies", () => {
   const entries = [1, 2]
   Object.defineProperty(entries, "0", { get: getter, set: setter, enumerable: true, configurable: true })
   Object.defineProperty(entries, "hidden", { get: getter, enumerable: false })
-  const configure = vi.fn((_options: { entries: number[] }) => defineAgent({ driver: "codex" }))
+  const configure = vi.fn((_options: { entries: number[] }) => defineAgent({ driver: codexDriver() }))
   const preset = defineAgent({ options: { entries }, configure })
   const extended = defineAgent({ extends: preset, options: {} })
   expect(getter).not.toHaveBeenCalled()
@@ -119,7 +119,7 @@ it("preserves non-writable array length in callback and public option copies", (
   const entries = [1, 2, 3]
   delete entries[1]
   Object.defineProperty(entries, "length", { writable: false })
-  const configure = vi.fn((_options: { entries: (number | undefined)[] }) => defineAgent({ driver: "codex" }))
+  const configure = vi.fn((_options: { entries: (number | undefined)[] }) => defineAgent({ driver: codexDriver() }))
   const preset = defineAgent({ options: { entries }, configure })
   const extended = defineAgent({ extends: preset, options: {} })
   const replaced = defineAgent({ extends: preset, options: { entries } })
@@ -141,7 +141,7 @@ it("preserves custom array instances through configuration and extension", () =>
   const replacement = new Entries("override")
   const configure = vi.fn((options: { nested: { entries: Entries } }) => {
     expect(options.nested.entries.summary()).toBe(options.nested.entries[0])
-    return defineAgent({ driver: "codex" })
+    return defineAgent({ driver: codexDriver() })
   })
   const preset = defineAgent({ options: { nested: { entries: initial } }, configure })
   const inherited = defineAgent({ extends: preset })
@@ -162,7 +162,7 @@ it("preserves custom Map instances through configuration and extension", () => {
   const replacement = new Entries([["value", "override"]])
   const configure = vi.fn((options: { nested: { entries: Entries } }) => {
     expect(options.nested.entries.summary()).toBe(options.nested.entries.get("value"))
-    return defineAgent({ driver: "codex" })
+    return defineAgent({ driver: codexDriver() })
   })
   const preset = defineAgent({ options: { nested: { entries: initial } }, configure })
   const inherited = defineAgent({ extends: preset })
@@ -183,7 +183,7 @@ it("preserves custom Set instances through configuration and extension", () => {
   const replacement = new Entries(["override"])
   const configure = vi.fn((options: { nested: { entries: Entries } }) => {
     expect(options.nested.entries.summary()).toBe(options.nested.entries.has("default"))
-    return defineAgent({ driver: "codex" })
+    return defineAgent({ driver: codexDriver() })
   })
   const preset = defineAgent({ options: { nested: { entries: initial } }, configure })
   const inherited = defineAgent({ extends: preset })
@@ -204,7 +204,7 @@ it("replaces class option values with complete instances", () => {
   const replacement = new Client("override")
   const configure = vi.fn((options: { client: Client }) => {
     expect(options.client.connect()).toBe(options.client.endpoint)
-    return defineAgent({ driver: "codex" })
+    return defineAgent({ driver: codexDriver() })
   })
   const preset = defineAgent({ options: { client: initial }, configure })
   const extended = defineAgent({ extends: preset, options: { client: replacement } })
@@ -226,7 +226,7 @@ it("preserves branded option values through configuration and extension", () => 
     members: new WeakSet([key]),
     error: new Error("override"),
   }
-  const configure = vi.fn((_options: { nested: typeof initial }) => defineAgent({ driver: "codex" }))
+  const configure = vi.fn((_options: { nested: typeof initial }) => defineAgent({ driver: codexDriver() }))
   const preset = defineAgent({ options: { nested: initial }, configure })
   const inherited = defineAgent({ extends: preset, options: {} })
   const extended = defineAgent({ extends: preset, options: { nested: replacement } })
@@ -258,7 +258,7 @@ it.each([
   const configure = vi.fn((options: { nested: { instance: typeof instance } }) => {
     expect(options.nested.instance).toBe(instance)
     expect(options.nested.instance.summary()).toBe(instance.summary())
-    return defineAgent({ driver: "codex" })
+    return defineAgent({ driver: codexDriver() })
   })
   const preset = defineAgent({ options: { nested: { instance } }, configure })
   const inherited = defineAgent({ extends: preset })
@@ -284,7 +284,7 @@ it.each([
     accessor: { get: getter },
     [symbol]: { value: shared },
   })
-  const configure = vi.fn((_options: { instance: typeof instance, shared: typeof shared }) => defineAgent({ driver: "codex" }))
+  const configure = vi.fn((_options: { instance: typeof instance, shared: typeof shared }) => defineAgent({ driver: codexDriver() }))
   const preset = defineAgent({ options: { instance, shared }, configure })
   const inherited = defineAgent({ extends: preset })
   for (const options of [preset.options, inherited.options, ...configure.mock.calls.map(([options]) => options)]) {
@@ -309,7 +309,7 @@ it.each([false, true])("preserves cycles between view properties and backing sto
   Object.defineProperty(view, "data", { value: data })
   Object.defineProperty(data, "view", { value: view })
   const options = viewFirst ? { view, buffer, data } : { buffer, view, data }
-  const configure = vi.fn((_options: typeof options) => defineAgent({ driver: "codex" }))
+  const configure = vi.fn((_options: typeof options) => defineAgent({ driver: codexDriver() }))
   const preset = defineAgent({ options, configure })
   const inherited = defineAgent({ extends: preset })
   for (const clone of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {
@@ -333,9 +333,9 @@ interface GrowableOptionBuffer extends SharedArrayBuffer {
   readonly maxByteLength: number
   grow(byteLength: number): void
 }
-// SAFETY: Node 24 implements these ES2024 constructors; the repository targets older TypeScript library declarations.
+// SAFETY: Node.js 22.18 and newer implement these ES2024 constructors; the repository targets older TypeScript library declarations.
 const ResizableOptionBuffer = ArrayBuffer as unknown as { new (byteLength: number, options: { maxByteLength: number }): ResizableOptionBuffer }
-// SAFETY: Node 24 implements growable SharedArrayBuffer with this constructor contract.
+// SAFETY: Node.js 22.18 and newer implement growable SharedArrayBuffer with this constructor contract.
 const GrowableOptionBuffer = SharedArrayBuffer as unknown as { new (byteLength: number, options: { maxByteLength: number }): GrowableOptionBuffer }
 
 it.each(["resizable", "growable"] as const)("preserves %s buffers and view length behavior atomically", kind => {
@@ -349,7 +349,7 @@ it.each(["resizable", "growable"] as const)("preserves %s buffers and view lengt
   // Application properties must not hide the backing store's actual resizing behavior.
   Object.defineProperty(buffer, kind, { value: false })
   const options = { buffer, tracking, fixed, trackingData, fixedData }
-  const configure = vi.fn((_options: typeof options) => defineAgent({ driver: "codex" }))
+  const configure = vi.fn((_options: typeof options) => defineAgent({ driver: codexDriver() }))
   const preset = defineAgent({ options, configure })
   const inherited = defineAgent({ extends: preset })
   for (const result of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {
@@ -375,7 +375,7 @@ it("preserves out-of-bounds resizable buffer views until their ranges become val
   const trackingData = new DataView(buffer, 2)
   buffer.resize(1)
   const options = { fixed, tracking, fixedData, trackingData, buffer }
-  const configure = vi.fn((_options: typeof options) => defineAgent({ driver: "codex" }))
+  const configure = vi.fn((_options: typeof options) => defineAgent({ driver: codexDriver() }))
   const preset = defineAgent({ options, configure })
   const inherited = defineAgent({ extends: preset })
   for (const result of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {
@@ -397,7 +397,7 @@ it.each([ArrayBuffer, SharedArrayBuffer])("copies fixed buffer bytes without rea
   new Uint8Array(buffer).set([1, 2, 3])
   const getter = vi.fn(() => 0)
   Object.defineProperty(buffer, "byteLength", { get: getter })
-  const configure = vi.fn((_options: { buffer: typeof buffer }) => defineAgent({ driver: "codex" }))
+  const configure = vi.fn((_options: { buffer: typeof buffer }) => defineAgent({ driver: codexDriver() }))
   const preset = defineAgent({ options: { buffer }, configure })
   const inherited = defineAgent({ extends: preset })
   for (const options of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {
@@ -414,7 +414,7 @@ it.each([false, true])("preserves detached buffers and their views (views first:
   const data = new DataView(buffer, 2, 4)
   structuredClone(buffer, { transfer: [buffer] })
   const options = viewsFirst ? { view, data, buffer } : { buffer, view, data }
-  const configure = vi.fn((_options: typeof options) => defineAgent({ driver: "codex" }))
+  const configure = vi.fn((_options: typeof options) => defineAgent({ driver: codexDriver() }))
   const preset = defineAgent({ options, configure })
   const inherited = defineAgent({ extends: preset })
   for (const result of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {
@@ -432,7 +432,7 @@ it.each(["accessor", "data"])("copies RegExp slots without reading shadowing %s 
   for (const property of ["source", "flags", "global", "ignoreCase", "multiline", "dotAll", "unicode", "sticky", "hasIndices", "unicodeSets"]) {
     Object.defineProperty(pattern, property, kind === "accessor" ? { get: getter } : { value: property === "source" ? "wrong" : "" })
   }
-  const configure = vi.fn((_options: { pattern: RegExp }) => defineAgent({ driver: "codex" }))
+  const configure = vi.fn((_options: { pattern: RegExp }) => defineAgent({ driver: codexDriver() }))
   const preset = defineAgent({ options: { pattern }, configure })
   const inherited = defineAgent({ extends: preset })
   for (const options of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {
@@ -451,7 +451,7 @@ it.each(["accessor", "data"])("copies URL state without reading a shadowing %s h
   const url = new URL("https://example.com/original?value=1")
   const getter = vi.fn(() => { throw new Error("application accessor") })
   Object.defineProperty(url, "href", kind === "accessor" ? { get: getter } : { value: "https://wrong.example/" })
-  const configure = vi.fn((_options: { url: URL }) => defineAgent({ driver: "codex" }))
+  const configure = vi.fn((_options: { url: URL }) => defineAgent({ driver: codexDriver() }))
   const preset = defineAgent({ options: { url }, configure })
   const inherited = defineAgent({ extends: preset })
   for (const options of [preset.options, inherited.options, ...configure.mock.calls.map(([value]) => value)]) {

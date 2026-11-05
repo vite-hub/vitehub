@@ -33,6 +33,7 @@ declare module "vite-hub/database/drizzle" {
 }
 
 declare const history: History<HistoryCheckpoint>
+declare const onCloudflare: boolean
 interface MealFilters {
   day?: string
 }
@@ -74,6 +75,7 @@ describe("vite-hub public types", () => {
     vitehub({ preset: "node", rateLimit: true })
     vitehub({ email: { driver: "resend" }, preset: "node" })
     vitehub({ email: true, preset: "cloudflare" })
+    vitehub({ auth: onCloudflare, email: onCloudflare, preset: onCloudflare ? "cloudflare" : "node" })
     vitehub({ name: "my-app", preset: "cloudflare", blob: true, rateLimit: true })
     vitehub({ agent: true, database: true, preset: "node", workflow: true, workspace: true })
     vitehub({ auth: true, console: true, preset: "node" })

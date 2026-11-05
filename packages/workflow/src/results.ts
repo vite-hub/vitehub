@@ -57,7 +57,7 @@ export function resolveWorkflowOperationSupport(provider: WorkflowProvider): Rec
   }
   if (provider === "openworkflow") {
     return {
-      cancel: unsupported("OpenWorkflow does not support cancellation through ViteHub."),
+      cancel: { note: "Cancels a pending or running run in OpenWorkflow storage. A step that is already running finishes, but its worker records no further steps or result.", supported: true },
       get: { note: "Reads the run from OpenWorkflow storage.", supported: true },
       resume: unsupported("OpenWorkflow does not support ViteHub signals."),
       start: { note: "Enqueues the run in OpenWorkflow storage. The run stays queued until an OpenWorkflow worker processes the same storage.", supported: true },

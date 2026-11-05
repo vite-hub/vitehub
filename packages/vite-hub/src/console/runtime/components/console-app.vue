@@ -35,9 +35,9 @@ import {
   resolveUsageSessionsAgent,
 } from "../console-route";
 import { isConsoleSignInRequired, isRetryableConsoleRequestError, requestConsole } from "../client/request";
+import { queryChoice, querySelection, queryText, useConsoleQuery, writeConsoleQuery } from "../client/route-query";
 import { useConsoleConnectionUnavailable } from "./console-connection";
 import { rememberConsoleSection } from "../sections";
-import ConsoleFrame from "./console-frame.vue";
 import ConsoleConnectionState from "./console-connection-state.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleInvocationComposer from "./console-invocation-composer.vue";
@@ -51,13 +51,7 @@ import type { ConsoleSessionRerun } from "./console-session-actions.vue";
 import ConsoleSessionInspector from "./console-session-inspector.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleUsage from "./console-usage.vue";
-import {
-  isCapabilityFilterRouteTransition,
-  refreshCapabilityFilteredInvocations,
-  resetCapabilityFilterForRouteTransition,
-  useConsoleSessionBootstrap,
-} from "./console-session-bootstrap";
-import type { CapabilityFilterRouteTransition } from "./console-session-bootstrap";
+import { refreshCapabilityFilteredInvocations, useConsoleSessionBootstrap } from "./console-session-bootstrap";
 import "./console-session.css";
 import "./invocation/invocation.css";
 
@@ -78,8 +72,53 @@ const initialAgentParam = decodeAgentRouteParam(route.params.agent);
 const selectedInvocationId = ref<string>();
 const selectedAgentName = ref(initialAgentParam?.trim() ? initialAgentParam : undefined);
 const newChatAgentName = ref<string>();
-const selectedCapabilityId = ref<string>();
-const selectedTriggeredBy = ref<string>();
+const inspectorViewNames = ["details", "trace", "workspace", "capabilities", "diff"] as const;
+// The session filters, the details panel, and its tab or file live in the URL, so a reload, a shared link, or a new
+// tab opens the same view. The session itself is in the path. The sessions drawer of narrow screens stays out: the
+// dashboard sidebar closes it on every navigation, so a URL write would close it at once.
+const sessionQuery = {
+  capability: querySelection({ history: "replace" }),
+  details: queryChoice(["closed", "open", "max"], "closed", { history: "push" }),
+  file: querySelection(),
+  q: queryText(),
+  tab: queryChoice(inspectorViewNames, "details", { history: "push" }),
+  triggeredBy: querySelection({ history: "replace" }),
+};
+const {
+  capability: selectedCapabilityId,
+  details: detailsView,
+  file: inspectorSelectedPath,
+  q: sessionSearch,
+  tab: inspectorTab,
+  triggeredBy: selectedTriggeredBy,
+} = useConsoleQuery(sessionQuery, {
+  active: current => ["vitehub-console-agents", "vitehub-console-agent", "vitehub-console-invocation"]
+    .some(name => current.name === resolveConsoleRouteName(current.name, name)),
+  onRestore(names) {
+    if (names.includes("capability") || names.includes("triggeredBy")) scheduleInvocationListRefresh();
+    if (names.includes("tab") || names.includes("file") || (names.includes("details") && detailsOpen.value)) showInspectorSurface();
+  },
+});
+/** The URL query of the page as it shows now, for a route that only fills in the Agent or the first session. */
+function currentSessionQuery() {
+  return writeConsoleQuery(sessionQuery, {
+    capability: selectedCapabilityId.value,
+    details: detailsView.value,
+    file: inspectorSelectedPath.value,
+    q: sessionSearch.value,
+    tab: inspectorTab.value,
+    triggeredBy: selectedTriggeredBy.value,
+  }, route.query);
+}
+/** The query to keep when another session or Agent opens: the filters, and the details panel unless `closeDetails`. */
+function keptSessionQuery(options: { closeDetails?: boolean } = {}) {
+  return writeConsoleQuery(sessionQuery, {
+    capability: selectedCapabilityId.value,
+    q: sessionSearch.value,
+    triggeredBy: selectedTriggeredBy.value,
+    ...(options.closeDetails ? {} : { details: detailsView.value, tab: inspectorTab.value }),
+  }, {});
+}
 const filterOpen = ref(false);
 const capabilityIds = ref<string[]>([]);
 const triggeredByValues = ref<string[]>([]);
@@ -98,14 +137,38 @@ interface ConsoleAgentProfile {
 }
 const agentInvocationOptions = ref<Record<string, { profiles: ConsoleAgentProfile[] }>>({});
 const nowMs = ref(Date.now());
+// Usage links to the sessions with `?sessions=open`.
 const sessionsOpen = ref(route.query.sessions === "open");
-const detailsOpen = ref(false);
-const detailsMaximized = ref(false);
-const inspectorTab = ref<"details" | "trace" | "workspace" | "capabilities">("details");
+const detailsOpen = computed({
+  get: () => detailsView.value !== "closed",
+  set: (open: boolean) => {
+    detailsView.value = !open ? "closed" : detailsView.value === "max" ? "max" : "open";
+  },
+});
+const detailsMaximized = computed({
+  get: () => detailsView.value === "max",
+  set: (maximized: boolean) => {
+    detailsView.value = maximized ? "max" : detailsView.value === "closed" ? "closed" : "open";
+  },
+});
 const inspectorActiveSurface = ref("");
-const inspectorOpenViews = ref<Array<"details" | "trace" | "workspace" | "capabilities">>([]);
+const inspectorOpenViews = ref<Array<(typeof inspectorViewNames)[number]>>([]);
 const inspectorOpenPaths = ref<string[]>([]);
-const inspectorSelectedPath = ref<string>();
+/** Opens the tab or file of the URL in the inspector, for a link, Back, and Forward. */
+function showInspectorSurface(): void {
+  const path = inspectorSelectedPath.value;
+  if (path) {
+    if (!inspectorOpenPaths.value.includes(path)) inspectorOpenPaths.value = [...inspectorOpenPaths.value, path];
+    if (inspectorTab.value === "workspace") {
+      inspectorActiveSurface.value = `file:${path}`;
+      return;
+    }
+  }
+  const view = inspectorTab.value;
+  if (!inspectorOpenViews.value.includes(view)) inspectorOpenViews.value = [...inspectorOpenViews.value, view];
+  inspectorActiveSurface.value = `view:${view}`;
+}
+if (detailsOpen.value || inspectorSelectedPath.value || inspectorTab.value !== "details") showInspectorSurface();
 const inspectorWorkspaceIdentity = ref<string>();
 const selectedActivityId = ref<string>();
 const isDesktop = ref(false);
@@ -118,7 +181,6 @@ let agentsRequest: AbortController | undefined;
 let capabilityIdsRequest: AbortController | undefined;
 let refreshCount = 0;
 let invocationListRefreshQueued = false;
-let pendingCapabilityFilterRouteTransition: CapabilityFilterRouteTransition | undefined;
 const sessionPollingEnabled = computed(
   () =>
     pageVisible.value &&
@@ -240,8 +302,13 @@ const invocationItems = computed<AgentInvocationListItem[]>(() =>
     status: invocation.status,
     title: agentInvocationTitle(invocation),
     updatedAt: invocation.updatedAt || invocation.startedAt || invocation.createdAt,
-  })),
+  })).filter(item => matchesSessionSearch(item)),
 );
+/** The search matches the title or the ID of a loaded session. An empty result keeps reading older pages. */
+function matchesSessionSearch(item: Pick<AgentInvocationListItem, "id" | "title">): boolean {
+  const query = sessionSearch.value.trim().toLowerCase();
+  return !query || `${item.title ?? ""} ${item.id}`.toLowerCase().includes(query);
+}
 const hasMultipleAgents = computed(() => agentNames.value.length > 1);
 const selectedAgentInvocation = computed(() =>
   resolveConsoleAgentInvocation(selectedAgentName.value, agentInvocationOptions.value),
@@ -408,6 +475,23 @@ function closeDetails(): void {
   detailsMaximized.value = false;
 }
 
+// On desktop, the session navbar and the inspector move to another layout when the details panel opens, closes, or
+// changes size. Vue mounts new elements there, so keyboard focus would fall to the page body. Put it back on the
+// same control, on the active inspector tab, or on the details toggle.
+watch([detailsOpen, detailsMaximized], () => {
+  const focused = document.activeElement;
+  const panel = focused instanceof HTMLElement ? focused.closest(".vitehub-console__session-panel") : null;
+  if (!isDesktop.value || !(focused instanceof HTMLElement) || !panel) return;
+  const slot = focused.dataset.slot;
+  void nextTick(() => {
+    if (document.activeElement && document.activeElement !== document.body) return;
+    const same = detailsOpen.value && slot ? panel.querySelector(`[data-slot="${CSS.escape(slot)}"]`) : null;
+    const tab = detailsOpen.value && slot !== "session-details-toggle" ? panel.querySelector(".session-inspector [role='tab'][data-state='active']") : null;
+    const target = same ?? tab ?? panel.querySelector("[data-slot='session-details-toggle']");
+    if (target instanceof HTMLElement) target.focus();
+  });
+});
+
 async function loadCapabilityIds(): Promise<void> {
   capabilityIdsRequest?.abort();
   const controller = new AbortController();
@@ -524,6 +608,7 @@ async function selectInvocation(
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
     params: { agent: encodeAgentRouteParam(agentName), invocation: invocation.id },
+    query: keptSessionQuery(),
   });
 }
 
@@ -549,6 +634,7 @@ async function removeDeletedInvocation(id: string): Promise<void> {
         await router.replace({
           name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
           params: { agent: encodeAgentRouteParam(agentName) },
+          query: keptSessionQuery({ closeDetails: true }),
         });
       }
     },
@@ -570,9 +656,10 @@ async function startNewChat(): Promise<void> {
   await router.push({
     name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
     params: { agent: encodeAgentRouteParam(agentName) },
+    query: keptSessionQuery({ closeDetails: true }),
   });
   await nextTick();
-  document.querySelector<HTMLElement>('[aria-label="Test this Agent"]')?.focus();
+  document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Test this Agent"]')?.focus();
 }
 
 async function selectAgent(name: string): Promise<void> {
@@ -592,27 +679,17 @@ async function applySessionFilters(): Promise<void> {
   newChatAgentName.value = undefined;
   selectedInvocationId.value = undefined;
   closeDetails();
-  const transition = {
-    agent: selectedAgentName.value,
-    invocation: undefined,
-  } satisfies CapabilityFilterRouteTransition;
-  pendingCapabilityFilterRouteTransition = transition;
-  try {
-    await refreshCapabilityFilteredInvocations({
-      navigate: () =>
-        selectedAgentName.value
-          ? router.replace({
-              name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
-              params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
-            })
-          : Promise.resolve(),
-      refresh: () => list.refresh(),
-    });
-  } finally {
-    if (pendingCapabilityFilterRouteTransition === transition) {
-      pendingCapabilityFilterRouteTransition = undefined;
-    }
-  }
+  await refreshCapabilityFilteredInvocations({
+    navigate: () =>
+      selectedAgentName.value
+        ? router.replace({
+            name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
+            params: { agent: encodeAgentRouteParam(selectedAgentName.value) },
+            query: keptSessionQuery({ closeDetails: true }),
+          })
+        : Promise.resolve(),
+    refresh: () => list.refresh(),
+  });
 }
 
 function selectCapability(capabilityId?: string): void {
@@ -641,6 +718,11 @@ function updateSessionFilters(value: SessionFilterItem | SessionFilterItem[]): v
 function toggleAgentList(): void {
   agentListOpen.value = !agentListOpen.value;
   rememberConsoleAgentListOpen(agentListOpen.value);
+}
+
+function clearSessionSearchAndFilters(): void {
+  sessionSearch.value = "";
+  resetSessionFilters();
 }
 
 function resetSessionFilters(): void {
@@ -796,7 +878,6 @@ watch(
   [routeInvocation, routeAgent, () => list.invocations.value.find(invocation => !deletedInvocations.has(invocation.id)), selectedAgentName, isUsageRoute],
   async (
     [requestedInvocation, requestedAgent, firstInvocation, agentName, usageRoute],
-    previous,
   ) => {
     if (requestedInvocation && deletedInvocations.has(requestedInvocation)) {
       selectedInvocationId.value = undefined;
@@ -809,40 +890,24 @@ watch(
       return;
     }
     if (requestedInvocation) newChatAgentName.value = undefined;
-    const routeChanged =
-      !previous || requestedInvocation !== previous[0] || requestedAgent !== previous[1];
-    const preserveCapabilityFilter =
-      routeChanged &&
-      (requestedAgent === agentName || isCapabilityFilterRouteTransition(pendingCapabilityFilterRouteTransition, {
-          agent: requestedAgent,
-          invocation: requestedInvocation,
-        }));
-    if (routeChanged) pendingCapabilityFilterRouteTransition = undefined;
-    const filterReset = resetCapabilityFilterForRouteTransition({
-      preserve: preserveCapabilityFilter,
-      routeChanged,
-      scheduleRefresh: scheduleInvocationListRefresh,
-      selectedCapabilityId,
-      selectedTriggeredBy,
-    });
-    const availableFirstInvocation = filterReset ? undefined : firstInvocation;
     if (requestedInvocation || requestedAgent) {
       initialBootstrapPending.value = false;
     }
     if (!requestedAgent && !agentName) {
-      if (!availableFirstInvocation) return;
-      if (!availableFirstInvocation.agentName) {
+      if (!firstInvocation) return;
+      if (!firstInvocation.agentName) {
         initialBootstrapPending.value = false;
         return;
       }
-      selectedInvocationId.value = availableFirstInvocation.id;
+      selectedInvocationId.value = firstInvocation.id;
       try {
         await router.replace({
           name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
           params: {
-            agent: encodeAgentRouteParam(availableFirstInvocation.agentName),
-            invocation: availableFirstInvocation.id,
+            agent: encodeAgentRouteParam(firstInvocation.agentName),
+            invocation: firstInvocation.id,
           },
+          query: currentSessionQuery(),
         });
       } finally {
         initialBootstrapPending.value = false;
@@ -855,14 +920,15 @@ watch(
     }
     const agentRouteReady = !requestedAgent || requestedAgent === agentName;
     selectedInvocationId.value =
-      requestedInvocation || (agentRouteReady ? availableFirstInvocation?.id : undefined);
-    if (!requestedInvocation && availableFirstInvocation?.id && agentName && agentRouteReady) {
+      requestedInvocation || (agentRouteReady ? firstInvocation?.id : undefined);
+    if (!requestedInvocation && firstInvocation?.id && agentName && agentRouteReady) {
       await router.replace({
         name: resolveConsoleRouteName(route.name, "vitehub-console-invocation"),
         params: {
           agent: encodeAgentRouteParam(agentName),
-          invocation: availableFirstInvocation.id,
+          invocation: firstInvocation.id,
         },
+        query: currentSessionQuery(),
       });
     }
   },
@@ -887,6 +953,7 @@ watch(
       await router.replace({
         name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
         params: { agent: encodeAgentRouteParam(agentName) },
+        query: currentSessionQuery(),
       });
     }
   },
@@ -918,6 +985,7 @@ watch(
     await router.replace({
       name: resolveConsoleRouteName(route.name, "vitehub-console-agent"),
       params: { agent: encodeAgentRouteParam(agentName) },
+      query: keptSessionQuery({ closeDetails: true }),
     });
   },
 );
@@ -929,9 +997,9 @@ watch(selectedInvocationId, () => {
     ? `${props.hostBase}/api/invocations/${selectedInvocationId.value}`
     : undefined;
   if (identity !== inspectorWorkspaceIdentity.value) {
+    // A new session's URL omits the file. Back and Forward can restore one from the destination session.
+    inspectorOpenPaths.value = inspectorSelectedPath.value ? [inspectorSelectedPath.value] : [];
     inspectorWorkspaceIdentity.value = identity;
-    inspectorSelectedPath.value = undefined;
-    inspectorOpenPaths.value = [];
   }
 });
 
@@ -990,7 +1058,6 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <ConsoleFrame :active="isUsageRoute ? 'usage' : 'agents'" :sections-base="sectionsBase">
     <UDashboardSidebar
       v-if="!isUsageRoute"
       id="agent-sessions"
@@ -1153,6 +1220,17 @@ onBeforeUnmount(() => {
             activeFilterCount === 1 ? "1 filter" : `${activeFilterCount} filters`
           }}</span>
         </h2>
+        <div v-if="list.invocations.value.length || sessionSearch" class="shrink-0 px-2 pb-1.5">
+          <UInput
+            v-model="sessionSearch"
+            class="w-full"
+            icon="i-lucide-search"
+            size="sm"
+            placeholder="Search sessions…"
+            aria-label="Search sessions by title or ID"
+            :ui="{ base: 'text-base sm:text-sm' }"
+          />
+        </div>
         <div
           v-if="(!connectionUnavailable && list.error.value) || list.loadMoreError.value"
           class="px-2"
@@ -1226,11 +1304,11 @@ onBeforeUnmount(() => {
           </template>
           <template #empty
             ><UEmpty
-              v-if="activeFilterCount"
+              v-if="activeFilterCount || sessionSearch.trim()"
               class="px-4"
               icon="i-lucide-message-square-more"
               title="No matching sessions"
-              :actions="[{ label: 'Clear filters', onClick: resetSessionFilters }]" /><ConsoleState
+              :actions="[{ label: 'Clear filters', onClick: clearSessionSearchAndFilters }]" /><ConsoleState
               v-else
               section="agents"
               icon="i-lucide-message-square-more"
@@ -1263,7 +1341,8 @@ onBeforeUnmount(() => {
       :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >
       <template #body>
-        <div class="flex h-full min-h-0 w-full flex-col overflow-hidden" aria-live="polite">
+        <!-- No live region here: the thread is a log, and the connection state is an alert. A polite region around both made screen readers read the session again after each update. -->
+        <div class="flex h-full min-h-0 w-full flex-col overflow-hidden">
           <ConsoleConnectionState
             v-if="connectionUnavailable"
             :compact="Boolean(invocationView)"
@@ -1513,12 +1592,10 @@ onBeforeUnmount(() => {
         </div>
       </template>
     </UDashboardPanel>
-  </ConsoleFrame>
 </template>
 
 <style>
 .vitehub-console {
-  --ui-header-height: 2.5rem;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;
@@ -1642,7 +1719,6 @@ button.vitehub-console__section-label:hover {
 .vitehub-console__agent-row[aria-current="true"] {
   background: var(--ui-bg-accented);
   color: var(--ui-text-highlighted);
-  font-weight: 500;
 }
 
 .dark .vitehub-console__agent-row:hover {

@@ -18,7 +18,7 @@ import { image } from "../../blob/src/reference.ts"
 import { contentHead as clientContentHead } from "../src/client.ts"
 import { createContentConsoleActions } from "../src/runtime/console.ts"
 import { documents, singleton } from "../src/collections.ts"
-import { contentHead, defineContent, defineContentRobotsHandler, defineContentSitemapHandler, renderContentSitemap, seo } from "../src/index.ts"
+import { contentHead, contentSource, defineContent, defineContentMarkdownHandler, defineContentRobotsHandler, defineContentSitemapHandler, renderContentSitemap, seo } from "../src/index.ts"
 
 import type { ContentSeo, DefineContentSeoOptions } from "../src/index.ts"
 
@@ -267,6 +267,29 @@ describe("sitemap and robots", { timeout: 30_000 }, () => {
     expect(content.robots()).toBe("User-agent: *\nAllow: /\n\nSitemap: https://example.com/sitemap.xml\n")
   })
 
+  it("lists the documents of read-only Sources with a url", async () => {
+    const reader = (items: Array<{ path: string, content: string }>) => ({ async items() { return items.map(item => ({ key: item.path, ...item })) } })
+    const content = defineContent({
+      route: false,
+      logger: false,
+      sources: {
+        guides: contentSource(reader([
+          { path: "guides/start.md", content: "---\ntitle: Start\n---\n# Start\n" },
+          { path: "guides/hidden.md", content: "---\ntitle: Hidden\nunlisted: true\n---\n" },
+        ]), { url: ({ id, data }) => data.unlisted ? null : `/${id}` }),
+        reference: contentSource(reader([{ path: "api.md", content: "# API" }]), { url: "/docs/:id" }),
+        notes: reader([{ path: "note.md", content: "# Note" }]),
+      },
+      seo: { site: "https://example.com", sitemap: true },
+    })
+    cleanup.push(() => content.dispose())
+    expect(await content.sitemap()).toEqual([
+      { collection: "guides", id: "guides/start", loc: "https://example.com/guides/start" },
+      { collection: "reference", id: "api", loc: "https://example.com/docs/api" },
+    ])
+    expect(() => contentSource(reader([]), { url: "docs/:id" })).toThrow(/must be a path that starts with \//)
+  })
+
   it("serves /sitemap.xml and /robots.txt from the request origin without a site", async () => {
     const content = await site({ sitemap: true, robots: { disallow: ["/admin", "/_vitehub"] } })
     const app = new H3().get("/sitemap.xml", defineContentSitemapHandler(content)).get("/robots.txt", defineContentRobotsHandler(content))
@@ -279,11 +302,137 @@ describe("sitemap and robots", { timeout: 30_000 }, () => {
     expect(await (await app.request("https://shop.test/robots.txt")).text()).toBe("User-agent: *\nDisallow: /admin\nDisallow: /_vitehub\n\nSitemap: https://shop.test/sitemap.xml\n")
   })
 
+  it("serves each published Markdown document at its URL plus .md", async () => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    const posts = content.collection("posts")
+    await posts.save("guide", {
+      data: { title: "Guide", seo: { title: "Start here", description: "How to start." } },
+      body: "Read [the API](/api) and [hello](https://other.test/x).\n\n```md\n[kept](/api)\n```\n",
+    })
+    await posts.save("headed", { data: { title: "Headed" }, body: "# Own heading\n\nText." })
+    await content.publish({ ids: ["guide", "headed"], collection: "posts" })
+
+    expect(await content.markdown("/blog/guide.md")).toBe(
+      "# Start here\n\n> How to start.\n\nRead [the API](https://example.com/api) and [hello](https://other.test/x).\n\n```md\n[kept](/api)\n```\n",
+    )
+    expect(await content.markdown("/blog/headed.md")).toBe("# Own heading\n\nText.\n")
+    expect(await content.markdown("/index.md")).toBe("# Home\n")
+    // Unpublished documents, JSON documents, and paths without .md have no copy.
+    expect(await content.markdown("/blog/<draft&>.md")).toBeNull()
+    expect(await content.markdown("/blog/missing.md")).toBeNull()
+    expect(await content.markdown("/blog/guide")).toBeNull()
+
+    // Middleware: it answers .md copies and passes every other request through.
+    const app = new H3().use(defineContentMarkdownHandler(content)).all("/**", () => "page")
+    const copy = await app.request("https://example.com/blog/guide.md")
+    expect(copy.headers.get("content-type")).toBe("text/markdown; charset=utf-8")
+    expect(await copy.text()).toContain("# Start here")
+    expect(await (await app.request("https://example.com/blog/guide")).text()).toBe("page")
+    expect(await (await app.request("https://example.com/blog/missing.md")).text()).toBe("page")
+    expect(await (await app.request("https://example.com/blog/guide.md", { method: "POST" })).text()).toBe("page")
+  })
+
+  it("preserves explicit document URLs ending in /index", async () => {
+    const content = await site({ markdown: true })
+    await content.collection("posts").save("index", { data: { title: "Blog index" }, body: "Posts." })
+    await content.publish({ ids: ["index"], collection: "posts" })
+
+    expect(await content.markdown("/blog/index.md")).toBe("# Blog index\n\nPosts.\n")
+    expect(await content.markdown("/index.md")).toBe("# Home\n")
+  })
+
+  it("does not expose Markdown collections without a public URL", async () => {
+    const content = defineContent({
+      workspace: await historyWorkspace(),
+      collections: { notes: documents({ path: "notes/*.md", fields: { title: z.string() } }) },
+      seo: { markdown: true },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    await content.collection("notes").save("a", { data: { title: "Private note" }, body: "Unrouted." })
+    await content.publish({ ids: ["a"], collection: "notes" })
+
+    expect(await content.resolve("/a", { ref: "published" })).toMatchObject({ collection: "notes", id: "a" })
+    expect(await content.markdown("/a.md")).toBeNull()
+    const app = new H3().use(defineContentMarkdownHandler(content)).all("/**", () => "page")
+    expect(await (await app.request("https://example.com/a.md")).text()).toBe("page")
+  })
+
+  it.each([
+    ["```", "```not-a-close"],
+    ["~~~", "~~~not-a-close"],
+    ["```", "    ```"],
+    ["~~~", "\t~~~"],
+    ["````", "```"],
+    ["```", "~~~"],
+  ])("keeps links inside a %s fence after an invalid closer %j", async (fence, invalidCloser) => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    const body = `Before [link](/before).\n\n${fence}md\n${invalidCloser}\n[code](/inside)\n   ${fence} \t\n\nAfter [link](/after).`
+    await content.collection("posts").save("fenced", { data: { title: "Fenced" }, body })
+    await content.publish({ ids: ["fenced"], collection: "posts" })
+
+    expect(await content.markdown("/blog/fenced.md")).toBe(`# Fenced\n\n${body.replace("](/before)", "](https://example.com/before)").replace("](/after)", "](https://example.com/after)")}\n`)
+  })
+
+  it("finds public Markdown copies past unroutable resolve collisions", async () => {
+    const content = defineContent({
+      workspace: await historyWorkspace(),
+      collections: {
+        notes: documents({ path: "notes/*.md", fields: { title: z.string() } }),
+        posts: documents({ path: "posts/*.md", url: "/:id", fields: { title: z.string() } }),
+      },
+      seo: { markdown: true },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    for (const collection of ["notes", "posts"] as const) {
+      await content.collection(collection).save("hello", { data: { title: collection }, body: collection })
+      await content.publish({ ids: ["hello"], collection })
+    }
+
+    expect(await content.resolve("/hello", { ref: "published" })).toMatchObject({ collection: "notes", id: "hello" })
+    expect(await content.markdown("/hello.md")).toBe("# posts\n\nposts\n")
+  })
+
+  it.each(["``` bad`", "```` bad`"])("rewrites links after an invalid backtick opener %j", async (opening) => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    await content.collection("posts").save("invalid", { data: { title: "Invalid" }, body: `${opening}\n\n[link](/api)` })
+    await content.publish({ ids: ["invalid"], collection: "posts" })
+
+    expect(await content.markdown("/blog/invalid.md")).toBe(`# Invalid\n\n${opening}\n\n[link](https://example.com/api)\n`)
+  })
+
+  it.each([
+    ["> ", "> "],
+    ["- ", "  "],
+    ["1. ", "   "],
+    ["> - ", ">   "],
+  ])("preserves links in fences inside %j containers", async (openingPrefix, prefix) => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    const body = `${openingPrefix}\`\`\`md\n${prefix}[code](/inside)\n${prefix}\`\`\`\n\nAfter [link](/after).`
+    await content.collection("posts").save("nested", { data: { title: "Nested" }, body })
+    await content.publish({ ids: ["nested"], collection: "posts" })
+
+    expect(await content.markdown("/blog/nested.md")).toBe(`# Nested\n\n${body.replace("](/after)", "](https://example.com/after)")}\n`)
+  })
+
+  it("makes reference-style links and images absolute outside code", async () => {
+    const content = await site({ site: "https://example.com", markdown: true })
+    const body = '[API][api] and ![Image][image].\n\n[api]: /api "API"\n[image]: </image.png>\n[cdn]: //cdn.test/image.png\n\n```md\n[code]: /inside\n```'
+    await content.collection("posts").save("references", { data: { title: "References" }, body })
+    await content.publish({ ids: ["references"], collection: "posts" })
+
+    expect(await content.markdown("/blog/references.md")).toBe(`# References\n\n${body.replace("/api", "https://example.com/api").replace("</image.png>", "<https://example.com/image.png>")}\n`)
+  })
+
   it("answers 404 for routes that seo does not turn on and rejects invalid options", async () => {
     const content = await site({ site: "https://example.com" })
     const app = new H3().get("/sitemap.xml", defineContentSitemapHandler(content)).get("/robots.txt", defineContentRobotsHandler(content))
     expect((await app.request("/sitemap.xml")).status).toBe(404)
     expect((await app.request("/robots.txt")).status).toBe(404)
+    const markdown = new H3().use(defineContentMarkdownHandler(content)).all("/**", () => "page")
+    expect(await (await markdown.request("/blog/hello.md")).text()).toBe("page")
+    expect(() => defineContent({ source: { async items() { return [] } }, seo: { markdown: "yes" as unknown as boolean } })).toThrow(/markdown must be true or false/)
     expect(() => defineContent({ source: { async items() { return [] } }, seo: { site: "example.com" } })).toThrow(/absolute http\(s\) URL/)
     // Disallowed paths start with /.
     expect(() => defineContent({ source: { async items() { return [] } }, seo: { robots: { disallow: ["admin"] } } })).toThrow(/disallow/)

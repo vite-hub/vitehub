@@ -48,14 +48,16 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
   const wrappedAdapters = new WeakSet<object>()
   const createdSessions = new WeakSet<object>()
   const recordedSessions = new WeakSet<object>()
-  async function append(type: AuthEventType, userId: string | null, ctx: GenericEndpointContext | null, metadata: AuthEventMetadata = {}, fallback?: string) {
+  async function append(type: AuthEventType, userId: string | null, ctx: GenericEndpointContext | null, metadata: AuthEventMetadata = {}, fallback?: string): Promise<boolean> {
     try {
       await options.store.append({ id: crypto.randomUUID(), type, time: new Date().toISOString(), actor: actor(ctx, fallback), userId, metadata })
+      return true
     }
     catch {
       // Auth mutations may already be committed. Do not turn a completed sign-in into a retry.
       // The message has no provider error, body, URL, headers, or credentials.
       console.warn("[vitehub] AUTH_EVENT_WRITE_FAILED: Could not record an auth event.")
+      return false
     }
   }
   async function deleted(session: { userId: string, id: string, impersonatedBy?: unknown }, ctx: GenericEndpointContext | null) {
@@ -113,7 +115,13 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
         create: { async after(session, ctx) {
           createdSessions.add(session)
           if (session.impersonatedBy || ctx?.path === "/admin/impersonate-user") {
-            await append("impersonation.started", session.userId, ctx, { sessionId: session.id }, identifier(session.impersonatedBy))
+            if (await append("impersonation.started", session.userId, ctx, { sessionId: session.id }, identifier(session.impersonatedBy))) return
+            // An impersonation without a record must not start. Better Auth sets no cookie when this hook throws.
+            await ctx?.context.internalAdapter.deleteSession(session.token)
+            throw new APIError("INTERNAL_SERVER_ERROR", {
+              code: "IMPERSONATION_NOT_RECORDED",
+              message: "Impersonation did not start because the auth event log could not record it.",
+            })
           }
           else if (!ctx) {
             await append("user.signed_in", session.userId, ctx, { method: method(ctx), device: "unknown", sessionId: session.id })

@@ -4,7 +4,6 @@ import { useRoute, useRouter } from "vue-router";
 
 import { consoleMcpAccount, consoleMcpEndpoint, consoleMcpInitials, consoleMcpStatus, groupConsoleMcpConnections, requestConsoleMcp } from "../client/mcp-client";
 import { rememberConsoleSection } from "../sections";
-import ConsoleFrame from "./console-frame.vue";
 import ConsoleMcpConnect from "./console-mcp-connect.vue";
 import ConsoleMcpConnectionView from "./console-mcp-connection.vue";
 import ConsolePageHeader from "./console-page-header.vue";
@@ -118,140 +117,138 @@ onBeforeUnmount(() => request?.abort());
 </script>
 
 <template>
-  <ConsoleFrame active="mcp-client" :sections-base="sectionsBase">
-    <UDashboardSidebar
-      id="console-navigation"
-      v-model:open="sidebarOpen"
-      class="vitehub-console__nav"
-      :default-size="16"
-      :collapsed-size="4"
-      :min-size="13"
-      :max-size="26"
-      :menu="{ title: 'MCP client', description: 'MCP servers and the accounts connected to them.' }"
-      :ui="{ body: 'gap-0 overflow-hidden p-0' }"
-      resizable
-    >
-      <template #header="{ collapsed }">
-        <div v-if="!collapsed" class="vitehub-console__panel-title">
-          <span class="min-w-0 flex-1 truncate">MCP client</span>
-          <UTooltip text="Connect to a server">
-            <UButton aria-label="Connect to a server" color="neutral" icon="i-lucide-plus" size="xs" variant="ghost" @click="connect()" />
+  <UDashboardSidebar
+    id="console-navigation"
+    v-model:open="sidebarOpen"
+    class="vitehub-console__nav"
+    :default-size="16"
+    :collapsed-size="4"
+    :min-size="13"
+    :max-size="26"
+    :menu="{ title: 'MCP client', description: 'MCP servers and the accounts connected to them.' }"
+    :ui="{ body: 'gap-0 overflow-hidden p-0' }"
+    resizable
+  >
+    <template #header="{ collapsed }">
+      <div v-if="!collapsed" class="vitehub-console__panel-title">
+        <span class="min-w-0 flex-1 truncate">MCP client</span>
+        <UTooltip text="Connect to a server">
+          <UButton aria-label="Connect to a server" color="neutral" icon="i-lucide-plus" size="xs" variant="ghost" @click="connect()" />
+        </UTooltip>
+      </div>
+    </template>
+
+    <template #default="{ collapsed }">
+      <nav class="vitehub-console__section-nav" :class="{ 'is-collapsed': collapsed }" aria-label="MCP connections">
+        <template v-if="loading && !overview">
+          <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-11 rounded-md" />
+        </template>
+        <template v-for="(group, index) in groups" v-else :key="group.url">
+          <div v-if="collapsed && index > 0" class="vitehub-console__section-rule" />
+          <p v-if="!collapsed" class="vitehub-console__section-heading flex min-w-0 items-center gap-2" :title="group.url">
+            <span class="min-w-0 truncate">{{ group.title }}</span>
+            <span v-if="group.sameOrigin" class="vitehub-console__section-hint shrink-0">This app</span>
+          </p>
+          <UTooltip v-for="connection in group.connections" :key="connection.id" :text="`${consoleMcpAccount(connection).primary} · ${consoleMcpStatus[connection.status].label}`" :disabled="!collapsed" :content="{ side: 'right' }">
+            <button
+              type="button"
+              class="vitehub-console__section-link is-detailed"
+              :aria-current="selected?.id === connection.id ? 'true' : undefined"
+              :aria-label="collapsed ? `${consoleMcpAccount(connection).primary}, ${consoleMcpStatus[connection.status].label}` : undefined"
+              @click="open(connection)"
+            >
+              <UAvatar :src="connection.identity?.picture" :alt="consoleMcpAccount(connection).primary" :text="consoleMcpInitials(consoleMcpAccount(connection).primary)" size="xs" />
+              <span v-if="!collapsed" class="grid min-w-0 flex-1 text-start">
+                <span class="truncate">{{ consoleMcpAccount(connection).primary }}</span>
+                <span v-if="consoleMcpAccount(connection).secondary" class="truncate text-xs font-normal text-dimmed">{{ consoleMcpAccount(connection).secondary }}</span>
+              </span>
+              <template v-if="!collapsed">
+                <UIcon v-if="statusIcons[connection.status]" :name="statusIcons[connection.status]!" class="size-3.5 shrink-0" :class="statusText[consoleMcpStatus[connection.status].color]" aria-hidden="true" />
+                <span v-else class="size-1.5 shrink-0 rounded-full bg-success" aria-hidden="true" />
+                <span class="sr-only">{{ consoleMcpStatus[connection.status].label }}</span>
+              </template>
+            </button>
           </UTooltip>
-        </div>
-      </template>
+          <!-- ViteHub MCP has one account: the Console session. -->
+          <UTooltip v-if="!(group.candidate?.auth === 'console' && group.connections.length)" :text="group.connections.length ? 'Add an account' : 'Connect'" :disabled="!collapsed" :content="{ side: 'right' }">
+            <button
+              type="button"
+              class="vitehub-console__section-link text-dimmed"
+              :aria-label="collapsed ? `${group.connections.length ? 'Add an account to' : 'Connect to'} ${group.title}` : undefined"
+              @click="connect({ another: group.connections.length > 0, server: group.url })"
+            >
+              <UIcon :name="group.connections.length ? 'i-lucide-user-plus' : 'i-lucide-plug'" class="vitehub-console__section-icon" aria-hidden="true" />
+              <span v-if="!collapsed" class="truncate font-normal">{{ group.connections.length ? "Add an account" : "Connect" }}</span>
+            </button>
+          </UTooltip>
+        </template>
+        <p v-if="!collapsed && overview && !groups.length" class="px-2 py-1.5 text-xs text-muted">No servers yet.</p>
+      </nav>
+    </template>
+  </UDashboardSidebar>
 
-      <template #default="{ collapsed }">
-        <nav class="vitehub-console__section-nav" :class="{ 'is-collapsed': collapsed }" aria-label="MCP connections">
-          <template v-if="loading && !overview">
-            <USkeleton v-for="index in 4" :key="index" class="my-0.5 h-11 rounded-md" />
-          </template>
-          <template v-for="(group, index) in groups" v-else :key="group.url">
-            <div v-if="collapsed && index > 0" class="vitehub-console__section-rule" />
-            <p v-if="!collapsed" class="vitehub-console__section-heading flex min-w-0 items-center gap-2" :title="group.url">
-              <span class="min-w-0 truncate">{{ group.title }}</span>
-              <span v-if="group.sameOrigin" class="vitehub-console__section-hint shrink-0">This app</span>
-            </p>
-            <UTooltip v-for="connection in group.connections" :key="connection.id" :text="`${consoleMcpAccount(connection).primary} · ${consoleMcpStatus[connection.status].label}`" :disabled="!collapsed" :content="{ side: 'right' }">
-              <button
-                type="button"
-                class="vitehub-console__section-link is-detailed"
-                :aria-current="selected?.id === connection.id ? 'true' : undefined"
-                :aria-label="collapsed ? `${consoleMcpAccount(connection).primary}, ${consoleMcpStatus[connection.status].label}` : undefined"
-                @click="open(connection)"
-              >
-                <UAvatar :src="connection.identity?.picture" :alt="consoleMcpAccount(connection).primary" :text="consoleMcpInitials(consoleMcpAccount(connection).primary)" size="xs" />
-                <span v-if="!collapsed" class="grid min-w-0 flex-1 text-start">
-                  <span class="truncate">{{ consoleMcpAccount(connection).primary }}</span>
-                  <span v-if="consoleMcpAccount(connection).secondary" class="truncate text-xs font-normal text-dimmed">{{ consoleMcpAccount(connection).secondary }}</span>
-                </span>
-                <template v-if="!collapsed">
-                  <UIcon v-if="statusIcons[connection.status]" :name="statusIcons[connection.status]!" class="size-3.5 shrink-0" :class="statusText[consoleMcpStatus[connection.status].color]" aria-hidden="true" />
-                  <span v-else class="size-1.5 shrink-0 rounded-full bg-success" aria-hidden="true" />
-                  <span class="sr-only">{{ consoleMcpStatus[connection.status].label }}</span>
-                </template>
-              </button>
-            </UTooltip>
-            <!-- ViteHub MCP has one account: the Console session. -->
-            <UTooltip v-if="!(group.candidate?.auth === 'console' && group.connections.length)" :text="group.connections.length ? 'Add an account' : 'Connect'" :disabled="!collapsed" :content="{ side: 'right' }">
-              <button
-                type="button"
-                class="vitehub-console__section-link text-dimmed"
-                :aria-label="collapsed ? `${group.connections.length ? 'Add an account to' : 'Connect to'} ${group.title}` : undefined"
-                @click="connect({ another: group.connections.length > 0, server: group.url })"
-              >
-                <UIcon :name="group.connections.length ? 'i-lucide-user-plus' : 'i-lucide-plug'" class="vitehub-console__section-icon" aria-hidden="true" />
-                <span v-if="!collapsed" class="truncate font-normal">{{ group.connections.length ? "Add an account" : "Connect" }}</span>
-              </button>
-            </UTooltip>
-          </template>
-          <p v-if="!collapsed && overview && !groups.length" class="px-2 py-1.5 text-xs text-muted">No servers yet.</p>
-        </nav>
-      </template>
-    </UDashboardSidebar>
+  <ConsoleSearch
+    :agents-base="agentsBase"
+    :definitions-base="definitionsBase"
+    :kv-base="kvBase"
+    :search-base="searchBase"
+    :sections-base="sectionsBase"
+  />
 
-    <ConsoleSearch
-      :agents-base="agentsBase"
-      :definitions-base="definitionsBase"
-      :kv-base="kvBase"
-      :search-base="searchBase"
-      :sections-base="sectionsBase"
-    />
-
-    <UDashboardPanel id="mcp-client" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
-      <ConsoleMcpConnectionView
-        v-if="selected"
-        :key="selected.id"
-        v-model:tab="tab"
-        v-model:item="item"
-        :base="sectionsBase"
-        :connection="selected"
-        :peers="peers"
-        @changed="load"
-        @connection="update"
-        @disconnected="disconnected"
-      />
-      <template v-else>
-        <ConsolePageHeader title="MCP client">
-          <template #right>
-            <UButton color="neutral" icon="i-lucide-plus" label="Connect" size="sm" variant="soft" @click="connect()" />
-          </template>
-        </ConsolePageHeader>
-        <main class="min-h-0 flex-1 overflow-auto">
-          <ConsoleState v-if="error" :error="error" title="Couldn't load MCP connections" :retry="load" />
-          <div v-else-if="loading && !overview" class="mx-auto grid w-full max-w-xl gap-3 p-6" aria-busy="true">
-            <USkeleton class="h-6 w-56" />
-            <USkeleton class="h-16 w-full" />
-          </div>
-          <ConsoleState
-            v-else
-            section="mcp-client"
-            icon="i-lucide-cable"
-            title="Connect to an MCP server"
-            description="The Console connects from the server as you, with OAuth or a token, and keeps every token on the server. Connect again as other accounts to compare what each one sees."
-            :actions="[{ label: 'Another server', icon: 'i-lucide-plus', onClick: () => connect() }]"
-          >
-            <ul v-if="overview?.servers.length" class="grid w-full max-w-md gap-2 text-start">
-              <li v-for="candidate in overview.servers" :key="candidate.url" class="flex min-w-0 items-center gap-3 rounded-lg border border-default px-3 py-2.5">
-                <UIcon name="i-lucide-server" class="size-4 shrink-0 text-muted" aria-hidden="true" />
-                <span class="grid min-w-0 flex-1">
-                  <span class="truncate text-[13px] font-medium text-highlighted">{{ candidate.label }}</span>
-                  <span class="truncate font-mono text-xs text-dimmed">{{ consoleMcpEndpoint(candidate.url) }}</span>
-                </span>
-                <UButton size="xs" label="Connect" :aria-label="`Connect to ${candidate.label}`" @click="connect({ server: candidate.url })" />
-              </li>
-            </ul>
-          </ConsoleState>
-        </main>
-      </template>
-    </UDashboardPanel>
-
-    <ConsoleMcpConnect
-      v-model:open="connectOpen"
+  <UDashboardPanel id="mcp-client" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <ConsoleMcpConnectionView
+      v-if="selected"
+      :key="selected.id"
+      v-model:tab="tab"
+      v-model:item="item"
       :base="sectionsBase"
-      :preset="connectPreset"
-      :servers="overview?.servers ?? []"
-      :shared-session="overview?.sharedSession ?? false"
-      @connected="connected"
+      :connection="selected"
+      :peers="peers"
+      @changed="load"
+      @connection="update"
+      @disconnected="disconnected"
     />
-  </ConsoleFrame>
+    <template v-else>
+      <ConsolePageHeader title="MCP client">
+        <template #right>
+          <UButton color="neutral" icon="i-lucide-plus" label="Connect" size="sm" variant="soft" @click="connect()" />
+        </template>
+      </ConsolePageHeader>
+      <main class="min-h-0 flex-1 overflow-auto">
+        <ConsoleState v-if="error" :error="error" title="Couldn't load MCP connections" :retry="load" />
+        <div v-else-if="loading && !overview" class="mx-auto grid w-full max-w-xl gap-3 p-6" aria-busy="true">
+          <USkeleton class="h-6 w-56" />
+          <USkeleton class="h-16 w-full" />
+        </div>
+        <ConsoleState
+          v-else
+          section="mcp-client"
+          icon="i-vitehub-connections"
+          title="Connect to an MCP server"
+          description="The Console connects from the server as you, with OAuth or a token, and keeps every token on the server. Connect again as other accounts to compare what each one sees."
+          :actions="[{ label: 'Another server', icon: 'i-lucide-plus', onClick: () => connect() }]"
+        >
+          <ul v-if="overview?.servers.length" class="grid w-full max-w-md gap-2 text-start">
+            <li v-for="candidate in overview.servers" :key="candidate.url" class="flex min-w-0 items-center gap-3 rounded-lg border border-default px-3 py-2.5">
+              <UIcon name="i-lucide-server" class="size-4 shrink-0 text-muted" aria-hidden="true" />
+              <span class="grid min-w-0 flex-1">
+                <span class="truncate text-[13px] font-medium text-highlighted">{{ candidate.label }}</span>
+                <span class="truncate font-mono text-xs text-dimmed">{{ consoleMcpEndpoint(candidate.url) }}</span>
+              </span>
+              <UButton size="xs" label="Connect" :aria-label="`Connect to ${candidate.label}`" @click="connect({ server: candidate.url })" />
+            </li>
+          </ul>
+        </ConsoleState>
+      </main>
+    </template>
+  </UDashboardPanel>
+
+  <ConsoleMcpConnect
+    v-model:open="connectOpen"
+    :base="sectionsBase"
+    :preset="connectPreset"
+    :servers="overview?.servers ?? []"
+    :shared-session="overview?.sharedSession ?? false"
+    @connected="connected"
+  />
 </template>

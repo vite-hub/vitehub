@@ -1,6 +1,7 @@
 ---
 title: Chat
 description: Render an AI SDK message list that follows streaming output and keeps the reader's scroll position.
+seo.title: Chat message list component for Vue
 navigation.order: 20
 navigation.group: Chat
 icon: i-ph-chat-circle-text-light
@@ -86,7 +87,9 @@ ViteHub's `useChat()` wrapper from `vite-hub/agent/vue` returns the same values 
 
 ## Streaming
 
-The last message gets the `streaming` state while `status` is `submitted` or `streaming`. The log has `aria-busy="true"` during that time. Select **Stream a reply** and scroll up while it runs. The chat stops following, and the scroll control returns to the live edge when you use it.
+The last message gets the `streaming` state while `status` is `submitted` or `streaming`. The log has `aria-busy="true"` during that time.
+
+While the reply is on its way and nothing in the message shows progress, one quiet `Working` line stays under the last message: before the first part, after a message ends, and after a tool finishes. Streaming text, a running tool step, and live reasoning show their own progress, so the line goes away while they do. The line has a static dot and does not animate. Use the `status` slot to draw it yourself, or `chatActivity(messages, status)` to get the same text in a custom layout. Select **Stream a reply** and scroll up while it runs. The chat stops following, and the scroll control returns to the live edge when you use it.
 
 ::component-preview{name="ChatStreamingExample" reset}
 ::
@@ -137,6 +140,7 @@ Other attributes go to the root element.
 | `message`       | `{ message, index }` | Replaces the default `ChatMessage` for each message.                |
 | `composer`      |                      | Content under the messages, for example `PromptInput`.              |
 | `scroll-button` |                      | Content of the scroll button.                                       |
+| `status`        | `{ label }`          | Replaces the line that shows the Agent works while the message is still. |
 | `default`       |                      | Extra content inside the scroller root.                             |
 | Other slots     |                      | Forwarded to each `ChatMessage`, for example `actions` or `tool`.   |
 

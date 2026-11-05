@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { findDataLoss, splitSqlStatements } from "../src/internal/migration-sql.ts"
+import { findDataLoss, splitSqlStatements, withoutNewTableDataLoss } from "../src/internal/migration-sql.ts"
 
 function reasons(sql: string | string[], before?: Map<string, string[]>) {
   return findDataLoss(Array.isArray(sql) ? sql : [sql], before).map(loss => loss.reason)
@@ -63,5 +63,212 @@ describe("migration data loss", () => {
     expect(reasons(rebuild)).toEqual([
       "rebuilds table \"notes\", and ViteHub cannot confirm that the copy keeps every column",
     ])
+  })
+
+  describe("in one run of pending migrations", () => {
+    function runLosses(...migrations: string[][]) {
+      const run = migrations.map(statements => ({ dataLoss: findDataLoss(statements, new Map()), statements }))
+      return withoutNewTableDataLoss(run).flatMap(migration => migration.dataLoss.map(loss => loss.reason))
+    }
+
+    function runPostgresLosses(...migrations: string[][]) {
+      const run = migrations.map(statements => ({ dataLoss: findDataLoss(statements, new Map()), statements }))
+      return withoutNewTableDataLoss(run, "postgresql").flatMap(migration => migration.dataLoss.map(loss => loss.reason))
+    }
+
+    const createNotes = ["CREATE TABLE `notes` (`id` integer PRIMARY KEY NOT NULL, `body` text);"]
+
+    it("accepts data loss on tables that an earlier migration of the run created", () => {
+      expect(runLosses(createNotes, ["INSERT INTO `notes` (`id`) VALUES (1);", "DROP TABLE `notes`;"])).toEqual([])
+      expect(runLosses(createNotes, ["ALTER TABLE `notes` DROP COLUMN `body`;", "DELETE FROM notes;"])).toEqual([])
+      expect(runLosses(createNotes, ["ALTER TABLE `notes` RENAME TO `posts`;"], ["DROP TABLE `posts`;"])).toEqual([])
+      expect(runLosses(createNotes, ["DROP TABLE `notes`;"], ["DROP TABLE IF EXISTS `notes`;"])).toEqual([])
+    })
+
+    it("accepts a rebuild of a table that the run created, and a drop after it", () => {
+      expect(runLosses(createNotes, rebuild, ["DROP TABLE `notes`;"])).toEqual([])
+    })
+
+    it("accepts a drop after a trigger that writes into another table", () => {
+      const trigger = "CREATE TRIGGER `count_views` AFTER INSERT ON `views` BEGIN\n  INSERT OR IGNORE INTO `totals` (`id`, `n`) VALUES (NEW.id, 0);\n  UPDATE `totals` SET `n` = `n` + 1 WHERE `id` = NEW.id;\nEND;"
+      expect(runLosses([...createNotes, trigger], ["DROP TABLE `notes`;"])).toEqual([])
+    })
+
+    it("flags data loss on tables that existed before the run", () => {
+      expect(runLosses(["DROP TABLE `notes`;"])).toEqual(["drops table \"notes\""])
+      expect(runLosses(["CREATE TABLE IF NOT EXISTS `notes` (`id` integer);"], ["DROP TABLE `notes`;"])).toEqual(["drops table \"notes\""])
+      expect(runLosses(createNotes, ["DROP TABLE `notes`, `users`;"])).toEqual(["drops table \"notes\"; drops table \"users\""])
+      expect(runLosses(createNotes, ["DROP SCHEMA `main`;"])).toEqual(["drops schema \"main\""])
+    })
+
+    it.each([
+      "TABLE users",
+      "TABLE ONLY \"public\".\"users\"",
+      "TABLE notes UNION ALL TABLE users",
+    ])("flags a copy of older rows with %s", (query) => {
+      expect(runLosses(createNotes, [`CREATE TABLE copy AS ${query};`, "DROP TABLE copy;"])).toEqual(["drops table \"copy\""])
+      expect(runLosses(
+        [...createNotes, "CREATE TABLE copy (id integer);", "DROP TABLE copy;"],
+        [`CREATE TABLE copy AS ${query};`, "DROP TABLE copy;"],
+      )).toEqual(["drops table \"copy\""])
+    })
+
+    it("accepts a TABLE query that only copies rows from a table created by the run", () => {
+      expect(runLosses(createNotes, ["CREATE TABLE copy AS TABLE notes;", "DROP TABLE copy;"])).toEqual([])
+    })
+
+    it("flags older rows copied by INSERT with a TABLE query", () => {
+      expect(runLosses(createNotes, ["INSERT INTO notes TABLE users;", "DROP TABLE notes;"])).toEqual(["drops table \"notes\""])
+    })
+
+    it.each([
+      "TRUNCATE TABLE ONLY notes, ONLY users;",
+      "TRUNCATE ONLY notes, ONLY users;",
+      "TRUNCATE TABLE ONLY notes, ONLY users RESTART IDENTITY;",
+    ])("checks every target of %s", (statement) => {
+      expect(runLosses(createNotes, [statement])).toEqual(["deletes every row of \"notes\"; deletes every row of \"users\""])
+      expect(runLosses([...createNotes, "CREATE TABLE users (id integer);"], [statement])).toEqual([])
+    })
+
+    it("records qualified TRUNCATE targets separately", () => {
+      const statement = "TRUNCATE TABLE ONLY \"public\".\"notes\", ONLY \"public\".\"users\";"
+      expect(findDataLoss([statement])).toEqual([{
+        reason: "deletes every row of \"notes\"; deletes every row of \"users\"",
+        statement,
+        tables: ["public.notes", "public.users"],
+      }])
+    })
+
+    it.each(["notes", '"notes"'])("retains unqualified PostgreSQL losses on %s across search_path schemas", (name) => {
+      // The first drop can expose an older table of the same name in a later search_path schema.
+      expect(runPostgresLosses(
+        [`CREATE TABLE ${name} (id integer);`],
+        [`DROP TABLE ${name};`, `DROP TABLE ${name};`],
+      )).toEqual(['drops table "notes"', 'drops table "notes"'])
+    })
+
+    it("accepts PostgreSQL losses with a stable schema-qualified identity", () => {
+      expect(runPostgresLosses(
+        ['CREATE TABLE "public"."notes" (id integer);'],
+        ["TRUNCATE ONLY public.notes RESTRICT;", "DROP TABLE public.notes;", "DROP TABLE IF EXISTS public.notes;"],
+      )).toEqual([])
+    })
+
+    it("does not confuse a PostgreSQL table name containing a dot with a qualified name", () => {
+      expect(runPostgresLosses(
+        ['CREATE TABLE "public.notes" (id integer);'],
+        ['DROP TABLE "public.notes";', 'DROP TABLE "public.notes";'],
+      )).toEqual(['drops table "public.notes"', 'drops table "public.notes"'])
+    })
+
+    it("retains a qualified PostgreSQL copy when its unqualified source can resolve elsewhere", () => {
+      expect(runPostgresLosses(
+        ["CREATE TABLE public.notes (id integer);", "CREATE TABLE public.copy AS TABLE notes;"],
+        ["DROP TABLE public.copy;"],
+      )).toEqual(['drops table "copy"'])
+    })
+
+    it.each([
+      "INSERT INTO notes SELECT * FROM public.users;",
+      "UPDATE notes SET id = (SELECT max(id) FROM public.users);",
+    ])("invalidates qualified PostgreSQL tables after an unqualified write: %s", (statement) => {
+      expect(runPostgresLosses(["CREATE TABLE public.notes (id integer);"], [statement, "DROP TABLE public.notes;"])).toEqual(['drops table "notes"'])
+    })
+
+    it("invalidates a qualified PostgreSQL name after renaming an older table to it", () => {
+      expect(runPostgresLosses(
+        ["CREATE TABLE public.notes (id integer);", "DROP TABLE public.notes;"],
+        ["ALTER TABLE public.users RENAME TO notes;"],
+        ["DROP TABLE public.notes;"],
+      )).toEqual(['drops table "notes"'])
+    })
+
+    it("preserves the source schema when renaming a new PostgreSQL table", () => {
+      expect(runPostgresLosses(
+        ['CREATE TABLE "my.schema"."fresh" (id integer);'],
+        ['ALTER TABLE "my.schema"."fresh" RENAME TO "archived.table";'],
+        ['DROP TABLE "my.schema"."archived.table";'],
+      )).toEqual([])
+      expect(runPostgresLosses(
+        ["CREATE TABLE public.fresh (id integer);"],
+        ["ALTER TABLE public.fresh RENAME TO archived;"],
+        ["DROP TABLE public.archived;"],
+      )).toEqual([])
+    })
+
+    it("invalidates a tracked PostgreSQL destination after a schema move", () => {
+      expect(runPostgresLosses(
+        ["CREATE TABLE archive.fresh (id integer);", "DROP TABLE archive.fresh;"],
+        ["ALTER TABLE public.fresh SET SCHEMA archive;"],
+        ["DROP TABLE archive.fresh;"],
+      )).toEqual(['drops table "fresh"'])
+    })
+
+    it.each([
+      "CREATE TEMP TABLE notes (id integer);",
+      "CREATE TEMPORARY TABLE IF NOT EXISTS notes (id integer);",
+      "CREATE TABLE temp.notes (id integer);",
+    ])("retains SQLite losses after temporary tables can shadow permanent tables: %s", (statement) => {
+      expect(runLosses(
+        [statement],
+        ["DROP TABLE notes;", "DROP TABLE notes;"],
+      )).toEqual(['drops table "notes"', 'drops table "notes"'])
+      // A permanent table tracked earlier can also be shadowed by the temporary table.
+      expect(runLosses(
+        ["CREATE TABLE notes (id integer);", statement],
+        ["DROP TABLE notes;", "DROP TABLE notes;", "DROP TABLE notes;"],
+      )).toEqual(['drops table "notes"', 'drops table "notes"', 'drops table "notes"'])
+    })
+
+    it.each([
+      "TRUNCATE public.fresh CASCADE;",
+      "TRUNCATE TABLE ONLY public.fresh RESTART IDENTITY CASCADE;",
+      "TRUNCATE public.fresh;",
+      "TRUNCATE TABLE public.fresh * RESTRICT;",
+      "TRUNCATE TABLE ONLY public.fresh, public.other;",
+    ])("retains implicit PostgreSQL targets of %s", (statement) => {
+      const losses = runPostgresLosses(
+        ["CREATE TABLE public.fresh (id integer PRIMARY KEY);", "INSERT INTO public.fresh VALUES (1);", "CREATE TABLE public.other (id integer);"],
+        ["ALTER TABLE public.existing ADD CONSTRAINT fresh_fk FOREIGN KEY (id) REFERENCES public.fresh (id);"],
+        [statement],
+      )
+      expect(losses).toEqual([statement.includes("public.other")
+        ? 'deletes every row of "fresh"; deletes every row of "other"'
+        : 'deletes every row of "fresh"'])
+      expect(findDataLoss([statement])[0]?.tables).toEqual([])
+    })
+
+    it("does not treat a quoted TRUNCATE target as a CASCADE clause", () => {
+      expect(runPostgresLosses(['CREATE TABLE public."cascade" (id integer);'], ['TRUNCATE ONLY public."cascade";'])).toEqual([])
+    })
+
+    it.each(["TRUNCATE public.fresh;", "DELETE FROM public.fresh;"])("retains %s after adding a pre-existing descendant", (statement) => {
+      expect(runPostgresLosses(
+        ["CREATE TABLE public.fresh (id integer);"],
+        ["ALTER TABLE public.existing INHERIT public.fresh;"],
+        [statement],
+      )).toEqual(['deletes every row of "fresh"'])
+    })
+
+    it("flags truncation after attaching a pre-existing partition", () => {
+      expect(runLosses(
+        ["CREATE TABLE fresh (id integer) PARTITION BY RANGE (id);"],
+        ["ALTER TABLE fresh ATTACH PARTITION existing FOR VALUES FROM (0) TO (100);"],
+        ["TRUNCATE TABLE fresh;"],
+      )).toEqual(["deletes every row of \"fresh\""])
+    })
+
+    it("flags data loss on a new table that holds rows of an older table", () => {
+      expect(runLosses(rebuild, ["DROP TABLE `notes`;"])).toEqual([
+        "rebuilds table \"notes\", and ViteHub cannot confirm that the copy keeps every column",
+        "drops table \"notes\"",
+      ])
+      expect(runLosses(createNotes, ["INSERT INTO `notes` SELECT * FROM `users`;", "DROP TABLE `notes`;"])).toEqual(["drops table \"notes\""])
+      expect(runLosses(createNotes, ["UPDATE `notes` SET `body` = (SELECT `name` FROM `users`);", "DROP TABLE `notes`;"])).toEqual(["drops table \"notes\""])
+      expect(runLosses(["CREATE TABLE `copy` AS SELECT * FROM `users`;", "DROP TABLE `copy`;"])).toEqual(["drops table \"copy\""])
+      expect(runLosses([...createNotes, "CREATE TABLE `copy` (`id` integer);"], ["INSERT INTO `copy` SELECT `id` FROM `notes`, `users`;", "DROP TABLE `copy`;"])).toEqual(["drops table \"copy\""])
+      expect(runLosses(["CREATE TABLE `posts` (`id` integer);", "DROP TABLE `posts`;"], ["ALTER TABLE `users` RENAME TO `posts`;"], ["DROP TABLE `posts`;"])).toEqual(["drops table \"posts\""])
+      expect(runLosses(createNotes, ["CREATE TRIGGER `copy_users` AFTER INSERT ON `users` BEGIN INSERT INTO `notes` SELECT * FROM `users`; END;"], ["DROP TABLE `notes`;"])).toEqual(["drops table \"notes\""])
+    })
   })
 })

@@ -2544,7 +2544,7 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
   }
 
   function channelHelper(index: number): { call: number, helper: string } | undefined {
-    const call = factoryCall(index, "channelHelper")
+    const call = factoryCall(index, "channelHelper", true)
     if (call === undefined) return
     const reference = resolveReference(index)
     const helper = destructuredChannelHelper(reference)?.helper
@@ -2562,7 +2562,7 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
     return helper
   }
 
-  function factoryCall(index: number, name: "defineAgent" | "defineChannel" | "defineCapability" | "channelHelper" = "defineAgent"): number | undefined {
+  function factoryCall(index: number, name: "defineAgent" | "defineChannel" | "defineCapability" | "channelHelper" = "defineAgent", allowBare = false): number | undefined {
     const reference = resolveReference(index)
     const destructuredHelper = name === "channelHelper" ? destructuredChannelHelper(reference) : undefined
     if ((!destructuredHelper && visibleDeclaration(reference) !== undefined) || callbackParameters.some(scope =>
@@ -2609,7 +2609,15 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
     }
     if (tokens[call] === "?" && tokens[call + 1] === ".") call += 2
     if (tokens[call] === "<") call = skipTypeArguments(call)
-    return tokens[call] === "(" ? call : undefined
+    if (tokens[call] === "(") return call
+    if (!allowBare) return undefined
+    // Runtime invokes a bare Channel factory with no options. Require the
+    // complete reference, so expressions and further member access stay opaque.
+    let end = call
+    while (tokens[end] === "!" || tokens[end] === "as" || tokens[end] === "satisfies") {
+      end = tokens[end] === "!" ? end + 1 : skipAssertion(end)
+    }
+    return [undefined, ",", ";", ")", "]", "}"].includes(tokens[end]) ? call : undefined
   }
 
   function opaqueChannelError(): Error {
@@ -2652,7 +2660,7 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
       return importedChannelOwnsWorkspace(moduleImport.specifier, moduleImport.name, channelId)
     }
     const helper = channelHelper(channelOptions)
-    if (helper !== undefined) return channelHelperOwnsWorkspace(helper.call, helper.helper)
+    if (helper !== undefined) return tokens[helper.call] === "(" && channelHelperOwnsWorkspace(helper.call, helper.helper)
     const channelCall = factoryCall(channelOptions, "defineChannel")
     if (channelCall !== undefined) {
       // defineChannel(kind, options) contributes the options of this invocation.
@@ -2672,16 +2680,7 @@ function inspectAgentModule(source: string, file: string, modules: Set<string>) 
     if (opaque) throw opaqueChannelError()
     if (tokens[channelOptions] !== "{" || tokens[channelOptions - 1] === ")") throw opaqueChannelError()
     const capabilities = channelProperties.get("capabilities")
-    if (capabilities !== undefined && capabilityOwnsWorkspace(capabilities)) return true
-    const pullRequest = channelProperties.get("pullRequest")
-    if (channelId !== "github" || channelCall !== undefined || pullRequest === undefined) return false
-    const kind = channelProperties.get("kind")
-    if (kind !== undefined) {
-      const value = resolveReference(kind, new Set(), true)
-      if (/^["'`]/.test(tokens[value] ?? "")) return false
-      throw opaqueChannelError()
-    }
-    return pullRequestOwnsWorkspace(pullRequest)
+    return capabilities !== undefined && capabilityOwnsWorkspace(capabilities)
   }
 
   // Mirrors the Workspace ownership of the first-party Channel helpers:

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 
 import { defaultExportExpression, objectProperties, scanModule, staticString, staticValue, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
 
-import type { Expression, ObjectExpression } from "@vite-hub/internal/build/scan-module"
+import type { CallExpression, Expression, ObjectExpression, ScannedModule } from "@vite-hub/internal/build/scan-module"
 
 import { discoverAuthDefinition } from "./discovery.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
@@ -15,10 +15,28 @@ import type {
   ResolvedAuthViteConfig,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+import { assertAuthDatabaseIdStrategy, authDatabaseAdditionalFieldsError, authDatabasePlacementError } from "./database-options.ts"
 
 interface DefinitionObjectBody {
   body: ObjectExpression
   callback: boolean
+  /** Local names of `authDatabase` imported from the Auth database module. */
+  authDatabase: ReadonlySet<string>
+}
+
+const authDatabaseModules: ReadonlySet<string> = new Set(["@vite-hub/auth/database", "vite-hub/auth/database"])
+
+function readAuthDatabaseImports(module: ScannedModule): Set<string> {
+  const names = new Set<string>()
+  for (const statement of module.program.body) {
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || !authDatabaseModules.has(statement.source.value)) continue
+    for (const specifier of statement.specifiers) {
+      if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") continue
+      const imported = specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value
+      if (imported === "authDatabase") names.add(specifier.local.name)
+    }
+  }
+  return names
 }
 
 /** The object that a callback returns, from `() => ({ ... })` or the first `return { ... }` in its body. */
@@ -42,14 +60,54 @@ function readReturnedObject(callback: Expression): ObjectExpression | undefined 
 }
 
 function readDefinitionObjectBody(file: string): DefinitionObjectBody | undefined {
-  const call = defaultExportExpression(scanModule(readFileSync(file, "utf8"), file))
+  const module = scanModule(readFileSync(file, "utf8"), file)
+  const authDatabase = readAuthDatabaseImports(module)
+  const call = defaultExportExpression(module)
   if (call?.type !== "CallExpression" || call.callee.type !== "Identifier" || call.callee.name !== "defineAuth") return
   const argument = call.arguments[0]
   if (argument === undefined || argument.type === "SpreadElement") return
   const options = unwrapExpression(argument)
-  if (options.type === "ObjectExpression") return { body: options, callback: false }
+  if (options.type === "ObjectExpression") {
+    assertAuthDatabasePlacement(options, options, authDatabase)
+    return { authDatabase, body: options, callback: false }
+  }
   const returned = readReturnedObject(options)
-  return returned === undefined ? undefined : { body: returned, callback: true }
+  assertAuthDatabasePlacement(options, returned, authDatabase)
+  return returned === undefined ? undefined : { authDatabase, body: returned, callback: true }
+}
+
+/** Owned tables must have the same target in every request and in the build-time contribution. */
+function assertAuthDatabasePlacement(options: Expression, body: ObjectExpression | undefined, names: ReadonlySet<string>): void {
+  const calls: CallExpression[] = []
+  walk(options, (node) => {
+    if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name)) calls.push(node)
+  })
+  if (!calls.length) return
+  if (calls.length !== 1 || calls[0] !== readAuthDatabaseCall(body, names)) throw authDatabasePlacementError()
+  if (options.type === "ArrowFunctionExpression" && options.body.type === "BlockStatement") {
+    let returns = 0
+    walk(options.body, (node) => {
+      if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression") return false
+      if (node.type === "ReturnStatement") returns++
+    })
+    const unconditional = options.body.body.some(statement => statement.type === "ReturnStatement" && statement.argument && unwrapExpression(statement.argument) === body)
+    if (returns !== 1 || !unconditional) throw authDatabasePlacementError()
+  }
+  const runtime = readObjectPropertyValue(body, "runtime")
+  const runtimeBody = runtime && (objectLiteral(runtime) ?? readReturnedObject(runtime))
+  if (hasObjectProperty(runtimeBody, "database")) throw authDatabasePlacementError()
+  for (const options of [body, runtimeBody]) {
+    for (const model of ["user", "session", "account", "verification"]) {
+      const config = objectLiteral(readObjectPropertyValue(options, model))
+      const additionalFields = readObjectPropertyValue(config, "additionalFields")
+      const fields = objectLiteral(additionalFields)
+      if (additionalFields && (!fields || fields.properties.length)) throw authDatabaseAdditionalFieldsError(model)
+    }
+  }
+  const advanced = objectLiteral(readObjectPropertyValue(body, "advanced"))
+  const database = objectLiteral(readObjectPropertyValue(advanced, "database"))
+  const generateId = readObjectPropertyValue(database, "generateId")
+  if (generateId) assertAuthDatabaseIdStrategy(staticValue(generateId))
 }
 
 /** Object entries. `key` is empty for spread and computed keys. `value` is undefined for methods and accessors. */
@@ -62,7 +120,7 @@ function readObjectEntries(body: ObjectExpression | undefined): Array<{ key: str
 }
 
 function readObjectPropertyValue(body: ObjectExpression | undefined, property: string): Expression | undefined {
-  return readObjectEntries(body).find(entry => entry.key === property)?.value
+  return readObjectEntries(body).findLast(entry => entry.key === property)?.value
 }
 
 function hasObjectProperty(body: ObjectExpression | undefined, property: string): boolean {
@@ -174,8 +232,29 @@ function readAuthAccessRoutesConfig(body: ObjectExpression | undefined): Resolve
   return routes.elements.map((entry, index) => readAuthAccessRoute(entry === null || entry.type === "SpreadElement" ? undefined : entry, index))
 }
 
-function readAuthDatabaseConfig(body: ObjectExpression | undefined, allowRuntimeValue = false): ResolvedAuthDatabaseConfiguration {
+/** The `authDatabase()` call of the `database` option, or undefined for any other value. */
+function readAuthDatabaseCall(body: ObjectExpression | undefined, authDatabase: ReadonlySet<string>): CallExpression | undefined {
+  const value = readObjectPropertyValue(body, "database")
+  const expression = value && unwrapExpression(value)
+  return expression?.type === "CallExpression" && expression.callee.type === "Identifier" && authDatabase.has(expression.callee.name) ? expression : undefined
+}
+
+/** The Database that gets the Better Auth tables: the name that `authDatabase()` receives, `"default"` without one. */
+function readAuthTablesConfig(body: ObjectExpression | undefined, authDatabase: ReadonlySet<string>): ResolvedAuthViteConfig["tables"] {
+  const call = readAuthDatabaseCall(body, authDatabase)
+  if (!call) return false
+  const [argument, ...rest] = call.arguments
+  if (argument === undefined) return { database: "default" }
+  const name = argument.type === "SpreadElement" || rest.length ? undefined : staticString(argument)
+  if (name === undefined || !name || name !== name.trim()) {
+    throw authErrorDiagnostics.AUTH_C0052({ message: "`authDatabase()` takes the Database name as one inline string literal, such as `authDatabase(\"content\")`, or no argument for the `default` Database." })
+  }
+  return { database: name }
+}
+
+function readAuthDatabaseConfig(body: ObjectExpression | undefined, allowRuntimeValue = false, authDatabase: ReadonlySet<string> = new Set()): ResolvedAuthDatabaseConfiguration {
   if (!hasObjectProperty(body, "database")) return { mode: "default" }
+  if (readAuthDatabaseCall(body, authDatabase)) return { mode: "default" }
 
   const expression = readObjectPropertyValue(body, "database")
   const flag = readStaticBooleanLiteral(expression)
@@ -250,10 +329,11 @@ export function resolveAuthViteConfig(
       routes: readAuthAccessRoutesConfig(body),
     },
     basePath,
-    database: readAuthDatabaseConfig(body, definitionObject.callback),
+    database: readAuthDatabaseConfig(body, definitionObject.callback, definitionObject.authDatabase),
     definition,
     rootDir,
     route: readAuthRouteConfig(body),
     secondaryStorage: readAuthSecondaryStorageConfig(body, definitionObject.callback),
+    tables: readAuthTablesConfig(body, definitionObject.authDatabase),
   }
 }

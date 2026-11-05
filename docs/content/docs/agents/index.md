@@ -1,5 +1,6 @@
 ---
 title: Agents
+layout: landing
 description: Define an AI agent on your server in one file, choose what runs it, and reach it from chat, Slack, GitHub, or HTTP.
 navigation.title: Overview
 navigation.order: 1

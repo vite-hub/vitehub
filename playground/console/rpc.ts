@@ -4,6 +4,7 @@ import type { Plugin } from "vite"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../../packages/vite-hub/src/console/runtime/diagnostics.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
 import { consoleRequestURL } from "../../packages/vite-hub/src/console/runtime/server/request.ts"
+import { callCommentsFixture } from "./comments.ts"
 import { mcpClientFixture } from "./mcp-client-fixture.ts"
 
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
@@ -27,6 +28,7 @@ const fixtureRoutes: Record<string, string> = {
   "logs.list": "logs",
   "search.query": "search",
   "sections.list": "sections",
+  "skills.inspect": "skills",
   "status.get": "status",
   "usage.get": "usage",
 }
@@ -36,6 +38,8 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
   // The MCP client keeps its connections in this process, so its fixture answers here, not over HTTP.
   if (payload.operation.startsWith("mcp-client.")) return mcpClientFixture(origin, payload, cookie)
   const input = payload.input ?? {}
+  const comment = callCommentsFixture(payload.operation, input)
+  if (comment) return comment
   let route = fixtureRoutes[payload.operation]
   let method = "GET"
   let body: unknown

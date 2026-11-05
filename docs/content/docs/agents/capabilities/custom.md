@@ -18,7 +18,7 @@ A custom Capability names what the Agent can do and declares the requirements it
 Define the Capability near the application code that owns the behavior.
 Use `defineCapability()` so ViteHub validates the id and composes the Capability through the normal lifecycle.
 
-```ts [server/agents/capabilities/tickets.ts]
+```ts [server/capabilities/tickets.ts]
 import { defineCapability } from 'vite-hub/agent'
 import { z } from 'zod'
 
@@ -63,7 +63,7 @@ Keep instructions explicit in the Agent Driver so Capability config does not bec
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { tickets } from './capabilities/tickets'
+import { tickets } from '../capabilities/tickets'
 
 export default defineAgent({
   driver: {
@@ -103,7 +103,7 @@ Keep custom policy narrow and visible. A reviewer needs to understand the operat
 Use `workspace` to add Workspace Sources or rules for an invocation.
 The contribution is add-only and inspectable; it does not mutate the Agent's authored Workspace Definition.
 
-```ts [server/agents/capabilities/tickets.ts]
+```ts [server/capabilities/tickets.ts]
 import { defineCapability } from 'vite-hub/agent'
 
 export function ticketContext() {
@@ -145,7 +145,7 @@ For provider-backed Agents, declare required files through `requires.workspace.p
 Use `cli` when the Capability owns commands that agents and developers can run instead of a generic shell command.
 The public API accepts a static command tree or an invocation resolver on the Capability Definition.
 
-```ts [server/agents/capabilities/inventory-runtime.ts]
+```ts [server/capabilities/inventory-runtime.ts]
 import { defineCapability } from 'vite-hub/agent'
 import * as v from 'valibot'
 
@@ -190,7 +190,7 @@ Return `undefined` from a resolver to hide the CLI for the current invocation. T
 
 To omit the entire Capability, resolve the Agent Definition's `capabilities` list instead. This decides selection before the Capability contributes tools, CLI commands, requirements, hooks, or cleanup work.
 
-```ts [server/agents/capabilities/inventory-runtime.ts]
+```ts [server/capabilities/inventory-runtime.ts]
 export const inventoryRuntime = defineCapability({
   id: 'inventory-runtime',
   cli: ({ actor }) => actor.kind === 'support'
@@ -237,7 +237,7 @@ Use a focused fixture that proves the Capability exposes the intended ability an
 Use a `finish` provider to publish invocation metadata for finish hooks, channel delivery code, or eval assertions.
 The value is keyed by Capability id and is available through `observation.extensions.get(id)` in Agent Evals.
 
-```ts [server/agents/capabilities/tickets.ts]
+```ts [server/capabilities/tickets.ts]
 import { defineCapability } from 'vite-hub/agent'
 
 export function tickets() {
@@ -278,7 +278,7 @@ export default defineEval({
 
 The Console's **Capabilities** tab shows the selected Invocation's recorded capabilities. It supplies a default tools and configuration view. Add `inspection` when your Capability needs a different presentation, then publish data with `await context.inspection.set(state)` during its normal lifecycle.
 
-```ts [server/agents/capabilities/tickets.ts]
+```ts [server/capabilities/tickets.ts]
 import { defineCapability } from 'vite-hub/agent'
 
 export const tickets = defineCapability({

@@ -85,7 +85,8 @@ function thread(store: Store, id: string): CommentThread {
 
 function message(store: Store, user: CommentUser, input: { threadId: string, body: string, mentions?: string[], attachments?: string[] }): CommentMessage {
   const body = input.body.trim()
-  if (!body) throw commentsErrorDiagnostics.COMMENTS_R0005()
+  // A message of files alone, such as a pasted screenshot, has no text.
+  if (!body && !input.attachments?.length) throw commentsErrorDiagnostics.COMMENTS_R0005()
   return {
     id: `message-${crypto.randomUUID()}`,
     threadId: input.threadId,
@@ -108,7 +109,9 @@ function view(store: Store, user: CommentUser): MemoryTransport {
   }
   const matches = (item: CommentThread, query: CommentListQuery): boolean => {
     if (query.subject && !sameSubject(item.subject, query.subject)) return false
+    if (query.subjectKind !== undefined && item.subject.kind !== query.subjectKind) return false
     if (query.page !== undefined && !sameSubject(item.subject, { kind: "page", id: query.page })) return false
+    if (query.revision && (item.revision === undefined || item.revision > query.revision.lte)) return false
     if (query.status && item.status !== query.status) return false
     if (query.mine && item.author.id !== user.id) return false
     if (query.mentions && !item.messages.some(entry => entry.mentions.includes(user.id))) return false
@@ -148,6 +151,8 @@ function view(store: Store, user: CommentUser): MemoryTransport {
         scope,
         n,
         subject: copy(input.subject),
+        ...(input.metadata === undefined ? {} : { metadata: copy(input.metadata) }),
+        ...(input.revision === undefined ? {} : { revision: input.revision }),
         anchor: copy(input.anchor),
         status: "open",
         author: copy(user),

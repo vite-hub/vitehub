@@ -20,8 +20,7 @@ import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentCanContext, ContentUser } from "./index.ts"
 import type { ContentSessions } from "./sessions.ts"
 
-export { contentEditorComponents, contentEditorKitOptions, contentMarkdownLoss, contentMarkdownLossOf, contentRealtimeEditor, describeContentMarkdownLoss } from "./editor.ts"
-export type { ContentEditorCollection, ContentMarkdownLoss } from "./editor.ts"
+export { contentRealtimeEditor } from "./editor.ts"
 export { contentLive, contentLiveRoom, contentLiveSession, installContentLive } from "./live.ts"
 export type { ContentLiveInstall } from "./live.ts"
 
@@ -219,7 +218,7 @@ export function contentRealtime(content: ContentLiveRuntime, options: ContentRea
       const { collection } = target(context)
       let editor = editors.get(collection.name)
       if (!editor) {
-        editor = contentRealtimeEditor(collection.kind === "documents" ? collection : {})
+        editor = contentRealtimeEditor()
         editors.set(collection.name, editor)
       }
       return editor
