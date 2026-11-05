@@ -158,7 +158,7 @@ describe("docs Nuxt setup", () => {
     for (const hook of hooks.get("build:before") ?? []) await hook()
     const raw = readFileSync(join(options.buildDir, "docs/raw/docs/guide/current.md"), "utf8")
     expect(raw).toContain("[Next](https://docs.example.com/portal/docs/guide/next)")
-    expect(raw.endsWith("\n\nAll pages: [llms.txt](https://docs.example.com/portal/llms.txt)\n")).toBe(true)
+    expect(raw.endsWith("\n\n<!-- vitehub-docs:section-links -->\nAll pages: [llms.txt](https://docs.example.com/portal/llms.txt)\n")).toBe(true)
   })
 
   it("keeps manifest and Nitro resources app-relative and advertises public URLs below the app base", async () => {

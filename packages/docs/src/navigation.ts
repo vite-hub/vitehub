@@ -180,6 +180,9 @@ export function docsRawFile(path: string): string {
   return docsRawPath(path).slice("/raw/".length)
 }
 
+/** Identifies the generated footer even when runtime config overrides its build-time URLs. */
+export const docsRawSectionLinksMarker = "\n<!-- vitehub-docs:section-links -->\n"
+
 /**
  * The end of a page's raw Markdown copy: the pages of its section in sidebar order, the next page, and the llms.txt
  * index. An agent that reads one page finds the pages beside it without loading the index of the whole site. A sidebar
@@ -206,7 +209,7 @@ export function docsRawSectionLinks(manifest: DocsManifest, path: string, siteUr
     if (next) blocks.push(`Next: [${next.title}](${url(next)})`)
   }
   blocks.push(`All pages: [llms.txt](${siteUrl}/llms.txt)`)
-  return `\n${blocks.join("\n\n")}\n`
+  return `${docsRawSectionLinksMarker}${blocks.join("\n\n")}\n`
 }
 
 /** Cookie that keeps the navigation open beside code panel tutorials. A host that serves prerendered HTML reads it. */

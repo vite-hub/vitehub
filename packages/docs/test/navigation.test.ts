@@ -176,6 +176,7 @@ describe("docs sidebar", () => {
   it("ends a raw page with its section in sidebar order, the next page, and the index", () => {
     const site = "https://docs.example.com/portal"
     expect(docsRawSectionLinks(manifest, "/docs/kv/configure", site)).toBe(`
+<!-- vitehub-docs:section-links -->
 ## In this section
 
 - [Overview](${site}/raw/docs/kv.md)
@@ -197,7 +198,7 @@ All pages: [llms.txt](${site}/llms.txt)
   })
 
   it("keeps only the index link for a page without other pages beside it", () => {
-    const index = "\nAll pages: [llms.txt](https://docs.example.com/llms.txt)\n"
+    const index = "\n<!-- vitehub-docs:section-links -->\nAll pages: [llms.txt](https://docs.example.com/llms.txt)\n"
     // A section of one page, the docs root, a page outside the base, and an unlisted page.
     for (const path of ["/docs/blob", "/docs", "/about"]) expect(docsRawSectionLinks(manifest, path, "https://docs.example.com")).toBe(index)
     expect(docsRawSectionLinks(manifest, "/docs/kv/draft", "https://docs.example.com")).not.toContain("(this page)")

@@ -2,7 +2,7 @@ import { useRuntimeConfig, useStorage } from "#imports"
 
 import type { H3Event } from "h3"
 import manifest from "#docs/manifest"
-import { docsAppPath, docsManifestPages, docsRawFile, docsRawSectionLinks, findDocsPage, isDocsPath } from "../../navigation.ts"
+import { docsAppPath, docsManifestPages, docsRawFile, docsRawSectionLinksMarker, findDocsPage, isDocsPath } from "../../navigation.ts"
 
 import type { DocsPublicConfig } from "../../nuxt.ts"
 
@@ -37,16 +37,16 @@ const source: AgentContentSource = {
       .map(page => ({ ...page, route: docsAppPath(page.route, appBase) }))
   },
   async get(route, event) {
-    const { appBase, site } = useRuntimeConfig(event).public.docs as DocsPublicConfig
+    const { appBase } = useRuntimeConfig(event).public.docs as DocsPublicConfig
     const prefix = appBase.replace(/\/+$/, "")
     const path = prefix && (route === prefix || route.startsWith(`${prefix}/`)) ? route.slice(prefix.length) || "/" : route
     const found = findDocsPage(manifest, path)
     if (!found) return null
     const markdown = await useStorage("assets:docs-raw").getItem<string>(docsRawFile(found.page.path))
     if (markdown === null) return null
-    const links = docsRawSectionLinks(manifest, found.page.path, `${site.url}${prefix}`)
     const text = String(markdown)
-    return { markdown: text.endsWith(links) ? text.slice(0, -links.length) : text, title: found.page.sourceTitle, description: found.page.description ?? undefined }
+    const footerIndex = text.lastIndexOf(docsRawSectionLinksMarker)
+    return { markdown: footerIndex < 0 ? text : text.slice(0, footerIndex), title: found.page.sourceTitle, description: found.page.description ?? undefined }
   },
 }
 
