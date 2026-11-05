@@ -138,7 +138,8 @@ function exportSpecifier(packageName: string, subpath: string) {
 }
 
 function exportKind(packageName: string, subpath: string, specifier: string, target: string): PublicPackageExportKind {
-  if (target.endsWith(".css") || target.endsWith(".json") || subpath === "./package.json" || subpath === "./tsconfig") {
+  // A `.iife.js` target is a classic script that pages embed as text; it has no module exports or declarations.
+  if (target.endsWith(".css") || target.endsWith(".json") || target.endsWith(".iife.js") || subpath === "./package.json" || subpath === "./tsconfig") {
     return "static-asset"
   }
   if (packageName === "@vite-hub/cli" && subpath === ".") return "cli"

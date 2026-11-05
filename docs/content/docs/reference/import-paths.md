@@ -93,6 +93,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/comments` | `defineComments()` for `server/comments.ts`, as the `comments` export or the default export. One definition runs the overlay, the Comments API, presence, MCP, and the [comment operations](/docs/comments/operations/get-started). |
 | `vite-hub/comments/anchor`, `vite-hub/comments/database`, `vite-hub/comments/realtime`, `vite-hub/comments/runtime`, and `vite-hub/comments/runtime/auth` | Pin anchors for the browser, the Comments tables, and the presence room, API handler, Nitro plugin, and Auth session reader that generated output imports. |
 | `vite-hub/comments/client`, `vite-hub/comments/rpc`, `vite-hub/comments/server`, and `vite-hub/comments/database/postgres` | The operations browser client and anchors, RPC transport, server runtime, and Postgres tables. |
+| `vite-hub/page/pill.js` | The page pill of ViteHub's page tools as a classic browser script that declares `ViteHubPagePill`, for a page script of your own to paste in as text, for example with a Vite `?raw` import. It has no module exports. |
 | `vite-hub/connections`, `vite-hub/connections/google`, and `vite-hub/connections/server` | Connection Definitions, the Google preset with typed Gmail Operations, and runtime access. |
 | `vite-hub/connections/chatgpt` | The `chatgpt()` Connection provider for signing in with a ChatGPT plan. |
 | `vite-hub/connections/agent` and `vite-hub/connections/http` | Agent primitive handle, and the management and OAuth routes that the Console mounts. |

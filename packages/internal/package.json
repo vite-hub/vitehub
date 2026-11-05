@@ -178,6 +178,11 @@
       "import": "./dist/runtime/page-tools.js",
       "default": "./dist/runtime/page-tools.js"
     },
+    "./runtime/page-pill": {
+      "types": "./dist/runtime/page-pill.d.ts",
+      "import": "./dist/runtime/page-pill.js",
+      "default": "./dist/runtime/page-pill.js"
+    },
     "./runtime/page-tools-loader": {
       "types": "./dist/runtime/page-tools-loader.d.ts",
       "import": "./dist/runtime/page-tools-loader.js",

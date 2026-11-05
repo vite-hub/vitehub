@@ -327,7 +327,11 @@ describe("framework package contract", () => {
     // This build helper is shared internally, without a public framework export.
     expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/nitro-plugin.ts`, "utf8")))
       .toEqual(["@vite-hub/internal/build/included-nitro"]);
-    expect(sourceForwarders).toEqual([...exportedForwarders, "src/nitro-plugin.ts"].sort());
+    // The page pill ships as a browser script, `./page/pill.js`, which bundles this forwarder instead of exporting it.
+    expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/page/pill.ts`, "utf8")))
+      .toEqual(["@vite-hub/internal/runtime/page-pill", "@vite-hub/internal/runtime/page-tools-shared"]);
+    expect(manifest.exports["./page/pill.js"]).toEqual({ default: "./dist/page/pill.iife.js" });
+    expect(sourceForwarders).toEqual([...exportedForwarders, "src/nitro-plugin.ts", "src/page/pill.ts"].sort());
     expect(
       manifestEntries
         .filter(({ source }) => !exportedForwarders.has(source))
@@ -417,7 +421,8 @@ describe("framework package contract", () => {
     });
 
     for (const value of Object.values(manifest.exports)) {
-      const target = String(value) === value ? value : Reflect.get(Object(value), "import");
+      // A browser script, such as `./page/pill.js`, has only a `default` target.
+      const target = String(value) === value ? value : Reflect.get(Object(value), "import") ?? Reflect.get(Object(value), "default");
       if (String(target) !== target) throw new TypeError("Expected an export target.");
       if (target === "./package.json") continue;
       expect(existsSync(`${packageRoot}/${target}`), target).toBe(true);
