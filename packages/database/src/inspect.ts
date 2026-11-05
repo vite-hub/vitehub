@@ -4,11 +4,15 @@ import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { isWebContainer } from "@vite-hub/web-container/env"
 
 import { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets } from "./contributions.ts"
-import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionReadReplication, readStaticDatabaseSchema } from "./config.ts"
+import { readProvisionedId, readProvisionStateSync } from "@vite-hub/internal/provision-state"
+
+import { resolveConfigValue } from "./config-value.ts"
+import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionReadReplication, readStaticDatabaseSchema, resolveDBViteConfig } from "./config.ts"
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 
-import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
-import type { ResolvedDatabaseContribution, ResolvedDatabaseUse } from "./contributions.ts"
+import type { ViteHubDefinitionField, ViteHubDefinitionSummary, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
+import type { CollectedDatabaseContributions, ResolvedDatabaseContribution, ResolvedDatabaseUse } from "./contributions.ts"
+import type { DatabaseConfigValue, DBModulePublicOptions } from "./types.ts"
 
 export interface DatabaseInspectionOptions {
   /** Without a Database Definition, list the implicit default Database that an enabled database uses. */
@@ -98,4 +102,58 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
     name: definition.name,
     source: definition.source || "database",
   })))
+}
+
+export interface DatabaseResourceInspectionOptions {
+  contributions?: CollectedDatabaseContributions
+  env?: Record<string, string | undefined>
+  options: DBModulePublicOptions | undefined
+  /** Root that holds `.vitehub/provision.json`. */
+  provisionRoot: string
+  rootDir: string
+  serverDirs?: string[]
+}
+
+function describeConfiguredId(value: DatabaseConfigValue | undefined, env: Record<string, string | undefined>): Pick<ViteHubResourceSummary, "env" | "id" | "source"> {
+  if (typeof value === "string") return value.trim() ? { id: value, source: "config" } : {}
+  if (!value) return {}
+  for (const name of value.source?.names ?? (value.source?.name ? [value.source.name] : [])) {
+    const id = env[name]
+    if (id) return { env: name, id, source: "env" }
+  }
+  return typeof value.default === "string" && value.default.trim() ? { id: value.default, source: "config" } : {}
+}
+
+/**
+ * Lists the D1 databases that Database Definitions bind natively, with where each id comes from.
+ * Reads local config and Provision State only. D1 over HTTP, PostgreSQL, and opaque Definitions are left out.
+ */
+export function inspectDatabaseResources(options: DatabaseResourceInspectionOptions): ViteHubResourceSummary[] {
+  const env = options.env ?? process.env
+  const context = { contributions: options.contributions, implicitDefault: true, serverDirs: options.serverDirs }
+  // Without Provision State, the resolved id is the one that config or env sets.
+  const configured = resolveDBViteConfig(options.options, options.rootDir, { ...context, provisionState: {} })
+  if (!configured) return []
+  const provisionState = readProvisionStateSync(options.provisionRoot)
+  const resources: ViteHubResourceSummary[] = []
+  for (const name of configured.databaseNames) {
+    const database = configured.databases[name]
+    const cloudflare = database?.cloudflare
+    if (database?.dialect !== "sqlite" || !cloudflare || cloudflare.http) continue
+    if (configured.definitionDefaults.cloudflareProjections[name]?.resource === "opaque") continue
+    const fromConfig = describeConfiguredId(cloudflare.databaseId, env)
+    const provisionedId = fromConfig.id ? undefined : readProvisionedId(provisionState, "cloudflare", "d1", name)
+    const resourceName = resolveConfigValue(cloudflare.databaseName, env)
+    resources.push({
+      binding: cloudflare.binding,
+      definition: name,
+      host: "cloudflare",
+      kind: "cloudflare-d1",
+      ...(resourceName ? { name: resourceName } : {}),
+      owner: "database",
+      ...fromConfig,
+      ...(provisionedId ? { id: provisionedId, source: "provision-state" } : {}),
+    })
+  }
+  return resources
 }

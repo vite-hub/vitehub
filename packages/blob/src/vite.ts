@@ -13,6 +13,7 @@ import { init as initCommonJS, parse as parseCommonJS } from "cjs-module-lexer"
 import { dirname, relative, resolve } from "pathe"
 
 import { blobPackageName, cloudflareImagesBinding, createCloudflareR2Bindings, getBlobVercelRuntimePackages, renderBlobRuntimeModule } from "./internal/nitro-runtime.ts"
+import { inspectBlobResources } from "./inspect.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
   BLOB_VIRTUAL_CONFIG_ID,
@@ -23,6 +24,7 @@ import {
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
 import type { BlobModuleOptions, BlobServeConfig, ResolvedBlobModuleOptions } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
+import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { findMissingFilesSdkPeers } from "./internal/files-sdk-peers.ts"
@@ -47,6 +49,7 @@ export interface BlobVitePluginAPI {
 interface BlobProvisionContributingPlugin {
   vitehub?: {
     cli?: () => Promise<ViteHubCliContributor>
+    inspect?: () => ViteHubInspectionContributor
   }
 }
 
@@ -450,6 +453,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
     vitehub: {
       // The Console, `vitehub blob`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "blobOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).blobOperations, module: "@vite-hub/blob/operations" }],
+      inspect: () => ({ resources: () => inspectBlobResources(blob) }),
       cli: async () => {
         const { createBlobCliNamespaces } = await import(/* @vite-ignore */ "./cli.js")
         return {

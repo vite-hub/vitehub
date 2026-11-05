@@ -82,7 +82,7 @@ describe("vitehub inspect", () => {
 
     expect(result.exitCode).toBe(0)
     expect(result.stdout).toContain("inspect")
-    expect(result.stdout).toContain("Inspect discovered Definitions and generated Provider Output.")
+    expect(result.stdout).toContain("Inspect discovered Definitions, host resources, and generated Provider Output.")
   })
 
   it("prints every contributed Definition kind in human output", async () => {
@@ -234,5 +234,90 @@ describe("vitehub inspect", () => {
 
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("Unknown inspect argument: --kind")
+  })
+})
+
+describe("vitehub inspect resources", () => {
+  async function runResources(rootDir: string, args: string[]) {
+    const stdout = stream()
+    const stderr = stream()
+    const exitCode = await runViteHubCli({
+      args: ["inspect", "resources", ...args],
+      cwd: rootDir,
+      loadConfig: async () => ({
+        plugins: [{
+          name: "resources",
+          vitehub: {
+            inspect: {
+              providerOutput: [{ description: "Generated Cloudflare Worker config", owner: "vite-hub", path: join(rootDir, "dist/server/wrangler.json") }],
+              resources: () => [
+                { binding: "DB", definition: "default", host: "cloudflare", id: "db-state", kind: "cloudflare-d1", name: "app-db", owner: "database", source: "provision-state" },
+                { binding: "KV", definition: "default", host: "cloudflare", kind: "cloudflare-kv-namespace", name: "app-cache", owner: "kv" },
+                { binding: "BLOB", definition: "default", host: "cloudflare", kind: "cloudflare-r2-bucket", name: "uploads", owner: "blob", source: "name" },
+                { definition: "media", host: "vercel", kind: "vercel-blob-store", note: "Vercel sets `BLOB_READ_WRITE_TOKEN` for the store that is connected to the project.", owner: "blob" },
+              ],
+            },
+          },
+        }],
+        root: rootDir,
+      }),
+      loadNuxtViteConfig: async () => undefined,
+      stderr,
+      stdout,
+    })
+    return { exitCode, stderr: stderr.output(), stdout: stdout.output() }
+  }
+
+  it("shows each resource with its id source and reads missing ids from generated Wrangler config", async () => {
+    const rootDir = await createTempDir()
+    await mkdir(join(rootDir, "dist/server"), { recursive: true })
+    await writeFile(join(rootDir, "dist/server/wrangler.json"), JSON.stringify({
+      d1_databases: [{ binding: "DB", database_id: "db-built", database_name: "app-db" }],
+      kv_namespaces: [{ binding: "KV", id: "ns-built" }],
+    }))
+
+    const human = await runResources(rootDir, [])
+    expect(human).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(human.stdout).toBe([
+      "cloudflare\tcloudflare-d1\tdefault",
+      "  Name: app-db",
+      "  Binding: DB",
+      "  Id: db-state",
+      "  Source: .vitehub/provision.json",
+      "cloudflare\tcloudflare-kv-namespace\tdefault",
+      "  Name: app-cache",
+      "  Binding: KV",
+      "  Id: ns-built",
+      "  Source: generated provider output",
+      "cloudflare\tcloudflare-r2-bucket\tdefault",
+      "  Name: uploads",
+      "  Binding: BLOB",
+      "  Source: bound by name",
+      "vercel\tvercel-blob-store\tmedia",
+      "  Source: none",
+      "  Note: Vercel sets `BLOB_READ_WRITE_TOKEN` for the store that is connected to the project.",
+      "",
+    ].join("\n"))
+
+    const json = await runResources(rootDir, ["--json"])
+    expect(JSON.parse(json.stdout).resources.map(({ id, kind, source }: { id?: string, kind: string, source?: string }) => ({ id, kind, source }))).toEqual([
+      { id: "db-state", kind: "cloudflare-d1", source: "provision-state" },
+      { id: "ns-built", kind: "cloudflare-kv-namespace", source: "provider-output" },
+      { kind: "cloudflare-r2-bucket", source: "name" },
+      { kind: "vercel-blob-store" },
+    ])
+  })
+
+  it("reports when no Definition maps to a host resource", async () => {
+    const rootDir = await createTempDir()
+    const stdout = stream()
+    await expect(runViteHubCli({
+      args: ["inspect", "resources"],
+      cwd: rootDir,
+      loadConfig: async () => ({ plugins: [], root: rootDir }),
+      loadNuxtViteConfig: async () => undefined,
+      stdout,
+    })).resolves.toBe(0)
+    expect(stdout.output()).toBe("No Definition maps to a host resource.\n")
   })
 })

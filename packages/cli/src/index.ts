@@ -246,7 +246,8 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     return await runNamespace(runtimeFeatures, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
   }
 
-  const command = args[0] === "inspect" && args[1] === "provider-output" ? "build" : "serve"
+  // Provider Output and host resources must match what a production build deploys.
+  const command = args[0] === "inspect" && (args[1] === "provider-output" || args[1] === "resources") ? "build" : "serve"
   // Channel definitions and their default public URL must use the same stage, including config-time loadEnv().
   const stageIndex = args[0] === "channels" && (args[1] === "sync" || args[1] === "history") ? args.lastIndexOf("--stage") : -1
   const stageValue = stageIndex === -1 ? undefined : args[stageIndex + 1]

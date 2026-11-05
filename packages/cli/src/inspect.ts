@@ -1,11 +1,11 @@
 import { existsSync, readFileSync, statSync } from "node:fs"
 
-import { collectViteHubDefinitionInspectors, collectViteHubProviderOutputEntries, redactInspectionValue } from "@vite-hub/internal/inspect"
+import { collectViteHubDefinitionInspectors, collectViteHubProviderOutputEntries, collectViteHubResourceSummaries, redactInspectionValue } from "@vite-hub/internal/inspect"
 import { PROVISION_STATE_FILE, readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { relative, resolve } from "pathe"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
-import type { ViteHubDefinitionSummary, ViteHubProviderOutputEntry } from "@vite-hub/internal/inspect"
+import type { ViteHubDefinitionSummary, ViteHubProviderOutputEntry, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
 import type { AnyOperation } from "@vite-hub/internal/operations"
 
 type InspectContext = Pick<ViteHubCliContext, "rootDir" | "stderr" | "stdout">
@@ -19,6 +19,7 @@ interface ParsedInspectArgs {
 
 const definitionsUsage = "vitehub inspect definitions [--kind <kind>] [--json]"
 const providerOutputUsage = "vitehub inspect provider-output [--json]"
+const resourcesUsage = "vitehub inspect resources [--json]"
 
 function parseArgs(args: string[], options: { kind: boolean }): ParsedInspectArgs {
   const parsed: ParsedInspectArgs = { help: false, json: false }
@@ -226,10 +227,99 @@ async function runProviderOutput(args: string[], context: InspectContext, plugin
   return 0
 }
 
+const wranglerIdFields = { "cloudflare-d1": ["d1_databases", "database_id"], "cloudflare-kv-namespace": ["kv_namespaces", "id"] } as const
+
+// Reads binding ids from a generated Wrangler config, keyed by resource kind and binding.
+function readGeneratedWranglerIds(entries: readonly ViteHubProviderOutputEntry[]): Map<string, string> {
+  const ids = new Map<string, string>()
+  for (const entry of entries) {
+    if (!entry.path.endsWith("/wrangler.json") || !existsSync(entry.path) || !statSync(entry.path).isFile()) continue
+    let config: unknown
+    try {
+      config = JSON.parse(readFileSync(entry.path, "utf8"))
+    }
+    catch {
+      continue
+    }
+    if (!config || typeof config !== "object") continue
+    for (const [kind, [field, idField]] of Object.entries(wranglerIdFields)) {
+      const bindings: unknown = Reflect.get(config, field)
+      if (!Array.isArray(bindings)) continue
+      for (const binding of bindings) {
+        const name: unknown = binding && typeof binding === "object" ? Reflect.get(binding, "binding") : undefined
+        const id: unknown = binding && typeof binding === "object" ? Reflect.get(binding, idField) : undefined
+        if (typeof name === "string" && typeof id === "string" && id && !ids.has(`${kind}:${name}`)) ids.set(`${kind}:${name}`, id)
+      }
+    }
+  }
+  return ids
+}
+
+function describeSource(resource: ViteHubResourceSummary): string {
+  switch (resource.source) {
+    case "config": return "config"
+    case "env": return `env ${resource.env ?? ""}`.trim()
+    case "name": return "bound by name"
+    case "provider-output": return "generated provider output"
+    case "provision-state": return PROVISION_STATE_FILE
+    default: return "none"
+  }
+}
+
+async function runResources(args: string[], context: InspectContext, plugins: readonly unknown[]): Promise<number> {
+  const parsed = parseArgs(args, { kind: false })
+  if (parsed.help) {
+    context.stdout.write([
+      `Usage: ${resourcesUsage}`,
+      "",
+      "Lists the host resources that Definitions and stores map to: D1, KV, R2, Queues, and Vercel Blob.",
+      "Shows each resource name, its id, and where the id came from: config, env, Provision State, generated provider output, or the host binds it by name.",
+      "Reads local config and files only. It never calls a provider API.",
+      "",
+      "Options:",
+      "  --json      Print machine-readable JSON.",
+      "  -h, --help  Show this help.",
+      "",
+    ].join("\n"))
+    return 0
+  }
+  if (parsed.error) {
+    context.stderr.write(`${parsed.error}\nUsage: ${resourcesUsage}\n`)
+    return 1
+  }
+
+  const generatedIds = readGeneratedWranglerIds(await collectViteHubProviderOutputEntries(plugins))
+  const resources = (await collectViteHubResourceSummaries(plugins)).map((resource): ViteHubResourceSummary => {
+    const generatedId = resource.id || !resource.binding ? undefined : generatedIds.get(`${resource.kind}:${resource.binding}`)
+    return generatedId ? { ...resource, id: generatedId, source: "provider-output" } : resource
+  })
+
+  if (parsed.json) {
+    writeJson(context, { resources })
+    return 0
+  }
+  if (!resources.length) {
+    context.stdout.write("No Definition maps to a host resource.\n")
+    return 0
+  }
+  const lines: string[] = []
+  for (const resource of resources) {
+    lines.push(`${resource.host}\t${resource.kind}\t${resource.definition}`)
+    if (resource.name) lines.push(`  Name: ${resource.name}`)
+    if (resource.binding) lines.push(`  Binding: ${resource.binding}`)
+    if (resource.id) lines.push(`  Id: ${String(redactInspectionValue(resource.id, "id"))}`)
+    lines.push(`  Source: ${describeSource(resource)}`)
+    if (resource.note) lines.push(`  Note: ${resource.note}`)
+  }
+  lines.push("")
+  context.stdout.write(lines.join("\n"))
+  return 0
+}
+
 /** Built-in namespace that renders package-owned inspection data. */
 export function createInspectNamespace(plugins: readonly unknown[], operations: readonly AnyOperation[] = []): ViteHubCliCommandNamespace {
   return {
-    description: "Inspect discovered Definitions and generated Provider Output.",
+    description: "Inspect discovered Definitions, host resources, and generated Provider Output.",
     features: [
       {
         description: "List Definitions discovered by each active package.",
@@ -242,6 +332,12 @@ export function createInspectNamespace(plugins: readonly unknown[], operations: 
         name: "provider-output",
         run: (args, context) => runProviderOutput(args, context, plugins),
         usage: providerOutputUsage,
+      },
+      {
+        description: "List the host resources that Definitions map to and where their ids come from.",
+        name: "resources",
+        run: (args, context) => runResources(args, context, plugins),
+        usage: resourcesUsage,
       },
     ],
     name: "inspect",

@@ -8,7 +8,7 @@ import { resolve } from "pathe"
 import { normalizeQueueOptions } from "./config.ts"
 import { discoverQueueDefinitions } from "./discovery.ts"
 import { createCloudflareQueueBindings, createVercelQueueConsumerRoutes, generatedQueueNitroMiddleware, generatedQueueNitroPlugin, generatedQueueNitroVercelConsumerDir, queuePackageName, writeQueueNitroIntegration } from "./internal/vite-build.ts"
-import { inspectQueueDefinitions } from "./inspect.ts"
+import { inspectQueueDefinitions, inspectQueueResources } from "./inspect.ts"
 import { createQueueProvisionStep } from "./provision.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions } from "./types.ts"
@@ -238,17 +238,18 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
       // The Console, `vitehub queue`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "queueOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).queueOperations, module: "@vite-hub/queue/operations" }],
       inspect: () => {
-        const provider = normalizeQueueOptions(queue, { hosting })?.provider
-        if (!provider) return
+        const resolvedQueue = normalizeQueueOptions(queue, { hosting })
+        if (!resolvedQueue?.provider) return
+        const rootDir = resolved?.root ?? process.cwd()
         return {
           definitions: [{
             kind: "queue",
             label: "Queues",
-            list: () => {
-              const rootDir = resolved?.root ?? process.cwd()
-              return inspectQueueDefinitions({ projectRoot: resolveViteHubProjectRoot(rootDir), rootDir, serverDirs })
-            },
+            list: () => inspectQueueDefinitions({ projectRoot: resolveViteHubProjectRoot(rootDir), rootDir, serverDirs }),
           }],
+          resources: () => resolvedQueue.provider === "cloudflare"
+            ? inspectQueueResources({ namePrefix: resolvedQueue.namePrefix, projectRoot: resolveViteHubProjectRoot(rootDir), rootDir, serverDirs })
+            : [],
         }
       },
       cli: async () => {

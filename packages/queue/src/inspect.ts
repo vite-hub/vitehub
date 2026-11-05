@@ -1,9 +1,11 @@
 import { summarizeDefinitions } from "@vite-hub/internal/inspect"
 
 import { discoverQueueDefinitions } from "./discovery.ts"
+import { getCloudflareQueueBindingName } from "./integrations/cloudflare.ts"
+import { getCloudflareQueueName } from "./internal/cloudflare-resource-name.ts"
 
 import type { ViteHubConsoleSectionContribution } from "@vite-hub/internal/console"
-import type { ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
+import type { ViteHubDefinitionSummary, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
 
 export interface QueueInspectionOptions {
   projectRoot: string
@@ -18,6 +20,19 @@ export function inspectQueueDefinitions(options: QueueInspectionOptions): ViteHu
     discoverQueueDefinitions({ rootDir: options.rootDir, serverDirs: options.serverDirs }),
     "queue",
   )
+}
+
+/** Lists the Cloudflare Queues that Queue Definitions bind by name. Reads local files only. */
+export function inspectQueueResources(options: QueueInspectionOptions & { namePrefix?: string }): ViteHubResourceSummary[] {
+  return discoverQueueDefinitions({ rootDir: options.rootDir, serverDirs: options.serverDirs }).map(definition => ({
+    binding: getCloudflareQueueBindingName(definition.name),
+    definition: definition.name,
+    host: "cloudflare",
+    kind: "cloudflare-queue",
+    name: getCloudflareQueueName(definition.name, options.namePrefix),
+    owner: "queue",
+    source: "name",
+  }))
 }
 
 /** Console section that lists discovered Queue Definitions. `vitehub inspect definitions` reads the same data. */

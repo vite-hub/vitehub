@@ -23,7 +23,7 @@ import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesD
 import { dbPackageName, supportsHostedDatabaseRuntime, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart } from "./internal/migrate-on-start.ts"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
-import { inspectDatabaseDefinitions } from "./inspect.ts"
+import { inspectDatabaseDefinitions, inspectDatabaseResources } from "./inspect.ts"
 import { createDatabaseProvisionStep } from "./provision.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 
@@ -433,6 +433,13 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
               viteRoot: resolved?.root,
             }),
           }],
+          resources: () => inspectDatabaseResources({
+            contributions,
+            options: resolvedOptions(),
+            provisionRoot: resolved?.root ?? process.cwd(),
+            rootDir: databaseRoot(),
+            serverDirs: databaseServerDirs(),
+          }),
         }
       },
     },

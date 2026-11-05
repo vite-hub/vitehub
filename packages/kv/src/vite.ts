@@ -19,12 +19,14 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
 import { configureCloudflareKV } from "./integrations/cloudflare.ts"
+import { inspectKVResources } from "./inspect.ts"
 import { createKVCloudflareProvisionStep } from "./provision.ts"
 
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
 import type { ProviderJsonRecord } from "@vite-hub/internal/build/deployment-output"
 import type { ViteHubCliContributor, ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
+import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin, ResolvedConfig } from "vite"
 
@@ -52,7 +54,7 @@ export type KVVitePlugin = Plugin & {
     name: string
     setup: (nitro: { options: NitroCloudflareKVTarget }) => void
   }
-  vitehub: ViteHubCliPluginMetadata & { operations: readonly OperationContributionEntry[] }
+  vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] }
 }
 
 export function hubKvOptionalPeerResolver(): Plugin {
@@ -271,6 +273,7 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
     vitehub: {
       // The Console, `vitehub kv`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "kvOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).kvOperations, module: "@vite-hub/kv/operations" }],
+      inspect: () => ({ resources: () => inspectKVResources(configuredOptions, projectRoot) }),
       cli: async () => {
         const { createKVCliContributor } = await import(/* @vite-ignore */ "./cli.js")
         return {

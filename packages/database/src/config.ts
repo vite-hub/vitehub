@@ -36,6 +36,7 @@ import { implicitDefaultDatabaseContributions, resolveDatabaseContributionTarget
 
 import type { CollectedDatabaseContributions, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
 import type { Expression, ObjectExpression, ScannedModule, StaticProperty } from "@vite-hub/internal/build/scan-module"
+import type { ProvisionState } from "@vite-hub/internal/provision"
 
 export { resolveConfigValue } from "./config-value.ts"
 export { parseDatabaseLocation, type DatabaseLocation } from "./database-location.ts"
@@ -878,6 +879,8 @@ export function resolveDBViteConfig(
     contributions?: Partial<CollectedDatabaseContributions>
     /** Without a Database Definition, resolve the implicit default Database. See `discoverDatabaseDefinitions()`. */
     implicitDefault?: boolean
+    /** Replaces the Provision State read from `provisionRoot`. Inspection passes `{}` to see configured ids only. */
+    provisionState?: ProvisionState
     provisionRoot?: string
     serverDirs?: string[]
   } = {},
@@ -899,7 +902,7 @@ export function resolveDBViteConfig(
   const cloudflareProjections: Record<string, CloudflareD1Projection> = Object.create(null)
   const generatedDrizzleConfigFilesByDatabase: Record<string, string> = Object.create(null)
   const generatedSchemaFilesByDatabase: Record<string, string> = Object.create(null)
-  const provisionState = readProvisionStateSync(context.provisionRoot ?? rootDir)
+  const provisionState = context.provisionState ?? readProvisionStateSync(context.provisionRoot ?? rootDir)
   const definitionCloudflareByName = new Map<string, DefinitionCloudflareConfig>()
   for (const definition of definitions) {
     const migrationsDir = getDefaultMigrationsDir(rootDir, definition, context.serverDirs)
