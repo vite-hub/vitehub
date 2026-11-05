@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { isConsoleDevelopmentRuntime } from "../src/console/runtime/server/request.ts"
 import { installConsoleAccess, readConsoleOperationUser, withConsoleAccess } from "../src/console/runtime/server/access.ts"
+import { requestEvent } from "./console-event.ts"
 
 afterEach(() => {
   installConsoleDevelopment("/test/app", false)
@@ -11,7 +12,7 @@ afterEach(() => {
 
 it("keeps production access and operation identity when runtime NODE_ENV says development", async () => {
   const handle = withConsoleAccess(async (_event, access) => ({ user: await readConsoleOperationUser(access) }), { anySection: true })
-  const event = () => ({ req: new Request("http://localhost/_vitehub/rpc/__call") })
+  const event = () => (requestEvent(new Request("http://localhost/_vitehub/rpc/__call")))
   vi.stubEnv("NODE_ENV", "development")
   installConsoleDevelopment("/test/app", false)
   installConsoleAccess({ mode: "open" })

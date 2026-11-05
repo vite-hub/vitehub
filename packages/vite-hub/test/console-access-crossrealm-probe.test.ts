@@ -2,6 +2,7 @@ import { Window } from "happy-dom"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
+import { requestEvent } from "./console-event.ts"
 
 const policyKey = Symbol.for("vitehub.console.access")
 
@@ -13,7 +14,7 @@ afterEach(() => Reflect.deleteProperty(globalThis, policyKey))
 async function expectInvalidResult(result: unknown): Promise<void> {
   const handler = vi.fn(() => "unreachable")
   installConsoleAccess({ mode: "open", authorize: (() => result) as unknown as ConsoleAuthorize })
-  const response = await withConsoleAccess(handler, { anySection: true })({ req: new Request("https://console.example.test/") })
+  const response = await withConsoleAccess(handler, { anySection: true })(requestEvent(new Request("https://console.example.test/")))
   expect(handler).not.toHaveBeenCalled()
   expect(response).toBeInstanceOf(globalThis.Response)
   expect((response as Response).status).toBe(500)
@@ -34,7 +35,7 @@ describe("cross-realm console access probe", () => {
     const handler = vi.fn(() => "unreachable")
     installConsoleAccess({ mode: "open", authorize })
     // Happy DOM's AbortSignal type has its own private fields. Exercise the foreign runtime boundary directly.
-    const result = await Reflect.apply(withConsoleAccess(handler, { anySection: true }), undefined, [{ req: request }])
+    const result = await Reflect.apply(withConsoleAccess(handler, { anySection: true }), undefined, [requestEvent(request)])
     expect(authorize).toHaveBeenCalledWith({ request })
     expect(handler).not.toHaveBeenCalled()
     expect(result).not.toBe(response)
@@ -125,7 +126,7 @@ describe("cross-realm console access probe", () => {
     const response = new Response("Sign in at the host.", { status: 401 })
     const handler = vi.fn(() => "unreachable")
     installConsoleAccess({ mode: "open", authorize: () => response })
-    await expect(withConsoleAccess(handler, { anySection: true })({ req: new Request("https://console.example.test/") })).resolves.toBe(response)
+    await expect(withConsoleAccess(handler, { anySection: true })(requestEvent(new Request("https://console.example.test/")))).resolves.toBe(response)
     expect(handler).not.toHaveBeenCalled()
   })
 })

@@ -519,7 +519,7 @@ describe("independent Console Auth", () => {
         // Console data routes check the Session and authorize callback whatever their path. They never redirect.
         expect((await guard.checkConsoleAccess({ url: new URL("https://example.com/api/app"), req: rpcRequest }))?.status).toBe(403)
         // console.authorize and Connections read the signed-in Console Auth user from the same definition.
-        await expect(guard.readConsoleUser({ req: rpcRequest })).resolves.toEqual({ id: "ada" })
+        await expect(guard.readConsoleUser({ req: rpcRequest, res: { headers: new Headers() } })).resolves.toEqual({ id: "ada" })
         await expect(guard.readConsoleUser({ web: { request: rpcRequest } })).resolves.toEqual({ id: "ada" })
         expect(calls).toEqual([
           ["/_vitehub", 0, false],

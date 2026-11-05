@@ -56,7 +56,7 @@ afterEach(() => {
 describe("storage MCP tools", () => {
   async function rpc(method: string, params?: Record<string, unknown>) {
     const req = new Request("http://app.test/_vitehub/mcp", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) })
-    const response: unknown = await Reflect.apply(handler, undefined, [{ req, context: {} }])
+    const response: unknown = await Reflect.apply(handler, undefined, [{ req, res: { headers: new Headers() }, context: {} }])
     if (!(response instanceof Response)) throw new TypeError("Expected a Response")
     return Object(await response.json())
   }

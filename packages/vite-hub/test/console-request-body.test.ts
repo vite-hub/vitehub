@@ -1,45 +1,59 @@
 import { describe, expect, it } from "vitest"
 
+import { installStandardContext } from "../src/runtime/h3.ts"
 import { consoleRequestJSON } from "../src/console/runtime/server/request.ts"
 
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 const encoder = new TextEncoder()
 
+function standard(body: ReadableStream<Uint8Array>): ConsoleRequestEvent {
+  return { "~standard": { vendor: "test", req: new Request("http://localhost/", { body, duplex: "half", method: "POST" } as RequestInit), res: {} } }
+}
+
+/** An event whose request body is exactly `body`, so a test can check the stream that the reader used. */
+function streamEvent(body: ReadableStream<Uint8Array>): ConsoleRequestEvent {
+  // SAFETY: consoleRequestJSON() reads only `body` of the request.
+  return { "~standard": { vendor: "test", req: { body } as unknown as Request, res: {} } }
+}
+
+function h3V1(req: Record<PropertyKey, unknown>): ConsoleRequestEvent {
+  const event = { node: { req: { headers: { host: "localhost" }, method: "POST", url: "/", ...req }, res: {} } }
+  installStandardContext(event)
+  return event
+}
+
 const adapters = {
   fetch(body: string) {
     const bytes = encoder.encode(body)
-    return { req: { body: new ReadableStream<Uint8Array>({
+    return standard(new ReadableStream<Uint8Array>({
       start(controller) {
         // One byte per chunk splits every multibyte character.
         for (const byte of bytes) controller.enqueue(new Uint8Array([byte]))
         controller.close()
       },
-    }) } } satisfies ConsoleRequestEvent
+    }))
   },
   nodeBytes(body: string): ConsoleRequestEvent {
-    return { node: { req: {
+    return h3V1({
       async *[Symbol.asyncIterator]() {
         for (const byte of encoder.encode(body)) yield new Uint8Array([byte])
       },
-    } } }
+    })
   },
   nodeText(body: string): ConsoleRequestEvent {
-    return { node: { req: {
+    return h3V1({
       async *[Symbol.asyncIterator]() {
         for (const character of body) yield character
       },
-    } } }
+    })
   },
-  // Nitro 2 on Workers: H3 v1 `event.req` is the Node request shim, whose body is already read.
+  // Nitro 2 on Workers: the Node request shim of H3 1 holds the body, already read.
   nitro2Bytes(body: string): ConsoleRequestEvent {
-    return { req: { body: encoder.encode(body) } }
+    return h3V1({ body: encoder.encode(body) })
   },
   nitro2Text(body: string): ConsoleRequestEvent {
-    return { req: { body } }
-  },
-  decoded(body: string): ConsoleRequestEvent {
-    return { req: { json: async () => JSON.parse(body) } }
+    return h3V1({ body })
   },
 }
 
@@ -57,11 +71,11 @@ describe("Console request bodies", () => {
   it("releases Fetch bodies after success or malformed JSON", async () => {
     const valid = adapters.fetch("{}")
     await expect(consoleRequestJSON(valid)).resolves.toEqual({})
-    expect(valid.req?.body?.locked).toBe(false)
+    expect(valid["~standard"].req.body?.locked).toBe(false)
 
     const invalid = adapters.fetch("{")
     await expect(consoleRequestJSON(invalid)).rejects.toBeInstanceOf(SyntaxError)
-    expect(invalid.req?.body?.locked).toBe(false)
+    expect(invalid["~standard"].req?.body?.locked).toBe(false)
   })
 
   it("stops an oversized Fetch stream and preserves 413 when cancellation fails", async () => {
@@ -78,7 +92,7 @@ describe("Console request bodies", () => {
       },
     }, { highWaterMark: 0 })
 
-    await expect(consoleRequestJSON({ req: { body } }, 4)).rejects.toMatchObject({ statusCode: 413 })
+    await expect(consoleRequestJSON(streamEvent(body), 4)).rejects.toMatchObject({ statusCode: 413 })
     expect(reads).toBe(1)
     expect(cancellations).toBe(1)
     expect(body.locked).toBe(false)
@@ -90,14 +104,14 @@ describe("Console request bodies", () => {
       pull(controller) { controller.error(failure) },
     })
 
-    await expect(consoleRequestJSON({ req: { body } })).rejects.toBe(failure)
+    await expect(consoleRequestJSON(streamEvent(body))).rejects.toBe(failure)
     expect(body.locked).toBe(false)
   })
 
   it("closes an oversized H3 v1 iterator without reading another chunk", async () => {
     let reads = 0
     let closed = false
-    const event: ConsoleRequestEvent = { node: { req: {
+    const event = h3V1({
       async *[Symbol.asyncIterator]() {
         try {
           reads++
@@ -107,7 +121,7 @@ describe("Console request bodies", () => {
         }
         finally { closed = true }
       },
-    } } }
+    })
 
     await expect(consoleRequestJSON(event, 4)).rejects.toMatchObject({ statusCode: 413 })
     expect(reads).toBe(1)

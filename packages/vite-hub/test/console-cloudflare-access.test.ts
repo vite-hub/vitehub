@@ -15,6 +15,7 @@ import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/conso
 import { cloudflareAccessIssuer } from "../src/console/auth-path.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { installStandardContext } from "../src/runtime/h3.ts"
 
 const packageRoot = resolve(import.meta.dirname, "..")
 const teamDomain = "acme.cloudflareaccess.com"
@@ -54,9 +55,12 @@ function certsFetch(): ReturnType<typeof vi.fn<typeof fetch>> {
   })
 }
 
-function consoleEvent(url: string, token?: string, method = "GET"): { req: Request, url: URL } {
+/** An H3 2 event shape with the Standard Context that the ViteHub Nitro plugin sets. */
+function consoleEvent(url: string, token?: string, method = "GET") {
   const headers = new Headers(token ? { "cf-access-jwt-assertion": token } : {})
-  return { req: new Request(url, { headers, method }), url: new URL(url) }
+  const event = { req: new Request(url, { headers, method }), res: { headers: new Headers() }, url: new URL(url) }
+  installStandardContext(event)
+  return event
 }
 
 async function bundleMiddleware(root: string, platform: "browser" | "node", middleware?: string): Promise<string> {
@@ -239,7 +243,7 @@ describe("Cloudflare Access Console Auth", () => {
             import guard from "./guard.mjs";
             export default {
               async fetch(request, env) {
-                const response = await guard({ env, req: request, url: new URL(request.url) });
+                const response = await guard({ env, req: request, res: { headers: new Headers() }, url: new URL(request.url) });
                 return response ?? new Response("next");
               }
             };

@@ -7,7 +7,7 @@ import { consoleMountBase } from "../console-route.ts"
 import { consoleMcpCallbackPath } from "../mcp-client.ts"
 import { readConsoleOperationUser } from "./access.ts"
 import { consoleMcpRecords, resetConsoleMcpRecords } from "./mcp-client-store.ts"
-import { consoleRequestError, consoleRequestURL } from "./request.ts"
+import { consoleRequestError, consolePublicURL } from "./request.ts"
 
 import type { OAuthClientProvider, OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js"
 import type { OAuthClientMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
@@ -52,7 +52,7 @@ async function ownerOf(caller: ConsoleMcpCaller): Promise<string> {
 /** The origin and Console mount that the browser sees, from the RPC request. */
 function consolePage(caller: ConsoleMcpCaller): { mount: string, origin: string } {
   if (!caller.request) throw consoleRequestError(400, "MCP connections need the Console page that calls them.")
-  const url = consoleRequestURL({ req: caller.request })
+  const url = consolePublicURL(caller.request)
   return { mount: consoleMountBase(url.pathname), origin: url.origin }
 }
 

@@ -5,6 +5,7 @@ import { defineOperation, installedOperationRegistry, installOperationRegistryLo
 import { installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { consoleOperationRegistry, installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleRuntime, loadConsoleRuntime } from "../src/console/runtime/server/runtime.ts"
+import { requestEvent } from "./console-event.ts"
 
 afterEach(() => {
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.runtime"))
@@ -36,7 +37,7 @@ it.each(["before", "after"])("keeps the replacement when an older load finishes 
     return () => { installConsoleOperations([{ operations: [operation("fixture.new")] }]) }
   })
   const readConsole = withConsoleAccess(() => consoleOperationRegistry(), { anySection: true })
-  const event = () => ({ method: "GET", req: new Request("http://localhost/_vitehub/console") })
+  const event = () => (requestEvent(new Request("http://localhost/_vitehub/console")))
   installConsoleAccess({ mode: "open" })
   try {
     installConsoleRuntime(oldLoad)

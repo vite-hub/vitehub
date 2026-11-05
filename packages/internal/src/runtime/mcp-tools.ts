@@ -17,8 +17,8 @@ export interface ViteHubMcpToolResult {
 export interface ViteHubMcpToolContext {
   /** The checked user, with every field, or null for a caller without accounts. */
   user: Record<string, unknown> | null
-  /** The request event, when available, for owners that resolve request identity. */
-  event?: unknown
+  /** The request event with its Standard Context, when available, for owners that resolve request identity. */
+  event?: { readonly "~standard": { readonly req: Request } }
 }
 
 /**

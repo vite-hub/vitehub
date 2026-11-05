@@ -5,10 +5,10 @@ import logsRoute, { consoleLogsHandler } from "../src/console/runtime/server/log
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import type { LogPage, LogSource } from "../src/logs/source.ts";
+import { consoleEvent } from "./console-event.ts";
+import { requestEvent } from "./console-event.ts";
 
-const request = (query = "") => ({
-  req: { method: "GET", url: `http://localhost/api/_vitehub/console/logs${query}` },
-});
+const request = (query = "") => consoleEvent({ url: `http://localhost/api/_vitehub/console/logs${query}` });
 afterEach(() => installConsoleAccess({ mode: "open" }));
 describe("Console Logs", () => {
   it("checks section access before querying a source", async () => {
@@ -118,7 +118,7 @@ describe("Console Logs", () => {
           body: JSON.stringify({ operation: "logs.list", input: {} }),
           signal: controller.signal,
         });
-    const reading = transport === "HTTP" ? logsRoute({ req }) : handleConsoleRpcRequest(req);
+    const reading = transport === "HTTP" ? logsRoute(requestEvent(req)) : handleConsoleRpcRequest(req);
     try {
       const signal = await started;
       controller.abort();

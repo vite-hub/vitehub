@@ -15,19 +15,14 @@ import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import type { ConsoleRpcResult } from "../src/console/runtime/rpc.ts"
 import { allowed } from "./support/console-access.ts"
+import { consoleEvent } from "./console-event.ts"
 
 const sectionsHandler = allowed(sectionsHandlerRoute)
 const scope = globalThis as ConsoleInvocationScope
 const buildPattern = /installConsoleBuild\("[^"]+", "([0-9a-f]{16})"\)\n$/
 
 function event(): ConsoleRequestEvent {
-  const headers = new Headers({ host: "localhost" })
-  return {
-    headers,
-    method: "GET",
-    node: { req: { method: "GET", socket: { remoteAddress: "127.0.0.1" }, url: "http://localhost/_vitehub" } },
-    req: { method: "GET", url: "http://localhost/_vitehub" },
-  }
+  return consoleEvent({ remoteAddress: "127.0.0.1", url: "http://localhost/_vitehub" })
 }
 
 async function generatedBuild(file: string, root: string, sections: Parameters<typeof writeConsoleNitroPlugin>[2]): Promise<string> {

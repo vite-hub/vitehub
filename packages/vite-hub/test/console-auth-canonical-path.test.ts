@@ -4,18 +4,23 @@ import { describe, expect, it, vi } from "vitest"
 import { createConsoleAppAuthAccess } from "../src/console/auth-pages.ts"
 import { consoleEventPath } from "../src/console/auth-path.ts"
 import { handleCloudflareAccessConsoleRequest } from "../src/console/auth-cloudflare-access.ts"
+import { installStandardContext } from "../src/runtime/h3.ts"
+import type { ViteHubStandardProps } from "../src/runtime/h3.ts"
 
 /** The H3 1 event that Nitro 2 gives a Nuxt 4 handler: an own `node` field, a `req` getter that is the Node request, and no `url`. */
 class H3V1Event {
   readonly __is_event__ = true
   readonly context: Record<string, unknown> = {}
   readonly node: { req: Record<string, unknown>, res: Record<string, unknown> }
+  declare readonly "~standard": ViteHubStandardProps
 
   constructor(url: string, init: { headers?: Record<string, string>, method?: string } = {}) {
     this.node = {
       req: { headers: { host: "app.example.com", ...init.headers }, method: init.method ?? "GET", socket: {}, url, async* [Symbol.asyncIterator]() {} },
       res: {},
     }
+    // The ViteHub Nitro plugin sets Standard Context on each H3 1 event of Nuxt 4.
+    installStandardContext(this)
   }
 
   get req(): Record<string, unknown> {
@@ -39,9 +44,9 @@ function appAccess() {
 }
 
 describe("Console canonical authorization paths", () => {
-  it.each(["H3 1", "H3 2", "Request"])("authorizes canonical paths for %s", async (kind) => {
+  it.each(["H3 1", "H3 2"])("authorizes canonical paths for %s", async (kind) => {
     const request = new Request("https://app.example.com/_%76itehub/rpc/__call", { method: "POST" })
-    const event = kind === "H3 1" ? new H3V1Event("/_%76itehub/rpc/__call", { method: "POST" }) : kind === "H3 2" ? new H3Event(request) : request
+    const event = kind === "H3 1" ? new H3V1Event("/_%76itehub/rpc/__call", { method: "POST" }) : new H3Event(request)
     const { access, requireAuthAccessRoutes, requireSession } = appAccess()
     await access.check(event)
     expect(requireAuthAccessRoutes).toHaveBeenCalledWith(event, [0], undefined, [0], { redirectToSignIn: false, reuse: true })
@@ -54,6 +59,8 @@ describe("Console canonical authorization paths", () => {
     const app = createApp()
     const router = createRouter()
     router.get("/_vitehub", eventHandler(async (event) => {
+      // The ViteHub Nitro plugin sets Standard Context on each H3 1 event of Nuxt 4.
+      installStandardContext(event)
       await access.check(event)
       return await handleCloudflareAccessConsoleRequest(event, () => ({ audience: "aud", teamDomain: "team.cloudflareaccess.com" }))
     }))

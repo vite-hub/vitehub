@@ -20,6 +20,7 @@ import consoleMcpMetadataHandler from "../src/console/runtime/server/mcp-metadat
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { resolveConsoleAccessBuild } from "../src/console/vite.ts"
+import { requestEvent } from "./console-event.ts"
 
 const app = "https://app.example.com"
 const resource = `${app}/_vitehub/mcp`
@@ -327,7 +328,7 @@ describe("MCP sign-in against a real Better Auth", () => {
       const query = new URLSearchParams({ client_id, code_challenge: "a".repeat(43), code_challenge_method: "S256", redirect_uri: "http://localhost:53682/callback", resource, response_type: "code", scope: "vitehub:read vitehub:write", state: "built-in-page" })
       const login = new URL((await call(`/oauth2/authorize?${query}`)).headers.get("location") ?? "", app)
       expect(login.pathname).toBe("/_vitehub/sign-in")
-      const page = await pages.signIn({ req: new Request(login) })
+      const page = await pages.signIn(requestEvent(new Request(login)))
       const html = await page.text()
       expect(html).toContain("Connect an agent")
       expect(html).toContain('autocomplete="current-password"')

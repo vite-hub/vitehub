@@ -12,12 +12,15 @@ import envManage from "../src/console/runtime/server/env-manage.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
 import scheduleRun from "../src/console/runtime/server/schedule-run.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { installStandardContext } from "../src/runtime/h3.ts"
+import type { ViteHubStandardProps } from "../src/runtime/h3.ts"
 
 /** The H3 1 event that Nitro 2 gives a Nuxt 4 handler: an own `node` field, a `req` getter that is the Node request, and no `url`. */
 class H3V1Event {
   readonly __is_event__ = true
   readonly context: Record<string, unknown> = {}
   readonly node: { req: Record<string, unknown>, res: Record<string, unknown> }
+  declare readonly "~standard": ViteHubStandardProps
 
   constructor(url: string, init: { body?: string, headers?: Record<string, string>, method?: string } = {}) {
     const body = init.body
@@ -25,6 +28,8 @@ class H3V1Event {
       req: { headers: { host: "app.example.com", ...init.headers }, method: init.method ?? "GET", socket: {}, url, async* [Symbol.asyncIterator]() { if (body) yield new TextEncoder().encode(body) } },
       res: {},
     }
+    // The ViteHub Nitro plugin sets Standard Context on each H3 1 event of Nuxt 4.
+    installStandardContext(this)
   }
 
   get req(): Record<string, unknown> {
@@ -70,7 +75,8 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
 
   it("still reads an H3 2 event", async () => {
     const { access, requireAuthAccessRoutes } = appAccess()
-    const event = { req: new Request("https://app.example.com/_vitehub/rpc/__call", { method: "POST" }), url: new URL("https://app.example.com/_vitehub/rpc/__call") }
+    const event = { req: new Request("https://app.example.com/_vitehub/rpc/__call", { method: "POST" }), res: { headers: new Headers() }, url: new URL("https://app.example.com/_vitehub/rpc/__call") }
+    installStandardContext(event)
     await access.check(event)
     expect(requireAuthAccessRoutes).toHaveBeenCalledWith(event, [0], undefined, [0], { redirectToSignIn: false, reuse: true })
   })

@@ -12,6 +12,7 @@ import { createAgentStatusReader } from "@vite-hub/agent/server"
 import type { AgentInput, AgentProviderStatus } from "@vite-hub/agent"
 import type { H3Config } from "h3"
 import { allowed } from "./support/console-access.ts"
+import { consoleEvent } from "./console-event.ts"
 
 const agentInvocationsHandler = allowed(agentInvocationsHandlerRoute)
 const statusHandler = allowed(statusHandlerRoute)
@@ -30,20 +31,20 @@ describe("Console status", () => {
     installConsoleAgentDefinitions([{ definition, fallbackName: "bot" }], { invocations })
 
     expect(getConsoleAgentDefinition("bot")).toBeUndefined()
-    expect(await statusHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/status?agent=bot" } })).toEqual({ agents: [ready], observability: null })
+    expect(await statusHandler(consoleEvent({ url: "http://localhost/api/_vitehub/console/status?agent=bot" }))).toEqual({ agents: [ready], observability: null })
     expect(getConsoleAgentDefinition("bot")).toBeUndefined()
-    await expect(agentInvocationsHandler({ method: "POST", context: { params: { agent: "bot" } } })).rejects.toMatchObject({ statusCode: 404 })
+    await expect(agentInvocationsHandler({ context: { params: { agent: "bot" } } })).rejects.toMatchObject({ statusCode: 404 })
     expect(definition.resolve).not.toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
   })
 
   it("includes HTTP status messages for invalid and unavailable status requests", async () => {
     const invalid = "a".repeat(513)
-    await expect(statusHandler({ method: "GET", req: { url: `http://localhost/api/_vitehub/console/status?agent=${invalid}` } })).rejects.toMatchObject({
+    await expect(statusHandler(consoleEvent({ url: `http://localhost/api/_vitehub/console/status?agent=${invalid}` }))).rejects.toMatchObject({
       statusCode: 400,
       statusMessage: "Invalid Agent name.",
     })
-    await expect(statusHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/status?agent=missing" } })).rejects.toMatchObject({
+    await expect(statusHandler(consoleEvent({ url: "http://localhost/api/_vitehub/console/status?agent=missing" }))).rejects.toMatchObject({
       statusCode: 404,
       statusMessage: "Agent status is unavailable.",
     })
@@ -67,7 +68,7 @@ describe("Console status", () => {
     Object.assign(globalThis, { [slot]: { capability: { id: "observability" }, status: () => status } })
     try {
       installConsoleAgentDefinitions([{ definition: agent(vi.fn(async () => ready)), fallbackName: "bot" }], { invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }) })
-      expect(await statusHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/status?agent=bot" } })).toEqual({ agents: [ready], observability: status })
+      expect(await statusHandler(consoleEvent({ url: "http://localhost/api/_vitehub/console/status?agent=bot" }))).toEqual({ agents: [ready], observability: status })
     }
     finally {
       Reflect.deleteProperty(globalThis, slot)

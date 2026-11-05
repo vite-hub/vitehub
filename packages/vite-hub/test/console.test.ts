@@ -76,6 +76,7 @@ import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import { allowed } from "./support/console-access.ts"
 import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { consoleEvent } from "./console-event.ts"
 
 const agentsHandler = allowed(agentsHandlerRoute)
 const invocationHandler = allowed(invocationHandlerRoute)
@@ -126,14 +127,26 @@ function fixtureDocument(id?: string) {
   }
 }
 
-function event(address: string | undefined, method = "GET"): ConsoleRequestEvent {
-  const headers = new Headers({ host: "localhost" })
-  return {
-    headers,
-    method,
-    node: { req: { method, socket: { remoteAddress: address }, url: "http://localhost/_vitehub" } },
-    req: { method, url: "http://localhost/_vitehub" },
-  }
+/** A test event whose URL and Node response a test can change between calls. */
+interface MutableTestEvent extends ConsoleRequestEvent {
+  node: { req: { url: string }, res?: { setHeader: (name: string, value: string) => unknown } }
+  req: { url: string }
+}
+
+/** A Console request event at `http://localhost/_vitehub`. Each read of its Standard Context uses the current `node.req.url`. */
+function event(address: string | undefined, method = "GET"): MutableTestEvent {
+  const url = "http://localhost/_vitehub"
+  const headers = new Headers()
+  const target: Omit<MutableTestEvent, "~standard"> = { node: { req: { url } }, req: { url } }
+  return Object.defineProperty(target, "~standard", {
+    get: () => ({
+      vendor: "test",
+      req: new Request(target.node.req.url, { method }),
+      // A test that sets `node.res` reads the Console response headers through it.
+      res: { headers: { get: (name: string) => headers.get(name), set: (name: string, value: string) => { headers.set(name, value); target.node.res?.setHeader(name, value) } } as Headers },
+      runtime: address ? { clientAddress: address } : {},
+    }),
+  }) as MutableTestEvent
 }
 
 function runtime(runId: string): AgentRuntimeContext {
@@ -2425,16 +2438,12 @@ describe("Agent invocation console", () => {
       ], { invoke: true, projectRoot: root })
       const response = { headers: new Headers() }
       const segment = encodeAgentRouteParam(name)
-      const invocation = await agentInvocationsHandler({
+      const invocation = await agentInvocationsHandler(consoleEvent({
         context: { params: { agent: segment } },
-        method: "POST",
-        req: {
-          json: async () => ({ invokerProfileId: "support", prompt: " Test this Agent " }),
-          method: "POST",
-          url: `http://localhost/api/_vitehub/console/agents/${segment}/invocations?agentRoute=encoded`,
-        },
+        body: ({ invokerProfileId: "support", prompt: " Test this Agent " }),
+        url: `http://localhost/api/_vitehub/console/agents/${segment}/invocations?agentRoute=encoded`,
         res: response,
-      })
+      }))
 
       expect(invocation).toMatchObject({
         agent: name,
@@ -2464,15 +2473,11 @@ describe("Agent invocation console", () => {
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },
       ], { invoke: true, projectRoot: root })
-      const invocation = await agentInvocationsHandler({
+      const invocation = await agentInvocationsHandler(consoleEvent({
         context: { params: { agent: segment } },
-        method: "POST",
-        req: {
-          json: async () => ({ prompt: "Review" }),
-          method: "POST",
-          url: `http://localhost/api/_vitehub/console/agents/${segment}/invocations`,
-        },
-      })
+        body: ({ prompt: "Review" }),
+        url: `http://localhost/api/_vitehub/console/agents/${segment}/invocations`,
+      }))
       expect(invocation.agent).toBe(name)
       await vi.waitFor(async () => {
         await expect(definition.invocations?.get(invocation.id)).resolves.toMatchObject({ agentName: name })
@@ -2497,27 +2502,18 @@ describe("Agent invocation console", () => {
     const detailEvent = (id: string, body?: unknown): ConsoleRequestEvent => {
       const method = body === undefined ? "GET" : "POST"
       const url = `http://localhost/api/_vitehub/console/invocations/${id}`
-      return {
-        headers: new Headers({ host: "localhost" }),
-        method,
-        node: { req: { method, socket: { remoteAddress: "127.0.0.1" }, url } },
-        req: { ...(body === undefined ? {} : { json: async () => body }), method, url },
-      }
+      return consoleEvent({ body, method, remoteAddress: "127.0.0.1", url })
     }
     const install = (invoke: boolean) => installConsoleAgentDefinitions([
       { definition: { default: definition }, fallbackName: "help" },
     ], { invoke, projectRoot: root })
     try {
       install(true)
-      const running = await agentInvocationsHandler({
+      const running = await agentInvocationsHandler(consoleEvent({
         context: { params: { agent: "support" } },
-        method: "POST",
-        req: {
-          json: async () => ({ prompt: "Compile the digest." }),
-          method: "POST",
-          url: "http://localhost/api/_vitehub/console/agents/support/invocations",
-        },
-      })
+        body: ({ prompt: "Compile the digest." }),
+        url: "http://localhost/api/_vitehub/console/agents/support/invocations",
+      }))
       await vi.waitFor(async () => {
         expect(handlerStarted).toBe(true)
         await expect(definition.invocations?.get(running.id)).resolves.toMatchObject({ status: "running" })
@@ -2580,15 +2576,16 @@ describe("Agent invocation console", () => {
     const request = (id: string, body?: unknown): ConsoleRequestEvent => {
       const method = body === undefined ? "GET" : "POST"
       const url = `http://localhost/api/_vitehub/console/invocations/${id}`
-      return { headers: new Headers({ host: "localhost" }), method, node: { req: { method, socket: { remoteAddress: "127.0.0.1" }, url } }, req: { ...(body === undefined ? {} : { json: async () => body }), method, url } }
+      return consoleEvent({ body, method, remoteAddress: "127.0.0.1", url })
     }
     try {
       installConsoleAgentDefinitions([{ definition: { default: definition }, fallbackName: "help" }], { invoke: true, projectRoot: root })
       installConsoleInvocations(root, invocations)
-      const { id } = await agentInvocationsHandler({
-        context: { params: { agent: "support" } }, method: "POST",
-        req: { json: async () => ({ prompt: "Work until released." }), method: "POST", url: "http://localhost/api/_vitehub/console/agents/support/invocations" },
-      })
+      const { id } = await agentInvocationsHandler(consoleEvent({
+        context: { params: { agent: "support" } },
+        body: { prompt: "Work until released." },
+        url: "http://localhost/api/_vitehub/console/agents/support/invocations",
+      }))
       await vi.waitFor(() => expect(signal).toBeDefined())
       // A replacement owner writes a terminal state while the original handler still runs.
       await backing.update(id, { status, timestamp: new Date().toISOString() })
@@ -2618,15 +2615,11 @@ describe("Agent invocation console", () => {
       invoker: { profiles: [{ id: "support", kind: "person" }] },
       name: "support",
     })
-    const request = (body: unknown) => ({
+    const request = (body: unknown) => consoleEvent({
       context: { params: { agent: "support" } },
-      method: "POST",
-      req: {
-        json: async () => body,
-        method: "POST",
-        url: "http://localhost/api/_vitehub/console/agents/support/invocations",
-      },
-    }) satisfies ConsoleRequestEvent
+      body,
+      url: "http://localhost/api/_vitehub/console/agents/support/invocations",
+    })
     try {
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },

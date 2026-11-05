@@ -1,3 +1,4 @@
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { consoleAttachmentRequestBytes, consoleInputMessage, withConsoleInputMessage } from "./attachments.ts"
 import { agentInvocationId, createMessage, deserializeMessages, isAttachmentPart, startAgentInvocation } from "@vite-hub/agent"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
@@ -123,7 +124,7 @@ const agentInvocationsHandler: (event: ConsoleRequestEvent, access: ConsoleAcces
     throw consoleError(400, "Unknown Agent invocation profile.")
   }
 
-  const tasks = createRuntimeWaitUntilController({ forward: event.waitUntil })
+  const tasks = createRuntimeWaitUntilController({ forward: getStandardContext(event).waitUntil })
   const context = createExecutionContext({
     agentIdentity: { name },
     capabilities: { ...getConsoleAgentCapabilities(), console },

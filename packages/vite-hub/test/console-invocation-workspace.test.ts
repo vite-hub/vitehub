@@ -6,11 +6,12 @@ vi.mock("../src/console/runtime/server/agents.ts", () => ({ getConsoleAgentDefin
 vi.mock("@vite-hub/workspace/runtime", () => ({ useWorkspace: mocks.useWorkspace }))
 import handlerRoute from "../src/console/runtime/server/invocation-workspace.get.ts"
 import { allowed } from "./support/console-access.ts"
+import { consoleEvent } from "./console-event.ts"
 const handler = allowed(handlerRoute)
 const request = (path?: string, query: Record<string, string> = {}) => {
   const params = new URLSearchParams(path === undefined ? query : { ...query, path })
   const search = params.toString()
-  return { method: "GET", context: { params: { id: "run" } }, req: { url: `http://localhost/api/_vitehub/console/invocations/run/workspace${search ? `?${search}` : ""}` } }
+  return consoleEvent({ context: { params: { id: "run" } }, url: `http://localhost/api/_vitehub/console/invocations/run/workspace${search ? `?${search}` : ""}` })
 }
 beforeEach(() => {
   vi.resetAllMocks()

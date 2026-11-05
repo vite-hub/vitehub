@@ -1,3 +1,4 @@
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { handleChannelReplayRequest } from "@vite-hub/agent/server/internal"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 
@@ -17,8 +18,7 @@ function replayError(message: string, status: number): Response {
 }
 
 function header(event: ConsoleRequestEvent, name: string): string | undefined {
-  const raw = event.req?.headers?.get(name) ?? event.headers?.get(name) ?? event.node?.req?.headers?.[name]
-  return (Array.isArray(raw) ? raw[0] : raw) ?? undefined
+  return getStandardContext(event).req.headers.get(name) ?? undefined
 }
 
 function memo() {
@@ -36,8 +36,7 @@ function memo() {
  */
 async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleAccess): Promise<Response> {
   setConsoleResponseHeaders(event)
-  const method = event.method ?? event.req?.method ?? event.node?.req?.method
-  if (method !== "POST") return replayError("Method not allowed.", 405)
+  if (getStandardContext(event).req.method !== "POST") return replayError("Method not allowed.", 405)
   // A JSON content type and a same-origin check keep browsers from sending cross-site replay requests.
   if (!header(event, "content-type")?.toLowerCase().startsWith("application/json")) return replayError("Channel replay requires application/json.", 415)
   const url = consoleRequestURL(event)
@@ -65,7 +64,7 @@ async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleA
   const agent = getConsoleAgentDefinition(name)
   if (!agent) return replayError("Channel replay is not available. Enable Console invocation for this Agent.", 404)
   const actor = consoleAccessActor(access.user)
-  const tasks = createRuntimeWaitUntilController({ forward: event.waitUntil })
+  const tasks = createRuntimeWaitUntilController({ forward: getStandardContext(event).waitUntil })
   const context = createExecutionContext<AgentRuntimeContext>({
     agentIdentity: { name },
     ...(actor ? { actor } : {}),

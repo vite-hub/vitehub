@@ -15,6 +15,7 @@ import type { ConsoleDefinitionSummary, ConsoleSectionCatalog } from "../src/con
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import { allowed } from "./support/console-access.ts"
+import { consoleEvent } from "./console-event.ts"
 
 const definitionsHandler = allowed(definitionsHandlerRoute)
 
@@ -22,11 +23,7 @@ const definitionsHandler = allowed(definitionsHandlerRoute)
 const scope = globalThis as ConsoleInvocationScope
 
 function event(query = "", method = "GET"): ConsoleRequestEvent {
-  return {
-    method,
-    node: { req: { method, url: `http://localhost/api/_vitehub/console/definitions${query}` } },
-    req: { method, url: `http://localhost/api/_vitehub/console/definitions${query}` },
-  }
+  return consoleEvent({ method, url: `http://localhost/api/_vitehub/console/definitions${query}` })
 }
 
 function catalog(name: string): ConsoleSectionCatalog["content"] {

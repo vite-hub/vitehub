@@ -1,7 +1,7 @@
 import { defineOperation, operationAccessAllows, operationCall, operationSection } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
-import { bindConsoleAccess, consoleOperationAccess } from "./access.ts"
+import { bindConsoleAccess, consoleOperationAccess, consoleRequest } from "./access.ts"
 import { consoleAttachmentRequestBytes, consoleDocumentActionNames, maximumConsoleDocumentRequestBytes, maximumConsoleMediaRequestBytes, maximumConsoleRpcRequestBytes } from "./limits.ts"
 import { consoleRequestError } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
@@ -51,14 +51,18 @@ function legacyEvent(route: string, method: "GET" | "POST", request: LegacyReque
   const params: Record<string, string> = {}
   if (request.agent) params.agent = request.agent
   if (request.id) params.id = request.id
+  const body = method === "POST" && request.body !== undefined ? JSON.stringify(request.body) : undefined
   const event: ConsoleRequestEvent = {
-    env: context.env,
     context: Object.keys(params).length ? { params } : undefined,
-    method,
-    req: { json: async () => request.body, method, signal: context.request?.signal, url },
-    res: context.response ?? {},
+    // The handlers of an operation read this request event as they read the one of an HTTP route.
+    "~standard": {
+      vendor: "vitehub-console",
+      req: new Request(url, { body, method, signal: context.request?.signal }),
+      res: context.response ?? {},
+      runtime: context.env ? { cloudflare: { env: context.env } } : {},
+      ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}),
+    },
   }
-  if (context.waitUntil) event.waitUntil = context.waitUntil
   return bindConsoleAccess(context.access, event)
 }
 
@@ -295,7 +299,7 @@ const searchQuery = defineConsoleOperation({
   name: "search.query",
   run: async (input, context) => {
     const event = legacyEvent("search", "GET", { query: input }, context)
-    const response = await (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./search.get.ts"))).consoleSearchCollectionHandler.fetch(new Request(event.req!.url!, { method: "GET" }))
+    const response = await (await (import.meta.viteHubConsoleAgents === false ? disabledConsoleFeature("Agents") : import("./search.get.ts"))).consoleSearchCollectionHandler.fetch(new Request(consoleRequest(event).url, { method: "GET" }))
     if (!response.ok) throw await searchError(response)
     return await response.json()
   },

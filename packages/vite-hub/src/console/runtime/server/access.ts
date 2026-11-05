@@ -1,4 +1,5 @@
 import { installOperationSectionResolver, operationAccessAllows } from "@vite-hub/internal/operations"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
@@ -168,7 +169,7 @@ export function consoleAppSignIn(event: ConsoleRequestEvent): Promise<Response> 
 
 /** Whether a GET or HEAD explicitly accepts a Console HTML page with nonzero quality. */
 export function isConsolePageVisit(event: ConsoleRequestEvent): boolean {
-  const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
+  const method = getStandardContext(event).req.method.toUpperCase()
   if (method !== "GET" && method !== "HEAD") return false
   return consoleRequest(event).headers.get("accept")?.split(",").some((range) => {
     const [type, ...parameters] = range.split(";")
@@ -225,52 +226,9 @@ async function checkPageAccess(event: ConsoleRequestEvent): Promise<ConsoleAcces
   return access
 }
 
-/** Build the standard Fetch request passed to Console authorization and runtime contexts. */
+/** The Fetch request passed to Console authorization and runtime contexts: the request in the event's Standard Context. */
 export function consoleRequest(event: ConsoleRequestEvent): Request {
-  if (isRequestLike(event.req)) return event.req
-  const headers = new Headers()
-  const copyHeaders = (source: unknown, overwrite = true): void => {
-    const setHeader = (name: string, value: string): void => {
-      if (overwrite || !headers.has(name)) headers.set(name, value)
-    }
-    if (source instanceof Headers) {
-      source.forEach((value, name) => setHeader(name, value))
-      return
-    }
-    if (source !== null && typeof source === "object" && "get" in source && typeof source.get === "function") {
-      for (const name of ["accept", "authorization", "cookie", "content-type", "host", "origin", "user-agent", "x-forwarded-host", "x-forwarded-proto"]) {
-        const value = source.get(name)
-        if (typeof value === "string") setHeader(name, value)
-      }
-      return
-    }
-    if (source === null || typeof source !== "object") return
-    for (const [name, value] of Object.entries(source)) {
-      if (value !== undefined) setHeader(name, Array.isArray(value) ? value.join(", ") : String(value))
-    }
-  }
-  // Match consoleRequestURL(): request headers take precedence per header,
-  // followed by event-level and Node request headers as fallbacks.
-  copyHeaders(event.node?.req?.headers)
-  copyHeaders(event.headers)
-  copyHeaders(event.req?.headers, true)
-  return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
-}
-
-function isRequestLike(value: unknown): value is Request {
-  if (value === null || typeof value !== "object") return false
-  try {
-    const request = value as Record<string, unknown>
-    const headers = request.headers
-    return typeof request.method === "string"
-      && typeof request.url === "string"
-      && headers !== null
-      && typeof headers === "object"
-      && typeof (headers as { get?: unknown }).get === "function"
-      && ["clone", "arrayBuffer", "blob", "formData", "json", "text"].every(method => typeof request[method] === "function")
-      && "body" in request && "bodyUsed" in request && "signal" in request
-  }
-  catch { return false }
+  return getStandardContext(event).req
 }
 
 function isSectionId(value: unknown): value is ConsoleSectionId {

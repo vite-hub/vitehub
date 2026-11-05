@@ -1,76 +1,35 @@
-import { runInNewContext } from "node:vm"
-
 import { describe, expect, it } from "vitest"
 
+import { installStandardContext } from "../src/runtime/h3.ts"
 import { consoleRequest } from "../src/console/runtime/server/access.ts"
 import { consoleRequestURL } from "../src/console/runtime/server/request.ts"
 
-describe("Console request header reconstruction", () => {
-  it("uses the same per-header fallbacks as URL reconstruction", () => {
-    const event = {
-      method: "GET",
-      req: {
-        headers: { get: (name: string) => name === "authorization" ? "Bearer token" : null },
-        url: "/_vitehub/console",
+import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
+
+function event(url: string, headers: Record<string, string> = {}): ConsoleRequestEvent {
+  return { "~standard": { vendor: "test", req: new Request(url, { headers }), res: { headers: new Headers() } } }
+}
+
+describe("Console request URL", () => {
+  it("passes the Standard Context request to authorization and runtime contexts", () => {
+    const standard = event("http://console.example/_vitehub/console", { authorization: "Bearer token" })
+    expect(consoleRequest(standard)).toBe(standard["~standard"].req)
+  })
+
+  it("applies the host and scheme that a proxy forwards", () => {
+    const forwarded = event("http://internal.example/_vitehub/console", { "x-forwarded-host": "console.example, proxy", "x-forwarded-proto": "https" })
+    expect(consoleRequestURL(forwarded).toString()).toBe("https://console.example/_vitehub/console")
+    expect(consoleRequestURL(event("http://internal.example/_vitehub/console")).toString()).toBe("http://internal.example/_vitehub/console")
+  })
+
+  it("keeps the mounted base of an H3 1 request", () => {
+    const h3V1 = {
+      node: {
+        req: { headers: { host: "console.example" }, method: "GET", originalUrl: "/portal/_vitehub/console", url: "/_vitehub/console" },
+        res: {},
       },
-      headers: { get: (name: string) => name === "origin" ? "https://console.example" : null },
-      node: { req: { headers: { host: "console.example" } } },
     }
-
-    const request = consoleRequest(event)
-    expect(request.url).toBe(consoleRequestURL(event).toString())
-    expect(request.headers.get("authorization")).toBe("Bearer token")
-    expect(request.headers.get("origin")).toBe("https://console.example")
-    expect(request.headers.get("host")).toBe("console.example")
-  })
-
-  it("copies headers from a Headers-like object created in another realm", () => {
-    const headers = runInNewContext("({ get: name => name === 'authorization' ? 'Bearer token' : null })")
-    const request = consoleRequest({ req: { headers, url: "/_vitehub/console" } })
-
-    expect(request.headers.get("authorization")).toBe("Bearer token")
-  })
-
-  it("keeps an empty higher-precedence header instead of falling back", () => {
-    const event = {
-      method: "GET",
-      req: {
-        headers: { get: (name: string) => name === "host" ? "" : null },
-        url: "/_vitehub/console",
-      },
-      node: { req: { headers: { host: "console.example" } } },
-    }
-
-    const request = consoleRequest(event)
-    expect(request.headers.get("host")).toBe("")
-    expect(consoleRequestURL(event).hostname).toBe("localhost")
-  })
-
-  it("keeps an empty event header instead of falling back to Node headers", () => {
-    const event = {
-      method: "GET",
-      req: { url: "/_vitehub/console" },
-      headers: { get: (name: string) => name === "host" ? "" : null },
-      node: { req: { headers: { host: "console.example" } } },
-    }
-
-    const request = consoleRequest(event)
-    expect(request.headers.get("host")).toBe("")
-    expect(consoleRequestURL(event).hostname).toBe("localhost")
-  })
-
-  it("combines forwarded URL headers across request containers", () => {
-    const event = {
-      method: "GET",
-      req: {
-        headers: { get: (name: string) => name === "authorization" ? "Bearer token" : null },
-        url: "/_vitehub/console",
-      },
-      headers: { get: (name: string) => ({ "x-forwarded-host": "console.example", "x-forwarded-proto": "https" })[name] ?? null },
-      node: { req: { headers: { host: "internal.example" } } },
-    }
-
-    expect(consoleRequestURL(event).toString()).toBe("https://console.example/_vitehub/console")
-    expect(consoleRequest(event).url).toBe("https://console.example/_vitehub/console")
+    installStandardContext(h3V1)
+    expect(consoleRequestURL(h3V1).toString()).toBe("http://console.example/portal/_vitehub/console")
   })
 })
