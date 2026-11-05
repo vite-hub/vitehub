@@ -47,8 +47,10 @@ export {
 } from "./sources/request-execution.ts"
 export type {
   ReadonlyWorkspaceFacade,
+  ReadonlyWorkspaceFiles,
   UseWorkspaceOptions,
   WritableWorkspaceFacade,
+  WritableWorkspaceFiles,
 } from "./core/use.ts"
 export type {
   WorkspaceSourceResolutionFacade,
