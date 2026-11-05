@@ -27,6 +27,10 @@ The commands call the same KV storage as the running app. Pass `--store <name>` 
 
 KV inspection represents `bigint` values, including nested values, as decimal strings. Values that cannot be serialized return `KV_VALUE_UNSUPPORTED`. Cloudflare write results report the effective TTL after rounding. The drivers cannot report how long a key has left, so `kv get` reports `expiry: "unknown"` (or `"none"` for `fs-lite`, which never expires keys). A write without `--ttl` removes an existing expiry, and the Console editor warns about it and has an **Expires in seconds** field.
 
+## Preview deployments
+
+A Cloudflare Version URL runs with the production resources of its Worker version, so it reads and writes production keys ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and two Previews that bind the same namespace `id` share its data ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). To give a preview its own namespace, set `KV_NAMESPACE_ID` or a separate `namespaceName` in the preview build. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
+
 ## Production checks
 
 KV prefixes are conventions, not relational models. Move data to Database when you need constraints, joins, migrations, history, or complex queries.

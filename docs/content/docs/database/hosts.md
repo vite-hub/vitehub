@@ -186,6 +186,10 @@ Run `vitehub provision run --provider cloudflare` to resolve the D1 id into `.vi
 `@vite-hub/database/nuxt` is a narrow Nuxt lifecycle bridge for one D1 Database Host Resource. Its main use is to keep Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface. For Cloudflare and Vercel builds, the module writes the hosted runtime, schema modules, and Definition defaults before Nitro resolves their imports. Explicit Nitro aliases take precedence.
 ::
 
+## Preview deployments
+
+A Cloudflare Version URL runs with the production resources of its Worker version, so it reads and writes production rows ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and two Previews that bind the same `database_id` share rows ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). To give a preview its own database, read `cloudflare.databaseName` from an Env declaration and provision it in a separate CI job. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
+
 ## Production checks
 
 - The Database Table Schema is the schema in code. The live schema can differ when migrations have not run or when an Agent has schema write permission.

@@ -136,6 +136,12 @@ BLOB_BUCKET_NAME=vitehub-blob
 
 ViteHub reads MinIO credentials from runtime env and masks them in generated provider output. It accepts the Files SDK names `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY`, plus Docker Compose aliases such as `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. `driver: 'minio'` defaults to path-style S3 requests, `us-east-1`, `http://localhost:9000`, and the `vitehub-blob` bucket. For production Docker deployments, use managed `s3` or a production S3-compatible store instead of a single-host Compose MinIO service.
 
+## Preview deployments
+
+A Cloudflare Version URL runs with the production resources of its Worker version, so it reads and writes production objects ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and two Previews that bind the same `bucket_name` share objects ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). Set `BLOB_BUCKET_NAME` in the preview build to use another bucket.
+
+On Vercel, a preview deployment uses the Blob store that is connected to the project in the Preview environment ([Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects)). `vitehub provision run --provider vercel` connects one store to Production, Preview, and Development, so previews share production blobs. To isolate them, connect a second store in the Preview environment in the Vercel dashboard. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
+
 ## Related guides
 
 Use [Cloudflare R2](/docs/guides/cloudflare-r2) or

@@ -46,3 +46,7 @@ Nitro is the only host output. The Queue Package discovers Queue Definitions, ge
 | Local | The Queue Nitro plugin. It reads `.vitehub/data/queue` when the server starts and runs the due jobs. |
 
 Do not import generated files from application code.
+
+## Preview deployments
+
+A Cloudflare Version URL runs with the production resources of its Worker version, so it sends to production queues ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). Two Cloudflare Previews that bind the same queue name send to the same queue ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). Set `queue.namePrefix` in the preview build to give it its own queues. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
