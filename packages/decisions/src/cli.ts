@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises"
 import { relative, resolve } from "node:path"
 import { parseArgs } from "node:util"
 
+import { withStdoutOnStderr } from "@vite-hub/internal/cli"
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { ChoicesError, ChoicesPlan, ChoicesResult } from "./types.ts"
 
@@ -33,7 +34,8 @@ interface ListedFile {
 class UsageError extends Error {}
 
 const sourceExtensions = /\.(?:[cm]?[jt]s)$/
-const skippedDirectories = new Set(["build", "coverage", "dist", "node_modules"])
+const testFiles = /\.(?:test|spec)\.[cm]?[jt]s$/
+const skippedDirectories = new Set(["__tests__", "build", "coverage", "dist", "node_modules", "test", "tests"])
 const definesChoices = /\bdefineChoices\s*\(/
 
 function isChoices(value: unknown): value is LoadedChoices {
@@ -68,7 +70,7 @@ async function findSourceFiles(directory: string, found: string[] = []): Promise
     if (entry.name.startsWith(".") || skippedDirectories.has(entry.name)) continue
     const path = resolve(directory, entry.name)
     if (entry.isDirectory()) await findSourceFiles(path, found)
-    else if (entry.isFile() && sourceExtensions.test(entry.name) && !entry.name.endsWith(".d.ts")) found.push(path)
+    else if (entry.isFile() && sourceExtensions.test(entry.name) && !testFiles.test(entry.name) && !entry.name.endsWith(".d.ts")) found.push(path)
   }
   return found
 }
@@ -98,7 +100,7 @@ function printTable(rows: string[][], stdout: ViteHubCliStreams["stdout"]): void
 
 async function runList(args: string[], context: CliContext): Promise<number> {
   const { values } = parseArgs({ args, allowPositionals: false, options: { json: { type: "boolean" } }, strict: true })
-  const files = await listDecisions(context.rootDir)
+  const files = await withStdoutOnStderr(() => listDecisions(context.rootDir), context.stderr)
   if (values.json) {
     context.stdout.write(`${JSON.stringify({ files }, null, 2)}\n`)
     return files.some(file => file.error) ? 1 : 0
@@ -145,8 +147,10 @@ async function runOne(args: string[], context: CliContext): Promise<number> {
   const path = resolve(context.rootDir, file)
   if (!(await stat(path).catch(() => undefined))?.isFile()) throw new UsageError(`${file} is not a file. Run vitehub decisions list to find the files that call defineChoices().`)
 
-  await loadProjectEnv(context)
-  const found = choicesOf(await loadModule(path, context.rootDir))
+  const found = await withStdoutOnStderr(async () => {
+    await loadProjectEnv(context)
+    return choicesOf(await loadModule(path, context.rootDir))
+  }, context.stderr)
   const names = found.map(item => item.export).join(", ")
   const chosen = values.export === undefined ? found : found.filter(item => item.export === values.export)
   if (!found.length) throw new UsageError(`${file} has no export from defineChoices().`)
@@ -154,7 +158,7 @@ async function runOne(args: string[], context: CliContext): Promise<number> {
   if (chosen.length > 1) throw new UsageError(`${file} has several exports from defineChoices(): ${names}. Pick one with --export.`)
 
   const choices = chosen[0]!.choices
-  const [error, data] = values.inspect ? await choices.inspect(text, request) : await choices.resolve(text, request)
+  const [error, data] = await withStdoutOnStderr(() => values.inspect ? choices.inspect(text, request) : choices.resolve(text, request), context.stderr)
   if (error) {
     context.stdout.write(errorJson(error))
     return 1

@@ -1,4 +1,5 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -9,6 +10,18 @@ import { createDecisionsCliNamespace } from "../src/cli.ts"
 
 const app = fileURLToPath(new URL("./fixtures/cli/app", import.meta.url))
 const broken = fileURLToPath(new URL("./fixtures/cli/broken", import.meta.url))
+const logging = fileURLToPath(new URL("./fixtures/cli/logging", import.meta.url))
+const runner = fileURLToPath(new URL("./fixtures/cli/runner.mjs", import.meta.url))
+
+function cliProcess(...args: string[]): Promise<{ code: number, stderr: string, stdout: string }> {
+  return new Promise((resolve, reject) => {
+    execFile(process.execPath, [runner, ...args], { cwd: logging }, (error, stdout, stderr) => {
+      const code = error ? error.code : 0
+      if (typeof code === "number") resolve({ code, stderr, stdout })
+      else reject(error)
+    })
+  })
+}
 
 async function cli(rootDir: string, feature: "list" | "run", ...args: string[]) {
   let stdout = ""
@@ -65,6 +78,62 @@ describe("vitehub decisions list", () => {
     const result = await cli(broken, "list", "--json")
     expect(result.code).toBe(1)
     expect(JSON.parse(result.stdout)).toEqual({ files: [{ choices: [], error: expect.stringContaining("The options database is offline."), file: "server/choices.mjs" }] })
+  })
+
+  it("skips test directories and colocated test and spec files", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-decisions-cli-"))
+    try {
+      for (const directory of ["test", "tests", "__tests__", "server"]) {
+        await mkdir(join(root, directory))
+      }
+      for (const file of ["test/choices.ts", "tests/choices.js", "__tests__/choices.mts", "server/choices.test.ts", "server/choices.spec.mjs"]) {
+        await writeFile(join(root, file), "// defineChoices() in a test must not be imported.\nthrow new Error('Test runner required')\n")
+      }
+      expect(await cli(root, "list", "--json")).toEqual({ code: 0, stderr: "", stdout: "{\n  \"files\": []\n}\n" })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+})
+
+describe("Decisions process stdout", () => {
+  it.each([
+    {
+      args: ["list", "--json"],
+      code: 0,
+      expected: { files: [{ choices: [{ export: "logging", name: "logging" }], file: "choices.ts" }] },
+      gateway: false,
+      options: false,
+    },
+    {
+      args: ["run", "choices.ts", "berlin"],
+      code: 0,
+      expected: { site: { exclude: [], include: ["ber"] } },
+      gateway: true,
+      options: true,
+    },
+    {
+      args: ["run", "choices.ts", "berlin", "--inspect"],
+      code: 0,
+      expected: { questions: expect.any(Object), state: expect.objectContaining({ query: "berlin" }) },
+      gateway: false,
+      options: true,
+    },
+    {
+      args: ["run", "choices.ts", "unsupported"],
+      code: 1,
+      expected: { error: { code: "DECISIONS_R0004", message: expect.any(String) } },
+      gateway: true,
+      options: true,
+    },
+  ])("keeps the complete stdout JSON for $args", async ({ args, code, expected, gateway, options }) => {
+    const result = await cliProcess(...args)
+    expect(result.code).toBe(code)
+    expect(JSON.parse(result.stdout)).toEqual(expected)
+    expect(result.stderr).toContain("module log")
+    expect(result.stderr.includes("options log")).toBe(options)
+    expect(result.stderr.includes("gateway log")).toBe(gateway)
   })
 })
 
