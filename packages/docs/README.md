@@ -168,8 +168,8 @@ Every page has a Markdown copy for coding agents. You get these routes with no s
 
 | Route | Content |
 | --- | --- |
-| `/raw/<page>.md` | The page as Markdown, with absolute links. `::agent-only` blocks stay in it. |
-| `/llms.txt`, `/llms-full.txt` | An index of every page, and every page in one file. |
+| `/raw/<page>.md` | The page as Markdown, with absolute links. `::agent-only` blocks stay in it. It ends with the pages of its section, the next page, and a link to `/llms.txt`. |
+| `/llms.txt`, `/llms-full.txt` | An index of every page, and every page in one file without the section links. |
 | `/sitemap.md`, `/sitemap.xml` | Every page, for agents and for search engines. |
 | `/mcp` | An MCP server with the `list-pages` and `get-page` tools. |
 | `/.well-known/skills/<name>/SKILL.md` | Agent Skills from the `skills/` folder of the app, when it has one. |

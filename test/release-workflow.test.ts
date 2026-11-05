@@ -73,7 +73,7 @@ describe("release workflow authority", () => {
     expect(publishNpm).toContain("Configure required reviewers and release-tag protection")
     expect(publishNpm).toMatch(/permissions:\n      contents: read\n      id-token: write\n/)
     expect(publishNpm).not.toContain("contents: write")
-    expect(publishNpm).toContain("voidzero-dev/setup-vp@68f39c78aaf39be468cabd2afb09c162574c84af # v1.21.2")
+    expect(publishNpm).toContain("voidzero-dev/setup-vp@cab1ab9eaff52d4857875f4f2c016e36af8f2c76 # v1.22.0")
     expect(publishNpm).toContain(
       'node-version: "24"\n          working-directory: trusted-source\n          run-install: false\n          cache: false',
     )
