@@ -20,6 +20,8 @@ export interface ConsoleMcpCaller {
 }
 
 interface PendingAuthorization {
+  /** Reserve a callback while the SDK still needs its PKCE verifier. */
+  completing?: boolean
   expiresAt: number
   prompt?: "login"
   state: string
@@ -39,6 +41,8 @@ interface StoredOAuth {
 interface StoredConnection {
   auth: ConsoleMcpAuth
   bearer?: string
+  /** The last client operation settles before another can use this grant or session. */
+  clientOperation?: Promise<void>
   consoleOrigin: string
   createdAt: number
   error?: string
@@ -59,7 +63,7 @@ interface StoredConnection {
 }
 
 interface ConsoleMcpState {
-  /** Registered OAuth clients, by authorization server and redirect URL. One registration serves every person. */
+  /** Registered OAuth clients, by authorization server, redirect URL, and resource. One registration serves every person of that resource. */
   clients: Map<string, OAuthClientInformationMixed>
   connections: Map<string, StoredConnection>
   discovered: Map<string, { at: number, servers: ConsoleMcpCandidate[] }>
@@ -236,7 +240,7 @@ async function readIdentity(connection: StoredConnection): Promise<ConsoleMcpIde
 
 function clientKey(connection: StoredConnection): string {
   const oauth = connection.oauth!
-  return `${oauth.discovery?.authorizationServerUrl ?? new URL(connection.url).origin}\n${oauth.redirectUrl}`
+  return `${oauth.discovery?.authorizationServerUrl ?? new URL(connection.url).origin}\n${oauth.redirectUrl}\n${connection.url}`
 }
 
 /**
@@ -281,9 +285,10 @@ function oauthProvider(connection: StoredConnection, onAuthorize?: () => void): 
       if (credentials === "all" || credentials === "discovery") oauth.discovery = undefined
     },
     redirectToAuthorization: (url) => {
+      const validated = serverUrl(url.href, connection.consoleOrigin)
       const current = pending()
-      if (current.prompt) url.searchParams.set("prompt", [current.prompt, ...(url.searchParams.get("prompt")?.split(" ") ?? [])].filter((value, index, all) => all.indexOf(value) === index).join(" "))
-      current.url = url
+      if (current.prompt) validated.searchParams.set("prompt", [current.prompt, ...(validated.searchParams.get("prompt")?.split(" ") ?? [])].filter((value, index, all) => all.indexOf(value) === index).join(" "))
+      current.url = validated
     },
     saveClientInformation: (information) => {
       clients.set(clientKey(connection), information)
@@ -334,12 +339,26 @@ class SignedOutError extends Error {
   }
 }
 
+interface ClientOptions { fresh?: boolean, timeoutMs?: number }
+
+/** Browser aborts can leave server operations running. Serialize clients per connection, including replacement loads. */
+function withClient<T>(caller: ConsoleMcpCaller, connection: StoredConnection, run: (client: Client) => Promise<T>, options: ClientOptions = {}): Promise<T> {
+  const operation = (connection.clientOperation ?? Promise.resolve()).then(() => runClient(caller, connection, run, options))
+  // A rejected operation must release the next one as well.
+  const settled = operation.then(() => {}, () => {})
+  connection.clientOperation = settled
+  void settled.then(() => {
+    if (connection.clientOperation === settled) delete connection.clientOperation
+  })
+  return operation
+}
+
 /**
  * Run `run` with an MCP client of the connection. The client reuses the MCP session of the connection when the server
  * gave one, and starts a new session when the server forgot it. A grant that the server rejects marks the connection
  * signed out.
  */
-async function withClient<T>(caller: ConsoleMcpCaller, connection: StoredConnection, run: (client: Client) => Promise<T>, options: { fresh?: boolean, timeoutMs?: number } = {}): Promise<T> {
+async function runClient<T>(caller: ConsoleMcpCaller, connection: StoredConnection, run: (client: Client) => Promise<T>, options: ClientOptions): Promise<T> {
   let authorizing = false
   let challenge: Challenge | undefined
   const fetchWithTimeout = withTimeout(options.timeoutMs ?? requestTimeoutMs, connection.consoleOrigin)
@@ -604,9 +623,10 @@ export async function completeConsoleMcp(caller: ConsoleMcpCaller, input: { code
   const owner = await ownerOf(caller)
   const connection = owned(owner).find(candidate => candidate.oauth?.pending?.state === input.state)
   // A state of another person, an expired one, or one used before reads the same: the sign-in is not known.
-  if (!connection?.oauth?.pending) throw consoleRequestError(404, "This sign-in is not known. It expired, finished already, or was started by someone else. Start it again.", "CONSOLE_MCP_AUTHORIZATION_FAILED")
+  if (!connection?.oauth?.pending || connection.oauth.pending.completing) throw consoleRequestError(404, "This sign-in is not known. It expired, finished already, or was started by someone else. Start it again.", "CONSOLE_MCP_AUTHORIZATION_FAILED")
   const oauth = connection.oauth
   const pending = oauth.pending!
+  pending.completing = true
   if (input.error || !input.code) {
     delete oauth.pending
     connection.status = oauth.tokens ? "signed-out" : "failed"
@@ -614,8 +634,9 @@ export async function completeConsoleMcp(caller: ConsoleMcpCaller, input: { code
     throw consoleRequestError(400, connection.error, "CONSOLE_MCP_AUTHORIZATION_FAILED")
   }
   // RFC 9207: require the issuer when advertised, and reject any supplied issuer that differs from discovery.
-  const metadata = oauth.discovery?.authorizationServerMetadata
-  const missingIssuer = metadata !== undefined && "authorization_response_iss_parameter_supported" in metadata && metadata.authorization_response_iss_parameter_supported === true && !input.iss
+  // The SDK's OpenID metadata type omits this RFC 9207 extension.
+  const metadata: Record<string, unknown> = { ...oauth.discovery?.authorizationServerMetadata }
+  const missingIssuer = metadata?.authorization_response_iss_parameter_supported === true && !input.iss
   if (missingIssuer || (input.iss !== undefined && input.iss !== metadata?.issuer)) {
     delete oauth.pending
     connection.status = "failed"
