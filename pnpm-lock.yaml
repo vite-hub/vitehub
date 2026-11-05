@@ -837,9 +837,6 @@ importers:
       '@valibot/to-json-schema':
         specifier: catalog:runtime
         version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
-      '@vercel/connect':
-        specifier: 2.4.0
-        version: 2.4.0(1a22172d7ce8de142aedb344320b1a53)
       '@vercel/nft':
         specifier: catalog:vercel
         version: 1.11.0(rollup@4.64.0)
