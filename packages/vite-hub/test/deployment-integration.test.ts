@@ -344,9 +344,9 @@ describe("built-in deployment preset integration", () => {
       const moduleUrl = pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href
       const token = execFileSync(process.execPath, ["--input-type=module", "-e", `
         const { useServerEnv } = await import(${JSON.stringify(moduleUrl)})
-        const serverEnv = useServerEnv({
-          env: { VITEHUB_GITHUB_TOKEN: "", FORGES_GITHUB_TOKEN: "fallback-token", GH_TOKEN: "ignored-token", GITHUB_TOKEN: "ignored-token", TELEGRAM_BOT_TOKEN: "telegram-token" },
-        })
+        const env = { VITEHUB_GITHUB_TOKEN: "", FORGES_GITHUB_TOKEN: "fallback-token", GH_TOKEN: "ignored-token", GITHUB_TOKEN: "ignored-token", TELEGRAM_BOT_TOKEN: "telegram-token" }
+        // A request event whose Standard Context carries these Cloudflare bindings.
+        const serverEnv = useServerEnv({ "~standard": { vendor: "test", req: new Request("https://example.test/"), res: {}, runtime: { cloudflare: { env } } } })
         console.log(serverEnv.github.token.unseal())
       `], { encoding: "utf8" })
       expect(token.trim()).toBe("fallback-token")
