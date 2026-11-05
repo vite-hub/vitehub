@@ -205,7 +205,23 @@ A secret Server Env value is a `SecretEnv`. When code converts it to a string, t
 
 The rule reads the secret paths from `.vitehub/env/description.mjs`, which ViteHub writes when Vite resolves the config, for example on `vite dev`, `vite build`, `nuxt dev`, or `nuxt build`. It does not run before that file exists. It checks values from `useServerEnv()` and `await loadServerEnv()` of `#vitehub/env/server`, and names destructured from them. It follows bindings, so a parameter or `catch` variable with the same name is not a secret. It reports a secret in a template literal, with `+`, `==`, or `!=`, compared with `===` or `!==` to a value, as an argument of `String()`, `JSON.stringify()`, `Buffer.from()`, `encodeURIComponent()`, `btoa()`, or `encode()`, and as a value in a `headers` object. It does not report a secret that goes into `console.*()` or a logger call such as `logger.info()`, where `<redacted>` is the intended output. It still reports a secret that another call uses first, as in `logger.info(await fetch(url, { headers }))`.
 
+The examples read this secret:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { env } from '@vite-hub/env/vite'
+
+export default defineConfig({
+  env: {
+    server: {
+      github: { token: env({ secret: true, source: env.source('GITHUB_TOKEN') }) },
+    },
+  },
+})
+```
+
 ```ts [server/api/issues.get.ts]
+import { defineEventHandler } from 'h3'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler(async (event) => {
@@ -218,6 +234,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/issues.get.ts]
+import { defineEventHandler } from 'h3'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler(async (event) => {
@@ -245,7 +262,7 @@ In `vite.config.*` and `nuxt.config.*`, the rule reports these items in `env.ser
 
 It also reports credential options of `hubEmail()` and of the `email` option that are string literals or `process.env` reads. In server code, it reports string literals for credential keys in `defineAuth()`, `google()` and `apiKey()` from `vite-hub/connections`, and the Gateway presets from `vite-hub/gateways`, including their `headers`.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fails=TS2769
 import { defineConfig } from 'vite'
 import { env } from '@vite-hub/env/vite'
 
@@ -253,7 +270,7 @@ export default defineConfig({
   env: {
     server: {
       // Invalid: the token is in the build output.
-      githubToken: env({ secret: true, default: 'ghp_123' }),
+      slackToken: env({ secret: true, default: 'xoxb-123' }),
       airtableToken: process.env.AIRTABLE_TOKEN,
     },
   },
@@ -268,7 +285,7 @@ export default defineConfig({
   env: {
     server: {
       // Valid
-      githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+      slackToken: env({ secret: true, source: env.source('SLACK_TOKEN') }),
       airtableToken: env({ secret: true, source: env.source('AIRTABLE_TOKEN') }),
     },
   },
@@ -315,7 +332,23 @@ A Server Env value with `source: env.provider(...)` comes from an Env provider, 
 
 The rule reads provider-backed paths from `.vitehub/env/description.mjs`. It does not run before ViteHub writes that file. It reports property reads and destructuring of those paths from `useServerEnv()`.
 
+The examples read this key from a `crm` Env provider:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { env } from '@vite-hub/env/vite'
+
+export default defineConfig({
+  env: {
+    server: {
+      crm: { key: env({ secret: true, source: env.provider('crm', 'api-key') }) },
+    },
+  },
+})
+```
+
 ```ts [server/api/crm.get.ts]
+import { defineEventHandler } from 'h3'
 import { useServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler((event) => {
@@ -326,6 +359,7 @@ export default defineEventHandler((event) => {
 ```
 
 ```ts [server/api/crm.get.ts]
+import { defineEventHandler } from 'h3'
 import { loadServerEnv } from '#vitehub/env/server'
 
 export default defineEventHandler(async (event) => {
@@ -403,7 +437,7 @@ export default defineEventHandler(async () => await limiter.consume({ key: 'sear
 
 `defineAuth()` resolves `baseURL`, `secret`, and `secrets` at runtime. The build accepts them in the static options object, then `defineAuth()` throws `AUTH_C0037` when the server loads the Auth Definition.
 
-```ts [server/auth.ts]
+```ts [server/auth.ts] fails=TS2769
 import { defineAuth } from 'vite-hub/auth'
 
 // Invalid
@@ -426,9 +460,20 @@ Read [Configure Auth](/docs/auth/configure).
 
 **Do not claim an Agent actor in `useConnection()`.** Rule `vitehub/no-agent-connection-actor`.
 
-Only the Agent runtime can act as an Agent. `useConnection(name, { actor: 'agent:…' })` throws `CONNECTIONS_INVALID_ACTOR` on its first call.
+Only the Agent runtime can act as an Agent. `useConnection(name, { actor: 'agent:…' })` throws `CONNECTIONS_INVALID_ACTOR` on its first call. The examples use this `google` Connection:
+
+```ts [server/connections/google.ts]
+import { defineConnection } from 'vite-hub/connections'
+import { google } from 'vite-hub/connections/google'
+
+export default defineConnection({
+  provider: google({ clientId: 'gmail-client-id', clientSecret: () => process.env.GOOGLE_CLIENT_SECRET! }),
+  scopes: ['https://www.googleapis.com/auth/gmail.readonly'],
+})
+```
 
 ```ts [server/api/labels.get.ts]
+import { defineEventHandler } from 'h3'
 import { useConnection } from 'vite-hub/connections/server'
 
 // Invalid
@@ -436,6 +481,7 @@ export default defineEventHandler(() => useConnection('google', { actor: 'agent:
 ```
 
 ```ts [server/api/labels.get.ts]
+import { defineEventHandler } from 'h3'
 import { useConnection } from 'vite-hub/connections/server'
 
 // Valid
@@ -452,7 +498,7 @@ Give the Agent the Connection through its Connection Capability. Read [Connectio
 
 The rule reports `image()` and `file()` as entries of `object()`, `looseObject()`, `strictObject()`, and `objectWithRest()` from `valibot`. It does not check Zod, because `z.object()` already throws when it gets one.
 
-```ts [server/schemas.ts]
+```ts [server/schemas.ts] fails=TS2322
 import * as v from 'valibot'
 import { image } from 'vite-hub/blob'
 
@@ -478,14 +524,22 @@ A Runtime Helper gets a literal name that matches no Definition that ViteHub dis
 
 The rule checks the first argument of `runQueue()`, `deferQueue()`, `getQueue()`, `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows, and Workflows that the same file registers with `createWorkflow(name, handler)`, `createWorkflow({ name, handler })`, or an Agent `runtime: workflow(name)`. `useDatabase('default')` is always accepted. The rule does not check `runSchedule(name, { registry })`, which reads its own registry, and it does not see Workflows that another file registers with `createWorkflow()`.
 
-```ts [server/api/signup.post.ts]
+```ts [server/utils/signup.ts] fails=TS2345
 import { runQueue } from 'vite-hub/queue'
 
-// Invalid: the file is server/queues/welcome-email.ts
-await runQueue('welcom-email', { email })
+export async function signUp(email: string) {
+  // Invalid: the file is server/queues/welcome-email.ts
+  await runQueue('welcom-email', { email })
+}
+```
 
-// Valid
-await runQueue('welcome-email', { email })
+```ts [server/utils/signup.ts]
+import { runQueue } from 'vite-hub/queue'
+
+export async function signUp(email: string) {
+  // Valid
+  await runQueue('welcome-email', { email })
+}
 ```
 
 Doctor runs the discovery of each owner package. It does not check a kind that has no Definition files, because plugins can contribute Definitions that Doctor cannot see. It does not check names that are not string literals.
@@ -509,7 +563,9 @@ Move helpers out of the Definition directory, for example to `server/utils/`, an
 // Valid
 import { defineQueue } from 'vite-hub/queue'
 
-export default defineQueue(async ({ payload }) => {})
+export default defineQueue<{ email: string }>(async ({ payload }) => {
+  console.log(`Welcome ${payload.email}`)
+})
 ```
 
 ## VHUB0015
@@ -542,14 +598,22 @@ An Agent can extend an Agent from any file, so the rule checks `defineAgent()` o
 
 `runQueue()`, `deferQueue()`, `dynamicQueue.run()`, and `dynamicQueue.defer()` take the payload and the options as separate arguments. ViteHub does not read enqueue options from the payload. A call that wraps the payload with `delaySeconds`, `idempotencyKey`, `retentionSeconds`, or `contentType` sends the whole object as the payload, and the options have no effect.
 
-```ts [server/api/signup.post.ts]
+```ts [server/utils/signup.ts] fails=TS2353
 import { runQueue } from 'vite-hub/queue'
 
-// Invalid
-await runQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
+export async function signUp(email: string) {
+  // Invalid
+  await runQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
+}
+```
 
-// Valid
-await runQueue('welcome-email', { email }, { delaySeconds: 60 })
+```ts [server/utils/signup.ts]
+import { runQueue } from 'vite-hub/queue'
+
+export async function signUp(email: string) {
+  // Valid
+  await runQueue('welcome-email', { email }, { delaySeconds: 60 })
+}
 ```
 
 The rule accepts a payload with a `payload` field and no option keys, because that is application data.
@@ -558,7 +622,15 @@ The rule accepts a payload with a `payload` field and no option keys, because th
 
 **Dispatch jobs inside a request.** Rule `vitehub/no-module-scope-dispatch`.
 
-`runQueue()`, `deferQueue()`, `getQueue()`, `runWorkflow()`, `deferWorkflow()`, `runSandboxTask()`, and `runBrowser()` run at module scope. The call runs once when the module loads, outside a request. ViteHub reads host bindings and `waitUntil` from the active request, so the call can fail or the job can be dropped on Cloudflare and Vercel.
+`runQueue()`, `deferQueue()`, `getQueue()`, `runWorkflow()`, `deferWorkflow()`, `runSandboxTask()`, and `runBrowser()` run at module scope. The call runs once when the module loads, outside a request. ViteHub reads host bindings and `waitUntil` from the active request, so the call can fail or the job can be dropped on Cloudflare and Vercel. The examples enqueue this `warmup` Queue:
+
+```ts [server/queues/warmup.ts]
+import { defineQueue } from 'vite-hub/queue'
+
+export default defineQueue(async () => {
+  console.log('Warming the cache')
+})
+```
 
 ```ts [server/plugins/warmup.ts]
 import { runQueue } from 'vite-hub/queue'
@@ -568,6 +640,7 @@ await runQueue('warmup', {})
 ```
 
 ```ts [server/api/warmup.post.ts]
+import { defineEventHandler } from 'h3'
 import { runQueue } from 'vite-hub/queue'
 
 // Valid
@@ -688,7 +761,7 @@ export default defineSchedule({ cron: '0 8 * * *', manual: true, handler })
 
 `defineOutboundChannel()` throws when its module loads if `connectors` is empty (`CHANNELS_C0003`), a connector has no `send` function (`CHANNELS_C0004`), or `defaultConnector` is not a connector name (`CHANNELS_C0005`). The registry loads the module on the first `send()`, so the error appears as a returned error at that moment. The rule reports these mistakes in object literals.
 
-```ts [server/channels/alerts.ts]
+```ts [server/channels/alerts.ts] fails=TS2353
 import { defineOutboundChannel } from 'vite-hub/channels'
 
 // Invalid
@@ -879,11 +952,21 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `queue: { ... }` ignores its fields. The preset selects the Queue provider.
 - In Vite, `vitehub({ env: { server, public, define } })` ignores these sections. They belong to the top-level `env` key of the Vite config.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fails=TS2353
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
 // Invalid
 export default defineConfig({
   plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],
 })
+```
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 // Valid
 export default defineConfig({
@@ -904,13 +987,15 @@ An app that uses ViteHub still has NuxtHub parts:
 - A `hub` key in `nuxt.config.ts`. `vite-hub/nuxt` does not read it, so these features stay off.
 - `hub:db`, `hub:kv`, `hub:blob`, or `@nuxthub/*` imports.
 
-```ts [nuxt.config.ts]
+```ts [nuxt.config.ts] fails=TS2353
 // Invalid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   hub: { kv: true },
 })
+```
 
+```ts [nuxt.config.ts]
 // Valid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],

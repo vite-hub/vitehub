@@ -42,6 +42,24 @@ describe("documentation snippet check", () => {
     ])
   }, 60_000)
 
+  it("requires a block marked fails to fail with exactly the errors that it names", () => {
+    const [marked] = extractBlocks("```ts [server/auth.ts] fails=TS2322,TS2353\nexport const a = 1\n```")
+    expect(marked.fails).toEqual([2322, 2353])
+
+    const page = join(repoRoot, "docs/.snippets/fails-page")
+    const snippet = (name: string, code: string, fails: number[]) => ({ code, fails, file: join(page, name), fragment: false, line: 1, page: "fails-page.md" })
+    const { failures } = checkSnippets([
+      snippet("expected.ts", "export const count: number = 'one'", [2322]),
+      snippet("passes.ts", "export const count: number = 1", [2322]),
+      snippet("different.ts", "export const count: number = missing", [2322]),
+    ])
+
+    expect(failures.map(failure => [failure.snippet.file.slice(page.length + 1), failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["passes.ts", [0]],
+      ["different.ts", [0, 2304]],
+    ])
+  }, 60_000)
+
   it("imports the last full version of a file that the page shows above the importing block", () => {
     const pageRoot = join(repoRoot, "docs/.snippets/version-page")
     const snippet = (line: number, file: string, label: string, code: string, fragment = false) => ({ code, file: join(pageRoot, file), fragment, label, line, page: "version-page.md", pageRoot })
