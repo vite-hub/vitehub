@@ -76,7 +76,7 @@ function escapeRedisGlob(value: string): string {
 export default function createUpstashKVDriver(options: ResolvedUpstashKVStoreConfig): KVRuntimeDriver {
   // Let unstorage decode reads so typed text reads and GETDEL preserve the stored text, including "null".
   // SAFETY: The unstorage Upstash driver exposes getInstance and this adapter installs listKeys before returning.
-  const driver = createDriver({ ...options, automaticDeserialization: false }) as KVRuntimeDriver & { getInstance: () => Promise<UpstashClient> }
+  const driver = createDriver({ lib: () => import("@upstash/redis"), ...options, automaticDeserialization: false }) as KVRuntimeDriver & { getInstance: () => Promise<UpstashClient> }
   const maximumContinuationBytes = 1024 * 1024
   const expired = () => kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "expired" })
   const continuations = createKVContinuations<UpstashContinuation>({ expired, maximumBytes: maximumContinuationBytes })

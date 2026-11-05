@@ -170,14 +170,14 @@ The fix is complete when the consumer works without the patch. Retire combined p
 
 ## Visual and design work
 
-- Make interface, layout, and copy changes directly. Create a mock only when I ask.
+- Make interface, layout, and copy changes directly. Create a mock only when the task asks for one.
 - When T3 Code is the named reference, inspect its current source and screenshots. Do not copy it from memory.
 - Use Nuxt UI components when they fit. Match ViteHub's compact spacing and T3 Code's interaction patterns.
 - Prefer dense layouts, small icons, minimal copy, true black in dark mode, white primary text, and few borders.
 - Avoid decorative cards, pills, shadows, and subtitle rows.
 - Avoid continuously repainting animations such as pulse, shimmer, blur, and spinning loaders.
 - Check overflow, narrow widths, long tab lists, empty states, keyboard access, and panel resizing when they apply.
-- Ask before opening a browser or starting a development server unless the task already requests it.
+- Check an interface change in a browser before you report it, at the widths and themes it affects.
 
 ## Releases
 
@@ -191,18 +191,18 @@ An organization owner must allow GitHub Actions to create and approve pull reque
 
 ## Pull requests
 
-- Do not push changes, create a pull request, or update a pull request unless I ask.
+- A request to fix or build something includes a pushed branch and an open pull request, unless the request says to explore, review, plan, or hold.
 - Confirm the destination repository and check for an existing pull request before you open one.
 - Rebase onto the latest `main` before opening a pull request.
 - Open a real pull request, not a draft.
-- Keep one concern per pull request unless I ask to combine work.
+- Keep one concern per pull request unless the task asks to combine work.
 - Use the repository's conventional title style, for example `fix(workspace): preserve source grants`.
 - Start the body with the problem, then explain the fix in plain language. Omit commit hashes and boilerplate sections unless they help the reviewer.
 - End the body with the model and harness used.
-- Interface pull requests need before and after images. Changes to motion or timing need a short video. Upload this evidence to GitHub. Do not commit pull-request-only media.
+- Interface pull requests need before and after images. Changes to motion or timing need a short video. Attach this evidence to the pull request, as an upload or a linked page. Do not commit pull-request-only media.
 - When monitoring a pull request, inspect checks and comments newer than the last push. Verify bot findings against the source. Fix real issues and explain false positives. Separate code failures from infrastructure failures. Stay quiet when nothing changed. Stop when review bots and required checks are green on the latest commit.
-- Merge only when my request gives that authority.
-- Never force-push.
+- Merge only when the task gives that authority.
+- Force-push only when the task grants it, only to your own task branch, and only with `--force-with-lease`.
 
 Pull request work belongs in a dedicated worktree. Reuse an isolated task worktree, or create one from the refreshed target base. Inspect collisions and preserve other agents' work.
 
