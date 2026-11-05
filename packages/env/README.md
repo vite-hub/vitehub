@@ -286,10 +286,10 @@ Read the complete [Env guide](https://vitehub.dev/docs/env), the [host support m
 
 ```bash
 vitehub env inspect [--stage <name>] [--json]
-vitehub env check [--stage <name>] [--json]
+vitehub env check [--stage <name>] [--json] [--allow-missing-secrets]
 ```
 
-Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with status, source, required, and secret flags. Values are never printed. `env check` exits with `1` when `loadServerEnv()` would fail.
+Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with status, source, required, and secret flags. Values are never printed. `env check` exits with `1` when `loadServerEnv()` would fail. Where the host adds secrets at runtime, such as Worker secrets on Cloudflare, the build environment does not have them. In that build, `--allow-missing-secrets` lets a missing secret from the host environment pass. A missing value that is not secret, an invalid value, or a missing provider value still fails.
 
 ### Managed credentials
 

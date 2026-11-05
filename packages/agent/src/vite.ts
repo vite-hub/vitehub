@@ -20,6 +20,7 @@ import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
 import { isWebContainer } from "@vite-hub/web-container/env"
 import { validateWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
+import { resolveModulePath } from "exsolve"
 
 import {
   agentInvocationsDevGuard,
@@ -291,22 +292,27 @@ function configuredGeneratedAgentRuntimeCapabilities(
   })
 }
 
-async function resolveGeneratedAgentRuntimeCapabilities(
-  config: Pick<ResolvedConfig, "plugins" | "root"> & Partial<Pick<ResolvedConfig, "createResolver">>,
+/**
+ * Whether the generated ESM module at `importer` can import `specifier`. This uses Node resolution, not
+ * `config.createResolver()`: `configResolved` runs before Vite creates its environments, and plugins
+ * such as vite-plugin-inspect (Nuxt DevTools) wrap that resolver and throw without an environment.
+ */
+function canImportFrom(importer: string, specifier: string, aliases: ResolvedConfig["resolve"]["alias"], conditions: string[]): boolean {
+  // Keep explicit aliases eligible: Vite may resolve a source file or virtual module that Node cannot.
+  // In particular, customResolver hooks must wait until Vite loads the generated route.
+  if (aliases.some(({ find }) => typeof find === "string" ? specifier === find || specifier.startsWith(`${find}/`) : find.test(specifier))) return true
+  return resolveModulePath(specifier, { cache: false, conditions, from: pathToFileURL(importer), try: true }) !== undefined
+}
+
+function resolveGeneratedAgentRuntimeCapabilities(
+  config: Pick<ResolvedConfig, "plugins" | "root"> & { isProduction?: boolean; resolve?: Pick<ResolvedConfig["resolve"], "alias" | "conditions"> },
   packageImports: Record<string, false | string> = {},
-): Promise<GeneratedAgentRuntimeCapability[]> {
+): GeneratedAgentRuntimeCapability[] {
   const candidates = configuredGeneratedAgentRuntimeCapabilities(config.plugins || [], packageImports, viteHubProjectRoot(config))
-  const resolveImport = config.createResolver?.()
-  if (!resolveImport) return candidates
   const importer = join(resolveViteHubGeneratedRoot(config), "agent", "runtime-capabilities.js")
-  const resolved = await Promise.all(candidates.map(async (capability) => {
-    const importName = capability.packageName
-    if (importName === false) return { ...capability, packageName: importName }
-    return await resolveImport(importName, importer)
-      ? { ...capability, packageName: importName }
-      : undefined
-  }))
-  return resolved.filter((capability): capability is GeneratedAgentRuntimeCapability => capability !== undefined)
+  const aliases = config.resolve?.alias ?? []
+  const conditions = ["import", ...(config.resolve?.conditions ?? ["node"])].map(condition => condition === "development|production" ? config.isProduction ? "production" : "development" : condition)
+  return candidates.filter(capability => capability.packageName === false || canImportFrom(importer, capability.packageName, aliases, conditions))
 }
 
 function generatedAgentRuntimeCapabilityAlias(capability: GeneratedAgentRuntimeCapability): string {
@@ -3564,7 +3570,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       buildConfigs.set(config, build)
       const generatedRoot = resolveViteHubGeneratedRoot(config)
       await prepareSourceDefinitions(config, viteHubProjectRoot(config), serverDirs)
-      runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(
+      runtimeCapabilities = resolveGeneratedAgentRuntimeCapabilities(
         config,
         getInternalAgentOptions(agent)?.runtimeCapabilityImports ?? frameworkOptions?.runtimeCapabilityImports,
       )
