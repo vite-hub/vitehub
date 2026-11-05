@@ -3,9 +3,9 @@ import { Window } from "happy-dom"
 import { createApp, defineComponent, h, ref, type Component } from "vue"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ getSession: vi.fn(), requestConsole: vi.fn() }))
+const mocks = vi.hoisted(() => ({ getSession: vi.fn(), signOut: vi.fn(), requestConsole: vi.fn() }))
 vi.mock("@nuxt/ui/composables", () => ({ defineShortcuts: vi.fn() }))
-vi.mock("@vite-hub/auth/vue", () => ({ createAuthClient: () => ({ getSession: mocks.getSession }) }))
+vi.mock("@vite-hub/auth/vue", () => ({ createAuthClient: () => ({ getSession: mocks.getSession, signOut: mocks.signOut }) }))
 vi.mock("vite-hub/source/client", () => ({
   useCollection: () => ({ error: ref(), items: ref([]), pending: ref(false), refresh: vi.fn() }),
 }))
@@ -40,7 +40,13 @@ const stubs: Record<string, Component> = {
   UDashboardNavbar: defineComponent({ props: { title: String }, setup: props => () => h("h1", props.title) }),
   UDashboardPanel: defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.header?.(), slots.body?.()]) }),
   UDashboardSearchButton: slot,
-  UDropdownMenu: slot,
+  UDropdownMenu: defineComponent({
+    props: { items: Array },
+    setup: (props, { slots }) => () => h("div", [slots.default?.(), ...(props.items ?? []).flat().map((item) => {
+      const action = item as { label?: string, onSelect?: () => void }
+      return action.onSelect ? h("button", { "data-button": action.label, onClick: action.onSelect }, action.label) : null
+    })]),
+  }),
   UIcon: defineComponent({ props: { name: String }, setup: props => () => h("span", { "data-icon": props.name }) }),
   USkeleton: defineComponent({ setup: () => () => h("div", { "data-skeleton": "" }) }),
   UTooltip: slot,
@@ -62,13 +68,14 @@ function mount(component: Component, props: Record<string, unknown>) {
 const signedOut = () => Promise.reject(new ConsoleRequestError(401))
 
 /** A document whose visibility the test sets, with the sign-in page meta tag of a Console page. The Overview reads only these members. */
-function stubDocument(signInPage?: string): { show: () => void } {
+function stubDocument(signInPage?: string) {
   const target = new EventTarget()
   const meta = { getAttribute: (name: string) => (name === "content" ? signInPage : null) }
   const querySelector = (selector: string) => (signInPage && selector === 'meta[name="vitehub-console-sign-in"]' ? meta : null)
   const document = Object.assign(target, { querySelector, visibilityState: "hidden" })
   vi.stubGlobal("document", document)
   return {
+    document,
     show: () => {
       document.visibilityState = "visible"
       target.dispatchEvent(new Event("visibilitychange"))
@@ -82,6 +89,24 @@ afterEach(() => {
 })
 
 describe("signed-out Console", () => {
+  it.each(["/portal/sign-in?from=console", "/portal/_vitehub/sign-in"])("returns to configured page %s after account sign-out", async (signInPage) => {
+    const { document } = stubDocument(signInPage)
+    const assign = vi.fn()
+    const location = Object.assign(new URL("https://app.example.com/portal/_vitehub/kv?store=cache"), { assign })
+    vi.stubGlobal("window", Object.assign(new EventTarget(), { document, location }))
+    mocks.requestConsole.mockResolvedValue({ auth: true, sections: ["kv"] })
+    mocks.getSession.mockResolvedValue({ data: { session: { id: "session" }, user: { name: "Ada" } } })
+    mocks.signOut.mockResolvedValue({})
+    const { app, buttons, click } = mount(ConsoleRail, { sectionsBase: `/sign-out-${encodeURIComponent(signInPage)}/api/_vitehub/console/sections` })
+    try {
+      await vi.waitFor(() => expect(buttons()).toContain("Sign out"))
+      click("Sign out")
+      await vi.waitFor(() => expect(mocks.signOut).toHaveBeenCalledTimes(1))
+      expect(assign).toHaveBeenCalledExactlyOnceWith(`${signInPage}${signInPage.includes("?") ? "&" : "?"}redirect=%2Fportal%2F_vitehub%2Fkv%3Fstore%3Dcache`)
+    }
+    finally { app.unmount() }
+  })
+
   it("gives the Overview one state with one action, and opens the Console when the person returns signed in", async () => {
     mocks.requestConsole.mockImplementation(signedOut)
     const tab = stubDocument()

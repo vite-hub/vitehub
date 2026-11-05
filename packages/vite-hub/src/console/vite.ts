@@ -70,7 +70,7 @@ export interface ConsoleOptions {
   /**
    * Path of the app's sign-in page, such as `/sign-in`, for `auth: "app"` or `auth: false`. A signed-out visit to a
    * Console page goes there with `redirect` set to that page, and the Console links to it when a session ends.
-   * Console Auth has its own sign-in page.
+   * App Auth defaults to the built-in page at `/_vitehub/sign-in`, using its configured social providers.
    */
   signInPage?: string
 }
@@ -88,9 +88,7 @@ const localDevelopmentConsole: Readonly<LocalConsoleOptions> = Object.freeze({ a
  */
 export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefined {
   if (value === undefined || value === false) return undefined
-  if (value === true) {
-    throw viteHubErrorDiagnostics.VITE_HUB_B0003({ message: '[vitehub] console: true is not supported. Choose who can open the Console: console: { auth: false } for no sign-in, or console: { auth: "app" } to use your app Auth.' })
-  }
+  if (value === true) return { auth: "app" }
   if (!(value instanceof Object) || Array.isArray(value)) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, console: { auth: "app" } to use your app Auth, or console: { auth: { ... } } for Console Auth.' })
   }
@@ -112,6 +110,11 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
   }
   // SAFETY: `auth` and `signInPage` are checked above. The other fields keep their documented types and are checked where they are read.
   return value as ConsoleOptions
+}
+
+/** App Auth supplies the Console login flow unless the application overrides its page. */
+export function consoleSignInPageOption(options: ConsoleOptions | undefined): string | undefined {
+  return options?.signInPage ?? (options?.auth === "app" ? "/_vitehub/sign-in" : undefined)
 }
 
 /** Return the Console Auth config of the options, or `undefined` for `auth: false` and `auth: "app"`. */
@@ -348,7 +351,7 @@ export function resolveConsoleAccessBuild(
   const authorize = resolveConsoleAuthorizeFile(options.root, configured.authorize)
   const withAuthorize = (access: ConsoleAccessBuild): ConsoleAccessBuild => authorize ? { ...access, authorize } : access
   // Where a signed-out visit goes: the app's sign-in page, or the one of Console Auth.
-  const withSignInPage = (access: ConsoleAccessBuild, signInPage = configured.signInPage): ConsoleAccessBuild => signInPage ? { ...access, signInPage } : access
+  const withSignInPage = (access: ConsoleAccessBuild, signInPage = consoleSignInPageOption(configured)): ConsoleAccessBuild => signInPage ? { ...access, signInPage } : access
   if ("local" in configured && configured.local === true) return { mode: "local" }
   if (configured.auth === false || configured.auth === undefined) return withSignInPage(withAuthorize({ mode: "open" }))
   if (configured.auth === "app") {
@@ -648,7 +651,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       const nitro: ConsoleNitroConfig = consoleConfig.nitro
         ? { ...consoleConfig.nitro }
         : {}
-      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, baseURL, sections, consoleAuthHandlers, undefined, resolvedConsoleConfiguration?.signInPage)
+      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, baseURL, sections, consoleAuthHandlers, undefined, consoleSignInPageOption(resolvedConsoleConfiguration))
       if (Array.isArray(kit.config.plugins)) {
         const plugins = kit.config.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
         kit.config.plugins.splice(0, kit.config.plugins.length, ...plugins)
@@ -742,7 +745,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
               )
             }
             const nitro = (callbackState.config as typeof callbackState.config & { nitro?: ConsoleNitroConfig }).nitro ?? {}
-            const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, callbackState.baseURL, callbackState.sections, resolvedHandlers, callbackState.handlers, callbackState.consoleConfiguration?.signInPage)
+            const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, callbackState.baseURL, callbackState.sections, resolvedHandlers, callbackState.handlers, consoleSignInPageOption(callbackState.consoleConfiguration))
             const connectionsActor = callbackState.sections.includes("connections")
               ? await writeConsoleConnectionsActor(callbackState.root, resolvedHandlers.middleware)
               : undefined
@@ -805,7 +808,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       const scopedSections = resolvedConfigState?.sections ?? sections
       const scopedRoot = resolvedConfigState?.root ?? root
       const scopedBaseURL = resolvedConfigState?.baseURL ?? baseURL
-      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, scopedBaseURL, scopedSections, scopedAuthHandlers, previousConsoleAuthHandlers, (resolvedConfigState?.consoleConfiguration ?? resolvedConsoleConfiguration)?.signInPage)
+      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, scopedBaseURL, scopedSections, scopedAuthHandlers, previousConsoleAuthHandlers, consoleSignInPageOption(resolvedConfigState?.consoleConfiguration ?? resolvedConsoleConfiguration))
       const connectionsActor = scopedRoot && scopedSections.includes("connections")
         ? await writeConsoleConnectionsActor(scopedRoot, scopedAuthHandlers?.middleware)
         : undefined

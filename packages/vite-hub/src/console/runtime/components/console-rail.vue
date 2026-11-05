@@ -12,6 +12,7 @@ import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } fr
 import { useConsoleUpdate, watchConsoleBuild } from "../client/build";
 import { isConsoleSignInRequired } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
+import { consoleSignInURL } from "../client/sign-in";
 import { decodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { consoleGoToKey, consoleOverviewShortcut, consoleSectionShortcut, groupConsoleSections } from "../sections";
 import ConsoleMark from "./console-mark.vue";
@@ -187,7 +188,7 @@ async function consoleAuthClient(): Promise<ReturnType<typeof createAuthClient>>
       return Reflect.get(globalThis, Symbol.for("vitehub.console.auth.client")) as ReturnType<typeof createAuthClient> | undefined;
     })
     .catch(() => undefined)
-    .then((configured) => configured ?? createAuthClient({ basePath: authBase }));
+    .then((configured) => configured ?? createAuthClient({ basePath: document.querySelector('meta[name="vitehub-console-auth-base"]')?.getAttribute("content") || authBase }));
   return await authClientRequest;
 }
 
@@ -219,7 +220,7 @@ async function signOut(): Promise<void> {
     const authClient = await consoleAuthClient();
     const { error } = await authClient.signOut();
     if (error) throw error;
-    window.location.assign(signInURL);
+    window.location.assign(consoleSignInURL(window) ?? signInURL);
   } catch {
     userIdentity.value = undefined;
     signOutFailed.value = true;

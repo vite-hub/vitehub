@@ -113,7 +113,7 @@ export default defineNuxtConfig({
 
 Restart the development server after changing the option. Open `http://localhost:3000/_vitehub`, using your app's actual origin and port.
 
-`console: true` is not valid. ViteHub stops with an error that names `auth: false` and `auth: 'app'`. A `console` object without `auth` also fails.
+`console: true` reuses the app Auth Definition and its server access policy. Enable `auth: true` and authorize the Console routes in `server/auth.ts`, as shown below. A `console` object still requires an explicit `auth` choice.
 
 `auth: false` also works in a production build. The build and the production server log a warning, because anyone who can reach the route can read Console data. Before you deploy, add `authorize` or choose another `auth`. See [Protect the Console route](#protect-the-console-route).
 
@@ -192,38 +192,19 @@ ViteHub sends `X-Robots-Tag: noindex, nofollow` on the Console route and include
 
 ### Use the app Auth
 
-Set `auth: 'app'` to reuse the app's Primary Auth Definition. Add `authorize` to decide who may use the Console. `authorize` is the path of a server file that default-exports `defineConsoleAuthorize()`:
+Enable the Console with the app's existing server Auth Definition and access policy:
 
 ```ts [vite.config.ts]
 export default defineConfig({
   plugins: [vitehub({
-    agent: true,
     auth: true,
-    console: { auth: 'app', authorize: './server/console-authorize.ts' },
+    console: true,
     preset: 'node',
   })],
 })
 ```
 
-```ts [server/console-authorize.ts]
-import { defineConsoleAuthorize } from 'vite-hub/console/auth'
-
-export default defineConsoleAuthorize(({ user }) => user?.role === 'admin')
-```
-
-ViteHub checks for an Auth Session first. A missing session returns `401`. Then it calls `authorize` with the request and the signed-in `user`. The `role` field is an application example, not a ViteHub field. Replace it with the role, permission, or allowlist that the app already uses.
-
-Set `signInPage` to the path of your sign-in page, so the Console can send users there:
-
-```ts [vite.config.ts]
-console: { auth: 'app', authorize: './server/console-authorize.ts', signInPage: '/sign-in' }
-```
-
-A visit to a Console page without a session then goes to `/sign-in?redirect=%2F_vitehub%2Fauth`, where the `redirect` query parameter is the Console page that the user asked for. Return there after sign-in, and accept only paths on your own origin. When a session ends while the Console is open, the Console shows **Sign in**, which opens the same page. The path is relative to the app's origin; ViteHub adds the mount base of an app mounted below `/`. `auth: false` with an `authorize` that returns a `401` uses `signInPage` in the same way. Console Auth has its own sign-in page, `/_vitehub/sign-in`, and does not take `signInPage`.
-
-Without `signInPage`, the Console page loads without a session. Its Overview then asks the user to sign in and offers **Check again**. When the tab becomes visible again, the Console checks again by itself, so a user who signs in in another tab does not need to reload the Console.
-
-You can instead guard the Console with access routes in the Auth Definition. Without `authorize`, the Auth Definition must have an access route with an `authorize` callback for `/_vitehub/**` and for `GET /api/_vitehub/console/status`. With the Usage section, it also needs one for `GET /api/_vitehub/console/usage`. Otherwise ViteHub stops with `VITE_HUB_B0006`, in every environment:
+Keep the providers, database, and session configuration in `server/auth.ts`. Add access routes that decide who can use the Console:
 
 ```ts [server/auth.ts]
 import { defineAuth, type AuthAccessAuthorize } from 'vite-hub/auth'
@@ -232,6 +213,7 @@ const authorizeConsole: AuthAccessAuthorize = ({ user }) =>
   user.role === 'admin'
 
 export default defineAuth({
+  // Keep the app's existing providers, database, and session options here.
   access: {
     routes: [
       { route: '/_vitehub/**', authorize: authorizeConsole },
@@ -241,7 +223,31 @@ export default defineAuth({
 })
 ```
 
-Returning `false` from the callback returns `403`. The callback can return a `Response` when the app needs another rejection or redirect. Without a discovered Auth Definition, `auth: 'app'` stops with `VITE_HUB_B0005`.
+The `role` field is an application example. Use the app's existing role, permission, or allowlist. A missing session returns `401`. After sign-in, the callback receives the request and signed-in `user`. Returning `false` returns `403` and offers **Switch account**. A custom `Response` controls the rejection or redirect.
+
+App Auth provides a built-in page at `/_vitehub/sign-in`. It lists the configured social providers, starts sign-in through the existing Auth endpoint, and returns to the requested Console page. Failed attempts show the provider buttons again. Expired sessions show a clickable **Sign in** action. The account menu uses the same app session and supports sign-out. No Console Auth Definition, client, or sign-in route is needed.
+
+ViteHub requires an authorization callback for every Console route, including `GET /api/_vitehub/console/status` and, when enabled, `GET /api/_vitehub/console/usage`. The two wildcard routes above cover them. Missing policy stops the build with `VITE_HUB_B0006`. Missing app Auth stops it with `VITE_HUB_B0005`. `console: true` never grants access to every signed-in user by itself.
+
+For section-specific permissions or a separate Console policy, use an authorization file:
+
+```ts [vite.config.ts]
+console: { auth: 'app', authorize: './server/console-authorize.ts' }
+```
+
+```ts [server/console-authorize.ts]
+import { defineConsoleAuthorize } from 'vite-hub/console/auth'
+
+export default defineConsoleAuthorize(({ user }) => user?.role === 'admin')
+```
+
+For email, passkeys, or a custom sign-in UI, override the page:
+
+```ts [vite.config.ts]
+console: { auth: 'app', signInPage: '/sign-in' }
+```
+
+The custom page receives `redirect`, such as `/sign-in?redirect=%2F_vitehub%2Fauth`. Return there after sign-in, accepting only paths on your origin. ViteHub adds the application's mount base. `auth: false` with an `authorize` that returns `401` uses `signInPage` in the same way. Independent Console Auth has its own page and does not take this override.
 
 ### Use Console Auth
 
@@ -553,7 +559,7 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
 | Sandboxes is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox Tasks. |
 | A production build fails with `VITE_HUB_B0014` | Set `console.authorize` to a server file that default-exports `defineConsoleAuthorize()`. |
-| ViteHub rejects `console: true` (`VITE_HUB_B0003`) | Choose who can open the Console: `console: { auth: false }` for no sign-in, or `console: { auth: 'app' }` to use the app Auth. |
+| `console: true` reports missing app Auth or Console access policy | Enable `auth: true` and authorize the Console routes in the app Auth Definition. The shorthand uses app Auth; use `console: { auth: false }` only when you want no sign-in. |
 | ViteHub reports that `console.auth` is required (`VITE_HUB_B0004`) | Add `auth` to the `console` object. Use `false`, `'app'`, or a Console Auth config. |
 | `auth: 'app'` fails with `VITE_HUB_B0005` | Set `auth: true` and add a discovered Auth Definition, such as `server/auth.ts`. |
 | `auth: 'app'` fails with `VITE_HUB_B0006` | Set `console.authorize`, or add Auth access routes with an `authorize` callback for the routes in the message. |
