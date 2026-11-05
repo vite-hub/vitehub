@@ -1017,30 +1017,38 @@ class LocalWorkspaceStore implements WorkspaceStore {
     ])
     try {
       await writeFile(temp, bytes)
-      // Prefer a hard link so the live file remains readable during publication.
       const hadExisting = existing?.type === "file"
-      const foreignUid = hadExisting ? await backupFile(absolute, backup) : undefined
-      await rename(temp, absolute).catch(async (error) => {
-        await rm(backup, { force: true })
-        throw error
-      })
-      try {
-        await this.#writeFileMetadata(normalized, { mediaType: file.mediaType, metadata: file.metadata })
-      } catch (error) {
-        if (hadExisting) {
-          await restoreBackup(backup, absolute, foreignUid, error)
-        }
-        else await rm(absolute, { force: true })
-        throw error
-      }
-      // Publication has committed; backup cleanup must not turn success into failure.
-      await reclaimBackup(backup)
+      await this.#publishFile({ absolute, normalized, temp, backup, hadExisting, file })
       return
     }
     catch (error) {
       await rm(temp, { force: true }).catch(() => undefined)
       throw error
     }
+  }
+
+  async #publishFile({ absolute, normalized, temp, backup, hadExisting, file }: {
+    absolute: string
+    normalized: string
+    temp: string
+    backup: string
+    hadExisting: boolean
+    file: Pick<WorkspaceFile, "mediaType" | "metadata">
+  }): Promise<void> {
+    const foreignUid = hadExisting ? await backupFile(absolute, backup) : undefined
+    await rename(temp, absolute).catch(async (error) => {
+      await rm(backup, { force: true })
+      throw error
+    })
+    try {
+      await this.#writeFileMetadata(normalized, { mediaType: file.mediaType, metadata: file.metadata })
+    } catch (error) {
+      if (hadExisting) await restoreBackup(backup, absolute, foreignUid, error)
+      else await rm(absolute, { force: true })
+      throw error
+    }
+    // Publication has committed; backup cleanup must not turn success into failure.
+    await reclaimBackup(backup)
   }
 
   async #assertPathComponents(path: string, includeTarget = true): Promise<void> {
@@ -1114,20 +1122,7 @@ class LocalWorkspaceStore implements WorkspaceStore {
       }
 
       const hadExisting = existing?.type === "file"
-      const foreignUid = hadExisting ? await backupFile(absolute, backup) : undefined
-      await rename(temp, absolute).catch(async (error) => {
-        await rm(backup, { force: true })
-        throw error
-      })
-      try {
-        await this.#writeFileMetadata(normalized, { mediaType: file.mediaType, metadata: file.metadata })
-      } catch (error) {
-        if (hadExisting) await restoreBackup(backup, absolute, foreignUid, error)
-        else await rm(absolute, { force: true })
-        throw error
-      }
-      // Publication has committed; backup cleanup must not turn success into failure.
-      await reclaimBackup(backup)
+      await this.#publishFile({ absolute, normalized, temp, backup, hadExisting, file })
       return {
         path: normalized,
         type: "file",

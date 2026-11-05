@@ -43,31 +43,11 @@ interface EnvErrorOptions<TCode extends EnvErrorCode = EnvErrorCode>
 
 const envSourceIdentifierSet = new Set<EnvSourceIdentifier>(envSourceIdentifiers)
 
-function invalidOptions(): never {
-  throw envErrorDiagnostics.ENV_R0007({ message: "[vitehub] Invalid Env error options." })
-}
-
-function own(value: unknown, key: PropertyKey): unknown {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) invalidOptions()
-  try {
-    const descriptor = Object.getOwnPropertyDescriptor(value, key)
-    if (descriptor === undefined) return undefined
-    if (!("value" in descriptor)) invalidOptions()
-    return descriptor.value
-  }
-  catch {
-    invalidOptions()
-  }
-}
-
 function createEnvError<TCode extends EnvErrorCode>(options: EnvErrorOptions<TCode>): ViteHubError<TCode, EnvErrorDetails<TCode>> {
-  const code = own(options, "code")
-  if (typeof code !== "string" || !Object.hasOwn(envErrorMessages, code)) invalidOptions()
-  const cause = own(options, "cause")
-  const details = normalizeDetails(code as TCode, own(options, "details"))
-  return new ViteHubError(code as TCode, envErrorMessages[code as TCode], {
+  const { code, cause, details } = options
+  return new ViteHubError(code, envErrorMessages[code], {
     ...(cause === undefined ? {} : { cause }),
-    ...(details === undefined ? {} : { details }),
+    ...(details === undefined || Object.keys(details).length === 0 ? {} : { details }),
   })
 }
 
@@ -130,24 +110,6 @@ function publicSourceIdentifier(source: string): EnvSourceIdentifier {
   if (source.startsWith("env:")) return "env"
   if (source.startsWith("package.json:")) return "package.json"
   return "custom"
-}
-
-function normalizeDetails<TCode extends EnvErrorCode>(
-  code: TCode,
-  details: unknown,
-): EnvErrorDetails<TCode> | undefined {
-  if (details === undefined) return undefined
-  if (typeof details !== "object" || details === null || Array.isArray(details)) invalidOptions()
-  const normalized: { path?: string, source?: EnvSourceIdentifier } = {}
-  if (code === "ENV_ASYNC_REQUIRED" || code === "ENV_DECLARATION_INVALID" || code === "ENV_REQUIRED_MISSING" || code === "ENV_RUNTIME_VALUE_INVALID") {
-    const path = safePath(own(details, "path"))
-    if (path) normalized.path = path
-  }
-  if (code !== "ENV_ASYNC_REQUIRED" && code !== "ENV_DECLARATION_INVALID") {
-    const source = own(details, "source")
-    if (envSourceIdentifierSet.has(source as EnvSourceIdentifier)) normalized.source = source as EnvSourceIdentifier
-  }
-  return Object.keys(normalized).length ? normalized as EnvErrorDetails<TCode> : undefined
 }
 
 function optionalPath(path: unknown): { path?: string } {

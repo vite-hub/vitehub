@@ -370,21 +370,7 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
     }
     const features = mergedFeatures(this.provider.features, providerSession.features)
     const session = new BrowserSessionImpl(this, providerSession, features, lease)
-    try {
-      await this.emit("browser.session.acquire", session)
-    }
-    catch (error) {
-      try {
-        await releaseResource({ lease, providerSession })
-      }
-      catch (closeError) {
-        throw new AggregateError(
-          [error, closeError],
-          "[vitehub:browser] Browser Session tracing failed and cleanup also failed.",
-        )
-      }
-      throw error
-    }
+    await this.emitAcquisition("browser.session.acquire", session, { lease, providerSession })
     return session
   }
 
@@ -440,12 +426,22 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
       record.lease,
       { claimed: true, publicId: record.publicId },
     )
+    await this.emitAcquisition("browser.session.claim", session, record, { "browser.handoff.audience_bound": true })
+    return session
+  }
+
+  private async emitAcquisition(
+    name: "browser.session.acquire" | "browser.session.claim",
+    session: BrowserSessionImpl<TConnection>,
+    resource: Pick<HandoffRecord<TConnection>, "lease" | "providerSession">,
+    attributes: Record<string, unknown> = {},
+  ): Promise<void> {
     try {
-      await this.emit("browser.session.claim", session, { "browser.handoff.audience_bound": true })
+      await this.emit(name, session, attributes)
     }
     catch (error) {
       try {
-        await releaseResource(record)
+        await releaseResource(resource)
       }
       catch (closeError) {
         throw new AggregateError(
@@ -455,7 +451,6 @@ class BrowserClientImpl<TConnection> implements BrowserClient<TConnection> {
       }
       throw error
     }
-    return session
   }
 
   private expireHandoff(id: string, record: HandoffRecord<TConnection>): Promise<void> {
