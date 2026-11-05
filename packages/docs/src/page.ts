@@ -14,12 +14,14 @@ export interface DocsPageResponse {
   /** Id of the section that owns the page, or `null` for the root page and pages outside the base. */
   section: string | null
   document: DocsDocument
+  /** The page's `credits`, parsed like its body, or `null` without them. */
+  credits: DocsDocument | null
   prev: DocsPageLink | null
   next: DocsPageLink | null
 }
 
 /** Previous and next follow the sidebar order of the page's section. */
-export function docsPageResponse(manifest: DocsManifest, found: { page: DocsPage, section: DocsSection | null }, document: DocsDocument): DocsPageResponse {
+export function docsPageResponse(manifest: DocsManifest, found: { page: DocsPage, section: DocsSection | null }, document: DocsDocument, credits: DocsDocument | null = null): DocsPageResponse {
   const pages = found.section?.pages.filter(page => page.navigation) ?? []
   const index = pages.findIndex(page => page.path === found.page.path)
   const link = (page: DocsPage | undefined): DocsPageLink | null => page ? { path: page.path, title: page.title, description: page.description } : null
@@ -27,6 +29,7 @@ export function docsPageResponse(manifest: DocsManifest, found: { page: DocsPage
     page: found.page,
     section: found.section?.id ?? null,
     document,
+    credits,
     prev: index > 0 ? link(pages[index - 1]) : null,
     next: index >= 0 ? link(pages[index + 1]) : null,
   }
@@ -43,6 +46,9 @@ export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, p
     title: navigation?.title ?? frontmatter.title,
     sourceTitle: frontmatter.title,
     description: frontmatter.description ?? null,
+    tagline: frontmatter.tagline ?? frontmatter.description ?? null,
+    credits: frontmatter.credits?.trim() || null,
+    keywords: (typeof frontmatter.keywords === "string" ? frontmatter.keywords.split(",") : frontmatter.keywords ?? []).map(word => word.trim()).filter(Boolean),
     icon: frontmatter.icon ?? null,
     layout,
     ...(frontmatter.tutorial ? { tutorial: frontmatter.tutorial } : {}),

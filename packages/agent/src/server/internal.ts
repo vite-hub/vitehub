@@ -1,3 +1,6 @@
+export { createError, defineEventHandler, getRouterParam } from "h3"
+export type { H3Event } from "h3"
+
 export {
   createAgentHealthHandler,
   resolveAgentHealth,

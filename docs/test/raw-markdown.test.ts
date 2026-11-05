@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
+import { globSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { toRawMarkdown } from "@vite-hub/docs/server";
+import { createDocsParser, toRawMarkdown } from "@vite-hub/docs/server";
 import { describe, expect, it } from "vitest";
 import { expandCapabilityTools } from "../modules/vitehub-docs/capability-references";
 
@@ -8,6 +8,26 @@ const docsRoot = resolve(import.meta.dirname, "..");
 const siteUrl = "https://vitehub.dev";
 
 describe("ViteHub raw Markdown", () => {
+  it("has no serialized product feature items outside code blocks in the full agent content", async () => {
+    const parse = createDocsParser();
+    for (const file of globSync("content/**/*.md", { cwd: docsRoot })) {
+      const raw = toRawMarkdown(readFileSync(resolve(docsRoot, file), "utf8"), { siteUrl });
+      if (!raw.includes("product-feature-item")) continue;
+      const { nodes } = await parse(raw);
+      const visit = (node: (typeof nodes)[number]): void => {
+        if (typeof node === "string") {
+          expect(node, file).not.toMatch(/:{2,}product-feature-item\s*\{/);
+          return;
+        }
+        const [tag, , ...children] = node;
+        if (tag === "pre") return;
+        expect(tag, file).not.toBe("product-feature-item");
+        children.forEach(visit);
+      };
+      nodes.forEach(visit);
+    }
+  }, 30_000);
+
   it("keeps the documentation learning paths readable without the navigation component", () => {
     const raw = toRawMarkdown(readFileSync(resolve(docsRoot, "content/docs/index.md"), "utf8"), { siteUrl });
     expect(raw).not.toContain("docs-learning-paths");

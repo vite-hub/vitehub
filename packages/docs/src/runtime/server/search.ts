@@ -18,7 +18,8 @@ const handler: EventHandler<EventHandlerRequest, Promise<DocsSearchSection[]>> =
     const source = await storage.getItem<string>(page.file)
     if (source === null) continue
     const { nodes } = await parse(String(source))
-    sections.push(...docsSearchSections(page.path, page.sourceTitle, nodes))
+    const [entry, ...headings] = docsSearchSections(page.path, page.sourceTitle, nodes)
+    sections.push(page.keywords.length ? { ...entry!, keywords: page.keywords } : entry!, ...headings)
   }
   return sections
 })

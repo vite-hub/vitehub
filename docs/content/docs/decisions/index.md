@@ -91,8 +91,6 @@ icon: i-lucide-list-checks
 ::agent-only
 Use Decisions to turn free text into a typed selection over options that the app declares. Decisions has no routes, no UI, and no store. Write the two bridges: data to options, and selection to state.
 
-Read [Get started](https://vitehub.dev/raw/docs/decisions/get-started.md), [Concepts](https://vitehub.dev/raw/docs/decisions/concepts.md), [Server API](https://vitehub.dev/raw/docs/decisions/server-api.md), [Client](https://vitehub.dev/raw/docs/decisions/client.md), [Recipes](https://vitehub.dev/raw/docs/decisions/recipes.md), or [Limits and errors](https://vitehub.dev/raw/docs/decisions/limits-and-errors.md).
-
 Call `resolve()` only on the server, inside a route that you own. Never import the choices value in browser code. Import its type with `import type`. A decision model cannot compare numbers or invent a value, so keep numeric filters in normal controls.
 
 Prove it with `inspect()` first, then with a test gateway that has `ask()`. Do not claim live model behavior without a key.

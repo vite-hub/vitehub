@@ -24,6 +24,11 @@ const { entry: selectedId, level, q: text, view: mode } = useConsoleQuery({
   q: queryText(),
   view: queryChoice(["explorer", "stream"], "explorer", { history: "push" }),
 });
+const logDateFormat = new Intl.DateTimeFormat("en", { dateStyle: "medium" });
+function logDate(timestamp: string) {
+  const time = Date.parse(timestamp);
+  return Number.isFinite(time) ? logDateFormat.format(time) : "";
+}
 const entries = ref<LogEntry[]>([]);
 const {
   list: visibleEntries,
@@ -244,12 +249,12 @@ onBeforeUnmount(() => {
                 :aria-pressed="selected?.id === entry.id"
                 @click="selectedId = entry.id"
               >
-                <!-- Local time, as in the rest of the Console. The tooltip has the date in the local zone and in UTC. -->
                 <time
                   class="font-mono text-xs text-muted tabular-nums"
                   :datetime="entry.timestamp"
                   :title="exactTitle(entry.timestamp)"
-                  >{{ consoleClockTime(entry.timestamp) }}</time
+                  ><span class="block text-[10px] leading-3">{{ logDate(entry.timestamp) }}</span>
+                  <span class="block leading-4">{{ consoleClockTime(entry.timestamp) }}</span></time
                 >
                 <span class="font-mono text-[11px] uppercase" :class="levelClass(entry.level)">{{
                   entry.level
