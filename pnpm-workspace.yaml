@@ -75,8 +75,7 @@ catalogs:
     "@comark/html": 0.8.1
     comark: 0.8.1
     comark-content: 0.4.3
-    # Includes the lazy Pele load in onmax/comark-ui#331; replace with its release when available.
-    comark-ui: https://pkg.pr.new/comark-ui@0e2a4fd483dfad175645cec59619cec8d1364156
+    comark-ui: ^0.9.1
   nuxt:
     "@nuxt/ui": ^4.12.0
     "@takumi-rs/core": 2.19.0
