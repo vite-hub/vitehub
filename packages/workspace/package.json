@@ -61,6 +61,11 @@
       "import": "./dist/cloudflare.js",
       "default": "./dist/cloudflare.js"
     },
+    "./files": {
+      "types": "./dist/files.d.ts",
+      "import": "./dist/files.js",
+      "default": "./dist/files.js"
+    },
     "./internal/path": {
       "types": "./dist/internal/path.d.ts",
       "import": "./dist/internal/path.js",

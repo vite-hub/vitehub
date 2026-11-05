@@ -1,5 +1,5 @@
 import { agentHostWorkspaceRoute, getAgentHostWorkspaceInspector } from "@vite-hub/agent/server"
-import { useWorkspaceFiles } from "@vite-hub/workspace/runtime"
+import { useWorkspaceFiles } from "@vite-hub/workspace/files"
 import * as v from "valibot"
 import { getConsoleAgentDefinition } from "./agents.ts"
 import { getConsoleInvocations } from "./invocations.ts"

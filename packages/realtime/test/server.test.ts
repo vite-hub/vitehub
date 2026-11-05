@@ -29,8 +29,8 @@ vi.mock("@vite-hub/auth/server", () => ({
   assertAuthOrigin: serverMocks.assertAuthOrigin,
 }))
 
-vi.mock("@vite-hub/workspace", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@vite-hub/workspace")>(),
+vi.mock("@vite-hub/workspace/files", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@vite-hub/workspace/files")>(),
   invalidateWorkspaceStore: serverMocks.invalidateWorkspaceStore,
   resolveWorkspaceStoreTarget: serverMocks.resolveWorkspaceStoreTarget,
   useWorkspaceFiles: serverMocks.useWorkspaceFiles,
