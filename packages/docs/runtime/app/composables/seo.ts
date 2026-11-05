@@ -33,7 +33,7 @@ export function useDocsSeo(input: DocsSeoInput): void {
   }
   else if (input.image) {
     const image = /^https?:\/\//.test(input.image) ? input.image : `${site.url}${docsAppPath(input.image, appBase)}`
-    useSeoMeta({ ogImage: image, twitterImage: image })
+    useSeoMeta({ ogImage: image, ogImageUrl: null, ogImageSecureUrl: null, ogImageType: null, ogImageWidth: null, ogImageHeight: null, ogImageAlt: null, twitterImage: image, twitterImageAlt: null })
   }
   else if (ogImage) {
     // SAFETY: `ogImage.component` is an OgImage component; the default ships with this package, and an app names its own.

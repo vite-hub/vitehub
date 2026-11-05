@@ -24,6 +24,8 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     await writeFile(join(root, "content/docs/guide/install.md"), "---\ntitle: Install\ndescription: From zero to a running site.\n---\nInstall\n")
     await writeFile(join(root, "content/docs/guide/own.md"), "---\ntitle: Own\nseo.image: /own.png\n---\nOwn\n")
     await writeFile(join(root, "content/docs/guide/none.md"), "---\ntitle: None\nseo:\n  image: false\n---\nNone\n")
+    await writeFile(join(root, "content/docs/guide/embedded.md"), "---\ntitle: Lumenate\n---\nA distinct word\n")
+    await writeFile(join(root, "content/docs/guide/named.md"), "---\ntitle: LUMEN!\n---\nThe site name\n")
     await writeFile(join(root, "public/own.png"), "")
     await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
     const config: NuxtConfig & { schemaOrg: Partial<SchemaOrgOptions> } = {
@@ -77,10 +79,15 @@ it.each([true, false])("gives prerendered pages site meta and Schema.org with im
     expect(home).not.toMatch(/class="[^"]*vh-docs-rail/)
     expect(home).toMatch(/class="sticky top-0 z-50"/)
     expect(await page("docs/guide/install")).toMatch(/class="sticky top-0 z-50 lg:hidden"/)
+    expect.soft(await page("docs/guide/embedded")).toContain("<title>Lumenate · Lumen</title>")
+    expect(await page("docs/guide/named")).toContain("<title>LUMEN!</title>")
 
     // A page without a description shares the site's.
     expect(meta(await page("docs/guide"), "og:description")).toBe("Lumen docs")
-    expect(meta(await page("docs/guide/own"), "og:image")).toBe("https://lumen.example.com/own.png")
+    const own = await page("docs/guide/own")
+    expect(meta(own, "og:image")).toBe("https://lumen.example.com/own.png")
+    expect(meta(own, "twitter:image")).toBe("https://lumen.example.com/own.png")
+    for (const tag of ["og:image:url", "og:image:secure_url", "og:image:type", "og:image:width", "og:image:height", "og:image:alt", "twitter:image:alt"]) expect.soft(meta(own, tag)).toBeUndefined()
     const none = await page("docs/guide/none")
     for (const tag of ["og:image", "og:image:type", "og:image:width", "og:image:height", "og:image:alt", "twitter:image", "twitter:image:alt"]) expect.soft(meta(none, tag)).toBeUndefined()
   }
