@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createCloudflareProvisionClient, createVercelProvisionClient, planProvisionSteps, ProvisionRequestError } from "../src/provision.ts"
+import { createCloudflareProvisionClient, createVercelProvisionClient, listCloudflarePages, planProvisionSteps, ProvisionRequestError } from "../src/provision.ts"
 import type { ProvisionAction, ProvisionContext, ProvisionStep } from "../src/provision.ts"
 
 describe("provision planning", () => {
@@ -170,5 +170,78 @@ describe("provision request errors", () => {
 
     expect(error).toMatchObject({ codes: [] })
     expect(error.message).toBe("Provision request failed: GET /v1/storage/connections (400).")
+  })
+})
+
+describe("Cloudflare paged lists", () => {
+  const parseNames = (value: unknown): string[] => {
+    if (!Array.isArray(value) || value.some(item => typeof item !== "string")) throw new Error("invalid list")
+    return value
+  }
+
+  function pagedClient(pages: Record<string, { result: string[], result_info?: Record<string, number> }>) {
+    const requests: URL[] = []
+    const fetchImpl: typeof globalThis.fetch = async (input) => {
+      const url = new URL(input instanceof Request ? input.url : input)
+      requests.push(url)
+      return Response.json({ success: true, ...pages[url.searchParams.get("page") ?? ""] ?? { result: [] } })
+    }
+    return { request: createCloudflareProvisionClient({ accountId: "acc", token: "token" }, fetchImpl), requests }
+  }
+
+  it("follows total_pages", async () => {
+    const { request, requests } = pagedClient({
+      1: { result: ["a"], result_info: { page: 1, total_pages: 2 } },
+      2: { result: ["b"], result_info: { page: 2, total_pages: 2 } },
+    })
+
+    await expect(listCloudflarePages(request, "/queues", { parse: parseNames })).resolves.toEqual(["a", "b"])
+    expect(requests.map(url => [url.pathname, url.searchParams.get("page"), url.searchParams.get("per_page")])).toEqual([
+      ["/client/v4/accounts/acc/queues", "1", null],
+      ["/client/v4/accounts/acc/queues", "2", null],
+    ])
+  })
+
+  it("follows total_count when a page is shorter than the requested size", async () => {
+    const { request, requests } = pagedClient({
+      1: { result: ["a"], result_info: { page: 1, per_page: 1, total_count: 2 } },
+      2: { result: ["b"], result_info: { page: 2, per_page: 1, total_count: 2 } },
+    })
+
+    await expect(listCloudflarePages(request, "/d1/database", { parse: parseNames, perPage: 100 })).resolves.toEqual(["a", "b"])
+    expect(requests.map(url => url.searchParams.get("per_page"))).toEqual(["100", "100"])
+  })
+
+  it("reads the next page after a full page without result_info", async () => {
+    const { request, requests } = pagedClient({ 1: { result: ["a", "b"] }, 2: { result: ["c"] } })
+
+    await expect(listCloudflarePages(request, "/storage/kv/namespaces", { parse: parseNames, perPage: 2 })).resolves.toEqual(["a", "b", "c"])
+    expect(requests).toHaveLength(2)
+  })
+
+  it("stops after one page without result_info or a page size", async () => {
+    const { request, requests } = pagedClient({ 1: { result: ["a"] }, 2: { result: ["b"] } })
+
+    await expect(listCloudflarePages(request, "/queues", { parse: parseNames })).resolves.toEqual(["a"])
+    expect(requests).toHaveLength(1)
+  })
+
+  it("stops on an empty page", async () => {
+    const { request, requests } = pagedClient({ 1: { result: ["a"], result_info: { page: 1, total_pages: 5 } } })
+
+    await expect(listCloudflarePages(request, "/queues", { parse: parseNames })).resolves.toEqual(["a"])
+    expect(requests).toHaveLength(2)
+  })
+
+  it("fails when Cloudflare returns another page than the one requested", async () => {
+    const { request } = pagedClient({
+      1: { result: ["a"], result_info: { page: 1, total_pages: 2 } },
+      2: { result: ["a"], result_info: { page: 1, total_pages: 2 } },
+    })
+
+    await expect(listCloudflarePages(request, "/queues", { parse: parseNames })).rejects.toMatchObject({
+      code: "INTERNAL_R0010",
+      why: expect.stringContaining("Cloudflare provisioning returned page 1 of /queues for page 2."),
+    })
   })
 })

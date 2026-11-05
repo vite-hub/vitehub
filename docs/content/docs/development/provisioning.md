@@ -31,7 +31,7 @@ CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --
 VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
 ```
 
-Provider steps use read credentials during planning to distinguish existing resources from resources to create. A dry run does not call `apply()` or write Provision State. A dry run without credentials does not fail, but steps that cannot look up current state report fewer actions.
+Provider steps use read credentials during planning to distinguish existing resources from resources to create. Each step reads every page of the provider's resource list, so an account with many D1 databases, KV namespaces, R2 buckets, or Queues does not plan a create for a resource that already exists. A dry run does not call `apply()` or write Provision State. A dry run without credentials does not fail, but steps that cannot look up current state report fewer actions.
 
 Each line shows the action status, the resource kind, and the resource name.
 
