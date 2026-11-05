@@ -299,7 +299,7 @@ cloudflare	cloudflare-r2-bucket	default
 | `name` | The host binds the resource by its name and needs no id, as for R2 buckets and Cloudflare Queues. |
 | none | No id is known yet. Run `vitehub provision run` or set the id. |
 
-The Vercel Blob store has no local id: Vercel sets `BLOB_READ_WRITE_TOKEN` for the store connected to the project. The CLI reports only whether the token is set, never its value. `--json` prints `{ "resources": [...] }` with the same fields and the CLI redaction. D1 over HTTP, PostgreSQL Databases, and Definitions whose `cloudflare` value cannot be read statically are not listed.
+For the Vercel Blob store, the id is `BLOB_STORE_ID`, which Vercel sets for the store connected to the project. Off Vercel, the store is reached through `BLOB_READ_WRITE_TOKEN`, and the CLI reports only whether the token is set, never its value. `--json` prints `{ "resources": [...] }` with the same fields and the CLI redaction. D1 over HTTP, PostgreSQL Databases, and Definitions whose `cloudflare` value cannot be read statically are not listed.
 
 Packages contribute inspection through `vitehub.inspect` on their Vite plugin. The owner package defines the summary; the CLI and the Console only render it. A package lists its host resources with `resources()`.
 

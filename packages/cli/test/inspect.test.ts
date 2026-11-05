@@ -254,7 +254,7 @@ describe("vitehub inspect resources", () => {
                 { binding: "DB", definition: "default", host: "cloudflare", id: "db-state", kind: "cloudflare-d1", name: "app-db", owner: "database", source: "provision-state" },
                 { binding: "KV", definition: "default", host: "cloudflare", kind: "cloudflare-kv-namespace", name: "app-cache", owner: "kv" },
                 { binding: "BLOB", definition: "default", host: "cloudflare", kind: "cloudflare-r2-bucket", name: "uploads", owner: "blob", source: "name" },
-                { definition: "media", host: "vercel", kind: "vercel-blob-store", note: "Vercel sets `BLOB_READ_WRITE_TOKEN` for the store that is connected to the project.", owner: "blob" },
+                { definition: "media", host: "vercel", kind: "vercel-blob-store", note: "Vercel sets `BLOB_STORE_ID` for the store that is connected to the project. Off Vercel, set `BLOB_READ_WRITE_TOKEN`.", owner: "blob" },
               ],
             },
           },
@@ -295,7 +295,7 @@ describe("vitehub inspect resources", () => {
       "  Source: bound by name",
       "vercel\tvercel-blob-store\tmedia",
       "  Source: none",
-      "  Note: Vercel sets `BLOB_READ_WRITE_TOKEN` for the store that is connected to the project.",
+      "  Note: Vercel sets `BLOB_STORE_ID` for the store that is connected to the project. Off Vercel, set `BLOB_READ_WRITE_TOKEN`.",
       "",
     ].join("\n"))
 
