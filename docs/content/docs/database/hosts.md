@@ -188,7 +188,7 @@ Run `vitehub provision run --provider cloudflare` to resolve the D1 id into `.vi
 
 ## Preview deployments
 
-A Cloudflare Version URL runs with the production resources of its Worker version, so it reads and writes production rows ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and two Previews that bind the same `database_id` share rows ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). To give a preview its own database, read `cloudflare.databaseName` from an Env declaration and provision it in a separate CI job. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
+A Cloudflare Version URL runs with the production resources of its Worker version, so it reads and writes production rows ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and two Previews that bind the same `database_id` share rows ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). For a Cloudflare Preview, declare a preview database in `previews.d1_databases` of the project Wrangler config, because ViteHub does not write that block. For a preview Worker of its own, read `cloudflare.databaseName` from an Env declaration and provision it in that build's CI job. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
 
 ## Production checks
 

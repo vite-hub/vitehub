@@ -29,7 +29,7 @@ KV inspection represents `bigint` values, including nested values, as decimal st
 
 ## Preview deployments
 
-A Cloudflare Version URL runs with the production resources of its Worker version, so it reads and writes production keys ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and two Previews that bind the same namespace `id` share its data ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). To give a preview its own namespace, set `KV_NAMESPACE_ID` or a separate `namespaceName` in the preview build. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
+A Cloudflare Version URL runs with the production resources of its Worker version, so it reads and writes production keys ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and two Previews that bind the same namespace `id` share its data ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). For a Cloudflare Preview, declare a preview namespace in `previews.kv_namespaces` of the project Wrangler config, because ViteHub does not write that block. For a preview Worker of its own, set `KV_NAMESPACE_ID` or a separate `namespaceName` in its build. Read [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
 
 ## Production checks
 

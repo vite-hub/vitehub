@@ -132,7 +132,11 @@ Provision creates one resource for each resource name. A preview deployment that
 | Cloudflare Previews | Only the bindings in the `previews` block of the Wrangler config. ViteHub does not write that block for its bindings. Two Previews bound to the same D1 `database_id`, KV `id`, R2 `bucket_name`, or queue name share its data. | [Previews configuration](https://developers.cloudflare.com/workers/previews/configuration/), [Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/) |
 | Vercel preview deployments | The Blob store that is connected to the project in the Preview environment. `vitehub provision run --provider vercel` connects its store to Production, Preview, and Development. | [Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects) |
 
-To isolate a preview, give it its own resource names through env and provision them in a separate build:
+How you isolate a preview depends on how you deploy it.
+
+**Cloudflare Previews.** Previews never read the top-level bindings that ViteHub writes, so changing ViteHub config or env does not move them. Declare preview resources in the `previews` block of the project Wrangler config: `previews.d1_databases`, `previews.kv_namespaces`, `previews.r2_buckets`, and `previews.queues.producers`, with the same binding names as production. Cloudflare does not accept Queue consumers in `previews`. Point them at staging or test resources, never at production ids. ViteHub does not write this block. After a build, check that the generated config still has it with `vitehub inspect provider-output --json`.
+
+**A preview Worker of its own.** When a preview deploys as a separate Worker, ViteHub's top-level bindings are the ones it uses. Give that build its own resource names through env, and provision them in the same job:
 
 | Resource | Set a preview name or id with |
 | --- | --- |
@@ -140,9 +144,12 @@ To isolate a preview, give it its own resource names through env and provision t
 | Workers KV | `KV_NAMESPACE_ID`, or a separate `namespaceName` |
 | R2 | `BLOB_BUCKET_NAME` |
 | Cloudflare Queues | `queue.namePrefix` |
-| Vercel Blob | Connect one store to the project in Production and a second store in Preview, in the Vercel dashboard. |
 
-The [live smoke workflow](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/live-smoke.yml) selects its test bucket and namespace this way: it sets `BLOB_BUCKET_NAME` and `KV_NAMESPACE_ID` from CI secrets for the provision and build steps.
+The [live smoke workflow](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/live-smoke.yml) works this way: it builds its own Worker with `VITEHUB_CLOUDFLARE_WORKER_NAME` and sets `BLOB_BUCKET_NAME` and `KV_NAMESPACE_ID` from CI secrets for the provision and build steps.
+
+A Version URL of the production Worker uses the bindings of that version. Do not use it to test writes.
+
+**Vercel preview deployments.** Connect one store to the project in Production and a second store in Preview, in the Vercel dashboard.
 
 `.vitehub/provision.json` keys D1 and KV ids by Definition or store name, not by stage. A preview provision run in the same checkout replaces the production ids. Run it in its own CI job or checkout, and check the recorded ids with `vitehub provision status` before you deploy.
 
