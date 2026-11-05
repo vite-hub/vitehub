@@ -38,7 +38,7 @@ const appPort = 3000;
 
 // The snapshot holds the dependencies of the template. Files with other dependencies, such as a share link with an
 // edited package.json, mount it and then run `npm install` for the difference.
-const snapshotParts = props.template.snapshot;
+const prebuilt = props.template.snapshot;
 // Any manifest edit can affect installation, including devDependencies, optionalDependencies, and overrides.
 const sameManifest = props.files["package.json"] === props.template.files["package.json"];
 
@@ -49,9 +49,9 @@ const workspace = useWorkspace({
   files: props.files,
   port: appPort,
   env: store.env(connect),
-  ...snapshotParts && {
+  ...prebuilt && {
     // The tutorial with the same dependencies uses this cache name, so the browser keeps one copy of the parts.
-    snapshot: () => fetchSnapshot(snapshotParts, { cache: `vitehub-tutorial-${props.template.snapshotOf}` }),
+    snapshot: () => fetchSnapshot(prebuilt.parts, { cache: `vitehub-tutorial-${props.template.snapshotOf}`, sha256: prebuilt.sha256 }),
     install: sameManifest ? false : "install",
   },
 });

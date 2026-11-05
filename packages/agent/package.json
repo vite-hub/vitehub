@@ -249,7 +249,6 @@
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@standard-schema/spec": "catalog:runtime",
     "@valibot/to-json-schema": "catalog:runtime",
-    "@vercel/connect": "2.4.0",
     "@vercel/nft": "catalog:vercel",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/forge": "workspace:*",
