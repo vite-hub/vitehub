@@ -1,8 +1,8 @@
 diff --git a/dist/module.mjs b/dist/module.mjs
-index 3a3172b4ba720367c9f2cfe99e956e7370ba40af..97db79f2f75a16bbab733d28d430c6fb738ef861 100644
+index 29c82ee..1fc5d91 100644
 --- a/dist/module.mjs
 +++ b/dist/module.mjs
-@@ -525,6 +525,38 @@ function setupVercelPreset(nitro, config, collectCachedRoutes) {
+@@ -541,6 +541,38 @@ function setupVercelPreset(nitro, config, collectCachedRoutes) {
    });
  }
  
@@ -41,7 +41,7 @@ index 3a3172b4ba720367c9f2cfe99e956e7370ba40af..97db79f2f75a16bbab733d28d430c6fb
  function hasActiveNuxtModule(nuxt, name, configKey) {
    if (!hasNuxtModule(name, nuxt)) {
      return false;
-@@ -1087,6 +1119,7 @@ export {}
+@@ -1140,6 +1172,7 @@ export {}
        });
        nuxt.hook("nitro:init", (nitro) => {
          setupVercelPreset(nitro, config, collectCachedRoutes);
