@@ -359,4 +359,69 @@ describe("hubRateLimit", () => {
       schemaVersion: 2,
     })
   })
+
+  describe("dev server for a Cloudflare build", () => {
+    async function devRoot(window: string, enforcement = "best-effort"): Promise<string> {
+      const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-dev-cloudflare-"))
+      roots.push(root)
+      await writeFile(join(root, "upload.ts"), [
+        'import { requireRateLimit } from "@vite-hub/rate-limit"',
+        "export async function upload(event) {",
+        `  await requireRateLimit(event, "upload", { enforcement: "${enforcement}", limit: 10, window: "${window}" })`,
+        "}",
+        "",
+      ].join("\n"))
+      return root
+    }
+
+    function serve(plugin: ReturnType<typeof hubRateLimit>, config: Record<string, unknown>): Promise<void> {
+      return (plugin.configResolved as (config: unknown) => Promise<void>)({
+        build: { outDir: "dist" },
+        command: "serve",
+        plugins: [],
+        resolve: { alias: [] },
+        ...config,
+      } as never)
+    }
+
+    it("rejects a window that Cloudflare Rate Limiting does not support, as the build does", async () => {
+      const root = await devRoot("1h")
+
+      await expect(serve(hubRateLimit(), { nitro: { preset: "cloudflare-module" }, root }))
+        .rejects.toMatchObject({ code: "RATE_LIMIT_R0016", message: expect.stringContaining("supports only 10s and 1m windows") })
+      // vitehub({ preset: "cloudflare" }) passes the Cloudflare provider to the plugin and runs memory in dev.
+      await expect(serve(hubRateLimit({ provider: "cloudflare" }), { rateLimit: { provider: "memory" }, root }))
+        .rejects.toMatchObject({ code: "RATE_LIMIT_R0016" })
+    })
+
+    it("rejects strict enforcement, as the build does", async () => {
+      const root = await devRoot("1m", "strict")
+
+      await expect(serve(hubRateLimit(), { nitro: { preset: "cloudflare-module" }, root }))
+        .rejects.toMatchObject({ code: "RATE_LIMIT_R0015" })
+    })
+
+    it("logs an unsupported policy that a saved file adds", async () => {
+      const root = await devRoot("1m")
+      const plugin = hubRateLimit()
+      const errors: string[] = []
+      const config = { build: { outDir: "dist" }, command: "serve", logger: { error: (message: string) => errors.push(message) }, nitro: { preset: "cloudflare-module" }, plugins: [], resolve: { alias: [] }, root }
+      await serve(plugin, config)
+      await writeFile(join(root, "upload.ts"), 'import { requireRateLimit } from "@vite-hub/rate-limit"\nrequireRateLimit(event, "upload", { limit: 10, window: "30s" })\n')
+
+      await (plugin.handleHotUpdate as (context: unknown) => Promise<void>)({ file: join(root, "upload.ts"), server: { config } })
+
+      expect(errors).toEqual([expect.stringMatching(/^RATE_LIMIT_R0016: .*supports only 10s and 1m windows/)])
+    })
+
+    it("keeps the memory driver for supported policies and for dev without a Cloudflare build", async () => {
+      const valid = await devRoot("10s")
+      await serve(hubRateLimit(), { nitro: { preset: "cloudflare-module" }, root: valid })
+      await expect(readFile(join(valid, ".vitehub", "nitro", "rate-limit", "plugin.ts"), "utf8")).resolves.toContain('{"provider":"memory"}')
+
+      const local = await devRoot("1h")
+      await serve(hubRateLimit(), { root: local })
+      await serve(hubRateLimit({ provider: "memory" }), { nitro: { preset: "cloudflare-module" }, root: local })
+    })
+  })
 })

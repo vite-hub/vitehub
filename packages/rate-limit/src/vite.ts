@@ -16,7 +16,7 @@ import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { discoverRateLimitCatalog } from "./discovery.ts"
 import { inspectRateLimitDefinitions } from "./inspect.ts"
 import { writeRateLimitManifest } from "./internal/manifest.ts"
-import { createCloudflareRateLimitBindings } from "./internal/cloudflare-bindings.ts"
+import { assertCloudflareRateLimitPolicies, createCloudflareRateLimitBindings } from "./internal/cloudflare-bindings.ts"
 
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -102,11 +102,19 @@ function resolveProvider(options: RateLimitModuleOptions, command: "build" | "se
   throw rateLimitErrorDiagnostics.RATE_LIMIT_B0003({ message: "[vitehub] Rate Limit provider cannot be inferred for a production build. Set rateLimit.provider to \"cloudflare\" or explicitly choose \"memory\" for a known single-process deployment." })
 }
 
+// `vitehub({ preset: "cloudflare" })` passes the Cloudflare provider to the plugin and memory to the dev server config.
+function buildTargetsCloudflare(options: RateLimitModuleOptions, configured: RateLimitModuleOptions, nitro: unknown): boolean {
+  if (options.provider === "cloudflare" || configured.provider === "cloudflare") return true
+  return (configured.provider ?? "auto") === "auto" && getHostingProvider(resolveHost({ nitro })) === "cloudflare"
+}
+
 export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimitVitePlugin {
   const importBase = (options as InternalRateLimitModuleOptions).importBase ?? packageName
   let rateLimit: RateLimitModuleOptions = options
   let declarations: RateLimitDeclaration[] = []
   let cloudflareBindings = false
+  // The dev server runs the memory driver, so it checks the policies that the Cloudflare build rejects.
+  let checkCloudflarePolicies = false
   let provider: "cloudflare" | "memory" = "memory"
   let projectRoot: string | undefined
   let resolved: ResolvedConfig | undefined
@@ -123,6 +131,7 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
   const refreshDeclarations = async (): Promise<void> => {
     if (!projectRoot || !resolved) return
     collectDeclarations()
+    if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations)
     await writeRateLimitManifest(projectRoot, declarations, provider)
   }
 
@@ -183,7 +192,9 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       const nitroCloudflare = resolveHost({ nitro: configuredNitro }) === "cloudflare"
       provider = resolveProvider(rateLimit, config.command, configuredNitro)!
       cloudflareBindings = nitroCloudflare && provider === "cloudflare"
+      checkCloudflarePolicies = config.command === "serve" && buildTargetsCloudflare(options, rateLimit, configuredNitro)
       collectDeclarations()
+      if (checkCloudflarePolicies) assertCloudflareRateLimitPolicies(declarations)
       ;(config as { nitro?: unknown }).nitro = mergeNitroConfig(
         config,
         configuredNitro,
@@ -208,7 +219,13 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
     async handleHotUpdate(context) {
       if (!/\.(?:c|m)?[jt]sx?$/i.test(context.file)) return
       resolved = context.server.config
-      await refreshDeclarations()
+      try {
+        await refreshDeclarations()
+      }
+      catch (error) {
+        // Vite drops errors from this hook, so log them.
+        context.server.config.logger.error(String(error), { error: error instanceof Error ? error : undefined })
+      }
     },
     buildEnd(error) {
       if (error || !cloudflareBindings || !resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
