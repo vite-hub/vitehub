@@ -21,7 +21,8 @@ const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
-const optionalPeers = ["@nuxt/ui", "@upstash/redis", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+const markdownEditorTiptapPeers = ["@tiptap/core", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@tiptap/vue-3"]
+const optionalPeers = ["@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
 const optionalPeerProbes = optionalPeers
 // Every fixture and export runs in its own child process. Independent fixtures
 // run side by side, bounded by the CPU count so CI runners are not overloaded.
@@ -616,8 +617,10 @@ async function assertResolution(appDir: string, specifiers: readonly string[], e
 async function addOptionalPeers(appDir: string) {
   const agentManifest = await readManifest(join(appDir, "node_modules/@vite-hub/agent/package.json"))
   const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
+  const tiptapVersion = await installedVersion(join(repoRoot, "packages/ui/node_modules/@tiptap/vue-3/package.json"))
   const peers = {
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
+    ...Object.fromEntries(markdownEditorTiptapPeers.map(name => [name, tiptapVersion])),
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     evlog: agentManifest.peerDependencies!.evlog!,

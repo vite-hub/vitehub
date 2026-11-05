@@ -16,7 +16,7 @@ icon: i-ph-note-pencil
 Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation), and the Tiptap packages that Nuxt UI's editor uses: `@tiptap/core`, `@tiptap/pm`, `@tiptap/vue-3`, `@tiptap/starter-kit`, `@tiptap/extension-image`, `@tiptap/extension-list`, and `@tiptap/extension-table`, all at version 3.31.4 or later in 3.x. Import the component from its own entry. It isn't in the root barrel, so pages that only render Markdown don't load Tiptap:
 
 ```ts
-import { MarkdownEditor } from "vite-hub/ui/markdown-editor";
+import { MarkdownEditor } from "@vite-hub/ui/markdown-editor";
 ```
 
 ## Usage
@@ -26,7 +26,7 @@ Bind the Markdown with `v-model`, and pass `upload` to take files. A string is a
 ```vue
 <script setup lang="ts">
 import { ref } from "vue";
-import { MarkdownEditor } from "vite-hub/ui/markdown-editor";
+import { MarkdownEditor } from "@vite-hub/ui/markdown-editor";
 
 const markdown = ref("# Release notes\n");
 </script>

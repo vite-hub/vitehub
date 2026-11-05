@@ -191,9 +191,23 @@ export async function uploadFiles(apiBase: string, input: UploadInput, options: 
   return await readJson(response, parseSerializedBlobObjectArray)
 }
 
+// The client is also imported by server code that typechecks without the DOM library.
+interface UploadRequest {
+  open(method: string, url: string): void
+  setRequestHeader(name: string, value: string): void
+  getResponseHeader(name: string): string | null
+  readonly responseText: string
+  readonly status: number
+  readonly upload: { addEventListener(type: "progress", listener: (event: { lengthComputable: boolean, loaded: number, total: number }) => void): void }
+  addEventListener(type: "abort" | "error" | "load", listener: () => void): void
+  send(body: FormData): void
+}
+
 function sendWithProgress(url: string, init: { body: FormData, headers: Headers, method: string }, onProgress: (percent: number) => void): Promise<Response> {
   return new Promise((resolve, reject) => {
-    const request = new XMLHttpRequest()
+    // SAFETY: The progress transport runs in a browser with the native XMLHttpRequest API.
+    const XHR = Reflect.get(globalThis, "XMLHttpRequest") as new () => UploadRequest
+    const request = new XHR()
     request.open(init.method, url)
     init.headers.forEach((value, key) => request.setRequestHeader(key, value))
     request.upload.addEventListener("progress", (event) => {
