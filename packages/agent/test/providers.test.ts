@@ -19347,7 +19347,8 @@ describe("server helpers", () => {
       pending.push(handler(chatWebhookRequest(91_121), "telegram", { agentIdentity: { name: "calories" } }))
       await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(1))
       pending.push(handler(chatWebhookRequest(91_122), "telegram", { agentIdentity: { name: "calories" } }))
-      await vi.waitFor(() => expect(admitted).toHaveBeenCalledTimes(3))
+      // Each webhook writes SQLite delivery evidence before admission, which can exceed a second under CI load.
+      await vi.waitFor(() => expect(admitted).toHaveBeenCalledTimes(3), { timeout: 5_000 })
       expect(sendInput).toHaveBeenCalledTimes(1)
       acceptance.resolve()
       await vi.waitFor(() => expect(sendInput).toHaveBeenCalledTimes(2))
@@ -19362,7 +19363,7 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
+  }, 10_000)
 
   it.each(["unsupported", "unavailable"] as const)("coalesces duplicate late %s steering fallbacks", async (result) => {
     const { defineAgent } = await import("../src/index.ts")

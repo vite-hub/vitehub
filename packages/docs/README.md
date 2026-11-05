@@ -4,7 +4,7 @@
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs/docs-site)
 
-`@vite-hub/docs` turns a folder of Markdown files into a documentation site. It is a Nuxt module. It gives you the docs shell, three page layouts, search, a Markdown copy of each page for agents, llms.txt, an MCP server, and an optional docs assistant. [vitehub.dev](https://vitehub.dev) runs on it.
+`@vite-hub/docs` turns a folder of Markdown files into a documentation site. It is a Nuxt module. It gives you the docs shell, four page layouts, search, a Markdown copy of each page for agents, llms.txt, an MCP server, and an optional docs assistant. [vitehub.dev](https://vitehub.dev) runs on it.
 
 You write Markdown. The defaults give you a complete site. When a default does not fit, you change one option, one frontmatter field, or one component.
 
@@ -55,13 +55,13 @@ The module reads the folder at build time. In development it watches the folder:
 | `title` | Required | Page heading and browser title. |
 | `description` | None | Text under the heading, the meta description, and the llms.txt entry. |
 | `icon` | `i-lucide-file-text` | Sidebar icon, as an Iconify name. |
-| `layout` | `article` | `article`, `tutorial`, or `landing`. |
+| `layout` | `article` | `article`, `tutorial`, `landing`, or `home`. |
 | `sidebar` | `true` | `false` hides the left navigation on this page. |
 | `toc` | `true`, `false` on `landing` | `false` hides the "On this page" outline. |
 | `codePanel` | `false` | Tutorials only. Shows the files of the current step beside the prose. |
 | `tutorial` | None | Tutorials only. `project` or `quickstart`, for your own tutorial catalog. |
 | `navigation` | Listed | `false` keeps the page out of the sidebar. Or `{ title, order, group, kind }`. |
-| `seo` | None | `{ title, description }` for search results when they must differ from the page. |
+| `seo` | None | `{ title, description, image }` for search results and shares when they must differ from the page. `image` is a path in `public/` or a URL, or `false` for no share image. |
 
 Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the build with `DocsContentError`. In development, the terminal shows the error and the site keeps the last valid pages until you fix the file.
 
@@ -80,6 +80,7 @@ Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the bui
 - `article` is prose with the outline on the right.
 - `tutorial` numbers each `::tutorial-step` block. With `codePanel: true`, a sticky panel on wide screens shows the file tree and the file that the reader is on. Code blocks named `commands/...` or `output/...`, and shell blocks, stay in the prose.
 - `landing` is a wide Overview page without the outline. A section Overview ends with the catalog of every section.
+- `home` is the page's own blocks at full width under the site header, with no title, actions, sidebar, or outline. Use it for a product home page built from your `components/content/` blocks; it keeps its search entry, Markdown copy, and share image.
 
 The left navigation (the section rail and the page sidebar) and the right outline show on every docs page. Turn them off for one page with `sidebar: false` or `toc: false`. A code panel tutorial starts with the navigation closed; the reader opens it with the button in the top left corner.
 
@@ -118,6 +119,7 @@ Most changes are options in `nuxt.config.ts`:
 | `sitemap` | `[]` | More paths for `/sitemap.xml`. Every docs page is listed already. |
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
 | `linkChecker` | On | `false` turns off `nuxt-link-checker`, which fails the build on detected link errors in prerendered pages. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. Set the app's own `linkChecker` options to change it. |
+| `ogImage` | On | Share images. `{ component }` renders the app's own template from `components/OgImage/`, or `false` turns them off. See [Search and share](#search-and-share). |
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
 | `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
 | `rawMarkdown` | None | `(markdown, page) => string`. Rewrites a page before agents read it. |
@@ -133,6 +135,7 @@ The shell is a set of Nuxt components. Create a component with the same name in 
 | `AppSearch` | The search dialog. |
 | `DocsRail`, `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody`, `DocsAsideFooter` | The section rail, the page sidebar, and its footer. |
 | `DocsPage`, `DocsArticle`, `DocsLanding`, `DocsMarkdown` | The page and its layouts. |
+| `DocsHeaderActions` | Empty. Replace it to add items to the site header, before search. |
 | `DocsPageHeaderLinks` | Copy page, View as Markdown, Open in ChatGPT or Claude, and the MCP links. |
 | `DocsCatalogFooter` | The catalog at the end of an Overview. |
 | `DocsCodePanel`, `DocsCodePre` | The tutorial code panel and code blocks. |
@@ -176,7 +179,9 @@ Every page has a Markdown copy for coding agents. You get these routes with no s
 
 `::agent-only` content shows only to agents. The site renders nothing for it, and search skips it. Use `rawMarkdown` to expand your own components into plain Markdown in the agent copy. Each page header links to its Markdown copy and opens it in ChatGPT or Claude.
 
-## Search
+## Search and share
+
+Every page gets its title, description, canonical link, Open Graph and Twitter tags, Schema.org (`WebSite`, `WebPage`, `TechArticle`, and a breadcrumb), and a share image, from its frontmatter and the `site` options. [Nuxt SEO](https://nuxtseo.com) does the work: `nuxt-site-config` takes `site`, `nuxt-schema-org` writes the graph, and `nuxt-og-image` renders each image while the build prerenders, so the server carries no renderer and a Worker stays small. The default image shows the site, the section, the page title, and the description. A page sets `seo.image` to share a file of its own. For another design, add `components/OgImage/Docs.takumi.vue` with the props `title`, `description`, `site`, `section`, `logo`, and `host`, and set `ogImage: { component: "Docs" }`. An app page, such as a playground, calls `useDocsSeo({ title, description })` to get the same tags and image.
 
 Search indexes every page by heading. `⌘K` opens it. Page titles rank first, then headings, then text, and a typo still finds the page. The index loads the first time the dialog opens, from `/api/_docs/search.json`. `::agent-only` content is not indexed.
 
