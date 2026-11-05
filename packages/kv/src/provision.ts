@@ -17,8 +17,6 @@ interface CloudflareKVNamespace {
 }
 
 const CLOUDFLARE_KV_NAMESPACE_LIST_PER_PAGE = 100
-// Cloudflare rejects a duplicate namespace title with this error code.
-const CLOUDFLARE_KV_DUPLICATE_TITLE_CODE = 10014
 
 function parseNamespaces(value: unknown): CloudflareKVNamespace[] {
   if (!Array.isArray(value)) throw kvErrorDiagnostics.KV_PROVISION_FAILED({ problem: "Cloudflare returned an invalid KV namespace list." })
@@ -78,9 +76,7 @@ async function createNamespace(request: CloudflareProvisionRequest, title: strin
   }
   catch (error) {
     // Another run created the namespace after this plan listed it.
-    const duplicate = error instanceof ProvisionRequestError
-      && (error.status === 400 || error.status === 409 || error.codes.includes(CLOUDFLARE_KV_DUPLICATE_TITLE_CODE))
-    if (!duplicate) throw error
+    if (!(error instanceof ProvisionRequestError) || error.kind !== "conflict") throw error
     const id = (await listNamespaceIds(request)).get(title)
     if (!id) throw error
     return id

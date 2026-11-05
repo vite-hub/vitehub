@@ -93,6 +93,11 @@
       "import": "./dist/owned-paths.js",
       "default": "./dist/owned-paths.js"
     },
+    "./provider-failure": {
+      "types": "./dist/provider-failure.d.ts",
+      "import": "./dist/provider-failure.js",
+      "default": "./dist/provider-failure.js"
+    },
     "./provision": {
       "types": "./dist/provision.d.ts",
       "import": "./dist/provision.js",

@@ -111,7 +111,8 @@ describe("KV Cloudflare provision step", () => {
   it("reads the id back when another run created the namespace first", async () => {
     let listCalls = 0
     const { context } = createContext((_url, init) => {
-      if (init?.method === "POST") return jsonResponse({ success: false, errors: [{ message: "exists" }] }, 400)
+      // Cloudflare answers a duplicate title with 400 and code 10014 (cloudflare/workers-sdk#14284).
+      if (init?.method === "POST") return jsonResponse({ success: false, errors: [{ code: 10014, message: "a namespace with this account ID and title already exists" }] }, 400)
       listCalls++
       return jsonResponse({ success: true, result: listCalls === 1 ? [] : [{ id: "ns-race", title: "app-cache" }] })
     })
@@ -129,6 +130,34 @@ describe("KV Cloudflare provision step", () => {
     const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
 
     await expect(actions[0]!.apply()).rejects.toMatchObject({ name: "ProvisionRequestError", status: 403 })
+  })
+
+  it("reads the id back after a 409 conflict", async () => {
+    let listCalls = 0
+    const { context } = createContext((_url, init) => {
+      if (init?.method === "POST") return jsonResponse({ success: false, errors: [] }, 409)
+      listCalls++
+      return jsonResponse({ success: true, result: listCalls === 1 ? [] : [{ id: "ns-race", title: "app-cache" }] })
+    })
+
+    const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
+
+    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { kv: { default: "ns-race" } } } })
+  })
+
+  it("fails an invalid create without reusing a namespace that appeared since the plan", async () => {
+    let listCalls = 0
+    const { context, requests } = createContext((_url, init) => {
+      // A 400 without the duplicate-title code is a rejected input, not "already exists".
+      if (init?.method === "POST") return jsonResponse({ success: false, errors: [{ message: "invalid title" }] }, 400)
+      listCalls++
+      return jsonResponse({ success: true, result: listCalls === 1 ? [] : [{ id: "ns-other", title: "app-cache" }] })
+    })
+
+    const actions = await createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)
+
+    await expect(actions[0]!.apply()).rejects.toMatchObject({ codes: [], kind: "invalid", name: "ProvisionRequestError", status: 400 })
+    expect(requests.map(request => request.method)).toEqual(["GET", "POST"])
   })
 
   it("rethrows a duplicate-looking 400 when the namespace is still absent", async () => {
