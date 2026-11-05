@@ -75,6 +75,17 @@
           assert(control.left >= box.left - 1 && control.right <= box.right + 1 && control.top >= box.top - 1 && control.bottom <= box.bottom + 1, `${label}: ${button.textContent} is reachable`)
         }
       }
+      // Along the edge the tab takes the bar's place: its point at `at` percent meets the bar's point at `at` percent.
+      Object.assign(controls.style, { width: "", height: "", flexDirection: "var(--vitehub-pill-flow, row)" })
+      await new Promise(requestAnimationFrame)
+      const bar = pill.shadowRoot.querySelector("div").getBoundingClientRect()
+      const box = tabs.getBoundingClientRect()
+      const side = edge === "left" || edge === "right"
+      const barPoint = side ? bar.top + bar.height * at / 100 : bar.left + bar.width * at / 100
+      const tabPoint = side ? box.top + box.height * at / 100 : box.left + box.width * at / 100
+      assert(Math.abs(barPoint - tabPoint) < 1, `${edge} ${at}% safe=${JSON.stringify(safe)}: bar ${barPoint}, tab ${tabPoint}`)
+      const gap = edge === "top" ? box.top - bar.bottom : edge === "bottom" ? bar.top - box.bottom : edge === "left" ? box.left - bar.right : bar.left - box.right
+      assert(Math.abs(gap) < 1, `${edge} ${at}%: the tab touches the bar, gap ${gap}`)
       const mark = pill.shadowRoot.querySelector("button.mark")
       for (const collapsed of [true, false]) {
         mark.click()

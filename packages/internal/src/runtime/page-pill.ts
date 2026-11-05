@@ -66,7 +66,7 @@ div{position:relative;box-sizing:border-box;max-width:calc(100vw - 32px);max-hei
 :host([edge=top]) .tabs{top:100%;align-items:flex-start}
 :host([edge=left]) .tabs{left:100%;align-items:flex-start}
 :host([edge=right]) .tabs{right:100%;align-items:safe flex-end}
-::slotted([slot=tab]){flex-direction:row;padding:3px;border:1px solid var(--vitehub-pill-line);background:rgb(17 17 17/92%);pointer-events:auto}
+::slotted([slot=tab]){padding:3px;border:1px solid var(--vitehub-pill-line);background:rgb(17 17 17/92%);pointer-events:auto}
 :host([edge=bottom]) ::slotted([slot=tab]){border-bottom:0;border-radius:10px 10px 0 0}
 :host([edge=top]) ::slotted([slot=tab]){border-top:0;border-radius:0 0 10px 10px}
 :host([edge=left]) ::slotted([slot=tab]){border-left:0;border-radius:0 10px 10px 0}
@@ -251,6 +251,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   // Tabs stand on the bar's inner side, outside its clip, like a tab on top of a chat box. Each one is a child of the
   // pill with `slot="tab"`. They come before the bar, so a tab that grows in comes out from under it.
   // Align the same dock percentage of the tabs and bar, so even a larger tab stays inside the viewport's safe margins.
+  // A tab follows the bar's flow, so its controls stack on the left and right edges as the bar's buttons do.
   const tabs = document.createElement("slot")
   tabs.name = "tab"
   tabs.className = "tabs"

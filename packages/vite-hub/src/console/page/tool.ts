@@ -300,7 +300,7 @@ function loadLivePage(href: string, signal: AbortSignal): Promise<Document> {
   })
 }
 
-const tabStyles = `:host{display:flex;align-items:center;gap:2px}${viteHubPillButtonStyles}
+const tabStyles = `:host{display:flex;flex-direction:var(--vitehub-pill-flow,row);align-items:center;gap:2px}${viteHubPillButtonStyles}
 .label{display:inline-flex;align-items:center;gap:6px;padding:0 8px;color:var(--vitehub-pill-strong);white-space:nowrap}
 .dot{width:7px;height:7px;border-radius:50%;background:#f59e0b;flex:none}
 .gone{padding:0 8px 0 0;color:var(--vitehub-pill-muted);white-space:nowrap}
