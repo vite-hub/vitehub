@@ -27,7 +27,8 @@ import { describe, expect, it } from "vitest"
  * message. Read the failure kind from `@vite-hub/internal/provider-failure`, a provider code, or an SDK error class.
  *
  * The scan covers `packages/*\/src` TypeScript files under a `providers/` or `drivers/` folder, and files whose
- * name has `provision`, `cloudflare`, `vercel`, or `netlify`. `packages/agent` and `packages/content` are not scanned.
+ * name has `provision`, `cloudflare`, `vercel`, or `netlify`, plus the files in `extraProviderFiles` that handle provider
+ * errors under another name. `packages/agent` and `packages/content` are not scanned.
  * It fails on:
  *
  * - `<value>.message.includes(...)`, `.match(...)`, `.startsWith(...)`, `.endsWith(...)`, or `.search(...)`.
@@ -42,6 +43,8 @@ const repoRoot = resolve(import.meta.dirname, "..")
 const allowMarker = /provider-message-match:\s*(\S.*)?$/
 const stringMethods = new Set(["endsWith", "includes", "match", "search", "startsWith"])
 const regexName = /(?:^|[a-z_])(?:re|regex|pattern|retryable)$/i
+// Files that handle provider errors but do not have a provider name.
+const extraProviderFiles = new Set(["packages/blob/src/media/records.ts"])
 
 interface MessageMatch {
   allowed: boolean
@@ -53,6 +56,7 @@ interface MessageMatch {
 function isProviderFile(file: string): boolean {
   if (!/^packages\/[^/]+\/src\/.+\.[cm]?tsx?$/.test(file) || file.endsWith(".d.ts")) return false
   if (file.startsWith("packages/agent/") || file.startsWith("packages/content/")) return false
+  if (extraProviderFiles.has(file)) return true
   const name = file.slice(file.lastIndexOf("/") + 1)
   return /\/(?:providers|drivers)\//.test(file) || /provision|cloudflare|vercel|netlify/i.test(name)
 }
@@ -181,6 +185,8 @@ describe("provider error contract", () => {
     expect(isProviderFile("packages/kv/src/provision.ts")).toBe(true)
     expect(isProviderFile("packages/sandbox/src/internal/cloudflare-transport.ts")).toBe(true)
     expect(isProviderFile("packages/workspace/src/providers/vercel/blob-store.ts")).toBe(true)
+    expect(isProviderFile("packages/blob/src/media/records.ts")).toBe(true)
+    expect(isProviderFile("packages/blob/src/media/photon.ts")).toBe(false)
     expect(isProviderFile("packages/workspace/src/core/errors.ts")).toBe(false)
     expect(isProviderFile("packages/agent/src/providers/codex.ts")).toBe(false)
     expect(isProviderFile("packages/blob/test/drivers/a.ts")).toBe(false)
