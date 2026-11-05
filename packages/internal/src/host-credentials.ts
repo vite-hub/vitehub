@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 export type CredentialHost = "cloudflare" | "vercel" | "netlify" | "deno"
 export type CredentialSource = "env" | "host-cli"
@@ -114,19 +117,22 @@ async function readWranglerAccountId(context: HostCredentialsContext): Promise<s
 // A CLI that is not installed, exits non-zero, or prints something else means "not logged in".
 async function runJson(context: HostCredentialsContext, command: string, args: readonly string[]): Promise<unknown> {
   const run = context.run ?? runHostCli
-  let result: HostCliRunResult
+  let cwd: string | undefined
   try {
-    result = await run(command, args, { cwd: context.cwd, env: context.env })
-  }
-  catch {
-    return
-  }
-  if (result.exitCode !== 0) return
-  try {
+    // Wrangler loads project .env files before dispatch and searches ancestors for config.
+    // Explicit empty files prevent both discoveries, even if the temp directory has a config above it.
+    cwd = await mkdtemp(join(tmpdir(), "vitehub-wrangler-auth-"))
+    await writeFile(join(cwd, ".env"), "")
+    await writeFile(join(cwd, "wrangler.json"), "{}")
+    const result = await run(command, [...args, "--env-file", ".env", "--config", "wrangler.json"], { cwd, env: context.env })
+    if (result.exitCode !== 0) return
     return JSON.parse(result.stdout)
   }
   catch {
     return
+  }
+  finally {
+    if (cwd) await rm(cwd, { force: true, recursive: true })
   }
 }
 

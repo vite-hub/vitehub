@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // A fake `wrangler` for host credential tests. It records its arguments and prints a recorded fixture.
-import { appendFileSync, readFileSync } from "node:fs"
+import { appendFileSync, existsSync, readFileSync } from "node:fs"
 
 const args = process.argv.slice(2)
 appendFileSync(process.env.FAKE_WRANGLER_LOG, `${JSON.stringify(args)}\n`)
@@ -10,6 +10,19 @@ if (mode === "logged-out") {
   process.exit(1)
 }
 const command = args.slice(0, 2).join(" ")
+// Model Wrangler's project discovery so the tests can detect accidental project credentials.
+if (mode === "project-state") {
+  const envFiles = args.includes("--env-file") ? [args[args.indexOf("--env-file") + 1]] : [".env", ".env.local"]
+  let projectToken
+  for (const file of envFiles) {
+    if (existsSync(file)) projectToken = readFileSync(file, "utf8").match(/^CLOUDFLARE_API_TOKEN=(.+)$/m)?.[1] ?? projectToken
+  }
+  const token = process.env.CLOUDFLARE_API_TOKEN ?? projectToken ?? "fake-oauth-token-from-wrangler"
+  const configFile = args.includes("--config") ? args[args.indexOf("--config") + 1] : "wrangler.json"
+  if (existsSync(configFile)) JSON.parse(readFileSync(configFile, "utf8"))
+  process.stdout.write(JSON.stringify(command === "auth token" ? { type: "oauth", token } : { loggedIn: true, accounts: [{ id: token === "project-token" ? "project-account" : "fake-account-id" }] }))
+  process.exit(0)
+}
 const fixture = command === "auth token" ? (mode === "api-key" ? "auth-token-api-key.json" : "auth-token-oauth.json") : command === "whoami --json" ? "whoami.json" : undefined
 if (!fixture) process.exit(1)
 process.stdout.write(readFileSync(new URL(fixture, import.meta.url), "utf8"))
