@@ -2,7 +2,7 @@ import { literal, object, parse, string } from "valibot"
 
 import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
-import { createH3V1ResponseHeaders, isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import { blobError, blobResult } from "./errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
@@ -11,7 +11,8 @@ import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } f
 export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
 
-import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobResult, BlobServeEvent, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobResult, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { ViteHubContext } from "@vite-hub/runtime"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { byteRangeBounds } from "./internal/byte-range.ts"
@@ -24,18 +25,17 @@ import { resolveBlobImages } from "./media/transformers.ts"
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
 
-function normalizeServeEvent(event: Parameters<BlobStorage["serve"]>[0]): BlobServeEvent {
-  if (!isH3V1Event(event)) return event
-  // The accepted Node event type requires its writable response.
-  const response = event.node.res!
-  return {
-    req: toH3V1Request(event),
-    res: {
-      headers: createH3V1ResponseHeaders(response),
-      get status() { return response.statusCode },
-      set status(value) { if (value !== undefined) response.statusCode = value },
-    },
-  }
+/** The request and the response fields that `serve()` reads and writes. */
+interface BlobServeEvent {
+  req: Request
+  res: { headers: Headers, status?: number }
+}
+
+function serveEvent(event: ViteHubContext): BlobServeEvent {
+  const { req, res } = getStandardContext(event)
+  res.headers ??= new Headers()
+  // SAFETY: The line above gives `res` its headers, and `serve()` must write status and headers to the host's object.
+  return { req, res: res as BlobServeEvent["res"] }
 }
 
 function matchesETag(condition: string | null, etag: string | undefined): boolean {
@@ -326,19 +326,33 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
       return blobResult("sign", store, () => driver.sign!(normalizedPathname, options))
     },
     async serve(input, pathname: string, options = {}) {
-      const event = normalizeServeEvent(input)
-      const normalizedPath = normalizePathname(pathname)
-      if (isReservedPath(normalizedPath)) return [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
-      if (options.variant && !options.transform) {
-        const [error, plan] = await blobResult("serve", store, () => media.planVariant(normalizedPath, options.variant!))
-        if (error) return [error, undefined]
-        if (plan) return serveObject(event, plan.source, { ...options, transform: plan.transform })
+      const event = serveEvent(input)
+      const added = Object.entries(options.headers ?? {})
+      for (const [name, value] of added) event.res.headers.set(name, value)
+      const removeAdded = () => { for (const [name] of added) event.res.headers.delete(name) }
+      try {
+        const result = await serveRequest(event, pathname, options)
+        if (result[0]) removeAdded()
+        return result
       }
-      return serveObject(event, normalizedPath, options)
+      catch (error) {
+        removeAdded()
+        throw error
+      }
     },
     store() {
       throw blobErrorDiagnostics.BLOB_R0026({ message: "Named Blob stores are only available from the @vite-hub/blob runtime export." })
     },
+  }
+  async function serveRequest(event: BlobServeEvent, pathname: string, options: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>> {
+    const normalizedPath = normalizePathname(pathname)
+    if (isReservedPath(normalizedPath)) return [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
+    if (options.variant && !options.transform) {
+      const [error, plan] = await blobResult("serve", store, () => media.planVariant(normalizedPath, options.variant!))
+      if (error) return [error, undefined]
+      if (plan) return serveObject(event, plan.source, { ...options, transform: plan.transform })
+    }
+    return serveObject(event, normalizedPath, options)
   }
   async function serveObject(event: BlobServeEvent, normalizedPath: string, options: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>> {
     for (let attempt = 0; attempt < 3; attempt++) {

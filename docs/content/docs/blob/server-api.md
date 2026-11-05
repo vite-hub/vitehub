@@ -82,7 +82,7 @@ Every async method returns `[error, value]`. Expected provider and storage failu
 | `blob.list(options?)` | Lists objects with optional `prefix`, `limit`, `cursor`, and folded folders. |
 | `blob.del(pathnames)` | Deletes one or more objects. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one object. |
-| `blob.serve(event, pathname, options?)` | Serves an object stream through an H3 event, or `null` for a conditional `304` response. Answers single byte ranges with `206`. |
+| `blob.serve(event, pathname, options?)` | Serves an object stream through a request event, or `null` for a conditional `304` response. Answers single byte ranges with `206`. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
 | `blob.createMultipartUpload(pathname, options?)` | Starts a multipart upload. Read [Multipart uploads](#multipart-uploads). |
 | `blob.resumeMultipartUpload(pathname, uploadId)` | Continues a multipart upload in a later request. |
@@ -99,7 +99,7 @@ With a partial prefix such as `docs/re`, a native page can be empty while `hasMo
 
 ## Serve a transformed object
 
-Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It accepts Nuxt H3 v1 and Nitro H3 v2 events, sets content headers, and handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy.
+Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It accepts any request event with [Standard Context](/docs/reference/runtime-context#standard-context) properties, such as a Nuxt H3 v1 or Nitro H3 v2 event in a ViteHub app. It reads the request from `event['~standard'].req`, writes the status and content headers to `event['~standard'].res`, and handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy. `headers` sets more response headers, and `serve()` removes them again when it does not serve the object.
 
 `blob.serve()` also answers byte-range requests, so a `<video>` or `<audio>` element can seek, and Safari can play the file. Responses without a `transform` send `Accept-Ranges: bytes`. A GET or HEAD request with one `Range: bytes=start-end`, `bytes=start-`, or `bytes=-length` gets `206` with `Content-Range` and only those bytes. A range that starts past the end gets `416` with `Content-Range: bytes */<size>` and an empty body. Several ranges, a malformed header, or an `If-Range` that is not the current `ETag` get the whole file. Transformed responses ignore `Range`.
 

@@ -50,7 +50,7 @@ describe("blob pathname validation", () => {
   it.each(unsafe)("rejects %j before any driver call", async (pathname) => {
     const driver = spyDriver()
     const storage = createBlobStorage(driver, "default")
-    const event = { req: new Request("https://example.test/x"), res: { headers: new Headers(), status: 200 } }
+    const event = { "~standard": { vendor: "test", req: new Request("https://example.test/x"), res: { headers: new Headers(), status: 200 } } }
 
     await expect(storage.get(pathname)).rejects.toMatchObject(invalidPathname)
     await expect(storage.head(pathname)).rejects.toMatchObject(invalidPathname)

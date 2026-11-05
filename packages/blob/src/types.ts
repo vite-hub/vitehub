@@ -1,5 +1,5 @@
+import type { ViteHubContext } from "@vite-hub/runtime"
 import type { AccessAuthorize, AnonymousAccessAuthorize, ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
-import type { H3V1Event, H3V1NodeResponse } from "@vite-hub/internal/runtime/h3-v1-request"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
 
@@ -186,17 +186,11 @@ export interface BlobEnsureOptions {
   types?: BlobType[]
 }
 
-export interface BlobServeEvent {
-  req: Pick<Request, "headers" | "method">
-  res: {
-    headers: Headers
-    status?: number
-  }
-}
-
 export interface BlobServeResponseOptions {
   /** Defaults to the event's Cache-Control header, or private, no-cache. */
   cacheControl?: string
+  /** Response headers to set first. `serve()` removes them again when it does not serve the object. */
+  headers?: Record<string, string>
   /**
    * Serve a resized, cropped, or re-encoded image. The generated serve route reads it from `?w=&h=&fit=&fmt=&q=&crop=`.
    * Non-image objects, GIF, SVG, and stores without an image transformer serve the original.
@@ -309,7 +303,11 @@ export interface BlobStorage {
   resumeMultipartUpload(pathname: string, uploadId: string): Promise<BlobResult<BlobMultipartUpload>>
   sign(pathname: string, options: BlobSignOptions): Promise<BlobResult<BlobSignedRequest>>
   /** Returns null for a conditional 304 response. */
-  serve(event: BlobServeEvent | (H3V1Event & { node: { res: H3V1NodeResponse } }), pathname: string, options?: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>>
+  /**
+   * Serve an object for a request event with Standard Context properties, such as an H3 1 or H3 2 event in a ViteHub
+   * app. Reads the request from `event["~standard"].req` and writes the status and headers to `event["~standard"].res`.
+   */
+  serve(event: ViteHubContext, pathname: string, options?: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>>
   store(name: BlobStoreName): BlobStorage
 }
 

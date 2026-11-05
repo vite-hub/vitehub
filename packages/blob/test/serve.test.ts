@@ -49,6 +49,18 @@ describe("Blob response transforms", () => {
     expect(request.res.headers.get("cache-control")).toBe("private, no-cache")
   })
 
+  it("sets the headers option and removes it when the object is not served", async () => {
+    const served = event()
+    const [error] = await storage.serve(served, "private/original", { headers: { "X-Frame-Options": "DENY" } })
+    expect(error).toBeNull()
+    expect(served.res.headers.get("x-frame-options")).toBe("DENY")
+
+    const missing = event()
+    const [notFound] = await storage.serve(missing, "private/missing", { headers: { "X-Frame-Options": "DENY" } })
+    expect(notFound?.code).toBe("BLOB_NOT_FOUND")
+    expect(missing.res.headers.has("x-frame-options")).toBe(false)
+  })
+
   it("serves Nuxt H3 v1 requests with cache validators, HEAD, and byte ranges", async () => {
     const h3 = join(dirname(createRequire(import.meta.resolve("nitropack/package.json")).resolve("h3/package.json")), "dist/index.mjs")
     const { createApp, toWebHandler } = await import(pathToFileURL(h3).href) as {
@@ -117,18 +129,16 @@ describe("Blob response transforms", () => {
     expect(get).not.toHaveBeenCalled()
   })
 
-  it("accepts native HTTP request and response fields without an H3 event", async () => {
-    const request = { req: new Request("https://example.test/photo"), res: { headers: new Headers(), status: 200 } }
+  it("reads the request and writes the response through a host's Standard Context without an H3 event", async () => {
+    const host = (req: Request) => ({ "~standard": { vendor: "host", req, res: { headers: new Headers(), status: 200 } } })
+    const request = host(new Request("https://example.test/photo"))
     const [error, body] = await storage.serve(request, "private/original", options)
     expect(error).toBeNull()
     expect(await new Response(body).text()).toBe("public")
-    const conditional = {
-      req: new Request("https://example.test/photo", { headers: { "if-none-match": request.res.headers.get("etag")! } }),
-      res: { headers: new Headers(), status: 200 },
-    }
+    const conditional = host(new Request("https://example.test/photo", { headers: { "if-none-match": request["~standard"].res.headers.get("etag")! } }))
     const [, response] = await storage.serve(conditional, "private/original", options)
     expect(response).toBeNull()
-    expect(conditional.res.status).toBe(304)
+    expect(conditional["~standard"].res.status).toBe(304)
   })
 
   it.each(["size", "contentType"] as const)("reads the body for HEAD when metadata lacks %s", async (field) => {
