@@ -138,7 +138,7 @@ export const MarkdownEditor = defineComponent({
       if (!current) return null;
       return h("div", { ...attrs, class: ["vh-markdown-editor", attrs.class] }, [
         // The typeset scopes to this wrapper, so the text reads as `Markdown` renders it.
-        h("div", { class: "vh-markdown-editor-content" }, [
+        h("div", { class: "vh-markdown-editor-content vh-typeset" }, [
           h("style", { "data-comark-typeset": "", innerHTML: typesetCss }),
           h(EditorContent, { editor: current }),
         ]),

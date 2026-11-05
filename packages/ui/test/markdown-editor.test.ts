@@ -46,6 +46,7 @@ describe("MarkdownEditor", () => {
     const wrapper = await mounted({ editor: mode === "external" ? external : undefined });
     const initial = wrapper.findComponent(SuggestionMenu).props("editor");
     try {
+      expect(wrapper.find(".ProseMirror").element.closest(".vh-typeset")).not.toBeNull();
       expect(wrapper.find(".ProseMirror").text()).toBe(mode === "external" ? "Shared document" : "Hello");
       await wrapper.setProps({ editor: replacement });
       await flushPromises();

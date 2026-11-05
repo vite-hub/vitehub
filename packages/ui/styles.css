@@ -3223,6 +3223,10 @@
 
 /* MarkdownEditor: the text takes the comark typeset, and the page's focus shows on the editor's own frame. */
 @layer components {
+  .vh-markdown-editor:focus-within {
+    outline: 2px solid var(--vh-highlighted);
+    outline-offset: 2px;
+  }
   .vh-markdown-editor-content .ProseMirror {
     min-height: 100%;
     outline: none;

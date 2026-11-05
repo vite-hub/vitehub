@@ -23,7 +23,8 @@ const maxBuffer = 64 * 1024 * 1024
 const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
 const markdownEditorTiptapPeers = ["@tiptap/core", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@tiptap/vue-3"]
 const optionalPeers = ["@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
-const optionalPeerProbes = optionalPeers
+// ProseMirror's package has no root export; probe the entry used by the editor.
+const optionalPeerProbes = optionalPeers.map(peer => peer === "@tiptap/pm" ? "@tiptap/pm/state" : peer)
 // Every fixture and export runs in its own child process. Independent fixtures
 // run side by side, bounded by the CPU count so CI runners are not overloaded.
 const parallelism = availableParallelism()
@@ -784,6 +785,20 @@ async function packageTypeDependenciesFrom(runnerDir: string, packageName: strin
 }
 
 describe("published declaration diagnostics", () => {
+  it("probes optional peers that only export subpaths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-peer-probe-"))
+    const probe = optionalPeerProbes[optionalPeers.indexOf("@tiptap/pm")]!
+    try {
+      await assertResolution(root, [probe], false)
+      await mkdir(join(root, "node_modules/@tiptap"), { recursive: true })
+      await symlink(await realpath(join(repoRoot, "packages/ui/node_modules/@tiptap/pm")), join(root, "node_modules/@tiptap/pm"), "dir")
+      await assertResolution(root, [probe], true)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("reports package diagnostics without adopting dependency diagnostics", () => {
     expect(isPackageDeclarationFile("/consumer/node_modules/@vite-hub/ui/dist/index.d.ts", "@vite-hub/ui")).toBe(true)
     expect(isPackageDeclarationFile("/consumer/node_modules/@comark/vue/dist/index.d.ts", "@vite-hub/ui")).toBe(false)
