@@ -9,7 +9,7 @@ import type { DocsModuleOptions, DocsPublicConfig } from "../src/nuxt.ts"
 type Hook = (...args: never[]) => unknown
 const hooks = new Map<string, Hook[]>()
 const templates = new Map<string, () => string>()
-const handlers: Array<{ route: string }> = []
+const handlers: Array<{ route: string, method?: string }> = []
 vi.mock("@nuxt/kit", () => ({
   defineNuxtModule: (definition: { setup: object, moduleDependencies: unknown }) => Object.assign(definition.setup, { moduleDependencies: definition.moduleDependencies }),
   createResolver: () => ({ resolve: (path: string) => resolve(import.meta.dirname, "../src", path) }),
@@ -17,7 +17,7 @@ vi.mock("@nuxt/kit", () => ({
     templates.set(template.filename, template.getContents)
     return { dst: `/build/${template.filename}` }
   },
-  addServerHandler: (handler: { route: string }) => handlers.push(handler),
+  addServerHandler: (handler: { route: string, method?: string }) => handlers.push(handler),
   addComponent: vi.fn(),
   addComponentsDir: vi.fn(),
   addImportsDir: vi.fn(),
@@ -194,7 +194,8 @@ describe("docs Nuxt setup", () => {
     const routes = nitro.prerender.routes
     expect(routes).toEqual(expect.arrayContaining(["/blog", "/docs/kv", "/api/_docs/page/docs/kv.json", "/api/_docs/search.json", "/sitemap.xml"]))
     expect(routes.some(path => path.startsWith("/portal"))).toBe(false)
-    expect(handlers.map(handler => handler.route)).toEqual(["/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml", "/raw/**"])
+    expect(handlers.map(handler => handler.route)).toEqual(["/api/_docs/page/**", "/api/_docs/search.json", "/sitemap.xml", "/raw/**", "/raw/**"])
+    expect(handlers.filter(handler => handler.route === "/raw/**").map(handler => handler.method)).toEqual(["get", "head"])
   })
 })
 

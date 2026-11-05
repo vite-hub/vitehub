@@ -14,16 +14,25 @@ const response = data.value
 const { page } = response
 
 const isRoot = page.path === manifest.root?.path
+// Content previews can change a page's layout or add a home page after the manifest was built.
+const layout = page.layout !== "home" && (response.section || isRoot) ? "docs" : "default"
+if (import.meta.client && route.meta.layout !== layout) {
+  // The server has already rendered the manifest's layout. Finish hydrating it before switching shells.
+  if (useNuxtApp().isHydrating) onNuxtReady(() => setPageLayout(layout))
+  else setPageLayout(layout)
+}
 // A page outside the docs base has no section. It reads as a plain article under the site header.
-const isStandalone = !response.section && !isRoot
+const isStandalone = !response.section && !isRoot && page.layout !== "home"
 
 // Agents can fetch the Markdown twin of the page instead of the HTML.
 useHead({ link: [{ rel: "alternate", type: "text/markdown", href: `${site.url}${docsAppPath(docsRawPath(page.path), appBase)}` }] })
-useSeoMeta({
+const section = manifest.sections.find(candidate => candidate.id === response.section)
+useDocsSeo({
   title: page.seo?.title ?? page.sourceTitle,
-  ogTitle: page.seo?.title ?? page.sourceTitle,
-  description: page.seo?.description ?? page.description ?? undefined,
-  ogDescription: page.seo?.description ?? page.description ?? undefined,
+  description: page.seo?.description ?? page.description,
+  section: section && { title: section.title, path: docsAppPath(section.path, appBase) },
+  image: page.seo?.image,
+  type: isRoot || page.layout === "landing" || page.layout === "home" ? "page" : "article",
 })
 </script>
 
@@ -43,6 +52,10 @@ useSeoMeta({
     <UPageBody prose class="!max-w-none !px-0 !pb-0 pt-10">
       <DocsMarkdown :document="response.document" />
     </UPageBody>
+  </div>
+
+  <div v-else-if="page.layout === 'home'" :data-path="page.path">
+    <DocsMarkdown :document="response.document" />
   </div>
 
   <div v-else-if="page.layout === 'landing'" class="vh-docs-landing">

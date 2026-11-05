@@ -1,7 +1,11 @@
 import { z } from "zod"
 
-/** How a page renders. `article` is prose with an outline, `tutorial` numbers its steps, `landing` is a wide Overview. */
-export const docsLayouts = ["article", "tutorial", "landing"] as const
+/**
+ * How a page renders. `article` is prose with an outline, `tutorial` numbers its steps, `landing` is a wide Overview,
+ * and `home` is the page's own blocks at full width under the site header, without the docs sidebar, such as a
+ * product home page.
+ */
+export const docsLayouts = ["article", "tutorial", "landing", "home"] as const
 
 export type DocsLayout = (typeof docsLayouts)[number]
 
@@ -32,7 +36,11 @@ export interface DocsPageFrontmatter {
   /** `false` hides the "On this page" outline. */
   toc?: boolean
   navigation?: DocsPageNavigation
-  seo?: { title?: string, description?: string }
+  /**
+   * Search and share fields, when they differ from the page's own. `image` is the share image: a path in `public/` or a
+   * URL, or `false` for none. Without it the build renders one from the title and description.
+   */
+  seo?: { title?: string, description?: string, image?: string | false }
 }
 
 /**
@@ -46,6 +54,7 @@ export interface DocsPageFile extends DocsPageFrontmatter {
   "navigation.kind"?: string
   "seo.title"?: string
   "seo.description"?: string
+  "seo.image"?: string | false
 }
 
 /** `.navigation.yml` of a section folder. */
@@ -71,6 +80,7 @@ const navigationFields: Fields<Exclude<DocsPageNavigation, false>> = {
 const seoFields: Fields<NonNullable<DocsPageFrontmatter["seo"]>> = {
   title: z.string().optional(),
   description: z.string().optional(),
+  image: z.union([z.string(), z.literal(false)]).optional(),
 }
 
 const pageFields: Fields<DocsPageFrontmatter> = {
@@ -99,6 +109,7 @@ export const docsPageFields: Fields<DocsPageFile> = {
   "navigation.kind": navigationFields.kind,
   "seo.title": seoFields.title,
   "seo.description": seoFields.description,
+  "seo.image": seoFields.image,
 }
 
 /** The build validates frontmatter with this schema after `docsFrontmatter()` expanded its dotted keys. */
