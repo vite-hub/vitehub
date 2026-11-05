@@ -205,9 +205,39 @@ describe("serveSkills", () => {
     expect(index).toMatchObject({ skills: [{ url: "/docs/.well-known/agent-skills/release.tar.gz" }] })
     expect((await serveSkills(get("/docs/.well-known/skills/index.json"), [], options))?.headers.get("cache-control")).toBe("no-store")
   })
+
+  it("serves only the first skill of each name in runtime discovery lists", async () => {
+    const duplicate = defineSkill({ "SKILL.md": releaseMd.replace("Ship a release.", "Another release."), "other.md": "Only in the duplicate." })
+    const current = async () => [release, duplicate, handoff]
+    for (const root of ["/.well-known/agent-skills/", "/.well-known/skills/"]) {
+      expect(await json(await serveSkills(get(`${root}index.json`), current))).toEqual(await json(await serveSkills(get(`${root}index.json`), [release, handoff])))
+      expect(await (await serveSkills(get(`${root}release/SKILL.md`), current))?.text()).toBe(releaseMd)
+      expect((await serveSkills(get(`${root}release/other.md`), current))?.status).toBe(404)
+    }
+    const index = await json(await serveSkills(get("/.well-known/agent-skills/index.json"), current)) as { skills: Array<{ digest: string, url: string }> }
+    for (const skill of index.skills) {
+      const artifact = await serveSkills(get(skill.url), current)
+      expect(sha256(new Uint8Array(await artifact!.arrayBuffer()))).toBe(skill.digest)
+    }
+  })
 })
 
 describe("skillsMcp", () => {
+  it("keeps the first skill of each name consistently across MCP methods", async () => {
+    const duplicate = defineSkill({ "SKILL.md": releaseMd.replace("Ship a release.", "Another release."), "other.md": "Only in the duplicate." })
+    let current = [release, duplicate, handoff]
+    const mcp = skillsMcp(() => current)
+    const expected = skillsMcp([release, handoff])
+    expect(await mcp.list()).toEqual(await expected.list())
+    expect(await mcp.resources()).toEqual(await expected.resources())
+    expect(await mcp.get("skill://release")).toEqual(await expected.get("skill://release"))
+    expect(await mcp.read("skill://release/SKILL.md")).toEqual(await expected.read("skill://release/SKILL.md"))
+    expect((await mcp.read("skill://release/other.md"))[0]?.code).toBe("SKILL_NOT_FOUND")
+    current = [duplicate, release, handoff]
+    expect(await mcp.list()).toEqual(await skillsMcp([duplicate, handoff]).list())
+    expect((await mcp.read("skill://release/other.md"))[1]?.contents).toEqual([{ mimeType: "text/markdown", text: "Only in the duplicate.", uri: "skill://release/other.md" }])
+  })
+
   it("returns complete protocol results without caching runtime-selected skills", async () => {
     let enabled = [release]
     const mcp = skillsMcp(() => enabled)

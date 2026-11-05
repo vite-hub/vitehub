@@ -263,7 +263,13 @@ export function skillDigest(skill: Skill): Promise<string> {
 }
 
 async function resolveSkills<TSkill extends Skill>(skills: SkillList<TSkill>): Promise<readonly TSkill[]> {
-  return typeof skills === "function" ? await skills() : skills
+  const list = typeof skills === "function" ? await skills() : skills
+  const names = new Set<string>()
+  return list.filter((skill) => {
+    if (names.has(skill.name)) return false
+    names.add(skill.name)
+    return true
+  })
 }
 
 /** Options of {@link serveSkills}. */
