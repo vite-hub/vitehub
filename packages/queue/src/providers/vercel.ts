@@ -118,6 +118,7 @@ async function loadVercelQueueClient(region: string | undefined): Promise<Vercel
         module = await importVercelQueue(specifier)
       }
       catch (error) {
+        // provider-message-match: Node reports a missing dynamic import callback only in this TypeError message.
         if (!(error instanceof TypeError) || !/dynamic import callback/i.test(error.message)) throw error
         module = await import(specifier) as Record<string, unknown>
       }

@@ -16,6 +16,7 @@ export async function withCloudflareRequest<T>(operation: string, timeout: numbe
     catch (error) {
       if (signal?.aborted) throw signal.reason
       const message = [error instanceof Error ? error.message : String(error), error instanceof Error && error.cause instanceof Error ? error.cause.message : ''].join('\n')
+      // provider-message-match: Cloudflare Container startup errors have no code. Durable Object `retryable` would also retry exec.
       if (attempt === retryDelays.length || !retryable.test(message))
         throw sandboxErrorDiagnostics.SANDBOX_R0088({ message: `[vitehub] Cloudflare Sandbox ${operation} failed: ${message.trim()}`, cause: error })
       await waitForRetry(retryDelays[attempt], signal)

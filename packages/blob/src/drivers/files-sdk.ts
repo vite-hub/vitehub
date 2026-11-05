@@ -17,6 +17,7 @@ async function loadFiles(): Promise<FilesCtor> {
 
 function isNotFound(error: unknown): boolean {
   const value = error as { code?: unknown, message?: unknown }
+  // provider-message-match: files-sdk sets the NotFound code for some providers only. The others say it in text.
   return value?.code === "NotFound" || /not found|object not found/i.test(String(value?.message || ""))
 }
 
@@ -126,6 +127,7 @@ async function listPage(client: FilesInstance, listOptions: ListOptions): Promis
     return await client.list(listOptions)
   }
   catch (error) {
+    // provider-message-match: files-sdk drops the Node file system code. Only the message keeps ENOTDIR.
     if (error instanceof Error && /ENOTDIR/.test(error.message)) {
       throw Object.assign(error, { code: "ENOTDIR" })
     }
