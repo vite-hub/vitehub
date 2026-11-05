@@ -131,6 +131,11 @@ history photo that fails to download, or does not fit in the remaining
 `driver.execution.attachments.maxBytes` budget, is left out. The Invocation
 continues.
 
+Provider Agent Drivers, such as Codex and Claude Code, attach these photos to
+the turn that starts a new provider thread. A resumed provider thread receives
+only the current message's attachments, because it already has the earlier
+turns. A Sandbox provider receives no history photos.
+
 ## Add a session
 
 Use a session when the product has a stable conversation id that does not

@@ -4106,13 +4106,19 @@ cli_auth_credentials_store = "keyring"
     }) as never)
 
     expect(second.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
-    expect(fetchHistoricalImage).not.toHaveBeenCalled()
-    expect(fetchLaterHistoricalImage).not.toHaveBeenCalled()
+    expect(fetchHistoricalImage).toHaveBeenCalledOnce()
+    expect(fetchLaterHistoricalImage).toHaveBeenCalledOnce()
     expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
       input: '<message role="user">\nhello\n{"mediaType":"image/png","name":"diagram.png","type":"image"}\n</message>\n<message role="assistant">\n{"input":{"path":"notes.txt"},"toolCallId":"call-1","toolName":"read_file","type":"tool-call"}\n</message>\n<message role="tool">\n{"output":{"text":"first answer"},"toolCallId":"call-1","toolName":"read_file","type":"tool-result"}\n</message>\n<message role="assistant">\n{"context":"kept"}\nhttps://example.com/notes\n</message>\n<message role="user">\n{"mediaType":"image/jpeg","name":"second.jpg","type":"image"}\n</message>\n<message role="user">\ncontinue\n</message>',
       threadId,
     }))
-    expect(second.sendTurn).toHaveBeenCalledWith(expect.not.objectContaining({ attachments: expect.anything() }))
+    // The new native thread has not seen the earlier images, so they are sent again.
+    expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [
+        expect.objectContaining({ mimeType: "image/png", name: "diagram.png", sizeBytes: 3 }),
+        expect.objectContaining({ mimeType: "image/jpeg", name: "second.jpg", sizeBytes: 3 }),
+      ],
+    }))
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await rm(second.attachmentsDirectory as string, { force: true, recursive: true })
   })
@@ -4285,6 +4291,64 @@ cli_auth_credentials_store = "keyring"
     }))
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
     await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
+  })
+
+  it("sends chat history images to a new provider thread after the current ones", async () => {
+    const threadId = "thread-attachment-history"
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const fetchScreenshot = vi.fn(async () => new Uint8Array([1, 2, 3]))
+    const fetchExpired = vi.fn(async () => { throw new Error("403 Forbidden") })
+    const fetchTooLarge = vi.fn(async () => new Uint8Array(8))
+    const fetchCurrent = vi.fn(async () => new Uint8Array([4, 5]))
+    const adapter = createProviderAgentAdapter({ execution: { attachments: { maxBytes: 6 } }, provider: "codex" })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId, {
+      messages: [
+        { id: "m-1", parts: [{ text: "please show m3 here", type: "text" }, { fetchData: fetchScreenshot, mediaType: "image/png", name: "screenshot.png", type: "image", url: "https://graph.example/hostedContents/1/$value" }], role: "user" },
+        { id: "m-2", parts: [{ fetchData: fetchExpired, mediaType: "image/png", name: "expired.png", type: "image" }], role: "user" },
+        { id: "m-3", parts: [{ fetchData: fetchTooLarge, mediaType: "image/png", name: "large.png", type: "image" }], role: "user" },
+        { id: "m-4", parts: [{ mediaType: "image/png", name: "url-only.png", type: "image", url: "https://assets.example/url-only.png" }], role: "user" },
+        { id: "m-5", parts: [{ text: "@bot open a ticket with that screenshot", type: "text" }, { fetchData: fetchCurrent, mediaType: "image/png", name: "current.png", type: "image" }], role: "user" },
+      ],
+      runtime: { ...context(threadId).runtime, run: { messageId: "m-5", runId: `run-${threadId}`, threadId } },
+    }) as never)
+
+    expect(fetchExpired).toHaveBeenCalledOnce()
+    expect(fetchTooLarge).toHaveBeenCalledOnce()
+    expect(provider.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      attachments: [
+        expect.objectContaining({ name: "screenshot.png", sizeBytes: 3 }),
+        expect.objectContaining({ name: "current.png", sizeBytes: 2 }),
+      ],
+    }))
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await rm(provider.attachmentsDirectory as string, { force: true, recursive: true })
+  })
+
+  it("leaves earlier images out of a resumed provider thread", async () => {
+    const threadId = "thread-attachment-history-resumed"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { turnResumeCursor: "opaque-history-cursor" })
+    const second = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const fetchEarlier = vi.fn(async () => new Uint8Array([1]))
+    const adapter = createProviderAgentAdapter({ provider: "codex" })
+
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId) as never)
+    // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
+    await adapter.generate(context(threadId, {
+      messages: [
+        { parts: [{ fetchData: fetchEarlier, mediaType: "image/png", name: "earlier.png", type: "image" }], role: "user" },
+        { parts: [{ text: "seen it", type: "text" }], role: "assistant" },
+        { parts: [{ text: "continue", type: "text" }], role: "user" },
+      ],
+      prompt: "continue",
+    }) as never)
+
+    expect(second.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "opaque-history-cursor" }))
+    expect(fetchEarlier).not.toHaveBeenCalled()
+    expect(second.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: "continue" }))
+    expect(second.sendTurn).toHaveBeenCalledWith(expect.not.objectContaining({ attachments: expect.anything() }))
   })
 
   it("requires application-owned resolution for provider attachment URLs", async () => {
