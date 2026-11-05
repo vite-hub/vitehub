@@ -6,12 +6,14 @@ import { McpError, ResultSchema } from "@modelcontextprotocol/sdk/types.js"
 import { consoleMountBase } from "../console-route.ts"
 import { consoleMcpCallbackPath } from "../mcp-client.ts"
 import { readConsoleOperationUser } from "./access.ts"
+import { consoleMcpRecords, resetConsoleMcpRecords } from "./mcp-client-store.ts"
 import { consoleRequestError, consoleRequestURL } from "./request.ts"
 
 import type { OAuthClientProvider, OAuthDiscoveryState } from "@modelcontextprotocol/sdk/client/auth.js"
-import type { OAuthClientInformationMixed, OAuthClientMetadata, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js"
-import type { ConsoleMcpAuth, ConsoleMcpCandidate, ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpIdentity, ConsoleMcpListKind, ConsoleMcpOutcome, ConsoleMcpOverview, ConsoleMcpPage, ConsoleMcpServerInfo, ConsoleMcpStatus } from "../mcp-client.ts"
+import type { OAuthClientMetadata } from "@modelcontextprotocol/sdk/shared/auth.js"
+import type { ConsoleMcpCandidate, ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpIdentity, ConsoleMcpListKind, ConsoleMcpOutcome, ConsoleMcpOverview, ConsoleMcpPage, ConsoleMcpServerInfo } from "../mcp-client.ts"
 import type { ConsoleAccess } from "./access.ts"
+import type { PendingAuthorization, StoredConnection } from "./mcp-client-store.ts"
 
 /** The Console request that runs an MCP operation: who calls, and from which page. */
 export interface ConsoleMcpCaller {
@@ -19,66 +21,17 @@ export interface ConsoleMcpCaller {
   request?: Request
 }
 
-interface PendingAuthorization {
-  /** Reserve a callback while the SDK still needs its PKCE verifier. */
-  completing?: boolean
-  expiresAt: number
-  prompt?: "login"
-  state: string
-  url?: URL
-  verifier?: string
-}
-
-interface StoredOAuth {
-  /** Keep the registration used by this grant even if another first sign-in registers concurrently. */
-  client?: OAuthClientInformationMixed
-  discovery?: OAuthDiscoveryState
-  pending?: PendingAuthorization
-  /** When the tokens arrived, so `expires_in` becomes a date. */
-  receivedAt?: number
-  redirectUrl: string
-  tokens?: OAuthTokens
-}
-
-interface StoredConnection {
-  auth: ConsoleMcpAuth
-  bearer?: string
-  /** The last operation settles before another can use this grant or session. */
+/** The MCP servers that each origin announced, for a minute. */
+const discovered = new Map<string, { at: number, servers: ConsoleMcpCandidate[] }>()
+/** Runtime coordination stays outside the serializable connection records. */
+interface ConnectionRuntime {
   clientOperation?: Promise<void>
   closing?: boolean
-  consoleOrigin: string
-  createdAt: number
-  error?: string
-  id: string
-  identity?: ConsoleMcpIdentity
-  label: string
-  /** The person named the connection. Otherwise a sign-in names it after its account. */
-  labelled: boolean
-  oauth?: StoredOAuth
-  owner: string
-  protocolVersion?: string
-  sameOrigin: boolean
-  server?: ConsoleMcpServerInfo
-  sessionId?: string
-  status: ConsoleMcpStatus
-  url: string
-  usedAt?: number
+  connection?: StoredConnection
+  operation?: Promise<void>
 }
-
-interface ConsoleMcpState {
-  /** Registered OAuth clients, by authorization server, redirect URL, and resource. One registration serves every person of that resource. */
-  clients: Map<string, OAuthClientInformationMixed>
-  connections: Map<string, StoredConnection>
-  discovered: Map<string, { at: number, servers: ConsoleMcpCandidate[] }>
-}
-
-const stateKey: unique symbol = Symbol.for("vitehub.console.mcp-client")
-// SAFETY: This module owns the process slot, so separately bundled Console chunks share one store.
-const scope = globalThis as typeof globalThis & { [stateKey]?: ConsoleMcpState }
-
-function store(): ConsoleMcpState {
-  return scope[stateKey] ??= { clients: new Map(), connections: new Map(), discovered: new Map() }
-}
+const connectionRuntimes = new Map<string, ConnectionRuntime>()
+const completingAuthorizations = new Set<string>()
 
 const pendingLifetimeMs = 10 * 60_000
 const discoveryLifetimeMs = 60_000
@@ -247,13 +200,12 @@ function clientKey(connection: StoredConnection): string {
 }
 
 /**
- * The OAuth client of one connection for the MCP SDK. Everything it saves stays in server memory: the registration,
- * the PKCE verifier, the discovery result, and the tokens. `redirectToAuthorization()` only records the URL; the
- * Console page opens it.
+ * The OAuth client of one connection for the MCP SDK. Everything it saves stays on the server: the registration, the
+ * PKCE verifier, the discovery result, and the tokens. The operation saves the connection when it ends.
+ * `redirectToAuthorization()` only records the URL; the Console page opens it.
  */
 function oauthProvider(connection: StoredConnection, onAuthorize?: () => void): OAuthClientProvider {
   const oauth = connection.oauth!
-  const clients = store().clients
   const pending = (): PendingAuthorization => oauth.pending ??= { expiresAt: Date.now() + pendingLifetimeMs, state: randomId() }
   const metadata: OAuthClientMetadata = {
     client_name: "ViteHub Console",
@@ -270,7 +222,7 @@ function oauthProvider(connection: StoredConnection, onAuthorize?: () => void): 
     get redirectUrl() {
       return oauth.redirectUrl
     },
-    clientInformation: () => oauth.client ??= clients.get(clientKey(connection)),
+    clientInformation: async () => oauth.client ??= await (await consoleMcpRecords()).client(clientKey(connection)),
     codeVerifier: () => {
       const verifier = oauth.pending?.verifier
       if (!verifier) throw consoleRequestError(409, "This sign-in has no PKCE verifier. Start it again.", "CONSOLE_MCP_AUTHORIZATION_FAILED")
@@ -281,9 +233,11 @@ function oauthProvider(connection: StoredConnection, onAuthorize?: () => void): 
       onAuthorize?.()
       return oauth.discovery
     },
-    invalidateCredentials: (credentials) => {
+    invalidateCredentials: async (credentials) => {
       if (credentials === "all" || credentials === "client") {
-        if (clients.get(clientKey(connection)) === oauth.client) clients.delete(clientKey(connection))
+        const records = await consoleMcpRecords()
+        const registered = await records.client(clientKey(connection))
+        if (registered?.client_id === oauth.client?.client_id && registered?.client_secret === oauth.client?.client_secret) await records.removeClient(clientKey(connection))
         delete oauth.client
       }
       if (credentials === "all" || credentials === "tokens") oauth.tokens = undefined
@@ -294,11 +248,11 @@ function oauthProvider(connection: StoredConnection, onAuthorize?: () => void): 
       const validated = serverUrl(url.href, connection.consoleOrigin)
       const current = pending()
       if (current.prompt) validated.searchParams.set("prompt", [current.prompt, ...(validated.searchParams.get("prompt")?.split(" ") ?? [])].filter((value, index, all) => all.indexOf(value) === index).join(" "))
-      current.url = validated
+      current.url = validated.href
     },
-    saveClientInformation: (information) => {
+    saveClientInformation: async (information) => {
       oauth.client = information
-      clients.set(clientKey(connection), information)
+      await (await consoleMcpRecords()).saveClient(clientKey(connection), information)
     },
     saveCodeVerifier: (verifier) => {
       pending().verifier = verifier
@@ -348,29 +302,47 @@ class SignedOutError extends Error {
 
 interface ClientOptions { fresh?: boolean, timeoutMs?: number }
 
-function assertOpen(connection: StoredConnection): void {
-  if (connection.closing) throw consoleRequestError(404, "This MCP connection was disconnected.")
+function connectionKey(owner: string, id: string): string {
+  return JSON.stringify([owner, id])
+}
+
+function runtimeOf(key: string): ConnectionRuntime {
+  let runtime = connectionRuntimes.get(key)
+  if (!runtime) connectionRuntimes.set(key, runtime = {})
+  return runtime
+}
+
+function releaseRuntime(key: string, runtime: ConnectionRuntime): void {
+  if (!runtime.closing && !runtime.operation && !runtime.clientOperation && connectionRuntimes.get(key) === runtime) connectionRuntimes.delete(key)
+}
+
+function assertOpen(runtime: ConnectionRuntime | undefined): void {
+  if (runtime?.closing) throw consoleRequestError(404, "This MCP connection was disconnected.")
 }
 
 /** Serialize grant and session work, including callbacks and work left running after a browser abort. */
-function withConnection<T>(connection: StoredConnection, run: () => Promise<T>): Promise<T> {
-  const operation = (connection.clientOperation ?? Promise.resolve()).then(async () => {
-    assertOpen(connection)
+function withClientOperation<T>(connection: StoredConnection, run: () => Promise<T>): Promise<T> {
+  const key = connectionKey(connection.owner, connection.id)
+  const runtime = runtimeOf(key)
+  const operation = (runtime.clientOperation ?? Promise.resolve()).then(async () => {
+    assertOpen(runtime)
+    runtime.connection = connection
     const value = await run()
-    assertOpen(connection)
+    assertOpen(runtime)
     return value
   })
   // A rejected operation must release the next one as well.
   const settled = operation.then(() => {}, () => {})
-  connection.clientOperation = settled
+  runtime.clientOperation = settled
   void settled.then(() => {
-    if (connection.clientOperation === settled) delete connection.clientOperation
+    if (runtime.clientOperation === settled) delete runtime.clientOperation
+    releaseRuntime(key, runtime)
   })
   return operation
 }
 
 function withClient<T>(caller: ConsoleMcpCaller, connection: StoredConnection, run: (client: Client) => Promise<T>, options: ClientOptions = {}): Promise<T> {
-  return withConnection(connection, () => runClient(caller, connection, run, options))
+  return withClientOperation(connection, () => runClient(caller, connection, run, options))
 }
 
 /**
@@ -485,33 +457,69 @@ function describe(connection: StoredConnection): ConsoleMcpConnection {
   return described
 }
 
-function prune(now = Date.now()): void {
-  for (const connection of store().connections.values()) {
-    const pending = connection.oauth?.pending
-    if (!pending || pending.expiresAt > now) continue
-    delete connection.oauth!.pending
-    if (connection.status === "authorizing") {
-      connection.status = connection.oauth?.tokens ? "signed-out" : "failed"
-      connection.error = "The sign-in did not finish in time. Start it again."
-    }
+/** End a sign-in that did not finish in time. Returns whether the connection changed. */
+function prune(connection: StoredConnection, now = Date.now()): boolean {
+  const pending = connection.oauth?.pending
+  if (!pending || pending.expiresAt > now) return false
+  delete connection.oauth!.pending
+  if (connection.status === "authorizing") {
+    connection.status = connection.oauth?.tokens ? "signed-out" : "failed"
+    connection.error = "The sign-in did not finish in time. Start it again."
   }
+  return true
 }
 
-function owned(owner: string): StoredConnection[] {
-  return [...store().connections.values()].filter(connection => connection.owner === owner).sort((left, right) => left.createdAt - right.createdAt)
+async function save(connection: StoredConnection): Promise<void> {
+  const records = await consoleMcpRecords()
+  if (!connectionRuntimes.get(connectionKey(connection.owner, connection.id))?.closing) await records.save(connection)
+}
+
+/** The connections of one person, oldest first. */
+async function owned(owner: string): Promise<StoredConnection[]> {
+  const connections = await (await consoleMcpRecords()).connections(owner)
+  await Promise.all(connections.filter(connection => prune(connection)).map(save))
+  return connections.sort((left, right) => left.createdAt - right.createdAt)
 }
 
 async function connectionOf(caller: ConsoleMcpCaller, id: string): Promise<StoredConnection> {
-  const connection = store().connections.get(id)
+  const records = await consoleMcpRecords()
   // Another person's connection reads as missing, so ids do not reveal who has which server.
-  if (!connection || connection.owner !== await ownerOf(caller)) throw consoleRequestError(404, "This MCP connection does not exist. It ends when the server restarts.")
-  assertOpen(connection)
+  const connection = await records.connection(await ownerOf(caller), id)
+  if (!connection) throw consoleRequestError(404, records.durable ? "This MCP connection does not exist. It was disconnected." : "This MCP connection does not exist. It ends when the server restarts.")
+  assertOpen(connectionRuntimes.get(connectionKey(connection.owner, connection.id)))
+  if (prune(connection)) await save(connection)
   return connection
+}
+
+/** Serialize this process's load/change/save operations so a waiting request reads any rotated tokens. */
+async function withConnection<T>(caller: ConsoleMcpCaller, id: string, change: (connection: StoredConnection) => Promise<T>): Promise<T> {
+  const key = connectionKey(await ownerOf(caller), id)
+  const runtime = runtimeOf(key)
+  const operation = (runtime.operation ?? Promise.resolve()).then(async () => {
+    assertOpen(runtime)
+    const connection = await connectionOf(caller, id)
+    runtime.connection = connection
+    try {
+      const value = await change(connection)
+      assertOpen(runtime)
+      return value
+    }
+    finally {
+      await save(connection)
+    }
+  })
+  const settled = operation.then(() => {}, () => {})
+  runtime.operation = settled
+  void settled.then(() => {
+    if (runtime.operation === settled) delete runtime.operation
+    releaseRuntime(key, runtime)
+  })
+  return operation
 }
 
 /** MCP servers that the app announces on its own origin, from RFC 9728 protected resource metadata. */
 async function discoverAppServers(origin: string): Promise<ConsoleMcpCandidate[]> {
-  const cached = store().discovered.get(origin)
+  const cached = discovered.get(origin)
   if (cached && Date.now() - cached.at < discoveryLifetimeMs) return cached.servers
   const servers: ConsoleMcpCandidate[] = []
   try {
@@ -530,17 +538,16 @@ async function discoverAppServers(origin: string): Promise<ConsoleMcpCandidate[]
   catch {
     // An app without the metadata has no announced server. The person can still enter a URL.
   }
-  store().discovered.set(origin, { at: Date.now(), servers })
+  discovered.set(origin, { at: Date.now(), servers })
   return servers
 }
 
 export async function listConsoleMcp(caller: ConsoleMcpCaller, options: { sharedSession: boolean }): Promise<ConsoleMcpOverview> {
-  prune()
   const owner = await ownerOf(caller)
   const { origin } = consolePage(caller)
   const viteHubMcp = viteHubMcpUrl(caller)
   return {
-    connections: owned(owner).map(describe),
+    connections: (await owned(owner)).map(describe),
     servers: [...(await discoverAppServers(origin)).filter(server => server.url !== viteHubMcp), { auth: "console", label: "ViteHub MCP", url: viteHubMcp }],
     sharedSession: options.sharedSession,
   }
@@ -562,7 +569,7 @@ function signInScope(discovery: OAuthDiscoveryState, requested: string | undefin
  * `WWW-Authenticate` of the `401` that asked for the sign-in.
  */
 async function startAuthorization(connection: StoredConnection, prompt: "login" | undefined, challenge?: Challenge): Promise<string> {
-  return withConnection(connection, () => authorize(connection, prompt, challenge))
+  return withClientOperation(connection, () => authorize(connection, prompt, challenge))
 }
 
 async function authorize(connection: StoredConnection, prompt: "login" | undefined, challenge?: Challenge): Promise<string> {
@@ -582,7 +589,7 @@ async function authorize(connection: StoredConnection, prompt: "login" | undefin
     if (result === "REDIRECT" && oauth.pending.url) {
       connection.status = "authorizing"
       delete connection.error
-      return oauth.pending.url.href
+      return oauth.pending.url
     }
     throw new Error("The authorization server did not start a sign-in.")
   }
@@ -600,7 +607,6 @@ async function authorize(connection: StoredConnection, prompt: "login" | undefin
  * to open. `prompt: "login"` asks the authorization server to show its sign-in even when someone is signed in.
  */
 export async function connectConsoleMcp(caller: ConsoleMcpCaller, input: { label?: string, prompt?: "login", server: string, token?: string }): Promise<ConsoleMcpConnectResult> {
-  prune()
   const owner = await ownerOf(caller)
   const { mount, origin } = consolePage(caller)
   const url = serverUrl(input.server, origin)
@@ -608,8 +614,9 @@ export async function connectConsoleMcp(caller: ConsoleMcpCaller, input: { label
   // ViteHub MCP accepts the Console session, so the Console needs no sign-in or token for it. One session is one
   // account, so connecting again opens the same connection.
   const session = !token && url.href === viteHubMcpUrl(caller)
-  const existing = session ? owned(owner).find(candidate => candidate.auth === "console" && candidate.url === url.href) : undefined
-  if (!existing && owned(owner).length >= maximumConnections) throw consoleRequestError(409, `The Console keeps ${maximumConnections} MCP connections per person. Disconnect one first.`)
+  const mine = await owned(owner)
+  const existing = session ? mine.find(candidate => candidate.auth === "console" && candidate.url === url.href) : undefined
+  if (!existing && mine.length >= maximumConnections) throw consoleRequestError(409, `The Console keeps ${maximumConnections} MCP connections per person. Disconnect one first.`)
   const user = session ? await readConsoleOperationUser(caller.access) : undefined
   const identity = user ? identityFrom({ email: user.email, name: user.name, picture: user.image, sub: user.id }) : undefined
   const connection: StoredConnection = existing ?? {
@@ -628,7 +635,7 @@ export async function connectConsoleMcp(caller: ConsoleMcpCaller, input: { label
   }
   try {
     await withClient(caller, connection, async () => {}, { fresh: true })
-    store().connections.set(connection.id, connection)
+    await save(connection)
     return { connection: describe(connection) }
   }
   catch (error) {
@@ -637,21 +644,44 @@ export async function connectConsoleMcp(caller: ConsoleMcpCaller, input: { label
     // Without a token, a server that asks for credentials gets the MCP authorization flow.
     connection.auth = "oauth"
     connection.oauth = { redirectUrl: `${origin}${mount}${consoleMcpCallbackPath}` }
-    store().connections.set(connection.id, connection)
-    return { authorizationUrl: await startAuthorization(connection, input.prompt, error.challenge), connection: describe(connection) }
+    try {
+      return { authorizationUrl: await startAuthorization(connection, input.prompt, error.challenge), connection: describe(connection) }
+    }
+    finally {
+      await save(connection)
+    }
   }
 }
 
+interface CompleteInput {
+  code?: string
+  error?: string
+  errorDescription?: string
+  iss?: string
+  state: string
+}
+
 /** Finish the sign-in that the authorization server redirected back from. */
-export async function completeConsoleMcp(caller: ConsoleMcpCaller, input: { code?: string, error?: string, errorDescription?: string, iss?: string, state: string }): Promise<ConsoleMcpConnection> {
-  prune()
+export async function completeConsoleMcp(caller: ConsoleMcpCaller, input: CompleteInput): Promise<ConsoleMcpConnection> {
   const owner = await ownerOf(caller)
-  const connection = owned(owner).find(candidate => candidate.oauth?.pending?.state === input.state)
+  const connection = (await owned(owner)).find(candidate => candidate.oauth?.pending?.state === input.state)
   // A state of another person, an expired one, or one used before reads the same: the sign-in is not known.
-  if (!connection?.oauth?.pending || connection.oauth.pending.completing) throw consoleRequestError(404, "This sign-in is not known. It expired, finished already, or was started by someone else. Start it again.", "CONSOLE_MCP_AUTHORIZATION_FAILED")
-  const oauth = connection.oauth
+  if (!connection?.oauth?.pending || completingAuthorizations.has(input.state)) throw consoleRequestError(404, "This sign-in is not known. It expired, finished already, or was started by someone else. Start it again.", "CONSOLE_MCP_AUTHORIZATION_FAILED")
+  completingAuthorizations.add(input.state)
+  try {
+    return await withConnection(caller, connection.id, async (current) => {
+      if (current.oauth?.pending?.state !== input.state) throw consoleRequestError(404, "This sign-in is not known. Start it again.", "CONSOLE_MCP_AUTHORIZATION_FAILED")
+      return finishSignIn(caller, current, input)
+    })
+  }
+  finally {
+    completingAuthorizations.delete(input.state)
+  }
+}
+
+async function finishSignIn(caller: ConsoleMcpCaller, connection: StoredConnection, input: CompleteInput): Promise<ConsoleMcpConnection> {
+  const oauth = connection.oauth!
   const pending = oauth.pending!
-  pending.completing = true
   if (input.error || !input.code) {
     delete oauth.pending
     connection.status = oauth.tokens ? "signed-out" : "failed"
@@ -668,7 +698,7 @@ export async function completeConsoleMcp(caller: ConsoleMcpCaller, input: { code
     connection.error = missingIssuer ? "The authorization server did not return its issuer." : "The sign-in came back from another authorization server."
     throw consoleRequestError(400, connection.error, "CONSOLE_MCP_AUTHORIZATION_FAILED")
   }
-  return withConnection(connection, async () => {
+  return withClientOperation(connection, async () => {
     try {
       const result = await auth(oauthProvider(connection), { authorizationCode: input.code, fetchFn: withTimeout(requestTimeoutMs, connection.consoleOrigin), serverUrl: connection.url })
       if (result !== "AUTHORIZED") throw new Error("The authorization server did not issue a token.")
@@ -695,19 +725,20 @@ export async function completeConsoleMcp(caller: ConsoleMcpCaller, input: { code
 
 /** Sign in again, or open a new MCP session. OAuth connections return the URL to open. */
 export async function reconnectConsoleMcp(caller: ConsoleMcpCaller, input: { id: string, prompt?: "login" }): Promise<ConsoleMcpConnectResult> {
-  const connection = await connectionOf(caller, input.id)
-  if (connection.auth === "oauth" && (input.prompt || connection.status === "signed-out" || connection.status === "authorizing" || !connection.oauth?.tokens)) {
-    return { authorizationUrl: await startAuthorization(connection, input.prompt), connection: describe(connection) }
-  }
-  try {
-    await withClient(caller, connection, async () => {}, { fresh: true })
-  }
-  catch (error) {
-    if (!(error instanceof SignedOutError)) throw error
-    if (connection.auth !== "oauth") throw consoleRequestError(409, error.message, "CONSOLE_MCP_SIGNED_OUT")
-    return { authorizationUrl: await startAuthorization(connection, input.prompt, error.challenge), connection: describe(connection) }
-  }
-  return { connection: describe(connection) }
+  return withConnection(caller, input.id, async (connection) => {
+    if (connection.auth === "oauth" && (input.prompt || connection.status === "signed-out" || connection.status === "authorizing" || !connection.oauth?.tokens)) {
+      return { authorizationUrl: await startAuthorization(connection, input.prompt), connection: describe(connection) }
+    }
+    try {
+      await withClient(caller, connection, async () => {}, { fresh: true })
+    }
+    catch (error) {
+      if (!(error instanceof SignedOutError)) throw error
+      if (connection.auth !== "oauth") throw consoleRequestError(409, error.message, "CONSOLE_MCP_SIGNED_OUT")
+      return { authorizationUrl: await startAuthorization(connection, input.prompt, error.challenge), connection: describe(connection) }
+    }
+    return { connection: describe(connection) }
+  })
 }
 
 /** RFC 7009: ask the authorization server to forget a token. Returns whether it confirmed. */
@@ -716,7 +747,7 @@ async function revoke(connection: StoredConnection): Promise<boolean> {
   // RFC 8414 metadata names it. The OpenID Connect metadata type of the SDK does not, so read it as a plain field.
   const metadata: Record<string, unknown> = { ...oauth?.discovery?.authorizationServerMetadata }
   const endpoint = text(metadata.revocation_endpoint)
-  const client = oauth?.client
+  const client = oauth?.client ?? (oauth ? await (await consoleMcpRecords()).client(clientKey(connection)) : undefined)
   if (!oauth?.tokens || !endpoint || !client) return false
   const tokens = [[oauth.tokens.refresh_token, "refresh_token"], [oauth.tokens.access_token, "access_token"]] as const
   let revoked = false
@@ -737,26 +768,38 @@ async function revoke(connection: StoredConnection): Promise<boolean> {
 
 /** End the MCP session, revoke the OAuth tokens, and forget the connection. */
 export async function disconnectConsoleMcp(caller: ConsoleMcpCaller, input: { id: string }): Promise<{ revoked: boolean, sessionEnded: boolean }> {
-  const connection = await connectionOf(caller, input.id)
-  connection.closing = true
-  store().connections.delete(connection.id)
-  // An exchange or refresh can still issue new credentials. Revoke only after it has saved them.
-  await connection.clientOperation
-  let sessionEnded = false
-  if (connection.sessionId) {
-    try {
-      const headers: Record<string, string> = { "mcp-session-id": connection.sessionId }
-      const bearer = connection.bearer ?? connection.oauth?.tokens?.access_token
-      if (bearer) headers.authorization = `Bearer ${bearer}`
-      if (connection.protocolVersion) headers["mcp-protocol-version"] = connection.protocolVersion
-      const response = await withTimeout(requestTimeoutMs, connection.consoleOrigin)(connection.url, { headers, method: "DELETE" })
-      sessionEnded = response.ok
+  let connection = await connectionOf(caller, input.id)
+  const key = connectionKey(connection.owner, connection.id)
+  const runtime = runtimeOf(key)
+  runtime.closing = true
+  const records = await consoleMcpRecords()
+  try {
+    await records.remove(connection)
+    // An exchange or refresh can still issue new credentials. Revoke only after it has saved them.
+    await runtime.operation
+    await runtime.clientOperation
+    connection = runtime.connection ?? connection
+    // A save already in flight when disconnect began must not restore the record.
+    await records.remove(connection)
+    let sessionEnded = false
+    if (connection.sessionId) {
+      try {
+        const headers: Record<string, string> = { "mcp-session-id": connection.sessionId }
+        const bearer = connection.bearer ?? connection.oauth?.tokens?.access_token
+        if (bearer) headers.authorization = `Bearer ${bearer}`
+        if (connection.protocolVersion) headers["mcp-protocol-version"] = connection.protocolVersion
+        const response = await withTimeout(requestTimeoutMs, connection.consoleOrigin)(connection.url, { headers, method: "DELETE" })
+        sessionEnded = response.ok
+      }
+      catch {
+        // The server ends idle sessions on its own.
+      }
     }
-    catch {
-      // The server ends idle sessions on its own.
-    }
+    return { revoked: await revoke(connection), sessionEnded }
   }
-  return { revoked: await revoke(connection), sessionEnded }
+  finally {
+    connectionRuntimes.delete(key)
+  }
 }
 
 const listMethods: Readonly<Record<ConsoleMcpListKind, { field: string, method: "prompts/list" | "resources/list" | "resources/templates/list" | "tools/list" }>> = {
@@ -773,39 +816,41 @@ function signedOut(error: unknown): never {
 
 /** One page of tools, resources, resource templates, or prompts. */
 export async function listConsoleMcpItems(caller: ConsoleMcpCaller, input: { cursor?: string, id: string, kind: ConsoleMcpListKind }): Promise<ConsoleMcpPage & { connection: ConsoleMcpConnection }> {
-  const connection = await connectionOf(caller, input.id)
-  const { field, method } = listMethods[input.kind]
-  try {
-    const result = await withClient(caller, connection, client => client.request({ method, params: input.cursor ? { cursor: input.cursor } : {} }, ResultSchema, { timeout: requestTimeoutMs }))
-    const values = Reflect.get(result, field)
-    const items = Array.isArray(values) ? values.filter(isRecord) : []
-    const nextCursor = text(Reflect.get(result, "nextCursor"))
-    return { connection: describe(connection), items, ...(nextCursor ? { nextCursor } : {}) }
-  }
-  catch (error) {
-    // A server without this capability answers "method not found". It has none of these items.
-    if (error instanceof McpError && error.code === -32601) return { connection: describe(connection), items: [] }
-    return signedOut(error)
-  }
+  return withConnection(caller, input.id, async (connection) => {
+    const { field, method } = listMethods[input.kind]
+    try {
+      const result = await withClient(caller, connection, client => client.request({ method, params: input.cursor ? { cursor: input.cursor } : {} }, ResultSchema, { timeout: requestTimeoutMs }))
+      const values = Reflect.get(result, field)
+      const items = Array.isArray(values) ? values.filter(isRecord) : []
+      const nextCursor = text(Reflect.get(result, "nextCursor"))
+      return { connection: describe(connection), items, ...(nextCursor ? { nextCursor } : {}) }
+    }
+    catch (error) {
+      // A server without this capability answers "method not found". It has none of these items.
+      if (error instanceof McpError && error.code === -32601) return { connection: describe(connection), items: [] }
+      return signedOut(error)
+    }
+  })
 }
 
 /** Send one request and return the result or the JSON-RPC error of the server, with the time it took. */
 async function outcome(caller: ConsoleMcpCaller, id: string, request: { method: "prompts/get" | "resources/read" | "tools/call", params: Record<string, unknown> }, timeoutMs: number): Promise<ConsoleMcpOutcome & { connection: ConsoleMcpConnection }> {
-  const connection = await connectionOf(caller, id)
-  const startedAt = performance.now()
-  try {
-    const result = await withClient(caller, connection, client => client.request(request, ResultSchema, { maxTotalTimeout: timeoutMs, timeout: timeoutMs }), { timeoutMs })
-    return { connection: describe(connection), durationMs: Math.round(performance.now() - startedAt), result }
-  }
-  catch (error) {
-    if (!(error instanceof McpError)) return signedOut(error)
-    connection.status = "connected"
-    return {
-      connection: describe(connection),
-      durationMs: Math.round(performance.now() - startedAt),
-      error: { code: error.code, message: error.message.replace(/^(?:MCP error -?\d+: )+/, ""), ...(error.data === undefined ? {} : { data: error.data }) },
+  return withConnection(caller, id, async (connection) => {
+    const startedAt = performance.now()
+    try {
+      const result = await withClient(caller, connection, client => client.request(request, ResultSchema, { maxTotalTimeout: timeoutMs, timeout: timeoutMs }), { timeoutMs })
+      return { connection: describe(connection), durationMs: Math.round(performance.now() - startedAt), result }
     }
-  }
+    catch (error) {
+      if (!(error instanceof McpError)) return signedOut(error)
+      connection.status = "connected"
+      return {
+        connection: describe(connection),
+        durationMs: Math.round(performance.now() - startedAt),
+        error: { code: error.code, message: error.message.replace(/^(?:MCP error -?\d+: )+/, ""), ...(error.data === undefined ? {} : { data: error.data }) },
+      }
+    }
+  })
 }
 
 export function callConsoleMcpTool(caller: ConsoleMcpCaller, input: { arguments?: Record<string, unknown>, id: string, tool: string }): Promise<ConsoleMcpOutcome & { connection: ConsoleMcpConnection }> {
@@ -822,5 +867,8 @@ export function getConsoleMcpPrompt(caller: ConsoleMcpCaller, input: { arguments
 
 /** Forget every connection of this process. Tests use it. */
 export function resetConsoleMcp(): void {
-  delete scope[stateKey]
+  connectionRuntimes.clear()
+  completingAuthorizations.clear()
+  resetConsoleMcpRecords()
+  discovered.clear()
 }

@@ -165,8 +165,8 @@ export interface ConsoleVitePluginOptions {
   rateLimitScanDirs?: string[]
   resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
   resolveBlobStores?: (blob: unknown) => readonly string[] | false
-  /** Whether the KV section is on for this `kv` config. */
-  resolveKV?: (kv: unknown) => boolean
+  /** Whether the effective KV configuration enables the section, including a standalone KV plugin. */
+  resolveKV?: (kv: unknown, plugins?: readonly Plugin[]) => boolean
   invocationRootState?: ConsoleInvocationRootState
   /** Enabled operation owners when the development RPC has no navigation sections. */
   operationSections?: readonly ConsoleSectionId[]
@@ -541,9 +541,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
-  function resolveKVRegistration(kv: unknown): void {
+  function resolveKVRegistration(kv: unknown, plugins?: readonly Plugin[]): void {
     sections = sections.filter(section => section !== "kv")
-    if (options.resolveKV?.(kv) !== false) sections = [...sections, "kv"]
+    if (options.resolveKV?.(kv, plugins) !== false) sections = [...sections, "kv"]
   }
 
   function resolveBlobRegistration(blob: unknown): void {
@@ -853,7 +853,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       // SAFETY: ViteHub KV and Nitro extend the resolved Vite config with these documented keys.
       const viteConfig = config as typeof config & { blob?: unknown, database?: unknown, kv?: unknown, nitro?: ConsoleNitroConfig, queue?: unknown, rateLimit?: unknown, sandboxTask?: unknown, schedule?: unknown, workflow?: unknown, workspace?: unknown }
       resolveBlobRegistration(viteConfig.blob)
-      resolveKVRegistration(viteConfig.kv)
+      resolveKVRegistration(viteConfig.kv, config.plugins)
       resolveQueueRegistration(viteConfig.queue)
       resolveWorkflowRegistration(viteConfig.workflow ?? options.sections?.includes("workflows"))
       const configuredProjectRoot = (value: unknown): string | undefined => value && typeof value === "object" && "projectRoot" in value

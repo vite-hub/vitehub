@@ -7,24 +7,43 @@ import { join } from "node:path"
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { CallToolRequestSchema, ErrorCode, GetPromptRequestSchema, ListPromptsRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, McpError, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js"
-import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from "vitest"
+import { importSealKey } from "@vite-hub/env/seal"
+import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+import * as v from "valibot"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { resetConsoleMcp } from "../src/console/runtime/server/mcp-client.ts"
+import { kvConsoleMcpRecords } from "../src/console/runtime/server/mcp-client-store.ts"
 import { consoleMcpClientOperations } from "../src/console/runtime/server/mcp-client-operations.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
+import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
 import type { ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpOutcome, ConsoleMcpOverview, ConsoleMcpPage } from "../src/console/runtime/mcp-client.ts"
 
+/** The app's default KV store, for `VITEHUB_CONSOLE_MCP_KEY`. Each value is a copy, as a real store keeps. */
+const kvValues = vi.hoisted(() => new Map<string, unknown>())
+const kv = vi.hoisted(() => ({
+  del: async (key: string) => [undefined, kvValues.delete(key)] as const,
+  get: async (key: string) => [undefined, kvValues.has(key) ? structuredClone(kvValues.get(key)) : null] as const,
+  keys: async (base = "") => [undefined, [...kvValues.keys()].filter(key => key.startsWith(base))] as const,
+  set: async (key: string, value: unknown) => {
+    kvValues.set(key, structuredClone(value))
+    return [undefined, undefined] as const
+  },
+}))
+vi.mock("@vite-hub/kv", () => ({ kv }))
+
 const people: Record<string, { email: string, name: string }> = {
   lucia: { email: "lucia@example.com", name: "Lucía" },
   maxi: { email: "maxi@example.com", name: "Maxi" },
 }
+const discoveryMetadataSchema = v.record(v.string(), v.unknown())
 
 /** What the authorization server and the MCP server saw, so tests can check the protocol, not only the Console. */
 const seen = { consoleRedirects: [] as IncomingMessage["headers"][], grants: [] as string[], mcpCookies: [] as string[], redirectedHeaders: [] as IncomingMessage["headers"][], registeredScopes: [] as unknown[], registrations: 0, revoked: new Set<string>(), sessions: new Set<string>() }
@@ -69,8 +88,7 @@ function json(response: ServerResponse, status: number, value: unknown, headers:
 }
 
 async function overrideMetadata(response: Response, overrides: Record<string, unknown>): Promise<Response> {
-  const metadata = await response.json()
-  assert(metadata && typeof metadata === "object" && !Array.isArray(metadata), "Expected OAuth metadata to be an object")
+  const metadata = v.parse(discoveryMetadataSchema, await response.json())
   return Response.json({ ...metadata, ...overrides })
 }
 
@@ -234,6 +252,8 @@ afterEach(() => {
   seen.consoleRedirects.length = 0
   seen.redirectedHeaders.length = 0
   offersOfflineAccess = false
+  delete process.env.VITEHUB_CONSOLE_MCP_KEY
+  kvValues.clear()
   resourceScopes = ["openid", "profile", "email"]
   vi.restoreAllMocks()
   resetConsoleMcp()
@@ -273,7 +293,8 @@ async function connectAs(person: string, options: { prompt?: "login", user?: str
   return completed.value
 }
 
-function install(): void {
+function install(kv = false, preset: "node" | "cloudflare" = "node"): void {
+  installConsoleSections("mcp-client-test", resolveConsoleSectionIds({ console: { auth: false, mcpClient: true }, kv, preset }))
   installConsoleOperations([{ operations: consoleMcpClientOperations, plugin: "vite-hub" }])
 }
 
@@ -619,6 +640,77 @@ describe("MCP client section", () => {
     expect(seen.mcpCookies).toEqual([])
   })
 
+  it("keeps connections sealed in KV with VITEHUB_CONSOLE_MCP_KEY, so they outlive a restart", async () => {
+    install(true)
+    process.env.VITEHUB_CONSOLE_MCP_KEY = Buffer.alloc(32, 7).toString("base64")
+    const registrations = seen.registrations
+    // A sign-in that starts before a restart, or on another instance of the app, finishes after it.
+    const started = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" })
+    const callback = await signIn(started.value.authorizationUrl!, "maxi")
+    resetConsoleMcp()
+    const maxi = (await rpc<ConsoleMcpConnection>("mcp-client.complete", callback)).value
+    expect(maxi).toMatchObject({ identity: { name: "Maxi" }, status: "connected" })
+    resetConsoleMcp()
+    expect((await rpc<ConsoleMcpOutcome>("mcp-client.call", { id: maxi.id, tool: "whoami" })).value.result).toMatchObject({ content: [{ text: "Maxi", type: "text" }] })
+    expect((await rpc<ConsoleMcpOverview>("mcp-client.list")).value.connections.map(connection => connection.id)).toEqual([maxi.id])
+    // The client registration is kept too, so a sign-in after the restart registers no new client.
+    await connectAs("lucia", { prompt: "login" })
+    expect(seen.registrations - registrations).toBe(1)
+
+    // KV holds only sealed values. The keys do not name the owner.
+    const stored = JSON.stringify([...kvValues])
+    for (const token of issued) expect(stored).not.toContain(token)
+    expect(stored).not.toContain("maxi@example.com")
+    expect([...kvValues.keys()].every(key => /^vitehub:console:mcp-client:(?:clients:[0-9a-f]{32}|connections:[0-9a-f]{32}:mcp_[\w-]+)$/.test(key))).toBe(true)
+    await rpc("mcp-client.disconnect", { id: maxi.id })
+    expect([...kvValues.keys()].filter(key => key.endsWith(maxi.id))).toEqual([])
+  })
+
+  it("refuses a VITEHUB_CONSOLE_MCP_KEY that is not 32 bytes", async () => {
+    install()
+    process.env.VITEHUB_CONSOLE_MCP_KEY = "too-short"
+    expect((await rpc<ConsoleMcpOverview>("mcp-client.list")).failure).toMatchObject({ code: "CONSOLE_MCP_KEY_INVALID" })
+  })
+
+  it.each(["node", "cloudflare"] as const)("requires KV before accessing sealed MCP records on %s", async (preset) => {
+    install(false, preset)
+    const key = Buffer.alloc(32, 7).toString("base64")
+    if (preset === "node") process.env.VITEHUB_CONSOLE_MCP_KEY = key
+    const reads = vi.spyOn(kv, "keys")
+    const writes = vi.spyOn(kv, "set")
+    try {
+      await runWithActiveCloudflareEnv(preset === "cloudflare" ? { VITEHUB_CONSOLE_MCP_KEY: key } : undefined, async () => {
+        for (const [operation, input] of [
+          ["mcp-client.list", {}],
+          ["mcp-client.connect", { server: "/mcp" }],
+          ["mcp-client.complete", { code: "unused", state: "unused" }],
+        ] as const) {
+          expect((await rpc(operation, input)).failure).toMatchObject({ code: "CONSOLE_MCP_KV_REQUIRED", message: expect.stringContaining("kv: true") })
+        }
+      })
+      expect(reads).not.toHaveBeenCalled()
+      expect(writes).not.toHaveBeenCalled()
+    }
+    finally {
+      reads.mockRestore()
+      writes.mockRestore()
+    }
+  })
+
+  it("binds each sealed record to its KV key and to the key that sealed it", async () => {
+    const connection = { auth: "bearer" as const, bearer: "fin_secret", consoleOrigin: origin, createdAt: 1, id: "mcp_a", label: "A", labelled: false, owner: "user:a", sameOrigin: true, status: "connected" as const, url: `${origin}/mcp` }
+    const records = kvConsoleMcpRecords(kv, await importSealKey(new Uint8Array(32).fill(1)))
+    await records.save(connection)
+    expect(await records.connection("user:a", "mcp_a")).toEqual(connection)
+    const [name, value] = [...kvValues][0]!
+    expect(JSON.stringify(value)).not.toContain("fin_secret")
+    // A value copied under another id does not open, and neither does one read with another key.
+    kvValues.set(name.replace(/mcp_a$/, "mcp_b"), value)
+    expect(await records.connection("user:a", "mcp_b")).toBeUndefined()
+    expect(await kvConsoleMcpRecords(kv, await importSealKey(new Uint8Array(32).fill(2))).connection("user:a", "mcp_a")).toBeUndefined()
+    expect(await records.connections("user:a")).toEqual([connection])
+  })
+
   it.each(["connect", "call"])("refuses ViteHub MCP redirects during %s without forwarding any Console session header", async (operation) => {
     install()
     const headers = { authorization: "Bearer console-token", "cf-access-jwt-assertion": "console-jwt", cookie: "console=lucia" }
@@ -655,8 +747,9 @@ describe("MCP client section", () => {
     expect(connection).toMatchObject({ grant: { refreshable: true }, status: "connected" })
   })
 
-  it("keeps the registration used by each concurrent first sign-in", async () => {
-    install()
+  it.each([false, true])("keeps the registration used by each concurrent first sign-in (sealed: %s)", async (durable) => {
+    install(durable)
+    if (durable) process.env.VITEHUB_CONSOLE_MCP_KEY = Buffer.alloc(32, 7).toString("base64")
     installConsoleAccess({ check: async () => undefined, mode: "auth", user: async event => ({ id: event.req?.headers instanceof Headers ? event.req.headers.get("x-test-user") ?? "" : "" }) })
     const nativeFetch = globalThis.fetch
     const registration = deferred()
@@ -674,6 +767,7 @@ describe("MCP client section", () => {
       await vi.waitFor(() => expect(registrations).toBe(2))
       registration.resolve()
       const started = await Promise.all(starts)
+      if (durable) resetConsoleMcp()
       for (const [index, person] of ["maxi", "lucia"].entries()) {
         expect(started[index]!.failure).toBeUndefined()
         const completed = await rpc<ConsoleMcpConnection>("mcp-client.complete", await signIn(started[index]!.value.authorizationUrl!, person), `admin-${index + 1}`)
@@ -722,8 +816,9 @@ describe("MCP client section", () => {
     expect(again.value.result).toMatchObject({ content: [{ text: "Maxi" }] })
   })
 
-  it("serializes replacement loads after browser abort while other connections stay usable", async () => {
-    install()
+  it.each(["memory", "kv"] as const)("serializes replacement loads after browser abort while other connections stay usable in %s", async (storage) => {
+    install(storage === "kv")
+    if (storage === "kv") process.env.VITEHUB_CONSOLE_MCP_KEY = Buffer.alloc(32, 7).toString("base64")
     const maxi = await connectAs("maxi")
     const lucia = (await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp", token: "fin_lucia" })).value.connection
     for (const [token, person] of tokens) if (person === "maxi" && token.startsWith("at-")) seen.revoked.add(token)
@@ -767,8 +862,9 @@ describe("MCP client section", () => {
     }
   })
 
-  it("reserves a callback state while its single-use code is being exchanged", async () => {
-    install()
+  it.each(["memory", "kv"] as const)("reserves a callback state while its single-use code is being exchanged in %s", async (storage) => {
+    install(storage === "kv")
+    if (storage === "kv") process.env.VITEHUB_CONSOLE_MCP_KEY = Buffer.alloc(32, 7).toString("base64")
     const started = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" })
     const callback = await signIn(started.value.authorizationUrl!, "maxi")
     const nativeFetch = globalThis.fetch
@@ -811,8 +907,14 @@ describe("MCP client section", () => {
     expect(completed.value).toMatchObject({ id: maxi.id, status: "connected" })
   })
 
-  it.each(["callback", "refresh"])("disconnect waits for an active %s and rejects queued work before revoking the final tokens", async (stage) => {
-    install()
+  it.each([
+    { stage: "callback", durable: false },
+    { stage: "refresh", durable: false },
+    { stage: "callback", durable: true },
+    { stage: "refresh", durable: true },
+  ])("disconnect waits for an active $stage and rejects queued work before revoking the final tokens (sealed: $durable)", async ({ stage, durable }) => {
+    install(durable)
+    if (durable) process.env.VITEHUB_CONSOLE_MCP_KEY = Buffer.alloc(32, 7).toString("base64")
     const started = stage === "callback" ? await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" }) : undefined
     const maxi = started?.value.connection ?? await connectAs("maxi")
     const callback = started ? await signIn(started.value.authorizationUrl!, "maxi") : undefined

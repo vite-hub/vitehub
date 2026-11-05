@@ -6,6 +6,7 @@ import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { runInNewContext } from "node:vm"
 
+import { hubKv } from "@vite-hub/kv/vite"
 import { H3 } from "h3"
 import { desc } from "drizzle-orm"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -916,6 +917,50 @@ describe("Agent invocation console", () => {
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       expect(generated).not.toContain("installConsoleKV")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each([
+    ["node", "before", true],
+    ["node", "after", true],
+    ["cloudflare", "before", true],
+    ["cloudflare", "after", true],
+    ["cloudflare", "after", false],
+  ] as const)("uses standalone KV for sealed MCP storage on %s, ordered %s, enabled %s", async (preset, order, enabled) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-standalone-kv-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugins = vitehub({
+        console: { auth: false, authorize: hostManagedAuthorize, mcpClient: true },
+        env: false,
+        preset,
+      })
+      // SAFETY: Vite plugin options form a recursive array; narrow the flattened candidates by name.
+      const candidates = (plugins as unknown[]).flat(Infinity)
+      const plugin = candidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
+      if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
+      const kvPlugin = hubKv({ driver: preset === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" })
+      const configuredPlugins: unknown[] = [kvPlugin]
+      if (order === "before") configuredPlugins.push(plugin)
+      else configuredPlugins.unshift(plugin)
+      const config = {
+        root,
+        ...(enabled ? {} : { kv: false as const }),
+        plugins: configuredPlugins,
+      }
+      await callPluginHook(kvPlugin.config, {}, [config, { command: "build", mode: "production" }])
+      await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
+      await callPluginHook(kvPlugin.configResolved, {}, [config])
+      await callPluginHook(plugin.configResolved, {}, [withViteLogger(config)])
+
+      const generated = await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
+      const sections = generated.match(/installConsoleSections\([^,\n]+, (\[[^\n]*?\])\)/)?.[1]
+      expect(sections).toBeDefined()
+      expect(JSON.parse(sections!)).toContain("mcp-client")
+      expect(JSON.parse(sections!).includes("kv")).toBe(enabled)
     }
     finally {
       await rm(root, { force: true, recursive: true })
