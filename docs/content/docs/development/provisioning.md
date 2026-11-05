@@ -50,7 +50,7 @@ CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --
 VERCEL_TOKEN=... VERCEL_PROJECT_ID=... VERCEL_TEAM_ID=... pnpm vitehub provision run --provider vercel
 ```
 
-Vercel Blob provisioning requires `VERCEL_PROJECT_ID` so the provision step can attach `BLOB_READ_WRITE_TOKEN` to the target project. `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` supplies an optional team scope.
+Vercel Blob provisioning requires `VERCEL_PROJECT_ID` so the provision step can connect the store to the target project. The connection adds `BLOB_STORE_ID`, which the driver uses for OIDC on Vercel. `VERCEL_TEAM_ID` or `VERCEL_ORG_ID` supplies an optional team scope.
 
 After a successful apply, the CLI writes non-secret ids to `.vitehub/provision.json`.
 Vite Integrations may read that file as a binding-id source during dev or build.

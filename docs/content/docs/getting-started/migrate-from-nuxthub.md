@@ -363,7 +363,7 @@ export default defineNuxtConfig({
 | Host | What changes |
 | --- | --- |
 | Cloudflare | Set `preset: "cloudflare"`. Run `pnpm vitehub provision run --provider cloudflare` to resolve the D1 database ID. |
-| Vercel | Set `preset: "vercel"`. KV reads `KV_REST_API_URL` and `KV_REST_API_TOKEN`, then `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Blob reads `BLOB_READ_WRITE_TOKEN`. |
+| Vercel | Set `preset: "vercel"`. KV reads `KV_REST_API_URL` and `KV_REST_API_TOKEN`, then `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Blob uses OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN`. |
 | Node | Set `preset: "node"`. KV and Blob use the file system under `.vitehub/data/`. |
 
 Netlify and Deno have their own presets. Read

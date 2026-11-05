@@ -514,6 +514,35 @@ describe("blob config", () => {
     })
   })
 
+  it("uses Vercel OIDC when the project has BLOB_STORE_ID", () => {
+    const store = { access: "private", driver: "vercel-blob", token: "********" } as const
+
+    expect(resolveRuntimeVercelBlobStore(store, { BLOB_STORE_ID: "store_1" })).toEqual({ access: "private", driver: "vercel-blob" })
+    expect(resolveRuntimeVercelBlobStore(store, { BLOB_READ_WRITE_TOKEN: "secret-token", BLOB_STORE_ID: "store_1" }))
+      .toEqual({ access: "private", driver: "vercel-blob" })
+  })
+
+  it("keeps a configured Vercel token over OIDC", () => {
+    expect(resolveRuntimeVercelBlobStore({ access: "public", driver: "vercel-blob", token: "store-token" }, { BLOB_STORE_ID: "store_1" }))
+      .toEqual({ access: "public", driver: "vercel-blob", token: "store-token" })
+  })
+
+  it("names both Vercel Blob credentials when neither exists", () => {
+    expect(() => resolveRuntimeVercelBlobStore({ access: "public", driver: "vercel-blob", token: "********" }, {}))
+      .toThrow(expect.objectContaining({
+        code: "BLOB_C0009",
+        message: expect.stringContaining("`BLOB_STORE_ID`, or set `BLOB_READ_WRITE_TOKEN`"),
+      }))
+  })
+
+  it("infers Vercel Blob from BLOB_STORE_ID", () => {
+    expect(normalizeBlobOptions({}, { env: { BLOB_STORE_ID: "store_1" } })?.store).toEqual({
+      access: "public",
+      driver: "vercel-blob",
+      token: "********",
+    })
+  })
+
   it("rehydrates the Vercel token at runtime", () => {
     expect(resolveRuntimeVercelBlobStore({
       access: "public",
@@ -594,7 +623,7 @@ describe("blob config", () => {
     }, "vercel")
 
     expect(logger.error).toHaveBeenCalledWith(
-      "Vercel hosting requires Vercel Blob-backed storage. Set `BLOB_READ_WRITE_TOKEN`.",
+      "Vercel hosting requires Vercel Blob-backed storage. Connect a Blob store to the project (`BLOB_STORE_ID`) or set `BLOB_READ_WRITE_TOKEN`.",
     )
   })
 
@@ -616,7 +645,7 @@ describe("blob config", () => {
     }), "vercel")
 
     expect(logger.error).toHaveBeenCalledWith(
-      "Vercel hosting requires Vercel Blob-backed storage. Set `BLOB_READ_WRITE_TOKEN`.",
+      "Vercel hosting requires Vercel Blob-backed storage. Connect a Blob store to the project (`BLOB_STORE_ID`) or set `BLOB_READ_WRITE_TOKEN`.",
     )
   })
 

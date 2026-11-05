@@ -225,6 +225,7 @@ afterEach(() => {
   filesSdkMock.s3.mockClear()
   filesSdkMock.vercelBlob.mockClear()
   delete process.env.BLOB_READ_WRITE_TOKEN
+  delete process.env.BLOB_STORE_ID
   delete process.env.CLOUDFLARE_ACCOUNT_ID
   delete process.env.CLOUDFLARE_R2_ACCOUNT_ID
   delete process.env.CLOUDFLARE_R2_ACCESS_KEY_ID
@@ -425,6 +426,23 @@ describe("blob runtime", () => {
       access: "public",
       token: "secret-token",
     }))
+  })
+
+  it("lets the Vercel SDK use OIDC when the project has BLOB_STORE_ID", async () => {
+    process.env.BLOB_STORE_ID = "store_1"
+    process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
+    setBlobRuntimeConfig({
+      store: {
+        access: "private",
+        driver: "vercel-blob",
+        token: "********",
+      },
+    })
+
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+
+    expect(vercelBlobMock.put).toHaveBeenLastCalledWith("notes/hello.txt", "hello", expect.objectContaining({ access: "private" }))
+    expect(vercelBlobMock.put).toHaveBeenLastCalledWith("notes/hello.txt", "hello", expect.not.objectContaining({ token: expect.anything() }))
   })
 
   it.each([undefined, false, true])("preserves Vercel list options and result shape with folded %s", async (folded) => {

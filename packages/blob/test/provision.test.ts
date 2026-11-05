@@ -396,6 +396,32 @@ describe("blob vercel provision step", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3)
   })
 
+  it.each([
+    [["BLOB_READ_WRITE_TOKEN"], true],
+    [["BLOB_READ_WRITE_TOKEN", "BLOB_STORE_ID", "BLOB_WEBHOOK_PUBLIC_KEY"], false],
+    [[], false],
+    [undefined, false],
+  ])("warns about a connection without BLOB_STORE_ID when it lists %j", async (environmentVariables, warns) => {
+    const warn = vi.fn()
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      if (init?.method === "POST") throw new Error("must not reconnect an equivalent store")
+      if (String(input).includes("/storage/stores/store_1")) {
+        return jsonResponse({ store: { projectsMetadata: [{ ...connectedProject(), environmentVariables }] } })
+      }
+      return jsonResponse({ stores: [{ id: "store_1", name: "vitehub-blob", type: "blob" }] })
+    })
+
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan({ env, fetch: fetchImpl, logger: { log: () => {}, warn } })
+
+    expect(actions[0]!.pending).toBe(false)
+    if (warns) {
+      expect(warn).toHaveBeenCalledExactlyOnceWith("blob: Vercel Blob store vitehub-blob is connected without BLOB_STORE_ID, so deployments use BLOB_READ_WRITE_TOKEN. Reconnect the store to the project in the Vercel dashboard to use OIDC.")
+    }
+    else {
+      expect(warn).not.toHaveBeenCalled()
+    }
+  })
+
   it.each([false, true])("accepts a complete matching connection regardless of entry order with completeFirst=%s", async (completeFirst) => {
     const projectsMetadata = [connectedProject("prj_1", ["production"]), connectedProject()]
     if (completeFirst) projectsMetadata.reverse()

@@ -57,7 +57,7 @@ retry a failed run. Read [Schedule hosts](/docs/schedule/hosts) and the
 
 | Host | Host service | From the host docs | ViteHub on this preset |
 | --- | --- | --- | --- |
-| Vercel | [Vercel Blob](https://vercel.com/docs/storage) | All plans. Public or private stores. | `vercel-blob` with `BLOB_READ_WRITE_TOKEN`. |
+| Vercel | [Vercel Blob](https://vercel.com/docs/storage) | All plans. Public or private stores. | `vercel-blob` with OIDC (`BLOB_STORE_ID`) or `BLOB_READ_WRITE_TOKEN`. |
 | Netlify | [Netlify Blobs](https://docs.netlify.com/build/data-and-storage/netlify-blobs/) | Eventually consistent by default. Changes reach all edge locations within 60 seconds. Strong consistency is opt-in. 5 GB per object. | `netlify-blobs`. No provisioning step. |
 | Cloudflare | [R2](https://developers.cloudflare.com/r2/pricing/) | Cloudflare bills storage and operations. Egress is free. | An R2 bucket named after the app, with the `BLOB` binding. ViteHub can provision it. |
 
