@@ -1,5 +1,5 @@
 import { once } from "node:events"
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises"
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -85,6 +85,25 @@ afterEach(() => {
 })
 
 describe("Agent Invocations Nitro dev handler", () => {
+  it("generates Nitro handlers without bare h3 imports", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-handler-imports-"))
+    try {
+      await mkdir(join(root, "server/agents"), { recursive: true })
+      await writeFile(join(root, "server/agents/echo.ts"), "export default {}")
+      const hook = hubAgent({ routes: { discordGateway: true } }).configResolved
+      if (!hasRuntimeType(hook, "function")) throw new Error("Expected a configResolved hook")
+      // SAFETY: Agent output generation reads only these resolved config fields in this fixture.
+      await hook.call({} as never, { root, command: "serve", plugins: [], resolve: { alias: [] } } as never)
+      for (const file of ["invocations-dev-handler.ts", "chat-webhook-route.ts", "discord-gateway-route.ts"]) {
+        const source = await readFile(join(root, ".vitehub/agent", file), "utf8")
+        expect(source, file).not.toMatch(/(?:from\s*|import\s*\(?\s*)["']h3["']/)
+      }
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("generates a handler that authenticates with the project root and server ID", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-dev-handler-"))
     try {
@@ -95,7 +114,7 @@ describe("Agent Invocations Nitro dev handler", () => {
       await hook.call({} as never, { root, command: "serve", plugins: [], build: { outDir: "dist" }, resolve: { alias: [] }, server: { port: 5173 } } as never)
       const source = await readFile(join(root, ".vitehub/agent/invocations-dev-handler.ts"), "utf8")
       // Execute the generated callback with its real owner handler to verify the authorization boundary.
-      const callback: (event: { req: Request }) => Promise<Response> = new Function("defineEventHandler", "handleViteHubDevRequest", source.replace(/^import .*\n/gm, "").replace("export default", "return"))((handler: unknown) => handler, handleAgentInvocationsDevRequest)
+      const callback: (event: object) => Promise<Response> = new Function("defineEventHandler", "handleViteHubDevRequest", source.replace(/^import .*\n/gm, "").replace("export default", "return"))((handler: unknown) => handler, handleAgentInvocationsDevRequest)
       const body = { id: "ainv_missing", operation: "cancel" }
       expect((await callback({ req: devRequest(body) })).status).toBe(403)
       const serverId = workspaceDevTokenServerId(5173)
@@ -107,6 +126,38 @@ describe("Agent Invocations Nitro dev handler", () => {
       }) })
       expect(response.status).toBe(404)
       expect(await response.json()).toEqual({ error: { message: "No Agent invocation journal is configured." } })
+      // Exercise the same callback with the Node request that Nitro 2 passes in an H3 1 event.
+      const server = createServer((req, res) => {
+        void callback({ node: { req, res } }).then(async (response) => {
+          res.writeHead(response.status, { "content-type": "application/json" })
+          res.end(await response.text())
+        }).catch((error: unknown) => {
+          res.writeHead(500)
+          res.end(String(error))
+        })
+      })
+      server.listen(0, "127.0.0.1")
+      await once(server, "listening")
+      try {
+        const address = server.address()
+        if (!address || typeof address === "string") throw new Error("Expected a TCP listener")
+        const response = await fetch(`http://127.0.0.1:${address.port}${agentInvocationsDevRuntimeRoute}`, {
+          body: JSON.stringify(body),
+          headers: {
+            "content-type": "application/json",
+            [agentInvocationsDevHeader]: "1",
+            [agentInvocationsDevTokenServerHeader]: serverId,
+            [workspaceDevTokenHeader]: token,
+          },
+          method: "POST",
+        })
+        expect(response.status).toBe(404)
+        expect(await response.json()).toEqual({ error: { message: "No Agent invocation journal is configured." } })
+      }
+      finally {
+        server.close()
+        await once(server, "close")
+      }
     }
     finally {
       await rm(root, { recursive: true, force: true })
