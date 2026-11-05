@@ -34,6 +34,11 @@
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
     "./vue": {
       "types": "./dist/vue.d.ts",
       "import": "./dist/vue.js",
@@ -56,14 +61,19 @@
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
     "vue": "catalog:ui"
   },
   "peerDependencies": {
+    "vite": "catalog:vite-compat",
     "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    },
     "vue": {
       "optional": true
     }

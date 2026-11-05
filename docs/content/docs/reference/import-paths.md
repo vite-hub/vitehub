@@ -70,6 +70,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/docs` | The page frontmatter schema, the manifest types, and the navigation helpers of a docs site. Re-exports `@vite-hub/docs`. |
 | `vite-hub/docs/assistant` | `docsAssistant`, the Agent preset that answers reader questions from the docs pages, and `docsRateLimit()`. Re-exports `@vite-hub/docs/assistant`. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
+| `vite-hub/auth/mcp` | OAuth sign-in, discovery, request verification, and unused-client cleanup for an app's MCP server. Requires `@better-auth/oauth-provider`. |
 | `vite-hub/auth/database` | `authDatabase()` connects Better Auth to an app Database and contributes its tables for migration generation. |
 | `vite-hub/auth/schema` | `authSqliteSchema` and `authPostgresSchema`, the Better Auth tables for SQLite and Postgres. |
 | `vite-hub/auth/runtime/server` | Lightweight Auth resolver registration and lazy access middleware, without loading Better Auth. |
@@ -182,6 +183,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/agent/vue` | Agent Package | Vue Agent client handle and AI SDK chat composable. |
 | `@vite-hub/auth` | Auth Package | Auth Definition helpers. |
 | `@vite-hub/auth/server` | Auth Package | Better Auth runtime creation, request handlers, and session access for manual host integration. |
+| `@vite-hub/auth/mcp` | Auth Package | MCP OAuth helpers for manual hosts, with the optional `@better-auth/oauth-provider` peer. |
 | `@vite-hub/auth/runtime/server` | Auth Package | Lightweight Auth resolver registration and lazy access middleware for framework integrations. |
 | `@vite-hub/blob` | Blob Package | Blob Runtime Helpers, Blob Store access, and Blob reference schemas. |
 | `@vite-hub/blob/client` | Blob Package | Framework-neutral browser upload helpers. |

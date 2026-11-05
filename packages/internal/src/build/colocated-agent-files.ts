@@ -1,23 +1,9 @@
-import { existsSync, lstatSync, readFileSync, readdirSync, statSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { basename, dirname, join, relative } from "node:path"
-import { internalErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface EncodedColocatedAgentFile {
   content: string
   encoding: "base64"
-}
-
-interface ColocatedAgentFileOptions {
-  fileCountLimit?: number
-  fileSizeLimit?: number
-  label?: string
-  rejectUnsupportedEntries?: boolean
-  totalSizeLimit?: number
-}
-
-function formatSize(bytes: number): string {
-  const mebibyte = 1024 * 1024
-  return bytes % mebibyte === 0 ? `${bytes / mebibyte} MiB` : `${bytes} bytes`
 }
 
 function isFolderAgentEntry(file: string): boolean {
@@ -41,21 +27,13 @@ export function resolveColocatedAgentFilesRoot(handler: string, directoryName: s
 export function readColocatedAgentFiles(
   handler: string,
   directoryName: string,
-  options: ColocatedAgentFileOptions = {},
 ): Record<string, EncodedColocatedAgentFile> | undefined {
   const root = colocatedAgentFilesRoot(handler, directoryName)
   if (!root) return
-  const rootStats = options.rejectUnsupportedEntries ? lstatSync(root) : statSync(root)
-  if (!rootStats.isDirectory()) {
-    if (options.rejectUnsupportedEntries) {
-      throw internalErrorDiagnostics.INTERNAL_B0002({ message: `[vitehub] ${options.label || "Colocated Agent files"} supports regular files and directories only: ${directoryName}` })
-    }
-    return
-  }
+  const rootStats = statSync(root)
+  if (!rootStats.isDirectory()) return
 
   const files: Record<string, EncodedColocatedAgentFile> = {}
-  let fileCount = 0
-  let totalSize = 0
   const visit = (directory: string) => {
     for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
       const file = join(directory, entry.name)
@@ -64,36 +42,9 @@ export function readColocatedAgentFiles(
         visit(file)
         continue
       }
-      if (!entry.isFile()) {
-        if (options.rejectUnsupportedEntries) {
-          throw internalErrorDiagnostics.INTERNAL_B0003({ message: `[vitehub] ${options.label || "Colocated Agent files"} supports regular files and directories only: ${target}` })
-        }
-        continue
-      }
-
-      const size = statSync(file).size
-      fileCount += 1
-      if (options.fileCountLimit !== undefined && fileCount > options.fileCountLimit) {
-        throw internalErrorDiagnostics.INTERNAL_B0004({ message: `[vitehub] ${options.label || "Colocated Agent files"} exceeds ${options.fileCountLimit} files.` })
-      }
-      if (options.fileSizeLimit !== undefined && size > options.fileSizeLimit) {
-        throw internalErrorDiagnostics.INTERNAL_B0005({ message: `[vitehub] ${options.label || "Colocated Agent file"} file exceeds ${formatSize(options.fileSizeLimit)}: ${target}` })
-      }
-      totalSize += size
-      if (options.totalSizeLimit !== undefined && totalSize > options.totalSizeLimit) {
-        throw internalErrorDiagnostics.INTERNAL_B0006({ message: `[vitehub] ${options.label || "Colocated Agent files"} exceeds ${formatSize(options.totalSizeLimit)}.` })
-      }
+      if (!entry.isFile()) continue
 
       const content = readFileSync(file)
-      if (content.byteLength !== size) {
-        if (options.fileSizeLimit !== undefined && content.byteLength > options.fileSizeLimit) {
-          throw internalErrorDiagnostics.INTERNAL_B0007({ message: `[vitehub] ${options.label || "Colocated Agent file"} file exceeds ${formatSize(options.fileSizeLimit)}: ${target}` })
-        }
-        totalSize += content.byteLength - size
-        if (options.totalSizeLimit !== undefined && totalSize > options.totalSizeLimit) {
-          throw internalErrorDiagnostics.INTERNAL_B0008({ message: `[vitehub] ${options.label || "Colocated Agent files"} exceeds ${formatSize(options.totalSizeLimit)}.` })
-        }
-      }
       files[target] = {
         content: content.toString("base64"),
         encoding: "base64",
