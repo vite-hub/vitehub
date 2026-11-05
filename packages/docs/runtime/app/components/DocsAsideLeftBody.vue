@@ -286,7 +286,8 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
 
 /* Touch devices keep 44px tap targets at every viewport width. */
 @media (pointer: coarse) {
-  .vh-docs-sidebar-link {
+  .vh-docs-sidebar-link,
+  .vh-docs-sidebar-fold > summary {
     min-height: 2.75rem;
   }
 }
