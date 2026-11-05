@@ -16,6 +16,12 @@ in ViteHub and call the server API from application code.
 - [Choose a TypeScript Agent framework](/docs/guides/typescript-agent-frameworks).
 - [Compare ViteHub with other tools](/docs/compare).
 
+## Build a chat bot
+
+- [Build an AI Slack bot](/docs/guides/slack-ai-bot).
+- [Build an AI Discord bot](/docs/guides/discord-ai-bot).
+- [Build an AI Telegram bot](/docs/guides/telegram-ai-bot).
+
 ## Connect a database
 
 - [Use Turso with ViteHub and Drizzle](/docs/guides/turso).
