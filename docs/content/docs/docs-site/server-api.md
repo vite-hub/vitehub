@@ -56,11 +56,11 @@ The module also sets the options of the modules that it installs: `llms` from `s
 | `title` | `string` | Required | Page heading, browser title, and search title. |
 | `description` | `string` | None | Text under the heading, the meta description, and the llms.txt entry. |
 | `icon` | `string` | `icons.page` | Sidebar icon, as an Iconify name. |
-| `layout` | `'article'`, `'tutorial'`, or `'landing'` | `'article'` | See [Layouts](/docs/docs-site/configure#layouts). |
+| `layout` | `'article'`, `'tutorial'`, `'landing'`, or `'home'` | `'article'` | See [Layouts](/docs/docs-site/configure#layouts). |
 | `tutorial` | `'project'` or `'quickstart'` | None | Stored in the manifest for your own tutorials catalog. |
 | `codePanel` | `boolean` | `false` | Tutorials only. Shows the files of the current step beside the prose. |
 | `sidebar` | `boolean` | `true` | `false` hides the left navigation on this page. |
-| `toc` | `boolean` | `true`, `false` on `landing` | `false` hides the "On this page" outline. |
+| `toc` | `boolean` | `true`, `false` on `landing` and `home` | `false` hides the "On this page" outline. |
 | `navigation` | `false` or `{ title?, order?, group?, kind? }` | Listed | `false` keeps the page out of the sidebar. `title` is the sidebar label, `order` sorts the pages, and `group` is a sidebar heading. `kind` is stored in the manifest. |
 | `seo` | `{ title?, description?, image? }` | None | Title and description for search engines, shares, and the search dialog, when they must differ from the page. `image` is the share image, a path in `public/` or a URL, or `false` for none; without it the build renders one. |
 

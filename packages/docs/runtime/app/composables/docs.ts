@@ -1,7 +1,7 @@
 import { computed, type ComputedRef } from "vue"
 import { useRoute, useRuntimeConfig } from "#imports"
 import manifest from "#docs/manifest"
-import { docsSectionForPath, findDocsPage, isDocsPath, normalizeDocsPath } from "#docs/navigation"
+import { docsSectionForPath, findDocsPage, normalizeDocsPath } from "#docs/navigation"
 
 import type { DocsManifest, DocsPage, DocsPublicConfig, DocsSection } from "@vite-hub/docs"
 
@@ -39,12 +39,12 @@ export function useDocsSection(): ComputedRef<DocsSection | null> {
   })
 }
 
-/** Whether the current route renders in the docs shell: a page under the base, or an app page with the `docs` layout. */
+/**
+ * Whether the current route renders in the docs shell, whose sidebar carries the site navigation on wide screens. That
+ * is the `docs` layout: docs pages get it from the module's middleware, and an app page sets it itself. Any other
+ * page, such as a `home` page or an app page under a base of `/`, keeps the site header.
+ */
 export function useDocsShell(): ComputedRef<boolean> {
   const route = useRoute()
-  const config = useDocsConfig()
-  return computed(() => {
-    const path = normalizeDocsPath(route.path)
-    return route.meta.layout === "docs" || isDocsPath(path, config.base)
-  })
+  return computed(() => route.meta.layout === "docs")
 }

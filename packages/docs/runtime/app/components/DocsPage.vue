@@ -15,7 +15,7 @@ const { page } = response
 
 const isRoot = page.path === manifest.root?.path
 // A page outside the docs base has no section. It reads as a plain article under the site header.
-const isStandalone = !response.section && !isRoot
+const isStandalone = !response.section && !isRoot && page.layout !== "home"
 
 // Agents can fetch the Markdown twin of the page instead of the HTML.
 useHead({ link: [{ rel: "alternate", type: "text/markdown", href: `${site.url}${docsAppPath(docsRawPath(page.path), appBase)}` }] })
@@ -25,7 +25,7 @@ useDocsSeo({
   description: page.seo?.description ?? page.description,
   section: section && { title: section.title, path: docsAppPath(section.path, appBase) },
   image: page.seo?.image,
-  type: isRoot || page.layout === "landing" ? "page" : "article",
+  type: isRoot || page.layout === "landing" || page.layout === "home" ? "page" : "article",
 })
 </script>
 
@@ -45,6 +45,10 @@ useDocsSeo({
     <UPageBody prose class="!max-w-none !px-0 !pb-0 pt-10">
       <DocsMarkdown :document="response.document" />
     </UPageBody>
+  </div>
+
+  <div v-else-if="page.layout === 'home'" :data-path="page.path">
+    <DocsMarkdown :document="response.document" />
   </div>
 
   <div v-else-if="page.layout === 'landing'" class="vh-docs-landing">

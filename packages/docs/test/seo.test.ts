@@ -18,7 +18,7 @@ it("gives every prerendered page a share image, site meta, and Schema.org, and c
   try {
     await mkdir(join(root, "content/docs/guide"), { recursive: true })
     await mkdir(join(root, "public"))
-    await writeFile(join(root, "content/index.md"), "---\ntitle: Lumen\n---\nRead [the guide](/docs/guide) or [its Markdown](/raw/docs/guide.md).\n")
+    await writeFile(join(root, "content/index.md"), "---\ntitle: Lumen\nlayout: home\n---\nRead [the guide](/docs/guide) or [its Markdown](/raw/docs/guide.md).\n")
     await writeFile(join(root, "content/docs/guide/index.md"), "---\ntitle: Guide\n---\nHello\n")
     await writeFile(join(root, "content/docs/guide/install.md"), "---\ntitle: Install\ndescription: From zero to a running site.\n---\nInstall\n")
     await writeFile(join(root, "content/docs/guide/own.md"), "---\ntitle: Own\nseo.image: /own.png\n---\nOwn\n")
@@ -51,6 +51,13 @@ it("gives every prerendered page a share image, site meta, and Schema.org, and c
     expect(existsSync(join(root, ".output/public", new URL(image!).pathname))).toBe(true)
     expect(install).toContain("\"@type\":[\"Article\",\"TechArticle\"]")
     expect(install).toContain("\"@type\":\"BreadcrumbList\"")
+
+    // A `home` page is its own blocks under the site header, which shows on wide screens because there is no docs rail.
+    const home = await page("index")
+    expect(home).toContain("Read <a")
+    expect(home).not.toMatch(/class="[^"]*vh-docs-rail/)
+    expect(home).toMatch(/class="sticky top-0 z-50"/)
+    expect(await page("docs/guide/install")).toMatch(/class="sticky top-0 z-50 lg:hidden"/)
 
     // A page without a description shares the site's.
     expect(meta(await page("docs/guide"), "og:description")).toBe("Lumen docs")
