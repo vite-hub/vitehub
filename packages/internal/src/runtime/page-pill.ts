@@ -151,6 +151,14 @@ export interface ViteHubPagePillOptions {
   storage: { collapsed: string, dock: string }
   /** Where the pill docks, and whether it is collapsed, while the browser keeps neither. Default: the bottom middle, open. */
   initial?: { dock?: ViteHubPageToolsDock, collapsed?: boolean }
+  /** A temporary request to fold to the mark without changing the browser's saved choices. */
+  markOnly?: {
+    active: () => boolean
+    /** Calls `change` when the request changes, until `signal` aborts. */
+    watch: (change: () => void, signal: AbortSignal) => void
+    /** Starts open for this request, such as after turning the tools on from an off mark. */
+    opened?: boolean
+  }
   /** The button at the end that closes the tools. Without it the pill has none. */
   exit?: {
     label: string
@@ -194,13 +202,20 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
     mark.setAttribute("aria-label", `${collapsed ? "Show" : "Hide"} ${options.label}`)
     mark.title = `${mark.getAttribute("aria-label")!}. Drag to move.`
   }
-  collapse(storedCollapsed(options.storage.collapsed) ?? initiallyCollapsed)
+  const markOnly = () => options.markOnly?.active() === true
+  let opened = options.markOnly?.opened === true
+  const folded = () => markOnly() ? !opened : storedCollapsed(options.storage.collapsed) ?? initiallyCollapsed
+  collapse(folded())
   let dragged = false
   mark.addEventListener("click", () => {
     if (dragged) return
     const collapsed = !pill.hasAttribute("collapsed")
     collapse(collapsed)
     place(dock)
+    if (markOnly()) {
+      opened = !collapsed
+      return
+    }
     // The key stays only while the pill differs from its initial state, so a later change of that state applies.
     try {
       if (collapsed === initiallyCollapsed) localStorage.removeItem(options.storage.collapsed)
@@ -226,17 +241,18 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
     slot.name = name
     toolbar.insertBefore(slot, button ?? null)
   }
-  signal.addEventListener("abort", () => pill.remove(), { once: true })
-
   let dock = storedViteHubPageDock(options.storage.dock) ?? options.initial?.dock ?? { edge: "bottom", at: 50 }
+  let shown = dock
   const vertical = () => dock.edge === "left" || dock.edge === "right"
   const place = (next: ViteHubPageToolsDock) => {
     dock = next
-    pill.setAttribute("edge", next.edge)
-    pill.style.setProperty("--at", String(next.at))
+    // Keep the person's dock while a temporary mark steps aside. A drag still follows the pointer.
+    shown = markOnly() && !pill.hasAttribute("dragging") && next.edge === "bottom" ? { edge: "bottom", at: next.at < 50 ? 0 : 100 } : next
+    pill.setAttribute("edge", shown.edge)
+    pill.style.setProperty("--at", String(shown.at))
     const collapsed = pill.hasAttribute("collapsed")
     const thickness = collapsed ? vertical() ? hexagonSize(pill).width : hexagonSize(pill).height : vertical() ? toolbar.offsetWidth : toolbar.offsetHeight
-    options.onPlace?.({ ...next, collapsed, thickness })
+    options.onPlace?.({ ...shown, collapsed, thickness })
     // Collapsed, the mark moves to the hexagon at the bar's center. It only translates, so the bar keeps its size and
     // the clip morph is not cut short by the resize animation below.
     mark.style.setProperty("--vitehub-mark-x", `${toolbar.clientWidth / 2 - mark.offsetLeft - mark.offsetWidth / 2}px`)
@@ -279,6 +295,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
       mark.removeEventListener("pointermove", move)
       if (!dragged) return
       pill.removeAttribute("dragging")
+      place(dock)
       try { localStorage.setItem(options.storage.dock, JSON.stringify({ edge: dock.edge, at: dock.at })) }
       catch {}
       // The click that ends the drag comes first, so a later key press on the mark still toggles the pill.
@@ -300,6 +317,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
     })])
     box = { width: toolbar.offsetWidth, height: toolbar.offsetHeight }
   }
+  if (signal.aborted) return pill
   const resized = new ResizeObserver(() => {
     const before = { parts, box }
     for (const part of [toolbar, ...before.parts.keys()]) for (const animation of part.getAnimations()) if (animation.id === "vitehub-pill-glide") animation.cancel()
@@ -310,8 +328,8 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
     // right and bottom edges, where the bar grows away from the edge.
     const grown = { x: box.width - before.box.width, y: box.height - before.box.height }
     const corner = {
-      x: vertical() ? dock.edge === "right" ? grown.x : 0 : grown.x * dock.at / 100,
-      y: vertical() ? grown.y * dock.at / 100 : dock.edge === "bottom" ? grown.y : 0,
+      x: vertical() ? shown.edge === "right" ? grown.x : 0 : grown.x * shown.at / 100,
+      y: vertical() ? grown.y * shown.at / 100 : shown.edge === "bottom" ? grown.y : 0,
     }
     const timing = { duration: 250, easing: "cubic-bezier(.32,.72,0,1)", id: "vitehub-pill-glide" }
     for (const [part, now] of parts) {
@@ -327,13 +345,24 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
     const bottom = Math.max(0, grown.y - corner.y)
     if (top || left || right || bottom) toolbar.animate([{ clipPath: `inset(${top}px ${right}px ${bottom}px ${left}px round 12px)` }, { clipPath: "inset(0 round 12px)" }], timing)
   })
+  signal.addEventListener("abort", () => {
+    pill.remove()
+    resized.disconnect()
+  }, { once: true })
   // A router may replace the body. By default the tools stay connected as siblings of it throughout the swap.
   const parent = options.parent ?? document.documentElement
   parent.append(pill)
   place(dock)
   // The first observation only measures: the pill must not glide in when the page loads.
-  resized.observe(toolbar)
-  signal.addEventListener("abort", () => resized.disconnect(), { once: true })
+  // The initial placement callback can also end the owner's lifetime.
+  if (!signal.aborted) {
+    resized.observe(toolbar)
+    options.markOnly?.watch(() => {
+      opened = false
+      collapse(folded())
+      place(dock)
+    }, signal)
+  }
   return pill
 }
 

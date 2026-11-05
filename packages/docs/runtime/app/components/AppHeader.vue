@@ -81,6 +81,8 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
       </template>
 
       <template #right>
+        <!-- Empty here: an app adds its own items with a `DocsHeaderActions` component, such as the package a playground shows. -->
+        <DocsHeaderActions />
         <UContentSearchButton
           :collapsed="false"
           :kbds="['meta', 'K']"

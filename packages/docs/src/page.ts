@@ -49,7 +49,7 @@ export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, p
     ...(frontmatter.codePanel ? { codePanel: true } : {}),
     ...(frontmatter.seo ? { seo: frontmatter.seo } : {}),
     sidebar: frontmatter.sidebar ?? true,
-    toc: frontmatter.toc ?? layout !== "landing",
+    toc: frontmatter.toc ?? (layout !== "landing" && layout !== "home"),
     kind: navigation?.kind ?? null,
     group: navigation?.group ?? null,
     navigation: frontmatter.navigation !== false,

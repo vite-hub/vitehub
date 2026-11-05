@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { mountViteHubPagePill, readViteHubPageDock, viteHubPageSvgIcon } from "../src/runtime/page-pill.ts"
 
@@ -25,11 +25,48 @@ function mount(options: Partial<ViteHubPagePillOptions> = {}) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   localStorage.clear()
   document.documentElement.replaceChildren(document.createElement("head"), document.createElement("body"))
 })
 
 describe("mountViteHubPagePill", () => {
+  it("does not mount or observe when its signal is already aborted", () => {
+    const controller = new AbortController()
+    controller.abort()
+    const observe = vi.spyOn(ResizeObserver.prototype, "observe")
+    const onPlace = vi.fn()
+    const { element } = mount({ signal: controller.signal, onPlace })
+    expect(element.isConnected).toBe(false)
+    expect(observe).not.toHaveBeenCalled()
+    expect(onPlace).not.toHaveBeenCalled()
+  })
+
+  it("removes the pill and disconnects its observer on abort", () => {
+    const disconnect = vi.spyOn(ResizeObserver.prototype, "disconnect")
+    const { element, controller } = mount()
+    expect(element.isConnected).toBe(true)
+    controller.abort()
+    expect(element.isConnected).toBe(false)
+    expect(disconnect).toHaveBeenCalledOnce()
+  })
+
+  it("cleans up when initial placement aborts the owner", () => {
+    const controller = new AbortController()
+    const observe = vi.spyOn(ResizeObserver.prototype, "observe")
+    const disconnect = vi.spyOn(ResizeObserver.prototype, "disconnect")
+    const watch = vi.fn()
+    const { element } = mount({
+      signal: controller.signal,
+      onPlace: () => controller.abort(),
+      markOnly: { active: () => false, watch },
+    })
+    expect(element.isConnected).toBe(false)
+    expect(observe).not.toHaveBeenCalled()
+    expect(disconnect).toHaveBeenCalledOnce()
+    expect(watch).not.toHaveBeenCalled()
+  })
+
   it("draws a pill of its own name in the given parent, with its slots and no exit button", () => {
     const parent = document.createElement("div")
     document.body.append(parent)
@@ -79,6 +116,7 @@ describe("readViteHubPageDock", () => {
     [{ edge: "right", at: 20 }, { edge: "right", at: 20 }],
     [{ edge: "middle", at: 20 }, undefined],
     [{ edge: "top", at: 101 }, undefined],
+    [{ edge: "top", at: Number.NaN }, undefined],
     [null, undefined],
   ])("reads %j", (value, dock) => {
     expect(readViteHubPageDock(value)).toEqual(dock)

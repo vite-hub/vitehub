@@ -1,6 +1,6 @@
 import { mountViteHubPagePill, storedViteHubPageDock, viteHubPagePillStyles, viteHubPageSvgIcon } from "./page-pill.ts"
 import { createViteHubPageWindow, dockViteHubPageWindows } from "./page-tools-window.ts"
-import type { ViteHubPageWindow, ViteHubPageWindowOptions } from "./page-tools-window.ts"
+import type { ViteHubPageToolsDock, ViteHubPageWindow, ViteHubPageWindowOptions } from "./page-tools-window.ts"
 
 export { viteHubPageToolsEdgeAt } from "./page-pill.ts"
 /**
@@ -11,7 +11,7 @@ export { viteHubPageToolsEdgeAt } from "./page-pill.ts"
  * This file runs only in the browser. The package's Node program does not include it, because the DOM types conflict
  * with the Node stream types: `tsconfig.browser.json` checks it.
  */
-import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsQuery, viteHubPageToolsWanted, viteHubPillButtonStyles } from "./page-tools-shared.ts"
+import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsQuery, viteHubPageToolsWanted, viteHubPillAttribute, viteHubPillButtonStyles } from "./page-tools-shared.ts"
 
 import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
@@ -93,6 +93,31 @@ function rememberOff(off: boolean): void {
   catch {}
 }
 
+/** Whether the page asks for the mark only, with `<html data-vitehub-pill="mark">`, because its own bar is there. */
+function pageAsksForMark(): boolean {
+  return document.documentElement.getAttribute(viteHubPillAttribute) === "mark"
+}
+
+/**
+ * Where the pill goes while the page asks for the mark: the nearer end of the bottom edge, out of the way of a bar
+ * centered on it. The ends of the top edge hold a page's back button and menus, so on the other edges it keeps its place.
+ */
+function asideOf(dock: ViteHubPageToolsDock): ViteHubPageToolsDock {
+  return dock.edge === "bottom" ? { edge: "bottom", at: dock.at < 50 ? 0 : 100 } : dock
+}
+
+/** Calls `change` each time the page starts or stops asking for the mark, until `signal` aborts. */
+function watchPageAsk(change: () => void, signal: AbortSignal): void {
+  let asked = pageAsksForMark()
+  const observer = new MutationObserver(() => {
+    if (pageAsksForMark() === asked) return
+    asked = !asked
+    change()
+  })
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: [viteHubPillAttribute] })
+  signal.addEventListener("abort", () => observer.disconnect(), { once: true })
+}
+
 /**
  * Draws the small ViteHub mark that stays where the pill was while the tools are off. Its button turns them on again.
  * The focus moves to it after a key press on the exit button, which is gone.
@@ -103,8 +128,14 @@ function mountOffMark(turnOn: () => void, focus: boolean): void {
   mark.setAttribute("collapsed", "")
   mark.style.viewTransitionName = "vitehub-pill"
   const dock = storedViteHubPageDock(dockKey) ?? { edge: "bottom", at: 50 }
-  mark.setAttribute("edge", dock.edge)
-  mark.style.setProperty("--at", String(dock.at))
+  const place = () => {
+    const shown = pageAsksForMark() ? asideOf(dock) : dock
+    mark.setAttribute("edge", shown.edge)
+    mark.style.setProperty("--at", String(shown.at))
+  }
+  place()
+  const watching = new AbortController()
+  watchPageAsk(place, watching.signal)
   const shadow = mark.attachShadow({ mode: "open" })
   const style = document.createElement("style")
   style.textContent = `${viteHubPagePillStyles}\n${offMarkStyles}`
@@ -115,7 +146,7 @@ function mountOffMark(turnOn: () => void, focus: boolean): void {
   button.append(viteHubPageSvgIcon("0 0 20 18", markPath, {}))
   shadow.append(style, button)
   document.documentElement.append(mark)
-  button.addEventListener("click", () => { mark.remove(); turnOn() })
+  button.addEventListener("click", () => { watching.abort(); mark.remove(); turnOn() })
   if (focus) button.focus({ preventScroll: true })
 }
 
@@ -132,6 +163,11 @@ export interface LoadViteHubPageToolsOptions {
  * while a tool is mounted or available to launch or retry. Returns those available tools.
  */
 export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions = {}): Promise<ViteHubPageToolInfo[]> {
+  return await startViteHubPageTools(options, false)
+}
+
+/** `turnedOn`: the person pressed the off mark, so the pill opens even on a page that asks for the mark. */
+async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turnedOn: boolean): Promise<ViteHubPageToolInfo[]> {
   // Vite pages load this external module under CSP; visitors without a hint make no session request.
   const query = new URLSearchParams(location.search)
   if (!viteHubPageToolsWanted(location.search, document.cookie)) return []
@@ -153,7 +189,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   // Explicit page-tool links turn the tools on again. Otherwise, tools that were turned off show only their small mark.
   if (query.has(viteHubPageToolsQuery) || linkedTool) rememberOff(false)
   else if (storedOff()) {
-    mountOffMark(() => { rememberOff(false); void loadViteHubPageTools(options) }, false)
+    mountOffMark(() => { rememberOff(false); void startViteHubPageTools(options, true) }, false)
     return []
   }
 
@@ -179,7 +215,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
     mountOffMark(() => {
       rememberOff(false)
       for (const tool of opened) remember(tool.id, true)
-      void loadViteHubPageTools(options)
+      void startViteHubPageTools(options, true)
     }, keyboard)
   }
   const pill = mountViteHubPagePill({
@@ -190,6 +226,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
     storage: { collapsed: collapsedKey, dock: dockKey },
     exit: { label: "Turn off ViteHub tools", press: exit },
     onPlace: dockViteHubPageWindows,
+    markOnly: { active: pageAsksForMark, watch: watchPageAsk, opened: turnedOn },
     signal: pillController.signal,
   })
   const windows = new Map<string, ViteHubPageWindow>()
