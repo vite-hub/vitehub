@@ -21,7 +21,7 @@ describe("agent-ready HTTP contracts", () => {
     // The docs module installs nuxt-llms and nuxt-agent-discovery, so the site does not list them.
     expect(Object.keys(docsPackage.dependencies)).toEqual(expect.arrayContaining(["nuxt-agent-discovery", "nuxt-llms"]));
     // Local patch until nuxt-agent-discovery routes negotiated pages through the Cloudflare Worker.
-    expect(workspace).toContain("nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch");
+    expect(workspace).toContain("nuxt-agent-discovery@0.8.1: patches/nuxt-agent-discovery@0.8.1.patch");
     expect(workspace).not.toContain("docus");
     // The docs module negotiates the root, the docs base, and every page outside it, so the site lists no routes.
     expect(Reflect.get(config, "agentDiscovery")).not.toHaveProperty("routes");
@@ -42,7 +42,7 @@ describe("agent-ready HTTP contracts", () => {
   it("serves raw Markdown copies from the docs package", () => {
     const docsModule = readFileSync(resolve(packageRoot, "src/nuxt.ts"), "utf8");
 
-    expect(docsModule).toContain('addServerHandler({ route: "/raw/**", method: "get", handler: resolver.resolve("./runtime/server/raw.js") })');
+    expect(docsModule).toContain('for (const method of ["get", "head"] as const) addServerHandler({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") })');
     expect(docsModule).toContain('{ baseName: "docs-raw", dir: rawDir }');
     expect(docsModule).toContain("toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl: `${config.site.url}${config.appBase.replace(/\\/+$/, \"\")}`, pagePath: page.path })");
   });
@@ -93,9 +93,9 @@ describe("agent-ready HTTP contracts", () => {
     const workspace = readFileSync(resolve(docsRoot, "../pnpm-workspace.yaml"), "utf8");
     const cliPackage = JSON.parse(readFileSync(resolve(docsRoot, "../packages/cli/package.json"), "utf8"));
 
-    expect(workspace).toContain("nuxt: ^4.5.2");
-    expect(lockfile).toContain("nuxt@4.5.2:");
-    expect(lockfile).toContain("'@nuxt/devtools@3.4.2':");
+    expect(workspace).toContain("nuxt: ^4.6.4");
+    expect(lockfile).toContain("nuxt@4.6.4:");
+    expect(lockfile).toContain("'@nuxt/devtools@3.4.4':");
     expect(lockfile).not.toContain("nuxt@4.4.8:");
     expect(lockfile).not.toContain("'@nuxt/devtools@3.2.4':");
     expect(config).toMatch(/devtools:\s*{\s*enabled:\s*false/);
