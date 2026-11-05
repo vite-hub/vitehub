@@ -29,10 +29,12 @@ Blob writes preserve the metadata you provide. `detectContentType()` checks comm
 Use the `blob` Runtime Helper from server code.
 
 ```ts [server/api/files.post.ts]
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ path: string, text: string }>(event)
+  const body = await readValidatedBody(event, v.object({ path: v.string(), text: v.string() }))
 
   const [error] = await blob.put(body.path, body.text, {
     contentType: 'text/plain',

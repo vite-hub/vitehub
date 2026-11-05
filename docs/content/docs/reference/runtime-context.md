@@ -31,14 +31,17 @@ Use `getRuntimeContext()` in application-owned H3 or Nuxt routes. Create a new
 context for each invocation:
 
 ```ts [server/api/support.post.ts]
+import { defineEventHandler, readValidatedBody } from 'h3'
+import { useRuntimeConfig } from 'nitro/runtime-config'
+import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readBody<{ prompt: string }>(event)
+  const { prompt } = await readValidatedBody(event, v.object({ prompt: v.string() }))
   const runtime = getRuntimeContext(event, {
-    runtimeConfig: useRuntimeConfig(event),
+    runtimeConfig: useRuntimeConfig(),
   })
 
   try {

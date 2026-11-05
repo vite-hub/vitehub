@@ -95,11 +95,6 @@
     "error": "TS2571 Object is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/agents/triggers.md#856b11e9e183",
-    "label": "server/api/support.post.ts",
-    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
     "id": "docs/content/docs/auth/configure.md#e343728ee49a",
     "label": "server/auth.ts",
     "error": "TS7031 Binding element 'env' implicitly has an 'any' type."
@@ -113,11 +108,6 @@
     "id": "docs/content/docs/blob/media.md#9c910d73996e",
     "label": null,
     "error": "TS2304 Cannot find name 'blob'."
-  },
-  {
-    "id": "docs/content/docs/blob/server-api.md#e7fc7fbe72c5",
-    "label": "server/api/files.post.ts",
-    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/channels/agent-capability.md#40109740a7a8",
@@ -265,24 +255,9 @@
     "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
   },
   {
-    "id": "docs/content/docs/database/server-api.md#6d9cea2fe68f",
-    "label": "server/api/notes.get.ts",
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/database/server-api.md#e4a3b26c7769",
-    "label": "server/api/events.get.ts",
-    "error": "TS2345 Argument of type '\"analytics\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "docs/content/docs/database/server-api.md#f322346ac6f0",
     "label": "server/utils/files.ts",
     "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/decisions/index.md#d3a4290d45e6",
-    "label": "server/api/choices.post.ts",
-    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/development/console.md#44aafb4e0c8f",
@@ -308,11 +283,6 @@
     "id": "docs/content/docs/logs/get-started.md#b7725026293a",
     "label": "vite.config.ts",
     "error": "TS2353 Object literal may only specify known properties, and 'local' does not exist in type 'ConsoleOptions'."
-  },
-  {
-    "id": "docs/content/docs/queue/limits-and-errors.md#bb22fa79f67f",
-    "label": "server/api/signup.post.ts",
-    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/rate-limit/agent-capability.md#db72be2c6b21",
@@ -413,11 +383,6 @@
     "id": "docs/content/docs/reference/doctor-rules.md#f55e15ba2697",
     "label": "nuxt.config.ts",
     "error": "TS2528 A module cannot have multiple default exports."
-  },
-  {
-    "id": "docs/content/docs/reference/runtime-context.md#e2744450c63d",
-    "label": "server/api/support.post.ts",
-    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
@@ -548,5 +513,10 @@
     "id": "docs/content/docs/comments/configure.md#f787a47ce35d",
     "label": "server/api/docs/[id]/comments.post.ts",
     "error": "TS2307 Cannot find module '../../../utils/docs' or its corresponding type declarations."
+  },
+  {
+    "id": "docs/content/docs/reference/runtime-context.md#3588c0430aa3",
+    "label": "server/api/support.post.ts",
+    "error": "TS2307 Cannot find module '../agents/support' or its corresponding type declarations."
   }
 ]

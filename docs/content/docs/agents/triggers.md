@@ -14,12 +14,14 @@ A Trigger turns a product event into Agent Invocation input. Use it when a Capab
 An application route can call `runAgent()` when no Capability needs to prepare the event.
 
 ```ts [server/api/support.post.ts]
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { runAgent } from 'vite-hub/agent'
 import support from '../agents/support'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readBody<{ prompt: string }>(event)
+  const { prompt } = await readValidatedBody(event, v.object({ prompt: v.string() }))
   const runtime = getRuntimeContext(event)
   try {
     return await runAgent(support, runtime, { prompt })

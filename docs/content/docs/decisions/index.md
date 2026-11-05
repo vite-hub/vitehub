@@ -30,11 +30,13 @@ icon: i-lucide-list-checks
   ```
 
   ```ts [server/api/choices.post.ts]
+  import { createError, defineEventHandler, readValidatedBody } from 'h3'
+  import * as v from 'valibot'
   import { forecast } from '../utils/forecast-choices'
 
   // The route is yours. Add auth and limits here.
   export default defineEventHandler(async (event) => {
-    const { text } = await readBody(event)
+    const { text } = await readValidatedBody(event, v.object({ text: v.string() }))
     const [error, selection] = await forecast.resolve(text)
     if (error) throw createError({ statusCode: 422, message: error.message })
     return selection

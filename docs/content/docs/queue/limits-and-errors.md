@@ -8,13 +8,23 @@ icon: i-lucide-circle-alert
 
 ## Handle Queue errors
 
-`runQueue()`, `dynamicQueue.run()`, `send()`, and `sendBatch()` return `[error, result]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the code on this page. `error.cause` keeps the provider error.
+`runQueue()`, `dynamicQueue.run()`, `send()`, and `sendBatch()` return `[error, result]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the code on this page. `error.cause` keeps the provider error. This route enqueues the `welcome-email` Queue:
+
+```ts [server/queues/welcome-email.ts]
+import { defineQueue } from '@vite-hub/queue'
+
+export default defineQueue<{ email: string }>(async ({ payload }) => {
+  console.log(`Welcome ${payload.email}`)
+})
+```
 
 ```ts [server/api/signup.post.ts]
+import { defineEventHandler, readValidatedBody } from 'h3'
+import * as v from 'valibot'
 import { runQueue } from '@vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ email: string }>(event)
+  const body = await readValidatedBody(event, v.object({ email: v.string() }))
   const [error, result] = await runQueue('welcome-email', { email: body.email })
   if (error) {
     console.error(error.code, error.why, error.cause)
