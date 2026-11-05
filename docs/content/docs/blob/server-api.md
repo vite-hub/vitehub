@@ -283,7 +283,9 @@ if (completeError) throw completeError
 The framework-neutral client is `@vite-hub/blob/client`, with `uploadFiles()`
 and `createMultipartUploader()`. The Vue composables use it. Pass `onProgress` to
 `uploadFiles()` to hear the upload progress from 0 to 100; the files then go through
-XMLHttpRequest, since `fetch` can't report it.
+XMLHttpRequest, since `fetch` can't report it. For a cross-origin upload route,
+the server must also answer CORS preflight (`OPTIONS`) requests: listening for
+upload progress makes the browser preflight even a simple multipart POST.
 
 ## Signed requests
 

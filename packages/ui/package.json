@@ -313,7 +313,7 @@
     "@tiptap/extension-table": "catalog:realtime",
     "@tiptap/pm": "catalog:realtime",
     "@tiptap/starter-kit": "catalog:realtime",
-    "@tiptap/vue-3": "catalog:realtime",
+    "@tiptap/vue-3": "3.31.4",
     "@vite-hub/blob": "workspace:*"
   },
   "peerDependencies": {
@@ -325,7 +325,7 @@
     "@tiptap/extension-table": "catalog:realtime",
     "@tiptap/pm": "catalog:realtime",
     "@tiptap/starter-kit": "catalog:realtime",
-    "@tiptap/vue-3": "catalog:realtime",
+    "@tiptap/vue-3": "^3.31.4",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:ui"

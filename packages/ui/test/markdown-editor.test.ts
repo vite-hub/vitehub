@@ -4,7 +4,8 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { uploadKey } from "comark-ui/editor";
 import { defineComponent, h, inject, type ComputedRef } from "vue";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Editor } from "@tiptap/vue-3";
+import { Editor } from "@tiptap/vue-3";
+import StarterKit from "@tiptap/starter-kit";
 import { blobUpload, MarkdownEditor } from "../src/markdown-editor.ts";
 
 interface Handler { execute: (editor: Editor) => { run: () => unknown }, isDisabled?: () => boolean }
@@ -39,6 +40,27 @@ afterEach(() => {
 });
 
 describe("MarkdownEditor", () => {
+  it.each(["owned", "external"])("keeps the initial %s editor when the prop changes or clears", async (mode) => {
+    const external = new Editor({ extensions: [StarterKit], content: "<p>Shared document</p>" });
+    const replacement = new Editor({ extensions: [StarterKit], content: "<p>Another document</p>" });
+    const wrapper = await mounted({ editor: mode === "external" ? external : undefined });
+    const initial = wrapper.findComponent(SuggestionMenu).props("editor");
+    try {
+      expect(wrapper.find(".ProseMirror").text()).toBe(mode === "external" ? "Shared document" : "Hello");
+      await wrapper.setProps({ editor: replacement });
+      await flushPromises();
+      expect(wrapper.findComponent(SuggestionMenu).props("editor") === initial).toBe(true);
+      await wrapper.setProps({ editor: undefined });
+      await flushPromises();
+      expect(wrapper.findComponent(SuggestionMenu).props("editor") === initial).toBe(true);
+      expect(wrapper.find(".ProseMirror").text()).toBe(mode === "external" ? "Shared document" : "Hello");
+    } finally {
+      wrapper.unmount();
+      external.destroy();
+      replacement.destroy();
+    }
+  });
+
   it("edits the bound Markdown without an upload, and offers no Image item", async () => {
     const wrapper = await mounted({});
     expect(wrapper.find(".ProseMirror").text()).toBe("Hello");

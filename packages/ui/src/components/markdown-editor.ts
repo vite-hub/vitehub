@@ -97,8 +97,9 @@ export const MarkdownEditor = defineComponent({
       if (value !== props.modelValue) emit("update:modelValue", value);
     });
     // The bound editor exists only without an `editor` prop: a Realtime room owns its own content.
-    const own = props.editor ? undefined : useComarkEditor(markdown, { extensions: props.extensions, plugins: props.plugins });
-    const editor = computed(() => props.editor ?? own?.editor.value);
+    const initialEditor = props.editor;
+    const own = initialEditor ? undefined : useComarkEditor(markdown, { extensions: props.extensions, plugins: props.plugins });
+    const editor = computed(() => initialEditor ?? own?.editor.value);
 
     const options = shallowRef<UploadOptions>();
     watchEffect(() => {

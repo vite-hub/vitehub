@@ -8,9 +8,12 @@ icon: i-ph-note-pencil
 
 `MarkdownEditor` edits Markdown with [comark-ui's editor](https://comark-ui.onmax.me/guide/editor/): Comark syntax stays intact on save, and a document the editor can't save unchanged opens read-only. Nuxt UI's bubble toolbar, "/" menu, and drag handle sit on top. The text takes the same typeset as [Markdown](/docs/ui/markdown), so editing looks like reading.
 
+::component-preview{name="MarkdownEditorExample" reset}
+::
+
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation), and the Tiptap packages that Nuxt UI's editor uses: `@tiptap/core`, `@tiptap/pm`, `@tiptap/vue-3`, `@tiptap/starter-kit`, `@tiptap/extension-image`, `@tiptap/extension-list`, and `@tiptap/extension-table`. Import the component from its own entry. It isn't in the root barrel, so pages that only render Markdown don't load Tiptap:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation), and the Tiptap packages that Nuxt UI's editor uses: `@tiptap/core`, `@tiptap/pm`, `@tiptap/vue-3`, `@tiptap/starter-kit`, `@tiptap/extension-image`, `@tiptap/extension-list`, and `@tiptap/extension-table`, all at version 3.31.4 or later in 3.x. Import the component from its own entry. It isn't in the root barrel, so pages that only render Markdown don't load Tiptap:
 
 ```ts
 import { MarkdownEditor } from "vite-hub/ui/markdown-editor";
@@ -54,7 +57,15 @@ Serve the Blob store (`blob.serve`) so each stored file has a URL the document l
 
 Pass `editor` with a Tiptap editor your app made, such as a Realtime room's, instead of `v-model`. `MarkdownEditor` adds the upload plugin and the menus to it and leaves its content alone. The default slot receives `{ editor }` for more menus, such as mentions or emoji.
 
-## Props
+## Accessibility
+
+Use the keyboard to edit text and navigate the "/" menu. The bubble toolbar appears when text is selected. Name images with meaningful alt text in the Markdown source.
+
+## API Reference
+
+### MarkdownEditor
+
+#### Props
 
 | Prop | Description |
 | --- | --- |
