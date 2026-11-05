@@ -33,7 +33,7 @@ describe("Console status", () => {
     expect(getConsoleAgentDefinition("bot")).toBeUndefined()
     expect(await statusHandler(consoleEvent({ url: "http://localhost/api/_vitehub/console/status?agent=bot" }))).toEqual({ agents: [ready], observability: null })
     expect(getConsoleAgentDefinition("bot")).toBeUndefined()
-    await expect(agentInvocationsHandler({ context: { params: { agent: "bot" } } })).rejects.toMatchObject({ statusCode: 404 })
+    await expect(agentInvocationsHandler(consoleEvent({ context: { params: { agent: "bot" } }, body: {}, url: "http://localhost/api/_vitehub/console/agents/bot/invocations" }))).rejects.toMatchObject({ statusCode: 404 })
     expect(definition.resolve).not.toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
   })

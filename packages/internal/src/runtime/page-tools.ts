@@ -135,6 +135,10 @@ export async function respondViteHubPageSession(nitroApp: object, request: Reque
 /** The Web request of an H3 2 or H3 1 event. */
 function eventRequest(event: unknown): Request | undefined {
   if (event === null || typeof event !== "object") return undefined
+  // ViteHub sets Standard Context on each request. A Nitro app without the ViteHub plugin has only the H3 fields.
+  const standard: unknown = Reflect.get(event, "~standard")
+  const standardRequest: unknown = standard !== null && typeof standard === "object" ? Reflect.get(standard, "req") : undefined
+  if (standardRequest instanceof Request) return standardRequest
   if (isH3V1Event(event)) return toH3V1Request(event)
   const request: unknown = Reflect.get(event, "req")
   return request instanceof Request ? request : undefined

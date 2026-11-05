@@ -20,6 +20,12 @@ function event(headers: Record<string, string> = {}): H3Event {
   return event as unknown as H3Event
 }
 
+/** An H3 1 event of Nuxt 4, with the Standard Context that the Console sets before it calls a tool. */
+function withStandardContext<T extends object>(event: T) {
+  installStandardContext(event)
+  return event
+}
+
 async function setup(options: DefineCommentsOptions = {}) {
   const comments = await createComments(options)
   const tools = Object.fromEntries(commentsMcpTools(comments).map(tool => [tool.name, tool]))
@@ -225,9 +231,7 @@ describe("Comments MCP tools", () => {
     const guestTools = commentsMcpTools(comments, { consoleSession: guestSession })
     await comments.reopen(thread!.id)
     const headers = { "x-vitehub-comments-guest-id": "ben", "x-vitehub-comments-guest-name": "Ben" }
-    const nodeRequest = { node: { req: { method: "POST", url: "/_vitehub/mcp", headers: { host: "site.test", ...headers } }, res: {} } }
-    if (nodeEvent) installStandardContext(nodeRequest)
-    const request = nodeEvent ? nodeRequest : event(headers)
+    const request = nodeEvent ? withStandardContext({ node: { req: { method: "POST", url: "/_vitehub/mcp", headers: { host: "site.test", ...headers } }, res: {} } }) : event(headers)
     expect((await guestTools[2]!.call({ id: thread!.id, body: "Thanks" }, { user: ada, event: request })).isError).toBeUndefined()
     expect((await guestTools[3]!.call({ id: thread!.id }, { user: ada, event: request })).isError).toBeUndefined()
     const [, updated] = await comments.get(thread!.id)

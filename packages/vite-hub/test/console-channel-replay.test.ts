@@ -15,7 +15,7 @@ import channelReplayHandler from "../src/console/runtime/server/channel-replay.t
 
 import type { AgentRunContext } from "@vite-hub/agent"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
-import { consoleEvent } from "./console-event.ts"
+import { consoleEvent, nodeResponse } from "./console-event.ts"
 import { installStandardContext } from "../src/runtime/h3.ts"
 import "./support/console-access.ts"
 
@@ -78,7 +78,7 @@ function nodeReplayPayloadEvent(payload: string): ConsoleRequestEvent {
           yield payload
         },
       },
-      res: {},
+      res: nodeResponse(),
     },
   }
   installStandardContext(event)

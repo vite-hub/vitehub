@@ -38,3 +38,15 @@ export function consoleEvent(input: ConsoleTestEvent): ConsoleRequestEvent {
 export function requestEvent(request: Request, extra: { context?: { params?: Record<string, string | undefined> } } = {}): ConsoleRequestEvent {
   return { ...extra, "~standard": { vendor: "test", req: request, res: { headers: new Headers() } } }
 }
+
+/** The Node response of an H3 1 event, enough for Console code to write headers through Standard Context. */
+export function nodeResponse() {
+  const headers = new Map<string, number | string | string[]>()
+  return {
+    statusCode: 200,
+    getHeader: (name: string) => headers.get(name.toLowerCase()),
+    getHeaders: () => Object.fromEntries(headers),
+    removeHeader: (name: string) => { headers.delete(name.toLowerCase()) },
+    setHeader: (name: string, value: number | string | string[]) => { headers.set(name.toLowerCase(), value) },
+  }
+}

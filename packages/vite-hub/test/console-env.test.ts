@@ -113,7 +113,7 @@ describe("Console Env", () => {
       ],
     })
     expect(inspect).toHaveBeenCalledOnce()
-    expect(inspect).toHaveBeenCalledWith(expect.objectContaining({ method: "GET" }))
+    expect(inspect).toHaveBeenCalledWith(expect.objectContaining({ "~standard": expect.objectContaining({ req: expect.objectContaining({ method: "GET" }) }) }))
   })
   it("hides status failures behind a fixed message", async () => {
     installConsoleSections("/env-test", ["env"])

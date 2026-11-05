@@ -497,9 +497,9 @@ describe("independent Console Auth", () => {
       const modulePath = resolve(root, "guard.mjs")
       await writeFile(modulePath, bundled.outputFiles![0]!.text)
       const guard = (await import(pathToFileURL(modulePath).href)) as {
-        checkConsoleAccess: (event: { url: URL; req?: Request }) => Promise<Response | undefined>
-        readConsoleUser: (event: { req?: Request; web?: { request: Request } }) => Promise<{ id: string } | undefined>
-        default: (event: { url: URL; req?: Request }) => Promise<Response | undefined>
+        checkConsoleAccess: (event: { url: URL; req?: Request, res?: { headers: Headers } }) => Promise<Response | undefined>
+        readConsoleUser: (event: { req: Request, res: { headers: Headers } }) => Promise<{ id: string } | undefined>
+        default: (event: { url: URL; req?: Request, res?: { headers: Headers } }) => Promise<Response | undefined>
       }
       const calls: Array<[string, number, boolean | undefined]> = []
       Reflect.set(globalThis, Symbol.for("test.console.auth.calls"), calls)
@@ -520,7 +520,6 @@ describe("independent Console Auth", () => {
         expect((await guard.checkConsoleAccess({ url: new URL("https://example.com/api/app"), req: rpcRequest }))?.status).toBe(403)
         // console.authorize and Connections read the signed-in Console Auth user from the same definition.
         await expect(guard.readConsoleUser({ req: rpcRequest, res: { headers: new Headers() } })).resolves.toEqual({ id: "ada" })
-        await expect(guard.readConsoleUser({ web: { request: rpcRequest } })).resolves.toEqual({ id: "ada" })
         expect(calls).toEqual([
           ["/_vitehub", 0, false],
           ["/api/_vitehub/console/status", 1, false],

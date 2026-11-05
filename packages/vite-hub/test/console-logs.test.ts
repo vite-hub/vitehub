@@ -122,7 +122,8 @@ describe("Console Logs", () => {
     try {
       const signal = await started;
       controller.abort();
-      expect(signal).toBe(req.signal);
+      // The RPC runs the operation on its own Request, whose signal follows the caller's.
+      expect(signal?.aborted).toBe(true);
       expect(aborted).toBe(true);
     } finally {
       finish({ entries: [] });

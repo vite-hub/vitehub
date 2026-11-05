@@ -33,8 +33,8 @@ export type ConsoleAccessPolicy =
     /** Accept an OAuth access token, as MCP clients send it, in place of a session. See `verifyConsoleBearer()`. */
     oauth?: ConsoleOAuthConfig
     signInPage?: string
-    authBasePath?: (event: object) => Promise<string>
-    signIn?: (event: object, denied?: Response) => Promise<Response>
+    authBasePath?: (event: ConsoleRequestEvent) => Promise<string>
+    signIn?: (event: ConsoleRequestEvent, denied?: Response) => Promise<Response>
     user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined>
   }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { installStandardContext } from "../src/runtime/h3.ts"
 import { consoleRequestJSON } from "../src/console/runtime/server/request.ts"
+import { nodeResponse } from "./console-event.ts"
 
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
@@ -18,7 +19,7 @@ function streamEvent(body: ReadableStream<Uint8Array>): ConsoleRequestEvent {
 }
 
 function h3V1(req: Record<PropertyKey, unknown>): ConsoleRequestEvent {
-  const event = { node: { req: { headers: { host: "localhost" }, method: "POST", url: "/", ...req }, res: {} } }
+  const event = { node: { req: { headers: { host: "localhost" }, method: "POST", url: "/", ...req }, res: nodeResponse() } }
   installStandardContext(event)
   return event
 }
@@ -108,23 +109,16 @@ describe("Console request bodies", () => {
     expect(body.locked).toBe(false)
   })
 
-  it("closes an oversized H3 v1 iterator without reading another chunk", async () => {
-    let reads = 0
-    let closed = false
+  it("rejects an oversized H3 1 body", async () => {
+    // The shared H3 1 conversion reads the Node stream to its end, so H3's readBody() still works after Standard Context.
     const event = h3V1({
       async *[Symbol.asyncIterator]() {
-        try {
-          reads++
-          yield encoder.encode("12345")
-          reads++
-          yield encoder.encode("67890")
-        }
-        finally { closed = true }
+        yield encoder.encode("12345")
+        yield encoder.encode("67890")
       },
     })
 
     await expect(consoleRequestJSON(event, 4)).rejects.toMatchObject({ statusCode: 413 })
-    expect(reads).toBe(1)
-    expect(closed).toBe(true)
   })
+
 })

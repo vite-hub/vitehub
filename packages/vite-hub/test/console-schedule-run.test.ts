@@ -281,6 +281,7 @@ describe("Console Schedule runs", () => {
     installSchedules()
     const response = await scheduleRunRoute(Object.assign(Object.create(null), {
       req: runRequest({ name: "sync" }, { "x-vitehub-dispatch-signature": "v1=forged" }),
+      res: { headers: new Headers() },
     }))
 
     expect(response.status).toBe(401)
@@ -289,7 +290,7 @@ describe("Console Schedule runs", () => {
 
   it("takes only signed dispatches on the route, and sends everyone else to the operation", async () => {
     installSchedules()
-    const response = await scheduleRunRoute(Object.assign(Object.create(null), { req: runRequest({ name: "sync" }) }))
+    const response = await scheduleRunRoute(Object.assign(Object.create(null), { req: runRequest({ name: "sync" }), res: { headers: new Headers() } }))
 
     expect(response.status).toBe(401)
     expect(await response.json()).toEqual({ message: expect.stringContaining("vitehub schedule run") })
