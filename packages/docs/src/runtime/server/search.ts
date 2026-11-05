@@ -9,7 +9,6 @@ import { loadDocsDocument } from "../documents.ts"
 
 import type { DocsSearchSection } from "../../types.ts"
 
-
 /** Every page split by heading, for the search dialog. The build prerenders it. */
 async function buildIndex(): Promise<DocsSearchSection[]> {
   const sections: DocsSearchSection[] = []
