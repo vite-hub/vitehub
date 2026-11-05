@@ -14,6 +14,13 @@ const response = data.value
 const { page } = response
 
 const isRoot = page.path === manifest.root?.path
+// Content previews can change a page's layout or add a home page after the manifest was built.
+const layout = page.layout !== "home" && (response.section || isRoot) ? "docs" : "default"
+if (import.meta.client && route.meta.layout !== layout) {
+  // The server has already rendered the manifest's layout. Finish hydrating it before switching shells.
+  if (useNuxtApp().isHydrating) onNuxtReady(() => setPageLayout(layout))
+  else setPageLayout(layout)
+}
 // A page outside the docs base has no section. It reads as a plain article under the site header.
 const isStandalone = !response.section && !isRoot && page.layout !== "home"
 

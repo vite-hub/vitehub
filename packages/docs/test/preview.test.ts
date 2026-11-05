@@ -59,14 +59,17 @@ const componentScript = transpileModule(compileScript(parse(componentSource).des
   compilerOptions: { module: ModuleKind.CommonJS, target: ScriptTarget.ESNext },
 }).outputText
 
-async function navigate(path: string) {
+async function navigate(path: string, layout = "docs", isHydrating = false) {
   const manifest = await createDocsManifest({ dir: fixtures, base: "/docs" })
+  const route = { path, meta: { layout } }
   const mounted = new H3().get("/portal/api/_docs/page/**", page)
   const useFetch = vi.fn(async (url: string) => {
     const response = await mounted.fetch(new Request(`https://docs.example.com${url}`))
     return { data: vue.ref(response.ok ? await response.json() : null) }
   })
   const useDocsSeo = vi.fn()
+  const setPageLayout = vi.fn((layout: string) => { route.meta.layout = layout })
+  const ready: Array<() => void> = []
   const exports: { default?: vue.Component } = {}
   runInNewContext(componentScript, {
     exports,
@@ -75,17 +78,19 @@ async function navigate(path: string) {
       if (id === "#docs/navigation") return navigation
       throw new Error(`Unexpected component import: ${id}`)
     },
-    useRoute: () => ({ path }),
+    useRoute: () => route,
     useDocsManifest: () => manifest,
     useDocsConfig: () => ({ site: { url: "https://docs.example.com" }, appBase: "/portal/" }),
-    useNuxtApp: () => ({ isHydrating: false }),
+    useNuxtApp: () => ({ isHydrating }),
+    onNuxtReady: (callback: () => void) => ready.push(callback),
     useFetch,
     createError: (error: object) => Object.assign(new Error("Page not found"), error),
     useHead: vi.fn(),
     useDocsSeo,
+    setPageLayout,
   })
   const component = { ...exports.default, render: () => null }
-  return { useFetch, useDocsSeo, render: () => renderToString(vue.createSSRApp(component)) }
+  return { useFetch, useDocsSeo, setPageLayout, ready, render: () => renderToString(vue.createSSRApp(component)) }
 }
 
 const editedKv: DocsContentDocument = {
@@ -162,6 +167,31 @@ describe("page route with Content drafts", () => {
     expect(useFetch).toHaveBeenCalledWith("/portal/api/_docs/page/docs/kv/new-page.json", { key: "docs:/docs/kv/new-page" })
     expect(get).toHaveBeenCalledWith("docs/kv/new-page")
     expect(useDocsSeo).toHaveBeenCalledWith(expect.objectContaining({ title: "New page" }))
+  })
+
+  it.each([
+    { path: "/docs/kv", id: "docs/kv/index", layout: "home", initial: "docs", expected: "default" },
+    { path: "/docs/kv", id: "docs/kv/index", layout: "article", initial: "default", expected: "docs" },
+    { path: "/docs/kv/new-page", id: "docs/kv/new-page", layout: "home", initial: "docs", expected: "default" },
+  ])("updates the $initial shell for the previewed $layout page at $path", async ({ path, id, layout, initial, expected }) => {
+    state.active = true
+    state.drafts.set(id, { id, url: path, data: { title: "Draft page", layout }, body: "Draft content.\n" })
+    const { setPageLayout, render } = await navigate(path, initial)
+
+    await render()
+    expect(setPageLayout).toHaveBeenCalledWith(expected)
+  })
+
+  it("waits for hydration before switching the preview shell", async () => {
+    state.active = true
+    state.drafts.set(editedKv.id, { ...editedKv, data: { title: "Home draft", layout: "home" } })
+    const { setPageLayout, ready, render } = await navigate("/docs/kv", "docs", true)
+
+    await render()
+    expect(setPageLayout).not.toHaveBeenCalled()
+    expect(ready).toHaveLength(1)
+    ready[0]!()
+    expect(setPageLayout).toHaveBeenCalledWith("default")
   })
 
   it("returns a fatal 404 after requesting a missing page during client navigation", async () => {
