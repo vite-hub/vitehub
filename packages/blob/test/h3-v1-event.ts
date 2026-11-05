@@ -20,7 +20,7 @@ export async function h3V1Event(request: Request, params?: Record<string, string
   }
   // SAFETY: The object has the fields of an H3 1 event that Standard Context reads; getStandardContext() sets `~standard`.
   return {
-    context: { ...(params ? { params } : {}) },
+    context: params ? { params } : {},
     node: {
       req: nodeRequest,
       res: {
