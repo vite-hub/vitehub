@@ -142,20 +142,26 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
       await blob.del(key, auth(options))
     },
     async download(key: string): Promise<Blob | undefined> {
-      const readKey = access === "public"
-        ? `${key}?vitehubCacheBust=${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-        : key
-      const result = await blob.get(readKey, {
-        access,
-        headers: { "cache-control": "no-cache, no-store" },
-        useCache: false,
-        ...auth(options),
-      })
-      if (!result) return undefined
-      if (result.statusCode !== 200) throw workspaceErrorDiagnostics.WORKSPACE_R0033({ message: `Unexpected Vercel Blob response: ${result.statusCode}.` })
-      return await new Response(result.stream, {
-        headers: result.blob.contentType ? { "content-type": result.blob.contentType } : undefined,
-      }).blob()
+      try {
+        const readKey = access === "public"
+          ? `${key}?vitehubCacheBust=${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+          : key
+        const result = await blob.get(readKey, {
+          access,
+          headers: { "cache-control": "no-cache, no-store" },
+          useCache: false,
+          ...auth(options),
+        })
+        if (!result) return undefined
+        if (result.statusCode !== 200) throw workspaceErrorDiagnostics.WORKSPACE_R0033({ message: `Unexpected Vercel Blob response: ${result.statusCode}.` })
+        return await new Response(result.stream, {
+          headers: result.blob.contentType ? { "content-type": result.blob.contentType } : undefined,
+        }).blob()
+      }
+      catch (error) {
+        if (isNotFoundError(error)) return undefined
+        throw error
+      }
     },
     async head(key: string): Promise<BlobListItem | undefined> {
       const result = await blob.head(key, auth(options)).catch((error: unknown) => {
@@ -247,16 +253,10 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     const normalized = normalizeSafeWorkspacePath(path)
     const pathname = this.#fileKey(normalized)
     let attributesPath = this.#fileAttributesKey(normalized)
-    let file = await (await this.#client()).download(pathname).catch((error: unknown) => {
-      if (isNotFoundError(error)) return undefined
-      throw error
-    })
+    let file = await (await this.#client()).download(pathname)
     if (!file && this.#legacyRoot !== this.#root) {
       attributesPath = this.#legacyFileAttributesKey(normalized)
-      file = await (await this.#client()).download(this.#legacyFileKey(normalized)).catch((error: unknown) => {
-        if (isNotFoundError(error)) return undefined
-        throw error
-      })
+      file = await (await this.#client()).download(this.#legacyFileKey(normalized))
     }
     if (!file) return undefined
     const bytes = await file.arrayBuffer()
@@ -280,12 +280,8 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
       const client = await this.#client()
       const fileKey = this.#fileKey(normalized)
       const attributesKey = this.#fileAttributesKey(normalized)
-      const download = (key: string) => client.download(key).catch((error: unknown) => {
-        if (isNotFoundError(error)) return undefined
-        throw error
-      })
       // Preserve the current root exactly; removing a failed new write exposes any legacy file again.
-      const [previousFile, previousAttributes] = await Promise.all([download(fileKey), download(attributesKey)])
+      const [previousFile, previousAttributes] = await Promise.all([client.download(fileKey), client.download(attributesKey)])
       await client.upload(fileKey, new Blob([contentToBytes(file.content) as any]), {
         contentType: contentType(normalized, file.mediaType),
       })
@@ -511,8 +507,8 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   }
 
   async #readJson(pathname: string, fallback?: string): Promise<unknown> {
-    let file = await (await this.#client()).download(pathname).catch((error: unknown) => { if (isNotFoundError(error)) return undefined; throw error })
-    if (!file && fallback) file = await (await this.#client()).download(fallback).catch((error: unknown) => { if (isNotFoundError(error)) return undefined; throw error })
+    let file = await (await this.#client()).download(pathname)
+    if (!file && fallback) file = await (await this.#client()).download(fallback)
     return file ? JSON.parse(await file.text()) : undefined
   }
 }
