@@ -628,7 +628,7 @@ The rule reports property reads and object destructuring that use a name that is
 
 In a folder Workflow, each numbered file is a step. ViteHub removes the number prefix and converts the rest to camelCase: `01.send-email.ts` becomes `steps.sendEmail`. The rule reports `steps.<name>` in `index.ts` that matches no step file, and step files that become the same property or an empty one. A folder Workflow without `index.ts` gets the step file reports on each step file. TypeScript also reports an unknown step through `.vitehub/workflow.d.ts`; the rule covers JavaScript files and runs without a type check.
 
-```ts [server/workflows/onboard-user/index.ts]
+```ts [server/workflows/onboard-user/index.ts] fragment
 import { defineWorkflow } from 'vite-hub/workflow'
 
 // The folder has 01.create-user.ts and 02.send-welcome.ts.

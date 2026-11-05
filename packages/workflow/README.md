@@ -73,6 +73,13 @@ export default async function createUser(input: { email: string }) {
 }
 ```
 
+```ts
+// server/workflows/onboard-user/02.send-welcome.ts
+export default async function sendWelcome(user: { id: string, email: string }) {
+  return { userId: user.id, welcomeSent: true };
+}
+```
+
 The Vite Integration writes `.vitehub/workflow.d.ts`. It declares the step files of each folder Workflow, so each step takes the input type of its file and returns its result type. A call to a step that has no file is a type error. Include `.vitehub/workflow.d.ts` in your TypeScript project; `vite-hub` includes it through `.vitehub/types.d.ts`.
 
 ## Configure the provider

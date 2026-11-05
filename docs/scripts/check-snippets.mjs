@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto"
 import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
 import { dirname, join, relative, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import ts from "typescript"
 
 export const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
@@ -54,7 +54,8 @@ export function extractBlocks(markdown) {
       end++
     }
     if (fenceLanguages.has(language)) {
-      const label = /\[(.+)\]/.exec(info)?.[1]
+      // READMEs name the file in a first-line comment, such as `// server/workflows/onboard-user/index.ts`.
+      const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:m?ts|tsx))$/.exec(body[0] ?? "")?.[1]
       const meta = info.replace(/\[.+\]/, "").split(/\s+/).filter(Boolean)
       blocks.push({ code: body.join("\n"), end: end + 1, fragment: meta.includes(fragmentMarker), indent, label, language, line: index + 1 })
     }
@@ -131,16 +132,38 @@ export function collectSnippets(sources = snippetSources()) {
       let name = block.label && /\.(m?ts|tsx)$/.test(block.label) ? block.label.replace(/^\/+/, "") : `block-${index}${extension}`
       if (used.has(name)) name = `${index}/${name}`
       used.add(name)
-      snippets.push({ ...block, file: join(source.root, ".snippets", page.replaceAll("/", "__"), name), page })
+      const pageRoot = join(source.root, ".snippets", page.replaceAll("/", "__"))
+      snippets.push({ ...block, file: join(pageRoot, name), page, pageRoot })
     })
   }
   return snippets
 }
 
+const workflowStepFile = /(?:^|\/)workflows\/(.+)\/(\d+[.-]?[^/]*\.m?ts)$/
+
+/**
+ * The declarations that ViteHub writes to `.vitehub/` for the files of one page: the step types of each
+ * folder Workflow whose numbered step files the page shows.
+ */
+export async function generatedDeclarations(pageSnippets) {
+  const workflows = new Map()
+  for (const snippet of pageSnippets) {
+    const match = workflowStepFile.exec(snippet.label ?? "")
+    if (!match || snippet.fragment) continue
+    const definition = workflows.get(match[1]) ?? { handler: snippet.file.slice(0, -match[2].length - 1), name: match[1], steps: [] }
+    definition.steps.push(snippet.file)
+    workflows.set(match[1], definition)
+  }
+  if (!workflows.size) return []
+  const { createWorkflowTypes } = await import(pathToFileURL(join(packagesRoot, "workflow/dist/vite.js")).href)
+  const file = join(pageSnippets[0].pageRoot, ".vitehub/workflow.d.ts")
+  return [{ code: createWorkflowTypes(file, [...workflows.values()], "@vite-hub/workflow"), file }]
+}
+
 /** Type-checks the snippets and returns the diagnostics of each one that fails. */
-export function checkSnippets(snippets) {
+export function checkSnippets(snippets, declarations = [], oldProgram = undefined) {
   const virtualFiles = new Map([
-    ...appDeclarations.map(declaration => [declaration.file, declaration.code]),
+    ...[...appDeclarations, ...declarations].map(declaration => [declaration.file, declaration.code]),
     ...snippets.map(snippet => [snippet.file, withAppGlobals(snippet)]),
   ])
   const virtualDirectories = new Set()
@@ -185,7 +208,7 @@ export function checkSnippets(snippets) {
     return resolved
   })
 
-  const program = ts.createProgram([...ambientFiles, ...virtualFiles.keys()], options, host)
+  const program = ts.createProgram([...ambientFiles, ...virtualFiles.keys()], options, host, oldProgram)
   const failures = []
   for (const snippet of snippets) {
     if (snippet.fragment) continue
@@ -226,7 +249,20 @@ function readBaseline() {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const snippets = collectSnippets()
-  const { failures } = checkSnippets(snippets)
+  // A page with generated declarations, such as Workflow step types, gets its own program, because two pages
+  // can define the same Workflow name. The other pages share one program.
+  const shared = []
+  const separate = []
+  for (const pageSnippets of Map.groupBy(snippets, snippet => snippet.page).values()) {
+    const declarations = await generatedDeclarations(pageSnippets)
+    if (declarations.length) separate.push({ declarations, pageSnippets })
+    else shared.push(...pageSnippets)
+  }
+  const sharedCheck = checkSnippets(shared)
+  const failures = [
+    ...sharedCheck.failures,
+    ...separate.flatMap(({ declarations, pageSnippets }) => checkSnippets(pageSnippets, declarations, sharedCheck.program).failures),
+  ]
   const baseline = readBaseline()
   if (process.argv.includes("--update-baseline")) {
     const entries = failures.map(({ snippet, diagnostics }) => {
