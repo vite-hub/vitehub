@@ -3031,6 +3031,22 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('[data-invocation-id="failed"] .vh-invocation-list__state').text()).toBe("Failed");
   });
 
+  it("puts the state on the title line when a row has no project", () => {
+    const wrapper = mount(AgentInvocationList, {
+      props: {
+        items: [
+          { id: "plain", status: "pending", title: "Plain" },
+          { id: "project", project: "vitehub", status: "pending", title: "With project" },
+        ],
+      },
+    });
+
+    expect(wrapper.find('[data-invocation-id="plain"] .vh-invocation-list__context').exists()).toBe(false);
+    expect(wrapper.get('[data-invocation-id="plain"] .vh-invocation-list__headline').text()).toBe("PlainQueued");
+    expect(wrapper.get('[data-invocation-id="project"] .vh-invocation-list__context').text()).toBe("vitehubQueued");
+    expect(wrapper.find('[data-invocation-id="project"] .vh-invocation-list__headline').exists()).toBe(false);
+  });
+
   it("renders mixed statuses without group disclosures", () => {
     const wrapper = mount(AgentInvocationList, {
       props: {
