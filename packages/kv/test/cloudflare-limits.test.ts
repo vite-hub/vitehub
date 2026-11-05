@@ -27,6 +27,7 @@ describe("Cloudflare KV limits", () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     delete process.env.VITEHUB_HOSTING
   })
 
@@ -94,6 +95,42 @@ describe("Cloudflare KV limits", () => {
     // The `ttl` option is raised to 60 seconds before the provider call, as before.
     expect((await kv.set("ttl", "value", { ttl: 30 }))[0]).toBeUndefined()
     expect((await kv.set("ttl", "value", { expirationTtl: 60 }))[0]).toBeUndefined()
+  })
+
+  it.each([-1, 0, 59])("returns KV_TTL_TOO_SHORT for an expiration %i seconds from now before the provider call", async (seconds) => {
+    const now = 1_800_000_000
+    vi.spyOn(Date, "now").mockReturnValue(now * 1000 + 500)
+    const kv = await cloudflareKV()
+
+    const [error] = await kv.set("expiration", "value", { expiration: now + seconds })
+    expect(error).toMatchObject({
+      code: "KV_TTL_TOO_SHORT",
+      why: `\`expiration\` is ${seconds} seconds from now. Cloudflare KV needs at least 60 seconds.`,
+    })
+    expect(puts).toEqual([])
+  })
+
+  it.each([60, 61])("passes an expiration %i seconds from now unchanged to the provider", async (seconds) => {
+    const now = 1_800_000_000
+    vi.spyOn(Date, "now").mockReturnValue(now * 1000 + 500)
+    const kv = await cloudflareKV()
+    const options = { expiration: now + seconds }
+
+    expect((await kv.set("expiration", "value", options))[0]).toBeUndefined()
+    expect(puts).toEqual([{ key: "expiration", options }])
+  })
+
+  it("keeps relative expiration precedence over a short absolute expiration", async () => {
+    const now = 1_800_000_000
+    vi.spyOn(Date, "now").mockReturnValue(now * 1000)
+    const kv = await cloudflareKV()
+
+    for (const relative of [{ expirationTtl: 60 }, { ttl: 30 }]) {
+      const options = { expiration: now + 1, ...relative }
+      expect((await kv.set("expiration", "value", options))[0]).toBeUndefined()
+      expect(puts.at(-1)).toEqual({ key: "expiration", options })
+    }
+    expect(puts).toHaveLength(2)
   })
 
   it("keeps local stores without a host unchanged", async () => {

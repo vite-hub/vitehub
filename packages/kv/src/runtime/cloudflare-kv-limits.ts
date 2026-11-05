@@ -1,7 +1,7 @@
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 
 // Cloudflare documents these limits at https://developers.cloudflare.com/kv/platform/limits/
-// and the minimum `expirationTtl` at https://developers.cloudflare.com/kv/api/write-key-value-pairs/.
+// and the minimum expiration at https://developers.cloudflare.com/kv/api/write-key-value-pairs/.
 const cloudflareKVLimits = {
   keyBytes: 512,
   metadataBytes: 1024,
@@ -37,5 +37,16 @@ export function assertCloudflareKVWrite(key: string, value: unknown, options: un
   const expirationTtl: unknown = Reflect.get(options, "expirationTtl")
   if (typeof expirationTtl === "number" && expirationTtl < cloudflareKVLimits.minExpirationTtl) {
     throw kvErrorDiagnostics.KV_TTL_TOO_SHORT({ minimum: cloudflareKVLimits.minExpirationTtl, ttl: expirationTtl })
+  }
+  // unstorage derives expirationTtl from a truthy `ttl` unless expirationTtl is explicitly supplied.
+  // Cloudflare gives the relative expiration precedence over an absolute expiration.
+  const ttl: unknown = Reflect.get(options, "ttl")
+  const hasRelativeExpiration = expirationTtl !== undefined || (!Object.hasOwn(options, "expirationTtl") && Boolean(ttl))
+  const expiration: unknown = Reflect.get(options, "expiration")
+  if (!hasRelativeExpiration && typeof expiration === "number") {
+    const remainingTtl = expiration - Math.floor(Date.now() / 1000)
+    if (remainingTtl < cloudflareKVLimits.minExpirationTtl) {
+      throw kvErrorDiagnostics.KV_TTL_TOO_SHORT({ minimum: cloudflareKVLimits.minExpirationTtl, option: "expiration", ttl: remainingTtl })
+    }
   }
 }

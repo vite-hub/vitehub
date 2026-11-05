@@ -51,8 +51,9 @@ A store with the `cloudflare-kv-binding` driver checks the [Workers KV limits](h
 | Value size, after ViteHub serializes the value | 25 MiB | `KV_VALUE_TOO_LARGE` |
 | `metadata` size, as JSON | 1024 bytes | `KV_METADATA_TOO_LARGE` |
 | `expirationTtl` | At least 60 seconds | `KV_TTL_TOO_SHORT` |
+| `expiration`, as Unix time in seconds | At least 60 seconds in the future | `KV_TTL_TOO_SHORT` |
 
-The `ttl` option of `kv.set()` does not fail, because ViteHub raises a `ttl` below 60 seconds to 60 seconds on Cloudflare KV. Only an `expirationTtl` that you pass to the binding returns `KV_TTL_TOO_SHORT`.
+The `ttl` option of `kv.set()` does not fail, because ViteHub raises a `ttl` below 60 seconds to 60 seconds on Cloudflare KV. An `expirationTtl` below 60 seconds or an `expiration` less than 60 seconds in the future returns `KV_TTL_TOO_SHORT`. A relative expiration takes precedence over `expiration`, as it does on Cloudflare.
 
 `fs-lite`, `deno-kv`, and `upstash` stores do not check these limits. Upstash [limits the request size](https://upstash.com/docs/redis/troubleshooting/max_request_size_exceeded) to 10 MB on its Free and Pay as you go plans, and other plans have other limits. ViteHub does not know the plan of your database, so it does not check this limit. A request above it fails with `KV_OPERATION_FAILED`.
 
@@ -86,7 +87,7 @@ An invalid key returns this code too, before ViteHub calls the provider: an empt
 
 ### KV_TTL_TOO_SHORT
 
-The `expirationTtl` option of `kv.set()` is less than 60 seconds, the Cloudflare KV minimum. Pass 60 or more. The `ttl` option does not return this code, because ViteHub raises it to 60 seconds.
+The `expirationTtl` option of `kv.set()` is less than 60 seconds, or its `expiration` is less than 60 seconds in the future, the Cloudflare KV minimum. Pass an `expirationTtl` of 60 or more, or an `expiration` Unix timestamp at least 60 seconds in the future. The `ttl` option does not return this code, because ViteHub raises it to 60 seconds.
 
 ### KV_UNSUPPORTED_OPERATION
 

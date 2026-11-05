@@ -37,8 +37,10 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       fix: "Keep only small fields in `metadata`, and put the other data in the value.",
     },
     KV_TTL_TOO_SHORT: {
-      why: ({ minimum, ttl }: { minimum: number, ttl: number }) => `\`expirationTtl\` is ${ttl} seconds. Cloudflare KV needs at least ${minimum} seconds.`,
-      fix: "Pass `expirationTtl: 60` or more, or pass `ttl`, which ViteHub raises to 60 seconds on Cloudflare KV.",
+      why: ({ minimum, option = "expirationTtl", ttl }: { minimum: number, option?: "expiration" | "expirationTtl", ttl: number }) => option === "expiration"
+        ? `\`expiration\` is ${ttl} seconds from now. Cloudflare KV needs at least ${minimum} seconds.`
+        : `\`expirationTtl\` is ${ttl} seconds. Cloudflare KV needs at least ${minimum} seconds.`,
+      fix: "Pass `expirationTtl: 60` or more, an `expiration` at least 60 seconds in the future, or `ttl`, which ViteHub raises to 60 seconds on Cloudflare KV.",
     },
     KV_VALUE_TOO_LARGE: {
       why: ({ bytes, limit }: { bytes: number, limit: number }) => `The value is ${bytes} bytes. Cloudflare KV accepts values of at most ${limit} bytes (25 MiB).`,
