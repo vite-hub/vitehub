@@ -72,6 +72,20 @@ navigation.order: 4
 ---
 ```
 
+### Taglines, credits, and keywords
+
+```md [content/docs/icons/index.md]
+---
+title: Icons
+description: Icon components for Lumen pages.
+tagline: Every Lucide icon as a Markdown block.
+credits: Icons from [Lucide](https://lucide.dev).
+keywords: glyph, symbol, svg
+---
+```
+
+`tagline` replaces `description` under the heading, and `description` stays the meta description and the llms.txt entry. `credits` is one line of inline Markdown at the end of the page. `keywords` find the page in search when a reader types a word that the page does not contain. A keyword match ranks like a heading, below the page title.
+
 ## Layouts
 
 Set `layout` in the frontmatter:
@@ -231,6 +245,7 @@ const { github } = useDocsConfig()
 | `DocsMarkdown`, `DocsCodePre` | The rendered Markdown and its code blocks. |
 | `DocsCodePanel` | The tutorial code panel. |
 | `DocsPageHeaderLinks` | Copy page, View as Markdown, Open in ChatGPT or Claude, and the MCP links. |
+| `DocsPageCredits` | The `credits` line at the end of a page. |
 | `DocsCatalogFooter` | The catalog at the end of an Overview. |
 
 The app can also replace `app.vue`, `error.vue`, the `docs` and `default` layouts, and the catch-all page. The module adds its own only when the app has none. A catch-all page replaces the docs page only when it answers every docs page, such as `pages/[...slug].vue`. A catch-all in another folder, such as `pages/blog/[...slug].vue`, does not.

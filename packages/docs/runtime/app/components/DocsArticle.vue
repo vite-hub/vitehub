@@ -55,7 +55,7 @@ const mobileTocUi = {
 <template>
   <article class="vh-docs-article" :class="{ 'has-code-panel': hasCodePanel }" :data-path="page.path">
     <UPage :ui="pageUi">
-      <UPageHeader :title="page.sourceTitle" :description="page.description ?? undefined" :ui="headerUi">
+      <UPageHeader :title="page.sourceTitle" :description="page.tagline ?? undefined" :ui="headerUi">
         <template #links>
           <DocsPageHeaderLinks />
         </template>
@@ -78,6 +78,7 @@ const mobileTocUi = {
       >
         <!-- Articles show code with its file name bar, which the tutorial code panel reads. -->
         <DocsMarkdown :document="response.document" :components="{ pre: DocsCodePre }" />
+        <DocsPageCredits v-if="response.credits" :credits="response.credits" class="not-prose mt-10" />
       </UPageBody>
 
       <!-- Every page ends with the full product list, in the content column. -->
