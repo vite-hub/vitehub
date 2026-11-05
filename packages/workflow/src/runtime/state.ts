@@ -2,6 +2,9 @@ import { AsyncLocalStorage } from "node:async_hooks"
 
 import type { ResolvedWorkflowOptions, WorkflowDefinition, WorkflowDefinitionRegistry } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
+import { resetWorkflowDevRuns } from "./dev-runs.ts"
+
+export { enableWorkflowDevRuns } from "./dev-runs.ts"
 
 const RUNS_LIMIT = 1024
 const RUNS_TTL_MS = 5 * 60 * 1000
@@ -349,4 +352,5 @@ export function resetWorkflowRuntime(): void {
   inFlightRuns.clear()
   fallbackRunKeys.clear()
   completedRuns.clear()
+  resetWorkflowDevRuns()
 }

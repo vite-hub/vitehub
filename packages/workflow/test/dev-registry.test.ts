@@ -62,6 +62,13 @@ describe("Workflow dev registry", () => {
     expect(code).toContain(`import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "vite-hub/_internal/workflow/runtime/state"`)
     expect(code).toContain(`import registry from "./dev-registry.mjs"`)
     expect(code).toContain("setWorkflowRuntimeRegistry(registry)")
+    expect(code).not.toContain("enableWorkflowDevRuns")
+  })
+
+  it("turns on the run history only in `vite dev`", () => {
+    const code = createWorkflowDevPluginModule({ provider: "vercel" }, "vite-hub/_internal/workflow", true)
+    expect(code).toContain(`import { enableWorkflowDevRuns, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from "vite-hub/_internal/workflow/runtime/state"`)
+    expect(code).toContain("  enableWorkflowDevRuns()\n")
   })
 
   it.each<ResolvedWorkflowOptions>([
@@ -83,7 +90,8 @@ describe("Workflow dev registry", () => {
     await writeFile(join(nitroDir, "index.mjs"), "export const definePlugin = setup => setup\n")
     await writeFile(join(stateDir, "package.json"), JSON.stringify({ type: "module", exports: { "./runtime/state": "./state.mjs" } }))
     await writeFile(join(stateDir, "state.mjs"), [
-      "export let config, registry",
+      "export let config, devRuns, registry",
+      "export const enableWorkflowDevRuns = () => { devRuns = true }",
       "export const setWorkflowRuntimeConfig = value => { config = value }",
       "export const setWorkflowRuntimeRegistry = value => { registry = value }",
     ].join("\n"))
@@ -94,6 +102,7 @@ describe("Workflow dev registry", () => {
     const state = await import(/* @vite-ignore */ stateUrl)
     expect(state.config).toEqual(workflow)
     expect(state.registry).toHaveProperty("welcome")
+    expect(state.devRuns).toBe(true)
   })
 
   it("uses the config hook override when resolving runtime options", async () => {
@@ -167,7 +176,7 @@ describe("Workflow dev registry", () => {
     await writeFile(join(nitroDir, "package.json"), JSON.stringify({ type: "module", exports: "./index.mjs" }))
     await writeFile(join(nitroDir, "index.mjs"), "export const definePlugin = setup => setup\n")
     await writeFile(join(stateDir, "package.json"), JSON.stringify({ type: "module", exports: { "./runtime/state": "./state.mjs" } }))
-    await writeFile(join(stateDir, "state.mjs"), "export let registry; export const setWorkflowRuntimeConfig = () => {}; export const setWorkflowRuntimeRegistry = value => { registry = value }\n")
+    await writeFile(join(stateDir, "state.mjs"), "export let registry; export const enableWorkflowDevRuns = () => {}; export const setWorkflowRuntimeConfig = () => {}; export const setWorkflowRuntimeRegistry = value => { registry = value }\n")
     const { default: startup } = await import(/* @vite-ignore */ pathToFileURL(startupPath).href)
     await startup()
     const state = await import(/* @vite-ignore */ pathToFileURL(join(stateDir, "state.mjs")).href)

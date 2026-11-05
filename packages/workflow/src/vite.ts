@@ -273,6 +273,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
   async function writeDevRegistry(rootDir: string, workflow: false | ResolvedWorkflowOptions | undefined) {
     return await writeWorkflowDevRegistryFiles({
       definitions: workflow ? discoverWorkflowDevDefinitions(rootDir, serverDirs) : [],
+      dev: !startupBuild,
       importBase: internalOptions.importBase,
       projectRoot: rootDir,
       pluginPath: devStartupPlugin,

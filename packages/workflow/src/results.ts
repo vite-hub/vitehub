@@ -24,6 +24,31 @@ export interface WorkflowRunResult {
   run: WorkflowRunView
 }
 
+/** One step of a run that `vite dev` recorded. */
+export interface WorkflowRunStepView {
+  completedAt?: string
+  error?: { code?: string, message: string, name?: string }
+  name: string
+  output?: unknown
+  startedAt: string
+  status: "completed" | "failed" | "running"
+}
+
+/** A run that `vite dev` recorded, with its steps. */
+export interface WorkflowRunDetailView extends WorkflowRunView {
+  steps: WorkflowRunStepView[]
+}
+
+/** Result of `workflow.runs-list`. The runs are newest first and have no steps. */
+export interface WorkflowRunsListResult {
+  runs: Array<WorkflowRunView & { stepCount: number }>
+}
+
+/** Result of `workflow.runs-show`. */
+export interface WorkflowRunsShowResult {
+  run: WorkflowRunDetailView
+}
+
 export interface WorkflowSignalResult {
   signal: WorkflowSignalView
 }

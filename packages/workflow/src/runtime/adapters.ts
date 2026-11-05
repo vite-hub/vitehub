@@ -6,6 +6,7 @@ import { createWorkflowError } from "../errors.ts"
 import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
+import { createWorkflowDevRun, runWorkflowDevRun } from "./dev-runs.ts"
 import { runSerializedWorkflowHandler } from "./execute.ts"
 import { cancelOpenWorkflowRun, getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
@@ -251,14 +252,15 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         }
       }
       resolveDispatchObserver(event)?.()
+      const devRun = createWorkflowDevRun(name, id, config.provider)
       const run = Promise.resolve()
-        .then(() => runSerializedWorkflowHandler({
+        .then(() => runWorkflowDevRun(devRun, () => runSerializedWorkflowHandler({
           id,
           name,
           payload,
           provider: config.provider,
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
-        }, definition as never))
+        }, definition as never)))
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
         .then(result => ({ result, status: "completed" as const }))
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
