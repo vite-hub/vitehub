@@ -63,6 +63,7 @@ const orgName = computed(
   () => selectedOrg.value?.name ?? organizations.value.find((org) => org.id === selectedOrgId.value)?.name,
 );
 const orgOffset = ref(0);
+const orgRequestedOffset = ref(0);
 const orgLoading = ref(false);
 const loading = ref(false);
 const error = shallowRef<unknown>();
@@ -209,6 +210,7 @@ async function openOrganization(id: string, offset = 0) {
   orgController?.abort();
   const current = new AbortController();
   orgController = current;
+  orgRequestedOffset.value = offset;
   if (selectedOrg.value?.id !== id) selectedOrg.value = undefined;
   orgError.value = undefined;
   orgLoading.value = true;
@@ -227,6 +229,9 @@ async function openOrganization(id: string, offset = 0) {
   } finally {
     if (!current.signal.aborted) orgLoading.value = false;
   }
+}
+async function retryOrganization() {
+  if (selectedOrgId.value) await openOrganization(selectedOrgId.value, orgRequestedOffset.value);
 }
 rememberConsoleSection("auth");
 void refresh();
@@ -588,7 +593,7 @@ onBeforeUnmount(() => {
           v-if="orgError"
           :error="orgError"
           title="Could not load organization"
-          :retry="() => selectedOrgId && openOrganization(selectedOrgId, orgOffset)"
+          :retry="retryOrganization"
         /><p v-else-if="orgLoading && !selectedOrg" role="status" class="text-sm text-muted">
           Loading organization…
         </p><template v-if="selectedOrg"

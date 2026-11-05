@@ -34,9 +34,9 @@ describe("Auth Console editing", () => {
   })
 
   it("opens the organization drawer before its data loads and opens a member's user drawer", async () => {
-    const pending: Array<(value: unknown) => void> = []
+    const pending: Array<{ resolve: (value: unknown) => void; reject: (error: Error) => void }> = []
     mocks.read.mockReset().mockImplementation((_base, operation) => operation === "organization"
-      ? new Promise(resolve => pending.push(resolve))
+      ? new Promise((resolve, reject) => pending.push({ resolve, reject }))
       : Promise.resolve({ storage: { enabled: false } }))
     const router = createRouter({ history: createMemoryHistory(), routes: [{ path: "/", component: {} }] })
     await router.push("/")
@@ -45,7 +45,7 @@ describe("Auth Console editing", () => {
     app.provide(ssrContextKey, {})
     const instance = app.mount({})
     const state = (instance.$ as unknown as { setupState: {
-      openOrganization: (id: string, offset?: number) => Promise<void>; closeOrganization: () => void;
+      openOrganization: (id: string, offset?: number) => Promise<void>; closeOrganization: () => void; retryOrganization: () => Promise<void>; orgOffset: number;
       selectedOrgId?: string; orgLoading: boolean; selectedOrg?: { id: string }; selectedUser?: string;
     } }).setupState
     try {
@@ -54,7 +54,7 @@ describe("Auth Console editing", () => {
       expect(state.selectedOrgId).toBe("org")
       expect(state.orgLoading).toBe(true)
       expect(state.selectedOrg).toBeUndefined()
-      pending[0]!({ id: "org" })
+      pending[0]!.resolve({ id: "org" })
       await new Promise(resolve => setTimeout(resolve))
       expect(state.orgLoading).toBe(false)
       expect(state.selectedOrg?.id).toBe("org")
@@ -63,6 +63,15 @@ describe("Auth Console editing", () => {
       await new Promise(resolve => setTimeout(resolve))
       expect(router.currentRoute.value.query.user).toBe("user-1")
       expect(state.selectedOrgId).toBe("org")
+      const nextPage = state.openOrganization("org", 25)
+      pending[1]!.reject(new Error("network"))
+      await nextPage
+      expect(state.orgOffset).toBe(0)
+      const retry = state.retryOrganization()
+      expect(mocks.read).toHaveBeenLastCalledWith("/manage", "organization", { id: "org", query: { offset: 25, limit: 25 } }, expect.any(AbortSignal))
+      pending[2]!.resolve({ id: "org" })
+      await retry
+      expect(state.orgOffset).toBe(25)
       state.closeOrganization()
       await new Promise(resolve => setTimeout(resolve))
       expect(state.selectedOrgId).toBeUndefined()
