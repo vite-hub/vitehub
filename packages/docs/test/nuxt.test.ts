@@ -156,7 +156,9 @@ describe("docs Nuxt setup", () => {
     writeFileSync(join(content, "docs/guide/current.md"), "---\ntitle: Current\n---\n[Next](./next)")
     const options = await setupDocs({ dir: content, site: { url: "https://docs.example.com" } }, "/portal/")
     for (const hook of hooks.get("build:before") ?? []) await hook()
-    expect(readFileSync(join(options.buildDir, "docs/raw/docs/guide/current.md"), "utf8")).toContain("[Next](https://docs.example.com/portal/docs/guide/next)")
+    const raw = readFileSync(join(options.buildDir, "docs/raw/docs/guide/current.md"), "utf8")
+    expect(raw).toContain("[Next](https://docs.example.com/portal/docs/guide/next)")
+    expect(raw.endsWith("\n\nAll pages: [llms.txt](https://docs.example.com/portal/llms.txt)\n")).toBe(true)
   })
 
   it("keeps manifest and Nitro resources app-relative and advertises public URLs below the app base", async () => {

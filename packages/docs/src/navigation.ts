@@ -180,6 +180,35 @@ export function docsRawFile(path: string): string {
   return docsRawPath(path).slice("/raw/".length)
 }
 
+/**
+ * The end of a page's raw Markdown copy: the pages of its section in sidebar order, the next page, and the llms.txt
+ * index. An agent that reads one page finds the pages beside it without loading the index of the whole site. A sidebar
+ * group other than the page's own shows as one link to its first page, so a large section stays short.
+ * `siteUrl` is the public origin with the app base, such as `https://docs.example.com/portal`.
+ */
+export function docsRawSectionLinks(manifest: DocsManifest, path: string, siteUrl: string): string {
+  const found = findDocsPage(manifest, path)
+  const section = found?.section
+  const pages = section?.pages.filter(page => page.navigation) ?? []
+  const index = pages.findIndex(page => page.path === found?.page.path)
+  const url = (page: DocsPage) => `${siteUrl}${docsRawPath(page.path)}`
+  const item = (page: DocsPage) => `[${page.title}](${url(page)})${page === pages[index] ? " (this page)" : ""}`
+  const blocks: string[] = []
+  // A section of one page has nothing beside it.
+  if (section && pages.length > 1) {
+    const lines = docsSidebarGroups(section).flatMap(({ label, pages: grouped }) => {
+      if (label === null) return grouped.map(page => `- ${item(page)}`)
+      if (!grouped.includes(pages[index]!)) return [`- [${label}](${url(grouped[0]!)})`]
+      return [`- ${label}`, ...grouped.map(page => `  - ${item(page)}`)]
+    })
+    blocks.push("## In this section", lines.join("\n"))
+    const next = index >= 0 ? pages[index + 1] : undefined
+    if (next) blocks.push(`Next: [${next.title}](${url(next)})`)
+  }
+  blocks.push(`All pages: [llms.txt](${siteUrl}/llms.txt)`)
+  return `\n${blocks.join("\n\n")}\n`
+}
+
 /** Cookie that keeps the navigation open beside code panel tutorials. A host that serves prerendered HTML reads it. */
 export const docsTutorialNavigationCookie = "vh-tutorial-navigation"
 

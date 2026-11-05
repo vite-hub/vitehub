@@ -2,7 +2,7 @@ import { useRuntimeConfig, useStorage } from "#imports"
 
 import type { H3Event } from "h3"
 import manifest from "#docs/manifest"
-import { docsAppPath, docsManifestPages, docsRawFile, findDocsPage, isDocsPath } from "../../navigation.ts"
+import { docsAppPath, docsManifestPages, docsRawFile, docsRawSectionLinks, findDocsPage, isDocsPath } from "../../navigation.ts"
 
 import type { DocsPublicConfig } from "../../nuxt.ts"
 
@@ -20,7 +20,8 @@ interface AgentContentSource {
 
 /**
  * The pages that nuxt-agent-discovery lists in `sitemap.md` and `llms.txt` and joins into `llms-full.txt`. Each page
- * is its `/raw` copy, so every agent path reads the same text.
+ * is its `/raw` copy, so every agent path reads the same text. `llms-full.txt` already holds every page, so the copy
+ * leaves out the section links at the end.
  */
 const source: AgentContentSource = {
   list() {
@@ -36,13 +37,16 @@ const source: AgentContentSource = {
       .map(page => ({ ...page, route: docsAppPath(page.route, appBase) }))
   },
   async get(route, event) {
-    const { appBase } = useRuntimeConfig(event).public.docs as DocsPublicConfig
+    const { appBase, site } = useRuntimeConfig(event).public.docs as DocsPublicConfig
     const prefix = appBase.replace(/\/+$/, "")
     const path = prefix && (route === prefix || route.startsWith(`${prefix}/`)) ? route.slice(prefix.length) || "/" : route
     const found = findDocsPage(manifest, path)
     if (!found) return null
     const markdown = await useStorage("assets:docs-raw").getItem<string>(docsRawFile(found.page.path))
-    return markdown === null ? null : { markdown: String(markdown), title: found.page.sourceTitle, description: found.page.description ?? undefined }
+    if (markdown === null) return null
+    const links = docsRawSectionLinks(manifest, found.page.path, `${site.url}${prefix}`)
+    const text = String(markdown)
+    return { markdown: text.endsWith(links) ? text.slice(0, -links.length) : text, title: found.page.sourceTitle, description: found.page.description ?? undefined }
   },
 }
 

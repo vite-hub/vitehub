@@ -165,4 +165,12 @@ describe("docs resources below an application base", () => {
     expect(await source.get("/portal/docs/kv")).toMatchObject({ markdown: "# KV" })
     expect(getItem).toHaveBeenCalledWith("docs/kv.md")
   })
+
+  it("leaves the section links of the raw copy out of llms-full.txt", async () => {
+    const { docsRawSectionLinks } = await import("../src/navigation.ts")
+    const { default: manifest } = await import("#docs/manifest")
+    docsConfig.appBase = "/portal/"
+    getItem.mockResolvedValue(`# Configure\n${docsRawSectionLinks(manifest, "/docs/kv/configure", "https://docs.example.com/portal")}`)
+    expect(await source.get("/portal/docs/kv/configure")).toMatchObject({ markdown: "# Configure\n" })
+  })
 })
