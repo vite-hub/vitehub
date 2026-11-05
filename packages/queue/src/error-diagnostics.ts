@@ -27,7 +27,7 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ binding }: { binding?: string }) => binding
         ? `The Cloudflare queue binding "${binding}" is not in the Worker env.`
         : "The Cloudflare queue client has no binding.",
-      fix: "The dev server has no local Queue delivery. Run the built Worker with `wrangler dev`, or deploy it. In a deployed Worker, add the binding to the Worker configuration.",
+      fix: "Run the Worker that `vite build` writes, with `wrangler dev` or a deployment, so its configuration has the generated binding. A custom Worker configuration must keep that binding. `vite dev` runs Queue jobs in the dev server and needs no binding.",
     },
     QUEUE_DEFINITION_LOAD_FAILED: {
       why: ({ queue }: { queue?: string }) => queue ? `The Queue Definition "${queue}" failed to load.` : "A Queue Definition failed to load.",

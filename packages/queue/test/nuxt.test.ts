@@ -90,15 +90,20 @@ describe("Queue Nuxt integration", () => {
 
       const generatedPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
       const generatedMiddleware = await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")
-      expect(generatedPlugin).toContain("cloudflare:queue")
       expect(generatedMiddleware).toContain("enterQueueRuntimeEvent(event)")
       if (dev) {
+        // `nuxt dev` runs the jobs in the dev server with the Cloudflare rules. The Nitro config above still has the bindings.
+        expect(generatedPlugin).toContain("setQueueRuntimeConfig(queueConfig, createLocalQueueRuntimeClient)")
+        expect(generatedPlugin).toContain(`"base": ${JSON.stringify(join(root, ".vitehub/data/queue"))}`)
+        expect(generatedPlugin).toContain('"rules": "cloudflare"')
+        expect(generatedPlugin).not.toContain("cloudflare:queue")
         expect(`${generatedPlugin}\n${generatedMiddleware}`).not.toContain("cloudflare:workers")
         expect(generatedPlugin).not.toContain("setQueueRuntimeEventDefaults({")
-        expect(generatedMiddleware).toContain("runtimeEvent.node?.req?.runtime?.cloudflare?.env")
-        expect(generatedMiddleware).not.toContain("?? vitehubEnv")
+        expect(generatedMiddleware).not.toContain("cloudflare?.env")
       }
       else {
+        expect(generatedPlugin).toContain("cloudflare:queue")
+        expect(generatedPlugin).not.toContain("createLocalQueueRuntimeClient")
         expect(`${generatedPlugin}\n${generatedMiddleware}`).toContain("cloudflare:workers")
         expect(generatedPlugin).toContain("setQueueRuntimeEventDefaults({")
         expect(generatedMiddleware).toContain("Object.assign(event")
@@ -160,14 +165,15 @@ describe("Queue Nuxt integration", () => {
         file: addedDefinition,
         server: { config: { root: viteRoot } },
       })
-      await expect(readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).resolves.toContain('"added"')
+      // `vite dev` runs the jobs locally, so the registry, not the Cloudflare name map, lists the new Definitions.
+      await expect(readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")).resolves.toContain('"added"')
       const addedServerDefinition = join(root, "backend", "queues", "added-server.ts")
       await writeFile(addedServerDefinition, "export default {}\n")
       await (plugin.handleHotUpdate as (context: unknown) => Promise<void>)({
         file: addedServerDefinition,
         server: { config: { root: viteRoot } },
       })
-      await expect(readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")).resolves.toContain('"added-server"')
+      await expect(readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")).resolves.toContain('"added-server"')
     }
     finally {
       await nuxt.close()

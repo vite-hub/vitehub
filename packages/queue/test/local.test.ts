@@ -9,7 +9,7 @@ import { normalizeQueueOptions } from "../src/config.ts"
 import { queueErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { closeLocalQueues, startLocalQueue } from "../src/internal/runtime/local-client.ts"
 import { missingQueueDefinitionError, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
-import { createLocalQueueClient, createLocalQueueEngine, localQueueDeadLimit, localQueueMaxAttempts } from "../src/providers/local.ts"
+import { createLocalQueueClient, createLocalQueueEngine, localQueueDeadLimit, localQueueDeliveryRules, localQueueMaxAttempts } from "../src/providers/local.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
 import { createQueueClient } from "../src/runtime/create-client.ts"
 import { listQueues } from "../src/runtime/operations.ts"
@@ -482,5 +482,98 @@ describe("local queue review regressions", () => {
     await vi.waitFor(() => expect(handler).toHaveBeenLastCalledWith(expect.objectContaining({ attempts: 2 })))
     await vi.waitFor(async () => expect(await storedJobs()).toEqual([]))
     second.close()
+  })
+})
+
+describe("local queue delivery with hosted provider rules", () => {
+  const causeMessage = (error: { cause?: unknown } | undefined) => error?.cause instanceof Error ? error.cause.message : undefined
+
+  function rulesEngine(rules: "cloudflare" | "vercel", definitions: Record<string, QueueDefinition>, retryDelayMs?: () => number) {
+    return createLocalQueueEngine({
+      base,
+      load: async name => definitions[name],
+      missing: missingQueueDefinitionError,
+      ...(retryDelayMs ? { retryDelayMs } : {}),
+      rules: localQueueDeliveryRules[rules],
+    })
+  }
+
+  it("follows the Cloudflare defaults: 4 attempts, a retry at once, and a kept dead job", async () => {
+    const handler = vi.fn(async (_job: QueueJob) => { throw new Error("SMTP down") })
+    const engine = rulesEngine("cloudflare", { welcome: { handler } })
+
+    await engine.enqueue("welcome", [{ id: "job-1", payload: { email: "ada@example.com" } }])
+
+    // The local rules wait 1, 2, and 4 seconds. Cloudflare retries at once, so the job is dead well before that.
+    await vi.waitFor(async () => expect((await engine.status()).queues.welcome?.dead).toBe(1), { timeout: 500 })
+    expect(handler.mock.calls.map(([job]) => job.attempts)).toEqual([1, 2, 3, 4])
+    expect(await engine.job("job-1")).toMatchObject({ attempts: 4, payload: { email: "ada@example.com" }, state: "dead" })
+  })
+
+  it("rejects what Cloudflare rejects, with the Cloudflare provider in the error", async () => {
+    const client = createLocalQueueClient(rulesEngine("cloudflare", { welcome: { handler: async () => {} } }), "welcome")
+
+    const [unsupported] = await client.send({}, { idempotencyKey: "once" })
+    expect(unsupported).toMatchObject({ code: "QUEUE_UNSUPPORTED_OPTION", why: "The cloudflare queue provider does not support the enqueue option `idempotencyKey`." })
+    const [accepted] = await client.send({}, { contentType: "json" })
+    expect(accepted).toBeUndefined()
+
+    const [large] = await client.send({ text: "x".repeat(128 * 1024) })
+    expect(large).toMatchObject({ code: "QUEUE_PROVIDER_FAILED" })
+    expect(causeMessage(large)).toContain("payload of up to")
+    const [delayed] = await client.send({}, { delaySeconds: 24 * 60 * 60 + 1 })
+    expect(causeMessage(delayed)).toBe("Cloudflare accepts `delaySeconds` up to 86400, got 86401.")
+    const [batch] = await client.sendBatch(Array.from({ length: 101 }, () => ({ body: {} })))
+    expect(causeMessage(batch)).toBe("Cloudflare accepts up to 100 jobs in one `sendBatch()`, got 101.")
+    const [bytes] = await client.sendBatch([{ body: "x".repeat(100 * 1024) }, { body: "x".repeat(100 * 1024) }, { body: "x".repeat(100 * 1024) }])
+    expect(causeMessage(bytes)).toContain("bytes in one `sendBatch()`")
+  })
+
+  it("follows the Vercel defaults: a retry after 60 seconds and no attempt limit", async () => {
+    const handler = vi.fn(async (_job: QueueJob) => { throw new Error("SMTP down") })
+    const engine = rulesEngine("vercel", { welcome: { handler } })
+
+    const before = Date.now()
+    await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
+
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+    await vi.waitFor(async () => expect(Date.parse((await engine.jobs())[0]!.availableAt)).toBeGreaterThanOrEqual(before + 60_000))
+    expect((await engine.jobs())[0]).toMatchObject({ attempts: 1, error: { message: "[vitehub] Queue Delivery failed." }, state: "pending" })
+  })
+
+  it("keeps retrying with Vercel rules past the Cloudflare limit", async () => {
+    const handler = vi.fn(async (_job: QueueJob) => { throw new Error("SMTP down") })
+    const engine = rulesEngine("vercel", { welcome: { handler } }, () => 0)
+
+    await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
+
+    await vi.waitFor(() => expect(handler.mock.calls.length).toBeGreaterThan(localQueueMaxAttempts + 2))
+    engine.close()
+    expect((await engine.status()).queues.welcome?.dead).toBe(0)
+  })
+
+  it("expires a Vercel job at the end of its retention", async () => {
+    const handler = vi.fn(async () => {})
+    const engine = rulesEngine("vercel", { welcome: { handler } })
+    const client = createLocalQueueClient(engine, "welcome")
+
+    await engine.start()
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
+    try {
+      // The delay is longer than the retention, so Vercel never delivers the job.
+      const [error] = await client.send({}, { delaySeconds: 120, id: "late", retentionSeconds: 60 })
+      expect(error).toBeUndefined()
+      await vi.advanceTimersByTimeAsync(61_000)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+    await vi.waitFor(async () => expect(await engine.job("late")).toMatchObject({ error: { message: "[vitehub] The job expired at the end of its retention period." }, state: "dead" }))
+    expect(handler).not.toHaveBeenCalled()
+
+    const [range] = await client.send({}, { retentionSeconds: 30 })
+    expect(causeMessage(range)).toBe("Vercel accepts `retentionSeconds` from 60 to 604800, got 30.")
+    const [unsupported] = await client.send({}, { contentType: "json" })
+    expect(unsupported).toMatchObject({ code: "QUEUE_UNSUPPORTED_OPTION", why: "The vercel queue provider does not support the enqueue option `contentType`." })
   })
 })

@@ -28,5 +28,6 @@ provider limits and failure codes.
 On the `node` preset, the local provider stores jobs in `.vitehub/data/queue`
 and runs them in the server process. The jobs survive a restart on the same
 disk, but one host owns them. On Cloudflare and Vercel, the Vite integration
-generates provider output and the provider delivers the jobs. See
+generates provider output and the provider delivers the jobs. In `vite dev`,
+every app runs its jobs in the dev server with the rules of its provider. See
 [Queue hosts](/docs/queue/hosts).

@@ -111,7 +111,19 @@ export default defineQueue<{ email: string }>(async ({ payload }) => {
 
 ## How to use Cloudflare Queues locally
 
-The Vite dev server does not deliver Queue jobs. A `runQueue()` call there throws `QUEUE_BINDING_NOT_FOUND`, because the dev server has no queue binding. First, check discovery and the generated config with a build:
+`pnpm dev` runs Queue jobs in the dev server, with no binding and no account. It follows the Cloudflare defaults: 4 attempts, a retry at once, `delaySeconds` up to 24 hours, and payloads up to 128 KB. It does not run batches or call `onError`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
+
+```bash [Terminal]
+pnpm dev
+curl -X POST http://localhost:3000/api/signup \
+  -H 'content-type: application/json' \
+  -d '{"email":"dev@example.com"}'
+pnpm vitehub queue jobs list
+```
+
+The handler log appears in the dev server output. `vitehub queue jobs list` shows the jobs that are pending, running, or dead. `vitehub queue jobs retry <message-id>` runs a dead job again after you fix the handler.
+
+To check the Cloudflare output, build the app and inspect discovery and the generated config:
 
 ```bash [Terminal]
 pnpm build
@@ -119,7 +131,7 @@ pnpm vitehub inspect definitions --kind queue
 pnpm vitehub inspect provider-output
 ```
 
-The definitions list must include `welcome-email`. `.output/server/wrangler.json` must contain the `queues.producers` and `queues.consumers` entries. To run the built Worker on your machine, start it with Wrangler:
+The definitions list must include `welcome-email`. `.output/server/wrangler.json` must contain the `queues.producers` and `queues.consumers` entries. To run the built Worker and its Cloudflare batches on your machine, start it with Wrangler:
 
 ```bash [Terminal]
 pnpm wrangler dev --config .output/server/wrangler.json

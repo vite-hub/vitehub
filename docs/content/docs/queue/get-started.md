@@ -12,7 +12,7 @@ Submit a welcome job from an API route and watch its handler log the delivery. T
 
 Start with the working app from [Installation](/docs/getting-started/installation). Use its Node.js, pnpm, Vite, Nitro, and H3 setup, and run commands from the app root.
 
-The `node` preset already runs Queue with the local provider: `pnpm dev` and the built server run each job in the server process, with no account. See [Queue hosts](/docs/queue/hosts#develop-locally). This tutorial deploys to Cloudflare instead. Completing this tutorial requires a Cloudflare account with Queues available, permission to create a queue and deploy a Worker, and access to Worker logs. Provisioning and deployment create real provider resources and can incur charges. The deployed Worker must have the generated producer binding and consumer configuration.
+`pnpm dev` runs each job in the dev server for every preset, with no account, so you can test the handler before you deploy. See [Queue hosts](/docs/queue/hosts#develop-locally). This tutorial then deploys to Cloudflare. Completing this tutorial requires a Cloudflare account with Queues available, permission to create a queue and deploy a Worker, and access to Worker logs. Provisioning and deployment create real provider resources and can incur charges. The deployed Worker must have the generated producer binding and consumer configuration.
 
 This tutorial changes the app's preset from `node` to `cloudflare`. Any other enabled features also need their Cloudflare resources. See [Queue hosts](/docs/queue/hosts) for Vercel and the local provider. There is no Queue provider for Deno.
 
@@ -83,6 +83,36 @@ export default defineEventHandler(async (event) => {
 
 ::
 
+::tutorial-step{title="Run the job in the dev server"}
+## Run the job in the dev server
+
+Start the dev server, and submit a job in another terminal:
+
+```bash [commands/dev]
+pnpm dev
+curl -X POST http://localhost:3000/api/welcome \
+  -H 'content-type: application/json' \
+  -d '{"email":"dev@example.com"}'
+```
+
+The response is `{ "status": "queued", "messageId": "..." }`, and the dev server logs the handler output:
+
+```text [output/dev.log]
+Processing welcome job <message-id> for dev@example.com
+```
+
+The dev server runs the job with the Cloudflare delivery rules: a failed handler runs again at once, up to 4 attempts. It does not need a binding or an account. List the stored jobs, show one, or run a dead job again:
+
+```bash [commands/jobs]
+pnpm vitehub queue jobs list
+pnpm vitehub queue jobs show <message-id>
+pnpm vitehub queue jobs retry <message-id>
+```
+
+A successful job is deleted, so the list is empty after the handler runs. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery) for what dev does not emulate.
+
+::
+
 ::tutorial-step{title="Build and inspect"}
 ## Build and inspect
 
@@ -96,7 +126,7 @@ pnpm vitehub inspect provider-output
 
 The definitions list must include `welcome-email`. Nitro writes the Worker configuration to `.output/server/wrangler.json`; check its `queues.producers` and `queues.consumers` entries. ViteHub derives the physical queue name from the app name and Definition name.
 
-This is the credential-free stopping point. A successful build proves discovery and generated output. It does not create the remote queue or run the handler.
+This is the credential-free stopping point. The dev server proved the handler, and a successful build proves discovery and generated output. The build does not create the remote queue.
 
 ::
 
@@ -175,4 +205,4 @@ pnpm vitehub queue send welcome '{"userId":7}' --delay-seconds 30
 pnpm vitehub queue send welcome '{"userId":7}' --url https://app.example.com
 ```
 
-The payload is a JSON value. `--delay-seconds`, `--id`, and `--idempotency-key` are the options of [`QueueEnqueueOptions`](/docs/queue/server-api#queue-enqueue-options); a provider that does not support one fails with `QUEUE_UNSUPPORTED_OPTION`. `queue send` returns `{ queue, status: "queued", messageId }`, which is acceptance and not completion. An unknown name fails with `QUEUE_DEFINITION_NOT_FOUND`. Access needs the `queues` section, and a read-only grant (`queues:read`) can list but not send. There is no peek or backlog command: Cloudflare and Vercel do not let a producer read the queue.
+The payload is a JSON value. `--delay-seconds`, `--id`, and `--idempotency-key` are the options of [`QueueEnqueueOptions`](/docs/queue/server-api#queue-enqueue-options); a provider that does not support one fails with `QUEUE_UNSUPPORTED_OPTION`. `queue send` returns `{ queue, status: "queued", messageId }`, which is acceptance and not completion. An unknown name fails with `QUEUE_DEFINITION_NOT_FOUND`. Access needs the `queues` section, and a read-only grant (`queues:read`) can list but not send. Cloudflare and Vercel do not let a producer read the queue, so there is no backlog command for a deployment. In `pnpm dev` and on a Node server with the local provider, `vitehub queue jobs list` shows the stored jobs.

@@ -158,7 +158,19 @@ Vercel Queues has no built-in dead letter queue. Acknowledge a job that can neve
 
 ## How to use Vercel Queues locally
 
-ViteHub has no local Queue Provider. The dev server does not deliver jobs to the handler. Use a build to check that ViteHub finds your queues and writes the Vercel output:
+`pnpm dev` runs Queue jobs in the dev server, with no Vercel project or token. It follows the Vercel defaults: a retry after 60 seconds until the job expires, a retention of 24 hours that `retentionSeconds` changes, `delaySeconds` up to 7 days, and payloads up to 100 MB. It does not call `callbackOptions.retry`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
+
+```bash [Terminal]
+pnpm dev
+curl -X POST http://localhost:3000/api/signup \
+  -H 'content-type: application/json' \
+  -d '{"email":"dev@example.com"}'
+pnpm vitehub queue jobs list
+```
+
+A failed job waits 60 seconds before the next attempt, as on Vercel. Run `vitehub queue jobs retry <message-id>` to run it now, and `vitehub queue jobs clear --yes` to remove the stored jobs.
+
+Use a build to check that ViteHub finds your queues and writes the Vercel output:
 
 ```bash [Terminal]
 pnpm vite build
@@ -166,7 +178,7 @@ pnpm vitehub inspect definitions --kind queue
 cat .vercel/output/functions/api/vitehub/queues/vercel/welcome-email.func/.vc-config.json
 ```
 
-The definitions list must include `welcome-email`. The `.vc-config.json` file must contain the queue trigger. A build proves discovery and output. It does not send a job. For fast tests, test the functions that your handler calls. See [Queue hosts](/docs/queue/hosts).
+The definitions list must include `welcome-email`. The `.vc-config.json` file must contain the queue trigger. A build proves discovery and output. It does not send a job. See [Queue hosts](/docs/queue/hosts).
 
 ## Deploy to Vercel
 

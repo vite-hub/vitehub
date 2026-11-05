@@ -25,9 +25,10 @@ separate from the job so you can invoke and test the job without waiting.
 
 ## Choose a provider that owns execution
 
-ViteHub Queue uses Cloudflare Queues or Vercel Queues. It has no local queue
-worker provider. Use a provider-backed test before assuming that enqueue
-means the consumer completed.
+ViteHub Queue uses Cloudflare Queues, Vercel Queues, or the local provider of a
+Node server. `pnpm dev` runs every job in the dev server with the retry rules
+of the provider, and `vitehub queue jobs list` shows the jobs. Enqueue does not
+mean that the consumer completed, so check the job before you assume it.
 
 Workflow supports Cloudflare, Vercel, and the documented OpenWorkflow stores
 for self-hosted use. Check [Workflow hosts](/docs/workflows/hosts) for storage,

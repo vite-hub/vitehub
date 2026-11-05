@@ -534,7 +534,7 @@ describe("cloudflare queue runtime", () => {
     const binding = getCloudflareQueueBindingName("welcome")
     await expect(runQueue("welcome", { email: "ava@example.com" })).rejects.toMatchObject({
       code: "QUEUE_BINDING_NOT_FOUND",
-      fix: expect.stringContaining("wrangler dev"),
+      fix: expect.stringContaining("generated binding"),
       why: `The Cloudflare queue binding "${binding}" is not in the Worker env.`,
     })
   })

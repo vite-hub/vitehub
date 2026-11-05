@@ -4,12 +4,12 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promise
 import { join, resolve } from "pathe"
 
 import { createQueueMessageId, normalizeQueueEnqueueInput } from "../enqueue.ts"
-import { formatQueueOptionNames, queueProviderResult } from "../errors.ts"
+import { cloudflareUnsupportedEnqueueOptions, formatQueueOptionNames, queueProviderResult } from "../errors.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { createQueueDeliveryErrorReport, isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
 import { checkQueueHandlerResponse } from "../internal/handler-response.ts"
 
-import type { LocalQueueClient, QueueDefinition, QueueEnqueueOptions } from "../types.ts"
+import type { LocalQueueClient, LocalQueueRules, QueueDefinition, QueueEnqueueOptions } from "../types.ts"
 
 /** Cloudflare's default: one delivery and three retries. */
 export const localQueueMaxAttempts = 4
@@ -19,6 +19,28 @@ export const localQueueDeadLimit = 100
 
 export const localUnsupportedEnqueueOptions = ["contentType", "region", "retentionSeconds"] as const
 
+/** The delivery rules that the local engine applies. */
+export interface LocalQueueDeliveryRules {
+  /** Deliveries before a failing job becomes a dead job. `Infinity` retries until the job expires. */
+  maxAttempts: number
+  /** Largest `delaySeconds` that a send accepts. */
+  maxDelaySeconds?: number
+  /** Largest number of jobs in one `sendBatch()`. */
+  maxBatchJobs?: number
+  /** Largest JSON size in bytes of all payloads of one `sendBatch()`. */
+  maxBatchBytes?: number
+  /** Largest JSON size in bytes of one payload. */
+  maxPayloadBytes?: number
+  /** Accepted `retentionSeconds`. A job expires at the end of its retention, whether it ran or not. */
+  retention?: { defaultSeconds: number, maxSeconds: number, minSeconds: number }
+  /** Milliseconds before the next delivery after `attempts` failed deliveries. */
+  retryDelayMs: (attempts: number) => number
+  /** The provider whose documented rules these are. */
+  rules: LocalQueueRules
+  /** Enqueue options that fail with `QUEUE_UNSUPPORTED_OPTION`. */
+  unsupportedOptions: readonly ("contentType" | "idempotencyKey" | "region" | "retentionSeconds")[]
+}
+
 type DeliveryError = ReturnType<typeof createQueueDeliveryErrorReport>["error"]
 
 /** One accepted job, as it is stored in `<base>/<key>.json`. */
@@ -27,8 +49,10 @@ interface StoredJob {
   /** Epoch milliseconds of the next delivery. */
   availableAt: number
   enqueuedAt: number
-  /** The last delivery error of a dead job. */
+  /** The last delivery error. A pending job has one after a failed attempt. */
   error?: DeliveryError
+  /** Epoch milliseconds when the job expires, for rules with a retention. */
+  expiresAt?: number
   /** Epoch milliseconds when the job became dead. */
   failedAt?: number
   id: string
@@ -59,16 +83,60 @@ export interface LocalQueueEntry {
   id: string
   idempotencyKey?: string
   payload: unknown
+  retentionSeconds?: number
+}
+
+/** One stored job, as `vitehub queue jobs list` shows it. Times are ISO strings. */
+export interface LocalQueueJob {
+  attempts: number
+  /** When a pending job runs next. */
+  availableAt: string
+  enqueuedAt: string
+  /** The last delivery error. A pending job has one after a failed attempt. */
+  error?: DeliveryError
+  /** When the job expires, for Vercel rules. */
+  expiresAt?: string
+  /** When the job became dead. */
+  failedAt?: string
+  /** The message ID that `runQueue()` returned. */
+  id: string
+  queue: string
+  state: "dead" | "pending" | "running"
+}
+
+/** One stored job with its payload and file, as `vitehub queue jobs show` shows it. */
+export interface LocalQueueJobDetail extends LocalQueueJob {
+  file: string
+  idempotencyKey?: string
+  payload?: unknown
+}
+
+/** Which jobs `clear()` removes. Running jobs always stay. */
+export interface LocalQueueClearFilter {
+  queue?: string
+  state?: "dead" | "pending"
 }
 
 export interface LocalQueueEngine {
   readonly base: string
+  /** Removes the stored jobs that match, except running jobs. Returns how many it removed. */
+  clear: (filter?: LocalQueueClearFilter) => Promise<number>
   close: () => void
   /**
    * Stores the jobs and returns their message IDs. A pending or running job with the same `idempotencyKey` returns
    * its ID instead. When one file of the batch cannot be written, no job of the batch is stored.
    */
   enqueue: (queue: string, entries: readonly LocalQueueEntry[]) => Promise<string[]>
+  /** The newest stored job with this message ID, with its payload. */
+  job: (id: string) => Promise<LocalQueueJobDetail | undefined>
+  /** The stored jobs, newest first. */
+  jobs: () => Promise<LocalQueueJob[]>
+  /**
+   * Runs the newest stored job with this message ID now. A dead job gets a new set of attempts. A pending job keeps
+   * its attempts and does not wait for its delay or retry delay. A running job is not changed.
+   */
+  retry: (id: string) => Promise<LocalQueueJob | "missing" | "running">
+  readonly rules: LocalQueueDeliveryRules
   /** Reads the stored jobs and starts their delivery. Later calls return the same promise. */
   start: () => Promise<void>
   status: () => Promise<LocalQueueStatus>
@@ -78,8 +146,10 @@ export interface LocalQueueEngineOptions {
   base: string
   load: (queue: string) => Promise<QueueDefinition | undefined>
   missing: (queue: string) => Error
-  /** Milliseconds before the next delivery after `attempts` failed deliveries. Defaults to 1s, 2s, 4s, up to 60s. */
+  /** Milliseconds before the next delivery after `attempts` failed deliveries. Defaults to the delay of `rules`. */
   retryDelayMs?: (attempts: number) => number
+  /** Delivery rules. Defaults to the local rules: 4 attempts with retries after 1, 2, and 4 seconds. */
+  rules?: LocalQueueDeliveryRules
 }
 
 // setTimeout fires at once for a delay above 2^31 - 1 milliseconds.
@@ -87,6 +157,48 @@ const maxTimerDelay = 2 ** 31 - 1
 
 function defaultRetryDelayMs(attempts: number): number {
   return Math.min(2 ** (attempts - 1), 60) * 1000
+}
+
+const day = 24 * 60 * 60
+
+/**
+ * Delivery rules per provider. `vite dev` runs the jobs of a Cloudflare or Vercel app with the local engine and the
+ * documented defaults of that provider, so a handler fails, retries, and stops in dev as it does on the host.
+ */
+export const localQueueDeliveryRules: Readonly<Record<LocalQueueRules, LocalQueueDeliveryRules>> = {
+  // https://developers.cloudflare.com/queues/configuration/batching-retries/ and /queues/platform/limits/
+  cloudflare: {
+    // `max_retries` defaults to 3, and ViteHub does not set it.
+    maxAttempts: localQueueMaxAttempts,
+    maxBatchBytes: 256 * 1024,
+    maxBatchJobs: 100,
+    maxDelaySeconds: day,
+    // 128 KB, and Cloudflare counts about 100 bytes of metadata.
+    maxPayloadBytes: 128 * 1024 - 100,
+    // Without `retry_delay`, Cloudflare delivers a retried message again at once.
+    retryDelayMs: () => 0,
+    rules: "cloudflare",
+    unsupportedOptions: cloudflareUnsupportedEnqueueOptions,
+  },
+  local: {
+    maxAttempts: localQueueMaxAttempts,
+    retryDelayMs: defaultRetryDelayMs,
+    rules: "local",
+    unsupportedOptions: localUnsupportedEnqueueOptions,
+  },
+  // https://vercel.com/docs/queues/concepts and https://vercel.com/docs/queues/pricing#limits
+  vercel: {
+    // The generated queue trigger sets no `maxDeliveries`, so Vercel retries until the job expires.
+    maxAttempts: Number.POSITIVE_INFINITY,
+    maxBatchJobs: 100,
+    maxDelaySeconds: 7 * day,
+    maxPayloadBytes: 100 * 1024 * 1024,
+    retention: { defaultSeconds: day, maxSeconds: 7 * day, minSeconds: 60 },
+    // `retryAfterSeconds` of the queue trigger defaults to 60 seconds.
+    retryDelayMs: () => 60_000,
+    rules: "vercel",
+    unsupportedOptions: ["contentType"],
+  },
 }
 
 function isStoredJob(value: unknown): value is StoredJob {
@@ -97,28 +209,79 @@ function isStoredJob(value: unknown): value is StoredJob {
     && (job.state === "pending" || job.state === "dead" || job.state === "done")
 }
 
-function toStoredPayload(payload: unknown): { payload?: unknown } {
+const providerNames: Readonly<Record<LocalQueueRules, string>> = { cloudflare: "Cloudflare", local: "The local provider", vercel: "Vercel" }
+
+/** The JSON copy of the payload and its size in bytes. */
+function toStoredPayload(payload: unknown): { bytes: number, stored: { payload?: unknown } } {
   // The job crosses a restart, so the handler gets the JSON copy, as it does from a hosted provider.
   const text = JSON.stringify(payload)
-  return text === undefined ? {} : { payload: JSON.parse(text) }
+  return text === undefined ? { bytes: 0, stored: {} } : { bytes: Buffer.byteLength(text), stored: { payload: JSON.parse(text) } }
 }
 
-function delayMs(delaySeconds: number | undefined): number {
+function delayMs(delaySeconds: number | undefined, rules: LocalQueueDeliveryRules): number {
   if (delaySeconds === undefined) return 0
   if (!Number.isFinite(delaySeconds) || delaySeconds < 0) {
     throw new RangeError(`\`delaySeconds\` must be a number of seconds from 0, got ${String(delaySeconds)}.`)
   }
+  if (rules.maxDelaySeconds !== undefined && delaySeconds > rules.maxDelaySeconds) {
+    throw new RangeError(`${providerNames[rules.rules]} accepts \`delaySeconds\` up to ${rules.maxDelaySeconds}, got ${delaySeconds}.`)
+  }
   return delaySeconds * 1000
+}
+
+function retentionMs(retentionSeconds: number | undefined, rules: LocalQueueDeliveryRules): number | undefined {
+  const retention = rules.retention
+  if (!retention) return undefined
+  const seconds = retentionSeconds ?? retention.defaultSeconds
+  if (!Number.isFinite(seconds) || seconds < retention.minSeconds || seconds > retention.maxSeconds) {
+    throw new RangeError(`${providerNames[rules.rules]} accepts \`retentionSeconds\` from ${retention.minSeconds} to ${retention.maxSeconds}, got ${String(seconds)}.`)
+  }
+  return seconds * 1000
+}
+
+function checkPayloadSize(bytes: number, rules: LocalQueueDeliveryRules) {
+  if (rules.maxPayloadBytes !== undefined && bytes > rules.maxPayloadBytes) {
+    throw new RangeError(`${providerNames[rules.rules]} accepts a payload of up to ${rules.maxPayloadBytes} bytes, got ${bytes} bytes of JSON.`)
+  }
+}
+
+function checkBatch(entries: readonly LocalQueueEntry[], bytes: number, rules: LocalQueueDeliveryRules) {
+  if (entries.length < 2) return
+  if (rules.maxBatchJobs !== undefined && entries.length > rules.maxBatchJobs) {
+    throw new RangeError(`${providerNames[rules.rules]} accepts up to ${rules.maxBatchJobs} jobs in one \`sendBatch()\`, got ${entries.length}.`)
+  }
+  if (rules.maxBatchBytes !== undefined && bytes > rules.maxBatchBytes) {
+    throw new RangeError(`${providerNames[rules.rules]} accepts up to ${rules.maxBatchBytes} bytes in one \`sendBatch()\`, got ${bytes} bytes of JSON.`)
+  }
+}
+
+const isoTime = (time: number) => new Date(time).toISOString()
+
+function toJobSummary(job: StoredJob, running: boolean): LocalQueueJob {
+  return {
+    attempts: job.attempts,
+    availableAt: isoTime(job.availableAt),
+    enqueuedAt: isoTime(job.enqueuedAt),
+    ...(job.error ? { error: job.error } : {}),
+    ...(job.expiresAt === undefined ? {} : { expiresAt: isoTime(job.expiresAt) }),
+    ...(job.failedAt === undefined ? {} : { failedAt: isoTime(job.failedAt) }),
+    id: job.id,
+    queue: job.queue,
+    state: job.state === "dead" ? "dead" : running ? "running" : "pending",
+  }
 }
 
 export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQueueEngine {
   const base = resolve(options.base)
-  const retryDelayMs = options.retryDelayMs ?? defaultRetryDelayMs
+  const rules = options.rules ?? localQueueDeliveryRules.local
+  const retryDelayMs = options.retryDelayMs ?? rules.retryDelayMs
   const jobs = new Map<string, StoredJob>()
   const running = new Map<string, number>()
   const runningKeys = new Set<string>()
   // Accepted jobs whose files are not written yet. They hold their idempotency key, but they do not run.
   const writingKeys = new Set<string>()
+  // Expired jobs whose dead state is not saved yet.
+  const expiringKeys = new Set<string>()
   const concurrency = new Map<string, number>()
   let enqueueTail = Promise.resolve()
   let started: Promise<void> | undefined
@@ -152,9 +315,13 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
     const now = Date.now()
     let next = Number.POSITIVE_INFINITY
     for (const job of jobs.values()) {
-      if (job.state !== "pending" || runningKeys.has(job.key) || writingKeys.has(job.key)) continue
+      if (job.state !== "pending" || runningKeys.has(job.key) || writingKeys.has(job.key) || expiringKeys.has(job.key)) continue
+      if (job.expiresAt !== undefined && job.expiresAt <= now) {
+        void expire(job)
+        continue
+      }
       if (job.availableAt > now) {
-        next = Math.min(next, job.availableAt)
+        next = Math.min(next, job.availableAt, job.expiresAt ?? Number.POSITIVE_INFINITY)
         continue
       }
       // A full queue starts its next job when a running job ends.
@@ -175,15 +342,29 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
     }
   }
 
-  async function markDead(job: StoredJob, error: DeliveryError) {
+  async function markDead(job: StoredJob, error: DeliveryError, reason = `after ${job.attempts} attempts`) {
     job.state = "dead"
     job.error = error
     job.failedAt = Date.now()
-    console.error(`[vitehub:queue] The local provider stopped delivery of a "${job.queue}" job after ${job.attempts} attempts. The job stays in ${file(job)}.`)
+    console.error(`[vitehub:queue] The local provider stopped delivery of a "${job.queue}" job ${reason}. The job stays in ${file(job)}.`)
     await persist(job)
     // The file keeps the payload for inspection. Memory keeps only the counts.
     delete job.payload
     await pruneDead(job.queue)
+  }
+
+  /** A job with a retention is not delivered after it expires, as on Vercel. */
+  async function expire(job: StoredJob) {
+    expiringKeys.add(job.key)
+    try {
+      await markDead(job, { message: "[vitehub] The job expired at the end of its retention period.", name: "Error" }, "because its retention period ended")
+    }
+    catch (error) {
+      console.error(`[vitehub:queue] The local provider cannot update the job file in ${base}.`, error)
+    }
+    finally {
+      expiringKeys.delete(job.key)
+    }
   }
 
   async function complete(job: StoredJob) {
@@ -206,7 +387,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
     try {
       // The attempt count is saved before the handler runs. A job at the limit lost its last attempt to a stopped
       // process, for example a handler that crashes the process, so it does not run again.
-      if (job.attempts >= localQueueMaxAttempts) {
+      if (job.attempts >= rules.maxAttempts) {
         await markDead(job, { message: "[vitehub] The process stopped during the last attempt of this job.", name: "Error" })
         return
       }
@@ -227,11 +408,13 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       catch (error) {
         const context = { attempts: job.attempts, id: job.id, provider: "local", queue: job.queue } as const
         reportQueueDeliveryError(error, context)
-        if (isNonRetryableQueueError(error) || job.attempts >= localQueueMaxAttempts) {
+        if (isNonRetryableQueueError(error) || job.attempts >= rules.maxAttempts) {
           await markDead(job, createQueueDeliveryErrorReport(error, context).error)
         }
         else {
           job.availableAt = Date.now() + retryDelayMs(job.attempts)
+          // A pending job keeps its last error, so `vitehub queue jobs list` shows why it waits.
+          job.error = createQueueDeliveryErrorReport(error, context).error
           await persist(job)
         }
       }
@@ -277,8 +460,38 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
     schedule()
   }
 
+  /** The newest job with this message ID. Message IDs from the caller can repeat. */
+  function findJob(id: string): StoredJob | undefined {
+    let found: StoredJob | undefined
+    for (const job of jobs.values()) {
+      if (job.id !== id || job.state === "done" || writingKeys.has(job.key)) continue
+      if (!found || job.enqueuedAt >= found.enqueuedAt) found = job
+    }
+    return found
+  }
+
+  /** Memory drops the payload of a dead job. Its file keeps it. */
+  async function readPayload(job: StoredJob): Promise<{ payload?: unknown }> {
+    if (job.state !== "dead") return Object.hasOwn(job, "payload") ? { payload: job.payload } : {}
+    const stored: unknown = JSON.parse(await readFile(file(job), "utf8"))
+    return isStoredJob(stored) && Object.hasOwn(stored, "payload") ? { payload: stored.payload } : {}
+  }
+
   return {
     base,
+    async clear(filter = {}) {
+      await this.start()
+      let cleared = 0
+      for (const job of [...jobs.values()]) {
+        if (job.state === "done" || runningKeys.has(job.key) || writingKeys.has(job.key) || expiringKeys.has(job.key)) continue
+        if (filter.queue !== undefined && job.queue !== filter.queue) continue
+        if (filter.state !== undefined && job.state !== filter.state) continue
+        jobs.delete(job.key)
+        await unlink(job)
+        cleared++
+      }
+      return cleared
+    },
     close() {
       closed = true
       arm(Number.POSITIVE_INFINITY)
@@ -290,7 +503,15 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         const now = Date.now()
         const created: StoredJob[] = []
         const ids: string[] = []
-        for (const entry of entries) {
+        // Check every job before one is stored, so a send that breaks a limit stores nothing.
+        const prepared = entries.map((entry) => {
+          const { bytes, stored } = toStoredPayload(entry.payload)
+          checkPayloadSize(bytes, rules)
+          const retention = retentionMs(entry.retentionSeconds, rules)
+          return { availableAt: now + delayMs(entry.delaySeconds, rules), bytes, entry, ...(retention === undefined ? {} : { expiresAt: now + retention }), stored }
+        })
+        checkBatch(entries, prepared.reduce((total, item) => total + item.bytes, 0), rules)
+        for (const { availableAt, entry, expiresAt, stored } of prepared) {
           // Only a job that can still run holds its key. Include jobs admitted earlier in this batch.
           const duplicate = entry.idempotencyKey === undefined
             ? undefined
@@ -301,12 +522,13 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
           }
           const job: StoredJob = {
             attempts: 0,
-            availableAt: now + delayMs(entry.delaySeconds),
+            availableAt,
             enqueuedAt: now,
+            ...(expiresAt === undefined ? {} : { expiresAt }),
             id: entry.id,
             ...(entry.idempotencyKey === undefined ? {} : { idempotencyKey: entry.idempotencyKey }),
             key: randomUUID(),
-            ...toStoredPayload(entry.payload),
+            ...stored,
             queue,
             state: "pending",
           }
@@ -334,6 +556,49 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
       enqueueTail = enqueued.then(() => undefined, () => undefined)
       return enqueued
     },
+    async job(id) {
+      await this.start()
+      const job = findJob(id)
+      if (!job) return undefined
+      return {
+        ...toJobSummary(job, runningKeys.has(job.key)),
+        file: file(job),
+        ...(job.idempotencyKey === undefined ? {} : { idempotencyKey: job.idempotencyKey }),
+        ...await readPayload(job),
+      }
+    },
+    async jobs() {
+      await this.start()
+      return [...jobs.values()]
+        .filter(job => job.state !== "done" && !writingKeys.has(job.key))
+        .sort((a, b) => b.enqueuedAt - a.enqueuedAt)
+        .map(job => toJobSummary(job, runningKeys.has(job.key)))
+    },
+    async retry(id) {
+      await this.start()
+      const job = findJob(id)
+      if (!job) return "missing"
+      if (runningKeys.has(job.key) || expiringKeys.has(job.key)) return "running"
+      const now = Date.now()
+      if (job.state === "dead") {
+        const { payload } = await readPayload(job)
+        const retry: StoredJob = { ...job, attempts: 0, ...(payload === undefined ? {} : { payload }), state: "pending" }
+        delete retry.error
+        delete retry.failedAt
+        // An expired job gets the retention it had when it was sent.
+        if (job.expiresAt !== undefined) retry.expiresAt = now + (job.expiresAt - job.enqueuedAt)
+        retry.availableAt = now
+        await persist(retry)
+        jobs.set(job.key, retry)
+        schedule()
+        return toJobSummary(retry, runningKeys.has(retry.key))
+      }
+      job.availableAt = now
+      await persist(job)
+      schedule()
+      return toJobSummary(job, runningKeys.has(job.key))
+    },
+    rules,
     start() {
       started ??= recover()
       return started
@@ -353,10 +618,11 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
   }
 }
 
-function unsupportedOptions(options: QueueEnqueueOptions) {
-  const unsupported = localUnsupportedEnqueueOptions.filter(option => options[option] !== undefined)
+/** The provider of the rules rejects the option, so `vite dev` fails as the host does. */
+function unsupportedOptions(options: QueueEnqueueOptions, rules: LocalQueueDeliveryRules) {
+  const unsupported = rules.unsupportedOptions.filter(option => options[option] !== undefined)
   return unsupported.length
-    ? queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: formatQueueOptionNames(unsupported), provider: "local" })
+    ? queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: formatQueueOptionNames(unsupported), provider: rules.rules })
     : undefined
 }
 
@@ -367,13 +633,14 @@ export function createLocalQueueClient(engine: LocalQueueEngine, queue: string):
     queue,
     async send(payload, options) {
       const normalized = normalizeQueueEnqueueInput(payload, options)
-      const optionsError = unsupportedOptions(normalized.options)
+      const optionsError = unsupportedOptions(normalized.options, engine.rules)
       if (optionsError) return [optionsError, undefined]
       const [error, ids] = await queueProviderResult("local", "send", () => engine.enqueue(queue, [{
         delaySeconds: normalized.options.delaySeconds,
         id: normalized.id,
         idempotencyKey: normalized.options.idempotencyKey,
         payload: normalized.payload,
+        retentionSeconds: normalized.options.retentionSeconds,
       }]))
       if (error) return [error, undefined]
       return [undefined, { messageId: ids[0], status: "queued" }]
@@ -384,6 +651,8 @@ export function createLocalQueueClient(engine: LocalQueueEngine, queue: string):
         id: createQueueMessageId(),
         idempotencyKey: item.idempotencyKey,
         payload: item.body,
+        // A Vercel app sends `retentionSeconds` in `vite dev`. The local rules have no retention and ignore it.
+        retentionSeconds: "retentionSeconds" in item && typeof item.retentionSeconds === "number" ? item.retentionSeconds : options && "retentionSeconds" in options && typeof options.retentionSeconds === "number" ? options.retentionSeconds : undefined,
       }))))
       if (error) return [error, undefined]
       return [undefined, ids.map(messageId => ({ messageId, status: "queued" as const }))]
