@@ -687,11 +687,15 @@ const webSocketHooksKey = Symbol.for("crossws.hooks")
 
 /**
  * An H3 2 event over the Web Request of the event's Standard Context. Nuxt 4 runs Nitro 2, whose H3 1 events carry
- * Node's request, so they get a new H3 2 event with the same context.
+ * Node's request, so they get a new H3 2 event with the same context and the same Standard Context: the host
+ * bindings, the Durable Object state, and the peer address stay on the original event.
  */
 function toWebEvent(event: H3Event): H3Event {
-  const { req } = getStandardContext(event)
-  return req === event.req ? event : new H3Event(req, event.context)
+  const standard = getStandardContext(event)
+  if (standard.req === event.req) return event
+  const webEvent = new H3Event(standard.req, event.context)
+  Object.defineProperty(webEvent, "~standard", { configurable: true, enumerable: false, value: standard })
+  return webEvent
 }
 
 const durableObjectKey: unique symbol = Symbol.for(realtimeDurableObjectKey)

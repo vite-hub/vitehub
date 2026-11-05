@@ -478,14 +478,14 @@ describe("identity and authorization", () => {
     })
   }
 
-  it("passes the H3 event of the request to identify() and authorize()", async () => {
+  it("passes the request event with Standard Context to identify() and authorize()", async () => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
     const events: unknown[] = []
     const server = createTestServer(secured(memory, {
       authorize: ({ event }) => { events.push(event) },
       identify: ({ event, request }) => {
         events.push(event)
-        expect(event.req).toBe(request)
+        expect(event["~standard"].req).toBe(request)
         return { id: "ana" }
       },
     }))

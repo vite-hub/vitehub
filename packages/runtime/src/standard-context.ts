@@ -3,9 +3,10 @@ import type { StandardContext } from "standard-context"
 
 /** The host data that ViteHub puts in `runtime` of a Standard Context. */
 export interface ViteHubRuntime {
+  /** The Cloudflare bindings and execution context of the request. A host can pass either one without the other. */
   cloudflare?: {
     context?: CloudflareWorkerExecutionContext
-    env: Record<string, unknown>
+    env?: Record<string, unknown>
   }
   /** The client IP address that the host reports. ViteHub does not read it from forwarding headers. */
   clientAddress?: string

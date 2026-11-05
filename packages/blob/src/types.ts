@@ -148,15 +148,14 @@ export interface BlobDriverAdapter<TOptions> {
   sign?(pathname: string, options: BlobSignOptions): Promise<BlobSignedRequest>
 }
 
-/** The part of an H3 event that `handleUpload()` reads. */
-export interface BlobUploadEvent {
-  req: Request
-}
+/** A request event that `handleUpload()` reads through its Standard Context, such as an H3 1 or H3 2 event. */
+export type BlobUploadEvent = ViteHubContext
 
-/** The parts of an H3 event that `handleMultipartUpload()` reads: the request and the `action` and `pathname` route params. */
-export interface BlobMultipartEvent extends BlobUploadEvent {
-  context: { params?: Record<string, string | undefined> }
-}
+/**
+ * A request event that `handleMultipartUpload()` reads: its Standard Context request, and the `action` and `pathname`
+ * route params in `context.params`.
+ */
+export type BlobMultipartEvent = ViteHubContext<{ context: { params?: Record<string, string | undefined> } }>
 
 export interface BlobUploadOptions {
   /** Form field that holds the files. Defaults to `"files"`. */

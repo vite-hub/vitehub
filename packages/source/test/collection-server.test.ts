@@ -333,6 +333,24 @@ describe("defineCollectionHandler", () => {
     expect(response.status).toBe(500)
   })
 
+  it("reads the query of a Nuxt 4 event from its Standard Context request", async () => {
+    const collection = defineCollection(
+      async ({ limit, query }) => [{ id: 3 }, { id: 2 }, { id: 1 }].filter(item => !query.minimum || item.id >= Number(query.minimum)).slice(0, limit),
+      { cursor: (item: { id: number }) => item.id, cursorSchema: v.number(), querySchema: v.object({ minimum: v.optional(v.string()) }) },
+    )
+    const h3V1Event = (url: string) => ({
+      context: {},
+      // An H3 1 event: `node.req` is Node's request, and the event has no Web URL of its own.
+      node: {
+        req: { headers: { host: "example.test" }, method: "GET", url, async *[Symbol.asyncIterator]() {} },
+        res: { getHeader: () => undefined, getHeaders: () => ({}), removeHeader() {}, setHeader() {}, statusCode: 200 },
+      },
+    })
+
+    await expect(defineCollectionHandler(collection)(h3V1Event("/items?limit=1&minimum=2"))).resolves.toMatchObject({ items: [{ id: 3 }] })
+    await expect(defineCollectionHandler(collection)(h3V1Event("/items?limit=1&limit=2"))).rejects.toMatchObject({ statusCode: 400 })
+  })
+
   it("maps malformed limits, queries, and cursors to client errors", async () => {
     const app = createApp()
     expect((await app.request("/items?limit=0")).status).toBe(400)
