@@ -1,4 +1,4 @@
-import { defineArticle, defineBreadcrumb, defineOgImage, defineWebPage, useRoute, useSchemaOrg, useSeoMeta } from "#imports"
+import { defineArticle, defineBreadcrumb, defineOgImage, defineWebPage, defineWebSite, useRoute, useSchemaOrg, useSeoMeta } from "#imports"
 import { docsAppPath, normalizeDocsPath } from "#docs/navigation"
 
 import { useDocsConfig } from "./docs"
@@ -27,11 +27,15 @@ export function useDocsSeo(input: DocsSeoInput): void {
   const description = input.description ?? site.description ?? undefined
   useSeoMeta({ title: input.title, ogTitle: input.title, description, ogDescription: description })
 
-  if (input.image) {
+  if (input.image === false) {
+    // Null overrides inherited head tags before Unhead removes them from the rendered page.
+    useSeoMeta({ ogImage: null, ogImageUrl: null, ogImageSecureUrl: null, ogImageType: null, ogImageWidth: null, ogImageHeight: null, ogImageAlt: null, twitterImage: null, twitterImageAlt: null })
+  }
+  else if (input.image) {
     const image = /^https?:\/\//.test(input.image) ? input.image : `${site.url}${docsAppPath(input.image, appBase)}`
     useSeoMeta({ ogImage: image, twitterImage: image })
   }
-  else if (input.image !== false && ogImage) {
+  else if (ogImage) {
     // SAFETY: `ogImage.component` is an OgImage component; the default ships with this package, and an app names its own.
     defineOgImage(ogImage.component as "DocsPage", {
       title: input.title,
@@ -45,6 +49,7 @@ export function useDocsSeo(input: DocsSeoInput): void {
   }
 
   useSchemaOrg([
+    defineWebSite({ name: site.name, description: site.description ?? undefined }),
     defineWebPage({ name: input.title, description }),
     ...input.type === "article" ? [defineArticle({ "@type": "TechArticle", "headline": input.title, description })] : [],
     ...section

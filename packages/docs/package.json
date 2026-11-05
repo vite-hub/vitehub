@@ -96,6 +96,7 @@
     "nitropack": "catalog:unjs",
     "nuxt": "catalog:nuxt",
     "publint": "catalog:tooling",
+    "tailwindcss": "^4.3.3",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",

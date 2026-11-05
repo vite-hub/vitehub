@@ -207,7 +207,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // Site name, URL, and description for every Nuxt SEO module: the link checker, share images, and Schema.org.
       [dependency("nuxt-site-config")]: { defaults: { name: docs.site?.name ?? "Docs", url: docs.site?.url, description: docs.site?.description, defaultLocale: "en" } },
       // Images render while the build prerenders, so the server bundle carries no renderer and a Worker stays small.
-      ...docs.ogImage === false ? {} : { [dependency("nuxt-og-image")]: { defaults: { zeroRuntime: true, defaults: { width: 1200, height: 630 } } } },
+      // Disabled setup still registers the no-op composable imported by useDocsSeo.
+      [dependency("nuxt-og-image")]: { defaults: { enabled: docs.ogImage !== false, zeroRuntime: true, defaults: { width: 1200, height: 630 } } },
       [dependency("nuxt-schema-org")]: {},
       ...docs.linkChecker === false ? {} : { [dependency("nuxt-link-checker")]: { defaults: { failOnError: true, fetchRemoteUrls: false, showLiveInspections: false } } },
       // The toolkit's own llms.txt block repeats what nuxt-agent-discovery writes.

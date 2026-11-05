@@ -7,10 +7,11 @@ import { build, loadNuxt } from "nuxt"
 import { expect, it } from "vitest"
 
 import type { NuxtConfig } from "nuxt/schema"
+import type { ModuleOptions as SchemaOrgOptions } from "nuxt-schema-org"
 
 const meta = (html: string, property: string) => new RegExp(`<meta (?:property|name)="${property}" content="([^"]*)"`).exec(html)?.[1]
 
-it("gives every prerendered page a share image, site meta, and Schema.org, and checks its links before the site is live", async () => {
+it.each([true, false])("gives prerendered pages site meta and Schema.org with image generation enabled: %s", async (images) => {
   // Inside the package, so the build resolves Tailwind and Nuxt UI as an installed app does.
   const root = await mkdtemp(join(import.meta.dirname, ".tmp-seo-"))
   const docs = (await import(pathToFileURL(join(import.meta.dirname, "../dist/nuxt.js")).href)).default as never
@@ -25,10 +26,20 @@ it("gives every prerendered page a share image, site meta, and Schema.org, and c
     await writeFile(join(root, "content/docs/guide/none.md"), "---\ntitle: None\nseo:\n  image: false\n---\nNone\n")
     await writeFile(join(root, "public/own.png"), "")
     await writeFile(join(root, "nuxt.config.ts"), "export default defineNuxtConfig({})\n")
-    const config: NuxtConfig = {
+    const config: NuxtConfig & { schemaOrg: Partial<SchemaOrgOptions> } = {
       dev: false,
       devtools: { enabled: false },
-      modules: [[docs, { mcp: false, site: { name: "Lumen", url: "https://lumen.example.com", description: "Lumen docs" } }]],
+      modules: [[docs, { mcp: false, ...images ? {} : { ogImage: false }, site: { name: "Lumen", url: "https://lumen.example.com", description: "Lumen docs" } }]],
+      schemaOrg: { defaults: false },
+      app: { head: { meta: [
+        { property: "og:image", content: "https://lumen.example.com/own.png" },
+        { property: "og:image:type", content: "image/png" },
+        { property: "og:image:width", content: "1200" },
+        { property: "og:image:height", content: "630" },
+        { property: "og:image:alt", content: "Global image" },
+        { name: "twitter:image", content: "https://lumen.example.com/own.png" },
+        { name: "twitter:image:alt", content: "Global image" },
+      ] } },
     }
     nuxt = await loadNuxt({
       cwd: root,
@@ -45,10 +56,18 @@ it("gives every prerendered page a share image, site meta, and Schema.org, and c
     expect(meta(install, "og:description")).toBe("From zero to a running site.")
     expect(meta(install, "og:site_name")).toBe("Lumen")
     const image = meta(install, "og:image")
-    expect(image).toMatch(/^https:\/\/lumen\.example\.com\/_og\/.+\.png$/)
-    expect(meta(install, "og:image:height")).toBe("630")
-    // Rendered at build time, so the static host serves the file.
-    expect(existsSync(join(root, ".output/public", new URL(image!).pathname))).toBe(true)
+    if (images) {
+      expect(image).toMatch(/^https:\/\/lumen\.example\.com\/_og\/.+\.png$/)
+      expect(meta(install, "og:image:height")).toBe("630")
+      // Rendered at build time, so the static host serves the file.
+      expect(existsSync(join(root, ".output/public", new URL(image!).pathname))).toBe(true)
+    }
+    else {
+      expect(image).toBe("https://lumen.example.com/own.png")
+      expect(existsSync(join(root, ".output/public/_og"))).toBe(false)
+    }
+    expect.soft(install).toContain("\"@type\":\"WebSite\"")
+    expect(install).toContain("\"@type\":\"WebPage\"")
     expect(install).toContain("\"@type\":[\"Article\",\"TechArticle\"]")
     expect(install).toContain("\"@type\":\"BreadcrumbList\"")
 
@@ -62,7 +81,8 @@ it("gives every prerendered page a share image, site meta, and Schema.org, and c
     // A page without a description shares the site's.
     expect(meta(await page("docs/guide"), "og:description")).toBe("Lumen docs")
     expect(meta(await page("docs/guide/own"), "og:image")).toBe("https://lumen.example.com/own.png")
-    expect(meta(await page("docs/guide/none"), "og:image")).toBeUndefined()
+    const none = await page("docs/guide/none")
+    for (const tag of ["og:image", "og:image:type", "og:image:width", "og:image:height", "og:image:alt", "twitter:image", "twitter:image:alt"]) expect.soft(meta(none, tag)).toBeUndefined()
   }
   finally {
     await nuxt?.close()
