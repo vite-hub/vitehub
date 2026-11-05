@@ -58,6 +58,10 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ driver }: { driver: string }) => `\`kv.driver\` ${driver} is not a KV driver.`,
       fix: "Set `kv.driver` to \"cloudflare-kv-binding\", \"deno-kv\", \"upstash\", or \"fs-lite\".",
     },
+    KV_INVALID_STORE_MODE: {
+      why: ({ mode }: { mode: string }) => `\`kv.store()\` mode ${mode} is not "read" or "write".`,
+      fix: "Pass `{ mode: 'read' }` for a read-only handle, or omit `mode` for a writable one.",
+    },
     KV_MISSING_DEFAULT_STORE: {
       why: "`kv.stores.default` is missing.",
       fix: "Add a `default` store when you configure named KV stores.",

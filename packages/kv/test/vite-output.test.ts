@@ -369,6 +369,49 @@ describe("KV Vite output", () => {
     })
   })
 
+  it("returns read-only handles from the generated Cloudflare runtime", async () => {
+    const rootDir = await createConsumerRoot()
+    const entry = join(rootDir, "src", "worker.ts")
+    const [{ build }, { hubKv }] = await Promise.all([
+      import("vite"),
+      import("../src/vite.ts"),
+    ])
+    await writeFile(entry, [
+      `import { kv } from "@vite-hub/kv"`,
+      `export const reader = kv.store("default", { mode: "read" })`,
+      `export const writer = kv.store("default")`,
+      `export function badMode() { return kv.store("default", { mode: "readonly" }) }`,
+      ``,
+    ].join("\n"))
+
+    await build({
+      appType: "custom",
+      build: {
+        outDir: "dist",
+        rolldownOptions: {
+          input: entry,
+          output: { entryFileNames: "worker.js" },
+        },
+        ssr: entry,
+      },
+      configFile: false,
+      kv: { driver: "cloudflare-kv-binding", namespaceId: "namespace-id" },
+      logLevel: "silent",
+      plugins: [hubKv()],
+      root: rootDir,
+    })
+
+    // SAFETY: The fixture exports the generated KV runtime handles used by this regression.
+    const worker = await import(pathToFileURL(join(rootDir, "dist", "worker.js")).href) as {
+      badMode: () => unknown
+      reader: object
+      writer: object
+    }
+    expect(Object.keys(worker.reader).sort()).toEqual(["get", "has", "keys", "list"])
+    expect("set" in worker.writer).toBe(true)
+    expect(() => worker.badMode()).toThrow(expect.objectContaining({ code: "KV_INVALID_STORE_MODE" }))
+  })
+
   it("bundles generated config into the dev inspection runtime", async () => {
     const rootDir = await createConsumerRoot()
     const entry = join(rootDir, "src", "worker.ts")

@@ -31,6 +31,8 @@ export async function kvResult<TData, TCode extends KVErrorCode = never>(
 }
 
 // The generated Cloudflare KV runtime imports these helpers from the package build.
+export { kvStoreWithMode } from "./store-mode.ts"
+
 export function kvStoreNotFoundError(store: string): ResultError<"KV_STORE_NOT_FOUND"> {
   return kvErrorDiagnostics.KV_STORE_NOT_FOUND({ store })
 }

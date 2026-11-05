@@ -5,7 +5,7 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import type { Result } from "@vite-hub/runtime"
 
-import { kv, type KVErrorCode, type KVListPage, type KVModuleOptions, type KVSetIfAbsentOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
+import { kv, type KVErrorCode, type KVStorage, type ReadonlyKVStorage, type KVListPage, type KVModuleOptions, type KVSetIfAbsentOptions, type KVStoreConfig, type ResolvedKVModuleOptions } from "../src/index.ts"
 import { hubKv } from "../src/vite.ts"
 
 describe("types", () => {
@@ -109,5 +109,32 @@ describe("types", () => {
     expectTypeOf(virtualHosting).toMatchTypeOf<string | undefined>()
     expectTypeOf(virtualKV).toMatchTypeOf<false | ResolvedKVModuleOptions>()
     expectTypeOf(virtualConfig.kv).toMatchTypeOf<false | ResolvedKVModuleOptions>()
+  })
+  it("returns a read-only handle without write methods", () => {
+    const reader = kv.store("default", { mode: "read" })
+    expectTypeOf(reader).toEqualTypeOf<ReadonlyKVStorage>()
+    expectTypeOf(kv.store("cache")).toEqualTypeOf<KVStorage>()
+    expectTypeOf(kv.store("cache", { mode: "write" })).toEqualTypeOf<KVStorage>()
+    expectTypeOf(reader.get).toEqualTypeOf<KVStorage["get"]>()
+    expectTypeOf(reader.has).toEqualTypeOf<KVStorage["has"]>()
+    expectTypeOf(reader.keys).toEqualTypeOf<KVStorage["keys"]>()
+    expectTypeOf(reader.list).toEqualTypeOf<KVStorage["list"]>()
+
+    // @ts-expect-error A read-only handle has no set().
+    void reader.set("settings", 1)
+    // @ts-expect-error A read-only handle has no del().
+    void reader.del("settings")
+    // @ts-expect-error A read-only handle has no clear().
+    void reader.clear
+    // @ts-expect-error getAndDelete() deletes the key.
+    void reader.getAndDelete
+    // @ts-expect-error A read-only handle has no increment().
+    void reader.increment
+    // @ts-expect-error A read-only handle has no setIfAbsent().
+    void reader.setIfAbsent
+    // @ts-expect-error A read-only handle cannot select a writable store.
+    void reader.store
+    // @ts-expect-error mode is "read" or "write".
+    void kv.store("default", { mode: "readonly" })
   })
 })

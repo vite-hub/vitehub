@@ -6,9 +6,10 @@ import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-en
 import { normalizeKVOptions } from "../config.ts"
 import { kvResult } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
-import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, ResolvedKVModuleOptions } from "../types.ts"
+import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
 import { createHostedKVStorage, type RuntimeStorage } from "./hosted-storage.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
+import { kvStoreWithMode } from "../store-mode.ts"
 
 const storagePromises = new Map<string, Promise<RuntimeStorage>>()
 let disposal: Promise<void> | undefined
@@ -128,8 +129,15 @@ function createKVStorage(name = "default"): KVStorage {
         return storage.setIfAbsentItem(key, value, ttl)
       }, ["KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
     },
-    store(storeName: KVStoreName) { return createKVStorage(storeName) },
+    store: selectKVStore,
   }
+}
+
+function selectKVStore(name: KVStoreName, options?: { mode?: "write" }): KVStorage
+function selectKVStore(name: KVStoreName, options: { mode: "read" }): ReadonlyKVStorage
+function selectKVStore(name: KVStoreName, options?: KVStoreOptions): KVStorage | ReadonlyKVStorage
+function selectKVStore(name: KVStoreName, options?: KVStoreOptions): KVStorage | ReadonlyKVStorage {
+  return kvStoreWithMode(createKVStorage(name), options)
 }
 
 export const kv: KVStorage = createKVStorage()

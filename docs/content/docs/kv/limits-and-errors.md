@@ -83,6 +83,10 @@ The runtime has no KV configuration. Add `hubKv()` to the Vite config, and do no
 
 `kv.driver` is not `cloudflare-kv-binding`, `deno-kv`, `upstash`, or `fs-lite`.
 
+### KV_INVALID_STORE_MODE
+
+`kv.store(name, { mode })` received a mode other than `'read'` or `'write'`. KV throws instead of returning a writable handle. Pass `{ mode: 'read' }` for a [read-only handle](/docs/kv/server-api#read-only-handles), or omit `mode`.
+
 ### KV_MISSING_DEFAULT_STORE
 
 A config with `kv.stores` must have a `default` store.
