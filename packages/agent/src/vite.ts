@@ -1794,11 +1794,12 @@ function generatedHostedWorkspaceRuntimeSetup(
       "  return store && typeof store === 'object' && 'provider' in store && typeof store.provider === 'string' && ['cloudflare-artifacts', 'github'].includes(store.provider)",
       "}",
       "",
+      // Same env names as `hasVercelWorkspaceBlobEnv` in @vite-hub/workspace storage/provider.ts.
       `function hasHostedVercelBlobWorkspaceStore(module${typescript ? ": AgentRegistryModule" : ""}) {`,
       `  const agent = resolveAgentModule(module)${typescript ? " as WorkspaceAgentDefinition" : ""}`,
       "  const workspace = agent?.__vitehubWorkspaceAgentOptions?.workspace",
       "  const store = workspace && typeof workspace === 'object' ? workspace.store : undefined",
-      "  if (workspace && !store && typeof process === 'object' && process?.env?.BLOB_READ_WRITE_TOKEN) return true",
+      "  if (workspace && !store && typeof process === 'object' && (process?.env?.BLOB_STORE_ID || process?.env?.BLOB_READ_WRITE_TOKEN)) return true",
       "  return store && typeof store === 'object' && 'provider' in store && store.provider === 'vercel-blob'",
       "}",
       "",

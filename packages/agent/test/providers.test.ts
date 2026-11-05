@@ -3262,10 +3262,18 @@ export default defineAgent({
 
       expect(webhookRoute).toContain('import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"')
       expect(webhookRoute).toContain('import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"')
-      expect(webhookRoute).toContain("process?.env?.BLOB_READ_WRITE_TOKEN")
+      expect(webhookRoute).toContain("process?.env?.BLOB_STORE_ID || process?.env?.BLOB_READ_WRITE_TOKEN")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
       expect(webhookRoute).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
       expect(webhookRoute).toContain('workspaceRegistryEntry("audio-bitacora", agent0')
+
+      const generatedFunction = (name: string) => webhookRoute.match(new RegExp(`^function ${name}\\([\\s\\S]*?\\n\\}$`, "m"))?.[0] ?? ""
+      const { code } = await transform(`${generatedFunction("resolveAgentModule")}\n${generatedFunction("hasHostedVercelBlobWorkspaceStore")}`, { loader: "ts" })
+      const agentModule = { default: { __vitehubWorkspaceAgentOptions: { workspace: { mode: "write" } } } }
+      const hasStore = (env: Record<string, string>) => Boolean(runInNewContext(`${code}\nhasHostedVercelBlobWorkspaceStore(agentModule)`, { agentModule, process: { env } }))
+      expect(hasStore({ BLOB_STORE_ID: "store_123" })).toBe(true)
+      expect(hasStore({ BLOB_READ_WRITE_TOKEN: "runtime-token" })).toBe(true)
+      expect(hasStore({})).toBe(false)
     } finally {
       await rm(root, { force: true, recursive: true })
     }
