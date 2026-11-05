@@ -28,7 +28,7 @@ const people: Record<string, { email: string, name: string }> = {
 }
 
 /** What the authorization server and the MCP server saw, so tests can check the protocol, not only the Console. */
-const seen = { grants: [] as string[], mcpCookies: [] as string[], registeredScopes: [] as unknown[], registrations: 0, revoked: new Set<string>(), sessions: new Set<string>() }
+const seen = { consoleRedirects: [] as IncomingMessage["headers"][], grants: [] as string[], mcpCookies: [] as string[], redirectedHeaders: [] as IncomingMessage["headers"][], registeredScopes: [] as unknown[], registrations: 0, revoked: new Set<string>(), sessions: new Set<string>() }
 const codes = new Map<string, { challenge: string, person: string, redirectUri: string, resource: string | null }>()
 const tokens = new Map<string, string>()
 const issued: string[] = []
@@ -36,6 +36,7 @@ let origin = ""
 /** Whether the authorization server lists `offline_access`, as Better Auth does. */
 let offersOfflineAccess = false
 let resourceScopes: string[] | undefined = ["openid", "profile", "email"]
+let consoleMcpRedirect = false
 
 function base64url(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString("base64url")
@@ -143,6 +144,11 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     return
   }
   if (url.pathname === "/_vitehub/mcp") {
+    if (consoleMcpRedirect) {
+      seen.consoleRedirects.push(request.headers)
+      response.writeHead(307, { location: "/redirected-mcp" }).end()
+      return
+    }
     // ViteHub MCP reads the Console session of each request. Here the session cookie names the person.
     const person = /(?:^|; )console=(\w+)/.exec(request.headers.cookie ?? "")?.[1]
     if (!person || !people[person]) {
@@ -152,6 +158,11 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
     await mcpServer(() => person).connect(transport)
     await transport.handleRequest(request, response, request.method === "POST" ? JSON.parse(await body(request)) : undefined)
+    return
+  }
+  if (url.pathname === "/redirected-mcp") {
+    seen.redirectedHeaders.push(request.headers)
+    response.writeHead(404).end()
     return
   }
   if (url.pathname === "/mcp") {
@@ -206,6 +217,9 @@ afterAll(async () => {
 })
 
 afterEach(() => {
+  consoleMcpRedirect = false
+  seen.consoleRedirects.length = 0
+  seen.redirectedHeaders.length = 0
   offersOfflineAccess = false
   resourceScopes = ["openid", "profile", "email"]
   resetConsoleMcp()
@@ -353,6 +367,22 @@ describe("MCP client section", () => {
     const other = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" }, undefined, lucia)
     expect(other.value.authorizationUrl).toBeDefined()
     expect(seen.mcpCookies).toEqual([])
+  })
+
+  it.each(["connect", "call"])("refuses ViteHub MCP redirects during %s without forwarding any Console session header", async (operation) => {
+    install()
+    const headers = { authorization: "Bearer console-token", "cf-access-jwt-assertion": "console-jwt", cookie: "console=lucia" }
+    const input = { server: "/_vitehub/mcp" }
+    const connected = operation === "call" ? await rpc<ConsoleMcpConnectResult>("mcp-client.connect", input, undefined, headers) : undefined
+    if (connected) expect(connected.failure).toBeUndefined()
+    consoleMcpRedirect = true
+    const rejected = connected
+      ? await rpc<ConsoleMcpOutcome>("mcp-client.call", { id: connected.value.connection.id, tool: "whoami" }, undefined, headers)
+      : await rpc<ConsoleMcpConnectResult>("mcp-client.connect", input, undefined, headers)
+    expect(rejected.failure).toBeDefined()
+    expect(seen.consoleRedirects).not.toHaveLength(0)
+    expect(seen.consoleRedirects[0]).toMatchObject(headers)
+    expect(seen.redirectedHeaders).toEqual([])
   })
 
   it.each([

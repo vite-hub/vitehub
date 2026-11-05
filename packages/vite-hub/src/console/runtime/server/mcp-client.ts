@@ -322,7 +322,8 @@ async function withClient<T>(caller: ConsoleMcpCaller, connection: StoredConnect
       ...(connection.auth === "oauth" ? { authProvider: oauthProvider(connection, () => { authorizing = true }) } : {}),
       ...(Object.keys(headers).length ? { requestInit: { headers } } : {}),
       fetch: async (input, init) => {
-        const response = await fetchWithTimeout(input, init)
+        // Reject redirects before the SDK can resend the Console session to another endpoint.
+        const response = await fetchWithTimeout(input, connection.auth === "console" ? { ...init, redirect: "error" } : init)
         if (response.status === 401) challenge = extractWWWAuthenticateParams(response)
         return response
       },
