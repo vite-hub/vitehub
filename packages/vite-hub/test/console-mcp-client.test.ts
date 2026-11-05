@@ -47,7 +47,7 @@ const discoveryMetadataSchema = v.record(v.string(), v.unknown())
 
 /** What the authorization server and the MCP server saw, so tests can check the protocol, not only the Console. */
 const seen = { consoleRedirects: [] as IncomingMessage["headers"][], grants: [] as string[], mcpCookies: [] as string[], redirectedHeaders: [] as IncomingMessage["headers"][], registeredScopes: [] as unknown[], registrations: 0, revoked: new Set<string>(), sessions: new Set<string>() }
-const codes = new Map<string, { challenge: string, person: string, redirectUri: string, resource: string | null }>()
+const codes = new Map<string, { challenge: string, clientId: string | null, person: string, redirectUri: string, resource: string | null }>()
 const tokens = new Map<string, string>()
 const issued: string[] = []
 let origin = ""
@@ -141,7 +141,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     // The browser signs in as the person in its cookie. `prompt=login` would show a sign-in form first.
     const person = /person=(\w+)/.exec(request.headers.cookie ?? "")?.[1] ?? "maxi"
     const code = randomUUID()
-    codes.set(code, { challenge: url.searchParams.get("code_challenge")!, person, redirectUri: url.searchParams.get("redirect_uri")!, resource: url.searchParams.get("resource") })
+    codes.set(code, { challenge: url.searchParams.get("code_challenge")!, clientId: url.searchParams.get("client_id"), person, redirectUri: url.searchParams.get("redirect_uri")!, resource: url.searchParams.get("resource") })
     const back = new URL(url.searchParams.get("redirect_uri")!)
     back.searchParams.set("code", code)
     back.searchParams.set("state", url.searchParams.get("state")!)
@@ -161,7 +161,7 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     const grant = codes.get(form.get("code")!)
     codes.delete(form.get("code")!)
     const challenge = createHash("sha256").update(form.get("code_verifier") ?? "").digest("base64url")
-    if (!grant || grant.challenge !== challenge || grant.redirectUri !== form.get("redirect_uri") || grant.resource !== form.get("resource")) return json(response, 400, { error: "invalid_grant" })
+    if (!grant || grant.challenge !== challenge || grant.clientId !== form.get("client_id") || grant.redirectUri !== form.get("redirect_uri") || grant.resource !== form.get("resource")) return json(response, 400, { error: "invalid_grant" })
     return json(response, 200, issue(grant.person))
   }
   if (url.pathname === "/revoke") {
@@ -742,6 +742,42 @@ describe("MCP client section", () => {
     expect(connection).toMatchObject({ grant: { refreshable: true }, status: "connected" })
   })
 
+  it.each([false, true])("keeps the registration used by each concurrent first sign-in (sealed: %s)", async (durable) => {
+    install(durable)
+    if (durable) process.env.VITEHUB_CONSOLE_MCP_KEY = Buffer.alloc(32, 7).toString("base64")
+    installConsoleAccess({ check: async () => undefined, mode: "auth", user: async event => ({ id: event.req?.headers instanceof Headers ? event.req.headers.get("x-test-user") ?? "" : "" }) })
+    const nativeFetch = globalThis.fetch
+    const registration = deferred()
+    let registrations = 0
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input instanceof Request ? input.clone() : input, init)
+      const response = await nativeFetch(input, init)
+      if (request.url !== `${origin}/register`) return response
+      const clientId = `concurrent-client-${++registrations}`
+      await registration.promise
+      return Response.json({ ...await response.json() as Record<string, unknown>, client_id: clientId }, { status: 201 })
+    })
+    const starts = ["admin-1", "admin-2"].map(user => rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" }, user))
+    try {
+      await vi.waitFor(() => expect(registrations).toBe(2))
+      registration.resolve()
+      const started = await Promise.all(starts)
+      if (durable) resetConsoleMcp()
+      for (const [index, person] of ["maxi", "lucia"].entries()) {
+        expect(started[index]!.failure).toBeUndefined()
+        const completed = await rpc<ConsoleMcpConnection>("mcp-client.complete", await signIn(started[index]!.value.authorizationUrl!, person), `admin-${index + 1}`)
+        expect(completed.failure).toBeUndefined()
+        expect(completed.value).toMatchObject({ identity: { name: people[person]!.name }, status: "connected" })
+        expect((await rpc<ConsoleMcpOutcome>("mcp-client.call", { id: completed.value.id, tool: "whoami" }, `admin-${index + 1}`)).value.result).toMatchObject({ content: [{ text: people[person]!.name }] })
+        expect((await rpc<{ revoked: boolean }>("mcp-client.disconnect", { id: completed.value.id }, `admin-${index + 1}`)).value.revoked).toBe(true)
+      }
+    }
+    finally {
+      registration.resolve()
+      await Promise.all(starts)
+    }
+  })
+
   it("lists tools, reads resources, gets prompts, and returns server errors as results", async () => {
     install()
     const maxi = await connectAs("maxi")
@@ -864,6 +900,53 @@ describe("MCP client section", () => {
     const again = await rpc<ConsoleMcpConnectResult>("mcp-client.reconnect", { id: maxi.id })
     const completed = await rpc<ConsoleMcpConnection>("mcp-client.complete", await signIn(again.value.authorizationUrl!, "maxi"))
     expect(completed.value).toMatchObject({ id: maxi.id, status: "connected" })
+  })
+
+  it.each([
+    { stage: "callback", durable: false },
+    { stage: "refresh", durable: false },
+    { stage: "callback", durable: true },
+    { stage: "refresh", durable: true },
+  ])("disconnect waits for an active $stage and rejects queued work before revoking the final tokens (sealed: $durable)", async ({ stage, durable }) => {
+    install(durable)
+    if (durable) process.env.VITEHUB_CONSOLE_MCP_KEY = Buffer.alloc(32, 7).toString("base64")
+    const started = stage === "callback" ? await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" }) : undefined
+    const maxi = started?.value.connection ?? await connectAs("maxi")
+    const callback = started ? await signIn(started.value.authorizationUrl!, "maxi") : undefined
+    if (stage === "refresh") for (const [token, person] of tokens) if (person === "maxi" && token.startsWith("at-")) seen.revoked.add(token)
+    const nativeFetch = globalThis.fetch
+    const exchange = deferred()
+    const issuedBefore = issued.length
+    let exchanges = 0
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input instanceof Request ? input.clone() : input, init)
+      const response = await nativeFetch(input, init)
+      if (request.url === `${origin}/token` && ++exchanges === 1) await exchange.promise
+      return response
+    })
+    const active = stage === "callback" ? rpc("mcp-client.complete", callback) : rpc("mcp-client.items", { id: maxi.id, kind: "tools" })
+    let queued: ReturnType<typeof rpc> | undefined
+    let disconnected: ReturnType<typeof rpc<{ revoked: boolean, sessionEnded: boolean }>> | undefined
+    try {
+      await vi.waitFor(() => expect(exchanges).toBe(1))
+      queued = rpc("mcp-client.items", { id: maxi.id, kind: "resources" })
+      disconnected = rpc("mcp-client.disconnect", { id: maxi.id })
+      await vi.waitFor(async () => expect((await rpc<ConsoleMcpOverview>("mcp-client.list")).value.connections).toEqual([]))
+      exchange.resolve()
+      const [original, next, closed] = await Promise.all([active, queued, disconnected])
+      expect(original.status).toBe(404)
+      expect(next.status).toBe(404)
+      expect(closed.value).toEqual({ revoked: true, sessionEnded: true })
+      expect(exchanges).toBe(1)
+      const finalTokens = issued.slice(issuedBefore)
+      expect(finalTokens).toHaveLength(2)
+      for (const token of finalTokens) expect(seen.revoked.has(token)).toBe(true)
+      expect((await rpc<ConsoleMcpOverview>("mcp-client.list")).value.connections).toEqual([])
+    }
+    finally {
+      exchange.resolve()
+      await Promise.all([active, queued, disconnected])
+    }
   })
 
   it("revokes the tokens and ends the session on disconnect", async () => {

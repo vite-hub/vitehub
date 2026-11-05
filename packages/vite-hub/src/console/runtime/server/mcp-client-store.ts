@@ -21,6 +21,8 @@ export interface PendingAuthorization {
 }
 
 export interface StoredOAuth {
+  /** Keep the registration used by this grant even if another first sign-in registers concurrently. */
+  client?: OAuthClientInformationMixed
   discovery?: OAuthDiscoveryState
   pending?: PendingAuthorization
   /** When the tokens arrived, so `expires_in` becomes a date. */
@@ -119,6 +121,7 @@ const connectionSchema = v.object({
   label: v.string(),
   labelled: v.boolean(),
   oauth: v.optional(v.object({
+    client: v.optional(clientSchema),
     discovery: v.optional(v.custom<OAuthDiscoveryState>(value => isRecord(value) && typeof value.authorizationServerUrl === "string")),
     pending: v.optional(v.object({ expiresAt: v.number(), prompt: v.optional(v.literal("login")), state: v.string(), url: optionalText, verifier: optionalText })),
     receivedAt: v.optional(v.number()),
