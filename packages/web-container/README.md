@@ -101,9 +101,13 @@ An `npm install` of a ViteHub Agent app in a WebContainer takes minutes. Build t
 // Node, at build time
 import { createNodeModulesSnapshot, packSnapshot } from "@vite-hub/web-container/snapshot"
 
-const snapshot = await createNodeModulesSnapshot({ dir: "build/app" }) // runs npm install in build/app
+const lockfile = existsSync("app.package-lock.json") ? readFileSync("app.package-lock.json", "utf8") : undefined
+// Runs `npm ci` in build/app with the lockfile, or `npm install` without one.
+const { snapshot, lockfile: next } = await createNodeModulesSnapshot({ dir: "build/app", lockfile })
+writeFileSync("app.package-lock.json", next) // keep it, so the next build installs the same versions
 const parts = packSnapshot(snapshot) // gzip, split into parts of at most 20 MiB
-parts.forEach((part, index) => writeFileSync(`public/app-modules.${hash}.${index}.bin`, part))
+const sha256 = createHash("sha256").update(Buffer.concat(parts)).digest("hex")
+parts.forEach((part, index) => writeFileSync(`public/app-modules.${sha256.slice(0, 12)}.${index}.bin`, part))
 ```
 
 ```ts
@@ -111,15 +115,15 @@ parts.forEach((part, index) => writeFileSync(`public/app-modules.${hash}.${index
 import { bootWebContainer, fetchSnapshot } from "@vite-hub/web-container"
 
 const container = await bootWebContainer({
-  snapshot: fetchSnapshot(partUrls, { cache: "my-app-modules" }),
+  snapshot: fetchSnapshot(partUrls, { cache: "my-app-modules", sha256 }),
   files,
 })
 await container.run("dev")
 ```
 
-`createNodeModulesSnapshot()` requires Linux, macOS, or WSL. It rejects Windows before changing files, because npm's Windows command shims cannot be restored as POSIX bin links. It installs as npm in a WebContainer does: it uses `--cpu=wasm32`, so no native binaries download, it swaps `esbuild`, `lightningcss`, and `@libsql/client` for their wasm builds, and it adds `@rolldown/binding-wasm32-wasi`, which rolldown otherwise downloads on first use. Install scripts do not run, and source maps are left out. A snapshot cannot hold symlinks or executable bits, so it lists them, and `bootWebContainer()` restores them after the mount.
+`createNodeModulesSnapshot()` requires Linux, macOS, or WSL. It rejects Windows before changing files, because npm's Windows command shims cannot be restored as POSIX bin links. It installs as npm in a WebContainer does: it uses `--cpu=wasm32`, so no native binaries download, it swaps `esbuild`, `lightningcss`, and `@libsql/client` for their wasm builds, and it adds `@rolldown/binding-wasm32-wasi`, which rolldown otherwise downloads on first use. The wasm builds install as npm aliases in the same install, so the returned `lockfile` pins every version: pass it back and the install runs `npm ci`, and the same lockfile gives the same snapshot bytes. A lockfile that no longer matches the app throws `SnapshotLockfileMismatchError`; pass `frozenLockfile: false` to update it. Other install and snapshot errors propagate unchanged. The original `package.json` is restored exactly on success and failure. The integrity of `file:` tarballs is left out of the lockfile, because a rebuilt tarball changes it. Install scripts do not run, and source maps are left out. A snapshot cannot hold symlinks or executable bits, so it lists them, and `bootWebContainer()` restores them after the mount. Link and executable paths must stay inside the working directory, and so must link targets: the builder leaves out other links, and the restore step skips other entries, because the snapshot bytes come from the network.
 
-`fetchSnapshot()` downloads the parts in parallel and inflates them. With `cache`, it keeps the parts in Cache Storage, so a later boot downloads nothing. Give each snapshot version its own URLs, such as names with a content hash, and each app its own cache name: parts of other URLs in that cache are deleted. `bootWebContainer()` boots while the snapshot loads.
+`fetchSnapshot()` downloads the parts in parallel and inflates them. With `sha256`, it rejects parts whose hash differs. With `cache`, it keeps the parts in Cache Storage, so a later boot downloads nothing. A part goes into the cache only after the whole snapshot inflates and matches its hash; a damaged snapshot removes its parts from the cache, so the next boot downloads them again. Give each snapshot version its own URLs, such as names with a content hash, and each app its own cache name: parts of other URLs in that cache are deleted. `bootWebContainer()` boots while the snapshot loads.
 
 To reuse a container's own install, `container.export()` returns a binary snapshot of the working directory. Pass `excludes` (glob patterns) to leave files out. `files` is mounted after the snapshot, so it can replace files from it.
 

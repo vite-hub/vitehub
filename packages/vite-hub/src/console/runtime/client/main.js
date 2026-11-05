@@ -19,6 +19,8 @@ const ConsoleEnv = () => import("../components/console-env.vue");
 const ConsoleHome = () => import("../components/console-home.vue");
 const ConsoleLogs = () => import("../components/console-logs.vue");
 const ConsoleKv = () => import("../components/console-kv.vue");
+const ConsoleMcpClient = () => import("../components/console-mcp-client.vue");
+const ConsoleMcpCallback = () => import("../components/console-mcp-callback.vue");
 const ConsoleSkills = () => import("../components/console-skills.vue");
 import {
   consoleDatabasesSchemaPath,
@@ -52,6 +54,33 @@ const router = createRouter({
         definitionsBase: consolePath("/api/_vitehub/console/definitions"),
         kvBase: consolePath("/api/_vitehub/console/kv"),
         managementBase: consolePath("/_vitehub/connections"),
+        searchBase: consolePath("/api/_vitehub/console/search"),
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleMcpClient,
+      name: "vitehub-console-mcp-client",
+      path: "/mcp-client",
+      meta: { consoleSection: "mcp-client", title: "MCP client · ViteHub Console" },
+      props: {
+        agentsBase: consolePath("/api/_vitehub/console/agents"),
+        definitionsBase: consolePath("/api/_vitehub/console/definitions"),
+        kvBase: consolePath("/api/_vitehub/console/kv"),
+        searchBase: consolePath("/api/_vitehub/console/search"),
+        sectionsBase,
+      },
+    },
+    // Authorization servers send the browser here after an MCP sign-in (`consoleMcpCallbackPath`).
+    {
+      component: ConsoleMcpCallback,
+      name: "vitehub-console-mcp-client-callback",
+      path: "/mcp-client/callback",
+      meta: { consoleSection: "mcp-client", title: "MCP client · ViteHub Console" },
+      props: {
+        agentsBase: consolePath("/api/_vitehub/console/agents"),
+        definitionsBase: consolePath("/api/_vitehub/console/definitions"),
+        kvBase: consolePath("/api/_vitehub/console/kv"),
         searchBase: consolePath("/api/_vitehub/console/search"),
         sectionsBase,
       },
@@ -332,8 +361,14 @@ router.beforeEach(async (to) => {
     if (navigation) addContributedRoutes(navigation);
     return router.resolve(to.fullPath).matched.length > 0 ? to.fullPath : { name: "vitehub-console" };
   }
+});
+
+router.afterEach((to, _from, failure) => {
+  document.title = String(to.meta.title ?? "ViteHub Console");
   const section = to.meta.consoleSection;
-  if (!isConsoleSectionId(section)) return;
+  if (failure || !isConsoleSectionId(section)) return;
+  // The page shows at once. A section that this app does not have falls back to the Overview when the sections arrive.
+  // This runs after the navigation, so a sections answer that arrives before the page's code loads still finds it.
   void loadSections().then((installed) => {
     if (
       installed &&
@@ -343,10 +378,6 @@ router.beforeEach(async (to) => {
       void router.replace({ name: "vitehub-console" });
     }
   });
-});
-
-router.afterEach((to) => {
-  document.title = String(to.meta.title ?? "ViteHub Console");
 });
 addViteHubIcons();
 deferLucideIcons();

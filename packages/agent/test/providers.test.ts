@@ -20989,14 +20989,17 @@ describe("server helpers", () => {
         cloudflare: { env: {} },
         waitUntil: () => undefined,
       }).catch((error) => error)
-      await vi.waitFor(() => expect(adapter.postMessage).toHaveBeenCalledOnce(), { interval: 0 })
+      await vi.waitFor(() => expect(adapter.editMessage).toHaveBeenCalledOnce(), { interval: 0 })
       await vi.advanceTimersByTimeAsync(28_100)
 
       await expect(responseError).resolves.toMatchObject({
         message: "Chat invocation timed out after 28000ms.",
       })
-      expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
-      expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", timeoutFallbackText)
+      // The webhook deadline can reject before background fallback delivery finishes.
+      await vi.waitFor(() => {
+        expect(adapter.deleteMessage).toHaveBeenCalledWith("telegram:456", "sent-1")
+        expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", timeoutFallbackText)
+      })
       expect(adapter.deleteMessage.mock.invocationCallOrder[0]).toBeLessThan(adapter.postMessage.mock.invocationCallOrder[1]!)
       progressEdit.resolve(undefined)
       await withDeadline(progressEditSettled.promise, 3_000, "Progress edit did not settle.")

@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -92,6 +92,54 @@ describe("snapshots", () => {
     expect(await fetchSnapshot(urls, { cache: "app" })).toEqual(data)
     expect(fetchPart).toHaveBeenCalledOnce()
     expect([...stored.keys()]).toEqual(urls)
+  })
+
+  function memoryCache(entries: [string, Response][] = []) {
+    const stored = new Map<string, Response>(entries)
+    vi.stubGlobal("caches", { open: async () => ({
+      match: async (url: string) => stored.get(new Request(url).url)?.clone(),
+      put: async (url: string, response: Response) => { stored.set(new Request(url).url, response) },
+      keys: async () => [...stored.keys()].map(url => new Request(url)),
+      delete: async (request: Request) => stored.delete(request.url),
+    }) })
+    return stored
+  }
+
+  it.each([
+    ["an HTML fallback page", () => new TextEncoder().encode("<!doctype html><title>Not found</title>")],
+    ["a part cut short", (part: Uint8Array) => part.subarray(0, part.byteLength - 10)],
+  ])("caches nothing when a part is %s", async (_, damage) => {
+    const stored = memoryCache()
+    const [part] = packSnapshot(new Uint8Array(randomBytes(1000)))
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(damage(part!))))
+    await expect(fetchSnapshot(["https://docs.test/a.0.bin"], { cache: "app" })).rejects.toThrow("is damaged")
+    expect(stored.size).toBe(0)
+  })
+
+  it("drops a damaged cached part and downloads it again next time", async () => {
+    const data = new Uint8Array(randomBytes(1000))
+    const [part] = packSnapshot(data)
+    const stored = memoryCache([["https://docs.test/a.0.bin", new Response("<!doctype html>")]])
+    const fetchPart = vi.fn(async () => new Response(part))
+    vi.stubGlobal("fetch", fetchPart)
+    await expect(fetchSnapshot(["https://docs.test/a.0.bin"], { cache: "app" })).rejects.toThrow("is damaged")
+    expect(stored.size).toBe(0)
+    expect(await fetchSnapshot(["https://docs.test/a.0.bin"], { cache: "app" })).toEqual(data)
+    expect(fetchPart).toHaveBeenCalledOnce()
+    expect(stored.size).toBe(1)
+  })
+
+  it("rejects parts whose SHA-256 differs, even when they inflate", async () => {
+    const stored = memoryCache()
+    const parts = packSnapshot(new Uint8Array(randomBytes(1000)))
+    const sha256 = createHash("sha256").update(parts[0]!).digest("hex")
+    const other = packSnapshot(new Uint8Array(randomBytes(1000)))
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(other[0])))
+    await expect(fetchSnapshot(["https://docs.test/a.0.bin"], { cache: "app", sha256 })).rejects.toThrow(`not ${sha256}`)
+    expect(stored.size).toBe(0)
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(parts[0])))
+    await expect(fetchSnapshot(["https://docs.test/a.0.bin"], { cache: "app", sha256 })).resolves.toBeInstanceOf(Uint8Array)
+    expect(stored.size).toBe(1)
   })
 
   it("rejects when a part is missing", async () => {

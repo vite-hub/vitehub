@@ -26,6 +26,7 @@ describe("ChatSession", () => {
 
     expect(wrapper.findAll(".session-header")).toHaveLength(1);
     expect(wrapper.text()).toContain("Session");
+    wrapper.unmount();
   });
 });
 

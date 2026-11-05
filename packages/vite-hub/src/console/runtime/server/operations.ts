@@ -24,7 +24,7 @@ function disabledConsoleFeature(feature: string): Promise<never> {
 }
 
 /** Document actions that only read. A read-only section grant keeps them. */
-const consoleDocumentReadActions: ReadonlySet<string> = new Set(["get", "list", "overview", "raw", "references", "revisions", "search", "sessions"])
+const consoleDocumentReadActions: ReadonlySet<string> = new Set(["get", "list", "overview", "raw", "references", "resolve", "revisions", "search", "sessions"])
 /** Media actions that only read. */
 const consoleMediaReadActions: ReadonlySet<string> = new Set(["get", "info", "list", "usage"])
 
@@ -84,7 +84,7 @@ export const consoleOperationRequestBytes = {
 } as const
 
 // The handlers of these operations read the signed-in user themselves, when they need it.
-function defineConsoleOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "run"> & { run: (input: Input, context: ConsoleOperationContext) => Output | Promise<Output> }): OperationDefinition<Input, Output> {
+export function defineConsoleOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "run"> & { run: (input: Input, context: ConsoleOperationContext) => Output | Promise<Output> }): OperationDefinition<Input, Output> {
   return defineOperation({
     ...definition,
     user: false,

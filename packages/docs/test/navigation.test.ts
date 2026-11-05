@@ -14,6 +14,7 @@ import {
   docsRailGroups,
   docsRailIcon,
   docsRawPath,
+  docsRawSectionLinks,
   docsRelatedSections,
   docsSectionForPath,
   docsSectionHome,
@@ -170,6 +171,37 @@ describe("docs sidebar", () => {
       ["Guides", ["Configure KV", "Expire keys"]],
       [null, ["Server API"]],
     ])
+  })
+
+  it("ends a raw page with its section in sidebar order, the next page, and the index", () => {
+    const site = "https://docs.example.com/portal"
+    expect(docsRawSectionLinks(manifest, "/docs/kv/configure", site)).toBe(`
+<!-- vitehub-docs:section-links -->
+## In this section
+
+- [Overview](${site}/raw/docs/kv.md)
+- [Get started](${site}/raw/docs/kv/get-started.md)
+- Guides
+  - [Configure KV](${site}/raw/docs/kv/configure.md) (this page)
+  - [Expire keys](${site}/raw/docs/kv/ttl.md)
+- [Server API](${site}/raw/docs/kv/api.md)
+
+Next: [Expire keys](${site}/raw/docs/kv/ttl.md)
+
+All pages: [llms.txt](${site}/llms.txt)
+`)
+    // Another group shows as one link to its first page.
+    const api = docsRawSectionLinks(manifest, "/docs/kv/api", site)
+    expect(api).toContain(`- [Guides](${site}/raw/docs/kv/configure.md)\n- [Server API](${site}/raw/docs/kv/api.md) (this page)`)
+    expect(api).not.toContain("Expire keys")
+    expect(api).not.toContain("Next:")
+  })
+
+  it("keeps only the index link for a page without other pages beside it", () => {
+    const index = "\n<!-- vitehub-docs:section-links -->\nAll pages: [llms.txt](https://docs.example.com/llms.txt)\n"
+    // A section of one page, the docs root, a page outside the base, and an unlisted page.
+    for (const path of ["/docs/blob", "/docs", "/about"]) expect(docsRawSectionLinks(manifest, path, "https://docs.example.com")).toBe(index)
+    expect(docsRawSectionLinks(manifest, "/docs/kv/draft", "https://docs.example.com")).not.toContain("(this page)")
   })
 
   it("lists related sections in declared order without the section itself or unknown ids", () => {

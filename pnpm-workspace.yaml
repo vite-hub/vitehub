@@ -238,3 +238,5 @@ patchedDependencies:
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
   nuxt-agent-discovery@0.8.1: patches/nuxt-agent-discovery@0.8.1.patch
+  # Workers builds resolve the `workerd` condition, which 5.0.1 lacks (crouchcd/pkce-challenge#50, merged, unreleased).
+  pkce-challenge@5.0.1: patches/pkce-challenge@5.0.1.patch
