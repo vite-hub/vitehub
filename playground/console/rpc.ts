@@ -3,7 +3,9 @@ import type { Plugin } from "vite"
 
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../../packages/vite-hub/src/console/runtime/diagnostics.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
+import { consoleRequestURL } from "../../packages/vite-hub/src/console/runtime/server/request.ts"
 import { callCommentsFixture } from "./comments.ts"
+import { mcpClientFixture } from "./mcp-client-fixture.ts"
 
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
 
@@ -33,6 +35,8 @@ const fixtureRoutes: Record<string, string> = {
 
 // Map one Console call to the synthetic HTTP route that serves its fixture data.
 export async function callConsoleFixture(origin: string, payload: { input?: Record<string, unknown>; operation: string }, cookie?: string): Promise<ConsoleRpcResult> {
+  // The MCP client keeps its connections in this process, so its fixture answers here, not over HTTP.
+  if (payload.operation.startsWith("mcp-client.")) return mcpClientFixture(origin, payload, cookie)
   const input = payload.input ?? {}
   const comment = callCommentsFixture(payload.operation, input)
   if (comment) return comment
@@ -95,9 +99,13 @@ export function consoleMockRPC(): Plugin {
           return
         }
         void (async () => {
-          const origin = server.resolvedUrls?.local[0] ?? server.resolvedUrls?.network[0]
+          const payload = JSON.parse(await readBody(request))
+          // MCP links go back to the browser, while HTTP fixtures stay on the local server.
+          const origin = payload.operation.startsWith("mcp-client.")
+            ? consoleRequestURL({ node: { req: request } }).origin
+            : server.resolvedUrls?.local[0] ?? server.resolvedUrls?.network[0]
           if (!origin) throw new Error("Playground server is not listening")
-          const result = await callConsoleFixture(origin, JSON.parse(await readBody(request)), request.headers.cookie)
+          const result = await callConsoleFixture(origin, payload, request.headers.cookie)
           response.statusCode = result.ok ? 200 : result.status
           response.setHeader("cache-control", "no-store")
           response.setHeader("content-type", "application/json")

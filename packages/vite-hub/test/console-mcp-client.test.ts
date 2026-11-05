@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { CallToolRequestSchema, ErrorCode, GetPromptRequestSchema, ListPromptsRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, McpError, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js"
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
+import { afterAll, afterEach, assert, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
@@ -66,6 +66,12 @@ async function body(request: IncomingMessage): Promise<string> {
 
 function json(response: ServerResponse, status: number, value: unknown, headers: Record<string, string> = {}): void {
   response.writeHead(status, { "content-type": "application/json", ...headers }).end(JSON.stringify(value))
+}
+
+async function overrideMetadata(response: Response, overrides: Record<string, unknown>): Promise<Response> {
+  const metadata = await response.json()
+  assert(metadata && typeof metadata === "object" && !Array.isArray(metadata), "Expected OAuth metadata to be an object")
+  return Response.json({ ...metadata, ...overrides })
 }
 
 /** One MCP server per session, as a stateful Streamable HTTP server keeps them. Its tools answer as the caller. */
@@ -329,8 +335,7 @@ describe("MCP client section", () => {
       const request = new Request(input instanceof Request ? input.clone() : input, init)
       const response = await nativeFetch(input, init)
       if (request.url === `${origin}/.well-known/oauth-authorization-server`) {
-        const metadata = await response.json() as Record<string, unknown>
-        return Response.json({ ...metadata, authorization_response_iss_parameter_supported: advertised })
+        return overrideMetadata(response, { authorization_response_iss_parameter_supported: advertised })
       }
       return response
     })
@@ -424,12 +429,10 @@ describe("MCP client section", () => {
       expect(request.url).not.toBe("http://external.example/oauth")
       const response = await nativeFetch(input, init)
       if (stage === "discovery" && new URL(request.url).pathname.startsWith("/.well-known/oauth-protected-resource")) {
-        const metadata = await response.json() as Record<string, unknown>
-        return Response.json({ ...metadata, authorization_servers: ["https://oauth.example"] })
+        return overrideMetadata(response, { authorization_servers: ["https://oauth.example"] })
       }
       if (stage === "token" && request.url === `${origin}/.well-known/oauth-authorization-server`) {
-        const metadata = await response.json() as Record<string, unknown>
-        return Response.json({ ...metadata, token_endpoint: endpoint })
+        return overrideMetadata(response, { token_endpoint: endpoint })
       }
       return response
     })
@@ -480,8 +483,7 @@ describe("MCP client section", () => {
       expect(request.url).not.toBe(target)
       const response = await nativeFetch(input, init)
       if (request.url === `${origin}/.well-known/oauth-authorization-server`) {
-        const metadata = await response.json() as Record<string, unknown>
-        return Response.json({ ...metadata, revocation_endpoint: "https://oauth.example/revoke" })
+        return overrideMetadata(response, { revocation_endpoint: "https://oauth.example/revoke" })
       }
       return response
     })
