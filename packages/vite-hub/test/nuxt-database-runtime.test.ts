@@ -18,7 +18,7 @@ it("runs Database request state through Nuxt's facade alias", async () => {
     stdin: {
       contents: [
         'import { runWithDatabaseRequest } from "@vite-hub/database/runtime/state"',
-        "console.log(await runWithDatabaseRequest({}, () => 42))",
+        "console.log(await runWithDatabaseRequest({ \"~standard\": { vendor: \"test\", req: new Request(\"https://example.test/\"), res: { headers: new Headers() } } }, () => 42))",
       ].join("\n"),
       resolveDir: fileURLToPath(new URL("..", import.meta.url)),
     },
