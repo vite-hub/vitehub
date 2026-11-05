@@ -55,6 +55,11 @@
       "import": "./dist/runtime/cloudflare-kv.js",
       "default": "./dist/runtime/cloudflare-kv.js"
     },
+    "./runtime/cloudflare-request-env": {
+      "types": "./dist/runtime/cloudflare-request-env.d.ts",
+      "import": "./dist/runtime/cloudflare-request-env.js",
+      "default": "./dist/runtime/cloudflare-request-env.js"
+    },
     "./runtime/nitro-cache": {
       "types": "./dist/runtime/nitro-cache.d.ts",
       "import": "./dist/runtime/nitro-cache.js",

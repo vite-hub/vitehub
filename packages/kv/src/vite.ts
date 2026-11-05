@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url"
+
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 
 import {
@@ -36,6 +38,8 @@ const UPSTASH_DRIVER_IMPORT_ID = "@vite-hub/kv/runtime/upstash-driver"
 const CLOUDFLARE_KV_RUNTIME_IMPORT_ID = import.meta.url.endsWith(".ts")
   ? "@vite-hub/kv/runtime/cloudflare-kv"
   : new URL("./runtime/cloudflare-kv.js", import.meta.url).href
+// Nitro registers middleware by file path. The file is in `dist` after a build and in `src` in this repository.
+const KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE = fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./runtime/cloudflare-request-env.ts" : "./runtime/cloudflare-request-env.js", import.meta.url))
 const mergeNoExternal = createNoExternalAddition("@vite-hub/kv")
 const KV_CLOUDFLARE_BINDINGS_FILE = ".vitehub-kv-bindings.json"
 
@@ -78,6 +82,21 @@ function isCloudflareKVConfig(kv: KVViteRuntimeConfig["kv"]): kv is ResolvedKVMo
   if (!kv) return false
   return Object.values(kv.stores || { default: kv.store })
     .every(store => store.driver === "cloudflare-kv-binding")
+}
+
+function hasCloudflareKVStore(kv: KVViteRuntimeConfig["kv"]): boolean {
+  if (!kv) return false
+  return Object.values(kv.stores || { default: kv.store }).some(store => store.driver === "cloudflare-kv-binding")
+}
+
+/** Registers the middleware that installs the request's Cloudflare env, or removes it when no store uses a binding. */
+function configureNitroCloudflareRequestEnv(nitro: Record<string, unknown>, kv: KVViteRuntimeConfig["kv"]): void {
+  const handlers: unknown[] = Array.isArray(nitro.handlers)
+    ? nitro.handlers.filter(handler => !(isPlainObject(handler) && handler.handler === KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE))
+    : []
+  // First, so that other middleware can use KV.
+  if (hasCloudflareKVStore(kv)) handlers.unshift({ handler: KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE, middleware: true })
+  if (handlers.length || Array.isArray(nitro.handlers)) nitro.handlers = handlers
 }
 
 function hasUpstashStore(kv: KVViteRuntimeConfig["kv"]): boolean {
@@ -235,6 +254,7 @@ function configureNitroCloudflareKV(
   ownedNamespaces.clear()
 
   const kv = resolveKVViteConfig(config.kv ?? options).kv
+  configureNitroCloudflareRequestEnv(nitro, kv)
   if (kv) {
     const existingNamespaces = new Set(target.cloudflare?.wrangler?.kv_namespaces)
     configureCloudflareKV(target, kv, provisionState)

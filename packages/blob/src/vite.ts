@@ -229,7 +229,6 @@ async function resolveImageModule(config: ResolvedConfig, root: string, blob: Bl
 }
 
 function renderNitroBlobMiddleware(importBase = blobPackageName, workersModule = true): string {
-  const requestEnv = "target.env ?? target.context?.cloudflare?.env ?? target.context?._platform?.cloudflare?.env ?? target.req?.runtime?.cloudflare?.env ?? target.node?.req?.runtime?.cloudflare?.env"
   return [
     ...(workersModule
       ? [
@@ -237,25 +236,12 @@ function renderNitroBlobMiddleware(importBase = blobPackageName, workersModule =
           "import { env as vitehubEnv } from 'cloudflare:workers'",
         ]
       : []),
-    `import { setActiveCloudflareEnv } from '${importBase}/runtime/state'`,
-    "",
-    "type CloudflareEnv = Record<string, unknown>",
-    "type CloudflareEvent = {",
-    "  context?: { cloudflare?: { env?: CloudflareEnv }, _platform?: { cloudflare?: { env?: CloudflareEnv } } }",
-    "  env?: CloudflareEnv",
-    "  node?: { req?: { runtime?: { cloudflare?: { env?: CloudflareEnv } } } }",
-    "  req?: { runtime?: { cloudflare?: { env?: CloudflareEnv } } }",
-    "}",
+    `import { installCloudflareRequestEnv } from '${importBase}/runtime/state'`,
     "",
     "export default function vitehubBlobMiddleware(event: unknown) {",
-    "  const target = event as CloudflareEvent",
-    ...(workersModule
-      ? [`  const env = ${requestEnv} ?? (vitehubEnv as unknown as CloudflareEnv)`, "  setActiveCloudflareEnv(env)"]
-      : [
-          "  // A Node dev runner has no Cloudflare env. Keep the active env as it is.",
-          `  const env = ${requestEnv}`,
-          "  if (env) setActiveCloudflareEnv(env)",
-        ]),
+    workersModule
+      ? "  installCloudflareRequestEnv(event, vitehubEnv as unknown as Record<string, unknown>)"
+      : "  installCloudflareRequestEnv(event)",
     "}",
     "",
   ].join("\n")

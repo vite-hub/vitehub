@@ -29,6 +29,7 @@ async function temporaryDirectory(prefix: string) {
 
 const execFileAsync = promisify(execFile)
 const workspaceRoot = resolve(import.meta.dirname, "../../..")
+const internalCloudflareEnv = resolve(workspaceRoot, "packages/internal/src/runtime/cloudflare-env.ts")
 const nuxtH3 = join(dirname(createRequire(import.meta.resolve("nitropack/package.json")).resolve("h3/package.json")), "dist/index.mjs")
 
 // The `h3` that a generated route resolves from the app can be another major version than the host runs. A Nuxt 4 app
@@ -757,9 +758,11 @@ describe("hubBlob", () => {
           setup(build) {
             build.onResolve({ filter: /^(cloudflare:workers|@vite-hub\/blob\/runtime\/state)$/ }, args => ({ path: args.path, namespace: "middleware-test" }))
             build.onLoad({ filter: /.*/, namespace: "middleware-test" }, args => ({
+              resolveDir: root,
               contents: args.path === "cloudflare:workers"
                 ? 'export const env = { source: "module" }'
-                : 'export const state = {}; export function setActiveCloudflareEnv(env) { state.env = env }',
+                // The real shared helper, so the test covers each host's event shape.
+                : `export { installCloudflareRequestEnv } from ${JSON.stringify(internalCloudflareEnv)}; import { getActiveCloudflareEnv } from ${JSON.stringify(internalCloudflareEnv)}; export const state = { get env() { return getActiveCloudflareEnv() } }`,
             }))
             // Isolate Nitro's public entry and its H3 contract from unrelated runtime internals.
             build.onResolve({ filter: /^\./ }, args => args.importer === nitroEntry ? { path: args.path, external: true } : undefined)
@@ -830,10 +833,7 @@ describe("hubBlob", () => {
       const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
       expect(middleware).toContain("export default function vitehubBlobMiddleware(event: unknown)")
       expect(middleware).not.toContain("from 'nitro'")
-      expect(middleware).toContain("const target = event as CloudflareEvent")
-      expect(middleware).toContain("setActiveCloudflareEnv(env)")
-      expect(middleware).toContain("target.context?._platform?.cloudflare?.env")
-      expect(middleware).toContain("target.node?.req?.runtime?.cloudflare?.env ?? (vitehubEnv as unknown as CloudflareEnv)")
+      expect(middleware).toContain("installCloudflareRequestEnv(event, vitehubEnv as unknown as Record<string, unknown>)")
       expect(middleware).not.toContain("next")
 
       await symlink(join(workspaceRoot, "node_modules"), join(root, "node_modules"), "dir")
@@ -893,8 +893,7 @@ describe("hubBlob", () => {
       expect(nitroPlugin).not.toContain("cloudflare:workers")
       expect(nitroPlugin).toContain('"driver":"cloudflare-r2"')
       expect(middleware).not.toContain("cloudflare:workers")
-      expect(middleware).toContain("target.req?.runtime?.cloudflare?.env")
-      expect(middleware).toContain("if (env) setActiveCloudflareEnv(env)")
+      expect(middleware).toContain("installCloudflareRequestEnv(event)")
       expect(value).toHaveProperty("nitro.handlers", expect.arrayContaining([
         expect.objectContaining({ handler: resolve(root, ".vitehub/nitro/blob/middleware.ts"), middleware: true }),
       ]))

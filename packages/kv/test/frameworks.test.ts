@@ -167,6 +167,34 @@ describe("hubKv", () => {
     })
   })
 
+  it("registers the Cloudflare request env middleware once, before other middleware", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const middleware = resolve(import.meta.dirname, "../src/runtime/cloudflare-request-env.ts")
+    const plugin = hubKv({ binding: "KV", driver: "cloudflare-kv-binding" })
+    const config = { nitro: { handlers: [{ handler: "server/middleware/auth.ts", middleware: true }] } }
+    const configure = testHook(plugin.config, (_value: typeof config): void | Promise<void> => undefined)
+
+    await configure(config)
+    await configure(config)
+
+    expect(config.nitro.handlers).toEqual([
+      { handler: middleware, middleware: true },
+      { handler: "server/middleware/auth.ts", middleware: true },
+    ])
+    expect(existsSync(middleware)).toBe(true)
+  })
+
+  it("does not register the Cloudflare request env middleware for a local store", async () => {
+    const { hubKv } = await import("../src/vite.ts")
+    const plugin = hubKv({ driver: "fs-lite" })
+    const config: { nitro: { handlers?: unknown[] } } = { nitro: {} }
+    const configure = testHook(plugin.config, (_value: typeof config): void | Promise<void> => undefined)
+
+    await configure(config)
+
+    expect(config.nitro.handlers).toBeUndefined()
+  })
+
   it("reads provisioned Cloudflare KV namespace ids into Nitro-owned output", async () => {
     const { hubKv } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-kv-nitro-provision-"))
