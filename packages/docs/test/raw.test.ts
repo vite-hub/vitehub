@@ -8,6 +8,15 @@ function convert(source: string, options: RawMarkdownOptions = {}): string {
 }
 
 describe("toRawMarkdown", () => {
+  it.each([
+    { mode: "builtin", label: "Built-in channels" },
+    { mode: "custom", label: "Example connectors" },
+  ])("keeps the hero channel information in $mode mode", ({ mode, label }) => {
+    const raw = convert(`::product-hero{tagline="Reach your Agent." channels="Web chat, Slack" channel-mode="${mode}"}\n::`)
+    expect(raw).toContain(`${label}: Web chat, Slack.`)
+    expect(raw.includes("You write each connector. Use Agent Channels for built-in chat integrations.")).toBe(mode === "custom")
+  })
+
   it("renders product landings as text and preserves component syntax in code examples", () => {
     const example = ':::product-feature-item{title="Example" to="/docs/example"}\nExample description.\n:::'
     const raw = convert([

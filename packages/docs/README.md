@@ -177,7 +177,7 @@ Every page has a Markdown copy for coding agents. You get these routes with no s
 | `/mcp` | An MCP server with the `list-pages` and `get-page` tools. |
 | `/.well-known/skills/<name>/SKILL.md` | Agent Skills from the `skills/` folder of the app, when it has one. |
 
-Product landing components become plain Markdown, with the hero tagline, hosts, linked feature titles, and descriptions. Component syntax inside code examples stays literal.
+Product landing components become plain Markdown, with the hero tagline, hosts, channels, linked feature titles, and descriptions. Component syntax inside code examples stays literal.
 
 `::agent-only` content shows only to agents. The site renders nothing for it, and search skips it. Use `rawMarkdown` to expand your own components into plain Markdown in the agent copy. Each page header links to its Markdown copy and opens it in ChatGPT or Claude.
 

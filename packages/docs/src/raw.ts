@@ -836,7 +836,14 @@ function directiveLabel(name: string, attributes: string | undefined) {
   if (name === "product-hero") {
     const tagline = attributes?.match(/\btagline=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
     const hosts = attributes?.match(/\bhosts=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
-    return [tagline, hosts ? `Hosts: ${hosts}.` : ""].filter(Boolean).join("\n\n");
+    const channels = attributes?.match(/\bchannels=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
+    const customChannels = /\bchannel(?:-mode|Mode)=(?:"custom"|'custom')/.test(attributes || "");
+    return [
+      tagline,
+      hosts ? `Hosts: ${hosts}.` : "",
+      channels ? `${customChannels ? "Example connectors" : "Built-in channels"}: ${channels}.` : "",
+      channels && customChannels ? "You write each connector. Use Agent Channels for built-in chat integrations." : "",
+    ].filter(Boolean).join("\n\n");
   }
 
   if (["note", "tip", "warning", "important"].includes(name)) {
