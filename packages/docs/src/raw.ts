@@ -813,6 +813,10 @@ const presentationDirectives = new Set([
   "component-preview",
   "important",
   "note",
+  "product-hero",
+  "product-files",
+  "product-features",
+  "product-feature-item",
   "steps",
   "tabs",
   "tabs-item",
@@ -823,6 +827,18 @@ const presentationDirectives = new Set([
 ]);
 
 function directiveLabel(name: string, attributes: string | undefined) {
+  if (name === "product-feature-item") {
+    const title = attributes?.match(/\btitle=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
+    const to = attributes?.match(/\bto=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
+    return title ? `### ${to ? `[${title}](${to})` : title}` : "";
+  }
+
+  if (name === "product-hero") {
+    const tagline = attributes?.match(/\btagline=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
+    const hosts = attributes?.match(/\bhosts=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
+    return [tagline, hosts ? `Hosts: ${hosts}.` : ""].filter(Boolean).join("\n\n");
+  }
+
   if (["note", "tip", "warning", "important"].includes(name)) {
     return `> **${name[0]!.toUpperCase()}${name.slice(1)}**`;
   }
