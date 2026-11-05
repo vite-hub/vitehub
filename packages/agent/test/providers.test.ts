@@ -172,8 +172,10 @@ function createTestChatAdapter(
         return Response.json({ ok: false }, { status: 401 })
       }
       // SAFETY: The test constructs or validates this value with the asserted boundary shape before inspection.
-      const body = (await request.json().catch(() => undefined)) as { message?: Record<string, unknown>; update_id?: number } | undefined
-      const rawMessage = body?.message
+      const body = (await request.json().catch(() => undefined)) as
+        | { edited_message?: Record<string, unknown>; message?: Record<string, unknown>; previous_message?: { isMention?: boolean }; update_id?: number }
+        | undefined
+      const rawMessage = body?.message ?? body?.edited_message
       if (!rawMessage || !chatInstance) {
         return Response.json({ ignored: true, ok: true })
       }
@@ -294,6 +296,12 @@ function createTestChatAdapter(
       if (options.missingIncomingMessageId) {
         Reflect.deleteProperty(message, "id")
         if (options.bypassIdLessMessageDedupe) adapter.name = `telegram-id-less-${++idLessMessageSequence}`
+      }
+      if (body?.edited_message) {
+        const previousMessage = body.previous_message ? Message.fromJSON({ ...message.toJSON(), isMention: body.previous_message.isMention === true }) : undefined
+        // SAFETY: createTestChatAdapter implements the Adapter methods exercised by ChatInstance.
+        await chatInstance.processMessageUpdated({ adapter: adapter as unknown as Adapter, message, previousMessage, threadId: message.threadId }, webhookOptions)
+        return Response.json({ ok: true })
       }
       cacheMessage(message)
       const adapterBoundary: unknown = adapter
@@ -6231,6 +6239,98 @@ describe("server helpers", () => {
       await handler(request(2104, 789, false, true), "telegram", options)
       expect(run).toHaveBeenCalledTimes(replyToSubscribedThreads ? 2 : 1)
       expect(deliveryKinds).toEqual(replyToSubscribedThreads ? ["mention", "subscribed"] : ["mention"])
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it.each(["serial", "steer"] as const)("starts work when an edit adds the first mention with %s concurrency", async (concurrency) => {
+    const { readAgentChannelDeliveries } = await import("../src/internal/channel-delivery.ts")
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-edit-mentions-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => "accepted")
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture omits host-only context that these routes do not inspect.
+      defineAgent({
+        messages: { concurrency, state, stream: false, triggerHistory: "none" },
+        channels: { telegram: testTelegram(telegram, { adapter: () => adapter as never }) },
+        driver: { run },
+      }) as never,
+    )
+    let updateId = 2300
+    const request = (kind: "edited_message" | "message", messageId: number, isMention: boolean, previousIsMention?: boolean) =>
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: ++updateId,
+          [kind]: { chat: { id: 792, type: "group" }, from: { id: 123, username: "maxi" }, isMention, message_id: messageId, text: "hello" },
+          ...previousIsMention === undefined ? {} : { previous_message: { isMention: previousIsMention } },
+        }),
+        method: "POST",
+      })
+    const options = { agentName: "support" }
+    const statuses = async () => (await readAgentChannelDeliveries(state)).map(delivery => [delivery.sourceId, delivery.status])
+    try {
+      await handler(request("message", 3001, false), "telegram", options)
+      await handler(request("edited_message", 3001, true), "telegram", options)
+      expect(run).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledWith("telegram:792", expect.anything())
+
+      // Another edit that keeps the mention, an edit without one, an edit of a message that had one from the start,
+      // and an edit whose previous version the platform reports as mentioned.
+      await handler(request("edited_message", 3001, true), "telegram", options)
+      await handler(request("edited_message", 3002, false), "telegram", options)
+      await handler(request("message", 3003, true), "telegram", options)
+      await handler(request("edited_message", 3003, true), "telegram", options)
+      await handler(request("edited_message", 3004, true, true), "telegram", options)
+      expect(run).toHaveBeenCalledTimes(2)
+      expect(Object.fromEntries(await statuses())).toMatchObject({ 2303: "rejected", 2304: "rejected", 2306: "rejected", 2307: "rejected" })
+    } finally {
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
+  })
+
+  it("claims the mentions of every message Chat batches into one delivery", async () => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-edit-mention-batch-"))
+    const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
+    const adapter = createTestChatAdapter({ isDM: false })
+    const run = vi.fn(() => "accepted")
+    const handler = createChannelWebhookRouteHandler(
+      // SAFETY: This fixture omits host-only context that these routes do not inspect.
+      defineAgent({
+        messages: { concurrency: "queue", lockScope: "thread", state, stream: false, triggerHistory: "none" },
+        channels: { telegram: testTelegram(telegram, { adapter: () => adapter as never }) },
+        driver: { run },
+      }) as never,
+    )
+    let updateId = 2400
+    const request = (kind: "edited_message" | "message", messageId: number, isMention: boolean) =>
+      new Request("https://example.com/api/_vitehub/agents/support/webhooks/telegram", {
+        body: JSON.stringify({
+          update_id: ++updateId,
+          [kind]: { chat: { id: 793, type: "group" }, from: { id: 123, username: "maxi" }, isMention, message_id: messageId, text: "hello" },
+        }),
+        method: "POST",
+      })
+    const options = { agentName: "support" }
+    try {
+      await state.connect()
+      const lock = await state.acquireLock("telegram:793", 60_000)
+      if (!lock) throw new Error("Expected the test lock to be acquired.")
+      // Queued behind the lock, then drained as one delivery for 3102 that skips the mentioned 3101.
+      await handler(request("message", 3101, true), "telegram", options)
+      await handler(request("message", 3102, false), "telegram", options)
+      await state.releaseLock(lock)
+      await handler(request("message", 3103, false), "telegram", options)
+      const runs = run.mock.calls.length
+      expect(runs).toBeGreaterThan(0)
+
+      await handler(request("edited_message", 3101, true), "telegram", options)
+      expect(run).toHaveBeenCalledTimes(runs)
+      await handler(request("edited_message", 3102, true), "telegram", options)
+      expect(run).toHaveBeenCalledTimes(runs + 1)
     } finally {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
