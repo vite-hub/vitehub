@@ -203,7 +203,7 @@ ViteHub MCP accepts the Console session, so it needs no sign-in or token. Each r
 Without a token, the Console first connects without credentials. When the server answers `401`, the Console starts the [MCP authorization flow](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization):
 
 1. It reads the protected resource metadata that the `WWW-Authenticate` header names. Then it reads the metadata of the authorization server, with RFC 8414 or OpenID Connect discovery.
-2. It registers one public client through dynamic client registration (RFC 7591). All connections to that authorization server use this client.
+2. It registers a public client through dynamic client registration (RFC 7591) and reuses registrations for the same MCP resource and callback URL. Each connection keeps the registration used for its sign-in, including when first sign-ins overlap.
 3. The browser opens the authorization URL with PKCE `S256`, `state`, and `resource` (RFC 8707). The authorization server sends the browser back to `/_vitehub/mcp-client/callback`, and the Console exchanges the code on the server. The Console checks any supplied `iss` (RFC 9207) against discovery and requires it when the authorization server advertises support.
    The scope is the one that the `401` asked for, else the scopes of the protected resource metadata. When the authorization server lists `offline_access`, the Console adds it to the registration and to the sign-in, so the server can issue a refresh token. OpenID Connect then asks for consent at each sign-in (`prompt=consent`).
 4. When the MCP server rejects an access token, the Console uses the refresh token if it has one. Otherwise the connection shows **Signed out**, and **Sign in again** starts a new sign-in.
@@ -516,6 +516,16 @@ The ViteHub tools pill shows at the bottom of the app's pages for people that th
 With `auth: 'app'`, sign in to the app and open any page: the pill is there. You do not have to open `/_vitehub` first. It also shows when you open the Console, or a page with the `?vitehub` query.
 
 The button uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the pill. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows it. With the development default, the Console and its button exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, removes the pill until you open the Console, use `?vitehub`, or sign in again. The ViteHub mark at the start of the pill collapses it to a small hexagon 2px from the edge of the screen, and the browser keeps it collapsed on the next pages until you select the mark again. Open windows and comment mode stay as they are. Drag the mark to dock the pill to another edge of the screen: top, right, bottom, or left, at the place where you release it. On the left and right edges the buttons stack, and windows open from the edge where the pill docks. The browser remembers the place on the next pages.
+
+#### Keep the pill off your own toolbar
+
+A page that has its own bar where the pill docks, such as a review toolbar at the bottom center, can ask the pill to step aside. Set `data-vitehub-pill="mark"` on `<html>`: the pill folds to the ViteHub mark and moves to the nearer end of the bottom edge, so the bottom center stays the page's. Remove the attribute and the pill comes back as the person left it. In Nuxt, set it from the page or the component that draws the bar:
+
+```ts
+useHead({ htmlAttrs: { 'data-vitehub-pill': 'mark' } })
+```
+
+The attribute is in the server-rendered page and follows client-side navigation, so the pill never covers the bar, even on the first paint. Pressing the mark, or turning the tools on from the small mark that **×** leaves, opens the pill until the page removes the attribute. The person's own choices stay as they were: the attribute does not change whether the pill is collapsed on other pages, nor where it docks. On the other edges the mark folds in place: the ends of the top edge are where pages keep their back button and menus.
 
 Every HTML page of the app has a short inline script, the page tools bootstrap. It is in server-rendered pages and in prerendered pages, so it also works when a host serves the pages as static files, such as Cloudflare Workers static assets in front of the Worker. The bootstrap reads the URL and two cookies, and loads the page tools loader only when it finds one of these hints:
 

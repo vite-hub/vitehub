@@ -43,6 +43,7 @@ const templateUri = ref("");
 const runAs = ref<string[]>([props.connection.id]);
 const results = ref<Record<string, Result>>({});
 let request: AbortController | undefined;
+const maximumListPages = 1_000;
 
 const nouns = { prompts: "prompts", resources: "resources", tools: "tools" } as const;
 const action = computed(() => ({ prompts: "Get prompt", resources: "Read", tools: "Run" })[props.kind]);
@@ -88,18 +89,23 @@ async function load(): Promise<void> {
   try {
     const pages = async (kind: ConsoleMcpListKind) => {
       const all: Item[] = [];
+      const cursors = new Set<string>();
       let cursor: string | undefined;
-      // Servers page long lists. Ten pages cover any list a person reads here.
-      for (let page = 0; page < 10; page++) {
+      for (let page = 0; page < maximumListPages && !controller.signal.aborted; page++) {
         const response = await requestConsoleMcp(props.base, "mcp-client.items", { id: props.connection.id, kind, ...(cursor ? { cursor } : {}) }, controller.signal);
         all.push(...response.items);
         emit("connection", response.connection);
         cursor = response.nextCursor;
         if (!cursor) break;
+        if (cursors.has(cursor)) throw new Error("The server returned a repeated pagination cursor. It could not finish the list.");
+        cursors.add(cursor);
+        if (page + 1 === maximumListPages) throw new Error("The server returned more than 1,000 pages. It could not finish the list.");
       }
       return all;
     };
-    const [list, templateList] = await Promise.all([pages(props.kind), props.kind === "resources" ? pages("resource-templates") : Promise.resolve([])]);
+    // Both lists use one grant. Finish one before the other can rotate its refresh token.
+    const list = await pages(props.kind);
+    const templateList = props.kind === "resources" && !controller.signal.aborted ? await pages("resource-templates") : [];
     if (controller.signal.aborted) return;
     items.value = list;
     templates.value = templateList;

@@ -133,6 +133,12 @@ export function agentChannelDeliverySourceId(provider: string, payload: unknown)
     record.activity && isRuntimeObject(record.activity) && !Array.isArray(record.activity) ? (record.activity as Record<string, unknown>) : undefined
   // SAFETY: The owning Agent runtime boundary establishes the asserted representation before this value is used.
   const event = record.event && isRuntimeObject(record.event) && !Array.isArray(record.event) ? (record.event as Record<string, unknown>) : undefined
+  if (provider === "teams" && record.type === "messageUpdate") {
+    // An edit keeps the id of the message. Its timestamp tells edits apart and repeats when Teams redelivers one.
+    const id = agentChannelDeliverySourceValue(record.id)
+    const timestamp = agentChannelDeliverySourceValue(record.timestamp)
+    return id && timestamp ? `${id}:update:${timestamp}` : undefined
+  }
   return (
     agentChannelDeliverySourceValue(record.event_id) ||
     agentChannelDeliverySourceValue(record.update_id) ||

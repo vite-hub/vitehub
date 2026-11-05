@@ -68,7 +68,7 @@ export const viteHubPageSessionPath = "/_vitehub/page/session"
  * The URL of the loader script, below the app base. Its version query changes when the loader changes, so caches keep
  * it 5 minutes.
  */
-export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=16"
+export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=17"
 
 /**
  * The buttons of the pill and of each tool's segment. The pill is always the dark review toolbar of Drop, so it reads
@@ -85,6 +85,15 @@ button:focus-visible{outline:2px solid var(--vitehub-pill-on);outline-offset:1px
 button svg{width:14px;height:14px;flex:none}
 @media(any-pointer:coarse){button{min-width:44px;height:44px}}
 @media(prefers-reduced-motion:reduce){button{transition:none}}`
+
+/**
+ * The attribute that a page sets on `<html>` while it has its own bar where the pill docks, such as a review toolbar at
+ * the bottom of the screen. With the value `mark`, the pill folds to the ViteHub mark, and on the bottom edge it moves to
+ * the nearer end. The pill comes back when the page removes the attribute, so a single-page app can set it per route. The
+ * person's own choices stay as they were: pressing the mark, or turning the tools on from the off mark, opens the pill
+ * on that page only.
+ */
+export const viteHubPillAttribute = "data-vitehub-pill"
 
 /** The attribute of the script that loads the page tools. A page that has it does not get a second one. */
 export const viteHubPageToolsMarker = "data-vitehub-page-tools"

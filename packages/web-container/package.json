@@ -64,8 +64,7 @@
   },
   "dependencies": {
     "@msgpack/msgpack": "catalog:browser",
-    "@webcontainer/api": "catalog:browser",
-    "@webcontainer/env": "catalog:browser"
+    "@webcontainer/api": "catalog:browser"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
