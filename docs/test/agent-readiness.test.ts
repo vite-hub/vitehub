@@ -44,7 +44,7 @@ describe("agent-ready HTTP contracts", () => {
 
     expect(docsModule).toContain('addServerHandler({ route: "/raw/**", method: "get", handler: resolver.resolve("./runtime/server/raw.js") })');
     expect(docsModule).toContain('{ baseName: "docs-raw", dir: rawDir }');
-    expect(docsModule).toContain("toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl: `${config.site.url}${config.appBase.replace(/\\/+$/, \"\")}`, pagePath: page.path })");
+    expect(docsModule).toContain("toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl, pagePath: page.path }) + docsRawSectionLinks(snapshot, page.path, siteUrl)");
   });
 
   it("derives Capability references from the real model-facing tools", async () => {

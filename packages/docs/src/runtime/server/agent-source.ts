@@ -2,7 +2,7 @@ import { useRuntimeConfig, useStorage } from "#imports"
 
 import type { H3Event } from "h3"
 import manifest from "#docs/manifest"
-import { docsAppPath, docsManifestPages, docsRawFile, findDocsPage, isDocsPath } from "../../navigation.ts"
+import { docsAppPath, docsManifestPages, docsRawFile, docsRawSectionLinksMarker, findDocsPage, isDocsPath } from "../../navigation.ts"
 
 import type { DocsPublicConfig } from "../../nuxt.ts"
 
@@ -20,7 +20,8 @@ interface AgentContentSource {
 
 /**
  * The pages that nuxt-agent-discovery lists in `sitemap.md` and `llms.txt` and joins into `llms-full.txt`. Each page
- * is its `/raw` copy, so every agent path reads the same text.
+ * is its `/raw` copy, so every agent path reads the same text. `llms-full.txt` already holds every page, so the copy
+ * leaves out the section links at the end.
  */
 const source: AgentContentSource = {
   list() {
@@ -42,7 +43,10 @@ const source: AgentContentSource = {
     const found = findDocsPage(manifest, path)
     if (!found) return null
     const markdown = await useStorage("assets:docs-raw").getItem<string>(docsRawFile(found.page.path))
-    return markdown === null ? null : { markdown: String(markdown), title: found.page.sourceTitle, description: found.page.description ?? undefined }
+    if (markdown === null) return null
+    const text = String(markdown)
+    const footerIndex = text.lastIndexOf(docsRawSectionLinksMarker)
+    return { markdown: footerIndex < 0 ? text : text.slice(0, footerIndex), title: found.page.sourceTitle, description: found.page.description ?? undefined }
   },
 }
 
