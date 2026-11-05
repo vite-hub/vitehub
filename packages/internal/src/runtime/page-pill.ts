@@ -58,11 +58,14 @@ div{position:relative;box-sizing:border-box;max-width:calc(100vw - 32px);max-hei
 :host(:is([edge=left],[edge=right])) ::slotted(*){align-items:stretch}
 ::slotted([hidden]){display:none!important}
 :host([collapsed]) ::slotted(*),:host([collapsed]) .exit{opacity:0;visibility:hidden}
-.tabs{position:absolute;display:flex;gap:4px;pointer-events:none}
-:host([edge=bottom]) .tabs{bottom:100%;left:50%;translate:-50% 0;align-items:flex-end}
-:host([edge=top]) .tabs{top:100%;left:50%;translate:-50% 0;align-items:flex-start}
-:host([edge=left]) .tabs{left:100%;top:50%;translate:0 -50%;flex-direction:column;align-items:flex-start}
-:host([edge=right]) .tabs{right:100%;top:50%;translate:0 -50%;flex-direction:column;align-items:flex-end}
+.tabs{position:absolute;display:flex;width:max-content;height:max-content;max-width:calc(100vw - max(16px,var(--safe-left)) - max(16px,var(--safe-right)));max-height:calc(100dvh - max(16px,var(--safe-top)) - max(16px,var(--safe-bottom)));gap:4px;overflow:auto;pointer-events:auto}
+:host([collapsed]) .tabs{visibility:hidden}
+:host(:is([edge=top],[edge=bottom])) .tabs{left:calc(var(--at) * 1%);translate:calc(var(--at) * -1%) 0;max-height:calc(100dvh - max(16px,var(--safe-top)) - max(16px,var(--safe-bottom)) - 100%)}
+:host(:is([edge=left],[edge=right])) .tabs{top:calc(var(--at) * 1%);translate:0 calc(var(--at) * -1%);max-width:calc(100vw - max(16px,var(--safe-left)) - max(16px,var(--safe-right)) - 100%);flex-direction:column}
+:host([edge=bottom]) .tabs{bottom:100%;align-items:safe flex-end}
+:host([edge=top]) .tabs{top:100%;align-items:flex-start}
+:host([edge=left]) .tabs{left:100%;align-items:flex-start}
+:host([edge=right]) .tabs{right:100%;align-items:safe flex-end}
 ::slotted([slot=tab]){flex-direction:row;padding:3px;border:1px solid var(--vitehub-pill-line);background:rgb(17 17 17/92%);pointer-events:auto}
 :host([edge=bottom]) ::slotted([slot=tab]){border-bottom:0;border-radius:10px 10px 0 0}
 :host([edge=top]) ::slotted([slot=tab]){border-top:0;border-radius:0 0 10px 10px}
@@ -247,6 +250,7 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   toolbar.append(mark, ...button ? [button] : [])
   // Tabs stand on the bar's inner side, outside its clip, like a tab on top of a chat box. Each one is a child of the
   // pill with `slot="tab"`. They come before the bar, so a tab that grows in comes out from under it.
+  // Align the same dock percentage of the tabs and bar, so even a larger tab stays inside the viewport's safe margins.
   const tabs = document.createElement("slot")
   tabs.name = "tab"
   tabs.className = "tabs"
