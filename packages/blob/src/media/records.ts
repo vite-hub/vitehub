@@ -1,4 +1,5 @@
 // Media records: per-object metadata stored as JSON sidecars in the same Blob Store, plus folders and image variants.
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { createError } from "h3"
 
 import { ensureBlob } from "../ensure.ts"
@@ -551,7 +552,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       const formKey = options.formKey ?? "files"
       let form: FormData
       try {
-        form = await event.req.formData()
+        form = await getStandardContext(event).req.formData()
       }
       catch {
         throw createError({ statusCode: 400, message: "Expected a multipart/form-data request body." })

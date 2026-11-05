@@ -1,3 +1,4 @@
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { createError } from "h3"
 
 import { isPlainObject } from "@vite-hub/internal/object"
@@ -42,17 +43,17 @@ function uploadedFileName(file: File): string {
   return encodeURIComponent(file.name.split(/[\\/]/).pop() || "file")
 }
 
-async function readForm(event: BlobUploadEvent): Promise<FormData> {
+async function readForm(request: Request): Promise<FormData> {
   try {
-    return await event.req.formData()
+    return await request.formData()
   }
   catch {
     throw badRequest("Expected a multipart/form-data request body.")
   }
 }
 
-async function readJson(event: BlobUploadEvent): Promise<Record<string, unknown>> {
-  const text = await event.req.text()
+async function readJson(request: Request): Promise<Record<string, unknown>> {
+  const text = await request.text()
   if (!text) return {}
   let value: unknown
   try {
@@ -102,7 +103,7 @@ export async function handleBlobUpload(
   options: BlobUploadOptions = {},
 ): Promise<BlobResult<BlobObject[]>> {
   const formKey = options.formKey ?? "files"
-  const form = await readForm(event)
+  const form = await readForm(getStandardContext(event).req)
   const files = form.getAll(formKey).filter((value): value is File => value instanceof File)
   if (!files.length) throw badRequest(`No files in form field "${formKey}".`)
   if (options.multiple === false && files.length > 1) throw badRequest(`Form field "${formKey}" accepts one file.`)
@@ -133,12 +134,13 @@ export async function handleBlobMultipartUpload(
     throw badRequest(`Unknown multipart action "${action ?? ""}". Expected create, upload, complete, or abort.`)
   }
   if (!pathname) throw badRequest("Missing `pathname` route param.")
-  if (event.req.method !== multipartMethods[action]) {
+  const request = getStandardContext(event).req
+  if (request.method !== multipartMethods[action]) {
     throw createError({ statusCode: 405, message: `The ${action} action requires ${multipartMethods[action]}.` })
   }
 
   if (action === "create") {
-    const body = await readJson(event)
+    const body = await readJson(request)
     const contentType = typeof body.contentType === "string" ? body.contentType : undefined
     const [error, upload] = await storage.createMultipartUpload(pathname, {
       ...options.create,
@@ -148,12 +150,12 @@ export async function handleBlobMultipartUpload(
     return [null, { action, pathname: upload.pathname, uploadId: upload.uploadId }]
   }
 
-  const url = new URL(event.req.url)
+  const url = new URL(request.url)
   const uploadId = requireQuery(url, "uploadId")
   let completionParts: BlobMultipartPart[] | undefined
   let completionBody: Record<string, unknown> | undefined
   if (action === "complete") {
-    completionBody = await readJson(event)
+    completionBody = await readJson(request)
     if (Object.hasOwn(completionBody, "parts")) completionParts = readParts(completionBody.parts)
   }
   const [resumeError, upload] = await storage.resumeMultipartUpload(pathname, uploadId)
@@ -163,7 +165,7 @@ export async function handleBlobMultipartUpload(
     const partNumber = Number(requireQuery(url, "partNumber"))
     if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10_000) throw badRequest("`partNumber` must be an integer from 1 to 10000.")
     // Read the part into memory: R2 rejects streams without a known length.
-    const [error, part] = await upload.uploadPart(partNumber, await event.req.arrayBuffer())
+    const [error, part] = await upload.uploadPart(partNumber, await request.arrayBuffer())
     return error ? [error, undefined] : [null, { action, part }]
   }
   if (action === "complete") {

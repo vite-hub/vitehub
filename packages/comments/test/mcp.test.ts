@@ -9,7 +9,7 @@ import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { ada, anchor, createComments } from "./harness.ts"
 
-import type { DefineCommentsOptions } from "../src/types.ts"
+import type { CommentsIdentifyContext, DefineCommentsOptions } from "../src/types.ts"
 import type { H3Event } from "h3"
 
 function event(headers: Record<string, string> = {}): H3Event {
@@ -174,7 +174,7 @@ describe("Comments MCP tools", () => {
   it("uses the configured Comments identity ahead of the Console user", async () => {
     const seen: unknown[] = []
     const comments = await createComments({
-      identify: ({ event }) => event.req.headers.get("x-person") === "ada" ? ada : null,
+      identify: ({ event }) => event["~standard"].req.headers.get("x-person") === "ada" ? ada : null,
       authorize: ({ user }) => { seen.push(user); return Boolean(user) },
     })
     const tool = commentsMcpTools(comments)[0]!
@@ -189,7 +189,7 @@ describe("Comments MCP tools", () => {
 
   it("uses the checked custom-server user without a request event", async () => {
     const seen: unknown[] = []
-    const identify = vi.fn(({ event }: { event: H3Event }) => event.req.headers.get("x-person") === "ada" ? ada : null)
+    const identify = vi.fn(({ event }: CommentsIdentifyContext) => event["~standard"].req.headers.get("x-person") === "ada" ? ada : null)
     const session = vi.fn(async () => ada)
     const comments = await createComments({
       identify,

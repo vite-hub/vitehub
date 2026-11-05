@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createDriver } from "../src/drivers/fs.ts"
 import { createSharpImageTransformer } from "../src/media/transformers.ts"
 import { createBlobStorage } from "../src/storage.ts"
+import { h3V1Event } from "./h3-v1-event.ts"
 import type { BlobImageOperation, BlobImageTransformer } from "../src/media/types.ts"
 import type { BlobResult, BlobStorage } from "../src/types.ts"
 
@@ -95,12 +96,22 @@ describe("media records on the fs driver", () => {
     expect(copy).toMatchObject({ hash: first.hash, pathname: "b/two.jpg" })
   })
 
+  it("stores the uploads of a Nuxt 4 event, whose `req` is the Node request", async () => {
+    const form = new FormData()
+    form.append("files", new File([await photo(16, 16)], "photo.jpg", { type: "image/jpeg" }))
+    const event = await h3V1Event(new Request("https://example.test/upload", { body: form, method: "POST" }))
+
+    const [record] = ok(await storage.media.handleUpload(event, { folder: "uploads" }))
+
+    expect(record).toMatchObject({ height: 16, pathname: "uploads/photo.jpg", width: 16 })
+  })
+
   it("dedupes multipart uploads into a folder by default", async () => {
     const bytes = await photo(32, 32)
     const upload = async () => {
       const form = new FormData()
       form.append("files", new File([bytes], "../photo.jpg", { type: "image/jpeg" }))
-      return ok(await storage.media.handleUpload({ req: new Request("https://example.test/upload", { body: form, method: "POST" }) }, { folder: "uploads/2026" }))
+      return ok(await storage.media.handleUpload(new H3Event(new Request("https://example.test/upload", { body: form, method: "POST" })), { folder: "uploads/2026" }))
     }
     const [first] = await upload()
     const [second] = await upload()

@@ -14,7 +14,7 @@ interface RequestEvent {
     readonly vendor: string
     readonly req: Request
     readonly res: { headers?: Headers, status?: number }
-    readonly runtime?: { cloudflare?: { context?: { waitUntil?: (promise: Promise<unknown>) => void }, env: Record<string, unknown> }, clientAddress?: string }
+    readonly runtime?: { cloudflare?: { context?: { waitUntil?: (promise: Promise<unknown>) => void }, env?: Record<string, unknown> }, clientAddress?: string }
     readonly waitUntil?: (promise: Promise<unknown>) => void
   }
 }

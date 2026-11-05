@@ -10,7 +10,7 @@ import { commentsConsoleSession } from "../src/runtime/console-session.ts"
 import { anchor, createComments } from "./harness.ts"
 
 import type { CommentsContent, CommentsHandlerOptions } from "../src/runtime/handler.ts"
-import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
+import type { CommentsIdentifyContext, CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 
 const origin = "http://site.test"
 
@@ -229,8 +229,8 @@ describe("Comments API", () => {
 
     /** Drop's shape: members by session, share-link readers by token, guests by name, strangers signed in but not shared with. */
     async function app() {
-      const identify = ({ event }: { event: { req: Request } }): Person | null => {
-        const who = event.req.headers.get("x-test-person")
+      const identify = ({ event }: CommentsIdentifyContext): Person | null => {
+        const who = event["~standard"].req.headers.get("x-test-person")
         if (who === "member") return { id: "member", name: "Member", role: "member" }
         if (who === "share") return { id: "share:abc", share: "abc" }
         if (who === "stranger") return { id: "stranger", name: "Stranger" }
