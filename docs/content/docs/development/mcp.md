@@ -117,6 +117,8 @@ To try the tools as yourself, open the Console's [MCP client](/docs/development/
 
 ### Set up OAuth
 
+This section covers the Console endpoint. An app with its own MCP server, such as `/mcp`, signs its clients in with [`mcpOAuth()`](/docs/auth/configure#sign-mcp-clients-in) from `vite-hub/auth/mcp`.
+
 The authorization server is Better Auth. A Console Auth that ViteHub generates (inline GitHub, or `vitehub/console/auth/server.ts` with `defineConsoleAuth()`) already has the `jwt()` and `oauthProvider()` plugins. The sign-in page of the Console is also the login and consent page of the flow. A Console Auth with `migrate: false` manages its own schema, so it adds the plugins itself. ViteHub preserves a supplied OAuth provider and adds a registration hook that recognizes MCP clients' loopback redirects, including with `migrate: false`.
 
 A bearer token still runs the Console Auth `authorize` callback with the verified user, followed by `console.authorize`. With `console.auth: 'app'`, it also runs every matching app Auth access route’s `authorize` callback. It has no browser session, so these callbacks receive an empty `session` object. Tokens authenticate only the exact mounted MCP endpoint; other routes continue to require a session.

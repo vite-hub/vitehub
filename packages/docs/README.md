@@ -54,6 +54,9 @@ The module reads the folder at build time. In development it watches the folder:
 | --- | --- | --- |
 | `title` | Required | Page heading and browser title. |
 | `description` | None | Text under the heading, the meta description, and the llms.txt entry. |
+| `tagline` | `description` | Text under the heading, when it must differ from the meta description. |
+| `credits` | None | Inline Markdown at the end of the page, such as `Icons from [Lucide](https://lucide.dev).` |
+| `keywords` | None | Words that find the page in search besides its own text: a list, or one string with commas. They rank below the page title and with headings. |
 | `icon` | `i-lucide-file-text` | Sidebar icon, as an Iconify name. |
 | `layout` | `article` | `article`, `tutorial`, `landing`, or `home`. |
 | `sidebar` | `true` | `false` hides the left navigation on this page. |

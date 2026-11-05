@@ -485,14 +485,15 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       ]
     }
 
-    // Nuxt types `nitro:config` only when Nitro's types load.
-    Reflect.apply(nuxt.hook, nuxt, ["nitro:config", (nitro: NitroOptions) => {
-      // The link checker passes links to redirect rules, so a build checks that each redirect leads to a page. Every
-      // module has added its rules by now.
+    // Nuxt types Nitro hooks only when Nitro's types load.
+    Reflect.apply(nuxt.hook, nuxt, ["nitro:init", (nitro: { options: NitroOptions }) => {
+      // All nitro:config hooks have run, including those registered by modules installed after the docs module.
       if (options.linkChecker !== false && !nuxt.options.dev && !Reflect.get(nuxt.options, "_prepare")) {
-        const problems = docsRedirectProblems(manifest, docsRedirects(nitro.routeRules ?? {}))
+        const problems = docsRedirectProblems(manifest, docsRedirects(nitro.options.routeRules ?? {}))
         if (problems.length) throw new DocsRedirectError(problems)
       }
+    }])
+    Reflect.apply(nuxt.hook, nuxt, ["nitro:config", (nitro: NitroOptions) => {
       if (config.appBase !== "/") {
         // Discovery builds its default resource registry after all modules load. Its Link headers and public resource
         // links are browser URLs, unlike Nitro's route keys, so prefix the generated registry here too.
