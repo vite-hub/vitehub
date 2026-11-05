@@ -99,7 +99,9 @@ async function load(): Promise<void> {
       }
       return all;
     };
-    const [list, templateList] = await Promise.all([pages(props.kind), props.kind === "resources" ? pages("resource-templates") : Promise.resolve([])]);
+    // Both lists use one grant. Finish one before the other can rotate its refresh token.
+    const list = await pages(props.kind);
+    const templateList = props.kind === "resources" && !controller.signal.aborted ? await pages("resource-templates") : [];
     if (controller.signal.aborted) return;
     items.value = list;
     templates.value = templateList;

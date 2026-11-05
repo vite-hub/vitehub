@@ -59,7 +59,7 @@ interface StoredConnection {
 }
 
 interface ConsoleMcpState {
-  /** Registered OAuth clients, by authorization server and redirect URL. One registration serves every person. */
+  /** Registered OAuth clients, by authorization server, redirect URL, and resource. One registration serves every person of that resource. */
   clients: Map<string, OAuthClientInformationMixed>
   connections: Map<string, StoredConnection>
   discovered: Map<string, { at: number, servers: ConsoleMcpCandidate[] }>
@@ -212,7 +212,7 @@ async function readIdentity(connection: StoredConnection): Promise<ConsoleMcpIde
 
 function clientKey(connection: StoredConnection): string {
   const oauth = connection.oauth!
-  return `${oauth.discovery?.authorizationServerUrl ?? new URL(connection.url).origin}\n${oauth.redirectUrl}`
+  return `${oauth.discovery?.authorizationServerUrl ?? new URL(connection.url).origin}\n${oauth.redirectUrl}\n${connection.url}`
 }
 
 /**
@@ -257,9 +257,10 @@ function oauthProvider(connection: StoredConnection, onAuthorize?: () => void): 
       if (credentials === "all" || credentials === "discovery") oauth.discovery = undefined
     },
     redirectToAuthorization: (url) => {
+      const validated = serverUrl(url.href, connection.consoleOrigin)
       const current = pending()
-      if (current.prompt) url.searchParams.set("prompt", [current.prompt, ...(url.searchParams.get("prompt")?.split(" ") ?? [])].filter((value, index, all) => all.indexOf(value) === index).join(" "))
-      current.url = url
+      if (current.prompt) validated.searchParams.set("prompt", [current.prompt, ...(validated.searchParams.get("prompt")?.split(" ") ?? [])].filter((value, index, all) => all.indexOf(value) === index).join(" "))
+      current.url = validated
     },
     saveClientInformation: (information) => {
       clients.set(clientKey(connection), information)
@@ -580,8 +581,9 @@ export async function completeConsoleMcp(caller: ConsoleMcpCaller, input: { code
     throw consoleRequestError(400, connection.error, "CONSOLE_MCP_AUTHORIZATION_FAILED")
   }
   // RFC 9207: require the issuer when advertised, and reject any supplied issuer that differs from discovery.
-  const metadata = oauth.discovery?.authorizationServerMetadata
-  const missingIssuer = metadata !== undefined && "authorization_response_iss_parameter_supported" in metadata && metadata.authorization_response_iss_parameter_supported === true && !input.iss
+  // The SDK's OpenID metadata type omits this RFC 9207 extension.
+  const metadata: Record<string, unknown> = { ...oauth.discovery?.authorizationServerMetadata }
+  const missingIssuer = metadata?.authorization_response_iss_parameter_supported === true && !input.iss
   if (missingIssuer || (input.iss !== undefined && input.iss !== metadata?.issuer)) {
     delete oauth.pending
     connection.status = "failed"

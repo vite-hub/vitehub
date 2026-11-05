@@ -309,6 +309,50 @@ describe("MCP client section", () => {
   })
 
   it.each([
+    "http://external.example/authorize",
+    "https://person:secret@oauth.example/authorize",
+    "https://oauth.example/authorize#fragment",
+  ])("rejects an unsafe authorization endpoint before returning it to the browser: %s", async (endpoint) => {
+    install()
+    const nativeFetch = globalThis.fetch
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input instanceof Request ? input.clone() : input, init)
+      const response = await nativeFetch(input, init)
+      if (request.url === `${origin}/.well-known/oauth-authorization-server`) {
+        return Response.json({ ...await response.json() as Record<string, unknown>, authorization_endpoint: endpoint })
+      }
+      return response
+    })
+    const started = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" })
+    expect(started.failure).toMatchObject({ code: "CONSOLE_MCP_AUTHORIZATION_FAILED" })
+    expect(started.value?.authorizationUrl).toBeUndefined()
+  })
+
+  it("registers separately for two resources with different scopes at the same authorization server", async () => {
+    install()
+    const nativeFetch = globalThis.fetch
+    const registrations: Record<string, unknown>[] = []
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const request = new Request(input instanceof Request ? input.clone() : input, init)
+      if (request.url === `${origin}/register`) registrations.push(await request.json() as Record<string, unknown>)
+      if (request.url === `${origin}/other-mcp`) {
+        return new Response(null, { headers: { "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/other-mcp"` }, status: 401 })
+      }
+      const response = await nativeFetch(input, init)
+      if (request.url === `${origin}/.well-known/oauth-protected-resource/other-mcp`) {
+        return Response.json({ ...await response.json() as Record<string, unknown>, resource: `${origin}/other-mcp`, scopes_supported: ["other:read"] })
+      }
+      return response
+    })
+    const first = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" })
+    const second = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/other-mcp" })
+    expect(first.failure).toBeUndefined()
+    expect(second.failure).toBeUndefined()
+    expect(new URL(second.value.authorizationUrl!).searchParams.get("scope")).toBe("other:read")
+    expect(registrations.map(client => client.scope)).toEqual(["openid profile email", "other:read"])
+  })
+
+  it.each([
     "http://external.example/mcp",
     "https://person:secret@mcp.example/mcp",
     "https://mcp.example/mcp#fragment",
