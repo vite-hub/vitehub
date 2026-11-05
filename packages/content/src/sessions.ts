@@ -1,6 +1,6 @@
 import { ViteHubError } from "@vite-hub/runtime"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { resolveWorkspaceStoreTarget, useWorkspace } from "@vite-hub/workspace"
+import { resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -187,7 +187,7 @@ export function createContentSessions(options: {
   function store(): Promise<SessionStore> {
     storePromise ??= (async () => {
       // SAFETY: Content accepts any Workspace name; the registry rejects unknown names when the facade resolves.
-      const workspace = useWorkspace(options.workspace as never, { mode: "write" })
+      const workspace = useWorkspaceFiles(options.workspace as never, { mode: "write" })
       const target = await resolveWorkspaceStoreTarget(workspace)
       const database: unknown = target && Reflect.get(Object(target), "database")
       if (database === null || Object(database) !== database) {

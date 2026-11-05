@@ -19,6 +19,7 @@ export {
   setWorkspaceRuntimeAssetsRegistry,
   setWorkspaceRuntimeRegistry,
   useWorkspace,
+  useWorkspaceFiles,
 } from "./runtime/state.ts"
 export {
   createWorkspaceSourceResolutionFacade,

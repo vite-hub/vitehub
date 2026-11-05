@@ -8,6 +8,20 @@
 
 `@vite-hub/workspace` gives agents and server code a file-system context they can read, diff, and, when opened in write mode, update.
 
+## File access without Agent tools
+
+Use `useWorkspaceFiles()` for file, history, and Content operations that do not need Agent tools. It accepts the same name, mode, and definition options as `useWorkspace()`, and returns the same facade without `tools`. Its import does not pull the shell interpreter into a Worker.
+
+```ts
+import { useWorkspaceFiles } from "@vite-hub/workspace"
+
+const workspace = useWorkspaceFiles("docs", { mode: "write" })
+await workspace.fs.writeFile("guide.md", "# Guide\n")
+await workspace.history.checkpoint({ message: "Update guide" })
+```
+
+Use `useWorkspace()` when you need `workspace.tools`.
+
 ## Install
 
 ```sh
