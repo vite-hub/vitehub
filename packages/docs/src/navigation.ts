@@ -139,17 +139,15 @@ export function docsHomePath(manifest: DocsManifest): string | null {
 /**
  * Whether the site shows the section rail. A rail of three or fewer items, or of sections without their own icons,
  * shows the same fallback icon several times and carries no information, so the sidebar lists every section instead.
- * The sections of one group count as one item.
+ * The sections of one group count as one item. Only items placed in the rail count.
  */
-export function docsHasRail(manifest: DocsManifest, icons: Pick<DocsIcons, "rail" | "sections">, groups: readonly DocsGroup[] = []): boolean {
+export function docsHasRail(manifest: DocsManifest, icons: Pick<DocsIcons, "rail" | "sections">, groups: readonly DocsGroup[] = [], options: { categories: readonly string[], railExclude: readonly string[] } = { categories: [], railExclude: [] }): boolean {
+  const entries = docsRailEntries(manifest, { ...options, groups }).flat()
   // Each item shows its group's icon, else the icon of its first section, as the rail draws it.
-  const items = new Map<string, string | undefined>()
-  for (const section of manifest.sections) {
-    const group = docsSectionGroup(section, groups)
-    const key = group ?? `section:${section.id}`
-    if (!items.has(key)) items.set(key, (group === null ? undefined : groups.find(candidate => candidate.title === group)?.icon) || section.icon || icons.rail[section.id] || icons.sections[section.id])
-  }
-  return items.size > 3 && [...items.values()].some(Boolean)
+  return entries.length > 3 && entries.some((entry) => {
+    const section = entry.sections[0]!
+    return Boolean(entry.icon || section.icon || icons.rail[section.id] || icons.sections[section.id])
+  })
 }
 
 /** Title of the group of a section: the `groups` entry that lists it, else the `group` of its `.navigation.yml`. */

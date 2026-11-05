@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { DocsSidebarGroup } from "@vite-hub/docs"
 
-import { docsCatalog, docsHasRail, docsRailEntry, docsRelatedSections, docsSectionHome, docsSidebarGroups, docsSidebarSections, normalizeDocsPath } from "#docs/navigation"
+import { docsCatalog, docsHasRail, docsRelatedSections, docsSectionGroup, docsSectionHome, docsSidebarGroups, docsSidebarSections, normalizeDocsPath } from "#docs/navigation"
 
 const route = useRoute()
 const manifest = useDocsManifest()
@@ -16,11 +16,13 @@ const related = computed(() => section.value ? docsRelatedSections(manifest, sec
 // Outside every section, for example on the catalog, the sidebar lists every section by category.
 const catalog = docsCatalog(manifest, categories)
 // A small site has no rail, so the sidebar lists every section with its pages on every page.
-const rail = docsHasRail(manifest, iconOptions, groups)
-// A section of a group lists every section of the group.
+const rail = docsHasRail(manifest, iconOptions, groups, { categories, railExclude })
+// Sidebar membership comes from every manifest section, including groups entirely excluded from the rail.
 const group = computed(() => {
-  const entry = section.value && docsRailEntry(manifest, { categories, railExclude, groups }, section.value)
-  return entry && entry.sections.length > 1 ? entry : null
+  const title = section.value && docsSectionGroup(section.value, groups)
+  if (title === null) return null
+  const sections = manifest.sections.filter(candidate => docsSectionGroup(candidate, groups) === title)
+  return sections.length > 1 ? { title, sections } : null
 })
 const sectionBlocks = computed(() => {
   const sections = rail ? group.value?.sections : manifest.sections
