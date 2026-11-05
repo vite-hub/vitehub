@@ -34,6 +34,12 @@ describe("@vite-hub/content package contract", () => {
     ])
   })
 
+  it("leaves the Markdown preset external for consumer deduplication", async () => {
+    expect(await startupImports("index.js")).toContain("comark-ui/html")
+    const manifest = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"))
+    expect(manifest.dependencies["comark-ui"]).toBeTruthy()
+  })
+
   it("loads Workspace and Database only from the collections entry", async () => {
     const workspaceOrDatabase = (imports: Set<string>) => [...imports].filter(specifier => /^@vite-hub\/(?:workspace|database)(?:\/|$)/.test(specifier))
 

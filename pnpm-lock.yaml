@@ -783,7 +783,7 @@ importers:
         version: 1.15.11
       nuxt:
         specifier: 4.5.2
-        version: 4.5.2(5081650d98949f3a108629c312d6839d)
+        version: 4.5.2(fa26484c2ccbc7991c23814e51596ae2)
       tailwindcss:
         specifier: 4.3.3
         version: 4.3.3
@@ -1672,24 +1672,18 @@ importers:
       comark-content:
         specifier: catalog:markdown-ui
         version: 0.4.3(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd))(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(forges@0.3.1)(ioredis@5.11.1)(katex@0.18.11)(shiki@4.5.0)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1))(tailwindcss@4.3.3))
+      comark-ui:
+        specifier: catalog:markdown-ui
+        version: https://pkg.pr.new/comark-ui@0e2a4fd483dfad175645cec59619cec8d1364156(@comark/html@0.8.1(katex@0.18.11)(shiki@4.5.0))(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/extension-image@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4)))(@tiptap/extension-list@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4))(@tiptap/extension-table@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(@tiptap/starter-kit@3.31.4)(@tiptap/vue-3@3.23.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(vue@3.5.44(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.8.1(katex@0.18.11)(shiki@4.5.0))(katex@0.18.11)(markdown-it@15.0.3)(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
       diff:
         specifier: catalog:runtime
         version: 9.0.0
       h3:
         specifier: catalog:unjs
         version: 2.0.8(crossws@0.4.17(srvx@1.0.8))(ocache@0.3.1)
-      katex:
-        specifier: ^0.18.7
-        version: 0.18.11
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
-      vega-canvas:
-        specifier: ^2.0.0
-        version: 2.0.0
-      vega-loader:
-        specifier: ^5.1.3
-        version: 5.1.3
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
@@ -1715,9 +1709,6 @@ importers:
       '@vite-hub/workspace':
         specifier: workspace:*
         version: link:../workspace
-      comark-ui:
-        specifier: catalog:markdown-ui
-        version: https://pkg.pr.new/comark-ui@0e2a4fd483dfad175645cec59619cec8d1364156(@comark/html@0.8.1(katex@0.18.11)(shiki@4.5.0))(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/extension-image@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4)))(@tiptap/extension-list@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4))(@tiptap/extension-table@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(@tiptap/starter-kit@3.31.4)(@tiptap/vue-3@3.23.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(vue@3.5.44(typescript@6.0.3)))(@types/markdown-it@14.2.0)(comark@0.8.1(katex@0.18.11)(shiki@4.5.0))(katex@0.18.11)(markdown-it@15.0.3)(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
       drizzle-orm:
         specifier: catalog:database
         version: 0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)
@@ -9709,7 +9700,7 @@ packages:
     resolution: {integrity: sha512-V6Mnml8v09QALx6K0elJ7o9K/MkVDtW3t6L+7Ou/JcWtb3xwId2AH4FeOceySd2JaO87IMw4+6vSZxLm34LPbw==}
 
   '@t3tools/contracts@https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822':
-    resolution: {integrity: sha512-LlFE6bvmv5/lhouvR+rnHr5JIcynqdVhL7xor+UK1wToAuF4ahFKaOB996bLjnhGgRzXbv/d+fLnOm8XZNTVkw==, tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822}
+    resolution: {tarball: https://pkg.pr.new/vite-hub/t3code/@t3tools/contracts@ee5848bfdff74af1d14ad9464403d275e47f8822}
     version: 0.0.45
     peerDependencies:
       effect: 4.0.1
@@ -12139,7 +12130,7 @@ packages:
     resolution: {integrity: sha512-Z3UPUKasUVDFCDYAjP2fmlVRf1jFHJv1izAmPjiOa0OCIw1W7iC8PZ2GsoDa8uZv+mKyWopxxStT9q05+27h7w==}
 
   comark-annotate@https://pkg.pr.new/onmax/comark-ui/comark-annotate@0e2a4fd:
-    resolution: {integrity: sha512-xBDjV9n/OKZdw7+y1jWLd5uodbKQ9Sp1Jr9yzbuzUMVaBcjtU8TzecK9T7D8+mdypJyH3mY4EZkQ2Y4QihlJ6w==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-annotate@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-annotate@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     hasBin: true
@@ -12148,7 +12139,7 @@ packages:
       comark: ^0.8.0
 
   comark-badge@https://pkg.pr.new/onmax/comark-ui/comark-badge@0e2a4fd:
-    resolution: {integrity: sha512-WCljJnl+w0PmkvFajRyAN0v9j0iiikIO7IQYERTh0em9xJo2OcK8MdOu9oaAEaVXAQLQSVRAZ6sQfvjehJUGHw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-badge@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-badge@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12168,7 +12159,7 @@ packages:
         optional: true
 
   comark-cards@https://pkg.pr.new/onmax/comark-ui/comark-cards@0e2a4fd:
-    resolution: {integrity: sha512-7dvNWDFF7pzbHjIE/EVAjeRZFO1nEheLvFUXQBlrIOGNhjWSskgIgzkDfAIzaakOhBMkMYrPHwl8BF40FnLaKw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-cards@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-cards@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12188,7 +12179,7 @@ packages:
         optional: true
 
   comark-carousel@https://pkg.pr.new/onmax/comark-ui/comark-carousel@0e2a4fd:
-    resolution: {integrity: sha512-oB+FtXhuPmyrac7Nj7D+LE28xPNBVu0Yf8Jgrnr/4DXu0BQOsos5TBqPshB+13+ML2xFpApck3kqnzxpNWDtqA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-carousel@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-carousel@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12208,7 +12199,7 @@ packages:
         optional: true
 
   comark-cast@https://pkg.pr.new/onmax/comark-ui/comark-cast@0e2a4fd:
-    resolution: {integrity: sha512-Wnh9T6vqiRPWlnyJf7Jda5lwfRMdOPXG9+ahGCQ0S/MhaIUEr3R1ZhTdzSIJmlTFOH4YboMl5JC0WHhbnZ1rpQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-cast@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-cast@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12228,7 +12219,7 @@ packages:
         optional: true
 
   comark-charts@https://pkg.pr.new/onmax/comark-ui/comark-charts@0e2a4fd:
-    resolution: {integrity: sha512-dowrJPfUqEl3JY8k6eKHJmGNzEIZve+eXinUskoydl59bi4NUnp2dwUVIjsZt39s73KsO2vFTnh9JepQ4H7YpQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-charts@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-charts@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12272,7 +12263,7 @@ packages:
         optional: true
 
   comark-chips@https://pkg.pr.new/onmax/comark-ui/comark-chips@0e2a4fd:
-    resolution: {integrity: sha512-b3UWj1CCyDEw9sGgmvZ3F8c5ipqVcC37sXhdgyd2b+xJad7AyTqozPTmLkBPR3rnu2Ga/1ijIEKJmmRvRrxBkg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-chips@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-chips@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12292,14 +12283,14 @@ packages:
         optional: true
 
   comark-cjk@https://pkg.pr.new/onmax/comark-ui/comark-cjk@0e2a4fd:
-    resolution: {integrity: sha512-np8ajyjM5PDmNWBG7UMv1yZenZjykKKCDwTP327jI6GgjY/7GOSMIs4xN4tcP08iomsubFJpYpDnKnL3CWS0bg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-cjk@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-cjk@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.8.0
 
   comark-code-notes@https://pkg.pr.new/onmax/comark-ui/comark-code-notes@0e2a4fd:
-    resolution: {integrity: sha512-7AhpTa9s3rzQnY2T94VLtuihT7N24o+CdQPIYPwPyLNZA/kTO7gZySrZIlWF2fY2R54Zt3xVwpLKBRE0y0iEzQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-code-notes@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-code-notes@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12319,7 +12310,7 @@ packages:
         optional: true
 
   comark-code@https://pkg.pr.new/onmax/comark-ui/comark-code@0e2a4fd:
-    resolution: {integrity: sha512-8PzBuqm0IYeBM8kOAXfE5PP369jxFx+8KSSJ7J73dL0L2Psu/HV31h04TygGA2tuosEoTcPmmiVMoCEaQQ0Sug==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-code@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-code@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12339,7 +12330,7 @@ packages:
         optional: true
 
   comark-colors@https://pkg.pr.new/onmax/comark-ui/comark-colors@0e2a4fd:
-    resolution: {integrity: sha512-BdiYwXELklqWfrMKZztY6sylZydgNamloB9hum/J63rB7HKNrmuS8sgVMSD9hqEFJIy18XAuPgb1oFhxHIMK4g==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-colors@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-colors@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12359,7 +12350,7 @@ packages:
         optional: true
 
   comark-comments@https://pkg.pr.new/onmax/comark-ui/comark-comments@0e2a4fd:
-    resolution: {integrity: sha512-94ciVPBVMtnH10pGASt8k7oRmzoCkJyKYZltOifrX7KzBhVXVxt0l45MaohmmLO/C0cvGBtbp8qWbysA74OIiQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-comments@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-comments@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12379,21 +12370,21 @@ packages:
         optional: true
 
   comark-critic@https://pkg.pr.new/onmax/comark-ui/comark-critic@0e2a4fd:
-    resolution: {integrity: sha512-rqiI48Qwe9aRj/cKlvs/C+pBCBRTNJaaJCEF7maUfVOUJdjQ67cZQr4xEsIQhK/ogqlwU1sk+ZsZS8m4Din5cw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-critic@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-critic@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.8.0
 
   comark-deflist@https://pkg.pr.new/onmax/comark-ui/comark-deflist@0e2a4fd:
-    resolution: {integrity: sha512-xcph3t2icUj8FoGhfuXyqXayBXqD9Hq9Ye9UXu47vUbUhQ6tKchHU2sKsTS3hupAWd0uN22wzH2CmYK5kvsEuA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-deflist@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-deflist@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.8.0
 
   comark-details@https://pkg.pr.new/onmax/comark-ui/comark-details@0e2a4fd:
-    resolution: {integrity: sha512-H89tLiW3YjmMnrjJgCxqvONTU9LY1U/FdqivsXz0bc1TfMRpK/s9WvVtBfpinXLAtka2r/2otP1fK1xOLbMSPg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-details@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-details@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12413,7 +12404,7 @@ packages:
         optional: true
 
   comark-diagrams@https://pkg.pr.new/onmax/comark-ui/comark-diagrams@0e2a4fd:
-    resolution: {integrity: sha512-n9Fi42a3DKzj/UVvye976kU6RakW4Jwt9+aaQB+NwngIY+6shqHj+OYtHTu55oz2BDnKl0pXnIfO35A7U0JF0g==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-diagrams@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-diagrams@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12433,7 +12424,7 @@ packages:
         optional: true
 
   comark-diff@https://pkg.pr.new/onmax/comark-ui/comark-diff@0e2a4fd:
-    resolution: {integrity: sha512-ISV4a++oLHhoYS8LHGc5QoAFxY1wCpv2b0AZY12d16RfAOjdvKFEwxJurldpMypbZV43j+JifgojWDq0Q2JwyA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-diff@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-diff@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12444,7 +12435,7 @@ packages:
         optional: true
 
   comark-embed@https://pkg.pr.new/onmax/comark-ui/comark-embed@0e2a4fd:
-    resolution: {integrity: sha512-33XgrAblHj7TmsekFwFatMgv6YIAxEAUbMCO92g6+uXhiNAxSxich/Chu6krQGlJ+IZHh/nJZ1piUKz5uVfjDw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-embed@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-embed@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12464,7 +12455,7 @@ packages:
         optional: true
 
   comark-fields@https://pkg.pr.new/onmax/comark-ui/comark-fields@0e2a4fd:
-    resolution: {integrity: sha512-4UdgtiIXghRwpMuvAfOVhiopd3OVo7B8x+8weezrrzQb8Mjy6T6w8jJPN/2YmzH8T0EN565KdcFS0QNsTY/RjA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-fields@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-fields@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12484,14 +12475,14 @@ packages:
         optional: true
 
   comark-figure@https://pkg.pr.new/onmax/comark-ui/comark-figure@0e2a4fd:
-    resolution: {integrity: sha512-6zJu+E99aKMGSx4Ie1qgWLUEglG+Rc0s+DpxdAvc3tD8xmML1OzIE2rA0CfT77FOLziVo6ONxBVl+NYn1rKirw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-figure@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-figure@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.8.0
 
   comark-file-tree@https://pkg.pr.new/onmax/comark-ui/comark-file-tree@0e2a4fd:
-    resolution: {integrity: sha512-cR+fIgOuN85KzBgW3fxhIvd5bpXU/VP0E1xvzvDd9uHjfkL7q4w+FW9qCwpssbTTrVaChUG2nqk9Z0vwNwlqXw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-file-tree@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-file-tree@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12511,14 +12502,14 @@ packages:
         optional: true
 
   comark-footnotes@https://pkg.pr.new/onmax/comark-ui/comark-footnotes@0e2a4fd:
-    resolution: {integrity: sha512-MqPDugihUkmENnid71mKNCs84jnloHoTmCLwFNz5SHbjGUbg6I+o0BVQJbkjj6otcRR5Ea2WzE2PP+Qv0K2lBw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-footnotes@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-footnotes@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.8.0
 
   comark-github@https://pkg.pr.new/onmax/comark-ui/comark-github@0e2a4fd:
-    resolution: {integrity: sha512-vxsivvkq7O/xyyknv8yDFXuChzKUTfrOkOW6G+mUnrDLokxoSAxoX+v3Ev4f0DDeI4Pt523lJkoS5Qrroh98jg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-github@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-github@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12538,7 +12529,7 @@ packages:
         optional: true
 
   comark-icon@https://pkg.pr.new/onmax/comark-ui/comark-icon@0e2a4fd:
-    resolution: {integrity: sha512-+CHZo4byH0RxJVJarOrF6jIu30cEOCitiewOFzTg2REKhQVPdqmpoOW1eZA0xIuZTBYbFOGTyFI5hq8g9fJ8cA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-icon@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-icon@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12558,21 +12549,21 @@ packages:
         optional: true
 
   comark-include@https://pkg.pr.new/onmax/comark-ui/comark-include@0e2a4fd:
-    resolution: {integrity: sha512-XM7T+DK/izh38YgUMjqKvudEVGdc/z1azpcvG9z1OH2G7TMXoLyGaPzpyHjDV85E+YH6Hte27BcKcPjgNDXTRQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-include@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-include@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.8.0
 
   comark-keys@https://pkg.pr.new/onmax/comark-ui/comark-keys@0e2a4fd:
-    resolution: {integrity: sha512-kL7rU3BQ8ONWMii7PYv3HwzEH33ZVAsrmeBAB6g5gKwXZ3uS3Jo3yIU/lNSVYCSOuZdLuFXgVjK9I5dF4BGI3g==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-keys@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-keys@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.8.0
 
   comark-links@https://pkg.pr.new/onmax/comark-ui/comark-links@0e2a4fd:
-    resolution: {integrity: sha512-0d6L9dGCUpPZSaOd8aiN8koyn7EJNsZ9N16//3SxiaOvzEnypjO5+Y9ONoWZVHdqdbchmx5VhSYROZUu3vDpMQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-links@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-links@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12592,7 +12583,7 @@ packages:
         optional: true
 
   comark-magic-move@https://pkg.pr.new/onmax/comark-ui/comark-magic-move@0e2a4fd:
-    resolution: {integrity: sha512-nRlH7B+cVbbJRrW8L53GOR7OAYFHZqsHuOI1ud2mgWYWb2g8icUbiuPDexmqKeNtB/oJMiyl8mMWghkDC3L7tw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-magic-move@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-magic-move@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12612,7 +12603,7 @@ packages:
         optional: true
 
   comark-mark@https://pkg.pr.new/onmax/comark-ui/comark-mark@0e2a4fd:
-    resolution: {integrity: sha512-4PX+gRan5hYbaNbeSEIIGWDl9iE2Tyz9OQqXhceNIDR7GxQnvQ9Ft1WT5dFUzWTnThtoECJHr7AikdThaejq8A==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-mark@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-mark@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12632,7 +12623,7 @@ packages:
         optional: true
 
   comark-mathml@https://pkg.pr.new/onmax/comark-ui/comark-mathml@0e2a4fd:
-    resolution: {integrity: sha512-uZtgoaNPg3j30m3LAvO7dLxwFDEAs7BNLGp1YXJYj//JxOpPJ2CSTiG5JxfEW2M13gluYK/O/4M/OkszZVgTBQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-mathml@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-mathml@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12655,7 +12646,7 @@ packages:
         optional: true
 
   comark-media@https://pkg.pr.new/onmax/comark-ui/comark-media@0e2a4fd:
-    resolution: {integrity: sha512-wyOR1weYAhe5VUln/AAXrqfbMznQSQc/xdDdtt+px0a4OJJFAxbeDPYfijTeaOby+C2gAJuEozmzXSDxeCTMMw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-media@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-media@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12675,7 +12666,7 @@ packages:
         optional: true
 
   comark-metrics@https://pkg.pr.new/onmax/comark-ui/comark-metrics@0e2a4fd:
-    resolution: {integrity: sha512-Cev618Gzq3poKLL9fXK2/YDTuxqTcU8W+zWNzFNAY9WCKp0erxnlkZqRBXyFBodZabAg9a2r0hBzAEIZTB2DRQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-metrics@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-metrics@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12695,7 +12686,7 @@ packages:
         optional: true
 
   comark-outline@https://pkg.pr.new/onmax/comark-ui/comark-outline@0e2a4fd:
-    resolution: {integrity: sha512-kL7l8jS9C6/V1Qr+UBlIL0aLeKNSK/qoss/eFb9jE6FDjPtMdICNO0TirsScLSLhdjBnee5pdLJHIBZoNG1JlA==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-outline@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-outline@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12737,7 +12728,7 @@ packages:
         optional: true
 
   comark-properties@https://pkg.pr.new/onmax/comark-ui/comark-properties@0e2a4fd:
-    resolution: {integrity: sha512-muFM2fKgRQEwdP5WlQohFsvrDXDjB5IJJEZ/eeQILwIxKuXPB25iT3b6cy7u4RXd2ro1f4CSS001zH13o4S1yg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-properties@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-properties@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12757,7 +12748,7 @@ packages:
         optional: true
 
   comark-qr@https://pkg.pr.new/onmax/comark-ui/comark-qr@0e2a4fd:
-    resolution: {integrity: sha512-ci0b8iT0gy9JuInZKmtRcFpstYELVC9rhRzMTlOHbPsh2EdTRP/RpsxBBAq3x6+C2xstXBLf2kJYnKSasFIxSw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-qr@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-qr@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12777,7 +12768,7 @@ packages:
         optional: true
 
   comark-quiz@https://pkg.pr.new/onmax/comark-ui/comark-quiz@0e2a4fd:
-    resolution: {integrity: sha512-vaglbFQXBN6Yr5IBmkqZ2G4AXnhPpj1scFCrWCJBHwF+GIH0115/n+1SfOaGZk7/OyTsVYKbED6Sr4pPrvwbOw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-quiz@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-quiz@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12788,14 +12779,14 @@ packages:
         optional: true
 
   comark-reading-time@https://pkg.pr.new/onmax/comark-ui/comark-reading-time@0e2a4fd:
-    resolution: {integrity: sha512-6sx9yMTtUa/0u4iewXrs0QQixO4Zfny69seyqhX8WpcxR2BiY5IQyqQIM2+jCZAixyou5ooDKnW1jddoeRARbg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-reading-time@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-reading-time@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.8.0
 
   comark-sources@https://pkg.pr.new/onmax/comark-ui/comark-sources@0e2a4fd:
-    resolution: {integrity: sha512-ohipEAkgxzGUHZcW0EW6Fed377Ih/4+TfEOaY3u0RgUC3l5nPRHg/JTii/1IlQrogKav7c/xAIw6ekt7EIargg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-sources@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-sources@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12815,7 +12806,7 @@ packages:
         optional: true
 
   comark-steps@https://pkg.pr.new/onmax/comark-ui/comark-steps@0e2a4fd:
-    resolution: {integrity: sha512-AYDyiUVMoNhy0Wo6xuwzNOal2AiLCOBqE0eb+YULQgbM27F2B6XR9GgjI3unK9aDQQ1ssZdTLHYDwT1QdXefPw==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-steps@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-steps@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12835,7 +12826,7 @@ packages:
         optional: true
 
   comark-table@https://pkg.pr.new/onmax/comark-ui/comark-table@0e2a4fd:
-    resolution: {integrity: sha512-+dbKP1izHoQgWNWFrkA1vjarWBVV0zU1Cw6MGip9mmp8nID911i/28FSlzzUTEV8UxlLD+eW4xEthZj+oBTcwQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-table@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-table@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12855,7 +12846,7 @@ packages:
         optional: true
 
   comark-tabs@https://pkg.pr.new/onmax/comark-ui/comark-tabs@0e2a4fd:
-    resolution: {integrity: sha512-iIREa3d/ssI0zaLImCcYRYCx4U9rwxN/F0UOiBnwi0h7Ycwe+5yQ2Hr9afspTGilt+hcFrIpJWe+b80Sy17KGg==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-tabs@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-tabs@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12875,7 +12866,7 @@ packages:
         optional: true
 
   comark-tests@https://pkg.pr.new/onmax/comark-ui/comark-tests@0e2a4fd:
-    resolution: {integrity: sha512-pX0Etfn+9NLDW+8iUMN5KTvqr1aoYTi2+lwcIloh6u8zzyaQ4OKCtZo/7tgudhHZ+nU/3De2JdqvyDRtUip0gQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-tests@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-tests@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -12936,14 +12927,14 @@ packages:
         optional: true
 
   comark-xref@https://pkg.pr.new/onmax/comark-ui/comark-xref@0e2a4fd:
-    resolution: {integrity: sha512-bI/NuLtcjyChBHUBhscXcb++iYt8xdwwJFgRHYDUZ8GgvC7IbSYxzRaz5o6swS/Kjp24R7tfceve8qPAnvF/5A==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-xref@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-xref@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
       comark: ^0.8.0
 
   comark-zoom@https://pkg.pr.new/onmax/comark-ui/comark-zoom@0e2a4fd:
-    resolution: {integrity: sha512-nQ8ULizGdXLsOPyW45105oC53toxt2Q/NW8vfiW0pQrzqMaYy/zEnYLkzHbqKqij4C9SngP/uxBvNmYsK5XFvQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-zoom@0e2a4fd}
+    resolution: {tarball: https://pkg.pr.new/onmax/comark-ui/comark-zoom@0e2a4fd}
     version: 0.8.2
     engines: {node: '>=22.12.0'}
     peerDependencies:
@@ -25284,94 +25275,6 @@ snapshots:
       - webpack
       - xml2js
 
-  '@nuxt/nitro-server@4.5.2(35827346665745043f45913ce4607158)':
-    dependencies:
-      '@nuxt/devalue': 2.0.2
-      '@nuxt/kit': 4.5.2(magic-string@1.4.2)(magicast@0.5.5)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))
-      '@unhead/vue': 3.4.2(@oxc-project/types@0.153.0)(esbuild@0.28.2)(lightningcss@1.33.0)(oxc-parser@0.153.0)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))
-      '@vue/shared': 3.5.44
-      consola: 3.4.2
-      defu: 6.1.7
-      destr: 2.0.5
-      devalue: 5.9.4
-      errx: 0.1.2
-      escape-string-regexp: 5.0.0
-      exsolve: 1.1.3
-      h3: 1.15.11
-      impound: 1.2.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-      klona: 2.0.6
-      mocked-exports: 0.1.1
-      nitropack: 2.13.4(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@libsql/client@0.18.0)(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd))(@parcel/watcher@2.5.6)(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(oxc-parser@0.153.0)(rolldown@1.2.12)(srvx@1.0.8)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-      nostics: 1.3.0
-      nuxt: 4.5.2(5081650d98949f3a108629c312d6839d)
-      nypm: 0.6.10
-      ohash: 2.0.12
-      pathe: 2.0.3
-      rou3: 0.9.2
-      std-env: 4.3.0
-      ufo: 1.6.4
-      unctx: 3.0.1(magic-string@1.4.2)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))
-      unstorage: 1.17.6(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd))(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))
-      vue: 3.5.44(typescript@6.0.3)
-      vue-bundle-renderer: 2.4.0
-      vue-devtools-stub: 0.1.0
-    optionalDependencies:
-      '@babel/plugin-proposal-decorators': 8.0.2(@babel/core@7.29.7)
-      '@babel/plugin-syntax-typescript': 7.29.7(@babel/core@7.29.7)
-    transitivePeerDependencies:
-      - '@azure/app-configuration'
-      - '@azure/cosmos'
-      - '@azure/data-tables'
-      - '@azure/identity'
-      - '@azure/keyvault-secrets'
-      - '@azure/storage-blob'
-      - '@capacitor/preferences'
-      - '@deno/kv'
-      - '@electric-sql/pglite'
-      - '@farmfe/core'
-      - '@libsql/client'
-      - '@netlify/blobs'
-      - '@oxc-project/types'
-      - '@parcel/watcher'
-      - '@planetscale/database'
-      - '@rsbuild/core'
-      - '@rspack/core'
-      - '@unhead/cli'
-      - '@upstash/redis'
-      - '@vercel/blob'
-      - '@vercel/functions'
-      - '@vercel/kv'
-      - '@vitejs/devtools-kit'
-      - aws4fetch
-      - bare-abort-controller
-      - bare-buffer
-      - better-sqlite3
-      - bun-types-no-globals
-      - db0
-      - drizzle-orm
-      - encoding
-      - esbuild
-      - idb-keyval
-      - ioredis
-      - lightningcss
-      - magic-string
-      - magicast
-      - mysql2
-      - oxc-parser
-      - react-native-b4a
-      - rolldown
-      - rollup
-      - sqlite3
-      - srvx
-      - supports-color
-      - typescript
-      - unloader
-      - unplugin
-      - uploadthing
-      - vite
-      - webpack
-      - xml2js
-
   '@nuxt/nitro-server@4.6.4(014cbbc041bec26d75ef441fb2bc0178)':
     dependencies:
       '@nuxt/kit': 4.6.4(@nuxt/schema@4.6.4)(confbox@0.3.2)(dotenv@17.4.2)(giget@3.3.1)(jiti@2.7.0)(magic-string@1.4.5)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.7.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))
@@ -26831,74 +26734,6 @@ snapshots:
       - vite
       - vue
       - webpack
-
-  '@nuxt/vite-builder@4.5.2(@babel/plugin-proposal-decorators@8.0.2(@babel/core@7.29.7))(@babel/plugin-syntax-jsx@7.29.7(@babel/core@7.29.7))(@types/node@24.19.1)(esbuild@0.28.2)(eslint@10.12.0(jiti@2.7.0))(magic-string@1.4.2)(magicast@0.5.5)(nuxt@4.5.2(5081650d98949f3a108629c312d6839d))(optionator@0.9.4)(oxc-parser@0.153.0)(oxlint@1.86.0(oxlint-tsgolint@7.0.2003)(vite-plus@0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)))(publint@0.3.25)(rolldown@1.2.12)(rollup-plugin-visualizer@7.1.1(rolldown@1.2.12)(rollup@4.67.5))(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(unrun@0.2.36)(vue-tsc@3.3.12(typescript@6.0.3))(vue@3.5.44(typescript@6.0.3))(yaml@2.9.1)':
-    dependencies:
-      '@nuxt/kit': 4.5.2(magic-string@1.4.2)(magicast@0.5.5)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))
-      '@vitejs/plugin-vue': 6.0.10(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))
-      '@vitejs/plugin-vue-jsx': 5.1.6(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))
-      autoprefixer: 10.6.1(postcss@8.5.28)
-      consola: 3.4.2
-      cssnano: 8.0.10(postcss@8.5.28)
-      defu: 6.1.7
-      escape-string-regexp: 5.0.0
-      exsolve: 1.1.3
-      generic-names: 4.0.0
-      get-port-please: 3.2.0
-      jiti: 2.7.0
-      js-tokens: 10.0.0
-      knitwork: 1.3.0
-      mlly: 1.8.2
-      mocked-exports: 0.1.1
-      nuxt: 4.5.2(5081650d98949f3a108629c312d6839d)
-      nypm: 0.6.10
-      pathe: 2.0.3
-      pkg-types: 2.3.3
-      postcss: 8.5.28
-      rolldown-string: 0.3.1(rolldown@1.2.12)
-      seroval: 1.6.8
-      std-env: 4.3.0
-      ufo: 1.6.4
-      unenv: 2.0.0-rc.24
-      vite: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
-      vite-node: 6.0.0(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
-      vite-plugin-checker: 0.14.5(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(eslint@10.12.0(jiti@2.7.0))(optionator@0.9.4)(oxlint@1.86.0(oxlint-tsgolint@7.0.2003)(vite-plus@0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)))(typescript@6.0.3)(vue-tsc@3.3.12(typescript@6.0.3))
-      vue: 3.5.44(typescript@6.0.3)
-      vue-bundle-renderer: 2.4.0
-    optionalDependencies:
-      '@babel/plugin-proposal-decorators': 8.0.2(@babel/core@7.29.7)
-      '@babel/plugin-syntax-jsx': 7.29.7(@babel/core@7.29.7)
-      rolldown: 1.2.12
-      rollup-plugin-visualizer: 7.1.1(rolldown@1.2.12)(rollup@4.67.5)
-    transitivePeerDependencies:
-      - '@arethetypeswrong/core'
-      - '@biomejs/biome'
-      - '@types/node'
-      - '@vitejs/devtools'
-      - esbuild
-      - eslint
-      - less
-      - magic-string
-      - magicast
-      - meow
-      - optionator
-      - oxc-parser
-      - oxlint
-      - publint
-      - sass
-      - sass-embedded
-      - stylelint
-      - stylus
-      - sugarss
-      - supports-color
-      - terser
-      - tsx
-      - typescript
-      - unplugin
-      - unplugin-unused
-      - unrun
-      - vue-tsc
-      - yaml
 
   '@nuxt/vite-builder@4.5.2(@babel/plugin-proposal-decorators@8.0.2)(@babel/plugin-syntax-jsx@7.29.7)(@types/node@24.19.1)(esbuild@0.28.2)(eslint@10.12.0(jiti@2.7.0))(magic-string@1.4.2)(magicast@0.5.5)(nuxt@4.5.2(fa26484c2ccbc7991c23814e51596ae2))(optionator@0.9.4)(oxc-parser@0.153.0)(oxlint@1.86.0(oxlint-tsgolint@7.0.2003)(vite-plus@0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)))(publint@0.3.25)(rolldown@1.2.12)(rollup-plugin-visualizer@7.1.1(rolldown@1.2.12)(rollup@4.67.5))(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(unrun@0.2.36)(vue-tsc@3.3.12(typescript@6.0.3))(vue@3.5.44(typescript@6.0.3))(yaml@2.9.1)':
     dependencies:
@@ -30744,6 +30579,7 @@ snapshots:
       ai: 7.0.130(zod@4.6.7)
       better-auth: 1.7.15(@opentelemetry/api@1.9.1)(drizzle-kit@0.31.11)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vitest@4.1.11)(vue@3.5.44(typescript@6.0.3))
       eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.130(zod@4.6.7))(chat@4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
+    optional: true
 
   '@vercel/detect-agent@1.2.5': {}
 
@@ -38580,156 +38416,6 @@ snapshots:
       - rolldown
       - unplugin
       - zod
-
-  nuxt@4.5.2(5081650d98949f3a108629c312d6839d):
-    dependencies:
-      '@dxup/nuxt': 0.5.10(@nuxt/schema@4.5.2)(confbox@0.3.2)(dotenv@17.4.2)(esbuild@0.28.2)(giget@3.3.1)(jiti@2.7.0)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-      '@nuxt/cli': 3.37.0(@nuxt/schema@4.5.2)(@parcel/watcher@2.5.6)(cac@6.7.14)(commander@15.0.0)(magicast@0.5.5)
-      '@nuxt/devtools': 3.4.2(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@11.1.4(patch_hash=e68b68d12280a77f02150a25bb8e8334464a16b0427da4485beec88a63c971cd))(@nuxt/schema@4.5.2)(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(confbox@0.3.2)(db0@0.4.1)(dotenv@17.4.2)(giget@3.3.1)(ioredis@5.11.1)(jiti@2.7.0)(magic-string@1.4.2)(mlly@1.8.2)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))
-      '@nuxt/kit': 4.5.2(magic-string@1.4.2)(magicast@0.5.5)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))
-      '@nuxt/nitro-server': 4.5.2(35827346665745043f45913ce4607158)
-      '@nuxt/schema': 4.5.2
-      '@nuxt/telemetry': 2.9.1(@nuxt/kit@4.5.2(magic-string@1.4.2)(magicast@0.5.5)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))))
-      '@nuxt/vite-builder': 4.5.2(@babel/plugin-proposal-decorators@8.0.2(@babel/core@7.29.7))(@babel/plugin-syntax-jsx@7.29.7(@babel/core@7.29.7))(@types/node@24.19.1)(esbuild@0.28.2)(eslint@10.12.0(jiti@2.7.0))(magic-string@1.4.2)(magicast@0.5.5)(nuxt@4.5.2(5081650d98949f3a108629c312d6839d))(optionator@0.9.4)(oxc-parser@0.153.0)(oxlint@1.86.0(oxlint-tsgolint@7.0.2003)(vite-plus@0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)))(publint@0.3.25)(rolldown@1.2.12)(rollup-plugin-visualizer@7.1.1(rolldown@1.2.12)(rollup@4.67.5))(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))(unrun@0.2.36)(vue-tsc@3.3.12(typescript@6.0.3))(vue@3.5.44(typescript@6.0.3))(yaml@2.9.1)
-      '@unhead/vue': 3.4.2(@oxc-project/types@0.153.0)(esbuild@0.28.2)(lightningcss@1.33.0)(oxc-parser@0.153.0)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))
-      '@vue/shared': 3.5.43
-      chokidar: 5.0.0
-      compatx: 0.2.0
-      consola: 3.4.2
-      cookie-es: 3.1.1
-      defu: 6.1.7
-      devalue: 5.9.4
-      errx: 0.1.2
-      escape-string-regexp: 5.0.0
-      exsolve: 1.1.3
-      fnv1a-64: 0.1.2
-      hookable: 6.1.2
-      ignore: 7.0.12
-      impound: 1.2.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-      jiti: 2.7.0
-      klona: 2.0.6
-      knitwork: 1.3.0
-      magic-string: 1.4.2
-      mlly: 1.8.2
-      nanotar: 0.3.0
-      nostics: 1.3.0
-      nypm: 0.6.10
-      object-identity: 0.2.3
-      ofetch: 1.5.1
-      ohash: 2.0.12
-      on-change: 6.0.2
-      oxc-walker: 1.1.1(@oxc-project/types@0.153.0)(oxc-parser@0.153.0)(rolldown@1.2.12)
-      pathe: 2.0.3
-      perfect-debounce: 2.1.0
-      picomatch: 4.0.7
-      pkg-types: 2.3.3
-      rolldown: 1.2.12
-      rolldown-string: 0.3.1(rolldown@1.2.12)
-      rou3: 0.9.2
-      scule: 1.3.0
-      std-env: 4.3.0
-      tinyglobby: 0.2.17
-      ufo: 1.6.4
-      ultrahtml: 1.7.0
-      uncrypto: 0.1.3
-      unctx: 3.0.1(magic-string@1.4.2)(oxc-parser@0.153.0)(rolldown@1.2.12)(unplugin@3.4.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1)))
-      undici: 8.11.2
-      unhead: 3.4.2(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-      unimport: 6.5.0(esbuild@0.28.2)(oxc-parser@0.153.0)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-      unplugin: 3.4.0(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
-      unrouting: 0.2.3
-      untyped: 2.0.0
-      verkit: 0.3.2
-      vue: 3.5.44(typescript@6.0.3)
-      vue-component-type-helpers: 3.3.12
-      vue-router: 5.3.1(@vue/compiler-sfc@3.5.44)(esbuild@0.28.2)(rolldown@1.2.12)(rollup@4.67.5)(vite@8.3.4(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))
-    optionalDependencies:
-      '@parcel/watcher': 2.5.6
-      '@types/node': 24.19.1
-    transitivePeerDependencies:
-      - '@arethetypeswrong/core'
-      - '@azure/app-configuration'
-      - '@azure/cosmos'
-      - '@azure/data-tables'
-      - '@azure/identity'
-      - '@azure/keyvault-secrets'
-      - '@azure/storage-blob'
-      - '@babel/plugin-proposal-decorators'
-      - '@babel/plugin-syntax-jsx'
-      - '@babel/plugin-syntax-typescript'
-      - '@biomejs/biome'
-      - '@capacitor/preferences'
-      - '@deno/kv'
-      - '@electric-sql/pglite'
-      - '@farmfe/core'
-      - '@libsql/client'
-      - '@netlify/blobs'
-      - '@oxc-project/types'
-      - '@pinia/colada'
-      - '@planetscale/database'
-      - '@rollup/plugin-babel'
-      - '@rsbuild/core'
-      - '@rspack/core'
-      - '@unhead/cli'
-      - '@upstash/redis'
-      - '@vercel/blob'
-      - '@vercel/functions'
-      - '@vercel/kv'
-      - '@vitejs/devtools'
-      - '@vitejs/devtools-kit'
-      - '@vue/compiler-sfc'
-      - aws4fetch
-      - bare-abort-controller
-      - bare-buffer
-      - better-sqlite3
-      - bufferutil
-      - bun-types-no-globals
-      - cac
-      - commander
-      - confbox
-      - db0
-      - dotenv
-      - drizzle-orm
-      - encoding
-      - esbuild
-      - eslint
-      - giget
-      - idb-keyval
-      - ioredis
-      - less
-      - lightningcss
-      - magicast
-      - meow
-      - mysql2
-      - optionator
-      - oxc-parser
-      - oxlint
-      - pinia
-      - publint
-      - react-native-b4a
-      - rollup
-      - rollup-plugin-visualizer
-      - sass
-      - sass-embedded
-      - sqlite3
-      - srvx
-      - stylelint
-      - stylus
-      - sugarss
-      - supports-color
-      - terser
-      - tsx
-      - typescript
-      - unloader
-      - unplugin-unused
-      - unrun
-      - uploadthing
-      - utf-8-validate
-      - vite
-      - vue-tsc
-      - webpack
-      - xml2js
-      - yaml
 
   nuxt@4.5.2(fa26484c2ccbc7991c23814e51596ae2):
     dependencies:
