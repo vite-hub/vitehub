@@ -35,6 +35,7 @@ function isActive(path: string) {
 }
 
 // A folded group opens itself on its own pages, so the current page stays in view.
+// Key the active disclosure by its page so navigation also reopens a group the reader closed.
 function holdsCurrent(pageGroup: DocsSidebarGroup) {
   return pageGroup.pages.some(page => isActive(page.path))
 }
@@ -77,7 +78,12 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           <span class="min-w-0">{{ entry.section.title }}</span>
         </h3>
         <template v-for="pageGroup in entry.groups" :key="pageGroup.label || 'pages'">
-          <details v-if="pageGroup.fold" class="vh-docs-sidebar-fold" :open="holdsCurrent(pageGroup)">
+          <details
+            v-if="pageGroup.fold"
+            :key="holdsCurrent(pageGroup) ? currentPath : undefined"
+            class="vh-docs-sidebar-fold"
+            :open="holdsCurrent(pageGroup)"
+          >
             <summary class="vh-docs-sidebar-page-group-heading is-nested">
               <UIcon name="i-lucide-chevron-down" class="vh-docs-sidebar-fold-icon size-3 shrink-0" />
               {{ pageGroup.label }}
@@ -137,7 +143,12 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
     </section>
 
     <template v-for="pageGroup in pageGroups" :key="pageGroup.label || 'pages'">
-      <details v-if="pageGroup.fold" class="vh-docs-sidebar-page-group vh-docs-sidebar-fold" :open="holdsCurrent(pageGroup)">
+      <details
+        v-if="pageGroup.fold"
+        :key="holdsCurrent(pageGroup) ? currentPath : undefined"
+        class="vh-docs-sidebar-page-group vh-docs-sidebar-fold"
+        :open="holdsCurrent(pageGroup)"
+      >
         <summary class="vh-docs-sidebar-page-group-heading">
           <UIcon name="i-lucide-chevron-down" class="vh-docs-sidebar-fold-icon size-3 shrink-0" />
           {{ pageGroup.label }}
