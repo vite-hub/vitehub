@@ -513,6 +513,16 @@ With `auth: 'app'`, sign in to the app and open any page: the pill is there. You
 
 The button uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the pill. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows it. With the development default, the Console and its button exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, removes the pill until you open the Console, use `?vitehub`, or sign in again. The ViteHub mark at the start of the pill collapses it to a small hexagon 2px from the edge of the screen, and the browser keeps it collapsed on the next pages until you select the mark again. Open windows and comment mode stay as they are. Drag the mark to dock the pill to another edge of the screen: top, right, bottom, or left, at the place where you release it. On the left and right edges the buttons stack, and windows open from the edge where the pill docks. The browser remembers the place on the next pages.
 
+#### Keep the pill off your own toolbar
+
+A page that has its own bar where the pill docks, such as a review toolbar at the bottom center, can ask the pill to step aside. Set `data-vitehub-pill="mark"` on `<html>`: the pill folds to the ViteHub mark and moves to the nearer end of the bottom edge, so the bottom center stays the page's. Remove the attribute and the pill comes back as the person left it. In Nuxt, set it from the page or the component that draws the bar:
+
+```ts
+useHead({ htmlAttrs: { 'data-vitehub-pill': 'mark' } })
+```
+
+The attribute is in the server-rendered page and follows client-side navigation, so the pill never covers the bar, even on the first paint. Pressing the mark, or turning the tools on from the small mark that **×** leaves, opens the pill until the page removes the attribute. The person's own choices stay as they were: the attribute does not change whether the pill is collapsed on other pages, nor where it docks. On the other edges the mark folds in place: the ends of the top edge are where pages keep their back button and menus.
+
 Every HTML page of the app has a short inline script, the page tools bootstrap. It is in server-rendered pages and in prerendered pages, so it also works when a host serves the pages as static files, such as Cloudflare Workers static assets in front of the Worker. The bootstrap reads the URL and two cookies, and loads the page tools loader only when it finds one of these hints:
 
 | Hint | Set by |
