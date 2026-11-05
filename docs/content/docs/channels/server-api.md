@@ -14,6 +14,39 @@ The optional provider `id` must be a string. Unreadable or non-string IDs are om
 
 Named clients share one definition load for the active runtime registry. A failed load can retry on a later send. Replacing the runtime registry invalidates the cached definition for existing clients.
 
+The examples on this page send through this `alerts` Channel. Each connector declares the options that its `send()` takes:
+
+```ts [server/channels/alerts.ts]
+import { defineOutboundChannel } from 'vite-hub/channels'
+
+export default defineOutboundChannel({
+  connectors: {
+    telegram: {
+      async send(text: string, { chatId }: { chatId: string }) {
+        const response = await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text }),
+        })
+        const { result } = await response.json() as { result: { message_id: number } }
+        return { id: String(result.message_id) }
+      },
+    },
+    slack: {
+      async send(text: string, { channelId, threadTs }: { channelId: string, threadTs?: string }) {
+        const response = await fetch('https://slack.com/api/chat.postMessage', {
+          method: 'POST',
+          headers: { 'authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ channel: channelId, text, thread_ts: threadTs }),
+        })
+        const { ts } = await response.json() as { ts: string }
+        return { id: ts }
+      },
+    },
+  },
+})
+```
+
 ```ts [server/api/build-finished.post.ts]
 import { defineEventHandler } from 'h3'
 import { useChannel } from 'vite-hub/channels/server'
@@ -51,7 +84,9 @@ Channels passes the original options object to the selected connector, including
 
 Add another entry to `connectors` when the same logical destination can deliver through more than one provider. Each entry defines its own options, so Telegram can require `chatId` while Slack requires `channelId` and optionally accepts `threadTs`.
 
-```ts
+```ts [server/utils/notify-builds.ts]
+import { useChannel } from 'vite-hub/channels/server'
+
 const [error] = await useChannel('alerts').send('Build finished.', {
   connector: 'slack',
   channelId: 'builds',

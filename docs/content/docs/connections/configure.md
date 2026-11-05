@@ -100,9 +100,30 @@ ViteHub seals the key like an OAuth grant. Access rules, approvals, dry run, and
 
 ## OAuth login Connections
 
-`oauthLogin()` from `vite-hub/connections` is an OAuth 2.0 provider that connects without a person, for a service account. Use it when a service accepts only its own OAuth tokens, for example an MCP server behind its own authorization server. The app supplies only `login`, which signs in and approves the request like a browser:
+`oauthLogin()` from `vite-hub/connections` is an OAuth 2.0 provider that connects without a person, for a service account. Use it when a service accepts only its own OAuth tokens, for example an MCP server behind its own authorization server. The app supplies only `login`, which signs in and approves the request like a browser. The examples below read their credentials from Server Env:
+
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', connections: true })],
+  env: {
+    server: {
+      portal: {
+        login: env({ secret: true, source: env.source('PORTAL_LOGIN') }),
+      },
+      github: {
+        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+      },
+    },
+  },
+})
+```
 
 ```ts [server/connections/portal.ts]
+import { useServerEnv } from '#vitehub/env/server'
 import { defineConnection, oauthLogin } from 'vite-hub/connections'
 
 export default defineConnection({
@@ -143,9 +164,9 @@ Tokens and the client registration stay in memory, so each process signs in agai
 
 ## Keyed Connections
 
-A keyed definition defines one Connection per instance, for example one per tenant. Each instance is a Connection named `<name>:<instance>`:
+A keyed definition defines one Connection per instance, for example one per tenant. Each instance is a Connection named `<name>:<instance>`. This example reuses the `login` function from above:
 
-```ts [server/connections/portal.ts]
+```ts [server/connections/portal.ts] fragment
 export default defineConnection({
   instances: ['acme', 'globex'],
   definition: tenant => ({
@@ -198,6 +219,7 @@ export default defineConnection({
 
 ```ts [server/connections/github.ts]
 import { useServerEnv } from '#vitehub/env/server'
+import { apiKey, defineConnection } from 'vite-hub/connections'
 
 export default defineConnection({
   provider: apiKey({

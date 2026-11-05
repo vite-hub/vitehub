@@ -135,8 +135,11 @@ export type ConnectionActionPattern<TApis> =
  */
 export interface ConnectionAccessRule<TPattern extends string = string> {
   read?: boolean
-  /** Allowed writes. `true` allows every write that is not high risk. `"approve"` allows the same writes after approval. */
-  write?: readonly TPattern[] | true | "approve"
+  /**
+   * Allowed writes. `true` allows every write that is not high risk. `"approve"` allows the same writes after
+   * approval. `false`, the default, denies every write.
+   */
+  write?: readonly TPattern[] | boolean | "approve"
   /** Require approval for each allowed write. Defaults to `true` for `agent:` actors. */
   approve?: boolean
 }

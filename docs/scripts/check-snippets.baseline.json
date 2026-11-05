@@ -145,16 +145,6 @@
     "error": "TS18046 'env.slack' is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/channels/server-api.md#0a63e2ce13a7",
-    "label": "server/api/build-finished.post.ts",
-    "error": "TS2769 No overload matches this call."
-  },
-  {
-    "id": "docs/content/docs/channels/server-api.md#7904bd1bf174",
-    "label": null,
-    "error": "TS2304 Cannot find name 'useChannel'."
-  },
-  {
     "id": "docs/content/docs/cms/access.md#2b019396a64c",
     "label": "server/routes/api/roles.post.ts",
     "error": "TS2339 Property 'userId' does not exist on type '{}'."
@@ -168,31 +158,6 @@
     "id": "docs/content/docs/comments/operations/configure.md#f4056f9a0e14",
     "label": "server/comments.ts",
     "error": "TS7031 Binding element 'user' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/connections/configure.md#6fb59e04b48a",
-    "label": "server/connections/portal.ts",
-    "error": "TS2304 Cannot find name 'useServerEnv'."
-  },
-  {
-    "id": "docs/content/docs/connections/configure.md#1b24c8752be5",
-    "label": "server/connections/portal.ts",
-    "error": "TS7006 Parameter 'tenant' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/connections/configure.md#5eebf89c9563",
-    "label": "server/connections/github.ts",
-    "error": "TS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/connections/get-started.md#1f150bc56477",
-    "label": "server/connections/google.ts",
-    "error": "TS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/connections/get-started.md#470146cec573",
-    "label": "server/api/labels.get.ts",
-    "error": "TS2769 No overload matches this call."
   },
   {
     "id": "docs/content/docs/connections/index.md#b5254d8a047e",
