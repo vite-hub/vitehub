@@ -353,11 +353,12 @@ Errors: [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not
 | `name` | `string` | Named Databases only | Runtime identity. Must match the discovered file or directory name. |
 | `dialect` | `'sqlite' \| 'postgresql'` | No | Database dialect. Defaults to `sqlite`. Write it as a string literal. See [Define a Postgres database](#define-a-postgres-database) for the `postgresql` options. |
 | `schema` | `Record<string, Drizzle table>` | Yes | Database Table Schema source of truth. Packages can [contribute more tables](#contribute-tables-from-a-package). |
+| `remote` | `boolean` | No | In `vite dev`, queries the real D1 database over HTTP instead of local SQLite, so writes change real data. Builds ignore it. See [Use the real D1 database in development](/docs/database/hosts#use-the-real-d1-database-in-development). |
 | `connection.url` | `DatabaseConfigValue` | No | SQLite or libSQL connection URL. Defaults to `file:.vitehub/data/database/sqlite.db` for a Default Database and `file:.vitehub/data/database/<name>.sqlite.db` for a Named Database. |
 | `connection.authToken` | `DatabaseConfigValue` | No | Hosted database auth token. |
 | `cloudflare.binding` | `string` | No | D1 binding. Defaults to `DB` for a Default Database and `DB_<NAME>` for a Named Database. |
 | `cloudflare.databaseId` | `DatabaseConfigValue` | No | D1 database id. |
-| `cloudflare.http` | `true \| { url?, authToken? }` | No | Selects authenticated D1 raw HTTP access for local and hosted runtimes. `true` uses Cloudflare's API. An object selects a compatible proxy. |
+| `cloudflare.http` | `true \| { url?, authToken? }` | No | Selects authenticated D1 raw HTTP access for local and hosted runtimes. `true` uses Cloudflare's API. An object selects a compatible proxy. In `vite dev`, it also makes the Database remote, like `remote: true`. |
 | `cloudflare.previewDatabaseId` | `DatabaseConfigValue` | No | D1 preview database id. |
 | `cloudflare.databaseName` | `DatabaseConfigValue` | No | D1 database name. |
 | `cloudflare.migrationsTable` | `string` | No | D1 migrations table that Wrangler and `vitehub db migrate` use. Default: `d1_migrations`. |

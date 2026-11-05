@@ -3,7 +3,7 @@ import { runtimeConfig } from "./definition-config.ts"
 
 import type { DatabaseDefinition, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 
-export { resolveRuntimeCloudflareConfig } from "../internal/cloudflare.ts"
+export { resolveDevRemoteConfig, resolveRuntimeCloudflareConfig } from "../internal/cloudflare.ts"
 
 const options = {
   missingConnection: "a Cloudflare D1 binding or `cloudflare.http`",

@@ -130,6 +130,14 @@ With `migrateOnStart`, the server throws this error when it starts and does not 
 
 The options of `defineDatabase()`, or one of its objects such as `schema`, `cloudflare`, or `connection`, is not a plain object.
 
+### DATABASE_INVALID_REMOTE
+
+`remote` is not `true` or `false`. Set `remote: true` to query the real D1 database in `vite dev`, or remove it to keep local SQLite.
+
+### DATABASE_REMOTE_CONFLICT
+
+A Definition sets `remote: false`, but its `cloudflare.http`, or the `cloudflare.http` of the integration, sends `vite dev` queries to the remote D1 database. `defineDatabase()` throws it for the Definition's own `http`. The development server throws it for an inherited `http`. Remove `remote: false` to keep D1 over HTTP, or remove `cloudflare.http` to use local SQLite.
+
 ### DATABASE_UNKNOWN_OPTION
 
 `defineDatabase()` received an option that it does not support. A PostgreSQL Definition supports only `cloudflare.binding`, `cloudflare.hyperdriveId`, and `connection.url` in those objects.

@@ -187,7 +187,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       const refreshLocalRuntime = () => {
         const refresh = async () => {
           if (!localNitroConfig || closed) return
-          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions)
+          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions, undefined, true)
           for (const source of runtime?.definitions.flatMap(definition => definition.schemaSources) ?? []) {
             definitionFiles.add(source.handler)
             definitionDirectories.add(dirname(source.handler))
@@ -435,6 +435,8 @@ async function installNitroLocalDatabaseRuntime(
   d1?: ResolvedDatabaseNuxtD1Options,
   contributions: CollectedDatabaseContributions = { definitions: [], tables: [], uses: [] },
   resolvedRuntime?: ResolvedDBViteConfig,
+  /** True for `nuxt dev`, where a Definition's `remote` switch applies. */
+  dev = false,
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
   const alias = isRecord(config.alias) ? config.alias : undefined
@@ -519,7 +521,7 @@ async function installNitroLocalDatabaseRuntime(
       ...(usesPostgres(runtime) ? [`import { createPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "postgres.js")).href)}`] : []),
       ...imports,
       "",
-      `const definitionDefaults = ${serializeGeneratedRegistry(runtime.definitionDefaults)}`,
+      `const definitionDefaults = ${serializeGeneratedRegistry(dev ? { ...runtime.definitionDefaults, dev: true } : runtime.definitionDefaults)}`,
       ...schemas,
     ],
   }))

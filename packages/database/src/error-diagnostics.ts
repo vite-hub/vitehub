@@ -132,6 +132,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ path }: { path: string }) => `\`${path}\` must be a plain object.`,
       fix: "Pass an object literal, for example `defineDatabase({ schema: { notes } })`.",
     },
+    DATABASE_INVALID_REMOTE: {
+      why: "`defineDatabase().remote` must be `true` or `false`.",
+      fix: "Set `remote: true` to query the real D1 database in `vite dev`, or remove `remote` to keep local SQLite.",
+    },
+    DATABASE_REMOTE_CONFLICT: {
+      why: ({ database }: { database: string }) => `The database "${database}" sets \`remote: false\`, but \`cloudflare.http\` sends \`vite dev\` queries to the remote D1 database.`,
+      fix: "Remove `remote: false` to keep D1 over HTTP, or remove `cloudflare.http` from the Definition and the integration to use local SQLite in `vite dev`.",
+    },
     DATABASE_UNKNOWN_OPTION: {
       why: ({ dialect, option }: { dialect?: "postgresql", option: string }) => dialect
         ? `\`defineDatabase()\` with \`dialect: "postgresql"\` does not support \`${option}\`.`

@@ -233,6 +233,16 @@ export function readDatabaseDefinitionReadReplication(file: string): boolean | u
   return expression?.type === "Literal" && typeof expression.value === "boolean" ? expression.value : undefined
 }
 
+/**
+ * Whether `vite dev` queries the real D1 database: the Definition's source sets `remote: true`, or sets
+ * `cloudflare.http` and not `remote: false`. Undefined when the source does not show it with literals.
+ */
+export function readDatabaseDefinitionRemote(file: string): boolean | undefined {
+  const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "remote")
+  if (expression?.type === "Literal" && typeof expression.value === "boolean") return expression.value
+  return isStaticD1HttpDefinition(file) || undefined
+}
+
 type DefinitionCloudflareResource = CloudflareD1Projection["resource"]
 
 function readDefinitionCloudflareResource(expression: Expression | undefined): DefinitionCloudflareResource {

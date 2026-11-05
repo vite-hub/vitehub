@@ -4,7 +4,7 @@ import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { isWebContainer } from "@vite-hub/web-container/env"
 
 import { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets } from "./contributions.ts"
-import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionReadReplication, readStaticDatabaseSchema } from "./config.ts"
+import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionReadReplication, readDatabaseDefinitionRemote, readStaticDatabaseSchema } from "./config.ts"
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
@@ -82,6 +82,9 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
         : [],
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },
       ...(dialects[definition.name] !== "postgresql" && isWebContainer() ? [{ label: "Local driver", value: webContainerDriver }] : []),
+      ...(dialects[definition.name] !== "postgresql" && readDatabaseDefinitionRemote(definition.handler))
+        ? [{ label: "Development", value: "Remote. `vite dev` queries the real D1 database over HTTP, so writes change real data." }]
+        : [],
       ...(readDatabaseDefinitionReadReplication(definition.handler) ?? options.readReplication)
         ? [{ label: "Read replication", value: "On. Reads use D1 read replicas, through one D1 session per request. Writes return a bookmark cookie." }]
         : [],

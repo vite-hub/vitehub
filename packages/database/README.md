@@ -157,21 +157,25 @@ The CMS preset, Comments, Connections, and Auth's `authDatabase()` use this rule
 
 ## Remote D1 development
 
-Set `cloudflare.http` on a Database Definition to query remote D1 during local development. `true` uses Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`; an object selects an authenticated D1-compatible proxy.
+`vite dev` uses local SQLite by default. Set `remote: true` on a Database Definition to query its real D1 database during development. Writes then change real data.
 
 ```ts
 export default defineDatabase({
   cloudflare: {
     databaseId: process.env.CLOUDFLARE_D1_DATABASE_ID,
-    http: true,
   },
+  remote: true,
   schema,
 })
 ```
 
+`remote: true` uses the D1 HTTP path of `cloudflare.http: true`: Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`. It applies even when a local D1 binding exists. The first query prints `Database "<name>" is remote` with the database id, and `vitehub inspect definitions --kind database` shows `Development: Remote`. Builds ignore `remote`, so the build output does not change. `vitehub db migrate` follows `cloudflare.http`, not `remote`.
+
+`cloudflare.http` also makes `vite dev` remote, so in development it is an alias of `remote: true`. `true` uses Cloudflare's API; an object selects an authenticated D1-compatible proxy. Unlike `remote`, it also selects D1 over HTTP in hosted output without a binding, such as Vercel. `remote: false` with `cloudflare.http` fails with `DATABASE_REMOTE_CONFLICT`. `remote` is not a Postgres option.
+
 Set `cloudflare.readReplication: true` (or `readReplication: true` on a D1 integration) to read from D1 read replicas. Each request gets one D1 session. A request with a method other than GET, HEAD, or OPTIONS starts on the primary database and returns a `vitehub-d1-bookmark-<binding>` cookie, so the same client reads its own writes next. Work outside a request uses the primary database. `vitehub provision run` turns on replication for the database. D1 over HTTP and SQLite ignore the option.
 
-Remote access is explicit. Local development uses SQLite when neither the Definition nor its integration configures `cloudflare.http`. Cloudflare output prefers a matching D1 binding.
+Remote access is explicit. Local development uses SQLite unless the Definition sets `remote: true`, or the Definition or its integration configures `cloudflare.http`. Cloudflare output prefers a matching D1 binding.
 
 A Definition inherits the integration resource when it omits both `databaseId` and `databaseName`. Setting either selects its own resource, so it inherits no integration database ID, name, or preview ID. Other D1 settings still inherit their defaults. HTTP proxy URLs and tokens inherit by field. Both must be available after inheritance for HTTP access to work.
 

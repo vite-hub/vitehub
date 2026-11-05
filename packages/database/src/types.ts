@@ -91,6 +91,12 @@ export interface DatabaseDefinitionOptions<TSchema extends Record<string, unknow
   dialect?: "sqlite"
   drizzle?: DatabaseDrizzleOptions
   name?: string
+  /**
+   * In `vite dev`, query the real D1 database over HTTP instead of local SQLite. Writes change real data. It uses the
+   * D1 HTTP path of `cloudflare.http` with the same credentials, so `true` means `cloudflare.http: true` in development.
+   * Builds ignore it.
+   */
+  remote?: boolean
   schema: TSchema
 }
 
@@ -111,6 +117,8 @@ export interface PostgresDatabaseDefinitionOptions<TSchema extends Record<string
   dialect: "postgresql"
   drizzle?: DatabaseDrizzleOptions
   name?: string
+  /** Only D1 has a remote development mode. */
+  remote?: never
   schema: TSchema
 }
 
@@ -130,6 +138,7 @@ export interface DatabaseDefinition<TSchema extends Record<string, unknown> = Re
   connection?: DatabaseConnectionConfig
   drizzle: DatabaseDrizzleOptions
   name: string
+  remote?: boolean
   schema: TSchema
 }
 
@@ -181,6 +190,8 @@ export interface RuntimeDrizzleDatabaseConfig {
   connection?: DatabaseConnectionConfig
   drizzle: DatabaseDrizzleOptions
   name: string
+  /** Set only in `vite dev`: the database queries its real D1 database over HTTP, even when a local binding exists. */
+  remote?: true
 }
 
 export interface CloudflareD1Projection {

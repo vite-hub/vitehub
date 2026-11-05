@@ -56,8 +56,18 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
   let libsqlInstanceToken: string | undefined
   let libsqlInstanceUrl: string | undefined
   let libsqlClient: LibsqlClient | undefined
+  let remoteNoticeShown = false
 
   function getDb() {
+    if (config.remote) {
+      if (!remoteNoticeShown) {
+        remoteNoticeShown = true
+        const databaseId = resolveConfigValue(config.cloudflare?.databaseId)?.trim()
+        console.warn(`[vitehub] Database "${config.name}" is remote: \`vite dev\` queries the real D1 database${databaseId ? ` ${databaseId}` : ""} over HTTP. Writes change real data.`)
+      }
+      return getD1HttpDb()
+    }
+
     const bindingName = config.cloudflare?.binding
     const d1Binding = bindingName
       ? getActiveCloudflareBinding<D1DatabaseLike>(bindingName)

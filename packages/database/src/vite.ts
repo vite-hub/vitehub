@@ -135,7 +135,8 @@ function renderSchemaModule(config: ResolvedDBViteConfig | undefined) {
   ].join("\n")
 }
 
-function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
+/** `dev` is true only for `vite dev`, where a Definition's `remote` switch applies. */
+function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: boolean) {
   if (!config?.databaseNames.length) {
     return "export const databases = {}\nexport default databases\n"
   }
@@ -148,7 +149,9 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
     `  [${JSON.stringify(definition.name)}]: {`,
     config.databases[definition.name]?.dialect === "postgresql"
       ? `    db: ${renderPostgresDatabaseExpression(definition.name, config, `definition_${index}`, `schema_${index}`)},`
-      : `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`)},`,
+      : dev
+        ? `    config: resolveDevRemoteConfig(${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`)}, definition_${index}.remote),`
+        : `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`)},`,
     `    schema: schema_${index},`,
     "  },",
   ].join("\n"))
@@ -156,7 +159,7 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
   return [
     // `runtime/d1` imports no libSQL client: `runtime/hosted` would add `@libsql/client/http`, which a local app does not use
     // and a WebContainer's `@libsql/client` does not export.
-    ...(usesSqlite(config) ? [`import { resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/d1"))}`] : []),
+    ...(usesSqlite(config) ? [`import { ${dev ? "resolveDevRemoteConfig, " : ""}resolveRuntimeCloudflareConfig } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/d1"))}`] : []),
     ...(usesPostgres(config) ? [`import { createPostgresDatabase } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/postgres"))}`] : []),
     ...imports,
     "",
@@ -555,12 +558,15 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     load(id) {
       if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return renderSchemaModule(runtimeConfig)
-      if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig)
+      if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig, resolved?.command === "serve")
       if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
         const options = resolvedOptions()
-        return `export default ${serializeGeneratedRegistry(runtimeConfig?.definitionDefaults ?? {
-          ...(options && options.driver === "d1" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
-          ...(options && options.connection ? { connection: options.connection } : {}),
+        return `export default ${serializeGeneratedRegistry({
+          ...runtimeConfig?.definitionDefaults ?? {
+            ...(options && options.driver === "d1" ? { cloudflare: cloudflareOptions(options) ?? {} } : {}),
+            ...(options && options.connection ? { connection: options.connection } : {}),
+          },
+          ...(resolved?.command === "serve" ? { dev: true } : {}),
         })}\n`
       }
     },
