@@ -69,6 +69,7 @@ afterEach(() => {
   for (const element of document.querySelectorAll("vitehub-pill, vitehub-window, vitehub-tools-off")) element.remove()
   document.cookie = "vitehub-tools=; Path=/; Max-Age=0"
   document.documentElement.className = ""
+  document.documentElement.removeAttribute("data-vitehub-pill")
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -181,6 +182,90 @@ describe("loadViteHubPageTools", () => {
     pill().element.shadowRoot!.querySelector<HTMLButtonElement>("button.mark")!.click()
     expect(pill().element.hasAttribute("collapsed")).toBe(false)
     expect(localStorage.getItem("vitehub-tools-collapsed")).toBeNull()
+  })
+
+  it("folds to the mark at an end of its edge while the page asks, and stores nothing", async () => {
+    page("/?vitehub")
+    document.documentElement.setAttribute("data-vitehub-pill", "mark")
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    const mark = element.shadowRoot!.querySelector<HTMLButtonElement>("button.mark")!
+    expect([element.hasAttribute("collapsed"), element.getAttribute("edge"), element.style.getPropertyValue("--at")]).toEqual([true, "bottom", "100"])
+
+    mark.click()
+    expect([element.hasAttribute("collapsed"), element.style.getPropertyValue("--at")]).toEqual([false, "100"])
+    expect([localStorage.getItem("vitehub-tools-collapsed"), localStorage.getItem("vitehub-tools-dock")]).toEqual([null, null])
+
+    document.documentElement.removeAttribute("data-vitehub-pill")
+    await vi.waitFor(() => expect(element.style.getPropertyValue("--at")).toBe("50"))
+    expect(element.hasAttribute("collapsed")).toBe(false)
+  })
+
+  it("follows the page's ask after it loads, back to the person's own choices", async () => {
+    page("/?vitehub")
+    localStorage.setItem("vitehub-tools-dock", JSON.stringify({ edge: "bottom", at: 30 }))
+    session({ tools: [comments, consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    expect([element.hasAttribute("collapsed"), element.getAttribute("edge"), element.style.getPropertyValue("--at")]).toEqual([false, "bottom", "30"])
+
+    document.documentElement.setAttribute("data-vitehub-pill", "mark")
+    await vi.waitFor(() => expect(element.hasAttribute("collapsed")).toBe(true))
+    expect(element.style.getPropertyValue("--at")).toBe("0")
+    // A page that sets the same value again, such as on a client-side navigation, keeps the pill as the person opened it.
+    element.shadowRoot!.querySelector<HTMLButtonElement>("button.mark")!.click()
+    document.documentElement.setAttribute("data-vitehub-pill", "mark")
+    await new Promise(resolve => setTimeout(resolve))
+    expect(element.hasAttribute("collapsed")).toBe(false)
+
+    document.documentElement.setAttribute("data-vitehub-pill", "")
+    await vi.waitFor(() => expect(element.style.getPropertyValue("--at")).toBe("30"))
+    expect(element.hasAttribute("collapsed")).toBe(false)
+    document.documentElement.setAttribute("data-vitehub-pill", "mark")
+    await vi.waitFor(() => expect(element.hasAttribute("collapsed")).toBe(true))
+  })
+
+  it.each([
+    [{ edge: "top", at: 30 }, "30"],
+    [{ edge: "left", at: 80 }, "80"],
+  ] as const)("folds in place on an edge other than the bottom while the page asks (dock %j)", async (dock, at) => {
+    page("/?vitehub")
+    localStorage.setItem("vitehub-tools-dock", JSON.stringify(dock))
+    document.documentElement.setAttribute("data-vitehub-pill", "mark")
+    session({ tools: [consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = pill()
+    expect([element.hasAttribute("collapsed"), element.getAttribute("edge"), element.style.getPropertyValue("--at")]).toEqual([true, dock.edge, at])
+  })
+
+  it("opens the pill when the off mark turns the tools on, even while the page asks", async () => {
+    page("/")
+    localStorage.setItem("vitehub-tools-off", "1")
+    document.documentElement.setAttribute("data-vitehub-pill", "mark")
+    session({ tools: [consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    offMark().button.click()
+    await vi.waitFor(() => expect(document.querySelector("vitehub-pill")).not.toBeNull())
+    const { element } = pill()
+    expect([element.hasAttribute("collapsed"), element.style.getPropertyValue("--at")]).toEqual([false, "100"])
+    expect(localStorage.getItem("vitehub-tools-collapsed")).toBeNull()
+  })
+
+  it.each([
+    [{ edge: "bottom", at: 40 }, "bottom", "0"],
+    [{ edge: "right", at: 20 }, "right", "20"],
+  ] as const)("moves the off mark aside while the page asks (dock %j)", async (dock, edge, at) => {
+    page("/")
+    localStorage.setItem("vitehub-tools-off", "1")
+    localStorage.setItem("vitehub-tools-dock", JSON.stringify(dock))
+    document.documentElement.setAttribute("data-vitehub-pill", "mark")
+    session({ tools: [consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const { element } = offMark()
+    expect([element.getAttribute("edge"), element.style.getPropertyValue("--at")]).toEqual([edge, at])
+    document.documentElement.removeAttribute("data-vitehub-pill")
+    await vi.waitFor(() => expect(element.style.getPropertyValue("--at")).toBe(String(dock.at)))
   })
 
   it("docks where the browser remembers, before it draws, and docks windows on the same edge", async () => {

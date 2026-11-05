@@ -7739,6 +7739,7 @@ async function createChannelChat(
     )
   })
   chat.onNewMention(async (chatThread, message, messageContext) => {
+    await claimChatMessageMentions(state.state, state.keyPrefix, adapterName, adapter, message, messageContext)
     const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder, message.userKey ?? null) : chatThread
     await recorder?.inbound(thread, message, messageContext)
     const messageRuntimeContext = await deliveryContext()
@@ -7778,6 +7779,7 @@ async function createChannelChat(
     )
   })
   chat.onSubscribedMessage(async (chatThread, message, messageContext) => {
+    await claimChatMessageMentions(state.state, state.keyPrefix, adapterName, adapter, message, messageContext)
     const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder, message.userKey ?? null) : chatThread
     await recorder?.inbound(thread, message, messageContext)
     return handleChatSdkMessages(
@@ -7796,9 +7798,58 @@ async function createChannelChat(
       maximumInvocationDeadline,
     )
   })
+  // An edit that adds the first mention of the Agent starts work like a new mention. Teams sends no previous
+  // version, so the mention claim tells whether an earlier version already mentioned the Agent.
+  chat.onMessageUpdated(async (chatThread, message, previousMessage) => {
+    const starts =
+      !chatThread.isDM &&
+      message.isMention === true &&
+      previousMessage?.isMention !== true &&
+      (await claimChatMessageMention(state.state, state.keyPrefix, adapterName, adapter, chatThread.id, message.id))
+    if (!starts) {
+      const delivery = await resolveDelivery?.()
+      if (delivery) {
+        delivery.claimed = true
+        await recordChannelDeliveryEvidence(delivery, { type: "rejected" })
+      }
+      return
+    }
+    // The original message already holds Chat's dedupe key.
+    await chat.processMessage(adapter, chatThread.id, message, { deduplicate: false })
+  })
 
   return chat
 }
+
+/** Claims the mentioned messages of a delivery, including the ones Chat batched into it. */
+async function claimChatMessageMentions(
+  state: StateAdapter,
+  keyPrefix: string,
+  adapterName: string,
+  adapter: Adapter,
+  message: ChatSdkMessage,
+  messageContext?: MessageContext,
+): Promise<void> {
+  for (const entry of [...(messageContext?.skipped ?? []), message]) {
+    if (entry.isMention) await claimChatMessageMention(state, keyPrefix, adapterName, adapter, entry.threadId, entry.id)
+  }
+}
+
+/** Records the first mention of a message. Returns false when an earlier version already mentioned the Agent. */
+async function claimChatMessageMention(
+  state: StateAdapter,
+  keyPrefix: string,
+  adapterName: string,
+  adapter: Adapter,
+  threadId: string,
+  messageId: string,
+): Promise<boolean> {
+  if (!messageId) return false
+  const key = `${keyPrefix}mentioned:${adapterName}:${adapter.channelIdFromThreadId(threadId)}:${messageId}`
+  return await state.setIfNotExists(key, true, chatMessageMentionRetentionMs)
+}
+
+const chatMessageMentionRetentionMs = 30 * 24 * 60 * 60 * 1000
 
 function historyBytesToBase64(data: Uint8Array): string {
   let binary = ""

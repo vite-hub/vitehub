@@ -47,6 +47,7 @@ const app = new H3().get("/raw/**", raw).get("/sitemap.xml", sitemap)
 beforeEach(() => {
   vi.clearAllMocks()
   docsConfig.appBase = "/"
+  docsConfig.site.url = "https://docs.example.com"
 })
 
 describe("raw Markdown route", () => {
@@ -164,5 +165,21 @@ describe("docs resources below an application base", () => {
     getItem.mockResolvedValue("# KV")
     expect(await source.get("/portal/docs/kv")).toMatchObject({ markdown: "# KV" })
     expect(getItem).toHaveBeenCalledWith("docs/kv.md")
+  })
+
+  it.each([
+    { appBase: "/portal/", siteUrl: "https://docs.example.com" },
+    { appBase: "/portal/", siteUrl: "https://runtime.example.com" },
+    { appBase: "/runtime/", siteUrl: "https://docs.example.com" },
+    { appBase: "/runtime/", siteUrl: "https://runtime.example.com" },
+  ])("leaves generated section links out of llms-full.txt with runtime config $siteUrl and $appBase", async ({ appBase, siteUrl }) => {
+    const { docsRawSectionLinks } = await import("../src/navigation.ts")
+    const { default: manifest } = await import("#docs/manifest")
+    const markdown = "# Configure\n\n## In this section\n\nAuthor-written links.\n"
+    getItem.mockResolvedValue(markdown + docsRawSectionLinks(manifest, "/docs/kv/configure", "https://docs.example.com/portal"))
+    docsConfig.appBase = appBase
+    docsConfig.site.url = siteUrl
+    expect(await source.get(`${appBase}docs/kv/configure`)).toMatchObject({ markdown })
+    expect(getItem).toHaveBeenCalledWith("docs/kv/configure.md")
   })
 })
