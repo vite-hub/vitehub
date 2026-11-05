@@ -1,3 +1,4 @@
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { createError, defineEventHandler, getQuery } from "h3"
 
 import { CollectionCursorError } from "./core/collection.ts"
@@ -136,7 +137,7 @@ export function defineCollectionHandler<TItem, TQuery extends object, TQueryInpu
     }
 
     try {
-      return serializeCollectionPage(await collection.page({ cursor, limit, query, signal: event.req.signal }))
+      return serializeCollectionPage(await collection.page({ cursor, limit, query, signal: getStandardContext(event).req.signal }))
     } catch (cause) {
       if (cause instanceof CollectionCursorError) {
         if (cause.reason === "stale") {

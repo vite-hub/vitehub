@@ -160,10 +160,10 @@ describe("createCommentsGitHubLogin", () => {
     if (runtime === "node") {
       const req = Object.assign(Readable.from([]), { method: "GET", url: path, headers: { host: "site.test" } })
       // SAFETY: This is the Node request shape of a Nuxt 4 H3 1 event.
-      return { node: { req }, context: {} } as unknown as H3Event
+      return { node: { req, res: {} }, context: {} } as unknown as H3Event
     }
     // SAFETY: The sign-in reads only the request of the event.
-    return { req: new Request(`${origin}${path}`) } as H3Event
+    return { req: new Request(`${origin}${path}`), res: { headers: new Headers() } } as unknown as H3Event
   }
 
   it("is off without an OAuth client, and says which variables turn it on", async () => {

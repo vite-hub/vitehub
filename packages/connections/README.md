@@ -232,7 +232,7 @@ hubConnections({ management: { actor: "./server/connections-auth.ts" } });
 
 ### Management routes
 
-`createConnectionsHandler({ actor, basePath, runtime })` from `@vite-hub/connections/http` serves these routes. `actor` is required.
+`createConnectionsHandler({ actor, basePath, runtime })` from `@vite-hub/connections/http` serves these routes. Its handler takes a Web `Request` or a request event, and reads the request of an event from `event["~standard"].req`. `actor` is required and gets `(request, event)`.
 
 | Route | Use |
 | --- | --- |

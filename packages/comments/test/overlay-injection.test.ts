@@ -91,7 +91,7 @@ describe("the Nitro middleware", () => {
     const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
     return (await import(/* @vite-ignore */ moduleUrl)).default as (event: unknown, next?: () => unknown) => Promise<unknown>
   }
-  const event = (path = "/", method = "GET", type = "", extra: Record<string, string> = {}) => ({ req: { method, url: `http://localhost${path}` }, res: { headers: new Headers({ ...(type ? { "content-type": type } : {}), ...extra }) } })
+  const event = (path = "/", method = "GET", type = "", extra: Record<string, string> = {}) => ({ "~standard": { vendor: "test", req: { method, url: `http://localhost${path}` }, res: { headers: new Headers({ ...(type ? { "content-type": type } : {}), ...extra }) } } })
   const page = "<html><body><h1>Hi</h1></body></html>"
   const html = (body: BodyInit, headers: Record<string, string> = {}, status = 200) => new Response(body, { headers: { "content-type": "text/html; charset=utf-8", ...headers }, status })
   const stream = (chunks: string[]) => new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk)); controller.close() } })
@@ -186,8 +186,8 @@ describe("the Nitro middleware", () => {
       const result = await inject(ev, async () => source)
       const changed = source === page
       expect(result !== source).toBe(changed)
-      expect(ev.res.headers.get("content-length")).toBe(changed ? null : String(source.length))
-      expect(ev.res.headers.get("etag")).toBe(changed ? null : '"old"')
+      expect(ev["~standard"].res.headers.get("content-length")).toBe(changed ? null : String(source.length))
+      expect(ev["~standard"].res.headers.get("etag")).toBe(changed ? null : '"old"')
     }
   })
 

@@ -60,7 +60,7 @@ describe("Nuxt 4 and Nitro 2", () => {
     const handler = createRealtimeHandler(registryOf(definition()) as never)
     const event = {
       context: { _platform: { cloudflare: { env: { $DurableObject: { get: () => ({ fetch }), idFromName: (name: string) => ({ name }) } } } } },
-      node: { req: { headers: { connection: "Upgrade", host: "example.com", upgrade: "websocket" }, method: "GET", url: "/api/_vitehub/realtime/docs/posts%2Fhello", async* [Symbol.asyncIterator]() {} } },
+      node: { req: { headers: { connection: "Upgrade", host: "example.com", upgrade: "websocket" }, method: "GET", url: "/api/_vitehub/realtime/docs/posts%2Fhello", async* [Symbol.asyncIterator]() {} }, res: {} },
     }
 
     const response = await handler(event)

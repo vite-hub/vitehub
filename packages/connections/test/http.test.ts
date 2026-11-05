@@ -30,6 +30,15 @@ describe("createConnectionsHandler", () => {
       .toThrow("Connections basePath")
   })
 
+  it("reads the request of a request event through Standard Context and passes the event to the actor", async () => {
+    const request = post({ action: "unknown" });
+    const event = { "~standard": { vendor: "test", req: request, res: { headers: new Headers() } } };
+    const actor = vi.fn(() => undefined);
+    const handler = createConnectionsHandler({ actor, runtime: () => createTestRuntime().runtime });
+    expect((await handler(event)).status).toBe(403);
+    expect(actor).toHaveBeenCalledWith(request, event);
+  });
+
   it.each([
     () => undefined,
     () => "agent:worker",

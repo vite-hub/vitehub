@@ -13,7 +13,7 @@ import type { H3Event } from "h3"
 
 function event(headers: Record<string, string> = {}): H3Event {
   // SAFETY: Comments identity readers use the request headers from the H3 event.
-  return { req: new Request("http://site.test/api/_vitehub/comments/session", { headers }) } as H3Event
+  return { req: new Request("http://site.test/api/_vitehub/comments/session", { headers }), res: { headers: new Headers() } } as unknown as H3Event
 }
 
 async function setup(options: DefineCommentsOptions = {}) {

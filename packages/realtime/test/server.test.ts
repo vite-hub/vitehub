@@ -73,7 +73,7 @@ function durableRealtimeRequest(exec: (query: string, ...bindings: unknown[]) =>
   const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
     headers: { upgrade: "websocket" },
   }) as Request & { runtime?: unknown }
-  request.runtime = { cloudflare: { context: { storage: { sql: nativeSqlCarrier(exec) } } } }
+  request.runtime = { cloudflare: { env: {}, context: { storage: { sql: nativeSqlCarrier(exec) } } } }
   return request
 }
 
@@ -136,7 +136,7 @@ describe("realtime server handler", () => {
     const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
-    request.runtime = { cloudflare: { context } }
+    request.runtime = { cloudflare: { env: {}, context } }
     const handler = createRealtimeHandler(realtimeRegistry())
 
     const response = await handler.fetch(request) as Response & { crossws?: unknown }
@@ -180,7 +180,7 @@ describe("realtime server handler", () => {
     const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
-    request.runtime = { cloudflare: { context: { storage: { sql } } } }
+    request.runtime = { cloudflare: { env: {}, context: { storage: { sql } } } }
 
     const response = await createRealtimeHandler(realtimeRegistry()).fetch(request) as Response & { crossws?: unknown }
 
@@ -203,7 +203,7 @@ describe("realtime server handler", () => {
     const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
-    request.runtime = { cloudflare: { context: { storage } } }
+    request.runtime = { cloudflare: { env: {}, context: { storage } } }
 
     const response = await createRealtimeHandler(realtimeRegistry()).fetch(request) as Response & { crossws?: unknown }
 
@@ -228,7 +228,7 @@ describe("realtime server handler", () => {
       const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
         headers: { upgrade: "websocket" },
       }) as Request & { runtime?: unknown }
-      request.runtime = { cloudflare: { context: { storage: { sql: {} } } } }
+      request.runtime = { cloudflare: { env: {}, context: { storage: { sql: {} } } } }
 
       const response = await createRealtimeHandler(realtimeRegistry()).fetch(request) as Response & { crossws?: unknown }
 
@@ -254,7 +254,7 @@ describe("realtime server handler", () => {
     const request = new Request("https://example.com/api/_vitehub/realtime/docs/page.md", {
       headers: { upgrade: "websocket" },
     }) as Request & { runtime?: unknown }
-    request.runtime = { cloudflare: { context: { storage: { sql } } } }
+    request.runtime = { cloudflare: { env: {}, context: { storage: { sql } } } }
 
     try {
       const response = await createRealtimeHandler(realtimeRegistry()).fetch(request) as Response & { crossws?: unknown }
@@ -351,7 +351,7 @@ describe("realtime server handler", () => {
       body: Uint8Array.from(Y.encodeStateAsUpdate(client)).buffer,
       method: "POST",
     })
-    Object.assign(request, { runtime: { cloudflare: { context: { storage: { sql: nativeSqlCarrier(vi.fn(() => ({ toArray: () => [] }))) } } } } })
+    Object.assign(request, { runtime: { cloudflare: { env: {}, context: { storage: { sql: nativeSqlCarrier(vi.fn(() => ({ toArray: () => [] }))) } } } } })
 
     const response = await handler.fetch(request)
 

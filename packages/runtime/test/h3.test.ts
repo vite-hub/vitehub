@@ -122,6 +122,38 @@ describe("@vite-hub/runtime/h3", () => {
     expect(pulls).toBe(1)
   })
 
+  it.each([
+    ["_requestBody", Promise.resolve(new TextEncoder().encode('{"action":"list"}'))],
+    ["_requestBody", { action: "list" }],
+    ["h3RawBody", new TextEncoder().encode('{"action":"list"}')],
+    ["rawBody", '{"action":"list"}'],
+    ["body", '{"action":"list"}'],
+  ] as const)("reads an H3 1 body that a host or middleware already read: %s", async (key, stored) => {
+    const nodeRequest: Record<PropertyKey, unknown> = {
+      headers: { host: "docs.example", "content-type": "application/json" },
+      method: "POST",
+      url: "/_vitehub/connections",
+      // Nitro 2 on Cloudflare Workers gives a request mock that cannot be iterated.
+      [Symbol.asyncIterator]: () => { throw new Error("Readable.asyncIterator is not implemented yet!") },
+    }
+    const event: Record<string, unknown> = { node: { req: nodeRequest } }
+    if (key === "_requestBody") event._requestBody = stored
+    else nodeRequest[key === "h3RawBody" ? Symbol.for("h3RawBody") : key] = stored
+    await expect(toH3V1Request(event as never).json()).resolves.toEqual({ action: "list" })
+  })
+
+  it("keeps the app base path and the TLS scheme of an H3 1 request", () => {
+    const nodeRequest = {
+      headers: { host: "docs.example", "x-forwarded-proto": "https" },
+      method: "GET",
+      originalUrl: "/portal/_vitehub/connections/callback?code=test",
+      url: "/_vitehub/connections/callback?code=test",
+    }
+    expect(toH3V1Request({ node: { req: nodeRequest } }).url).toBe("https://docs.example/portal/_vitehub/connections/callback?code=test")
+    const slashes = { ...nodeRequest, originalUrl: "//other.example/portal" }
+    expect(toH3V1Request({ node: { req: slashes } }).url).toBe("https://docs.example/other.example/portal")
+  })
+
   it("closes an empty H3 1 request body", async () => {
     const nodeRequest = {
       headers: { host: "example.test" },

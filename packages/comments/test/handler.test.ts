@@ -469,6 +469,7 @@ describe("Comments API", () => {
     const handler = createCommentsHandler({ comments, realtime: false })
     const response: unknown = await Reflect.apply(handler, undefined, [{
       req: new Request(`${origin}/api/_vitehub/comments/threads`, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ page: "/", body: "@Grace", mentions: ["grace"] }) }),
+      res: { headers: new Headers() },
       context: { waitUntil },
     }])
     expect(response).toBeInstanceOf(Response)
@@ -490,7 +491,7 @@ describe("Comments API", () => {
         url: `/api/_vitehub/comments${path}`,
         headers: { host: "site.test", origin, "content-type": "application/json" },
       })
-      const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req }, context: { waitUntil } }])
+      const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req, res: {} }, context: { waitUntil } }])
       if (!(response instanceof Response)) throw new TypeError("Expected a Response")
       return await response.json() as { data?: unknown }
     }

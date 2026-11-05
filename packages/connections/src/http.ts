@@ -1,3 +1,5 @@
+import { getStandardContext } from "@vite-hub/runtime/h3";
+
 import { isConnectionError } from "./errors.ts";
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts";
 import { checkConnectionsAccess } from "./internal/http-access.ts";
@@ -7,6 +9,7 @@ import { page, requestReturnPath } from "./internal/http-page.ts";
 import { CONNECTIONS_ROUTE } from "./route.ts";
 import { getConnectionsRuntime } from "./runtime/state.ts";
 
+import type { ViteHubContext } from "@vite-hub/runtime";
 import type { ConnectionsAccessPolicy } from "./internal/http-access.ts";
 import type { ConnectionsRuntime } from "./runtime.ts";
 
@@ -56,10 +59,13 @@ function normalizeConnectionsBasePath(value: string | undefined): string {
  */
 export function createConnectionsHandler(
   options: ConnectionsHandlerOptions,
-): (request: Request, event?: unknown) => Promise<Response> {
+): (input: Request | ViteHubContext) => Promise<Response> {
   const runtime = () => (options.runtime ?? getConnectionsRuntime)();
   const base = normalizeConnectionsBasePath(options.basePath);
-  return async (request, event) => {
+  return async (input) => {
+    // A request event, such as an H3 1 or H3 2 event in a ViteHub app, gives its Web Request through Standard Context.
+    const request = input instanceof Request ? input : getStandardContext(input).req;
+    const event = input instanceof Request ? undefined : input;
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
     try {
       const check = await checkConnectionsAccess(options.actor, request, event, runtime, options.agentName);
