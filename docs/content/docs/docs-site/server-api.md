@@ -55,6 +55,9 @@ The module also sets the options of the modules that it installs: `llms` from `s
 | --- | --- | --- | --- |
 | `title` | `string` | Required | Page heading, browser title, and search title. |
 | `description` | `string` | None | Text under the heading, the meta description, and the llms.txt entry. |
+| `tagline` | `string` | `description` | Text under the heading, when it must differ from the meta description. `description` keeps its other uses. |
+| `credits` | `string` | None | Inline Markdown at the end of the page, such as the projects that the page builds on. The page route returns it parsed as `credits`. |
+| `keywords` | `string` or `string[]` | None | Words that find the page in search besides its own text. One string splits at commas. Search matches them like headings, below the page title. |
 | `icon` | `string` | `icons.page` | Sidebar icon, as an Iconify name. |
 | `layout` | `'article'`, `'tutorial'`, `'landing'`, or `'home'` | `'article'` | See [Layouts](/docs/docs-site/configure#layouts). |
 | `tutorial` | `'project'` or `'quickstart'` | None | Stored in the manifest for your own tutorials catalog. |

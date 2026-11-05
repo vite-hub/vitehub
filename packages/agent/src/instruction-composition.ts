@@ -1,5 +1,4 @@
 import { parseMarkdown } from "comark"
-import binding from "comark/plugins/binding"
 import { renderMarkdownTemplateInternal } from "@vite-hub/markdown-template/internal/composition"
 import { agentDiagnostics, isAgentTypeDiagnostic } from "./agent-diagnostics.ts"
 import { hasRuntimeType } from "./internal/runtime-type.ts"
@@ -29,11 +28,6 @@ type ComarkElement = [string, ComarkElementAttributes, ...ComarkNode[]]
 type ComarkComment = [null, ComarkElementAttributes, string]
 type ComarkNode = ComarkComment | ComarkElement | string
 
-interface InstructionTemplateTags {
-  prefix: string
-  values: string[]
-}
-
 const contextConditionPathPattern = /^context(?:\.[A-Za-z_$][\w$-]*)+$/
 
 export async function composeInstructionDocument(content: string, options: ComposeInstructionDocumentOptions = {}): Promise<string> {
@@ -57,7 +51,7 @@ export async function composeInstructionDocument(content: string, options: Compo
     rawHtmlBlocks.push(block)
     return `${rawHtmlPrefix}${rawHtmlBlocks.length - 1}END`
   })
-  const { tree: customTree } = await parseInstructionTemplate(customMasked)
+  const customTree = await parseInstructionTemplate(customMasked)
   const customInCode = instructionTokensInCode(customTree.nodes, customPrefix)
   for (const index of rawHtmlCodeSlotIndexes(content, customPattern)) customInCode.add(index)
   if (customInstructions !== undefined && !hasRuntimeType(customInstructions, "string")) {
@@ -184,7 +178,7 @@ async function instructionDirectiveLinesInCode(content: string): Promise<Set<num
   const masked = content.replace(/^(\s*)(:{2,}[^\r\n]*)$/gm, (_match, indentation: string) =>
     `${indentation}${prefix}${index++}END`)
   if (!index) return new Set()
-  const { tree } = await parseInstructionTemplate(masked)
+  const tree = await parseInstructionTemplate(masked)
   return instructionTokensInCode(tree.nodes, prefix)
 }
 
@@ -194,7 +188,7 @@ export async function fillInstructionSlot(template: string, content: string): Pr
   const prefix = `VITEHUBINSTRUCTIONSLOT${crypto.randomUUID().replaceAll("-", "")}`
   let count = 0
   const masked = template.replace(pattern, () => `${prefix}${count++}END`)
-  const { tree } = await parseInstructionTemplate(masked)
+  const tree = await parseInstructionTemplate(masked)
   const inCode = instructionTokensInCode(tree.nodes, prefix)
   if (count - inCode.size !== 1) {
     throw new TypeError("[vitehub] Instruction templates require exactly one {{{ instructions }}} slot outside code.")
@@ -273,12 +267,12 @@ function rethrowInstructionCompositionError(error: unknown): never {
     : agentDiagnostics.AGENT_R0447({ message, cause: error })
 }
 
-async function parseInstructionMarkdown(content: string, bindings = false) {
+async function parseInstructionMarkdown(content: string) {
   return await parseMarkdown(content, {
     autoClose: false,
     autoUnwrap: false,
     linkify: false,
-    plugins: bindings ? [binding()] : [],
+    plugins: [],
   })
 }
 
@@ -286,19 +280,11 @@ function cleanMarkdown(content: string): string {
   return content.trim()
 }
 
-async function parseInstructionTemplate(content: string, bindings = false) {
-  const tags: InstructionTemplateTags = {
-    prefix: `VITEHUBINSTRUCTIONTAG${crypto.randomUUID().replaceAll("-", "")}`,
-    values: [],
-  }
-  return { tags, tree: await parseInstructionMarkdown(maskInstructionTags(content, tags), bindings) }
-}
-
-function maskInstructionTags(content: string, tags: InstructionTemplateTags): string {
-  return content.replace(/<\/?[A-Za-z][^<>]*>/g, (tag) => {
-    const index = tags.values.push(tag) - 1
-    return `${tags.prefix}${index}END`
-  })
+async function parseInstructionTemplate(content: string) {
+  const prefix = `VITEHUBINSTRUCTIONTAG${crypto.randomUUID().replaceAll("-", "")}`
+  let index = 0
+  const masked = content.replace(/<\/?[A-Za-z][^<>]*>/g, () => `${prefix}${index++}END`)
+  return await parseInstructionMarkdown(masked)
 }
 
 function isInstructionCoverageTag(tag: string): tag is "capability" | "skill" | "source" {

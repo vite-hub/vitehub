@@ -116,3 +116,13 @@ await forecast.resolve(text, { signal: AbortSignal.timeout(10_000) })
 const [error, plan] = await forecast.inspect("nord parts except vak supply")
 plan.questions // one question for each option of a multiple group, one for each single group, and `supported`
 ```
+
+The CLI runs the same two functions on a file, without a route or a dev server:
+
+```sh
+pnpm vitehub decisions list
+pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts except vak supply"
+pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts" --inspect
+```
+
+`run` prints the selection as JSON. Read [Run a Decision](/docs/development/cli#run-a-decision) for `--export` and `--context`.

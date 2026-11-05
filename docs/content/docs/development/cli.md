@@ -29,7 +29,7 @@ can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
-The Agent Package contributes `agent`, `channels`, and `conversations` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Rate Limit contributes `rate-limit` when `hubRateLimit()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `sandbox` does not load the project config, so it also runs in a deployed container without Vite.
+The Agent Package contributes `agent`, `channels`, and `conversations` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Rate Limit contributes `rate-limit` when `hubRateLimit()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, `decisions`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `decisions` and `sandbox` do not load the project config. `sandbox` also runs in a deployed container without Vite.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -54,6 +54,7 @@ Available namespaces:
   workflow    Start and inspect Workflow runs in development.
   task        List and run Nitro tasks, such as server/tasks/seed.ts, in the running app.
   types       Generate ViteHub TypeScript declarations.
+  decisions   List the Decisions of the app and run one with a text. Does not load the project config.
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions and generated Provider Output.
   provision   Idempotently create missing provider resources.
@@ -122,6 +123,8 @@ Available namespaces:
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with `--url`. |
+| `vitehub decisions list` | Available | Decisions Package | List the exports of `defineChoices()` results, by file. |
+| `vitehub decisions run` | Available | Decisions Package | Run one Decision with a text and print the selection as JSON, or the questions with `--inspect`. |
 | `vitehub queue list` | Available | Queue Package | List the Queue Definitions of the app and the provider that sends their jobs. |
 | `vitehub queue send` | Available | Queue Package | Send one job to a Queue Definition. |
 | `vitehub task list` | Available | ViteHub Framework | List the Nitro tasks that the app registers. |
@@ -434,6 +437,46 @@ Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with
 
 The operations are `kv.list`, `kv.get`, `kv.has`, `kv.set`, and `kv.del`, in the `kv` Console section. They run in the Nitro runtime, which owns the KV storage, and answer through the Console RPC, so a person or an agent needs access to the `kv` section. `kv.del` is destructive. `vitehub kv del` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). The Console KV page uses the same operations to list keys, show a value, edit it, and delete a key.
 
+
+## Run a Decision
+
+`decisions list` finds the source files that call `defineChoices()`, loads each one, and prints the exports that hold its result. It skips `node_modules`, `dist`, `build`, `coverage`, and folders that start with a dot. There is no registry: the file path is the address. A file that fails to load is listed with its error, and the command exits with status `1`.
+
+```sh
+pnpm vitehub decisions list
+```
+
+```txt [Output]
+FILE                              EXPORT    NAME
+server/utils/forecast-choices.ts  forecast  forecast
+
+Run one with: vitehub decisions run server/utils/forecast-choices.ts "<text>"
+```
+
+`decisions run <file> <text>` loads that file, calls `resolve()` with the text, and prints the selection as JSON. It calls the gateway of the definition, so it reads the same keys as the app, such as `AI_GATEWAY_API_KEY` or `TYPESAFE_API_KEY`, from the shell or the `.env` files of the project. Add `--inspect` to print the questions and the state that `resolve()` would send, without a model call.
+
+```sh
+pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts except vak supply"
+pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts" --inspect
+```
+
+The output of the first command, with the offline gateway of the [Decisions tutorial](/docs/decisions/get-started):
+
+```json [Output]
+{
+  "supplier": { "exclude": ["vak"], "include": ["nord"] },
+  "chart": { "confidence": 0.8, "ranked": [{ "probability": 0.1, "value": "line" }, { "probability": 0.1, "value": "bar" }], "value": null }
+}
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--export <name>` | The export to run when the file has more than one `defineChoices()` export. |
+| `--context <json>` | The `context` for `options` functions, such as `'{"tenantId":"t1"}'`. |
+| `--inspect` | Print the plan of `inspect()` instead of calling the gateway. |
+| `--json` | `decisions list` only: print the files as JSON. |
+
+A Decision error prints `{ "error": { "code", "message" } }` and exits with status `1`. The command loads the file with Vite but without the project config, so the file must import with relative paths or package names. Nuxt aliases such as `~~` and auto-imports do not resolve. Read [Decisions server API](/docs/decisions/server-api) for `resolve()` and `inspect()`.
 
 ## Run app tasks
 
