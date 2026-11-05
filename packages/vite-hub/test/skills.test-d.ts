@@ -6,10 +6,17 @@ import type { Skill } from "../src/skills.ts"
 
 it("types the MCP results with the SKILL_NOT_FOUND code", async () => {
   const mcp = skillsMcp([])
+  const listed = await mcp.list()
+  expectTypeOf(listed.resultType).toEqualTypeOf<"complete">()
+  expectTypeOf(listed.cacheScope).toEqualTypeOf<"private">()
+  expectTypeOf(listed.ttlMs).toEqualTypeOf<number>()
   const [error] = await mcp.get("skill://release")
   if (error) expectTypeOf(error.code).toEqualTypeOf<"SKILL_NOT_FOUND">()
   const [readError, read] = await mcp.read("skill://release/SKILL.md")
-  if (!readError) expectTypeOf(read.contents[0].uri).toEqualTypeOf<string>()
+  if (!readError) {
+    expectTypeOf(read.contents[0].uri).toEqualTypeOf<string>()
+    expectTypeOf(read.resultType).toEqualTypeOf<"complete">()
+  }
 })
 
 it("accepts a list or a function that returns one", () => {

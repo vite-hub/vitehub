@@ -23,6 +23,38 @@ async function json(response: Response | undefined): Promise<unknown> {
 }
 
 describe("defineSkill", () => {
+  it("normalizes UTF-8 SKILL.md bytes without changing their digest", async () => {
+    const markdown = `\uFEFF${releaseMd}`
+    const bytes = new TextEncoder().encode(markdown)
+    const skill = defineSkill({ "SKILL.md": bytes })
+    expect(skill.files[0]?.text).toBe(markdown)
+    expect(await skillDigest(skill)).toBe(sha256(bytes))
+    expect(await skillsMcp([skill]).read("skill://release/SKILL.md")).toMatchObject([undefined, { contents: [{ text: markdown }] }])
+    expect(() => defineSkill({ "SKILL.md": new Uint8Array([...bytes, 0xff]) })).toThrow(expect.objectContaining({ code: "SKILL_INVALID_FRONTMATTER" }))
+  })
+
+  it("accepts frontmatter boundaries and preserves unknown fields", () => {
+    const skill = defineSkill({ "SKILL.md": `---\nname: release\ndescription: ${"x".repeat(1024)}\ncompatibility: ${"x".repeat(500)}\nmetadata:\n  version: "1"\nallowed-tools: Read Bash(git:*)\nfuture: [value]\n---\n` })
+    expect(skill.frontmatter).toMatchObject({ "allowed-tools": "Read Bash(git:*)", future: ["value"], metadata: { version: "1" } })
+  })
+
+  it.each([
+    `description: ${"x".repeat(1025)}`,
+    "description: [x]",
+    "compatibility: 1",
+    "compatibility: ''",
+    `compatibility: ${"x".repeat(501)}`,
+    "metadata: null",
+    "metadata: [x]",
+    "metadata: text",
+    "metadata: { version: 1 }",
+    "allowed-tools: [Read]",
+    "license: [MIT]",
+  ])("rejects invalid frontmatter field %s", (field) => {
+    const description = field.startsWith("description:") ? "" : "description: Release.\n"
+    expect(() => defineSkill({ "SKILL.md": `---\nname: release\n${description}${field}\n---\n` })).toThrow(expect.objectContaining({ code: "SKILL_INVALID_FRONTMATTER" }))
+  })
+
   it("reads the frontmatter and puts SKILL.md first, then the files by path", () => {
     expect(release.name).toBe("release")
     expect(release.description).toBe("Ship a release.")
@@ -64,13 +96,25 @@ describe("defineSkills", () => {
     ])
   })
 
-  it("keeps the files of a nested skill in that skill", () => {
+  it("keeps nested files in both skills with shared MCP resource URIs", async () => {
     const nestedMd = "---\nname: nested\ndescription: A nested skill.\n---\n"
     const skills = defineSkills({ "release/SKILL.md": releaseMd, "release/nested/SKILL.md": nestedMd, "release/nested/a.md": "a", "release/b.md": "b" })
     expect(skills.map(skill => [skill.name, skill.files.map(file => file.path)])).toEqual([
       ["nested", ["SKILL.md", "a.md"]],
-      ["release", ["SKILL.md", "b.md"]],
+      ["release", ["SKILL.md", "b.md", "nested/SKILL.md", "nested/a.md"]],
     ])
+    const mcp = skillsMcp(skills)
+    const { skills: listed } = await mcp.list()
+    expect(listed.map(skill => skill.uri)).toEqual(["skill://release/nested/SKILL.md", "skill://release/SKILL.md"])
+    expect(listed[1]?.resources.map(file => file.uri)).toContain(listed[0]?.uri)
+    expect((await mcp.get("skill://release/nested"))[1]?.skill).toEqual(listed[0])
+    expect((await mcp.get("skill://release/nested/SKILL.md"))[1]?.skill).toEqual(listed[0])
+    expect((await mcp.read("skill://release/nested/a.md"))[1]?.contents).toEqual([{ mimeType: "text/markdown", text: "a", uri: "skill://release/nested/a.md" }])
+    const resources = await mcp.resources()
+    expect(resources).toHaveLength(4)
+    expect(resources.find(file => file.uri === listed[0]?.uri)?.description).toBe("A nested skill.")
+    expect((await parseTarGzip(await skillArchive(skills[1]!))).map(file => file.name)).toEqual(["SKILL.md", "b.md", "nested/SKILL.md", "nested/a.md"])
+    expect(await (await serveSkills(get("/.well-known/skills/release/nested/a.md"), skills))?.text()).toBe("a")
   })
 
   it("requires the folder to match the name, and unique names", () => {
@@ -164,6 +208,21 @@ describe("serveSkills", () => {
 })
 
 describe("skillsMcp", () => {
+  it("returns complete protocol results without caching runtime-selected skills", async () => {
+    let enabled = [release]
+    const mcp = skillsMcp(() => enabled)
+    const [error, skill] = await mcp.get("skill://release/SKILL.md")
+    expect(error).toBeUndefined()
+    const metadata = { cacheScope: "private", resultType: "complete", ttlMs: 0 }
+    expect(await mcp.list()).toEqual({ ...metadata, skills: [skill!.skill] })
+    expect(skill).toEqual({ ...metadata, skill: skill!.skill })
+    expect((await mcp.read("skill://release/SKILL.md"))[1]).toEqual({ ...metadata, contents: [{ mimeType: "text/markdown", text: releaseMd, uri: "skill://release/SKILL.md" }] })
+    enabled = []
+    expect(await mcp.list()).toEqual({ ...metadata, skills: [] })
+    expect((await mcp.get("skill://release"))[0]?.code).toBe("SKILL_NOT_FOUND")
+    expect((await mcp.read("skill://release/SKILL.md"))[0]?.code).toBe("SKILL_NOT_FOUND")
+  })
+
   it("lists skills with a digest and size per file", async () => {
     const mcp = skillsMcp([release, handoff])
     expect(mcp.extension).toBe("io.modelcontextprotocol/skills")
@@ -196,8 +255,8 @@ describe("skillsMcp", () => {
       { mimeType: "image/png", name: "release/assets/logo.png", size: 4, title: "release: assets/logo.png", uri: "skill://release/assets/logo.png" },
       { mimeType: "text/markdown", name: "release/references/checklist.md", size: checklist.length, title: "release: references/checklist.md", uri: "skill://release/references/checklist.md" },
     ])
-    expect(await mcp.read("skill://release/references/checklist.md")).toEqual([undefined, { contents: [{ mimeType: "text/markdown", text: checklist, uri: "skill://release/references/checklist.md" }] }])
-    expect(await mcp.read("skill://release/assets/logo.png")).toEqual([undefined, { contents: [{ blob: "iVBORw==", mimeType: "image/png", uri: "skill://release/assets/logo.png" }] }])
+    expect(await mcp.read("skill://release/references/checklist.md")).toEqual([undefined, { cacheScope: "private", resultType: "complete", ttlMs: 0, contents: [{ mimeType: "text/markdown", text: checklist, uri: "skill://release/references/checklist.md" }] }])
+    expect(await mcp.read("skill://release/assets/logo.png")).toEqual([undefined, { cacheScope: "private", resultType: "complete", ttlMs: 0, contents: [{ blob: "iVBORw==", mimeType: "image/png", uri: "skill://release/assets/logo.png" }] }])
     const [error] = await mcp.read("skill://release/missing.md")
     expect(error?.code).toBe("SKILL_NOT_FOUND")
   })

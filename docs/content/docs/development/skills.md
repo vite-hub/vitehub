@@ -101,11 +101,11 @@ export async function enabledSkills() {
 export default defineHandler(event => serveSkills(event.req, enabledSkills))
 ```
 
-A skill that the function leaves out is missing from every index and from MCP, and its files answer `404`. Digests and archives are computed once for each skill object, so keep the skill objects and filter them. Clients can keep an answer for the `cacheControl` time, one minute by default.
+A skill that the function leaves out is missing from every index and from MCP. Files that belong only to omitted skills answer `404`; nested files remain supporting content of any enclosing skill still enabled. Digests and archives are computed once for each skill object, so keep the skill objects and filter them. Clients can keep an answer for the `cacheControl` time, one minute by default.
 
 ## Serve skills over MCP
 
-`skillsMcp(skills)` gives the results of the MCP Skills extension (SEP-2640, `io.modelcontextprotocol/skills`) as plain objects, so any MCP server library can answer with them. It takes the same list or function as `serveSkills()`.
+`skillsMcp(skills)` gives the results of the MCP Skills extension (SEP-2640, `io.modelcontextprotocol/skills`) as plain objects, so any MCP server library can answer with them. It takes the same list or function as `serveSkills()`. The `list()`, `get()`, and `read()` results include `resultType: "complete"`, `ttlMs: 0`, and `cacheScope: "private"`, so clients request the current list and files each time.
 
 | Method | Answers |
 | --- | --- |
@@ -138,11 +138,13 @@ export const skillsExtension: ExtensionPlugin = {
 }
 ```
 
-Read files with `mcpSkills.read(uri)` in the `resources/read` handler of the server, and list them with `mcpSkills.resources()`.
+Read files with `mcpSkills.read(uri)` in the `resources/read` handler of the server. For `resources/list`, wrap the array from `mcpSkills.resources()` in `{ resultType: 'complete', ttlMs: 0, cacheScope: 'private', resources: await mcpSkills.resources() }`.
+
+Nested skill files remain supporting content of the enclosing skill, including its archive and MCP manifest. A nested skill also has its own entry, with a URI such as `skill://release/nested/SKILL.md`. Shared files have the same URI in both manifests and appear once in `resources/list`.
 
 ## Inspect the skills
 
-The list is plain data: `skill.name`, `skill.description`, `skill.frontmatter`, and `skill.files` with `path`, `mimeType`, `bytes`, and `text`. `skillDigest(skill)` returns the `sha256:` digest that the v0.2.0 index publishes, and `skillArchive(skill)` returns the `.tar.gz` bytes. From a running app, read the index:
+The list is plain data: `skill.name`, `skill.description`, `skill.frontmatter`, and `skill.files` with `path`, `mimeType`, `bytes`, and `text`. `skill.path` is its MCP directory path, preserving enclosing skill names for nested skills; it defaults to `skill.name` for custom skill objects. A `SKILL.md` supplied as bytes must be valid UTF-8 and is exposed as text. `skillDigest(skill)` returns the `sha256:` digest that the v0.2.0 index publishes, and `skillArchive(skill)` returns the `.tar.gz` bytes. From a running app, read the index:
 
 ```bash [Terminal]
 curl https://app.example.com/.well-known/agent-skills/index.json
@@ -156,7 +158,7 @@ curl https://app.example.com/.well-known/agent-skills/index.json
 
 ### SKILL_INVALID_FRONTMATTER
 
-`SKILL.md` does not start with a `---` YAML block, or its `name` or `description` is not valid. The `name` has lowercase letters, digits, and single hyphens, at most 64 characters, and equals the folder name in `defineSkills()`. The `description` is a non-empty string. The error names the field.
+`SKILL.md` is not valid UTF-8, does not start with a `---` YAML block, or a frontmatter field is not valid. The `name` has lowercase letters, digits, and single hyphens, at most 64 characters, and equals the folder name in `defineSkills()`. The `description` is a non-empty string of at most 1024 characters. When provided, `compatibility` is a non-empty string of at most 500 characters, `metadata` maps string keys to string values, and `license` and `allowed-tools` are strings. Unknown fields are preserved. The error names the field.
 
 ### SKILL_INVALID_PATH
 

@@ -52,13 +52,15 @@ export interface SkillFile {
   readonly path: string
   readonly mimeType: string
   readonly bytes: Uint8Array<ArrayBuffer>
-  /** The text of a file given as a string. A file given as bytes has none. */
+  /** Text supplied as a string, or decoded from UTF-8 bytes for a `SKILL.md`. */
   readonly text: string | undefined
 }
 
 /** An Agent Skill: a `SKILL.md` with `name` and `description` frontmatter, and the files next to it. */
 export interface Skill {
   readonly name: string
+  /** MCP directory path, such as `release/nested`. Defaults to `name` for custom skills. */
+  readonly path?: string
   readonly description: string
   /** Every field of the `SKILL.md` frontmatter. */
   readonly frontmatter: Readonly<Record<string, unknown>>
@@ -107,9 +109,18 @@ function isSafePath(path: string): boolean {
 
 function toFile(path: string, content: string | Uint8Array): SkillFile {
   if (!isSafePath(path)) throw skillErrors.SKILL_INVALID_PATH({ path })
-  const text = typeof content === "string" ? content : undefined
+  let text = typeof content === "string" ? content : undefined
   // Copied into a plain ArrayBuffer, which Response and crypto.subtle take.
   const bytes = typeof content === "string" ? encoder.encode(content) : new Uint8Array(content)
+  if (text === undefined && (path === skillFile || path.endsWith(`/${skillFile}`))) {
+    try {
+      // Preserve a BOM so the text encodes to the same bytes as the manifest digest.
+      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes)
+    }
+    catch (error) {
+      throw skillErrors.SKILL_INVALID_FRONTMATTER({ cause: error, problem: "`SKILL.md` must be valid UTF-8 text." })
+    }
+  }
   return Object.freeze({ bytes, mimeType: mimeTypeOf(path, text !== undefined), path, text })
 }
 
@@ -130,23 +141,34 @@ function frontmatterOf(markdown: string): Record<string, unknown> {
   return parsed as Record<string, unknown>
 }
 
-function createSkill(files: SkillFiles, folder: string | undefined): Skill {
+function createSkill(files: SkillFiles, folder: string | undefined, path?: string): Skill {
   const entries = Object.entries(files).map(([path, content]) => toFile(path, content))
   const main = entries.find(entry => entry.path === skillFile)
   if (!main) throw skillErrors.SKILL_FILE_MISSING({ root: folder ?? "" })
   const frontmatter = frontmatterOf(main.text ?? new TextDecoder().decode(main.bytes))
-  const { description, name } = frontmatter
+  const { compatibility, description, metadata, name } = frontmatter
   if (typeof name !== "string" || name.length > 64 || !namePattern.test(name)) {
     throw skillErrors.SKILL_INVALID_FRONTMATTER({ problem: `\`name\` must be lowercase letters, digits, and single hyphens, at most 64 characters. It is ${JSON.stringify(name)}.` })
   }
   if (folder !== undefined && folder !== name) {
     throw skillErrors.SKILL_INVALID_FRONTMATTER({ problem: `\`name\` is ${JSON.stringify(name)}, but the folder is ${JSON.stringify(folder)}.` })
   }
-  if (typeof description !== "string" || !description.trim()) {
-    throw skillErrors.SKILL_INVALID_FRONTMATTER({ problem: "`description` must be a non-empty string." })
+  if (typeof description !== "string" || !description.trim() || description.length > 1024) {
+    throw skillErrors.SKILL_INVALID_FRONTMATTER({ problem: "`description` must be a non-empty string of at most 1024 characters." })
+  }
+  if (compatibility !== undefined && (typeof compatibility !== "string" || !compatibility.trim() || compatibility.length > 500)) {
+    throw skillErrors.SKILL_INVALID_FRONTMATTER({ problem: "`compatibility` must be a non-empty string of at most 500 characters." })
+  }
+  if (metadata !== undefined && (metadata === null || typeof metadata !== "object" || Array.isArray(metadata) || Object.values(metadata).some(value => typeof value !== "string"))) {
+    throw skillErrors.SKILL_INVALID_FRONTMATTER({ problem: "`metadata` must map string keys to string values." })
+  }
+  for (const field of ["license", "allowed-tools"]) {
+    if (frontmatter[field] !== undefined && typeof frontmatter[field] !== "string") {
+      throw skillErrors.SKILL_INVALID_FRONTMATTER({ problem: `\`${field}\` must be a string.` })
+    }
   }
   const others = entries.filter(entry => entry !== main).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)
-  return Object.freeze({ description, files: Object.freeze([main, ...others]), frontmatter: Object.freeze(frontmatter), name })
+  return Object.freeze({ description, files: Object.freeze([main, ...others]), frontmatter: Object.freeze(frontmatter), name, path: path ?? name })
 }
 
 /**
@@ -173,17 +195,25 @@ export function defineSkill(files: SkillFiles): Skill {
  * ```
  */
 export function defineSkills(files: SkillFiles): Skill[] {
-  // A skill root is the key prefix before `SKILL.md`. The longest matching root owns a file, so a nested skill keeps its own files.
+  // Visit enclosing roots first; nested files also belong to every enclosing skill.
   const roots = Object.keys(files)
     .filter(key => key === skillFile || key.endsWith(`/${skillFile}`))
     .map(key => key.slice(0, -skillFile.length))
-    .sort((a, b) => b.length - a.length)
+    .sort((a, b) => a.length - b.length)
   const grouped = new Map<string, Record<string, string | Uint8Array>>(roots.map(root => [root, {}]))
   for (const [key, content] of Object.entries(files)) {
-    const root = roots.find(candidate => key.startsWith(candidate))
-    if (root !== undefined) grouped.get(root)![key.slice(root.length)] = content
+    for (const root of roots) {
+      if (key.startsWith(root)) grouped.get(root)![key.slice(root.length)] = content
+    }
   }
-  const skills = [...grouped].map(([root, entries]) => createSkill(entries, root ? /([^/]+)\/$/.exec(root)?.[1] : undefined))
+  const byRoot = new Map<string, Skill>()
+  for (const [root, entries] of grouped) {
+    const enclosing = roots.find(candidate => candidate !== root && root.startsWith(candidate))
+    const parent = enclosing === undefined ? undefined : byRoot.get(enclosing)
+    const path = parent ? `${parent.path ?? parent.name}/${root.slice(enclosing!.length, -1)}` : undefined
+    byRoot.set(root, createSkill(entries, root ? /([^/]+)\/$/.exec(root)?.[1] : undefined, path))
+  }
+  const skills = [...byRoot.values()]
   const names = new Set<string>()
   for (const skill of skills) {
     if (names.has(skill.name)) throw skillErrors.SKILL_DUPLICATE_NAME({ name: skill.name })
@@ -320,7 +350,7 @@ export async function serveSkills(request: Request, skills: SkillList, options: 
 
 /** A skill in `skills/list` and `skills/get` of the MCP Skills extension. */
 export interface McpSkill {
-  /** `skill://<name>/SKILL.md` */
+  /** `skill://<skill-path>/SKILL.md` */
   uri: string
   frontmatter: Readonly<Record<string, unknown>>
   resources: Array<{ uri: string, digest: string, size: number }>
@@ -336,8 +366,15 @@ export interface McpSkillResource {
   size: number
 }
 
+/** Completion and cache metadata for MCP skill results. Runtime selections are never cached. */
+export interface McpSkillResult {
+  resultType: "complete"
+  ttlMs: number
+  cacheScope: "private"
+}
+
 /** The answer of `resources/read` for a skill file: `text` for a text file, else base64 `blob`. */
-export interface McpSkillContents {
+export interface McpSkillContents extends McpSkillResult {
   contents: [{ uri: string, mimeType: string, text: string } | { uri: string, mimeType: string, blob: string }]
 }
 
@@ -346,16 +383,17 @@ export interface SkillsMcp {
   /** The extension id that the server announces in its capabilities. */
   readonly extension: "io.modelcontextprotocol/skills"
   /** The result of `skills/list`. */
-  list: () => Promise<{ skills: McpSkill[] }>
-  /** The result of `skills/get` for `skill://<name>` or `skill://<name>/SKILL.md`. */
-  get: (uri: string) => Promise<Result<{ skill: McpSkill }, "SKILL_NOT_FOUND">>
+  list: () => Promise<McpSkillResult & { skills: McpSkill[] }>
+  /** The result of `skills/get` for `skill://<skill-path>` or `skill://<skill-path>/SKILL.md`. */
+  get: (uri: string) => Promise<Result<McpSkillResult & { skill: McpSkill }, "SKILL_NOT_FOUND">>
   /** Every skill file, for `resources/list`. */
   resources: () => Promise<McpSkillResource[]>
-  /** The result of `resources/read` for `skill://<name>/<path>`. */
+  /** The result of `resources/read` for `skill://<skill-path>/<path>`. */
   read: (uri: string) => Promise<Result<McpSkillContents, "SKILL_NOT_FOUND">>
 }
 
-const uriOf = (skill: Skill, path: string) => `skill://${skill.name}/${path}`
+const uriOf = (skill: Skill, path: string) => `skill://${skill.path ?? skill.name}/${path}`
+const mcpResult = { cacheScope: "private", resultType: "complete", ttlMs: 0 } as const
 
 async function mcpSkill(skill: Skill): Promise<McpSkill> {
   return {
@@ -373,36 +411,47 @@ function base64(bytes: Uint8Array): string {
 
 /**
  * The MCP Skills extension (`io.modelcontextprotocol/skills`) as plain results, so any MCP server library can answer
- * `skills/list`, `skills/get`, `resources/list`, and `resources/read` for `skill://<name>/<path>`. Each call reads the
- * list again, so a skill that a function leaves out is missing from lists and unreadable.
+ * `skills/list`, `skills/get`, `resources/list`, and `resources/read` for `skill://<skill-path>/<path>`. Each call reads the
+ * list again, serving only entries and files belonging to the current skills.
  */
 export function skillsMcp(skills: SkillList): SkillsMcp {
   return {
     extension: "io.modelcontextprotocol/skills",
     async get(uri) {
-      const name = /^skill:\/\/([^/]+)(?:\/SKILL\.md)?$/.exec(uri)?.[1]
-      const skill = name === undefined ? undefined : (await resolveSkills(skills)).find(entry => entry.name === name)
+      const skill = (await resolveSkills(skills)).find(entry => uri === uriOf(entry, skillFile) || uri === uriOf(entry, "").slice(0, -1))
       if (!skill) return [skillErrors.SKILL_NOT_FOUND({ uri }), undefined]
-      return [undefined, { skill: await mcpSkill(skill) }]
+      return [undefined, { ...mcpResult, skill: await mcpSkill(skill) }]
     },
     async list() {
-      return { skills: await Promise.all((await resolveSkills(skills)).map(mcpSkill)) }
+      return { ...mcpResult, skills: await Promise.all((await resolveSkills(skills)).map(mcpSkill)) }
     },
     async read(uri) {
-      const match = /^skill:\/\/([^/]+)\/(.+)$/.exec(uri)
-      const file = match ? (await resolveSkills(skills)).find(entry => entry.name === match[1])?.files.find(entry => entry.path === match[2]) : undefined
+      let file: SkillFile | undefined
+      for (const skill of await resolveSkills(skills)) {
+        file = skill.files.find(entry => uriOf(skill, entry.path) === uri)
+        if (file) break
+      }
       if (!file) return [skillErrors.SKILL_NOT_FOUND({ uri }), undefined]
-      return [undefined, { contents: [file.text === undefined ? { blob: base64(file.bytes), mimeType: file.mimeType, uri } : { mimeType: file.mimeType, text: file.text, uri }] }]
+      return [undefined, { ...mcpResult, contents: [file.text === undefined ? { blob: base64(file.bytes), mimeType: file.mimeType, uri } : { mimeType: file.mimeType, text: file.text, uri }] }]
     },
     async resources() {
-      return (await resolveSkills(skills)).flatMap(skill => skill.files.map(file => ({
-        ...(file.path === skillFile ? { description: skill.description } : {}),
-        mimeType: file.mimeType,
-        name: `${skill.name}/${file.path}`,
-        size: file.bytes.byteLength,
-        title: file.path === skillFile ? `${skill.name} skill` : `${skill.name}: ${file.path}`,
-        uri: uriOf(skill, file.path),
-      })))
+      const resources = new Map<string, McpSkillResource>()
+      for (const skill of await resolveSkills(skills)) {
+        for (const file of skill.files) {
+          const uri = uriOf(skill, file.path)
+          // Prefer a nested skill's own metadata over its enclosing skill's supporting file.
+          if (resources.has(uri) && file.path !== skillFile) continue
+          resources.set(uri, {
+            ...(file.path === skillFile ? { description: skill.description } : {}),
+            mimeType: file.mimeType,
+            name: `${skill.path ?? skill.name}/${file.path}`,
+            size: file.bytes.byteLength,
+            title: file.path === skillFile ? `${skill.name} skill` : `${skill.name}: ${file.path}`,
+            uri,
+          })
+        }
+      }
+      return [...resources.values()]
     },
   }
 }
