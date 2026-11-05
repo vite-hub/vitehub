@@ -5,7 +5,7 @@
 // at that path, so the other blocks of the page can import it. A block that is an excerpt of a larger file
 // must say so with `fragment` in its fence meta: ```ts [server/agents/support.ts] fragment.
 import { createHash } from "node:crypto"
-import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join, relative, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import ts from "typescript"
@@ -154,7 +154,7 @@ export async function generatedDeclarations(pageSnippets) {
     definition.steps.push(snippet.file)
     workflows.set(match[1], definition)
   }
-  const declarations = registryDeclarations(pageSnippets)
+  const declarations = [...registryDeclarations(pageSnippets), ...await envDeclarations(pageSnippets)]
   if (!workflows.size) return declarations
   const { createWorkflowTypes } = await import(pathToFileURL(join(packagesRoot, "workflow/dist/vite.js")).href)
   const file = join(pageSnippets[0].pageRoot, ".vitehub/workflow.d.ts")
@@ -240,6 +240,51 @@ function registryDeclarations(pageSnippets) {
   return declarations
 }
 
+const viteConfigFile = /(?:^|\/)vite\.config\.m?ts$/
+
+/**
+ * The Server Env and Public Env types of the `env` options that the page's `vite.config.ts` blocks set, from the
+ * generator of `@vite-hub/env/vite`. Node runs each config from `packages/vite-hub`, so it imports what an app installs.
+ */
+async function envDeclarations(pageSnippets) {
+  const configs = pageSnippets.filter(snippet => !snippet.fragment && viteConfigFile.test(snippet.label ?? "") && /\benv\s*:/.test(snippet.code))
+  if (!configs.length) return []
+  const env = { public: {}, server: {} }
+  const directory = mkdtempSync(join(packagesRoot, "vite-hub/.snippet-config-"))
+  try {
+    for (const [index, snippet] of configs.entries()) {
+      const file = join(directory, `${index}.ts`)
+      writeFileSync(file, snippet.code)
+      // A config that throws gets no Env types. The type check reports what is wrong with it.
+      const config = await import(pathToFileURL(file).href).then(module => module.default, () => undefined)
+      Object.assign(env.public, config?.env?.public)
+      Object.assign(env.server, config?.env?.server)
+    }
+  }
+  finally {
+    rmSync(directory, { force: true, recursive: true })
+  }
+  const { createEnvTypes } = await import(pathToFileURL(join(packagesRoot, "env/dist/vite.js")).href)
+  const pageRoot = pageSnippets[0].pageRoot
+  // `vitehub()` registers Env, so the Auth integration types the `env` of `defineAuth()` as the Server Env.
+  const authEnv = [
+    `import type { ServerEnv } from "#vitehub/env/server"`,
+    "declare global {",
+    "  namespace ViteHub {",
+    "    interface AuthRuntimeEnv extends ServerEnv {}",
+    "  }",
+    "}",
+    "",
+  ].join("\n")
+  return [
+    { code: createEnvTypes(env), file: join(pageRoot, envTypesFile) },
+    { code: authEnv, file: join(pageRoot, ".vitehub/types/auth.d.ts") },
+  ]
+}
+
+/** The page's generated Env types replace the untyped `#vitehub/env` declarations of an app without Env options. */
+const envTypesFile = ".vitehub/types/env.d.ts"
+
 /**
  * The installed files that the programs read, parsed once. Each page with generated declarations gets its own
  * program, and TypeScript binds a shared file only once.
@@ -308,7 +353,8 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
     return resolved
   })
 
-  const program = ts.createProgram([...ambientFiles, ...virtualFiles.keys()], options, host, oldProgram)
+  const typedEnv = declarations.some(declaration => declaration.file.endsWith(`/${envTypesFile}`))
+  const program = ts.createProgram([...typedEnv ? [] : ambientFiles, ...virtualFiles.keys()], options, host, oldProgram)
   const failures = []
   for (const snippet of snippets) {
     if (snippet.fragment) continue

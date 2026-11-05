@@ -29,6 +29,27 @@ icon: i-lucide-code-2
 
 ## Use it at runtime
 
+The examples in this section read these declarations:
+
+```ts [vite.config.ts]
+import { env, hubEnv } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubEnv()],
+  env: {
+    public: {
+      appName: env({ default: 'Acme', mode: 'build' }),
+    },
+    server: {
+      github: {
+        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+      },
+    },
+  },
+})
+```
+
 Use Public Env from browser-safe code. The import path stays stable even though ViteHub generates the backing module.
 
 ```ts [src/config.ts]

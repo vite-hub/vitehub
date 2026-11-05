@@ -274,6 +274,17 @@ export default {
 };
 ```
 
+To type code without running Vite, such as in a test or a docs check, pass the same `env` options to `createEnvTypes()`. It returns the contents of `.vitehub/types/env.d.ts`:
+
+```ts
+import { writeFileSync } from "node:fs";
+import { createEnvTypes, env } from "@vite-hub/env/vite";
+
+writeFileSync(".vitehub/types/env.d.ts", createEnvTypes({
+  server: { githubToken: env({ secret: true, source: env.source("GITHUB_TOKEN") }) },
+}));
+```
+
 Public Env and `env.define` values are compiled into client bundles. Never put credentials in either section. The host still owns secret storage and injection; Env owns declarations, resolution, generated accessors, validation, and default redaction.
 
 Read the complete [Env guide](https://vitehub.dev/docs/env), the [host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix), and the project's [pre-1.0 security policy](https://github.com/vite-hub/vitehub/blob/main/SECURITY.md).

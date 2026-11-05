@@ -111,6 +111,16 @@ export function createEnvTypeScriptPaths(options: EnvGeneratedPathOptions = {}):
   }
 }
 
+/**
+ * Returns the declarations that the Vite Integration writes to `.vitehub/env.d.ts` for an `env` config: the
+ * `PublicEnv` and `ServerEnv` types of `#vitehub/env/public` and `#vitehub/env/server`. A TypeScript host that does
+ * not run Vite, such as a test or a docs check, can write them itself.
+ */
+export function createEnvTypes(config: EnvViteConfigOptions | undefined, options: Pick<EnvIntegrationOptions, "prefix" | "runtimeImports"> = {}): string {
+  validateEnvConfigShape(config, "vite")
+  return createViteTypes(createPublicTypeEntries(config?.public), createRuntimeRegistry(config?.server, { prefix: options.prefix }), resolveRuntimeImports(options.runtimeImports))
+}
+
 export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
   let buildPublicConfig: Record<string, unknown> = {}
   let serverRegistry: EnvRuntimeRegistry = {}

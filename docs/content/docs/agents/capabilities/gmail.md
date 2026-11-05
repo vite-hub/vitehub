@@ -19,7 +19,27 @@ Use [`email()`](/docs/email/agent-capability) for application-owned transactiona
 
 ### Define the Google Connection
 
-Enable [Connections](/docs/connections/get-started#define-a-connection) and define a Connection with the `google()` preset. `gmail.readonly` covers search and read. `gmail.compose` covers drafts.
+Enable [Connections](/docs/connections/get-started#define-a-connection) and declare the Google client credentials in Env:
+
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', connections: true })],
+  env: {
+    server: {
+      google: {
+        clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+        clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+      },
+    },
+  },
+})
+```
+
+Define a Connection with the `google()` preset. `gmail.readonly` covers search and read. `gmail.compose` covers drafts.
 
 ```ts [server/connections/google.ts]
 import { useServerEnv } from '#vitehub/env/server'

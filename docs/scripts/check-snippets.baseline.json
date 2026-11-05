@@ -35,11 +35,6 @@
     "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/agents/capabilities/gmail.md#a3dfcb0239a0",
-    "label": "server/connections/google.ts",
-    "error": "TS2571 Object is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/agents/capabilities/input-commands.md#748af2836fda",
     "label": "server/agents/support.ts",
     "error": "TS2554 Expected 0 arguments, but got 1."
@@ -105,19 +100,9 @@
     "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/auth/configure.md#16e92a450295",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/auth/configure.md#e343728ee49a",
     "label": "server/auth.ts",
     "error": "TS7031 Binding element 'env' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/auth/configure.md#033969069bab",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'."
   },
   {
     "id": "docs/content/docs/auth/configure.md#a5b1c0c3735d",
@@ -355,46 +340,6 @@
     "error": "TS2307 Cannot find module 'comark-tabs' or its corresponding type declarations."
   },
   {
-    "id": "docs/content/docs/env/app-secret.md#0b0e47c788ee",
-    "label": "server/utils/session.ts",
-    "error": "TS2305 Module '\"#vitehub/env/server\"' has no exported member 'deriveSecret'."
-  },
-  {
-    "id": "docs/content/docs/env/bridge.md#17b4f7a44fce",
-    "label": null,
-    "error": "TS18046 'env.githubToken' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/env/configure.md#61fd7644a2f7",
-    "label": "server/labeller.ts",
-    "error": "TS18046 'labeller' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/env/index.md#dce61165544a",
-    "label": "src/app.ts",
-    "error": "TS2322 Type 'unknown' is not assignable to type 'string'."
-  },
-  {
-    "id": "docs/content/docs/env/index.md#caaac143beec",
-    "label": "server/api/issues.get.ts",
-    "error": "TS18046 'github' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/env/server-api.md#eaad493ab07b",
-    "label": "server/github.ts",
-    "error": "TS18046 'github' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/env/server-api.md#8695179e5f32",
-    "label": "server/sources/private-repository.ts",
-    "error": "TS18046 'env.githubToken' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/guides/better-auth-cloudflare.md#efe4a2209ad9",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/logs/get-started.md#b7725026293a",
     "label": "vite.config.ts",
     "error": "TS2353 Object literal may only specify known properties, and 'local' does not exist in type 'ConsoleOptions'."
@@ -453,11 +398,6 @@
     "id": "docs/content/docs/reference/doctor-rules.md#f5c9bb564ea8",
     "label": "server/auth.ts",
     "error": "TS2769 No overload matches this call."
-  },
-  {
-    "id": "docs/content/docs/reference/doctor-rules.md#502346b37dd8",
-    "label": "server/auth.ts",
-    "error": "TS18046 'env.auth' is of type 'unknown'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#9e3479e36459",
@@ -560,16 +500,6 @@
     "error": "TS7006 Parameter 'repository' implicitly has an 'any' type."
   },
   {
-    "id": "packages/auth/README.md#73fb174ae71d",
-    "label": null,
-    "error": "TS18046 'env.auth' is of type 'unknown'."
-  },
-  {
-    "id": "packages/auth/README.md#16f5ad8e7cb4",
-    "label": null,
-    "error": "TS18046 'env.auth' is of type 'unknown'."
-  },
-  {
     "id": "packages/blob/README.md#0f443e92375d",
     "label": null,
     "error": "TS2304 Cannot find name 'file'."
@@ -613,16 +543,6 @@
     "id": "packages/docs/README.md#d1050de4115a",
     "label": null,
     "error": "TS2307 Cannot find module 'comark-tabs' or its corresponding type declarations."
-  },
-  {
-    "id": "packages/env/README.md#932b9d7dbf0b",
-    "label": null,
-    "error": "TS18046 'airtableToken' is of type 'unknown'."
-  },
-  {
-    "id": "packages/env/README.md#82031b9440a2",
-    "label": null,
-    "error": "TS18046 'snapshot.githubToken' is of type 'unknown'."
   },
   {
     "id": "packages/queue/README.md#47047c3584ed",

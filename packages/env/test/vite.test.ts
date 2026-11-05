@@ -18,7 +18,7 @@ import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
 import { createRuntimeRegistry, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { resolveServerEnv } from "../src/server.ts"
-import { createEnvImportAliases, createEnvTypeScriptPaths, env, hubEnv } from "../src/vite.ts"
+import { createEnvImportAliases, createEnvTypes, createEnvTypeScriptPaths, env, hubEnv } from "../src/vite.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
 
@@ -37,6 +37,21 @@ async function temporaryDirectory(prefix: string) {
 const execFileAsync = promisify(execFile)
 
 afterEach(() => vi.unstubAllEnvs())
+
+describe("createEnvTypes()", () => {
+  it("returns the declarations of .vitehub/types/env.d.ts without running Vite", () => {
+    const types = createEnvTypes({
+      public: { appName: env({ default: "Acme", mode: "build" }) },
+      server: { dryRun: env.boolean({ default: true }), github: { token: env({ secret: true, source: env.source("GITHUB_TOKEN") }) } },
+    })
+
+    expect(types).toContain("declare module \"#vitehub/env/server\"")
+    expect(types).toContain("\"appName\": string")
+    expect(types).toContain("\"dryRun\": boolean")
+    expect(types).toContain("\"token\": import(\"@vite-hub/env/secret\").SecretEnv<string>")
+    expect(() => createEnvTypes({ server: "token" } as never)).toThrow()
+  })
+})
 
 describe("Vite plugin", () => {
   it("rejects cyclic nested define config without overflowing the stack", () => {
