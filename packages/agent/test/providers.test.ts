@@ -25,6 +25,7 @@ import { agentChatApprovedTools } from "../src/internal/chat-approvals.ts"
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeObject, isRuntimeString } from "../src/internal/runtime-value.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
+import { installStubPackages } from "./support/stub-packages.ts"
 
 import type { AgentMessageDeliveryKind, AgentRunContext, AgentRunInput } from "../src/index.ts"
 import type { AgentChannelChatRouteStandardSchemaV1 } from "../src/server.ts"
@@ -671,13 +672,12 @@ describe("agent Vite plugin", () => {
       const configResolved = configResolvedHook as (config: {
         agent?: unknown
         command: "serve"
-        createResolver: () => (id: string) => Promise<string | undefined>
         plugins: Array<{ name: string }>
         root: string
       }) => Promise<void>
+      await installStubPackages(root, ["@vite-hub/blob", "@vite-hub/connections/server", "@vite-hub/database/drizzle", "@vite-hub/email/server", "@vite-hub/kv", "vite-hub/email/server", "vite-hub/_internal/kv"])
       await configResolved({
         command: "serve",
-        createResolver: () => async (id) => `/app/node_modules/${id}`,
         plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/connections/vite" }, { name: "@vite-hub/database/vite" }, { name: "@vite-hub/email/vite" }, { name: "@vite-hub/kv/vite" }],
         root,
       })
@@ -715,7 +715,6 @@ describe("agent Vite plugin", () => {
       const filteredConfigResolved = filteredConfigResolvedHook as typeof configResolved
       await filteredConfigResolved({
         command: "serve",
-        createResolver: () => async (id) => (id === "vite-hub/email/server" || id === "vite-hub/_internal/kv" ? `/app/node_modules/${id}` : undefined),
         plugins: [{ name: "@vite-hub/email/vite" }, { name: "@vite-hub/kv/vite" }],
         root,
       })
@@ -742,7 +741,6 @@ describe("agent Vite plugin", () => {
       const composedBlobConfigResolved = composedBlobConfigResolvedHook as typeof configResolved
       await composedBlobConfigResolved({
         command: "serve",
-        createResolver: () => async (id) => (id === "@vite-hub/blob" ? `/app/node_modules/${id}` : undefined),
         plugins: [{ name: "@vite-hub/blob/vite" }],
         root,
       })
@@ -755,6 +753,40 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("checks runtime Capability imports without running Vite's resolver", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-capability-resolution-"))
+    try {
+      await mkdir(join(root, "server", "agents", "digest"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "digest", "agent.ts"), "export default {}", "utf8")
+      await installStubPackages(root, ["@vite-hub/kv", "@vite-hub/local-email/server"])
+      const plugin = hubAgent()
+      const configResolvedHook: unknown = plugin.configResolved
+      // SAFETY: hubAgent installs configResolved as an async Vite hook.
+      const configResolved = configResolvedHook as (config: Record<string, unknown>) => Promise<void>
+      await configResolved({
+        command: "serve",
+        // Nuxt DevTools' vite-plugin-inspect wraps this resolver, and the wrapper throws before Vite creates its environments.
+        createResolver: () => async () => {
+          throw new Error("Can not found environment context for client")
+        },
+        plugins: [{ name: "@vite-hub/blob/vite" }, { name: "@vite-hub/email/vite" }, { name: "@vite-hub/kv/vite" }],
+        resolve: { alias: [{ find: "@vite-hub/email", replacement: "@vite-hub/local-email" }] },
+        root,
+      })
+
+      const route = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
+      expect(route).toContain('import { kv as vitehubKv } from "@vite-hub/kv"')
+      // A Vite alias makes the import resolvable. The route keeps the specifier that Vite aliases.
+      expect(route).toContain('import { email as vitehubEmail } from "@vite-hub/email/server"')
+      // The app cannot import @vite-hub/blob, so the route omits it.
+      expect(route).not.toContain("vitehubBlob")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("passes the discovered Content runtime to Agents as the content primitive", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-content-primitive-"))
@@ -762,6 +794,7 @@ describe("agent Vite plugin", () => {
       await mkdir(join(root, "server", "agents", "digest"), { recursive: true })
       await writeFile(join(root, "server", "agents", "digest", "agent.ts"), "export default {}", "utf8")
       const contentFile = join(root, "server", "content.ts")
+      await writeFile(contentFile, "export const content = {}", "utf8")
       const roots: Array<string | undefined> = []
       const sourcePlugin = {
         api: {
@@ -776,7 +809,7 @@ describe("agent Vite plugin", () => {
         const configResolvedHook: unknown = plugin.configResolved
         // SAFETY: hubAgent installs configResolved as an async Vite hook.
         const configResolved = configResolvedHook as (config: Record<string, unknown>) => Promise<void>
-        await configResolved({ command: "serve", createResolver: () => async (id: string) => id, plugins, root })
+        await configResolved({ command: "serve", plugins, root })
         return await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
       }
 
@@ -802,12 +835,13 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents", "digest"), { recursive: true })
       await writeFile(join(root, "server", "agents", "digest", "agent.ts"), "export default {}", "utf8")
+      await installStubPackages(root, ["@vite-hub/auth/agent"])
       const configure = async (plugins: unknown[]) => {
         const plugin = hubAgent()
         const configResolvedHook: unknown = plugin.configResolved
         // SAFETY: hubAgent installs configResolved as an async Vite hook.
         const configResolved = configResolvedHook as (config: Record<string, unknown>) => Promise<void>
-        await configResolved({ command: "serve", createResolver: () => async (id: string) => id, plugins, root })
+        await configResolved({ command: "serve", plugins, root })
         return await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
       }
 
@@ -830,16 +864,15 @@ describe("agent Vite plugin", () => {
       // SAFETY: hubAgent installs configResolved as an async Vite hook.
       const configResolved = configResolvedHook as (config: {
         command: "build"
-        createResolver: () => (id: string) => Promise<string | undefined>
         plugins: Array<{ name: string }>
         root: string
       }) => Promise<void>
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
+      await installStubPackages(root, ["@vite-hub/blob", "vite-hub/console/server", "@vite-hub/database/drizzle", "@vite-hub/email/server"])
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
       await configResolved({
         command: "build",
-        createResolver: () => async (id) => `/app/node_modules/${id}`,
         plugins: [{ name: "@vite-hub/blob/vite" }, { name: "vite-hub/console" }, { name: "@vite-hub/database/vite" }, { name: "@vite-hub/email/vite" }],
         root,
       })
@@ -903,7 +936,6 @@ describe("agent Vite plugin", () => {
       // SAFETY: hubAgent installs configResolved as an async Vite hook.
       const configResolved = configResolvedHook as (config: {
         command: "build"
-        createResolver: () => (id: string) => Promise<string | undefined>
         plugins: Array<{ name: string }>
         root: string
       }) => Promise<void>
@@ -911,7 +943,6 @@ describe("agent Vite plugin", () => {
       const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
       await configResolved({
         command: "build",
-        createResolver: () => async (id) => `/app/node_modules/${id}`,
         plugins: [],
         root,
       })
@@ -935,7 +966,6 @@ describe("agent Vite plugin", () => {
       await cloudflareConfigResolved({
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         command: "build",
-        createResolver: () => async (id: string) => `/app/node_modules/${id}`,
         plugins: [],
         preset: "cloudflare",
         root,
@@ -949,7 +979,6 @@ describe("agent Vite plugin", () => {
 
       await cloudflareConfigResolved({
         command: "build",
-        createResolver: () => async (id: string) => `/app/node_modules/${id}`,
         plugins: [],
         root,
       })
@@ -2035,6 +2064,7 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      await installStubPackages(root, ["@vite-hub/connections/server", "@vite-hub/database/drizzle"])
       const plugin = hubAgent({ routes: { discordGateway: true } })
       const schedulePlugin = { name: "@vite-hub/schedule/vite" }
       if (isRuntimeFunction(plugin.configResolved)) {
@@ -2127,6 +2157,7 @@ describe("agent Vite plugin", () => {
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
+      await installStubPackages(root, ["@vite-hub/database/drizzle", "@vite-hub/email/server"])
       const emailPlugin = hubEmail({ driver: "resend" })
       if (isRuntimeFunction(emailPlugin.configResolved)) {
         // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
@@ -2179,6 +2210,8 @@ describe("agent Vite plugin", () => {
             plugins: [emailPlugin, { name: "@vite-hub/database/vite" }],
             resolve: {
               alias: agentProviderOutputAliases([
+                // Listed before `@vite-hub/email`, which would otherwise rewrite the email Capability import.
+                { find: "@vite-hub/email/server", replacement: resolve(import.meta.dirname, "../../email/src/server.ts") },
                 { find: "@vite-hub/email", replacement: resolve(import.meta.dirname, "../../email/src/index.ts") },
                 // Since #2493 the Netlify function also imports the host database capability.
                 { find: "@vite-hub/database/drizzle", replacement: resolve(import.meta.dirname, "../../database/src/drizzle.ts") },
