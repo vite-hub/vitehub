@@ -88,9 +88,10 @@ button svg{width:14px;height:14px;flex:none}
 
 /**
  * The attribute that a page sets on `<html>` while it has its own bar where the pill docks, such as a review toolbar at
- * the bottom of the screen. With the value `mark`, the pill folds to the ViteHub mark and moves to the nearer end of its
- * edge. The pill comes back when the page removes the attribute, so a single-page app can set it per route. The
- * person's own choices stay as they were: pressing the mark opens the pill on that page only.
+ * the bottom of the screen. With the value `mark`, the pill folds to the ViteHub mark, and on the bottom edge it moves to
+ * the nearer end. The pill comes back when the page removes the attribute, so a single-page app can set it per route. The
+ * person's own choices stay as they were: pressing the mark, or turning the tools on from the off mark, opens the pill
+ * on that page only.
  */
 export const viteHubPillAttribute = "data-vitehub-pill"
 

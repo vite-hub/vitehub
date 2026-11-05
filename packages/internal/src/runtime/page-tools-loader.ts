@@ -197,11 +197,11 @@ function pageAsksForMark(): boolean {
 }
 
 /**
- * Where the pill goes while the page asks for the mark: the nearer end of the top or bottom edge, out of the way of a
- * bar centered on it. On the left and right edges it keeps its place.
+ * Where the pill goes while the page asks for the mark: the nearer end of the bottom edge, out of the way of a bar
+ * centered on it. The ends of the top edge hold a page's back button and menus, so on the other edges it keeps its place.
  */
 function asideOf(dock: ViteHubPageToolsDock): ViteHubPageToolsDock {
-  return dock.edge === "top" || dock.edge === "bottom" ? { edge: dock.edge, at: dock.at < 50 ? 0 : 100 } : dock
+  return dock.edge === "bottom" ? { edge: "bottom", at: dock.at < 50 ? 0 : 100 } : dock
 }
 
 /** Calls `change` each time the page starts or stops asking for the mark, until `signal` aborts. */
@@ -249,7 +249,7 @@ function placeAlong(center: number, size: number, start: number, end: number, le
  * another edge. The browser remembers both. While the page asks for the mark, the pill folds and steps aside, and a
  * press on the mark opens it on that page only.
  */
-function mountPill(tools: ViteHubPageToolInfo[], exit: (keyboard: boolean) => void, signal: AbortSignal): HTMLElement {
+function mountPill(tools: ViteHubPageToolInfo[], exit: (keyboard: boolean) => void, signal: AbortSignal, turnedOn: boolean): HTMLElement {
   const pill = document.createElement("vitehub-pill")
   // Its own name keeps the pill in place through a page's View Transition. In the page's snapshot it would fade and
   // slide away with the old page, under any part that the page names itself.
@@ -271,8 +271,9 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: (keyboard: boolean) => vo
     mark.setAttribute("aria-label", collapsed ? "Show ViteHub tools" : "Hide ViteHub tools")
     mark.title = `${mark.getAttribute("aria-label")!}. Drag to move.`
   }
-  // Opened by the person while the page asks for the mark. It lasts until the page stops asking.
-  let opened = false
+  // Opened by the person while the page asks for the mark, or by turning the tools on from the off mark. It lasts until
+  // the page stops asking.
+  let opened = turnedOn
   const folded = () => pageAsksForMark() ? !opened : storedCollapsed()
   collapse(folded())
   let dragged = false
@@ -469,6 +470,11 @@ export interface LoadViteHubPageToolsOptions {
  * while a tool is mounted or available to launch or retry. Returns those available tools.
  */
 export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions = {}): Promise<ViteHubPageToolInfo[]> {
+  return await startViteHubPageTools(options, false)
+}
+
+/** `turnedOn`: the person pressed the off mark, so the pill opens even on a page that asks for the mark. */
+async function startViteHubPageTools(options: LoadViteHubPageToolsOptions, turnedOn: boolean): Promise<ViteHubPageToolInfo[]> {
   // Vite pages load this external module under CSP; visitors without a hint make no session request.
   const query = new URLSearchParams(location.search)
   if (!viteHubPageToolsWanted(location.search, document.cookie)) return []
@@ -490,7 +496,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   // Explicit page-tool links turn the tools on again. Otherwise, tools that were turned off show only their small mark.
   if (query.has(viteHubPageToolsQuery) || linkedTool) rememberOff(false)
   else if (storedOff()) {
-    mountOffMark(() => { rememberOff(false); void loadViteHubPageTools(options) }, false)
+    mountOffMark(() => { rememberOff(false); void startViteHubPageTools(options, true) }, false)
     return []
   }
 
@@ -516,10 +522,10 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
     mountOffMark(() => {
       rememberOff(false)
       for (const tool of opened) remember(tool.id, true)
-      void loadViteHubPageTools(options)
+      void startViteHubPageTools(options, true)
     }, keyboard)
   }
-  const pill = mountPill(session.tools, exit, pillController.signal)
+  const pill = mountPill(session.tools, exit, pillController.signal, turnedOn)
   const windows = new Map<string, ViteHubPageWindow>()
   const windowKey = (id: string) => `vitehub-open:${options.session ?? viteHubPageSessionUrl(import.meta.url)}:${id}`
   const remember = (id: string, value: boolean) => { try { sessionStorage.setItem(windowKey(id), String(value)) } catch {} }
