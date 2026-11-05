@@ -5,6 +5,8 @@ import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-d
 
 export default defineNuxtConfig({
   modules: ["@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
+  // Motion components must use the same Vue runtime as Nuxt's server renderer.
+  build: { transpile: ["motion-v"] },
   docs: {
     site: {
       name: "ViteHub",

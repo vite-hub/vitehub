@@ -22,7 +22,7 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { createDocsManifest } from "./manifest.ts"
-import { docsAppPath, docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsRawPath, docsSectionIcon, normalizeDocsBase, type DocsIcons, type DocsLink } from "./navigation.ts"
+import { docsAppPath, docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
 import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
@@ -101,6 +101,13 @@ export interface DocsModuleOptions {
    */
   rawMarkdown?: (markdown: string, page: DocsPage) => string | Promise<string>
   /**
+   * The share image of every page, rendered by `nuxt-og-image` while the build prerenders. By default it shows the
+   * site, the page title and description, and the section. `component` names the app's own template in
+   * `components/OgImage/`, such as `Docs` for `OgImage/Docs.takumi.vue`; it gets the same props. A page sets
+   * `seo.image` to use a file of its own, or `false` for none. `false` here turns the images off.
+   */
+  ogImage?: false | { component?: string }
+  /**
    * Path of a module, relative to the app root, whose default export is the parser options, such as
    * `{ plugins: [tabs()] }`. Comark plugins are functions, so they reach the server through a file and not through
    * this config. The page route, search, and Console drafts parse with it.
@@ -124,6 +131,7 @@ export interface DocsPublicConfig {
   icons: DocsIcons
   mcp: { name: string, url: string, guide: string | null } | false
   assistant: { agent: string } | false
+  ogImage: { component: string } | false
 }
 
 interface DiscoveryLink {
@@ -170,6 +178,7 @@ interface DocsNuxtOptions {
   runtimeConfig: { public: { mdc?: unknown } }
   agentDiscovery?: AgentDiscoveryOptions
   llms?: LlmsOptions
+  linkChecker?: { excludeLinks?: Array<string | RegExp> }
 }
 
 export interface DocsNuxtModule {
@@ -195,6 +204,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       [dependency("@vite-hub/ui/nuxt")]: {},
       [dependency("nuxt-llms")]: {},
       [dependency("nuxt-agent-discovery")]: {},
+      // Site name, URL, and description for every Nuxt SEO module: the link checker, share images, and Schema.org.
+      [dependency("nuxt-site-config")]: { defaults: { name: docs.site?.name ?? "Docs", url: docs.site?.url, description: docs.site?.description, defaultLocale: "en" } },
+      // Images render while the build prerenders, so the server bundle carries no renderer and a Worker stays small.
+      // Disabled setup still registers the no-op composable imported by useDocsSeo.
+      [dependency("nuxt-og-image")]: { defaults: { enabled: docs.ogImage !== false, zeroRuntime: true, defaults: { width: 1200, height: 630 } } },
+      [dependency("nuxt-schema-org")]: {},
       ...docs.linkChecker === false ? {} : { [dependency("nuxt-link-checker")]: { defaults: { failOnError: true, fetchRemoteUrls: false, showLiveInspections: false } } },
       // The toolkit's own llms.txt block repeats what nuxt-agent-discovery writes.
       ...docs.mcp === false ? {} : { [dependency("@nuxtjs/mcp-toolkit")]: { defaults: { name: docs.site?.name ?? "Docs", llms: false } } },
@@ -223,17 +238,27 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const moduleOptions: DocsNuxtOptions = nuxt.options
 
     let manifest = createDocsManifest({ dir: contentDir, base: config.base })
-    /** Writes the agent copy of every page. `nuxi build` empties the build folder after the modules load, so it runs before the build. */
+    /**
+     * Writes the agent copy of every page, with the links of its section at the end. `nuxi build` empties the build
+     * folder after the modules load, so it runs before the build.
+     */
     async function writeRaw(snapshot = manifest) {
       rmSync(rawDir, { force: true, recursive: true })
+      const siteUrl = `${config.site.url}${config.appBase.replace(/\/+$/, "")}`
       for (const page of docsManifestPages(snapshot)) {
         const target = join(rawDir, docsRawFile(page.path))
         mkdirSync(dirname(target), { recursive: true })
         const source = readFileSync(join(contentDir, page.file), "utf8")
-        writeFileSync(target, toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl: `${config.site.url}${config.appBase.replace(/\/+$/, "")}`, pagePath: page.path }))
+        writeFileSync(target, toRawMarkdown(options.rawMarkdown ? await options.rawMarkdown(source, page) : source, { siteUrl, pagePath: page.path }) + docsRawSectionLinks(snapshot, page.path, siteUrl))
       }
     }
     nuxt.hook("build:before", writeRaw)
+    // The link checker counts a link as built only when it was prerendered or sits in `public/`, and fetches any other
+    // from the live site. The Markdown copies are neither, so it is told that every page has one.
+    if (options.linkChecker !== false) {
+      const linkChecker = (moduleOptions.linkChecker ??= {})
+      linkChecker.excludeLinks = [...linkChecker.excludeLinks ?? [], ...docsManifestPages(manifest).map(page => docsAppPath(docsRawPath(page.path), config.appBase))]
+    }
 
     // Nuxt UI prose headings read the heading anchor settings of @nuxtjs/mdc, which this site does not install.
     moduleOptions.runtimeConfig.public.mdc ??= { headings: { anchorLinks: { h1: false, h2: true, h3: true, h4: true, h5: false, h6: false } } }
@@ -430,7 +455,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addServerHandler({ route: "/api/_docs/search.json", handler: resolver.resolve("./runtime/server/search.js") })
     addServerHandler({ route: "/sitemap.xml", handler: resolver.resolve("./runtime/server/sitemap.js") })
     // The raw copy is the file as written, without the frontmatter that nuxt-agent-discovery adds to its own raw route.
-    addServerHandler({ route: "/raw/**", method: "get", handler: resolver.resolve("./runtime/server/raw.js") })
+    // HEAD too: link checkers probe with it, and a GET-only route answers it with a 404.
+    for (const method of ["get", "head"] as const) addServerHandler({ route: "/raw/**", method, handler: resolver.resolve("./runtime/server/raw.js") })
 
     /**
      * The routes that the build prerenders. Nuxt lets the client read `_payload.json` only when the Nitro config lists
@@ -531,6 +557,7 @@ function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicCo
     icons: { rail: {}, sections: {}, pages: {}, aliases: {}, family: "", page: "i-lucide-file-text", section: "i-lucide-folder", ...options.icons },
     mcp: options.mcp === false ? false : { name: options.mcp?.name ?? (site.name ?? "docs").toLowerCase(), url: `${url}${docsAppPath("/mcp", appBase)}`, guide: options.mcp?.guide ?? null },
     assistant: options.assistant ? { agent: options.assistant === true ? "docs" : options.assistant.agent ?? "docs" } : false,
+    ogImage: options.ogImage === false ? false : { component: options.ogImage?.component ?? "DocsPage" },
   }
 }
 
