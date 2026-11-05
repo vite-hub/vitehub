@@ -23,7 +23,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-The type of `error.code` is the union of the codes that the method can return. For example, `kv.list()` can return `KV_INVALID_CURSOR`, `KV_INVALID_LIMIT`, or `KV_OPERATION_FAILED`, and `kv.get()` can return only `KV_OPERATION_FAILED`.
+The type of `error.code` is the union of the codes that the method can return. For example, `kv.list()` can return `KV_INVALID_CURSOR`, `KV_INVALID_LIMIT`, or `KV_OPERATION_FAILED`, and `kv.get()` can return `KV_KEY_TOO_LONG` or `KV_OPERATION_FAILED`.
 
 `JSON.stringify(error)` includes only `name`, `code`, `why`, `fix`, and `docs`. It does not include `cause` or `stack`, because provider errors can contain credentials or private data. Log `cause` only on the server.
 
@@ -34,10 +34,27 @@ Configuration errors throw instead. They mean that the code or the deployment mu
 | `KV_INVALID_CURSOR` | `list()` | |
 | `KV_INVALID_LIMIT` | `list()` | |
 | `KV_INVALID_TTL` | `increment()`, `setIfAbsent()` | |
+| `KV_KEY_TOO_LONG` | `del()`, `get()`, `has()`, `set()` | |
+| `KV_METADATA_TOO_LARGE`, `KV_TTL_TOO_SHORT`, `KV_VALUE_TOO_LARGE` | `set()` | |
 | `KV_OPERATION_FAILED` | Every method | |
 | `KV_UNSUPPORTED_OPERATION` | `getAndDelete()`, `increment()`, `setIfAbsent()` | |
 | `KV_DENO_KV_UNAVAILABLE`, `KV_DISABLED`, `KV_MISSING_ENV`, `KV_STORE_NOT_FOUND` | | When an operation starts |
 | `KV_INVALID_CONFIG`, `KV_INVALID_DRIVER`, `KV_MISSING_DEFAULT_STORE` | | When Vite reads the config |
+
+## Limits
+
+A store with the `cloudflare-kv-binding` driver checks the [Workers KV limits](https://developers.cloudflare.com/kv/platform/limits/) before it calls the binding, and returns a named code instead of `KV_OPERATION_FAILED`. The same check runs in production and in `vite dev` with the Cloudflare preset, so a key that Cloudflare rejects fails during development with the same code.
+
+| Limit | Cloudflare KV | Code |
+| --- | --- | --- |
+| Key size, in UTF-8 bytes | 512 bytes | `KV_KEY_TOO_LONG` |
+| Value size, after ViteHub serializes the value | 25 MiB | `KV_VALUE_TOO_LARGE` |
+| `metadata` size, as JSON | 1024 bytes | `KV_METADATA_TOO_LARGE` |
+| `expirationTtl` | At least 60 seconds | `KV_TTL_TOO_SHORT` |
+
+The `ttl` option of `kv.set()` does not fail, because ViteHub raises a `ttl` below 60 seconds to 60 seconds on Cloudflare KV. Only an `expirationTtl` that you pass to the binding returns `KV_TTL_TOO_SHORT`.
+
+`fs-lite`, `deno-kv`, and `upstash` stores do not check these limits. Upstash [limits the request size](https://upstash.com/docs/redis/troubleshooting/max_request_size_exceeded) to 10 MB on its Free and Pay as you go plans, and other plans have other limits. ViteHub does not know the plan of your database, so it does not check this limit. A request above it fails with `KV_OPERATION_FAILED`.
 
 ## Runtime errors
 
@@ -53,17 +70,33 @@ The `cursor` of `kv.list()` expired, is in use by another call, belongs to anoth
 
 `kv.increment(key, ttl)` and the `ttl` option of `kv.setIfAbsent()` need a positive number of seconds. Upstash rounds the TTL up to whole seconds.
 
+### KV_KEY_TOO_LONG
+
+The key is longer than 512 bytes in UTF-8, the Cloudflare KV limit. ViteHub measures the key after it normalizes it, so `a/b` counts as `a:b`. A character outside ASCII takes two to four bytes. Use a shorter key. To keep a long identifier, store a hash of it as the key.
+
+### KV_METADATA_TOO_LARGE
+
+The `metadata` option of `kv.set()` is larger than 1024 bytes as JSON, the Cloudflare KV limit. Keep only small fields in `metadata`, and put the other data in the value.
+
 ### KV_OPERATION_FAILED
 
 The provider failed. `error.why` names the operation and the store. Read `error.cause` for the provider error. A retry can help when the provider is available again.
 
 An invalid key returns this code too, before ViteHub calls the provider: an empty key such as `''` or `':'`, or a key with a `.` or `..` segment such as `'a/../b'`. `error.cause.message` is `[unstorage] Invalid key: ""` with the key. A retry cannot help; use another key.
 
+### KV_TTL_TOO_SHORT
+
+The `expirationTtl` option of `kv.set()` is less than 60 seconds, the Cloudflare KV minimum. Pass 60 or more. The `ttl` option does not return this code, because ViteHub raises it to 60 seconds.
+
 ### KV_UNSUPPORTED_OPERATION
 
 `getAndDelete()` and `increment()` need atomic operations. Only the `upstash` driver supports them. Deno KV, Cloudflare KV, and `fs-lite` return this code. For request budgets, use the [Rate Limit primitive](/docs/rate-limit).
 
 `setIfAbsent()` works on `upstash`, `deno-kv`, and `fs-lite`. Cloudflare KV returns this code, because Workers KV is eventually consistent and cannot write a key only when it is missing. On Cloudflare, keep single-use tokens in D1 with `INSERT ... ON CONFLICT DO NOTHING`, or in a Durable Object.
+
+### KV_VALUE_TOO_LARGE
+
+The value is larger than 25 MiB after ViteHub serializes it, the Cloudflare KV limit. Store large files in [Blob](/docs/blob), and keep the Blob pathname in KV.
 
 ## Configuration errors
 
