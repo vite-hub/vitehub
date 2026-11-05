@@ -8,29 +8,54 @@ icon: i-lucide-table-properties
 ---
 
 Use this page before you claim that a feature works on a host. Each row is a
-server primitive or a deployment contract, and each column is a host. Hover over
-a cell to see the provider that the host uses and the limits of that support.
-Select a proof cell to open the CI run behind it. `Package-specific` means
-support belongs to the named package or generated output, not the host as a
-whole.
+server primitive, an app feature, or a deployment contract, and each column is a
+host. Hover over a cell to see the provider that the host uses and the limits of
+that support. Select a proof cell to open the CI run behind it.
+`Package-specific` means that the app must select the provider explicitly, or
+that support belongs to the named package or generated output, not the host as
+a whole.
+
+The primitive and feature rows come from the ViteHub feature catalog in
+`@vite-hub/internal/features`. A cell says what `vitehub({...})` does when the
+app enables the feature for that preset. The Local Vite column is `vite dev`
+with local providers. The Nitro and UnJS column describes generic Nitro output.
 
 ::support-matrix
 ## Server primitives
 
-| Primitive  | Local Vite       | Cloudflare            | Vercel                | Netlify              | Deno           | Nitro and UnJS | Node and self-hosted  |
-| ---------- | ---------------- | --------------------- | --------------------- | -------------------- | -------------- | -------------- | --------------------- |
-| Browser    | Local provider   | Browser Run           | —                     | —                    | —                    | —              | Local provider        |
-| Blob       | `fs`             | R2                    | Vercel Blob           | Netlify Blobs        | S3-compatible  | Host driver    | `fs` or S3-compatible |
-| Database   | SQLite           | D1                    | libSQL or D1 HTTP     | libSQL               | libSQL         | Nuxt D1        | SQLite or libSQL      |
-| Email      | Resend           | Cloudflare Email      | Resend                | Resend               | Resend         | Host driver    | Resend or custom      |
-| KV         | `fs-lite`        | Workers KV            | Upstash Redis         | Upstash Redis        | Deno KV        | Host driver    | `fs-lite` or Upstash  |
-| Queue      | Discovery only   | Cloudflare Queues     | Vercel Queues         | Cloudflare or Vercel | —              | Cloudflare or Vercel | —                     |
-| Rate Limit | `memory`         | Rate Limiting binding | —                     | —                    | —              | Cloudflare     | `memory`              |
-| Realtime   | `memory`         | Durable Objects       | —                     | —                    | —              | Host authority | `memory`              |
-| Sandbox    | Sandbox provider     | Cloudflare Sandbox    | Vercel Sandbox        | Vercel Sandbox       | —              | Cloudflare or Vercel | Sandbox provider          |
-| Schedule   | Local or process | Cron triggers         | Vercel Cron Jobs      | Scheduled functions  | Standalone `Deno.cron` | Provider Wake  | Process runtime       |
-| Workflow   | OpenWorkflow     | Cloudflare Workflows  | Vercel Workflow       | OpenWorkflow         | OpenWorkflow   | Host provider  | OpenWorkflow          |
-| Workspace  | Local or memory  | Artifacts or GitHub   | Vercel Blob or GitHub | GitHub               | GitHub         | Host store     | Local or GitHub       |
+<!-- support-matrix:server-primitives:start -->
+| Primitive | Local Vite | Cloudflare | Vercel | Netlify | Deno | Nitro and UnJS | Node and self-hosted |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Browser | — | Browser Run | — | — | — | — | — |
+| Blob | fs | R2 | Vercel Blob | Netlify Blobs | S3 | Host driver | fs / S3 |
+| Cache | fs-lite | Workers KV | Runtime Cache | KV | Deno KV | Host driver | fs-lite |
+| Database | SQLite | D1 | libSQL / D1 | libSQL | libSQL | Nuxt D1 | SQLite / libSQL |
+| Email | Resend | Cloudflare Email | Resend | Resend | Resend | Host driver | Resend / custom |
+| KV | fs-lite | Workers KV | Upstash | Upstash | Deno KV | Host driver | fs-lite / Upstash |
+| Queue | Local provider | Queues | Vercel Queues | — | — | Cloudflare / Vercel | Local provider |
+| Rate Limit | memory | Cloudflare | — | — | — | Cloudflare | memory |
+| Realtime | memory | Durable Objects | — | — | — | Host authority | memory |
+| Sandbox | Sandbox provider | CF Sandbox | Vercel Sandbox | — | — | Cloudflare / Vercel | — |
+| Schedule | Local / process | Cron triggers | Vercel Cron | Scheduled fn | — | Provider Wake | process |
+| Workflow | OpenWorkflow | CF Workflows | Vercel Workflow | OpenWorkflow | OpenWorkflow | Host provider | OpenWorkflow |
+| Workspace | local / memory | Artifacts / GitHub | Blob / GitHub | GitHub | GitHub | Host store | local / GitHub |
+<!-- support-matrix:server-primitives:end -->
+
+## Agents and app features
+
+<!-- support-matrix:application-features:start -->
+| Feature | Local Vite | Cloudflare | Vercel | Netlify | Deno | Nitro and UnJS | Node and self-hosted |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Agent | Nitro | Nitro | Nitro | Nitro | Nitro | Agent routes | Nitro |
+| Auth | Better Auth | Better Auth | Better Auth | Better Auth | Better Auth | Auth route | Better Auth |
+| Channels | Nitro | Nitro | Nitro | Nitro | Nitro | Agent routes | Nitro |
+| Comments | Database | Database | Database | Database | Database | Host database | Database |
+| Connections | Database | Database | Database | Database | Database | Host database | Database |
+| Console | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro routes | Nitro |
+| Env | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro runtime | Nitro |
+| Logs | Nitro | Nitro | Nitro | Nitro | Nitro | Host source | Nitro |
+| Observability | Evlog | Evlog | Evlog | Evlog | Evlog | Evlog | Evlog |
+<!-- support-matrix:application-features:end -->
 
 ## Deployment and proof
 
@@ -49,7 +74,9 @@ whole.
 
 Names in this table are concrete built-in providers or adapters. Browser Definitions currently require the Cloudflare preset; local Wrangler can connect to Browser Run with remote mode. Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`, but Browser Definitions do not select that provider. Email's boolean default selects Cloudflare Email only on the Cloudflare preset; every other host requires the explicit built-in Resend driver or a programmatic custom driver. Realtime production uses Cloudflare Durable Objects or explicitly selected memory on a single-process Node server; distributed Vercel, Netlify, and Deno presets reject memory. A remote provider shown under Netlify, Deno, Nitro, or Node is an explicit package choice, not host inference. Local filesystem and memory options remain single-process development providers.
 
-Local Vite discovers Queue Definitions and generates provider output, but it does not deliver Queue Jobs. Netlify requires an explicit Cloudflare or Vercel Queue Provider because it cannot infer one. Netlify can use an explicit Vercel Sandbox provider when Vercel credentials are configured; the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify.
+Local Vite delivers Queue Jobs through the local provider, which stores jobs in `.vitehub/data/queue` and runs them in the dev server process. `vitehub({ queue: true })` fails on Netlify because `queue` has no provider option. Compose `hubQueue({ provider })` to select the Cloudflare or Vercel Queue Provider there. `vitehub({ sandboxTask: true })` fails on the Netlify and Node presets. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials. Do not use Cloudflare Sandbox there: the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify.
+
+Workspace on Cloudflare uses the memory store by default, so its state stays in one Worker isolate. Select the Cloudflare Artifacts or GitHub Workspace Store for durable state. Realtime on Node needs `realtime: { authority: "memory" }` for a build, and that authority is safe only for a single-process server.
 
 ## Proof scope
 

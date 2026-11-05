@@ -57,23 +57,13 @@ describe("launch documentation trust boundaries", () => {
     ]) {
       expect(matrixHeader).toContain(host);
     }
-    expect(matrix).toMatch(
-      /\| Browser\s+\| Local provider\s+\| Browser Run.*\| Local provider\s+\|/,
-    );
+    // vitehub() provides Browser only on the Cloudflare preset. The notes name the localBrowser() path from code.
+    expect(matrix).toMatch(/\| Browser \| — \| Browser Run \| — \| — \| — \| — \| — \|/);
     expect(matrixData).toContain("Browser Definitions require ViteHub's Cloudflare preset");
-    expect(matrixData).toContain(
-      "Pass createBrowser({ provider: localBrowser({ executablePath }) }) for a trusted local process",
-    );
-    expect(matrixData).toContain(
-      "Pass createBrowser({ provider: localBrowser({ executablePath }) }) for a trusted self-hosted Node process",
-    );
     expect(matrix).toContain(
       "Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`",
     );
-    expect(matrix).toContain("Standalone `Deno.cron`");
-    expect(matrixData).toContain(
-      'vitehub({ preset: \\"deno\\", schedule: true }) is not supported',
-    );
+    expect(matrix).toMatch(/\| Schedule \|[^\n]+\| Scheduled fn \| — \| Provider Wake \|/);
     expect(matrix).toContain(
       '`vitehub({ preset: "deno", schedule: true })` rejects Schedule',
     );
@@ -100,39 +90,27 @@ describe("launch documentation trust boundaries", () => {
       "Workflow",
       "Workspace",
     ]) {
-      expect(matrix).toMatch(new RegExp(`\\| ${primitive}\\s+\\|`));
-      expect(matrixData).toContain(`label: "${primitive}"`);
+      // The rows of the data file come from the feature catalog. support-catalog.test.ts checks them.
+      expect(matrix).toContain(`| ${primitive} |`);
     }
     expect(matrix).toContain("Cloudflare Queues");
     expect(matrix).toContain("Vercel Queues");
-    expect(matrix).toMatch(/\| Queue\s+\|[^\n]+\| Cloudflare or Vercel \| —\s+\|/);
+    expect(matrix).toMatch(/\| Queue \| Local provider \|[^\n]+\| — \| — \| Cloudflare \/ Vercel \| Local provider \|/);
     expect(matrixData).toContain(
       "Cloudflare Queue bindings or the Vercel Queues runtime client can be composed through Nitro output",
     );
-    expect(matrix).toContain("Discovery only");
-    expect(matrix).toContain("Netlify requires an explicit Cloudflare or Vercel Queue Provider");
+    expect(matrix).toContain("Local Vite delivers Queue Jobs through the local provider");
+    expect(matrix).toContain("`vitehub({ queue: true })` fails on Netlify");
     expect(matrix).toContain("every other host requires the explicit built-in Resend driver or a programmatic custom driver");
     expect(matrix).toContain("distributed Vercel, Netlify, and Deno presets reject memory");
     expect(matrixData).toContain(
-      "The Cloudflare preset supports the built-in Cloudflare Email driver default",
-    );
-    expect(matrixData).toContain(
-      "Cloudflare Durable Objects provide the production room authority",
-    );
-    expect(matrixData).toContain(
       "Uses Cloudflare Sandbox or Vercel Sandbox when selected by the Nitro host",
     );
-    expect(matrixData).toContain(
-      "Netlify can use an explicitly selected Vercel Sandbox provider with Vercel credentials",
-    );
-    expect(matrix).toMatch(
-      /\| Sandbox\s+\|[^\n]+\| Vercel Sandbox\s+\| —\s+\| Cloudflare or Vercel \| Sandbox provider\s+\|/,
-    );
+    expect(matrix).toMatch(/\| Sandbox \|[^\n]+\| Vercel Sandbox \| — \| — \| Cloudflare \/ Vercel \| — \|/);
     expect(matrix).toContain(
       "the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify",
     );
-    expect(matrix).toContain("Cloudflare Workflows");
-    expect(matrix).toContain("Vercel Workflow");
+    expect(matrix).toContain("| Workflow | OpenWorkflow | CF Workflows | Vercel Workflow |");
     expect(matrix).toContain(
       "Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace",
     );
