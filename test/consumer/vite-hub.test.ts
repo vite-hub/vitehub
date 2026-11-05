@@ -323,6 +323,9 @@ function workspaceConfig(specs: Record<string, string>, additionalOverrides: Rec
     ...specs,
     // Fresh resolutions selected 2.0.1 while its tarball returned 404; use the workspace-tested version.
     "mdast-util-gfm-table": "2.0.0",
+    // Use the workspace-tested pair: newer msgpackr-extract native tarballs returned 404.
+    "msgpackr@^2": "2.1.0",
+    "msgpackr-extract": "3.0.4",
     ...additionalOverrides,
   })
     .sort(([left], [right]) => left.localeCompare(right))

@@ -35,6 +35,7 @@ async function open(search: string, session = denied) {
     bar, tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" },
     signal: new AbortController().signal, open: true, exit: vi.fn(),
     createWindow: () => { throw new Error("Unexpected retained window") },
+    createTab: () => { throw new Error("Unexpected tab") },
     openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
   })
   const overlay = document.querySelector("vitehub-comments")!
