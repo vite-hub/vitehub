@@ -102,7 +102,7 @@ describe("loadViteHubPageTools", () => {
     await expect(loadViteHubPageTools({ load })).resolves.toEqual([consoleTool])
     expect(started).toHaveLength(1)
     const { slots, exit } = pill()
-    expect(slots).toEqual(["console"])
+    expect(slots).toEqual(["tab", "console"])
     expect(exit.querySelector("svg")?.namespaceURI).toBe("http://www.w3.org/2000/svg")
     exit.click()
     expect(stopped).toEqual(["console"])
@@ -149,7 +149,7 @@ describe("loadViteHubPageTools", () => {
     await loadViteHubPageTools({ load })
     const { element, slots, segments, exit } = pill()
     expect(element.parentElement).toBe(document.documentElement)
-    expect(slots).toEqual(["comments", "console"])
+    expect(slots).toEqual(["tab", "comments", "console"])
     expect(segments).toEqual([["vitehub-tool", "comments", false], ["vitehub-tool", "console", false]])
     expect(started.map(context => context.bar)).toEqual([...element.children])
     expect(element.shadowRoot!.querySelector("[role=toolbar]")!.getAttribute("aria-label")).toBe("ViteHub tools")
@@ -157,6 +157,23 @@ describe("loadViteHubPageTools", () => {
     // A second loader on the same page leaves the pill alone.
     await expect(loadViteHubPageTools({ load })).resolves.toEqual([])
     pill()
+  })
+
+  it("gives a tool a tab outside the bar's clip, and removes it when the tools stop", async () => {
+    page("/?vitehub")
+    session({ tools: [consoleTool] })
+    const { load, started } = modules()
+    await loadViteHubPageTools({ load })
+    const tab = started[0]!.createTab()
+    const { element, segments, exit } = pill()
+    expect(tab.parentElement).toBe(element)
+    expect(segments).toEqual([["vitehub-tool", "console", false], ["vitehub-tab", "tab", false]])
+    // The tab slot is a sibling of the bar, so the bar's clip and scroll do not cut the tab.
+    const slot = element.shadowRoot!.querySelector<HTMLSlotElement>("slot[name=tab]")!
+    expect(slot.parentNode).toBe(element.shadowRoot)
+    expect(slot.assignedElements()).toEqual([tab])
+    exit.click()
+    expect(tab.isConnected).toBe(false)
   })
 
   it("collapses to the ViteHub mark, keeps the tools running, and remembers it on the next page", async () => {
