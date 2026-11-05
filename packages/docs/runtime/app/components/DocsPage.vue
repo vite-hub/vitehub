@@ -41,7 +41,7 @@ useDocsSeo({
   <div v-if="isStandalone" class="mx-auto w-full max-w-3xl px-4 pb-24 pt-14 sm:px-6 sm:pt-20 lg:px-8 lg:pt-24" :data-path="page.path">
     <UPageHeader
       :title="page.sourceTitle"
-      :description="page.description ?? undefined"
+      :description="page.tagline ?? undefined"
       :ui="{
         root: 'border-b border-default px-0 pb-10 pt-0',
         title: 'text-balance text-[38px] leading-[46px] sm:text-[46px] sm:leading-[54px]',
@@ -51,11 +51,13 @@ useDocsSeo({
 
     <UPageBody prose class="!max-w-none !px-0 !pb-0 pt-10">
       <DocsMarkdown :document="response.document" />
+      <DocsPageCredits v-if="response.credits" :credits="response.credits" class="not-prose mt-10" />
     </UPageBody>
   </div>
 
   <div v-else-if="page.layout === 'home'" :data-path="page.path">
     <DocsMarkdown :document="response.document" />
+    <DocsPageCredits v-if="response.credits" :credits="response.credits" class="mx-auto w-full max-w-(--vh-content-width) px-4 sm:px-6" />
   </div>
 
   <div v-else-if="page.layout === 'landing'" class="vh-docs-landing">
