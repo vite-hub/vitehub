@@ -127,6 +127,11 @@ html.dark .shiki span {
   overflow-wrap: break-word;
 }
 
+/* Headings such as error codes have no spaces, so they also break where needed on narrow phones. */
+.docs-content :where(h1, h2, h3, h4) {
+  overflow-wrap: anywhere;
+}
+
 .docs-content th {
   color: var(--ui-text-highlighted);
   font-weight: 600;
