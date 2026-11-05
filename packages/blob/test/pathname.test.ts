@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { getRouterParam, H3 } from "h3"
+import { getRouterParam, H3, H3Event } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDriver as createR2NativeDriver } from "../src/drivers/cloudflare-native.ts"
@@ -147,7 +147,7 @@ describe("handleUpload pathnames", () => {
   function formRequest(names: string[]) {
     const form = new FormData()
     for (const name of names) form.append("files", new File([name], name, { type: "text/plain" }))
-    return { req: new Request("http://localhost/api/files", { body: form, method: "POST" }) }
+    return new H3Event(new Request("http://localhost/api/files", { body: form, method: "POST" }))
   }
 
   it("keeps an encoded file name inside the prefix", async () => {
