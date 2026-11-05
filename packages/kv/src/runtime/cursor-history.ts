@@ -5,7 +5,7 @@ const MAX_CURSORS_PER_HISTORY = 1_024
 const MAX_CURSOR_LENGTH = 8 * 1_024
 const MAX_CONTINUATION_LENGTH = 128 * 1_024
 type CursorHistory = Set<string>
-interface Continuation { providerCursor: string | undefined, history: CursorHistory, epoch?: number, namespace: string }
+interface Continuation { providerCursor: string | undefined, history: CursorHistory, namespace: string }
 
 function continuationTag(value: string): string {
   const hashes = [2166136261, 2246822519, 3266489917, 668265263]
@@ -53,7 +53,6 @@ function rememberInvalidated(cursor: string): void {
 export function createCursorHistory(namespace = "default") {
   const ownedContinuations = new Set<string>()
   const ownedConsumedContinuations = new Set<string>()
-  let epoch = 0
   function take(cursor: string, requestedNamespace = namespace): Continuation {
     const continuation = continuations.get(cursor)
     if (continuation && continuation.namespace !== requestedNamespace) {
@@ -70,13 +69,12 @@ export function createCursorHistory(namespace = "default") {
       if (cursor.length > MAX_CURSOR_LENGTH) {
         throw kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "invalid" })
       }
-      return { providerCursor: cursor, history: new Set([cursor]), epoch, namespace }
+      return { providerCursor: cursor, history: new Set([cursor]), namespace }
     }
     continuations.delete(cursor)
     continuationOwners.get(cursor)?.delete(cursor)
     continuationOwners.delete(cursor)
     // Retry restoration follows the consuming instance's disposal lifecycle.
-    continuation.epoch = epoch
     consumedContinuations.set(cursor, continuation)
     ownedConsumedContinuations.add(cursor)
     consumedOwners.set(cursor, ownedConsumedContinuations)
@@ -92,7 +90,7 @@ export function createCursorHistory(namespace = "default") {
   }
   function store(providerCursor: string, history: CursorHistory, requestedNamespace = namespace): string {
     const token = encodeContinuation(providerCursor, history)
-    continuations.set(token, { providerCursor, history, epoch, namespace: requestedNamespace })
+    continuations.set(token, { providerCursor, history, namespace: requestedNamespace })
     ownedContinuations.add(token)
     continuationOwners.set(token, ownedContinuations)
     while (continuations.size > MAX_CURSOR_HISTORIES) {
@@ -106,7 +104,7 @@ export function createCursorHistory(namespace = "default") {
     return token
   }
   function restore(cursor: string, continuation: Continuation): void {
-    if (continuation.epoch !== epoch || consumedContinuations.get(cursor) !== continuation) return
+    if (consumedContinuations.get(cursor) !== continuation) return
     continuations.set(cursor, continuation)
     ownedContinuations.add(cursor)
     continuationOwners.set(cursor, ownedContinuations)
@@ -122,7 +120,6 @@ export function createCursorHistory(namespace = "default") {
     }
   }
   function clear(): void {
-    epoch++
     for (const token of ownedContinuations) {
       continuations.delete(token)
       continuationOwners.delete(token)
