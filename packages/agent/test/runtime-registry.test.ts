@@ -242,6 +242,31 @@ export async function inspect() {
   } finally { await server.close() }
 }, 30_000)
 
+it.each([false, true])('preserves application Workspaces when deployment routes load with an owned Workspace: %s', async (withWorkspace) => {
+  const { root } = await fixture(true, withWorkspace)
+  const packageRoot = fileURLToPath(new URL('..', import.meta.url))
+  await mkdir(join(root, 'node_modules/@vite-hub'), { recursive: true })
+  await symlink(packageRoot, join(root, 'node_modules/@vite-hub/agent'), 'dir')
+  await symlink(join(packageRoot, '../workspace'), join(root, 'node_modules/@vite-hub/workspace'), 'dir')
+  const entry = join(root, 'content.ts')
+  await writeFile(entry, `import { setWorkspaceRuntimeRegistry, resolveRegisteredWorkspaceDefinition, useWorkspace } from '@vite-hub/workspace/runtime'
+export async function inspect() {
+  setWorkspaceRuntimeRegistry({ content: async () => ({ default: { store: { provider: 'memory' } } }) })
+  await import('./.vitehub/agent/chat-webhook-route.ts')
+  const content = useWorkspace('content', { mode: 'write' })
+  await content.fs.writeFile('guide.md', '# Edited guide')
+  return {
+    text: await content.fs.readFile('guide.md'),
+    ${withWorkspace ? "agent: (await resolveRegisteredWorkspaceDefinition('review')).name," : ''}
+  }
+}`)
+  const server = await createServer({ root, configFile: false, appType: 'custom', logLevel: 'silent', plugins: [hubAgent()], server: { middlewareMode: true, watch: null } })
+  try {
+    const module = await server.ssrLoadModule(entry)
+    expect(await module.inspect()).toEqual({ text: '# Edited guide', ...(withWorkspace ? { agent: 'review' } : {}) })
+  } finally { await server.close() }
+}, 30_000)
+
 it('clears external runtime aliases on each internal-first Vite SSR load', async () => {
   const { root } = await fixture(false)
   const packageRoot = fileURLToPath(new URL('..', import.meta.url))

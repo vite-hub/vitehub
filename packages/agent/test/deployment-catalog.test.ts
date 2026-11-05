@@ -27,7 +27,6 @@ interface DeploymentRuntimeCapture {
   registeredWorkspaceName?: string
   stateAdapter?: CapturedStateAdapter
   workspaceDefinitions: Record<string, Record<PropertyKey, unknown>>
-  workspaceRegistry: Record<string, () => Promise<{ default?: Record<PropertyKey, unknown> }>>
 }
 
 interface DeploymentRuntimeFixture {
@@ -99,12 +98,10 @@ function deploymentRuntimeModules(): Map<string, string> {
     ["@vite-hub/workspace/runtime", [
       `const capture = globalThis.${runtimeCaptureKey}`,
       "export function registerWorkspace(name, definition) { capture.workspaceDefinitions[name] = definition; return definition }",
-      "export function setWorkspaceRuntimeRegistry(workspaceRegistry) { capture.workspaceRegistry = workspaceRegistry }",
     ].join("\n")],
     ["@vite-hub/agent/server/workspace", [
       `const capture = globalThis.${runtimeCaptureKey}`,
       "export function registerWorkspace(name, definition) { capture.workspaceDefinitions[name] = definition; return definition }",
-      "export function setWorkspaceRuntimeRegistry(workspaceRegistry) { capture.workspaceRegistry = workspaceRegistry }",
     ].join("\n")],
     ["@vite-hub/workspace/internal/runtime/hosted", "export function installHostedWorkspaceRuntime() {}"],
     ["@vite-hub/workspace/internal/runtime/hosted-vercel-blob", "export function installHostedVercelBlobWorkspaceRuntime() {}"],
@@ -132,7 +129,7 @@ async function createDeploymentRuntimeFixture(
     : join(tmpdir(), "vitehub-agent-deployment-catalog-"))
   const supportRoot = join(root, "server", "agents", ...supportName.split("/"))
   const reviewerRoot = join(root, "server", "agents", "reviewer")
-  const capture: DeploymentRuntimeCapture = { workspaceDefinitions: {}, workspaceRegistry: {} }
+  const capture: DeploymentRuntimeCapture = { workspaceDefinitions: {} }
   const scope = globalThis as typeof globalThis & Record<string, unknown>
   const previousDeno = scope.Deno
   scope[runtimeCaptureKey] = capture
@@ -322,12 +319,8 @@ async function createDeploymentRuntimeFixture(
       })
     },
     async workspace(name) {
-      const registered = capture.workspaceDefinitions[name]
-      if (registered) return registered
-      const load = capture.workspaceRegistry[name]
-      if (!load) throw new Error(`Workspace ${name} was not registered.`)
-      const workspace = (await load()).default
-      if (!workspace) throw new Error(`Workspace ${name} has no default definition.`)
+      const workspace = capture.workspaceDefinitions[name]
+      if (!workspace) throw new Error(`Workspace ${name} was not registered.`)
       return workspace
     },
   }
@@ -456,7 +449,7 @@ describe("generated Agent deployment catalog", () => {
   })
 
   it("registers the Workspace definition with colocated instructions and skills", async () => {
-    expect(Object.keys(runtime!.capture.workspaceRegistry)).toEqual(["support"])
+    expect(Object.keys(runtime!.capture.workspaceDefinitions)).toEqual(["support"])
     const workspace = await runtime!.workspace("support")
     const sources = workspace.sources as Record<string, { content: string | Uint8Array }> | undefined
     const skills = Object.fromEntries(Object.entries(sources ?? {}).filter(([key]) => key.startsWith("__vitehubAgentSkill:")))
@@ -573,7 +566,7 @@ describe("generated Agent deployment catalog", () => {
     await runtime!.close()
     runtime = await createDeploymentRuntimeFixture("nitro", "support", true, undefined, "support-workspace")
 
-    expect(Object.keys(runtime.capture.workspaceRegistry)).toEqual(["support-workspace"])
+    expect(Object.keys(runtime.capture.workspaceDefinitions)).toEqual(["support-workspace"])
     await runtime.request("support", "webhooks/channel")
     expect(runtime.capture.lastAgent).toBe(runtime.capture.registeredAgent)
     expect(runtime.capture.registeredWorkspaceName).toBe("support-workspace")
@@ -600,7 +593,7 @@ describe("generated Agent deployment catalog", () => {
       capabilities: [{ id: "runtime", metadata: { hasEvent: true, runtime: "vite", token: "[redacted]" } }],
       name: "reviewer",
     })
-    expect(Object.keys(runtime.capture.workspaceRegistry)).toEqual(["support"])
+    expect(Object.keys(runtime.capture.workspaceDefinitions)).toEqual(["support"])
     const workspace = await runtime.workspace("support")
     const sourceRootDir = parse(string(), workspace.sourceRootDir)
     await expect(readFile(join(sourceRootDir, "context.md"), "utf8"))
@@ -628,6 +621,6 @@ describe("generated Agent deployment catalog", () => {
       name: "reviewer",
     })
     expect(await runtime.request("missing", "chat")).toMatchObject({ status: 404 })
-    expect(Object.keys(runtime.capture.workspaceRegistry)).toEqual(["team/support"])
+    expect(Object.keys(runtime.capture.workspaceDefinitions)).toEqual(["team/support"])
   })
 })
