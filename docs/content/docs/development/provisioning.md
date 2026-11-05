@@ -141,11 +141,13 @@ How you isolate a preview depends on how you deploy it.
 | Resource | Set a preview name or id with |
 | --- | --- |
 | D1 | `cloudflare.databaseName` as an Env declaration, for example `env({ source: env.source('D1_DATABASE_NAME') })` |
-| Workers KV | `KV_NAMESPACE_ID`, or a separate `namespaceName` |
+| Workers KV | `KV_NAMESPACE_ID`, or a separate `namespaceName` with both `namespaceId` and `KV_NAMESPACE_ID` unset |
 | R2 | `BLOB_BUCKET_NAME` |
 | Cloudflare Queues | `queue.namePrefix` |
 
-The [live smoke workflow](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/live-smoke.yml) works this way: it builds its own Worker with `VITEHUB_CLOUDFLARE_WORKER_NAME` and sets `BLOB_BUCKET_NAME` and `KV_NAMESPACE_ID` from CI secrets for the provision and build steps.
+The env values are fallbacks: a store's configured `namespaceId` takes precedence over `KV_NAMESPACE_ID`, and its configured `bucketName` takes precedence over `BLOB_BUCKET_NAME`. Leave those config fields unset to use the fallbacks, or explicitly configure them with the preview resources instead of production resources.
+
+The [live smoke workflow](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/live-smoke.yml) works this way: it builds its own Worker with `VITEHUB_CLOUDFLARE_WORKER_NAME`, sets `BLOB_BUCKET_NAME` from a CI secret for both provisioning and building, and sets `KV_NAMESPACE_ID` from a CI secret only for building.
 
 A Version URL of the production Worker uses the bindings of that version. Do not use it to test writes.
 
