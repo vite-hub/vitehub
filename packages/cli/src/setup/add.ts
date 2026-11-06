@@ -70,7 +70,8 @@ const usage = "vitehub add <feature...> [--name <definition>] [--option <key=val
  */
 const optionChoices: Partial<Record<string, { values: readonly [string, ...string[]], requires?: FeatureId }>> = {
   "cache.driver": { requires: "kv", values: ["kv"] },
-  "email.driver": { values: ["resend", "cloudflare-email"] },
+  "email.driver": { values: ["resend"] },
+  "kv.driver": { values: ["upstash"] },
   "realtime.authority": { values: ["memory"] },
   "workflow.provider": { values: ["openworkflow"] },
 }
@@ -238,9 +239,20 @@ interface Planned {
 export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, env: NodeJS.ProcessEnv): Promise<Planned> {
   const status = setupStatus(project, env)
   const host = status.host.name
+  if (host === "unknown") {
+    const file = project.configFile ?? "vite.config.ts"
+    const reason = project.config && !project.config.ok ? project.config.reason : "dynamic-options"
+    const snippet = args.features.map(id => `${id}: ${toSource(mergeValue(true, args.options[id])!)},`).join("\n")
+    throw new SetupAddError(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, reason, snippet }), { data: { snippet }, exitCode: setupExitCodes.conflict })
+  }
 
   for (const id of args.features) {
     const support = featureSupport(id, host)
+    const current = project.config?.ok ? project.config.site.keys[id] : undefined
+    const driver = args.options[id]?.driver ?? (current?.kind === "literal" && isRecord(current.value) ? current.value.driver : undefined)
+    if (id === "email" && driver === "cloudflare-email" && host !== "cloudflare") {
+      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The cloudflare-email driver requires Cloudflare. Choose email.driver=resend on this host.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+    }
     if (support.level === "unsupported") {
       throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: support.detail, feature: id, host }), { exitCode: setupExitCodes.conflict })
     }
@@ -250,7 +262,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const defaults: Partial<Record<FeatureId, Record<string, JsonValue>>> = {}
   const requires: FeatureId[] = []
   let rerunnable = true
-  for (const id of args.features) {
+  // Include provider prerequisites in this pass so the suggested rerun collects all their inputs too.
+  const inputFeatures = [...args.features]
+  for (const id of inputFeatures) {
     const support = featureSupport(id, host)
     const options = args.options[id]
     if (support.level === "explicit") {
@@ -260,7 +274,10 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
         missing.push({ field: support.option, ...(choices ? { choices: choices.values } : {}) })
         if (choices) setPath(defaults[id] ??= {}, [key], choices.values[0])
         else rerunnable = false
-        if (choices?.requires && status.features.find(item => item.id === choices.requires)?.enabled !== "on") requires.push(choices.requires)
+        if (choices?.requires && status.features.find(item => item.id === choices.requires)?.enabled !== "on" && !inputFeatures.includes(choices.requires)) {
+          requires.push(choices.requires)
+          inputFeatures.push(choices.requires)
+        }
       }
     }
     for (const key of requiredOptions[id] ?? []) {
@@ -328,8 +345,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const implied = impliedFeatures([...new Set([...alreadyOn, ...args.features])], host, keep).filter(id => !args.features.includes(id))
   const install: Planned["install"] = { dev: [], prod: [] }
   for (const id of [...args.features, ...implied]) {
-    for (const name of features[id].packages) if (!project.installed(name) && !install.prod.includes(name)) install.prod.push(name)
-    for (const name of features[id].devPackages) if (!project.installed(name) && !install.dev.includes(name)) install.dev.push(name)
+    for (const name of features[id].packages) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
+    for (const name of features[id].devPackages) if (!project.declared(name, true) && !install.dev.includes(name)) install.dev.push(name)
   }
   const command = installCommand(project.packageManager, install.prod, install.dev)
 

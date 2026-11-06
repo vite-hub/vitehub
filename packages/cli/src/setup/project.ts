@@ -19,11 +19,13 @@ export interface SetupProject {
   configFile?: string
   /** Where `vitehub()` options are in `configFile`. `undefined` when there is no config file. */
   config: LocateResult | undefined
+  /** True when the target manifest declares `name` for production, or for development when `dev` is true. */
+  declared: (name: string, dev: boolean) => boolean
   /** True when `name` is in a `node_modules` folder of `root` or of a parent folder. */
   installed: (name: string) => boolean
 }
 
-const nuxtConfigFiles = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.js", "nuxt.config.mjs"]
+const nuxtConfigFiles = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cts", "nuxt.config.cjs"]
 const viteConfigFiles = ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs", "vite.config.cts", "vite.config.cjs"]
 
 const lockfiles: ReadonlyArray<readonly [string, SetupPackageManager]> = [
@@ -91,6 +93,7 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
     config,
     ...(configFile ? { configFile } : {}),
     framework,
+    declared: (name, dev) => Object.hasOwn(manifest?.dependencies ?? {}, name) || (dev && Object.hasOwn(manifest?.devDependencies ?? {}, name)),
     installed: name => folders.some(folder => existsSync(join(folder, "node_modules", name, "package.json"))),
     packageManager: detectPackageManager(root, manifest, env),
     root,

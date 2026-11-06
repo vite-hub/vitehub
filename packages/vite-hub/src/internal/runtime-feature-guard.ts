@@ -2,14 +2,14 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { argumentExpression, findProperty, scanModule, staticValue, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
-
 import type { ObjectExpression } from "@vite-hub/internal/build/scan-module"
 
 const configExtensions = ["js", "mjs", "cjs", "ts", "mts", "cts"]
 
 /** True for `vitehub({ agent: false })`, `vitehub({ agent: { cli: false } })`, and the same options under `vitehub: {}`. */
-function hasAgentOptOut(source: string, file: string): boolean {
+async function hasAgentOptOut(source: string, file: string): Promise<boolean> {
+  // Runtime-only commands need no Vite installation until there is a project config to inspect.
+  const { argumentExpression, findProperty, scanModule, staticValue, unwrapExpression, walk } = await import("@vite-hub/internal/build/scan-module")
   const module = scanModule(source, file)
   const pluginNames = new Set<string>()
   for (const statement of module.program.body) {
@@ -50,7 +50,7 @@ export async function isAgentCliEnabled(rootDir: string): Promise<boolean> {
   const owner = configExtensions.some(extension => existsSync(join(rootDir, `nuxt.config.${extension}`))) ? "nuxt" : "vite"
   for (const extension of configExtensions) {
     const path = join(rootDir, `${owner}.config.${extension}`)
-    if (existsSync(path)) return !hasAgentOptOut(await readFile(path, "utf8"), path)
+    if (existsSync(path)) return !await hasAgentOptOut(await readFile(path, "utf8"), path)
   }
   return true
 }

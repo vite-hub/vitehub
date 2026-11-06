@@ -181,6 +181,8 @@ describe("editViteHubConfig", () => {
     expect(edit("vite.config.ts", code, [{ op: "delete", key: "preset" }])).toBe(vite("{ ...shared }"))
     expect(locateViteHubConfig("vite.config.ts", code)).toMatchObject({ ok: true, site: { spread: true } })
     expect(edit("vite.config.ts", vite("{ kv: false, ...shared }"), [{ op: "set", key: "kv", value: true }])).toBe(vite("{ ...shared, kv: true }"))
+    expect(editViteHubConfig("vite.config.ts", vite("{ kv: true, ...shared }"), [{ op: "delete", key: "kv" }])).toMatchObject({ ok: false, reason: "spread" })
+    expect(locateViteHubConfig("vite.config.ts", vite("{ kv: true, ...shared }"))).toMatchObject({ ok: true, site: { keys: { kv: { kind: "expression" } } } })
   })
 
   it("edits the Nuxt tuple and the vitehub key forms", () => {
@@ -199,7 +201,12 @@ describe("editViteHubConfig", () => {
     expect(edit("nuxt.config.ts", key, [{ op: "delete", key: "preset" }])).toBe(key.replace("{\n    preset: \"node\",\n  }", "{}"))
 
     const both = "export default defineNuxtConfig({\n  modules: [[\"vite-hub/nuxt\", { kv: true }]],\n  vitehub: { preset: \"node\" },\n})\n"
-    expect(locateViteHubConfig("nuxt.config.ts", both)).toEqual({ ok: false, reason: "multiple-vitehub", line: 3 })
+    expect(locateViteHubConfig("nuxt.config.ts", both)).toMatchObject({ ok: true, site: { keys: { kv: { kind: "literal", value: true }, preset: { kind: "literal", value: "node" } } } })
+    expect(edit("nuxt.config.ts", both, [{ op: "set", key: "preset", value: "vercel" }])).toBe(both.replace("{ kv: true }", "{ kv: true, preset: \"vercel\" }"))
+    const overridden = both.replace("{ kv: true }", "{ preset: \"vercel\", kv: true }")
+    const deleted = edit("nuxt.config.ts", overridden, [{ op: "delete", key: "preset" }])
+    expect(locateViteHubConfig("nuxt.config.ts", deleted)).toMatchObject({ ok: true, site: { keys: { kv: { kind: "literal", value: true } } } })
+    expect(deleted).not.toContain("preset")
   })
 
   it("does not evaluate code", () => {

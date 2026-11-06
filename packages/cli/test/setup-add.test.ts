@@ -106,7 +106,7 @@ describe("vitehub add", () => {
 
     expect(first.exitCode).toBe(2)
     expect(first.json.error?.code).toBe("SETUP_INPUT_NEEDED")
-    expect(first.json.missing).toEqual([{ choices: ["resend", "cloudflare-email"], field: "email.driver" }])
+    expect(first.json.missing).toEqual([{ choices: ["resend"], field: "email.driver" }])
     expect(first.json.rerun).toBe("vitehub add email --option email.driver=resend --no-install --yes --json")
 
     const rerun = await runSetup<AddResult>(first.json.rerun!.split(" ").slice(1), root)
@@ -123,8 +123,20 @@ describe("vitehub add", () => {
 
     const { json } = await add(["cache", "--no-install"], root)
 
-    expect(json.missing).toEqual([{ choices: ["kv"], field: "cache.driver" }])
-    expect(json.rerun).toBe("vitehub add cache kv --option cache.driver=kv --no-install --yes --json")
+    expect(json.missing).toEqual([{ choices: ["kv"], field: "cache.driver" }, { choices: ["upstash"], field: "kv.driver" }])
+    expect(json.rerun).toBe("vitehub add cache kv --option cache.driver=kv --option kv.driver=upstash --no-install --yes --json")
+    const rerun = await runSetup<AddResult>(json.rerun!.split(" ").slice(1), root)
+    expect(rerun.exitCode).toBe(0)
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("kv: { driver: 'upstash' }")
+  })
+
+  it("rejects the Cloudflare Email driver on other hosts before writing", async () => {
+    const root = await copyFixture("vercel")
+    const before = await snapshot(root)
+    const result = await add(["email", "--option", "email.driver=cloudflare-email", "--yes"], root)
+    expect(result.exitCode).toBe(3)
+    expect(result.json.error?.code).toBe("SETUP_FEATURE_UNSUPPORTED")
+    expect(await snapshot(root)).toEqual(before)
   })
 
   it("builds the feature object from --option", async () => {
@@ -236,6 +248,52 @@ describe("vitehub add", () => {
       { args: ["add", "@vite-hub/database", "drizzle-orm"], command: "pnpm", cwd: root, stdout: "stderr" },
       { args: ["add", "-D", "drizzle-kit"], command: "pnpm", cwd: root, stdout: "stderr" },
     ])
+  })
+
+  it("declares owner packages in the target manifest even when hoisted", async () => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "node_modules/@vite-hub/database/package.json": "{}",
+      "node_modules/drizzle-orm/package.json": "{}",
+      "node_modules/drizzle-kit/package.json": "{}",
+      "app/package.json": pnpmManifest,
+      "app/vite.config.ts": viteConfig(`{ preset: "node" }`),
+    })
+    const result = await add(["database", "--dry-run"], join(root, "app"))
+    expect(result.exitCode).toBe(0)
+    expect(result.json.install.packages).toEqual(["@vite-hub/database", "drizzle-orm"])
+    expect(result.json.install.devPackages).toEqual(["drizzle-kit"])
+  })
+
+  it("uses target manifest declarations even before dependencies are installed", async () => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { "@vite-hub/database": "*", "drizzle-orm": "*" }, devDependencies: { "drizzle-kit": "*" } }),
+      "vite.config.ts": viteConfig(`{ preset: "node" }`),
+    })
+    const result = await add(["database", "--dry-run"], root)
+    expect(result.exitCode).toBe(0)
+    expect(result.json.install).toEqual({ packages: [], devPackages: [] })
+  })
+
+  it("reports dependency mutations when a second install fails without writing starter or config files", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+    const config = await readFile(join(root, "vite.config.ts"), "utf8")
+    let calls = 0
+    const spawn: ViteHubCliSpawn = async () => {
+      calls++
+      await writeFile(join(root, "package.json"), JSON.stringify({ dependencies: { "@vite-hub/database": "*", "drizzle-orm": "*" } }))
+      await writeFile(join(root, "pnpm-lock.yaml"), `install ${calls}`)
+      return { exitCode: calls === 1 ? 0 : 1 }
+    }
+    const result = await add(["database", "--name", "main", "--yes"], root, spawn)
+    expect(calls).toBe(2)
+    expect(result.exitCode).toBe(1)
+    expect(result.json.error?.code).toBe("SETUP_INSTALL_FAILED")
+    expect(result.json.error?.fix).toContain("package manager may have changed")
+    expect(await readFile(join(root, "package.json"), "utf8")).not.toBe(pnpmManifest)
+    expect(await readFile(join(root, "pnpm-lock.yaml"), "utf8")).toBe("install 2")
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(config)
+    expect(Object.keys(await snapshot(root))).not.toContain("server/databases/main/config.ts")
   })
 
   it("changes no file when the install fails", async () => {

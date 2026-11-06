@@ -169,8 +169,8 @@ pnpm vitehub status --json
 
 - `framework`: `vite`, `nuxt`, or `none`, from the config files and the dependencies.
 - `config`: the file and the config form, or `manual` with the reason when the options are not an object literal.
-- `host`: the `preset` from the config, else the host from the environment, as `detectPreset()` reads it, else `node`. `source` tells which one.
-- `features`: each feature as `on`, `off`, or `unknown`. The reason is `config` when the config sets the key, `default` when it does not, and `implied` when another feature turns it on. An option that is an expression is `unknown`. An enabled feature lists `missingPackages` and a `fix`, such as the install command.
+- `host`: the `preset` from the config, else the host from the environment, as `detectPreset()` reads it, else `node`. `source` tells which one. A dynamic preset or config reports `name: "unknown"` and feature support with `level: "unknown"`.
+- `features`: each feature as `on`, `off`, or `unknown`. The reason is `config` when the config sets the key, `default` when it does not (including file discovery in `server/`), and `implied` when another feature turns it on or may turn it on. Expressions and keys overridden by a spread are `unknown`; their implications remain uncertain, respecting explicit `false`. An enabled feature lists `missingPackages` and a `fix`, such as the install command.
 
 With `--json`, a command prints exactly one JSON document on stdout, `{ "schemaVersion": 1, ... }`. A failure prints `{ "schemaVersion": 1, "error": { "code", "message", "why", "fix", "docs" } }`. The exit code is `0` when the command is done, `1` for an error, `2` when input is needed, `3` for an unsupported or conflicting change, and `4` for a stale plan.
 
@@ -212,7 +212,7 @@ A starter Definition file exists and has other content. ViteHub never overwrites
 
 ### `SETUP_INSTALL_FAILED`
 
-The package manager exited with an error. ViteHub installs before it writes files, so no file changed. Run the install command by hand to see the error.
+The package manager exited with an error. ViteHub did not write starter or config files. The package manager may have changed package manifests or lockfiles, including during an earlier successful install. Run the install command by hand to see the error.
 
 ### `SETUP_STALE_PLAN`
 
