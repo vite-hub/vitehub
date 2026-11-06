@@ -116,9 +116,11 @@ A flag is made from each key of the input schema. The keys `url`, `timeout`, `js
 To call an operation from an agent, add the capability:
 
 ```ts [server/agents/editor.ts]
+import { defineAgent } from 'vite-hub/agent'
 import { operations } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
   capabilities: [operations({ include: ['reports.*'], approve: 'write' })],
 })
 ```

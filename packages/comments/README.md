@@ -151,16 +151,18 @@ An anchor says where a comment sits, so the pin can find the spot again after th
 ```ts
 import { createAnchor, resolveAnchor } from "@vite-hub/comments/client";
 
-// From a click: the element under the point, plus where in its box the click landed.
-const anchor = createAnchor({ x: event.clientX, y: event.clientY });
-// { kind: "element", selector: "#pricing > div > button", x: 480, y: 310 }
+document.addEventListener("click", (event) => {
+  // From a click: the element under the point, plus where in its box the click landed.
+  const anchor = createAnchor({ x: event.clientX, y: event.clientY });
+  // { kind: "element", selector: "#pricing > div > button", x: 480, y: 310 }
 
-const position = resolveAnchor(anchor);
-if (position.detached) {
-  // The element is gone, hidden, or no longer holds the quote.
-} else {
-  position.x; // The pin position in client coordinates.
-}
+  const position = resolveAnchor(anchor);
+  if (position.detached) {
+    // The element is gone, hidden, or no longer holds the quote.
+  } else {
+    position.x; // The pin position in client coordinates.
+  }
+});
 ```
 
 | Kind | Made from | Keeps |
@@ -180,10 +182,10 @@ Offsets are in thousandths of the element box: `500` is the middle. A pin follow
 ## Client
 
 ```ts
-import { createCommentsClient } from "@vite-hub/comments/client";
+import { createAnchor, createCommentsClient, createRestTransport } from "@vite-hub/comments/client";
 
 const client = createCommentsClient({
-  transport, // see below
+  transport: createRestTransport(), // the Comments API; see Transport below
   user: { id: "ana", name: "Ana Ruiz" },
   query: { page: location.pathname },
 });
@@ -191,11 +193,11 @@ const client = createCommentsClient({
 const stop = client.start(); // Loads the threads, then keeps them fresh.
 await client.create({
   subject: { kind: "page", id: location.pathname },
-  anchor,
+  anchor: createAnchor(document.querySelector("#pricing button")!),
   body: "This button is too small.",
 });
 client.threads; // The cached threads, ordered by number.
-client.onChange(() => render(client.threads));
+client.onChange(() => console.log(`${client.threads.length} threads`));
 ```
 
 `start()` listens to the transport's `subscribe`, such as Realtime. Without `subscribe` it refreshes when the window gets focus. A list that comes back late never undoes a thread that was created, changed, or deleted while it was on its way, and an event that is older than the stored thread is ignored. A transport that lost its connection sends `{ type: "reconnected" }` when it has it again, and the client lists the threads once more.

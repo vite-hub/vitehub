@@ -257,6 +257,19 @@ ViteHub compares a `bearer` token in constant time, and the `Bearer` scheme is c
 
 `secretToken` also accepts a Server Env secret. ViteHub calls `unseal()` when it verifies the request:
 
+```ts [vite.config.ts]
+import { env } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  env: {
+    server: {
+      prefect: { webhookSecret: env({ secret: true, source: env.source('PREFECT_WEBHOOK_SECRET') }) },
+    },
+  },
+})
+```
+
 ```ts [server/utils/prefect-channel.ts]
 import { defineChannel } from 'vite-hub/agent/channels'
 import { useServerEnv } from '#vitehub/env/server'
@@ -331,7 +344,11 @@ When overlapping Invocations have identical recorded replies, the conversation k
 When the Agent State is durable (libSQL, or a Cloudflare Durable Object), ViteHub appends every inbound and outbound message of a chat Channel to the transcript store. This stores the text of the conversations in your State, for the people who wrote them. Set `transcripts: false` on the Channel (or `messages: { transcripts: false }` for all) to keep none, or a config to set the limits:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { telegram } from 'vite-hub/agent/channels'
+
 export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
   channels: {
     support: telegram({ transcripts: { maxPerUser: 500, retention: '90d' } }),
     private: telegram({ transcripts: false }),
@@ -391,6 +408,29 @@ The Console reads conversations with the State and the adapters that the webhook
 Add `history` to a Channel to run an Agent on messages that arrived before the Agent existed, or to run them again after a change. `history.collection` is a [Collection](/docs/source/server-api#expose-a-typed-collection). Each item has the shape of the Channel trigger input, so a replayed message takes the same trigger path as a live one. `history.key` returns a stable key for each item, such as the provider message ID. Optional `history.thread` returns its conversation ID. `vitehub channels history` uses this Collection for custom Channels and accepts `--thread`, repeatable `--query key=value`, and `--invocations`.
 
 To join legacy Invocations without `vitehub.channel.key`, add `history.invocationItem(invocation): TItem | undefined | Promise<TItem | undefined>`. This read-only hook receives the retained `AgentInvocationRecord` and reconstructs an item for `key()` and optional `thread()`. Existing key annotations take precedence. The journal does not retain raw trigger input or `input.context`, so return `undefined` when observations and annotations cannot identify the item. Hook errors also leave the record unjoined.
+
+The Channel reads and labels messages through two helpers of the app, here over a JSON mail API:
+
+```ts [server/lib/mailbox.ts]
+const api = 'https://mail.example.com/api'
+
+export interface Email { id: string, subject: string }
+
+export async function listEmails(query: { after?: string, folder: 'archive' | 'inbox', limit: number }): Promise<Email[]> {
+  const url = new URL(`${api}/messages`)
+  url.searchParams.set('folder', query.folder)
+  url.searchParams.set('limit', String(query.limit))
+  if (query.after) url.searchParams.set('after', query.after)
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`The mail API answered ${response.status}`)
+  return await response.json() as Email[]
+}
+
+export async function applyLabels(id: string, labels: string[]) {
+  const response = await fetch(`${api}/messages/${id}/labels`, { method: 'POST', body: JSON.stringify(labels) })
+  if (!response.ok) throw new Error(`The mail API answered ${response.status}`)
+}
+```
 
 ```ts [server/agents/labeller.ts]
 import { defineAgent } from 'vite-hub/agent'

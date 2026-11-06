@@ -34,7 +34,21 @@ export default defineAgent({
 
 Use `openRouterTranscriptionModel()` to keep OpenRouter authentication, audio encoding, request shape, and provider errors behind the AI SDK transcription model interface.
 
+```ts [vite.config.ts]
+import { env } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  env: {
+    server: {
+      openrouterApiKey: env({ secret: true, source: env.source('OPENROUTER_API_KEY') }),
+    },
+  },
+})
+```
+
 ```ts [server/agents/voice.ts]
+import { useServerEnv } from '#vitehub/env/server'
 import { defineAgent } from 'vite-hub/agent'
 import {
   openRouterTranscriptionModel,
@@ -42,11 +56,11 @@ import {
 } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
-  driver: { model },
+  driver: { model: 'openai/gpt-5.1-mini' },
   capabilities: [
     transcribe({
       model: openRouterTranscriptionModel({
-        apiKey: () => env.OPENROUTER_API_KEY,
+        apiKey: () => useServerEnv().openrouterApiKey.unseal(),
         model: 'openai/gpt-4o-transcribe',
       }),
     }),

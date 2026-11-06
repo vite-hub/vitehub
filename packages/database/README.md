@@ -72,10 +72,17 @@ The batch executes atomically. Use conditional statements in a batch when a
 change must compare and update shared state without an interactive transaction.
 
 ```ts
-await db.batch([
-  db.insert(schema.notes).values({ title: "First note" }),
-  db.insert(schema.notes).values({ title: "Second note" }),
-])
+// server/api/notes/seed.post.ts
+import { useDatabase } from "@vite-hub/database/drizzle"
+import { defineEventHandler } from "h3"
+
+export default defineEventHandler(async () => {
+  const { db, schema } = useDatabase("default")
+  await db.batch([
+    db.insert(schema.notes).values({ title: "First note" }),
+    db.insert(schema.notes).values({ title: "Second note" }),
+  ])
+})
 ```
 
 Use `src/database.ts` or `server/databases/config.ts` for one default database. Use `src/<name>.database.ts` or `server/databases/<name>/config.ts` with the same `name` option when every database is named. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`. A project cannot mix a default Database Definition with Named Database Definitions. Without a Definition, the Vite integration uses one empty default Database (`@vite-hub/database/runtime/default-database`) with `database.connection` and migrations in `server/databases/migrations`. Pass `implicitDefault: true` to `resolveDBViteConfig()`, `discoverDatabaseDefinitions()`, or `inspectDatabaseDefinitions()` to resolve it the same way.

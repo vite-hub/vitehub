@@ -220,6 +220,25 @@ export const comments = defineComments({
 })
 ```
 
+The route below uses two helpers of the app: the signed-in user, and the app's own rule for who may comment on a document.
+
+```ts [server/utils/docs.ts]
+import { createError } from 'h3'
+import { auth } from 'vite-hub/auth/server'
+import type { H3Event } from 'h3'
+
+export async function requireUser(event: H3Event) {
+  const session = await auth.api.getSession({ headers: event.req.headers })
+  if (!session) throw createError({ status: 401 })
+  return session.user
+}
+
+// Archived documents take no new comments.
+export async function canComment(user: { id: string }, documentId: string) {
+  return !documentId.startsWith('archive/')
+}
+```
+
 ```ts [server/api/docs/[id]/comments.post.ts]
 import { defineEventHandler, getRouterParam, readValidatedBody } from 'h3'
 import * as v from 'valibot'

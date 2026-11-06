@@ -715,13 +715,12 @@ A finished session shows **Abort stale execution**. This sends an abort signal t
 
 Nuxt does not need an SEO module for the `X-Robots-Tag` default. If the app already uses `@nuxtjs/robots` or `@nuxtjs/seo`, add route metadata so its robots and sitemap modules also know that Console pages are not indexable:
 
-```ts [nuxt.config.ts]
-export default defineNuxtConfig({
-  routeRules: {
-    '/_vitehub': { robots: false },
-    '/_vitehub/**': { robots: false },
-  },
-})
+```ts [nuxt.config.ts] fragment
+// With @nuxtjs/robots or @nuxtjs/seo in `modules`
+routeRules: {
+  '/_vitehub': { robots: false },
+  '/_vitehub/**': { robots: false },
+},
 ```
 
 Do not use `robots.txt` as access control. A crawler can ignore it, and a disallowed URL may still be listed without its contents.

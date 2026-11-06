@@ -170,13 +170,16 @@ export default defineAgent({
 import { runAgent } from 'vite-hub/agent'
 import labeller from '../agents/labeller'
 
-const [error, output] = await runAgent(labeller, {
-  data: { from: email.from, subject: email.subject },
-  prompt: `${email.from}: ${email.subject}`,
-})
-if (error) throw error
-if (output instanceof Response || !('source' in output)) throw new Error('Expected inline labeller output')
-// output: { source: 'rule', rule: 'github' | 'billing', label: 'GitHub' | 'Billing' } | { source: 'model', label: string }
+export async function labelEmail(email: { from: string, subject: string }) {
+  const [error, output] = await runAgent(labeller, {
+    data: { from: email.from, subject: email.subject },
+    prompt: `${email.from}: ${email.subject}`,
+  })
+  if (error) throw error
+  if (output instanceof Response || !('source' in output)) throw new Error('Expected inline labeller output')
+  // output: { source: 'rule', rule: 'github' | 'billing', label: 'GitHub' | 'Billing' } | { source: 'model', label: string }
+  return output.label
+}
 ```
 
 The `runAgent()` output type is the union of the awaited `intercept` return type, excluding the `undefined` fall-through signal, and the `driver.output` schema output. The caller narrows it with the fields of each result and does not parse the output again. As for any Agent, the type also includes `Response` and `AgentWorkflowRun`, so exclude those first.

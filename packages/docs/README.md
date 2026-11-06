@@ -154,9 +154,9 @@ The server parses each page with Comark, and the browser renders the nodes. Coma
 ```ts
 // docs.parser.ts
 import type { DocsParserOptions } from "@vite-hub/docs/server"
-import tabs from "comark-tabs"
+import emoji from "comark/plugins/emoji"
 
-export default { plugins: [tabs()] } satisfies DocsParserOptions
+export default { plugins: [emoji()] } satisfies DocsParserOptions
 ```
 
 Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console drafts use these plugins after the built-in ones. A plugin with a built-in name, such as `alert`, replaces it. A plugin that adds a tag needs a component for it in `app/components/content/`.

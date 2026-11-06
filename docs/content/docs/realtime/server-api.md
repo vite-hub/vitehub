@@ -45,21 +45,49 @@ Workspace working tree. Pass an adapter object to store documents anywhere
 else. Realtime calls it with plain snapshots; your storage stays a copy synced
 from the room.
 
+This adapter stores pages in the `pages` table of the default Database:
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    pages: sqliteTable('pages', {
+      id: text('id').primaryKey(),
+      title: text('title').notNull(),
+      body: text('body').notNull(),
+      version: text('version').notNull(),
+      editedBy: text('edited_by'),
+    }),
+  },
+})
+```
+
 ```ts [server/realtime/pages.ts]
+import { and, eq } from 'drizzle-orm'
+import { useDatabase } from 'vite-hub/database/drizzle'
 import { RealtimeDocumentConflict, defineRealtime } from 'vite-hub/realtime'
 
 export default defineRealtime({
   document: {
     kind: 'pages',
     async load({ documentId }) {
-      const page = await db.pages.find(documentId)
+      const { db, schema } = useDatabase('default')
+      const [page] = await db.select().from(schema.pages).where(eq(schema.pages.id, documentId))
       if (!page) return { body: '', digest: null }
       return { body: page.body, digest: page.version, fields: { title: page.title } }
     },
     async save({ documentId }, { body, fields }, { ifDigest, user }) {
-      const version = await db.pages.update(documentId, { body, title: fields.title, editedBy: user?.id }, { ifVersion: ifDigest })
-      if (!version) throw new RealtimeDocumentConflict()
-      return { digest: version, issues: fields.title ? [] : [{ field: 'title', message: 'Add a title', path: [] }] }
+      const { db, schema } = useDatabase('default')
+      const title = String(fields?.title ?? '')
+      const page = { body, title, version: crypto.randomUUID(), editedBy: user?.id ?? null }
+      // `ifDigest: null` saves a page that does not exist yet.
+      const saved = ifDigest === null
+        ? await db.insert(schema.pages).values({ id: documentId, ...page }).onConflictDoNothing().returning()
+        : await db.update(schema.pages).set(page).where(and(eq(schema.pages.id, documentId), eq(schema.pages.version, ifDigest))).returning()
+      if (!saved.length) throw new RealtimeDocumentConflict()
+      return { digest: page.version, issues: title ? [] : [{ field: 'title', message: 'Add a title', path: [] }] }
     },
   },
 })

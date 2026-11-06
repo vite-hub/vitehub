@@ -235,6 +235,7 @@ Set `invocations` to record invocations when the Console is disabled:
 import { defineAgent } from "vite-hub/agent"
 
 export default defineAgent({
+  driver: { model: "openai/gpt-5.1-mini" },
   invocations: "database",
 })
 ```

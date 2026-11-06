@@ -167,6 +167,8 @@ On Cloudflare, successful handlers acknowledge the message. Failed handlers retr
 The Vite Integration writes `.vitehub/queue.d.ts`. Include that file in your TypeScript project. The Nuxt Integration adds it to the generated type context. Names and payloads then come from the discovered Queue Definitions:
 
 ```ts
+import { getQueue, runQueue } from "@vite-hub/queue"
+
 const [error] = await runQueue("welcome-email", { email: "ada@example.com" }, { delaySeconds: 60 })
 const queue = await getQueue("welcome-email")
 const [sendError] = await queue.send({ email: "ada@example.com" })

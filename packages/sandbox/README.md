@@ -15,6 +15,23 @@ pnpm add @vite-hub/sandbox
 
 ## Prepare a trusted-host Sandbox
 
+The Sandbox below reads two secrets of the app's Server Env:
+
+```ts
+// vite.config.ts
+import { env } from "@vite-hub/env/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  env: {
+    server: {
+      githubToken: env({ secret: true, source: env.source("GITHUB_TOKEN") }),
+      codexAuthJson: env({ secret: true, source: env.source("CODEX_AUTH_JSON") }),
+    },
+  },
+});
+```
+
 ```ts
 import { resolveSandbox } from "@vite-hub/sandbox";
 import { useServerEnv } from "#vitehub/env/server";
@@ -102,13 +119,20 @@ console.log(await new Response(child.stdout).text(), await child.wait());
 Hosted runtimes use tagged values from the same root API:
 
 ```ts
-const cloudflare = await resolveSandbox({
-  runtime: { kind: "cloudflare", namespace: env.SANDBOX },
-}, {});
+import { resolveSandbox } from "@vite-hub/sandbox";
+import type { CloudflareDurableObjectNamespace } from "@vite-hub/sandbox";
 
-const vercel = await resolveSandbox({
-  runtime: { kind: "vercel", ports: [3000] },
-}, {});
+// `namespace` is the Durable Object binding of the Worker, such as `env.SANDBOX`.
+export async function openHostedSandboxes(namespace: CloudflareDurableObjectNamespace) {
+  const cloudflare = await resolveSandbox({
+    runtime: { kind: "cloudflare", namespace },
+  }, {});
+
+  const vercel = await resolveSandbox({
+    runtime: { kind: "vercel", ports: [3000] },
+  }, {});
+  return { cloudflare, vercel };
+}
 ```
 
 Use `runtime: "vercel"` for the default Vercel Sandbox configuration. Cloudflare remains tag-only because its Durable Objects namespace is required.

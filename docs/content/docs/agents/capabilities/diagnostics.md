@@ -33,10 +33,23 @@ export default defineAgent({
 
 The default reporter writes structured console objects. Pass `reporter` to own delivery:
 
-```ts
-diagnostics({
-  resources: nodeRuntimeResources(),
-  reporter: event => operations.write(event),
+```ts [server/agents/worker.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { diagnostics } from 'vite-hub/agent/capabilities'
+import { nodeRuntimeResources } from 'vite-hub/runtime/node'
+
+export default defineAgent({
+  name: 'worker',
+  capabilities: [
+    diagnostics({
+      resources: nodeRuntimeResources(),
+      // Send each event to your own log store
+      reporter: async (event) => {
+        await fetch('https://logs.example.com/ingest', { method: 'POST', body: JSON.stringify(event) })
+      },
+    }),
+  ],
+  driver: { model: 'openai/gpt-5.1-mini' },
 })
 ```
 

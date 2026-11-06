@@ -22,7 +22,7 @@ All Database Definition, integration, connection, Cloudflare D1, Drizzle, and ru
 
 ## Use it at runtime
 
-Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. For a name that has no Database Definition it returns `undefined`, so destructuring the result fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`. This route reads the `notes` table of the default Database:
+Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. For a name that has no Database Definition it returns `undefined`, so destructuring the result fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`. This route reads the `notes` table of the default Database. The `files` table is for [the parameter limit](#stay-under-the-bound-parameter-limit) below:
 
 ```ts [src/database.ts]
 import { defineDatabase } from '@vite-hub/database'
@@ -37,6 +37,7 @@ export default defineDatabase({
     files: sqliteTable('files', {
       id: text('id').primaryKey(),
       ownerId: text('owner_id').notNull(),
+      name: text('name').notNull(),
     }),
   },
 })

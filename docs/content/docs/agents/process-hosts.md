@@ -48,16 +48,15 @@ the host's journal and provider session store into the definition, and share its
 capacity object with the driver:
 
 ```ts [server/agents/reviewer.ts]
-import { defineAgent } from 'vite-hub/agent'
+import { codexDriver, defineAgent } from 'vite-hub/agent'
 import host from '../host'
 
 export default defineAgent({
   invocations: host.invocations,
-  driver: {
-    model: 'openai/gpt-5.1-mini',
+  driver: codexDriver({
     capacity: host.capacity,
     sessionStorePath: host.providerSessionStorePath,
-  },
+  }),
 })
 ```
 
