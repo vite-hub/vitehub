@@ -1206,8 +1206,7 @@ describe("agent Vite plugin", () => {
 
   it("publishes the conventional Netlify chat path", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const previousHosting = process.env.VITEHUB_HOSTING
-    process.env.VITEHUB_HOSTING = "netlify"
+    vi.stubEnv("VITEHUB_HOSTING", "netlify")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-chat-route-"))
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -1237,17 +1236,13 @@ describe("agent Vite plugin", () => {
       expect(generated).toContain('"/api/_vitehub/agents/:agent/chat"')
       expect(generated).toContain('"/api/_vitehub/agents/:agent/webhooks/:webhook"')
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
   })
 
   it("rejects wrong Discord Gateway secrets in the generated Netlify function", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const previousHosting = process.env.VITEHUB_HOSTING
-    const previousSecret = process.env.VITEHUB_DISCORD_GATEWAY_SECRET
-    process.env.VITEHUB_HOSTING = "netlify"
+    vi.stubEnv("VITEHUB_HOSTING", "netlify")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-gateway-secret-"))
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -1267,7 +1262,7 @@ describe("agent Vite plugin", () => {
       expect(wrapper).toContain("!isViteHubBearerSecretEqual(request.headers.get('authorization'), secret)")
       expect(wrapper).not.toContain("!== secret")
 
-      process.env.VITEHUB_DISCORD_GATEWAY_SECRET = "gateway-secret"
+      vi.stubEnv("VITEHUB_DISCORD_GATEWAY_SECRET", "gateway-secret")
       const generated: { default: (request: Request, context: { params: Record<string, string> }) => Promise<Response> } = await import(pathToFileURL(join(root, ".netlify/v1/functions/vitehub-agent.mjs")).href)
       const gateway = (authorization?: string) => generated.default(
         new Request("https://example.com/api/_vitehub/agents/support/discord/gateway", authorization ? { headers: { authorization } } : {}),
@@ -1278,18 +1273,13 @@ describe("agent Vite plugin", () => {
       }
       expect((await gateway("Bearer gateway-secret")).status).not.toBe(401)
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
-      if (isRuntimeString(previousSecret)) process.env.VITEHUB_DISCORD_GATEWAY_SECRET = previousSecret
-      else delete process.env.VITEHUB_DISCORD_GATEWAY_SECRET
       await rm(root, { force: true, recursive: true })
     }
 }, 60_000)
 
   it("publishes retained folder Agent Workspace sources before generation cleanup", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const previousHosting = process.env.VITEHUB_HOSTING
-    process.env.VITEHUB_HOSTING = "netlify"
+    vi.stubEnv("VITEHUB_HOSTING", "netlify")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-workspace-sources-"))
     const agentRoot = join(root, "server", "agents", "support")
     // Bound this consumer independently of Git metadata above the temporary root.
@@ -1359,16 +1349,13 @@ describe("agent Vite plugin", () => {
       await expect(readFile(join(retainedSourceRoot!, "context.md"), "utf8")).resolves.toBe("Retained Workspace context.\n")
     }
     finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
   })
 
   it("keeps parent instruction references literal in Netlify provider output", async () => {
     const { hubAgent } = await import("../src/vite.ts")
-    const previousHosting = process.env.VITEHUB_HOSTING
-    process.env.VITEHUB_HOSTING = "netlify"
+    vi.stubEnv("VITEHUB_HOSTING", "netlify")
     const container = await mkdtemp(join(tmpdir(), "vitehub-agent-parent-instructions-"))
     const root = join(container, "apps", "web")
     const agentRoot = join(root, "server", "agents", "support")
@@ -1411,8 +1398,6 @@ describe("agent Vite plugin", () => {
       expect(wrapper).not.toContain("agent-generations")
       expect(existsSync(join(root, ".vitehub/agent/schedule-registry.js"))).toBe(false)
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
       await rm(container, { force: true, recursive: true })
     }
   })
@@ -1421,12 +1406,10 @@ describe("agent Vite plugin", () => {
     const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-dev-routes-"))
-    const previousHosting = process.env.VITEHUB_HOSTING
-    const previousNetlifyDev = process.env.NETLIFY_DEV
     try {
       await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
-      delete process.env.VITEHUB_HOSTING
-      process.env.NETLIFY_DEV = "true"
+      vi.stubEnv("VITEHUB_HOSTING", undefined)
+      vi.stubEnv("NETLIFY_DEV", "true")
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
@@ -1502,10 +1485,6 @@ describe("agent Vite plugin", () => {
         }),
       )
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
-      if (isRuntimeString(previousNetlifyDev)) process.env.NETLIFY_DEV = previousNetlifyDev
-      else delete process.env.NETLIFY_DEV
       await rm(root, { force: true, recursive: true })
     }
   })
@@ -1513,9 +1492,8 @@ describe("agent Vite plugin", () => {
   it("cleans stale Netlify agent output when generated routes are disabled", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-cleanup-"))
-    const previousHosting = process.env.VITEHUB_HOSTING
     try {
-      process.env.VITEHUB_HOSTING = "netlify"
+      vi.stubEnv("VITEHUB_HOSTING", "netlify")
       const plugin = hubAgent()
       const configResolvedHook: unknown = plugin.configResolved
       // SAFETY: hubAgent installs configResolved as an async Vite hook.
@@ -1545,8 +1523,6 @@ describe("agent Vite plugin", () => {
       await expect(readFile(staleSources, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       expect(removeProviderOutputArtifactDir).toHaveBeenCalledWith(join(root, ".netlify/v1/agent"))
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
   })
@@ -2141,7 +2117,6 @@ describe("agent Vite plugin", () => {
   it("keeps the Schedule runtime out of generated hosted Agent routes", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-routes-"))
-    const previousHosting = process.env.VITEHUB_HOSTING
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
@@ -2196,7 +2171,7 @@ describe("agent Vite plugin", () => {
       expect(denoServer).toContain("vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)")
       expect(existsSync(join(root, ".vitehub/agent/schedule-registry.js"))).toBe(false)
 
-      process.env.VITEHUB_HOSTING = "netlify"
+      vi.stubEnv("VITEHUB_HOSTING", "netlify")
       const netlifyPlugin = hubAgent({ routes: { discordGateway: true } })
       if (isRuntimeFunction(netlifyPlugin.configResolved)) {
         await netlifyPlugin.configResolved.call(
@@ -2223,8 +2198,6 @@ describe("agent Vite plugin", () => {
       expect(netlifyFunction).not.toContain("@vite-hub/schedule/runtime")
       expect(netlifyFunction).toContain("Object.hasOwn(values, key)")
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
   })
@@ -2234,7 +2207,6 @@ describe("agent Vite plugin", () => {
     const { hubEmail } = await import("../../email/src/vite.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-email-provider-routes-"))
-    const previousHosting = process.env.VITEHUB_HOSTING
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
@@ -2278,7 +2250,7 @@ describe("agent Vite plugin", () => {
       })
       expect(await readFile(emailBundle, "utf8")).toContain("api.resend.com")
 
-      process.env.VITEHUB_HOSTING = "netlify"
+      vi.stubEnv("VITEHUB_HOSTING", "netlify")
       const netlifyPlugin = hubAgent()
       if (isRuntimeFunction(netlifyPlugin.configResolved)) {
         await netlifyPlugin.configResolved.call(
@@ -2311,8 +2283,6 @@ describe("agent Vite plugin", () => {
       expect(netlifyFunction).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
       expect(netlifyFunction).toContain("@vite-hub/database/drizzle")
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
   }, 15_000)
@@ -2585,40 +2555,28 @@ describe("agent Vite plugin", () => {
   })
 
   it("prefers explicit Cloudflare hosting over ambient Vercel CI", async () => {
-    const previousVercel = process.env.VERCEL
-    try {
-      process.env.VERCEL = "1"
-      const { hubAgent } = await import("../src/vite.ts")
-      const plugin = hubAgent()
-      const result = await resolveAgentViteConfig(plugin, {
-        preset: "cloudflare",
-        root: hostedAgentRoot,
-      })
+    vi.stubEnv("VERCEL", "1")
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent()
+    const result = await resolveAgentViteConfig(plugin, {
+      preset: "cloudflare",
+      root: hostedAgentRoot,
+    })
 
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeDefined()
-    } finally {
-      if (previousVercel === undefined) delete process.env.VERCEL
-      else process.env.VERCEL = previousVercel
-    }
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeDefined()
   })
 
   it("detects automatic Cloudflare hosting from the build environment", async () => {
-    const previousCloudflarePages = process.env.CF_PAGES
-    try {
-      process.env.CF_PAGES = "1"
-      const { hubAgent } = await import("../src/vite.ts")
-      const plugin = hubAgent()
-      const result = await resolveAgentViteConfig(plugin, {
-        root: hostedAgentRoot,
-      })
+    vi.stubEnv("CF_PAGES", "1")
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent()
+    const result = await resolveAgentViteConfig(plugin, {
+      root: hostedAgentRoot,
+    })
 
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeDefined()
-    } finally {
-      if (previousCloudflarePages === undefined) delete process.env.CF_PAGES
-      else process.env.CF_PAGES = previousCloudflarePages
-    }
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeDefined()
   })
 
   it("keeps Cloudflare chat state opt-out when the state provider is memory", async () => {
@@ -2941,9 +2899,8 @@ export default defineAgent({
   it("writes local SQLite state in Vite development with a Cloudflare production preset", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-local-state-routes-"))
-    const previousHosting = process.env.VITEHUB_HOSTING
     try {
-      delete process.env.VITEHUB_HOSTING
+      vi.stubEnv("VITEHUB_HOSTING", undefined)
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent()
@@ -2967,8 +2924,6 @@ export default defineAgent({
       expect(webhookRoute).toContain("const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined")
       expect(webhookRoute).not.toContain("Agent state requires a durable VITEHUB_AGENT_STATE_URL")
     } finally {
-      if (previousHosting === undefined) delete process.env.VITEHUB_HOSTING
-      else process.env.VITEHUB_HOSTING = previousHosting
       await rm(root, { force: true, recursive: true })
     }
   })
