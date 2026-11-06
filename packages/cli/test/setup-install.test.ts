@@ -24,7 +24,7 @@ describe("preview setup installs", () => {
       "vite.config.ts": viteConfig('{ preset: "node" }'),
     })
     const spawn = vi.fn(async () => ({ exitCode: 0 }))
-    const result = await runSetup<SetupAddPlan>(["add", "database", "--yes", "--json"], root, {}, spawn)
+    const result = await runSetup<SetupAddPlan>(["add", "database", "--yes", "--json"], root, {}, { spawn })
     const specifier = "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/database@3476"
     expect(result.exitCode, result.stdout).toBe(0)
     expect(result.json.install.packages).toEqual([specifier, "drizzle-orm"])

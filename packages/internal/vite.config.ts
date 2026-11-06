@@ -34,6 +34,7 @@ export default defineConfig({
       "src/operations-vite.ts",
       "src/operations-dev.ts",
       "src/owned-paths.ts",
+      "src/host-credentials.ts",
       "src/provision.ts",
       "src/provision-state.ts",
       "src/presets.ts",
