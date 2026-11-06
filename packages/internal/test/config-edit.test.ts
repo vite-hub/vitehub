@@ -167,6 +167,25 @@ describe("editViteHubConfig", () => {
     expect(locateViteHubConfig("vite.config.ts", fallback)).toMatchObject({ ok: true, site: { form: "vite-call", keys: {} } })
   })
 
+  it.each([
+    "enabled ? [vitehub({ kv: true })] : []",
+    "enabled && vitehub({ kv: true })",
+  ])("keeps conditional plugin calls manual: %s", (plugins) => {
+    const code = `import { vitehub } from "vite-hub"; export default { plugins: ${plugins} }`
+    expect(locateViteHubConfig("vite.config.ts", code)).toMatchObject({ ok: false, reason: "dynamic-options" })
+    expect(editViteHubConfig("vite.config.ts", code, [{ op: "set", key: "kv", value: false }]))
+      .toMatchObject({ ok: false, reason: "dynamic-options" })
+  })
+
+  it.each([
+    `modules: [...(enabled ? ["vite-hub/nuxt"] : [])]`,
+    `modules: [enabled ? "vite-hub/nuxt" : "other-module"]`,
+    `extends: ["./base"]`,
+  ])("keeps unresolved Nuxt module registration manual: %s", (options) => {
+    expect(locateViteHubConfig("nuxt.config.ts", `export default defineNuxtConfig({ ${options} })`))
+      .toMatchObject({ ok: false, reason: "dynamic-options" })
+  })
+
   it.each(["vite.config.cjs", "nuxt.config.cts"])("leaves CommonJS exports manual in %s", (file) => {
     const code = `const { vitehub } = require("vite-hub"); module.exports = { plugins: [vitehub({ kv: true })] }`
     expect(locateViteHubConfig(file, code)).toMatchObject({ ok: false, reason: "dynamic-options" })

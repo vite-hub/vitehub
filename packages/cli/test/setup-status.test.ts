@@ -132,6 +132,19 @@ describe("vitehub status", () => {
     expect(feature(json, "database").enabled).toBe("off")
   })
 
+  it.each<Record<string, string>>([
+    { "nuxt.config.ts": `export default defineNuxtConfig({ extends: ["./base"] })`, "base/nuxt.config.ts": `export default { modules: ["vite-hub/nuxt"], vitehub: { kv: true } }` },
+    { "nuxt.config.ts": `export default defineNuxtConfig({})`, "layers/base/nuxt.config.ts": `export default { modules: ["vite-hub/nuxt"], vitehub: { kv: true } }` },
+    { "nuxt.config.ts": `export default defineNuxtConfig({ modules: [...(enabled ? ["vite-hub/nuxt"] : [])] })` },
+    { "vite.config.ts": `import { vitehub } from "vite-hub"; export default { plugins: enabled ? [vitehub({ kv: true })] : [] }` },
+  ])("keeps unresolved plugin registration unknown: %j", async (files) => {
+    const root = await createProject({ ...files, "package.json": pnpmManifest })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(json.config).toMatchObject({ manual: "dynamic-options" })
+    expect(feature(json, "kv")).toMatchObject({ enabled: "unknown", reason: "config" })
+    expect(json.host.name).toBe("unknown")
+  })
+
   it.each(["vite", "nuxt"])("reports CommonJS %s config as manual instead of absent", async (framework) => {
     const root = await createProject({
       [`${framework}.config.cjs`]: framework === "vite"
