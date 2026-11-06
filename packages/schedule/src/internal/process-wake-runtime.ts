@@ -16,8 +16,8 @@ export interface ProcessScheduleWake {
 }
 
 export interface ProcessWakeContext {
-  /** Scheduled time of the Schedule's newest cron-triggered run, or `undefined` when it has none. The runtime uses it to catch up missed minutes. */
-  latestScheduledAt?(scheduleId: string): Promise<Date | undefined>
+  /** Newest cron-triggered run time, `undefined` when none exists, or `"unknown"` to check the full catch-up window when legacy history is inconclusive. */
+  latestScheduledAt?(scheduleId: string): Promise<Date | "unknown" | undefined>
   reportError(error: unknown): void
   wake(input: ProcessScheduleWake): Promise<void>
 }
@@ -325,7 +325,9 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
         Effect.as(reportError(options.context, error.cause), undefined),
       ))
       if (!latest) continue
-      const first = Math.max(floorUTCMinute(latest).getTime() + minuteMs, currentMinute - options.catchUpMs)
+      const first = latest === "unknown"
+        ? currentMinute - options.catchUpMs
+        : Math.max(floorUTCMinute(latest).getTime() + minuteMs, currentMinute - options.catchUpMs)
       due.push(...yield* dueOccurrences([schedule], first, currentMinute - minuteMs))
     }
     return yield* queueOccurrences(due.sort((left, right) => left.scheduledAt.getTime() - right.scheduledAt.getTime()), currentMinute)

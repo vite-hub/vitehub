@@ -74,4 +74,6 @@ Call `controller.close()` during shutdown. It waits for active runs and their `w
 
 ## Read Schedule Runs
 
-`getScheduleRunStore()` returns the installed store. `listRuns({ scheduleId, idPrefix, limit })` lists runs newest first, and `listAttempts(runId)` lists the attempts of one run. The optional `idPrefix` filters run IDs before applying `limit`; custom stores must support it so the Process Runtime can read only the newest `srun_static_` run for catch-up. `vitehub schedule runs <name>` and `vitehub schedule attempts <runId>` read the same store in development.
+`getScheduleRunStore()` returns the installed store. `listRuns({ scheduleId, idPrefix, limit })` lists runs newest first, and `listAttempts(runId)` lists the attempts of one run. The optional `idPrefix` filters run IDs before applying `limit`, allowing the Process Runtime to read only the newest `srun_static_` run for catch-up. `vitehub schedule runs <name>` and `vitehub schedule attempts <runId>` read the same store in development.
+
+For older custom stores that ignore `idPrefix`, the Process Runtime checks up to 100 additional recent records for a cron-triggered run. If none of those 100 records are cron-triggered, it checks the full `catchUpMs` window rather than using a simulated time as the cursor. Existing static run IDs prevent duplicate execution. Supporting `idPrefix` avoids this conservative fallback and keeps the cursor lookup to one record.

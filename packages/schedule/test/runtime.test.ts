@@ -503,6 +503,18 @@ describe("Manual Schedule runs", () => {
     expect(seen).toHaveLength(2)
   })
 
+  it.each([
+    ["2026-01-31T23:59:00.123456Z", "2026-01-31T23:59:00.123Z"],
+    ["2026-01-31T23:59:00.123456789+01:00", "2026-01-31T22:59:00.123Z"],
+  ])("normalizes fractional seconds in %s to milliseconds", async (scheduledAt, expected) => {
+    const handler = vi.fn()
+    const registry = { close: async () => defineSchedule("0 0 1 * *", handler, { manual: true }) }
+    const run = await runSchedule("close", { registry, scheduledAt })
+    expect(run.scheduledAt.toISOString()).toBe(expected)
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date(expected) }))
+    expect(await getScheduleRunStore().getRun(run.id)).toEqual(run)
+  })
+
   it("accepts a year-zero leap day and rejects invalid calendar days in early years", async () => {
     const handler = vi.fn()
     const registry = { close: async () => defineSchedule("0 0 1 * *", handler, { manual: true }) }

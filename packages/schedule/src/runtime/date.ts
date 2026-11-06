@@ -13,7 +13,7 @@ export function isScheduleDate(value: unknown): value is Date {
 
 // A date-time with a time zone, so the time does not depend on the server. JavaScript accepts `T24:00` and rolls
 // `02-30` into March, so `parseScheduledAt()` also checks the hour and the day of the month.
-const scheduledAtText = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/i
+const scheduledAtText = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/i
 
 function parseScheduledAtText(value: string): Date | undefined {
   const match = scheduledAtText.exec(value)
