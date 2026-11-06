@@ -28,6 +28,9 @@ interface ChannelRow {
   conversations: boolean;
   provider: string;
   retention: Retention;
+  simulated: boolean;
+  /** The Agent's chat page of a simulated Channel, a path on this origin. */
+  simulator?: string;
 }
 
 interface ThreadRow {
@@ -95,6 +98,12 @@ function list(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.map(record) : [];
 }
 
+/** A path on this origin, so a page from the Channel list cannot send the browser elsewhere. */
+function localPath(value: unknown): string | undefined {
+  const path = text(value);
+  return path?.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\") ? path : undefined;
+}
+
 function queryString(value: LocationQueryValue | LocationQueryValue[]): string | undefined {
   return value === null || Array.isArray(value) ? undefined : value;
 }
@@ -134,13 +143,18 @@ async function loadChannels(): Promise<void> {
   channelsLoading.value = true;
   try {
     const value = record(await requestConsole(props.channelsBase, { signal: controller.signal }));
-    channels.value = list(value.channels).map(entry => ({
-      agent: text(entry.agent) ?? "",
-      channel: text(entry.channel) ?? "",
-      conversations: entry.conversations === true,
-      provider: text(entry.provider) ?? "",
-      retention: parseRetention(entry.retention),
-    }));
+    channels.value = list(value.channels).map(entry => {
+      const simulator = entry.simulated === true ? localPath(entry.simulator) : undefined;
+      return {
+        agent: text(entry.agent) ?? "",
+        channel: text(entry.channel) ?? "",
+        conversations: entry.conversations === true,
+        provider: text(entry.provider) ?? "",
+        retention: parseRetention(entry.retention),
+        simulated: entry.simulated === true,
+        ...(simulator ? { simulator } : {}),
+      };
+    });
     error.value = undefined;
   } catch (failure) {
     if (!isAbort(failure)) error.value = failure;
@@ -311,6 +325,7 @@ onBeforeUnmount(() => {
     <UDashboardPanel id="channels-conversation" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <ConsolePageHeader title="Channels" :description="selectedThread ?? selected?.channel" :toggle="false">
         <template #right>
+          <UButton v-if="selected?.simulator" label="Open chat" icon="i-lucide-external-link" size="sm" variant="outline" color="neutral" :href="selected.simulator" external target="_blank" rel="noopener" />
           <template v-if="selectedThread">
             <UButton label="Markdown" icon="i-lucide-download" size="sm" variant="outline" color="neutral" :loading="downloading === 'markdown'" :disabled="Boolean(downloading)" @click="download('markdown')" />
             <UButton label="JSON" icon="i-lucide-download" size="sm" variant="outline" color="neutral" :loading="downloading === 'json'" :disabled="Boolean(downloading)" @click="download('json')" />
@@ -341,6 +356,7 @@ onBeforeUnmount(() => {
                 <span class="block truncate text-sm">{{ entry.agent }} · {{ entry.channel }}</span>
                 <span class="block truncate text-xs text-muted">{{ entry.provider }}{{ entry.retention.durable ? " · durable" : " · provider window" }}</span>
               </span>
+              <UBadge v-if="entry.simulated" class="shrink-0" color="neutral" variant="subtle" size="sm" label="Simulated" />
             </button>
           </template>
 
@@ -397,6 +413,14 @@ onBeforeUnmount(() => {
           <div v-if="messagesLoading && !messages.length" class="grid gap-3 p-4" aria-busy="true">
             <USkeleton v-for="index in 5" :key="index" class="h-12" :class="index % 2 ? 'w-2/3' : 'ms-auto w-1/2'" />
           </div>
+          <!-- The chat page belongs to the Agent. The Console only shows it. -->
+          <iframe
+            v-else-if="!selectedThread && selected?.simulator"
+            :key="selected.simulator"
+            class="min-h-0 w-full flex-1 border-0"
+            :src="selected.simulator"
+            :title="`Chat with ${selected.agent} through ${selected.channel}`"
+          />
           <UEmpty
             v-else-if="!selectedThread"
             variant="naked"

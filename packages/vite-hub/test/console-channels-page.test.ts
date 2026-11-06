@@ -71,14 +71,18 @@ const answers: Record<string, unknown> = {
 const page = () => globalThis as unknown as Pick<Window, "document">
 
 const passthrough = defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.default?.(), slots.right?.(), slots.body?.()]) })
-const button = defineComponent({ props: { label: String, onClick: Function }, setup: props => () => h("button", { "data-button": props.label, onClick: props.onClick as never }, props.label) })
+const button = defineComponent({
+  props: { href: String, label: String, onClick: Function, target: String },
+  setup: props => () => h("button", { "data-button": props.label, "data-href": props.href, "data-target": props.target, onClick: props.onClick as never }, props.label),
+})
+const badge = defineComponent({ props: { label: String }, setup: props => () => h("span", { "data-badge": "" }, props.label) })
 
-async function mountPage() {
+async function mountPage(query: Record<string, string> = { agent: "support", channel: "telegram", thread: "telegram:1" }, ready = "[data-slot=message], li") {
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ component: ConsoleChannels, name: "vitehub-console-channels", path: "/channels" }, { component: passthrough, name: "vitehub-console-invocation", path: "/agents/:agent/invocations/:invocation" }],
   })
-  await router.push({ path: "/channels", query: { agent: "support", channel: "telegram", thread: "telegram:1" } })
+  await router.push({ path: "/channels", query })
   const { document } = page()
   const host = document.createElement("div")
   document.body.append(host)
@@ -86,9 +90,10 @@ async function mountPage() {
   app.use(router)
   for (const name of ["ConsoleFrame", "ConsoleSearch", "ConsolePageHeader", "UDashboardPanel", "UAlert", "UEmpty", "USkeleton", "UTooltip", "UIcon"]) app.component(name, passthrough)
   app.component("UButton", button)
+  app.component("UBadge", badge)
   app.mount(host)
-  await vi.waitFor(() => expect(host.querySelector("[data-slot=message], li")).not.toBeNull())
-  return { host }
+  await vi.waitFor(() => expect(host.querySelector(ready)).not.toBeNull())
+  return { host, router }
 }
 
 afterEach(() => {
@@ -98,6 +103,32 @@ afterEach(() => {
 })
 
 describe("Channels page", () => {
+  it("marks a simulated Channel and opens the Agent's chat page of the selected one", async () => {
+    const route = "/api/_vitehub/agents/support/webhooks/slack"
+    const channels = [
+      { agent: "support", channel: "slack", conversations: true, provider: "slack", retention, simulated: true, simulator: route },
+      { agent: "support", channel: "telegram", conversations: true, provider: "telegram", retention, simulated: false },
+      // A path to another origin is not a chat page of this app.
+      { agent: "support", channel: "discord", conversations: true, provider: "discord", retention, simulated: true, simulator: "//evil.example/chat" },
+    ]
+    mocks.request.mockImplementation(async (path: string) => path === "/api/c/channels" ? { channels } : { threads: [] })
+    const { host, router } = await mountPage({ agent: "support", channel: "slack" }, "iframe")
+    const rows = [...host.querySelectorAll("nav[aria-label='Channels and threads'] > button")]
+    expect(rows.map(row => row.querySelector("[data-badge]")?.textContent ?? null)).toEqual(["Simulated", null, "Simulated"])
+    const open = host.querySelector("[data-button='Open chat']")
+    expect(open?.getAttribute("data-href")).toBe(route)
+    expect(open?.getAttribute("data-target")).toBe("_blank")
+    expect(host.querySelector("iframe")?.getAttribute("src")).toBe(route)
+
+    await router.push({ path: "/channels", query: { agent: "support", channel: "discord" } })
+    await vi.waitFor(() => expect(host.querySelector("iframe")).toBeNull())
+    expect(host.querySelector("[data-button='Open chat']")).toBeNull()
+    await router.push({ path: "/channels", query: { agent: "support", channel: "telegram" } })
+    await vi.waitFor(() => expect(host.querySelector("[aria-current='true']")?.textContent).toContain("telegram"))
+    expect(host.querySelector("iframe")).toBeNull()
+    expect(host.querySelector("[data-button='Open chat']")).toBeNull()
+  })
+
   it("links only http(s) attachments", async () => {
     mocks.request.mockImplementation(async (path: string) => answers[path])
     const { host } = await mountPage()

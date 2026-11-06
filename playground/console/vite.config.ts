@@ -3,6 +3,7 @@ import vue from "@vitejs/plugin-vue"
 import { resolve } from "node:path"
 import { defineConfig } from "vite"
 
+import { channelSimulatorPages } from "./channels-fixture.ts"
 import { consoleMockAPI } from "./mock-api.ts"
 import { consoleMockRPC } from "./rpc.ts"
 import { consoleAppConfig } from "../../packages/vite-hub/src/console/app.config.ts"
@@ -15,6 +16,7 @@ export default defineConfig({
   plugins: [
     consoleMockAPI(),
     consoleMockRPC(),
+    channelSimulatorPages(),
     vue(),
     ...ui({
       comark: false,

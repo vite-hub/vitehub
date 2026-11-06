@@ -91,6 +91,28 @@ async function playgroundRequest(endpoint: string, input?: unknown, status = 200
   return JSON.parse(text)
 }
 
+it("lists simulated and real Channels, and serves the chat page of a simulated one", async () => {
+  const listed = await callConsoleFixture("http://localhost:5173", { operation: "channels.list" }) as { value: { channels: Array<{ channel: string, simulated: boolean, simulator?: string }> } }
+  expect(listed.value.channels.map(entry => [entry.channel, entry.simulated, entry.simulator])).toEqual([
+    ["slack", true, "/api/_vitehub/agents/release-engineer/webhooks/slack"],
+    ["discord", true, "/api/_vitehub/agents/release-engineer/webhooks/discord"],
+    ["telegram", false, undefined],
+  ])
+
+  const { channelSimulatorPages } = await vi.importActual<{ channelSimulatorPages: () => Plugin }>("../../../playground/console/channels-fixture.ts")
+  type Middleware = (request: Pick<IncomingMessage, "method" | "url">, response: Pick<ServerResponse, "end" | "setHeader">, next: () => void) => void
+  let handler: Middleware | undefined
+  // SAFETY: The playground hook only registers middleware.
+  const configure = channelSimulatorPages().configureServer as (server: { middlewares: { use: (middleware: Middleware) => void } }) => void
+  configure({ middlewares: { use: middleware => { handler = middleware } } })
+  let html = ""
+  const response = { end: (body: string) => { html = body }, setHeader: vi.fn() }
+  // SAFETY: The middleware writes only the headers and the body of this response.
+  handler!({ method: "GET", url: "/api/_vitehub/agents/release-engineer/webhooks/slack" }, response as unknown as ServerResponse, () => {})
+  expect(html).toContain("Unofficial simulator · not affiliated with Slack")
+  expect(html).toContain("<a href=\"/api/_vitehub/agents/release-engineer/webhooks/discord\">Discord</a>")
+})
+
 it("paginates Blob fixtures when the Console omits a limit", async () => {
   const first = await playgroundRequest("/api/_vitehub/console/blob")
   expect(first).toMatchObject({ hasMore: true, cursor: "3", limit: 3, blobs: expect.any(Array) })
