@@ -59,16 +59,62 @@ describe("Agent definition layers", () => {
     expect(third.resolve).not.toBe(base.resolve)
   })
 
-  it("replaces hooks by name and keeps other hooks", async () => {
-    const parentInput = vi.fn()
-    const childInput = vi.fn()
+  it("runs a parent hook before the child hook with the same name and keeps other hooks", async () => {
+    const order: string[] = []
     const finish = vi.fn()
-    const base = defineAgent({ driver: { run: () => ({ text: "ok" }) }, hooks: { "agent:input": parentInput, "agent:finish": finish } })
-    const child = defineAgent({ extends: base, hooks: { "agent:input": childInput } })
-    await runAgent(child, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
-    expect(parentInput).not.toHaveBeenCalled()
-    expect(childInput).toHaveBeenCalledTimes(1)
+    const base = defineAgent({
+      driver: { run: () => ({ text: "ok" }) },
+      hooks: { "agent:input": () => void order.push("parent"), "agent:finish": finish },
+    })
+    const child = defineAgent({ extends: base, hooks: { "agent:input": () => void order.push("child") } })
+    const grandchild = defineAgent({ extends: child, hooks: { "agent:input": () => void order.push("grandchild") } })
+    await runAgent(grandchild, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
+    expect(order).toEqual(["parent", "child", "grandchild"])
     expect(finish).toHaveBeenCalledTimes(1)
+  })
+
+  it("runs the finish hook of a configured preset when an extension adds its own", async () => {
+    const order: string[] = []
+    const preset = defineAgent({
+      options: { label: "preset" },
+      configure: options => defineAgent({
+        driver: { run: () => ({ text: "ok" }) },
+        hooks: { "agent:finish": () => void order.push(String(options.label)) },
+      }),
+    })
+    const app = defineAgent({ extends: preset, options: { label: "app" } })
+    const replay = defineAgent({ extends: app, hooks: { "agent:finish": () => void order.push("replay") } })
+    await runAgent(replay, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
+    expect(order).toEqual(["app", "replay"])
+  })
+
+  it("returns the delivery effects of both finish hooks", async () => {
+    const parentEffect = { kind: "status", payload: { state: "done" } } as const
+    const childEffect = { kind: "reply", payload: "done" } as const
+    const base = defineAgent({ driver: { run: () => ({ text: "ok" }) }, hooks: { "agent:finish": () => parentEffect } })
+    const child = defineAgent({ extends: base, hooks: { "agent:finish": () => childEffect } })
+    const quiet = defineAgent({ extends: base, hooks: { "agent:finish": () => undefined } })
+    const finish = (agent: typeof child) => agent.hooks?.["agent:finish"]?.({} as never)
+    await expect(finish(child)).resolves.toEqual([parentEffect, childEffect])
+    await expect(finish(quiet)).resolves.toBe(parentEffect)
+  })
+
+  it("runs a hook once when a child passes the inherited hook again", async () => {
+    const finish = vi.fn()
+    const base = defineAgent({ driver: { run: () => ({ text: "ok" }) }, hooks: { "agent:finish": finish } })
+    const child = defineAgent({ extends: base, hooks: { "agent:finish": finish } })
+    await runAgent(child, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
+    expect(finish).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps the hook observers of every layer", async () => {
+    const parent = vi.fn()
+    const child = vi.fn()
+    const base = defineAgent({ driver: { run: () => ({ text: "ok" }) }, hooks: { "hook:observe": parent, "agent:input": vi.fn() } })
+    const extension = defineAgent({ extends: base, hooks: { "hook:observe": [child] } })
+    await runAgent(extension, { runtime: "unknown", memo: vi.fn(), waitUntil: vi.fn() }, { prompt: "hello" })
+    expect(parent).toHaveBeenCalledWith(expect.objectContaining({ name: "agent:input" }))
+    expect(child).toHaveBeenCalledWith(expect.objectContaining({ name: "agent:input" }))
   })
 
   it("merges partial driver overrides and replaces a different driver variant", () => {

@@ -80,7 +80,7 @@ AI SDK Model Drivers make one output-only correction call when a known tool rece
 
 ## Extend an Agent
 
-Use `extends` to reuse one Agent Definition. The child gets a fresh runtime; Channels and hooks merge by key; matching entries replace inherited values. Static Capabilities merge by ID, with an optional extension hook. Persistent stores remain shared when both definitions select the same store.
+Use `extends` to reuse one Agent Definition. The child gets a fresh runtime; Channels merge by key, and matching entries replace inherited values. Hooks merge by name, and a matching hook runs after the inherited one. Static Capabilities merge by ID, with an optional extension hook. Persistent stores remain shared when both definitions select the same store.
 
 Read [Agent presets and inheritance](/docs/agents/agent-presets#extend-an-agent) for examples, merge rules, shared Skills, and Workspace discovery.
 

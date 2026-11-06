@@ -33,7 +33,8 @@ Child configuration overrides parent defaults:
 
 | Setting | Composition |
 | --- | --- |
-| Channels, Sources, Skills, and hooks | Merge by key. The child replaces each matching definition or callback as a whole. |
+| Channels, Sources, and Skills | Merge by key. The child replaces each matching definition as a whole. |
+| Hooks | Merge by name. When both layers define a hook, the parent's hook runs first, then the child's. Outcome hooks return the delivery effects of both. Hook observers of every layer stay registered. |
 | Static Capabilities | Merge by `id`. The child replaces a matching Capability and appends new ones. An `extend(inherited)` hook can combine matching Capabilities instead. |
 | Capability resolver | Replaces the inherited list or resolver. |
 | Other arrays | Replace the parent array. |
@@ -192,7 +193,7 @@ It also follows a Channel imported from a relative module, such as `import porta
 
 Discovery rejects Channel option bindings that are mutated or passed to opaque calls, including local callbacks and built-in mutators such as `Object.assign`. It does not execute those calls to inspect their effects. Use unmodified local options, or add `workspace: {}` when the Channel owns a Workspace.
 
-Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel or hook with the same key. Distinct hooks remain present; same-key hooks do not automatically compose. Option callbacks are values and are also replaced, never invoked by merging.
+Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel with the same key. A hook with the same name runs after the preset's hook, so an extension cannot remove the preset's behavior by adding its own `agent:finish`. Option callbacks are values and are also replaced, never invoked by merging.
 
 Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
 
