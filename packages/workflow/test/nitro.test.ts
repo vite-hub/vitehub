@@ -3,12 +3,22 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { pathToFileURL } from "node:url"
 
-import { expect, it } from "vitest"
+import { resolveConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig } from "vite"
+import { expect, it, vi } from "vitest"
 
 import { VITEHUB_NITRO_CONFIG_CONTEXT } from "@vite-hub/internal/build/vite"
 
 import { createCloudflareWorkflowNitroConfig } from "../src/internal/vite-build.ts"
 import { hubWorkflow } from "../src/vite.ts"
+import { nitroOrderPlugins } from "../../vite-hub/src/nitro-order.ts"
+import type { WorkflowModuleOptions } from "../src/types.ts"
+
+const generated = vi.hoisted(() => vi.fn())
+vi.mock("../src/internal/vite-build.ts", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/internal/vite-build.ts")>(),
+  generateWorkflowProviderOutputs: generated,
+}))
 
 it("leaves implicit Workflow disabled for Netlify Nitro output", async () => {
   const nitro = { preset: "netlify" }
@@ -58,14 +68,32 @@ it("installs discovered Agent workflows into a Cloudflare Nitro entry", async ()
   }
 })
 
-type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<unknown>
+async function runConfigHook(config: UserConfig & { nitro?: Record<string, unknown> }, hosting: string, plugins: Plugin[] = []): Promise<Record<string, unknown>> {
+  let nitro: Record<string, unknown> = {}
+  await resolveConfig({
+    configFile: false,
+    logLevel: "silent",
+    ...config,
+    plugins: [hubWorkflow({}, { hosting }), ...plugins, {
+      name: "nitro:init",
+      config(config) {
+        // SAFETY: The Workflow hook supplies Nitro's configuration before this hook runs.
+        nitro = Reflect.get(config, "nitro") as Record<string, unknown>
+      },
+    }, nitroOrderPlugins()],
+  }, "build")
+  return nitro
+}
 
-async function runConfigHook(config: Record<string, unknown>, hosting: string): Promise<Record<string, unknown>> {
-  const hook = hubWorkflow({}, { hosting }).config
-  if (!hook || typeof hook === "function") throw new TypeError("Expected the hubWorkflow config hook to be an object hook.")
-  await (hook.handler as unknown as ConfigHook)(config, { command: "build", mode: "production" })
-  // SAFETY: The config hook writes the Nitro config object back to `config.nitro`.
-  return config.nitro as Record<string, unknown>
+async function runProviderOutput(config: ResolvedConfig) {
+  const plugin = config.plugins.find(plugin => plugin.name === "@vite-hub/workflow/vite")!
+  const context = { environment: { config, name: "ssr" } }
+  if (typeof plugin.buildStart !== "function" || typeof plugin.buildEnd !== "function" || typeof plugin.closeBundle !== "object") {
+    throw new TypeError("Expected Workflow build hooks")
+  }
+  await plugin.buildStart.call(context as never, {} as never)
+  await plugin.buildEnd.call(context as never)
+  await plugin.closeBundle.handler.call(context as never)
 }
 
 it("adds Cloudflare Workflows to the Nitro Worker of a Vite build", async () => {
@@ -84,11 +112,70 @@ it("adds Cloudflare Workflows to the Nitro Worker of a Vite build", async () => 
     expect(nitro.preset).toBeUndefined()
 
     // The Nuxt module adds the Workflows through `vitehub.workflow.createNitroConfig` instead.
-    const nuxt = await runConfigHook({ nitro: {}, root: rootDir, [VITEHUB_NITRO_CONFIG_CONTEXT]: true }, "cloudflare-module")
+    const nuxtConfig = { nitro: {}, root: rootDir, [VITEHUB_NITRO_CONFIG_CONTEXT]: true }
+    const nuxt = await runConfigHook(nuxtConfig, "cloudflare-module")
     expect(nuxt.cloudflare).toBeUndefined()
     expect((await runConfigHook({ nitro: {}, root: rootDir }, "node-server")).cloudflare).toBeUndefined()
   }
   finally {
     await rm(rootDir, { force: true, recursive: true })
+  }
+})
+
+it.each<{
+  initial: WorkflowModuleOptions
+  final: WorkflowModuleOptions
+  cloudflare: boolean
+}>([
+  { initial: { provider: "vercel" }, final: { provider: "cloudflare", binding: "FINAL" }, cloudflare: true },
+  { initial: false, final: { provider: "cloudflare", binding: "FINAL" }, cloudflare: true },
+  { initial: { provider: "cloudflare", binding: "EARLY" }, final: { provider: "cloudflare", binding: "FINAL" }, cloudflare: true },
+  { initial: { provider: "cloudflare" }, final: false, cloudflare: false },
+  { initial: { provider: "cloudflare" }, final: { provider: "openworkflow" }, cloudflare: false },
+])("uses the final Workflow config for Nitro: $initial -> $final", async ({ initial, final, cloudflare }) => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-final-nitro-"))
+  try {
+    await mkdir(join(root, "server", "workflows"), { recursive: true })
+    await writeFile(join(root, "server", "workflows", "welcome.ts"), "export default async () => 'ok'\n")
+    let resolved: ResolvedConfig | undefined
+    const nitro = await runConfigHook({ root, workflow: initial }, "cloudflare-module", [{
+      name: "application-override",
+      enforce: "post",
+      config: () => ({ workflow: final }),
+      configResolved(config) { resolved = config },
+    }])
+    expect(nitro.cloudflare).toEqual(cloudflare ? {
+      wrangler: { workflows: [expect.objectContaining({ binding: expect.stringContaining("FINAL") })] },
+    } : undefined)
+    expect(nitro.rollupConfig).toEqual(cloudflare ? expect.objectContaining({
+      plugins: [expect.objectContaining({ name: "vitehub-workflow-cloudflare-exports" })],
+    }) : undefined)
+    if (!resolved) throw new TypeError("Expected resolved Vite config")
+    generated.mockClear()
+    await runProviderOutput(resolved)
+    expect(generated).toHaveBeenCalledWith(expect.objectContaining({ cloudflareInNitro: cloudflare, workflow: final }), expect.any(Function))
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it("keeps standalone Cloudflare output when Nitro is absent", async () => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-standalone-"))
+  try {
+    await mkdir(join(root, "server", "workflows"), { recursive: true })
+    await writeFile(join(root, "server", "workflows", "welcome.ts"), "export default async () => 'ok'\n")
+    const config = await resolveConfig({
+      root,
+      configFile: false,
+      logLevel: "silent",
+      plugins: [hubWorkflow({}, { hosting: "cloudflare-module" }), nitroOrderPlugins()],
+    }, "build")
+    generated.mockClear()
+    await runProviderOutput(config)
+    expect(generated).toHaveBeenCalledWith(expect.objectContaining({ cloudflareInNitro: false }), expect.any(Function))
+  }
+  finally {
+    await rm(root, { recursive: true, force: true })
   }
 })
