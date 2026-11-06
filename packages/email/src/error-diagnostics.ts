@@ -8,7 +8,7 @@ const driverProblems = {
 } as const
 
 const outboxProblems = {
-  deliver: "`email.outbox.deliver` must be a boolean.",
+  deliver: "`email.outbox.deliver` was removed. `vite dev` keeps sends in the outbox unless `email.remote` is `true`.",
   limit: "`email.outbox.limit` must be an integer from 1 to 1000.",
   type: "`email.outbox` must be `false` or an object.",
 } as const
@@ -69,11 +69,19 @@ export const emailErrorDiagnostics = /*#__PURE__*/ defineErrors({
     },
     EMAIL_INVALID_OUTBOX: {
       why: ({ problem }: { problem: EmailOutboxProblem }) => outboxProblems[problem],
-      fix: "Set `email.outbox` to `false`, or to `{ deliver, limit }`.",
+      fix: "Set `email.outbox` to `false`, or to `{ limit }`. To send `vite dev` email through the provider, set `email.remote: true`.",
+    },
+    EMAIL_INVALID_REMOTE: {
+      why: "`email.remote` must be a boolean.",
+      fix: "Set `email.remote: true` to send `vite dev` email through the provider, or remove it to keep dev sends in the outbox.",
     },
     EMAIL_INVALID_TEMPLATE: {
       why: ({ id }: { id: string }) => `The Email template import ${JSON.stringify(id)} is not valid.`,
       fix: "Import `#vitehub/emails/<name>`, where `<name>` is the path under `server/emails` without `.md`.",
+    },
+    EMAIL_REMOTE_REQUIRED: {
+      why: "`email.outbox` is `false`, so a `vite dev` send has no outbox to stay in.",
+      fix: "Remove `outbox: false` to keep dev sends in the outbox, or set `email.remote: true` to send them through the provider.",
     },
     EMAIL_SECRET_DEFAULT: {
       why: ({ path }: { path: string }) => `The secret Email option ${path} has a default, and defaults are included in build output.`,

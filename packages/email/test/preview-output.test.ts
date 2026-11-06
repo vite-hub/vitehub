@@ -23,7 +23,8 @@ it.each([["serve", false], ["serve", undefined], ["build", false], ["build", und
   for (const dir of serverDirs) await mkdir(join(dir, "emails"), { recursive: true })
   await writeFile(join(serverDirs[0]!, "emails", "welcome.md"), "# Hello {{ data.name }}\n")
   await writeFile(join(serverDirs[1]!, "emails", "receipt.md"), "Receipt {{ data.id }}\n")
-  const plugin = hubEmail({ driver: "resend", outbox })
+  // `outbox: false` needs `remote: true` in `vite dev`.
+  const plugin = hubEmail({ driver: "resend", outbox, remote: outbox === false })
   if (!(plugin.config instanceof Function) || !(plugin.configResolved instanceof Function)) throw new Error("Expected Email config hooks")
   const config = { root, [VITEHUB_SERVER_DIRS]: serverDirs }
   await Reflect.apply(plugin.config, undefined, [config, { command, mode: command === "serve" ? "development" : "production" }])

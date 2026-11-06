@@ -104,7 +104,15 @@ An Email option uses `env.provider()`. Email resolves its options synchronously,
 
 ### EMAIL_INVALID_OUTBOX
 
-Set `email.outbox` to `false`, or to `{ deliver, limit }` with a boolean `deliver` and an integer `limit` from 1 to 1000.
+Set `email.outbox` to `false`, or to `{ limit }` with an integer `limit` from 1 to 1000. `outbox.deliver` was removed. A dev send stays in the outbox unless `email.remote` is `true`.
+
+### EMAIL_INVALID_REMOTE
+
+`email.remote` must be a boolean. Set `remote: true` to send `vite dev` email through the provider, or remove it to keep dev sends in the outbox.
+
+### EMAIL_REMOTE_REQUIRED
+
+`vite dev` has `email.outbox: false` and no `email.remote: true`, so a dev send has no outbox to stay in. Remove `outbox: false`, or set `remote: true` to send dev email through the provider. Builds do not check this.
 
 ### EMAIL_INVALID_TEMPLATE
 
