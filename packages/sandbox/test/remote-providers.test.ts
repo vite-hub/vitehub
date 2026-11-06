@@ -490,6 +490,44 @@ describe("remote Sandbox providers", () => {
     await session.close();
   });
 
+  it.each(["exec", "writeFile"] as const)("does not retry Cloudflare %s when a cold-start error is explicitly non-retryable", async (operation) => {
+    vi.useFakeTimers();
+    const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
+    const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const session = await sandbox.open();
+    const failure = hostError("The container is starting. Please retry in a moment.", { retryable: false });
+    const request = vi.fn(async () => { throw failure; });
+    stub[operation] = request;
+
+    const result = operation === "exec"
+      ? session.exec("probe")
+      : session.files.write("/workspace/output", new TextEncoder().encode("data"));
+    const rejection = expect(result).rejects.toMatchObject({ cause: failure, data: { retryable: false } });
+    await vi.runAllTimersAsync();
+    await rejection;
+    expect(request).toHaveBeenCalledTimes(1);
+    await session.close();
+  });
+
+  it.each(["exists", "list"] as const)("retries the safe Cloudflare %s fallback after a lost connection", async (query) => {
+    vi.useFakeTimers();
+    const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
+    const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const session = await sandbox.open();
+    const request = vi.fn<CloudflareSandboxStub["exec"]>()
+      .mockRejectedValueOnce(hostError("Network connection lost.", { retryable: true }))
+      .mockResolvedValue({ exitCode: 0, stderr: "", stdout: "f\t4\t/workspace/output\0", success: true });
+    stub.exec = request;
+
+    const result = query === "exists"
+      ? expect(session.files.exists("/workspace/output")).resolves.toBe(true)
+      : expect(session.files.list("/workspace")).resolves.toEqual([{ path: "/workspace/output", size: 4, type: "file" }]);
+    await Promise.all([result, vi.advanceTimersByTimeAsync(1_000)]);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(request.mock.calls[0]![0]).toMatch(query === "exists" ? /^test -e / : /^find /);
+    await session.close();
+  });
+
   it("retries a Cloudflare command that failed before the Container was ready", async () => {
     vi.useFakeTimers();
     let calls = 0;

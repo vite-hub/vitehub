@@ -193,10 +193,10 @@ function createCloudflareSession(
     env?: Record<string, string>;
     timeout?: number;
     workingDirectory?: string;
-  }) => {
+  }, idempotent = false) => {
     const timeout = options.timeout ?? cloudflareExecTimeout;
     const result = await abortable(
-      request("exec", { idempotent: false, timeout }, async () => await stub.exec(options.command, {
+      request("exec", { idempotent, timeout }, async () => await stub.exec(options.command, {
         cwd: options.workingDirectory ?? "/workspace",
         env: { ...baseEnv, ...options.env },
         timeout,
@@ -215,7 +215,7 @@ function createCloudflareSession(
     async existsFile({ abortSignal, path }) {
       abortSignal?.throwIfAborted();
       if (stub.exists) return (await request("exists", { idempotent: true }, async () => await stub.exists!(path))).exists;
-      return (await run({ abortSignal, command: `test -e ${shellQuote(path)}` })).exitCode === 0;
+      return (await run({ abortSignal, command: `test -e ${shellQuote(path)}` }, true)).exitCode === 0;
     },
     ...(hostname && stub.exposePort
       ? {
@@ -239,7 +239,7 @@ function createCloudflareSession(
           .map((file) => ({ path: file.absolutePath, size: file.size, type: file.type }))
           .sort((left, right) => left.path.localeCompare(right.path));
       }
-      return await listCommandFiles(run, { abortSignal, path, recursive }, result => sandboxErrorDiagnostics.SANDBOX_R0029({ message: result.stderr }));
+      return await listCommandFiles(options => run(options, true), { abortSignal, path, recursive }, result => sandboxErrorDiagnostics.SANDBOX_R0029({ message: result.stderr }));
     },
     async makeDirectory({ abortSignal, path, recursive }) {
       abortSignal?.throwIfAborted();

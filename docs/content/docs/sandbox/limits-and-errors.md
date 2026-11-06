@@ -21,9 +21,9 @@ If execution and cleanup both fail, the response keeps the primary error code an
 
 ## Cloudflare retries
 
-The Cloudflare runtime retries a request only when a second call has the same effect as the first. These are session cleanup, file reads, full file writes, file deletes, file listing, and recursive directory creation. It retries when Cloudflare marks the error `retryable`. When the error has no flag, it retries temporary failures such as a Container that is still starting. It does not retry when Cloudflare marks the Durable Object `overloaded`.
+The Cloudflare runtime retries a request only when a second call has the same effect as the first. These are session cleanup, file reads, full file writes, file deletes, file listing, and recursive directory creation. It retries when Cloudflare marks the error `retryable`. When the error has no flag, it retries temporary failures such as a Container that is still starting. It does not retry when Cloudflare marks the Durable Object `overloaded` or the error has `retryable: false`, even during Container startup.
 
-The runtime does not retry `session.exec()`, a new process, a file move, or a port exposure after the request can reach the Container. If the response is lost, the command may have run, so a second call can run it twice. A Container that is still starting never received the command, so ViteHub retries that case for every request. The error keeps the Cloudflare flag in `error.data.retryable` and the original error in `error.cause`. Retry the command yourself only when it is safe to run twice.
+The runtime does not retry `session.exec()`, a new process, a file move, or a port exposure after the request can reach the Container. If the response is lost, the command may have run, so a second call can run it twice. A Container that is still starting never received the command, so ViteHub can retry that case. The error keeps the Cloudflare flag in `error.data.retryable` and the original error in `error.cause`. Retry the command yourself only when it is safe to run twice.
 
 ## Production checks
 

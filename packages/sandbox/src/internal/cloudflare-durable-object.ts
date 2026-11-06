@@ -249,7 +249,11 @@ export function createCloudflareSandboxDurableObject(
     }
 
     async deleteFile(path: string) {
-      await (await this.#fileOperations()).remove(path, fileOptions);
+      try {
+        await (await this.#fileOperations()).remove(path, fileOptions);
+      } catch (error) {
+        if (!missing(error)) throw error;
+      }
       return { success: true };
     }
 

@@ -44,6 +44,7 @@ export async function withCloudflareRequest<T>(operation: string, options: Cloud
 function shouldRetry(idempotent: boolean, host: HostRetryFlags, message: string) {
   // Cloudflare: an overloaded Durable Object must not receive more requests.
   if (host.overloaded) return false
+  if (host.retryable === false) return false
   // provider-message-match: Cloudflare has no flag for a Container that is not ready. The request never reached a process, so even a command can retry.
   if (notStartedMessage.test(message)) return true
   // A lost response can follow a started command, so only an idempotent request can retry.
