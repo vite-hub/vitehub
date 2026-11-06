@@ -27,9 +27,14 @@ it("keeps implicit Workflow inert when Agent targets Netlify", async () => {
       vitehub?: { workflow?: { prepareScheduleRuntime?: () => Promise<unknown> } }
     }
 
-  expect(workflow).toBeDefined()
-  ;(workflow.configResolved as (config: unknown) => void)({ plugins: [workflow], resolve: { alias: [] }, root: "/unused" })
-  await expect(workflow.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
+  const root = await mkdtemp(join(tmpdir(), "vitehub-netlify-workflow-"))
+  try {
+    expect(workflow).toBeDefined()
+    await (workflow.configResolved as (config: unknown) => Promise<void>)({ plugins: [workflow], resolve: { alias: [] }, root })
+    await expect(workflow.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
+  } finally {
+    await rm(root, { force: true, recursive: true })
+  }
 })
 
 it("disables Workflow in the Netlify consumer fixture", async () => {
