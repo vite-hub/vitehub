@@ -90,7 +90,7 @@ function hasCloudflareKVStore(kv: KVViteRuntimeConfig["kv"]): boolean {
 }
 
 /** Registers the middleware that installs the request's Cloudflare env, or removes it when no store uses a binding. */
-function configureNitroCloudflareRequestEnv(nitro: Record<string, unknown>, kv: KVViteRuntimeConfig["kv"]): void {
+function configureNitroCloudflareRequestEnv(nitro: NitroCloudflareKVTarget, kv: KVViteRuntimeConfig["kv"]): void {
   const handlers: unknown[] = Array.isArray(nitro.handlers)
     ? nitro.handlers.filter(handler => !(isPlainObject(handler) && handler.handler === KV_CLOUDFLARE_REQUEST_ENV_MIDDLEWARE))
     : []
@@ -180,6 +180,7 @@ function serializeCloudflareRuntime(config: ResolvedKVModuleOptions): string {
 }
 
 interface NitroCloudflareKVTarget {
+  handlers?: unknown[]
   cloudflare?: {
     wrangler?: {
       kv_namespaces?: Array<{ binding: string, id?: string }>
@@ -226,6 +227,7 @@ function reconcileNitroCloudflareKV(
   ownedNamespaces: Set<{ binding: string, id?: string }>,
   provisionState: ReturnType<typeof readProvisionStateSync>,
 ): void {
+  configureNitroCloudflareRequestEnv(target, kv)
   const namespaces = target.cloudflare?.wrangler?.kv_namespaces
   if (namespaces?.length && ownedNamespaces.size) {
     for (const owned of ownedNamespaces) {
@@ -254,7 +256,7 @@ function configureNitroCloudflareKV(
   ownedNamespaces.clear()
 
   const kv = resolveKVViteConfig(config.kv ?? options).kv
-  configureNitroCloudflareRequestEnv(nitro, kv)
+  configureNitroCloudflareRequestEnv(target, kv)
   if (kv) {
     const existingNamespaces = new Set(target.cloudflare?.wrangler?.kv_namespaces)
     configureCloudflareKV(target, kv, provisionState)
