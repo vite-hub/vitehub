@@ -55,7 +55,7 @@ Vercel Blob provisioning requires `VERCEL_PROJECT_ID` so the provision step can 
 After a successful apply, the CLI writes non-secret ids to `.vitehub/provision.json`.
 Vite Integrations may read that file as a binding-id source during dev or build.
 D1 database ids are keyed by Database name under `d1`. Cloudflare KV namespace ids are keyed by KV Store name under `kv`.
-R2 bucket names are keyed by Blob Store name under `r2`, and Cloudflare Queue names are keyed by Queue Definition name under `queue`. Builds do not read `r2` or `queue`, because bucket and Queue names come from config and Definitions. `provision status` uses them to find a bucket or Queue that no Definition declares.
+R2 buckets are recorded as `<jurisdiction>/<bucket-name>` (using `default` when no jurisdiction is set), keyed by Blob Store name under `r2`. Cloudflare Queue names are keyed by Queue Definition name under `queue`. Builds do not read `r2` or `queue`, because bucket and Queue names come from config and Definitions. `provision status` uses them to find a bucket or Queue that no Definition declares.
 
 ```json [.vitehub/provision.json]
 {
@@ -67,7 +67,7 @@ R2 bucket names are keyed by Blob Store name under `r2`, and Cloudflare Queue na
       "default": "namespace-id"
     },
     "r2": {
-      "default": "bucket-name"
+      "default": "default/bucket-name"
     },
     "queue": {
       "welcome": "queue-name"
@@ -111,6 +111,11 @@ fix: kv "cache": No Definition declares it. If no deployment uses ns-cache, run 
 ```
 
 ViteHub never deletes the resource or edits the file. Check that no deployment, preview, or other app binds the id before you delete it. An entry that shares its id with a declared entry only needs its line removed from the file. An entry in a category that no active package owns, for example after you remove `hubKv()`, is also marked `not declared`.
+
+If a current Definition has no recorded id, status defers deletion guidance for that Provision Step. Verify its resource id before deleting anything. For automatically provisioned resources, run `vitehub provision run --provider cloudflare` to record the current resources, then check status again. A renamed Definition may reuse the resource recorded under its old key.
+
+R2 shared-resource checks include the bucket's jurisdiction, and deletion hints include `--jurisdiction` when needed. Older R2 entries containing only a bucket name have an unknown jurisdiction, so status never assumes they share a resource; check the jurisdiction before following their deletion hints.
+
 The plan is also not checked when an applicable Provision Step skips its lookup. For example, Vercel Blob requires both `VERCEL_TOKEN` and `VERCEL_PROJECT_ID`.
 
 ## JSON output

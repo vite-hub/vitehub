@@ -1113,6 +1113,85 @@ export default function (_options, nuxt) {
     expect(JSON.parse(await readFile(join(rootDir, ".vitehub", "provision.json"), "utf8")).cloudflare.d1.old).toBe("db-old")
   })
 
+  it.each([
+    ["d1", "d1"], ["kv", "kv"], ["d1Nuxt", "d1Nuxt"], ["d1", "d1Nuxt"], ["d1Nuxt", "d1"],
+  ])("defers %s deletion guidance until renamed %s Definitions have recorded ids", async (category, declaredCategory) => {
+    const rootDir = await createTempDir()
+    const stateFile = join(rootDir, ".vitehub", "provision.json")
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    const initialState = JSON.stringify({ cloudflare: { [category]: { old: "resource-id" } } })
+    await writeFile(stateFile, initialState)
+    const plan = vi.fn(async () => [])
+    const deleteHint = vi.fn(() => "run `delete-resource resource-id`")
+    const loadConfig = async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [], provision: [{
+        id: "test:cloudflare",
+        plan,
+        provider: "cloudflare",
+        recordedState: () => category === declaredCategory
+          ? [{ category, declared: ["renamed"], deleteHint }]
+          : [{ category, declared: [], deleteHint }, { category: declaredCategory, declared: ["renamed"], deleteHint }],
+      }] } } }],
+      root: rootDir,
+    })
+    for (const json of [false, true]) {
+      const stdout = stream()
+      await expect(runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", ...(json ? ["--json"] : [])], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout })).resolves.toBe(0)
+      expect(stdout.output()).toContain("Verify its resource id before deleting anything")
+      expect(stdout.output()).not.toContain("delete-resource")
+    }
+    expect(deleteHint).not.toHaveBeenCalled()
+    expect(plan).not.toHaveBeenCalled()
+    expect(await readFile(stateFile, "utf8")).toBe(initialState)
+
+    const recorded: Record<string, Record<string, string>> = { [category]: { old: "resource-id" } }
+    recorded[declaredCategory] = { ...recorded[declaredCategory], renamed: "resource-id" }
+    await writeFile(stateFile, JSON.stringify({ cloudflare: recorded }))
+    const stdout = stream()
+    await runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", "--json"], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout })
+    expect(JSON.parse(stdout.output()).undeclared).toEqual([
+      { category, key: "old", id: "resource-id", fix: expect.stringContaining("keep the resource and only remove the entry") },
+    ])
+
+    recorded[declaredCategory] = { ...recorded[declaredCategory], renamed: "different-resource-id" }
+    await writeFile(stateFile, JSON.stringify({ cloudflare: recorded }))
+    const different = stream()
+    await runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", "--json"], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout: different })
+    expect(JSON.parse(different.output()).undeclared[0].fix).toContain("delete-resource resource-id")
+  })
+
+  it.each([
+    { currentId: "default/assets", staleId: "eu/assets", shared: false },
+    { currentId: "default/assets", staleId: "default/assets", shared: true },
+    { currentId: "default/assets", staleId: "assets", shared: false },
+    { currentId: "assets", staleId: "assets", shared: false },
+  ])("uses provider resource identity when matching R2 $currentId with $staleId", async ({ currentId, staleId, shared }) => {
+    const rootDir = await createTempDir()
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub", "provision.json"), JSON.stringify({
+      cloudflare: { r2: { current: currentId, old: staleId } },
+    }))
+    const loadConfig = async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [], provision: [{
+        id: "test:r2",
+        plan: async () => [],
+        provider: "cloudflare",
+        recordedState: () => [{
+          category: "r2",
+          declared: ["current"],
+          resourceIdentity: ({ id }: { id: string }) => id.includes("/") ? `r2:${id}` : undefined,
+          deleteHint: () => "delete the bucket in its jurisdiction",
+        }],
+      }] } } }],
+      root: rootDir,
+    })
+    const stdout = stream()
+    await runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", "--json"], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout })
+    const [entry] = JSON.parse(stdout.output()).undeclared
+    expect(entry).toMatchObject({ category: "r2", key: "old", id: staleId })
+    expect(entry.fix.includes("keep the resource")).toBe(shared)
+  })
+
   it("counts existing but incomplete actions as pending", async () => {
     const rootDir = await createTempDir()
     const apply = vi.fn(async () => ({}))

@@ -37,6 +37,8 @@ export interface ProvisionAction {
 export interface ProvisionStateCategory {
   category: string
   declared: readonly string[]
+  /** Provider resource identity for shared-resource checks. Return undefined when the recorded id lacks enough information. Defaults to the recorded id. */
+  resourceIdentity?: (entry: { id: string, key: string }) => string | undefined
   /** Tells a developer how to delete the resource of a recorded entry that no Definition declares. ViteHub never runs it. */
   deleteHint: (entry: { id: string, key: string }) => string
 }

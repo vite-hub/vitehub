@@ -144,15 +144,27 @@ function findUndeclaredEntries(
   env: ProvisionFeatureContext["env"],
 ): UndeclaredProvisionEntry[] {
   const categories = new Map<string, ProvisionStateCategory>()
+  const unrecordedDeclarations = new Set<string>()
   for (const step of steps) {
     if (step.provider !== provider) continue
-    for (const category of step.recordedState?.({ env }) ?? []) categories.set(category.category, category)
+    const described = step.recordedState?.({ env }) ?? []
+    for (const category of described) categories.set(category.category, category)
+    // A renamed Definition may reuse an old resource before its new key is recorded.
+    // Include sibling categories, such as d1 and d1Nuxt, that can refer to the same resource.
+    if (described.some(category => category.declared.some(key => !Object.hasOwn(recorded[category.category] ?? {}, key)))) {
+      for (const category of described) unrecordedDeclarations.add(category.category)
+    }
   }
   const isDeclared = (category: string, key: string) => categories.get(category)?.declared.includes(key) ?? false
+  const resourceIdentity = (category: string, key: string, id: string) => {
+    const describe = categories.get(category)?.resourceIdentity
+    return describe ? describe({ id, key }) : id
+  }
   const declaredById = new Map<string, string>()
   for (const [category, ids] of Object.entries(recorded)) {
     for (const [key, id] of Object.entries(ids)) {
-      if (isDeclared(category, key) && !declaredById.has(id)) declaredById.set(id, `${category} ${JSON.stringify(key)}`)
+      const identity = resourceIdentity(category, key, id)
+      if (identity !== undefined && isDeclared(category, key) && !declaredById.has(identity)) declaredById.set(identity, `${category} ${JSON.stringify(key)}`)
     }
   }
   const stateEdit = `remove the entry from ${PROVISION_STATE_FILE}`
@@ -160,11 +172,17 @@ function findUndeclaredEntries(
   for (const [category, ids] of Object.entries(recorded)) {
     for (const [key, id] of Object.entries(ids)) {
       if (isDeclared(category, key)) continue
-      const sharedWith = declaredById.get(id)
-      const deleteHint = categories.get(category)?.deleteHint({ id, key }) ?? `delete resource ${id} in the ${provider === "cloudflare" ? "Cloudflare" : "Vercel"} dashboard`
-      const fix = sharedWith
-        ? `${sharedWith} uses the same id, so keep the resource and only ${stateEdit}.`
-        : `No Definition declares it. If no deployment uses ${id}, ${deleteHint}, then ${stateEdit}.`
+      const identity = resourceIdentity(category, key, id)
+      const sharedWith = identity === undefined ? undefined : declaredById.get(identity)
+      let fix: string
+      if (sharedWith) fix = `${sharedWith} uses the same id, so keep the resource and only ${stateEdit}.`
+      else if (unrecordedDeclarations.has(category)) {
+        fix = `No Definition declares this key. A current Definition has no recorded id and may still use this resource. Verify its resource id before deleting anything; for automatically provisioned resources, run \`vitehub provision run --provider ${provider}\`, then check status again.`
+      }
+      else {
+        const deleteHint = categories.get(category)?.deleteHint({ id, key }) ?? `delete resource ${id} in the ${provider === "cloudflare" ? "Cloudflare" : "Vercel"} dashboard`
+        fix = `No Definition declares it. If no deployment uses ${id}, ${deleteHint}, then ${stateEdit}.`
+      }
       entries.push({ category, fix, id, key })
     }
   }

@@ -53,8 +53,13 @@ const VERCEL_BLOB_STORE_NAME = "vitehub-blob"
 const VERCEL_BLOB_STORE_REGION = "iad1"
 const VERCEL_PROJECT_ENVIRONMENTS = ["production", "preview", "development"] as const
 const CLOUDFLARE_R2_BUCKET_LIST_PER_PAGE = "1000"
-/** Provision State category for R2 bucket names, keyed by Blob Store name. Config never reads it, because bucket names come from Store config. */
+/** Provision State category for jurisdiction/bucket identities, keyed by Blob Store name. Config never reads it, because bucket names come from Store config. */
 const BLOB_R2_PROVISION_CATEGORY = "r2"
+
+function parseRecordedR2Bucket(id: string): { jurisdiction: string, name: string } | undefined {
+  const [, jurisdiction, name] = /^(default|eu|fedramp|us)\/([A-Za-z0-9][\w.-]*)$/.exec(id) ?? []
+  return jurisdiction && name ? { jurisdiction, name } : undefined
+}
 
 // The R2 API reads and writes the default jurisdiction unless this header names another one.
 function jurisdictionHeaders(jurisdiction: CloudflareR2Jurisdiction | undefined): Record<string, string> | undefined {
@@ -239,9 +244,15 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
       return [{
         category: BLOB_R2_PROVISION_CATEGORY,
         declared: resolvedStoreEntries(resolveOptions(), context.env).filter(([, store]) => store.driver === "cloudflare-r2").map(([name]) => name),
-        deleteHint: ({ id }) => isShellSafeProvisionValue(id)
-          ? `run \`wrangler r2 bucket delete ${id}\` (add \`--jurisdiction <jurisdiction>\` if the bucket has one)`
-          : "delete the R2 bucket in the Cloudflare dashboard",
+        // Older state recorded only the name, which cannot establish whether two buckets share a jurisdiction.
+        resourceIdentity: ({ id }) => parseRecordedR2Bucket(id) ? `r2:${id}` : undefined,
+        deleteHint: ({ id }) => {
+          const bucket = parseRecordedR2Bucket(id)
+          if (bucket) return `run \`wrangler r2 bucket delete ${bucket.name}${bucket.jurisdiction === "default" ? "" : ` --jurisdiction ${bucket.jurisdiction}`}\``
+          return isShellSafeProvisionValue(id)
+            ? `run \`wrangler r2 bucket delete ${id}\` (add \`--jurisdiction <jurisdiction>\` if the bucket has one)`
+            : "delete the R2 bucket in the Cloudflare dashboard"
+        },
       }]
     },
     async plan(context) {
@@ -277,7 +288,7 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
           exists,
           apply: async () => {
             if (!exists) await createCloudflareR2Bucket(request, bucket)
-            return { ids: { cloudflare: { [BLOB_R2_PROVISION_CATEGORY]: Object.fromEntries(bucket.stores.map(store => [store, bucket.name])) } } }
+            return { ids: { cloudflare: { [BLOB_R2_PROVISION_CATEGORY]: Object.fromEntries(bucket.stores.map(store => [store, `${bucket.jurisdiction ?? "default"}/${bucket.name}`])) } } }
           },
         }
       })

@@ -129,7 +129,7 @@ describe("blob cloudflare provision step", () => {
     })
 
     const actions = await plan(fetchImpl)
-    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { r2: { default: "assets" } } } })
+    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { r2: { default: "default/assets" } } } })
     expect(requests.map(request => [request.method, request.url.pathname])).toEqual([
       ["GET", "/client/v4/accounts/acc/r2/buckets"],
       ["POST", "/client/v4/accounts/acc/r2/buckets"],
@@ -292,7 +292,7 @@ describe("blob cloudflare provision step", () => {
     expect(requests.map(request => request.jurisdiction)).toEqual([null, "eu"])
   })
 
-  it("records the bucket name of each R2 Store, also for an existing bucket", async () => {
+  it("records the bucket name and jurisdiction of each R2 Store, also for an existing bucket", async () => {
     const { fetchImpl } = jurisdictionFetch({ default: ["assets"] })
 
     const actions = await createBlobCloudflareProvisionStep(() => ({
@@ -304,8 +304,8 @@ describe("blob cloudflare provision step", () => {
     })).plan(context(fetchImpl))
 
     await expect(Promise.all(actions.map(action => action.apply()))).resolves.toEqual([
-      { ids: { cloudflare: { r2: { default: "assets" } } } },
-      { ids: { cloudflare: { r2: { eu: "assets", euAlias: "assets" } } } },
+      { ids: { cloudflare: { r2: { default: "default/assets" } } } },
+      { ids: { cloudflare: { r2: { eu: "eu/assets", euAlias: "eu/assets" } } } },
     ])
   })
 
@@ -322,6 +322,20 @@ describe("blob cloudflare provision step", () => {
     expect(category).toMatchObject({ category: "r2", declared: ["files", "uploads"] })
     expect(category?.deleteHint({ id: "old-assets", key: "old" })).toBe("run `wrangler r2 bucket delete old-assets` (add `--jurisdiction <jurisdiction>` if the bucket has one)")
     expect(category?.deleteHint({ id: "$(touch /tmp/x)", key: "old" })).toBe("delete the R2 bucket in the Cloudflare dashboard")
+  })
+
+  it("keeps recorded jurisdictions distinct and treats legacy bucket names as unknown identities", () => {
+    const step = createBlobCloudflareProvisionStep(() => ({ bucketName: "assets", driver: "cloudflare-r2" }))
+    const [category] = step.recordedState?.({ env: {} }) ?? []
+
+    expect(category?.resourceIdentity?.({ id: "default/assets", key: "current" })).toBe("r2:default/assets")
+    expect(category?.resourceIdentity?.({ id: "eu/assets", key: "old" })).toBe("r2:eu/assets")
+    expect(category?.resourceIdentity?.({ id: "assets", key: "legacy" })).toBeUndefined()
+    expect(category?.deleteHint({ id: "default/assets", key: "old" })).toBe("run `wrangler r2 bucket delete assets`")
+    for (const jurisdiction of ["eu", "us", "fedramp"]) {
+      expect(category?.deleteHint({ id: `${jurisdiction}/assets`, key: "old" })).toBe(`run \`wrangler r2 bucket delete assets --jurisdiction ${jurisdiction}\``)
+    }
+    expect(category?.deleteHint({ id: "eu/$(touch /tmp/x)", key: "old" })).toBe("delete the R2 bucket in the Cloudflare dashboard")
   })
 })
 
