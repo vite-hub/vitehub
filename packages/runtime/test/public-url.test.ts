@@ -87,15 +87,15 @@ describe("public URL", () => {
       Reflect.deleteProperty(globalThis, hosted)
     })
 
-    it("links the hosted Console with the project origin and base", () => {
+    it.each(["/portal/", "/_vitehub-app/", "/portal/_vitehub-assets/"])("links the hosted Console with the project origin and base %s", (base) => {
       Reflect.set(globalThis, hosted, true)
-      vi.stubGlobal("__VITEHUB_APP_BASE_URL__", "/portal/")
+      vi.stubGlobal("__VITEHUB_APP_BASE_URL__", base)
       const url = new URL(consoleInvocationUrl("https://agents.example.com", "team/support", "a/b"))
       expect(url.origin).toBe("https://console.vitehub.dev")
       expect(url.pathname).toBe("/open")
       expect(Object.fromEntries(url.searchParams)).toEqual({
         path: "/agents/~007400650061006d002f0073007500700070006f00720074/invocations/a%2Fb",
-        project: "https://agents.example.com/portal",
+        project: `https://agents.example.com${base.slice(0, -1)}`,
       })
     })
 

@@ -379,7 +379,7 @@ function authRouteProtects(
 /** `auth: false` has no sign-in, so it works only in `vite dev`, where the Console accepts loopback requests only. */
 export function assertConsoleProductionAuth(configured: ConsoleOptions): void {
   if (configured.auth !== false) return
-  throw viteHubErrorDiagnostics.VITE_HUB_B0020({ message: '[vitehub] console.auth false is for development. Use auth: "token" and set VITEHUB_CONSOLE_TOKEN_SHA256 (create a token with `openssl rand -hex 32`, store `printf %s "$TOKEN" | sha256sum`), or auth: "app".' })
+  throw viteHubErrorDiagnostics.VITE_HUB_B0020({ message: '[vitehub] console.auth false is for development. Use auth: "app" with an app Auth Definition, or a Console Auth config object.' })
 }
 
 /** Resolve the `console.authorize` file. A configured path must exist. */

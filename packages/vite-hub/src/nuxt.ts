@@ -1546,8 +1546,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       )
       installConsoleSections(projectRoot, consoleSections, Boolean(consoleAuthConfig(consoleOptions)))
       installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
+      const embed = consoleEmbedsPages(consoleOptions, nuxt.options.dev === true)
       addConsoleRpcHandler(config, consoleRuntimeRoot, nuxt.options.app?.baseURL, consoleSections, Boolean(consoleAccess?.oauth));
-      addConsolePageHandlers(config, consoleRuntimeRoot, nuxt.options.app?.baseURL, configuredConsoleAuth ? undefined : consoleAccess?.signInPage)
+      addConsolePageHandlers(config, consoleRuntimeRoot, nuxt.options.app?.baseURL, configuredConsoleAuth ? undefined : consoleAccess?.signInPage, embed)
       if (consoleSections.includes("connections")) {
         // The Connections management handler records the signed-in Console user as the actor.
         // SAFETY: Nitro aliases map virtual module names to generated module paths.
@@ -1593,6 +1594,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           runtimeCapabilityImports,
           nuxt.options.dev === true,
           nuxt.options.app?.baseURL,
+          true,
+          embed,
         )
       }
     }

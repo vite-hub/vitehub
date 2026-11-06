@@ -16,6 +16,14 @@ describe("hosted Console links", () => {
     expect(new URL(hostedConsoleUrl("https://app.example.com/portal/_vitehub/kv", "/kv")).searchParams.get("project")).toBe("https://app.example.com/portal")
   })
 
+  it.each(["/_vitehub-app", "/portal/_vitehub-assets"])("keeps the application mount %s", (base) => {
+    const project = `https://app.example.com${base}`
+    expect(normalizeConsoleProjectUrl(`${project}/`)).toBe(project)
+    expect(new URL(hostedConsoleUrl(project, "/kv")).searchParams.get("project")).toBe(project)
+    expect(normalizeConsoleProjectUrl(`${project}/_vitehub`)).toBe(project)
+    expect(normalizeConsoleProjectUrl(`${project}/_vitehub/kv`)).toBe(project)
+  })
+
   it("uses another Console origin", () => {
     expect(hostedConsoleUrl("http://localhost:3000", "/kv", "http://127.0.0.1:4871")).toBe("http://127.0.0.1:4871/open?project=http%3A%2F%2Flocalhost%3A3000&path=%2Fkv")
   })

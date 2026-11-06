@@ -156,7 +156,7 @@ With independent Console Auth, the sign-in button opens authentication in the ma
 
 App Auth and the Console must use the same public origin, including the protocol and port. The Console rejects a different resolved Auth `baseURL` before starting sign-in or initializing its account client. Serve Auth on the Console origin or configure independent Console Auth when the app's Auth runs on another origin.
 
-`auth: false` is for development. A production build with `auth: false` fails with `VITE_HUB_B0020`, because anyone who can reach the app could read Console data. Use `auth: 'app'`, or a Console token: set `auth: 'token'` and the server env var `VITEHUB_CONSOLE_TOKEN_SHA256`. Create a token with `openssl rand -hex 32` and store its hash, `printf %s "$TOKEN" | sha256sum`. See [Protect the Console route](#protect-the-console-route).
+`auth: false` is for development. A production build with `auth: false` fails with `VITE_HUB_B0020`, because anyone who can reach the app could read Console data. Use `auth: 'app'` with an app Auth Definition, or a Console Auth config object. See [Protect the Console route](#protect-the-console-route).
 
 ### Open the Console of a production app
 
@@ -470,7 +470,7 @@ On Cloudflare, use `console: { auth: { provider: 'cloudflare-access' } }` with a
 
 ### Use another authentication library
 
-In `vite dev`, apps that use another authentication library can set `auth: false` and give the Console an `authorize` function. A production build refuses `auth: false`, so in production use a Console token with `auth: 'token'`. `authorize` still runs after the token check.
+In `vite dev`, apps that use another authentication library can set `auth: false` and give the Console an `authorize` function. A production build refuses `auth: false`. In production, use `auth: 'app'` with an app Auth Definition, or a Console Auth config object. `authorize` still runs after authentication.
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -852,7 +852,7 @@ The Console does not calculate missing provider data. Token counts, model metada
 | ViteHub reports that `console.auth` is required (`VITE_HUB_B0004`) | Add `auth` to the `console` object. Use `'app'`, a Console Auth config, or `false` for development. |
 | `auth: 'app'` fails with `VITE_HUB_B0005` | Set `auth: true` and add a discovered Auth Definition, such as `server/auth.ts`. |
 | `auth: 'app'` fails with `VITE_HUB_B0006` | Set `console.authorize`, or add Auth access routes with an `authorize` callback for the routes in the message. |
-| A production build fails with `VITE_HUB_B0020` | `auth: false` is for development. Use `auth: 'token'` and set `VITEHUB_CONSOLE_TOKEN_SHA256`, or `auth: 'app'`. |
+| A production build fails with `VITE_HUB_B0020` | `auth: false` is for development. Use `auth: 'app'` with an app Auth Definition, or a Console Auth config object. |
 | Console data routes return `500` with "console.authorize must return" | Return `true`, `false`, a `Response`, or `{ sections: string[] }` from `authorize`. Create the `Response` with the global `Response`. An object shaped like a Response, or a Response from another Fetch implementation, is an invalid result. |
 | Agent Console startup fails on a hosted preset | Set `agent.invocations: 'database'`, or attach one durable Agent Invocations journal to every discovered Agent Definition. The local SQLite fallback requires a writable, persistent filesystem. |
 | The page returns `401` | Sign in through the Auth provider configured by the host. |

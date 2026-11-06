@@ -2478,7 +2478,7 @@ describe("ViteHub Nuxt integration", () => {
   it("refuses a production Console without sign-in, and keeps it for development and nuxi prepare", async () => {
     await expect(viteHubNuxtModule({ console: { auth: false }, preset: "node" }, createNuxt(false).nuxt)).rejects.toMatchObject({
       code: "VITE_HUB_B0020",
-      message: expect.stringContaining('console.auth false is for development. Use auth: "token" and set VITEHUB_CONSOLE_TOKEN_SHA256'),
+      message: expect.stringContaining('console.auth false is for development. Use auth: "app" with an app Auth Definition, or a Console Auth config object.'),
     })
     await expect(viteHubNuxtModule({ console: { auth: false }, preset: "node" }, createNuxt(true).nuxt)).resolves.toBeUndefined()
     const prepare = createNuxt(false)
@@ -2712,6 +2712,36 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       "/.well-known/oauth-authorization-server",
       "/.well-known/oauth-authorization-server/**",
     ]))
+  })
+
+  it.each([
+    { dev: false, embed: undefined, embedded: false },
+    { dev: false, embed: false, embedded: false },
+    { dev: false, embed: true, embedded: true },
+    { dev: true, embed: false, embedded: true },
+  ])("preserves Console embedding through Nitro replay with dev=$dev and embed=$embed", async ({ dev, embed, embedded }) => {
+    const application = createNuxt(dev)
+    Object.assign(application.nuxt.options, { app: { baseURL: "/portal/" } })
+    await viteHubNuxtModule({
+      console: { auth: { provider: "github", allowedEmails: ["maintainer@example.com"], databasePath: "/data/console-auth.sqlite" }, embed },
+      preset: "node",
+    }, application.nuxt)
+    const config = nitroOptions(application.nuxt)
+    await application.runNitroConfigHook(config)
+
+    const handlers = config.handlers as Array<{ handler: string, route?: string }>
+    for (const route of ["/portal/_vitehub", "/portal/_vitehub/**"]) {
+      expect(handlers.filter(handler => handler.route === route)).toEqual([
+        expect.objectContaining({ handler: expect.stringContaining(embedded ? "/server/page.get.js" : "/server/not-embedded.js") }),
+      ])
+    }
+    const assets = config.publicAssets as Array<{ baseURL?: string }>
+    expect(assets.some(asset => asset.baseURL === "/portal/_vitehub/assets")).toBe(embedded)
+    expect(nitroHandlerRoutes(config).includes("/portal/api/_vitehub/console/client.js")).toBe(embedded)
+    expect(nitroHandlerRoutes(config)).toContain("/portal/_vitehub/page/session")
+    const plugin = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+    expect(plugin).toContain(`installConsolePageTool(nitroApp, { base: "/portal/"${embedded ? "" : ", embed: false"} })`)
+    expect(plugin.includes('globalThis[Symbol.for("vitehub.console.hosted")] = true')).toBe(!embedded)
   })
 
   it("mounts the standalone Console page and assets below the Nuxt app base URL", async () => {
