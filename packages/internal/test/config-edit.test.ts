@@ -217,6 +217,30 @@ describe("editViteHubConfig", () => {
     expect(locateViteHubConfig("nuxt.config.ts", both)).toEqual({ ok: false, reason: "multiple-vitehub", line: 3 })
   })
 
+  it.each([
+    "modules: [\"vite-hub/nuxt\"], vitehub: { kv: false }, ...base",
+    "modules: [\"vite-hub/nuxt\"], ...base, vitehub: { kv: false }",
+    "vitehub: { kv: false }, ...base, modules: [\"vite-hub/nuxt\"]",
+    "modules: [[\"vite-hub/nuxt\", { kv: false }]], ...base",
+    "modules: [\"vite-hub/nuxt\"], ...base",
+  ])("refuses a Nuxt root spread that can override the selected config (%#)", (properties) => {
+    const code = `const base = { modules: [], vitehub: { kv: true } }\nexport default defineNuxtConfig({ ${properties} })\n`
+    expect(locateViteHubConfig("nuxt.config.ts", code)).toMatchObject({ ok: false, reason: "spread", line: 2 })
+    expect(editViteHubConfig("nuxt.config.ts", code, [{ op: "set", key: "kv", value: true }])).toMatchObject({ ok: false, reason: "spread" })
+    expect(editViteHubConfig("nuxt.config.ts", code, [{ op: "delete", key: "kv" }])).toMatchObject({ ok: false, reason: "spread" })
+  })
+
+  it.each([
+    "modules: [\"vite-hub/nuxt\"], vitehub: { kv: false }",
+    "modules: [[\"vite-hub/nuxt\", { kv: false }]]",
+  ])("edits a Nuxt config whose selected properties follow the root spread (%#)", (properties) => {
+    const code = `export default defineNuxtConfig({ ...base, ${properties} })\n`
+    expect(locateViteHubConfig("nuxt.config.ts", code)).toMatchObject({ ok: true })
+    const added = edit("nuxt.config.ts", code, [{ op: "set", key: "preset", value: "node" }])
+    expect(added).toBe(code.replace("kv: false", "kv: false, preset: \"node\""))
+    expect(edit("nuxt.config.ts", added, [{ op: "delete", key: "preset" }])).toBe(code)
+  })
+
   it("does not evaluate code", () => {
     const sentinel: { __evaluated?: boolean } = globalThis
     const code = "import { vitehub } from \"vite-hub\"\nglobalThis.__evaluated = true\nexport default { plugins: [vitehub({ kv: (globalThis.__evaluated = true) })] }\n"

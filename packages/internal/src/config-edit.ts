@@ -203,6 +203,9 @@ function locateNuxt(code: string, program: File): Located | Failure {
   if (!entry) return fail("no-vitehub")
   if (second) return fail("multiple-vitehub", second)
   const keyProperty = findMember(root, "vitehub")
+  // A later root spread can replace the module list or the selected options object.
+  const rootSpread = root.properties.findLast(member => member.type === "SpreadElement")
+  if (rootSpread && (start(rootSpread) > start(modulesProperty) || (keyProperty && start(rootSpread) > start(keyProperty)))) return fail("spread", rootSpread)
   const tupleOptions = entry.type === "ArrayExpression" ? entry.elements[1] : undefined
   if (tupleOptions && keyProperty) return fail("multiple-vitehub", keyProperty)
   if (tupleOptions && tupleOptions.type === "SpreadElement") return fail("dynamic-options", tupleOptions)
