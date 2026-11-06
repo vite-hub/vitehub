@@ -80,7 +80,7 @@ describe("feature catalog parity with owner resolution", () => {
     const root = mkdtempSync(join(tmpdir(), "vitehub-feature-database-"))
     roots.push(root)
     const local = resolveDBViteConfig(undefined, root, { implicitDefault: true })!
-    expect(local.databases.default?.connection.url).toBe("file:.vitehub/data/database/sqlite.db")
+    expect(local.databases.default?.connection?.url).toBe("file:.vitehub/data/database/sqlite.db")
     expect(supportsHostedDatabaseRuntime("vercel", local, {})).toBe(false)
     expect(featureSupport("database", "vercel")).toMatchObject({ level: "explicit", option: "database.connection" })
     const remote = resolveDBViteConfig({ connection: { url: "libsql://example.turso.io" } }, root, { implicitDefault: true })!

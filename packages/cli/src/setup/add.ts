@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import process from "node:process"
 import { createInterface } from "node:readline/promises"
@@ -81,7 +81,19 @@ const booleanFeatures: readonly FeatureId[] = ["queue", "sandboxTask"]
 /** The value that turns a feature on, when `true` is not valid for its key. */
 const enabledValues: Partial<Record<FeatureId, JsonValue>> = { env: {} }
 /** Options without a default that the feature key needs. */
-const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { observability: ["service"] }
+const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { console: ["auth"], observability: ["service"] }
+
+/** Keep owner packages on the running CLI's pkg.pr.new preview. */
+function installSpecifiers(packages: readonly string[]): string[] {
+  const manifest: JsonValue = JSON.parse(readFileSync(new URL(import.meta.resolve("@vite-hub/cli/package.json")), "utf8"))
+  const dependencies = isRecord(manifest) && isRecord(manifest.dependencies) ? manifest.dependencies : {}
+  const preview = Object.entries(dependencies).flatMap(([name, specifier]) => {
+    if (!name.startsWith("@vite-hub/") || typeof specifier !== "string" || !specifier.startsWith("https://pkg.pr.new/")) return []
+    const [base, ref] = specifier.split(`/${name}@`)
+    return base && ref ? [{ base, ref }] : []
+  })[0]
+  return packages.map(name => preview && name.startsWith("@vite-hub/") ? `${preview.base}/${name}@${preview.ref}` : name)
+}
 
 function invalid(message: string): Error {
   return cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${message} Usage: ${usage}` })
@@ -304,7 +316,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       if (options && key in options) continue
       if (setsOption(project, `${id}.${key}`)) continue
       missing.push({ field: `${id}.${key}` })
-      setPath(defaults[id] ??= {}, [key], basename(project.root).toLowerCase().replace(/[^a-z0-9]+/gu, "-") || "app")
+      if (id === "console") rerunnable = false
+      else setPath(defaults[id] ??= {}, [key], basename(project.root).toLowerCase().replace(/[^a-z0-9]+/gu, "-") || "app")
     }
   }
   for (const id of Object.keys(args.options) as FeatureId[]) {
@@ -337,6 +350,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   if (args.name !== undefined) {
     const withStarter = args.features.filter(id => features[id].definition)
     if (!withStarter.length) throw invalid(`${args.features.join(", ")} has no Definition files, so --name has no effect. Features with Definitions: ${featureIds.filter(id => features[id].definition).join(", ")}.`)
+    if (project.framework === "nuxt" && !project.serverDirs?.length) {
+      throw new SetupAddError(cliErrorDiagnostics.SETUP_SERVER_DIR_MANUAL(), { exitCode: setupExitCodes.conflict })
+    }
     for (const id of withStarter) {
       const starter = features[id].definition!
       const path = join(serverDir, relative("server", starter.file(args.name)))
@@ -372,6 +388,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     for (const name of features[id].packages) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
     for (const name of features[id].devPackages) if (!project.declared(name, true) && !install.dev.includes(name)) install.dev.push(name)
   }
+  install.prod = installSpecifiers(install.prod)
+  install.dev = installSpecifiers(install.dev)
   const command = installCommand(project.packageManager, install.prod, install.dev)
 
   const nextSteps: string[] = []

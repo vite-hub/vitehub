@@ -44,6 +44,11 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Choose another --name, or edit the file by hand.",
       why: ({ file }: { file?: unknown }) => `${String(file)} exists and is not the starter Definition. ViteHub never overwrites a file.`,
     },
+    SETUP_SERVER_DIR_MANUAL: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_server_dir_manual",
+      fix: "Create the Definition in your evaluated Nuxt server directory and rerun without --name, or use literal rootDir and serverDir options without layers.",
+      why: "ViteHub cannot determine the Nuxt application server directory without running the config.",
+    },
     SETUP_INPUT_NEEDED: {
       docs: "https://vitehub.dev/docs/development/cli#setup_input_needed",
       fix: "Run the `rerun` command, or pass the missing values with --option.",
