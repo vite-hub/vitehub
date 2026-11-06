@@ -71,6 +71,11 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Run the uninstall command by hand to see the error. ViteHub already changed the config and deleted the starter files.",
       why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
     },
+    SETUP_PLAN_UNKNOWN: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_plan_unknown",
+      fix: "Plan the change again. A plan applies once, and only on the dev server that made it.",
+      why: () => "The dev server has no plan with this id. It was applied already, or the server restarted.",
+    },
     SETUP_STALE_PLAN: {
       docs: "https://vitehub.dev/docs/development/cli#setup_stale_plan",
       fix: "Run the command again to plan from the current file.",

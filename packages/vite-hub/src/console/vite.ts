@@ -289,8 +289,10 @@ function configureConsoleNitroRoutes(
     ? nitro.publicAssets.filter(asset => asset?.dir !== join(consoleRuntimeRoot, "page"))
     : []
   const kit = createNitroServerKit({ ...nitro, handlers, publicAssets: assets })
-  // Without a `console` option, `vite dev` serves only the RPC, so the CLI can call operations. No page, no assets.
-  if (!rpcOnly) {
+  // Without a `console` option, `vite dev` serves the RPC, so the CLI can call operations, and the page with only the
+  // Setup section.
+  const page = !rpcOnly || sections.includes("setup")
+  if (page) {
     ignoreConsolePrerender(kit.config, baseURL)
     // Console Auth already redirects in its middleware, including its OAuth start request.
     if (signInPage && !consoleAuthHandlers) {
@@ -322,7 +324,7 @@ function configureConsoleNitroRoutes(
   // The page tools contribute their loader asset to the kit.
   const userPublicAssets = (kit.config.publicAssets as ConsoleNitroConfig["publicAssets"] ?? [])
     .filter(asset => asset?.dir !== consolePublicRoot && asset?.dir !== consoleSkillsRoot)
-  const publicAssets = [...rpcOnly
+  const publicAssets = [...!page
     ? []
     : [{
         baseURL: consoleAssetsBase,
@@ -574,6 +576,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     },
     async config(config, environment) {
       development = environment.command === "serve"
+      // The Setup section writes the project, so only a development server has it.
+      if (development) sections = insertConsoleSection(sections, "setup")
       if (options.connections !== undefined && !isConsoleConnectionsEnabled(options, environment.command === "serve")) {
         sections = sections.filter(section => section !== "connections")
       }

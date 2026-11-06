@@ -56,7 +56,7 @@ describe("Console pages and the prerender crawler", () => {
     }
   })
 
-  it("leaves prerendering alone when plain Vite only registers the RPC", async () => {
+  it("keeps the crawler out of the Setup-only page when plain Vite has no Console options", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-rpc-prerender-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -66,7 +66,7 @@ describe("Console pages and the prerender crawler", () => {
       const configure = "handler" in hook ? hook.handler : hook
       const config: { root: string, nitro?: { prerender?: unknown }, vitehubCliDiscovery: true } = { root, vitehubCliDiscovery: true }
       await Reflect.apply(configure, {}, [config, { command: "serve", mode: "development" }])
-      expect(config.nitro?.prerender).toBeUndefined()
+      expect(config.nitro?.prerender).toEqual({ ignore: ["/_vitehub"] })
     }
     finally {
       await rm(root, { force: true, recursive: true })

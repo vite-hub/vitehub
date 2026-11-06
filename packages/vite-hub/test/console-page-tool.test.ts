@@ -133,7 +133,8 @@ describe("the Console Nitro configuration", () => {
       const config: { root: string, nitro?: { handlers: Array<{ route: string }>, publicAssets: Array<{ baseURL: string }> } } = { root }
       await Reflect.apply(handler, {}, [config, { command: "serve", mode: "development" }])
       expect(config.nitro?.handlers.some(handler => handler.route.includes("/page/session"))).toBe(false)
-      expect(config.nitro?.publicAssets.some(asset => asset.baseURL.includes("/_vitehub/"))).toBe(false)
+      // The Setup-only page loads the Console assets, but no page tools.
+      expect(config.nitro?.publicAssets.some(asset => asset.baseURL.includes("/_vitehub/page"))).toBe(false)
       await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain("export default function viteHubConsolePlugin() {}")
       const htmlHook = plugin.transformIndexHtml
       const transform = typeof htmlHook === "function" ? htmlHook : htmlHook?.handler

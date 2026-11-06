@@ -40,7 +40,7 @@ import { assertConsoleRetention, writeConsoleNitroPlugin, type ConsoleAccessBuil
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { consoleOperationFeatures } from "./console/operation-features.ts"
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
-import { isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
+import { insertConsoleSection, isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { consoleNuxtDevToolsTab, type ConsoleNuxtDevToolsTab } from "./console/devtools.ts"
 import { addConsolePageHandlers, addConsoleRpcHandler, mountPath } from "./console/nitro.ts"
@@ -559,6 +559,8 @@ async function installConsole(
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
 ): Promise<string> {
+  // The Setup section writes the project, so only a development server has it.
+  if (nuxt.options.dev) sections = insertConsoleSection(sections, "setup")
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
   assertConsoleRetention(retention, journal)

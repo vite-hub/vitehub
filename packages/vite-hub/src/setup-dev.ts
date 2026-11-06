@@ -1,0 +1,230 @@
+import { spawn } from "node:child_process"
+import { randomUUID } from "node:crypto"
+import { existsSync } from "node:fs"
+import { dirname, join, resolve } from "node:path"
+import process from "node:process"
+
+import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
+import { createViteHubDevToken, removeViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
+
+import type { IncomingMessage, ServerResponse } from "node:http"
+import type { SetupCommandRunner, SetupSession, SetupSessionResult } from "@vite-hub/cli/setup"
+import type { ViteHubDevEndpointServer } from "@vite-hub/internal/dev-endpoint"
+import type { Plugin, ViteDevServer } from "vite"
+
+/** Base of the dev Setup endpoints. They exist only on the Vite dev server, never in Nitro or in build output. */
+export const setupDevRoute = "/__vitehub/setup"
+
+/** Token namespace of the dev Setup endpoints. The token file lets a local CLI call them too. */
+export const setupDevTokenNamespace = "vitehub-setup"
+
+const label = "Setup"
+const maxBodyBytes = 64 * 1024
+
+export interface SetupDevPluginOptions {
+  /** Runs the package manager. Tests pass a fake runner. */
+  run?: SetupCommandRunner
+}
+
+/** Runs `command` with an argument array and no shell, and streams its output. */
+export const runSetupCommand: SetupCommandRunner = async (command, args, options) => await new Promise((done) => {
+  const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: ["ignore", "pipe", "pipe"] })
+  child.stdout.setEncoding("utf8").on("data", (text: string) => options.onOutput(text, "stdout"))
+  child.stderr.setEncoding("utf8").on("data", (text: string) => options.onOutput(text, "stderr"))
+  child.once("error", (error) => {
+    options.onOutput(`${error.message}\n`, "stderr")
+    done({ exitCode: 1 })
+  })
+  child.once("close", (exitCode, signal) => done({ exitCode, signal }))
+})
+
+/** The closest folder from `root` up that has a package.json. Nuxt runs Vite in its source folder. */
+function projectRoot(root: string): string {
+  for (let folder = resolve(root); ; folder = dirname(folder)) {
+    if (existsSync(join(folder, "package.json"))) return folder
+    if (dirname(folder) === folder) return resolve(root)
+  }
+}
+
+function hostname(host: string): string {
+  const trimmed = host.trim().toLowerCase()
+  if (trimmed.startsWith("[")) return trimmed.slice(0, trimmed.indexOf("]") + 1)
+  const colon = trimmed.indexOf(":")
+  return colon === -1 ? trimmed : trimmed.slice(0, colon)
+}
+
+function isLoopback(name: string): boolean {
+  return name === "localhost" || name.endsWith(".localhost") || name === "[::1]" || /^127(?:\.\d{1,3}){3}$/u.test(name)
+}
+
+/**
+ * Loopback `Host` and `Origin` only, plus host names that `server.allowedHosts` lists one by one. An IP literal of the
+ * network, `allowedHosts: true`, or `server.https` does not open the Setup endpoints, because they write files.
+ */
+export function isSetupDevRequestAllowed(server: Pick<ViteHubDevEndpointServer, "config">, req: Pick<IncomingMessage, "headers">): boolean {
+  const allowed = server.config.server.allowedHosts
+  const explicit = Array.isArray(allowed) ? allowed.map(host => host.toLowerCase()).filter(host => !host.startsWith(".")) : []
+  const accepts = (name: string) => isLoopback(name) || explicit.includes(name)
+  const host = req.headers.host
+  if (!host || !accepts(hostname(host))) return false
+  const origin = req.headers.origin
+  if (origin === undefined) return true
+  try {
+    // The URL parser keeps the brackets of an IPv6 host, as in `[::1]`.
+    return accepts(new URL(origin).hostname.toLowerCase())
+  }
+  catch {
+    return false
+  }
+}
+
+function forbidden(): Response {
+  return new Response(`Forbidden ${label} host.`, { status: 403 })
+}
+
+/** The HTTP status of a setup document: the exit code says why it failed. */
+const exitStatus: ReadonlyMap<number, number> = new Map([[0, 200], [1, 500], [2, 422], [3, 409], [4, 409]])
+
+export function setupHttpStatus(result: SetupSessionResult): number {
+  const error = result.body.error
+  const code = error && typeof error === "object" ? Reflect.get(error, "code") : undefined
+  if (code === "CLI_R0003") return 400
+  if (code === "SETUP_PLAN_UNKNOWN") return 404
+  return exitStatus.get(result.exitCode) ?? 500
+}
+
+function writeJson(res: ServerResponse, status: number, body: unknown): void {
+  res.statusCode = status
+  res.setHeader("cache-control", "no-store")
+  res.setHeader("content-type", "application/json; charset=utf-8")
+  res.end(JSON.stringify(body))
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk))
+    size += buffer.length
+    if (size > maxBodyBytes) throw new RangeError("The request body is too large.")
+    chunks.push(buffer)
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}")
+}
+
+interface SetupDevState {
+  events: Set<ServerResponse>
+  serverId: string
+  session: SetupSession
+  token: string
+}
+
+function send(res: ServerResponse, event: string, data: unknown): void {
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+}
+
+function broadcast(state: SetupDevState, event: string, data: unknown): void {
+  for (const res of state.events) send(res, event, data)
+}
+
+function openEvents(state: SetupDevState, req: IncomingMessage, res: ServerResponse): void {
+  res.statusCode = 200
+  res.setHeader("cache-control", "no-store")
+  res.setHeader("content-type", "text/event-stream; charset=utf-8")
+  res.setHeader("x-accel-buffering", "no")
+  res.flushHeaders()
+  send(res, "hello", { serverId: state.serverId })
+  state.events.add(res)
+  // A comment line keeps proxies from closing an idle stream.
+  const heartbeat = setInterval(() => res.write(": ping\n\n"), 15_000)
+  heartbeat.unref()
+  const close = () => {
+    clearInterval(heartbeat)
+    state.events.delete(res)
+  }
+  req.once("close", close)
+  res.once("close", close)
+}
+
+function register(server: ViteDevServer, state: SetupDevState): void {
+  const authorize = (req: IncomingMessage) => isSetupDevRequestAllowed(server, req) ? undefined : forbidden()
+  const guarded = (route: string, method: "GET" | "POST", handle: (req: IncomingMessage, res: ServerResponse) => Promise<void> | void) => registerViteHubDevEndpoint(server, {
+    authorize,
+    handle: (req, res) => {
+      void (async () => await handle(req, res))().catch((error: unknown) => {
+        if (res.headersSent) return res.destroy()
+        writeJson(res, error instanceof SyntaxError || error instanceof RangeError ? 400 : 500, { error: { code: "CLI_R0003", message: error instanceof Error ? error.message : String(error) }, schemaVersion: 1 })
+      })
+    },
+    header: viteHubDevTokenHeader,
+    headerValue: state.token,
+    label,
+    methods: [method],
+    route: `${setupDevRoute}/${route}`,
+  })
+  const respond = (res: ServerResponse, result: SetupSessionResult) => writeJson(res, setupHttpStatus(result), result.body)
+
+  // The page reads the token here. A browser sends `sec-fetch-site: same-origin` only for a page of this origin, and
+  // a cross-origin page cannot read the answer, so only the Console of this dev server gets the token.
+  registerViteHubDevEndpoint(server, {
+    authorize,
+    handle: (_req, res) => writeJson(res, 200, { route: setupDevRoute, schemaVersion: 1, serverId: state.serverId, token: state.token }),
+    header: "sec-fetch-site",
+    headerValue: "same-origin",
+    label,
+    methods: ["GET"],
+    route: `${setupDevRoute}/session`,
+  })
+  guarded("catalog", "GET", (_req, res) => respond(res, state.session.catalog()))
+  guarded("status", "GET", async (_req, res) => respond(res, await state.session.status()))
+  guarded("plan", "POST", async (req, res) => respond(res, await state.session.plan(await readJsonBody(req))))
+  guarded("apply", "POST", async (req, res) => {
+    const body = await readJsonBody(req)
+    const planId = body && typeof body === "object" ? Reflect.get(body, "planId") : undefined
+    broadcast(state, "apply", { planId })
+    const result = await state.session.apply(planId, (text, stream) => broadcast(state, "log", { stream, text }))
+    broadcast(state, "applied", { exitCode: result.exitCode, restart: result.body.restart === true })
+    respond(res, result)
+  })
+  guarded("events", "GET", (req, res) => openEvents(state, req, res))
+}
+
+/**
+ * The dev Setup endpoints below `/__vitehub/setup`, on the Vite dev server only (`apply: "serve"`). They do what
+ * `vitehub status`, `catalog`, `add`, and `remove` do, with the same engine and documents:
+ *
+ * - `GET session`: the server id and the token, for a same-origin page.
+ * - `GET catalog`, `GET status`: the `--json` documents.
+ * - `POST plan`: `{ action, features, ... }` gives the `--dry-run --json` plan with a `planId`.
+ * - `POST apply`: `{ planId }` applies that plan once, when no file that it read has changed.
+ * - `GET events`: Server-Sent Events: `hello` with the server id, then install `log` lines and `applied`.
+ *
+ * Every route except `session` needs the `x-vitehub-dev-token` header. The server owns the project root: a request
+ * never names a path or a command.
+ */
+export function setupDevPlugin(options: SetupDevPluginOptions = {}): Plugin {
+  return {
+    apply: "serve",
+    name: "vite-hub/setup-dev",
+    async configureServer(server) {
+      const root = projectRoot(server.config.root)
+      const serverId = randomUUID()
+      const { token } = await createViteHubDevToken(root, setupDevTokenNamespace, serverId)
+      const { createSetupSession } = await import("@vite-hub/cli/setup")
+      const state: SetupDevState = {
+        events: new Set(),
+        serverId,
+        session: createSetupSession({ env: process.env, root, run: options.run ?? runSetupCommand }),
+        token,
+      }
+      register(server, state)
+      const close = server.close.bind(server)
+      server.close = async () => {
+        for (const res of state.events) res.end()
+        state.events.clear()
+        await removeViteHubDevToken(root, { namespace: setupDevTokenNamespace, serverId })
+        await close()
+      }
+    },
+  }
+}

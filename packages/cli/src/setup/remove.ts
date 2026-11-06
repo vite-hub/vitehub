@@ -134,7 +134,8 @@ function isStarter(starter: FeatureStarter, path: string, content: string): bool
   return name !== undefined && [starter.template, ...starter.previousTemplates ?? []].some(template => template(name) === content)
 }
 
-interface PlannedRemove {
+/** A `vitehub remove` plan with the file contents that applying it checks and writes. */
+export interface PlannedRemove {
   plan: SetupRemovePlan
   configFile?: { path: string, before: string, after: string }
   /** Starter Definitions to delete. */
@@ -315,7 +316,8 @@ async function deleteStarter(root: string, path: string): Promise<void> {
   }
 }
 
-async function applyRemove(project: SetupProject, planned: PlannedRemove, args: SetupRemoveArgs, context: ViteHubCliContext): Promise<void> {
+/** Applies a `vitehub remove` plan: writes the config first, deletes the starter Definitions, then uninstalls. */
+export async function applySetupRemove(project: SetupProject, planned: PlannedRemove, args: Pick<SetupRemoveArgs, "uninstall">, context: Pick<ViteHubCliContext, "env" | "spawn">): Promise<void> {
   // Check every file before the first write, so a stale plan writes nothing.
   if (planned.configFile && await readFile(join(project.root, planned.configFile.path), "utf8") !== planned.configFile.before) {
     throw new SetupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: planned.configFile.path }), setupExitCodes.stalePlan)
@@ -389,7 +391,7 @@ async function runRemove(args: string[], context: ViteHubCliContext): Promise<nu
       writePlan(plan, context)
       if (!await confirmSetupChange()) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), setupExitCodes.error)
     }
-    await applyRemove(project, planned, parsed, context)
+    await applySetupRemove(project, planned, parsed, context)
     const applied: SetupRemovePlan = { ...plan, status: "applied" }
     if (parsed.json) writeSetupJson(context, applied)
     else writeResult(applied, context)

@@ -449,7 +449,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   return { files, install, plan, ...(configFile ? { configFile } : {}) }
 }
 
-async function applyPlan(project: SetupProject, planned: SetupAddPlanned, args: SetupAddArgs, context: ViteHubCliContext): Promise<void> {
+/** Applies a `vitehub add` plan: installs the packages, writes the starter Definitions, and writes the config last. */
+export async function applySetupAdd(project: SetupProject, planned: SetupAddPlanned, args: Pick<SetupAddArgs, "install">, context: Pick<ViteHubCliContext, "env" | "spawn">): Promise<void> {
   const { dev, prod } = planned.install
   if (args.install) {
     for (const [packages, isDev] of [[prod, false], [dev, true]] as const) {
@@ -541,7 +542,7 @@ async function runAdd(args: string[], context: ViteHubCliContext): Promise<numbe
       writePlan(plan, context)
       if (!await confirmSetupChange()) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), setupExitCodes.error)
     }
-    await applyPlan(project, planned, parsed, context)
+    await applySetupAdd(project, planned, parsed, context)
     const applied: SetupAddPlan = { ...plan, status: "applied" }
     if (parsed.json) writeSetupJson(context, applied)
     else writeResult(applied, context)
