@@ -121,9 +121,11 @@ describe("Console Logs", () => {
     const reading = transport === "HTTP" ? logsRoute(requestEvent(req)) : handleConsoleRpcRequest(req);
     try {
       const signal = await started;
-      controller.abort();
-      // The RPC runs the operation on its own Request, whose signal follows the caller's.
+      expect(signal?.aborted).toBe(false);
+      const reason = new Error("Log request cancelled");
+      controller.abort(reason);
       expect(signal?.aborted).toBe(true);
+      expect(signal?.reason).toBe(reason);
       expect(aborted).toBe(true);
     } finally {
       finish({ entries: [] });
