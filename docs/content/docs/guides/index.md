@@ -15,6 +15,8 @@ in ViteHub and call the server API from application code.
 - [Deploy the same Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel).
 - [Choose a TypeScript Agent framework](/docs/guides/typescript-agent-frameworks).
 - [Compare ViteHub with other tools](/docs/compare).
+- [Run the Claude Agent SDK in production](/docs/guides/claude-agent-sdk).
+- [Run the Codex SDK in production](/docs/guides/codex-sdk).
 
 ## Build a chat bot
 

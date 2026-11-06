@@ -180,6 +180,8 @@ export interface RuntimeDrizzleDatabaseConfig {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
   drizzle: DatabaseDrizzleOptions
+  /** Set by the dev server when the build targets Cloudflare: local SQLite then checks the D1 limits. */
+  localLimits?: "d1"
   name: string
 }
 
