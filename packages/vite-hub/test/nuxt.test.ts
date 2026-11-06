@@ -30,6 +30,8 @@ import type { ConfigEnv, Plugin, PluginOption, ResolvedConfig, UserConfig } from
 import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.ts"
 import { resolveConsoleSections } from "../src/console/internal.ts"
 
+// Nuxt's Nitro 2 receives this module after every other Nitro module.
+const injectSourcemapsModule = expect.objectContaining({ name: "vite-hub/nitro-inject-sourcemaps" })
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const kvCacheDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
@@ -921,7 +923,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare", sandboxTask: true }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
-    expect(nitroConfig.modules).toEqual([existingModule, nitroModule])
+    expect(nitroConfig.modules).toEqual([existingModule, nitroModule, injectSourcemapsModule])
   })
 
   it("finalizes Sandbox Wrangler config after every Nuxt replay contributor", async () => {
@@ -3086,11 +3088,16 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       await viteHubNuxtModule({ console: false, preset, realtime }, nuxt)
       expect(nitroOptions(nuxt).preset).toBe(expectedPreset)
       expect(nuxt.options.vite).toHaveProperty(VITEHUB_NITRO_MAJOR_VERSION, major)
-      await runNitroConfigHook({ ...nitroOptions(nuxt) })
+      const config: Record<string, unknown> = { ...nitroOptions(nuxt) }
+      await runNitroConfigHook(config)
+      await runNitroConfigHook(config)
       expect(mocks.sandboxTaskHook).toHaveBeenCalledWith(expect.objectContaining({
         [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
         [VITEHUB_NITRO_MAJOR_VERSION]: major,
       }), expect.anything())
+      // Only Nitro 2 bundles with Rollup and `@rollup/plugin-inject`.
+      const injectModules = (Array.isArray(config.modules) ? config.modules : []).filter(module => isTestRecord(module) && module.name === "vite-hub/nitro-inject-sourcemaps")
+      expect(injectModules).toHaveLength(major === 2 ? 1 : 0)
     }
     finally {
       await rm(root, { recursive: true, force: true })
@@ -3522,7 +3529,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       ownerPlugin: true,
       externals: { inline: ["vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot] },
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
-      modules: ["agent-module"],
+      modules: ["agent-module", injectSourcemapsModule],
       preset: "cloudflare_module",
       queues: {
         handlers: [{ handler: "custom-server/queues/email.ts" }],
@@ -4727,7 +4734,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await runNitroConfigHook(nitroConfig)
 
     expect(nitroConfig).toMatchObject({
-      modules: ["first", "second"],
+      modules: ["first", "second", injectSourcemapsModule],
     })
   })
 
