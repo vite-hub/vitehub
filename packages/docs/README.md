@@ -39,7 +39,7 @@ content/
   docs/
     index.md                  → /docs
     guide/
-      .navigation.yml         section title, icon, order, category
+      .navigation.yml         section title, icon, order, category, group
       index.md                → /docs/guide
       install.md              → /docs/guide/install
 ```
@@ -76,6 +76,7 @@ Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the bui
 | `icon` | Section icon. |
 | `order` | Position in the rail. Lower comes first. |
 | `category` | Rail group and catalog group. List the categories in the `categories` option to order them. |
+| `group` | Title of the group of the section. See `groups`. |
 | `related` | Section ids listed under Related in the sidebar. |
 
 ## Layouts and rails
@@ -114,6 +115,7 @@ Most changes are options in `nuxt.config.ts`:
 | `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo` (one-color SVG path), `badge` (`{ label, tooltip }`). |
 | `categories` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |
+| `groups` | `[]` | `[{ title, icon, sections }]`: rail items that hold several sections, such as every component package of a library. The sidebar of a member lists every section of its group, one row per section. A section also joins with `group` in its `.navigation.yml`. |
 | `start` | None | `{ section, links }`: the section that new readers open first, and site pages listed at its top. |
 | `socials` | `[]` | Community links at the foot of the sidebar. |
 | `banner` | None | One line above every docs page. |
@@ -121,7 +123,7 @@ Most changes are options in `nuxt.config.ts`:
 | `icons` | Lucide fallbacks | Icon maps of the rail and the sidebar. |
 | `sitemap` | `[]` | More paths for `/sitemap.xml`. Every docs page is listed already. |
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
-| `linkChecker` | On | `false` turns off `nuxt-link-checker`, which fails the build on detected link errors in prerendered pages. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. Set the app's own `linkChecker` options to change it. |
+| `linkChecker` | On | `false` turns off `nuxt-link-checker`, which fails the build on detected link errors in prerendered pages. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build checks that the rule leads to a docs page instead. Set the app's own `linkChecker` options to change it. |
 | `ogImage` | On | Share images. `{ component }` renders the app's own template from `components/OgImage/`, or `false` turns them off. See [Search and share](#search-and-share). |
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
 | `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
@@ -291,6 +293,7 @@ export const content = defineContent({
 | Error | When | Fix |
 | --- | --- | --- |
 | `DocsContentError` | A page frontmatter or a `.navigation.yml` file does not match the schema. The message names the file and the field. | Fix the field. The schema is `docsPageSchema` and `docsSectionSchema` from `@vite-hub/docs`. |
+| `DocsRedirectError` | A production build with the link checker on finds a redirect route rule into the docs that no page answers, or one that hides a docs page. | Point the rule to a page, or remove it. |
 | `DocsAssistantSetupError` | `assistant` is on, and `vite-hub/nuxt` with `agent: true` is missing. | Add `vite-hub/nuxt` with `agent: true` and `connections: true`, or turn `assistant` off. |
 
 ## Inspect
