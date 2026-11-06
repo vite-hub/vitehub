@@ -278,6 +278,20 @@ Explorer and Stream keep selected event data in the right inspector. Search incl
 
 With the Cloudflare preset and Logs enabled, ViteHub defaults the generated Wrangler configuration to `observability: { enabled: true }`. An explicit Wrangler observability configuration is preserved, including `enabled: false`. This enables Cloudflare's native collection. It does not create an exporter, configure a destination, or connect that history to the Console. Those remain owned by the existing backend and its source adapter.
 
+## Agent Skills
+
+`vite-hub/skills` serves the Agent Skills of an app to coding agents from one list. `defineSkills()` reads an `import.meta.glob()` of `skills/**` and starts a skill at each `SKILL.md`. `serveSkills(request, skills)` answers Agent Skills Discovery v0.2.0 at `/.well-known/agent-skills/` (index with digests, `.tar.gz` for a multi-file skill) and v0.1.0 at `/.well-known/skills/`, which `npx skills add <origin>` reads. It returns `undefined` for other paths, so it fits in a middleware. `skillsMcp(skills)` gives the MCP Skills extension results (`skills/list`, `skills/get`, `skill://` resources) for any MCP server library. Pass a function instead of a list to change the skills at runtime. Read the [Agent Skills guide](https://vitehub.dev/docs/development/skills).
+
+```ts
+// server/middleware/skills.ts
+import { defineHandler } from "h3"
+import { defineSkills, serveSkills } from "vite-hub/skills"
+
+const skills = defineSkills(import.meta.glob("../../skills/**", { query: "?raw", import: "default", eager: true }))
+
+export default defineHandler(event => serveSkills(event.req, skills))
+```
+
 ## ViteHub MCP
 
 The Console serves `POST /_vitehub/mcp`. It exposes Content draft tools, Database names and schemas, KV keys, Blob metadata, and Comments tools within the caller's Console sections. Env values, credentials, tokens, KV values, Database rows, and Blob contents are not exposed. See [ViteHub MCP](https://vitehub.dev/docs/development/mcp) for the tools and access rules.

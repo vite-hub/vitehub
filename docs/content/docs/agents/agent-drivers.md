@@ -17,7 +17,7 @@ An Agent Driver decides how one invocation runs. Choose the execution method tha
 | Custom run | Application code runs the entire operation. |
 | Ask | A fast decision model answers a fixed set of typed questions. |
 
-`codexDriver()` and `claudeCodeDriver()` from `vite-hub/agent` create provider-backed Drivers. Application-supplied Drivers use exactly one of `{ model }`, `{ run }`, or `{ ask }`.
+`codexDriver()` and `claudeCodeDriver()` from `vite-hub/agent` create provider-backed Drivers. Application-supplied Drivers use exactly one of `{ model }`, `{ run }`, or `{ ask }`. For a full setup with a route, credentials, and deployment, read [Run the Claude Agent SDK in production](/docs/guides/claude-agent-sdk) and [Run the Codex SDK in production](/docs/guides/codex-sdk).
 
 ## Use a model-backed Driver
 
