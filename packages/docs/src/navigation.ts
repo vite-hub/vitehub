@@ -166,7 +166,8 @@ export function docsSidebarGroup(manifest: DocsManifest, section: DocsSection, g
     return sections.length > 1 ? { title, sections } : null
   }
   const { category } = section
-  if (!category || section.pages.filter(page => page.navigation).length > 1) return null
+  const pages = section.pages.filter(page => page.navigation)
+  if (!category || pages.length !== 1 || pages[0]?.path !== docsSectionHome(section)) return null
   const sections = manifest.sections.filter(candidate => candidate.category === category)
   return sections.length > 1 ? { title: category, sections } : null
 }

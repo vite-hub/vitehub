@@ -199,6 +199,23 @@ describe("docs groups", () => {
     expect(ids(docsSidebarGroup(grouped, grouped.sections.find(candidate => candidate.id === "blob")!, groups))).toEqual(["Storage", ["kv", "blob"]])
   })
 
+  it("keeps the section sidebar when its only listed page is not its home", () => {
+    const hiddenHome = { ...section("kv"), pages: section("kv").pages.map(page => ({ ...page, navigation: page.path === "/docs/kv/configure" })) }
+    expect(docsSectionHome(hiddenHome)).toBe("/docs/kv")
+    expect(docsSidebarGroup(manifest, hiddenHome, [])).toBeNull()
+  })
+
+  it("keeps the section sidebar when no pages are listed", () => {
+    const hidden = { ...section("blob"), pages: section("blob").pages.map(page => ({ ...page, navigation: false })) }
+    expect(docsSidebarGroup(manifest, hidden, [])).toBeNull()
+  })
+
+  it("lists the category when the only listed page is the home of a section without an Overview", () => {
+    const withoutOverview = { ...section("kv"), pages: section("kv").pages.filter(page => page.path === "/docs/kv/configure") }
+    expect(docsSectionHome(withoutOverview)).toBe("/docs/kv/configure")
+    expect(docsSidebarGroup(manifest, withoutOverview, [])?.sections.map(candidate => candidate.id)).toEqual(["kv", "blob"])
+  })
+
   it("lists each section of a group as its home page, then its other pages", () => {
     const blocks = docsSidebarSections([section("kv"), section("blob")])
     // Both sections are in Data, so the list has no category heading.
