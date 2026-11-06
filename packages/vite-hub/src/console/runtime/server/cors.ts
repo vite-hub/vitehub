@@ -1,5 +1,3 @@
-import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
-
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics.ts"
 
 import type { ConsoleAccess } from "./access.ts"
@@ -16,7 +14,7 @@ const originsKey: unique symbol = Symbol.for("vitehub.console.origins")
 const scope = globalThis as typeof globalThis & { [originsKey]?: readonly string[] }
 
 /** The Console data routes that answer a cross-origin call and accept a bearer token, below any application mount. */
-export const consoleDataRoutes: readonly string[] = ["/_vitehub/rpc/__call", "/_vitehub/rpc/__upload", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/_vitehub/channels/replay"]
+export const consoleDataRoutes: readonly string[] = ["/_vitehub/rpc/__call", "/_vitehub/rpc/__upload", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/_vitehub/channels/replay", "/_vitehub/schedules/run"]
 
 /** The request headers that a listed origin may send. The CLI surface and project headers stay same-origin. */
 export const consoleCorsAllowedHeaders = "authorization, content-type, x-vitehub-console"
@@ -80,12 +78,18 @@ export function isConsoleCrossOriginBearerCall(request: Request, access: Console
     && /^Bearer\s+\S+/i.test(request.headers.get("authorization") ?? "")
 }
 
-/**
- * The CORS headers of a response to a listed origin. The Console reads `WWW-Authenticate` to find the OAuth resource
- * metadata, so it is exposed. No response sends `Access-Control-Allow-Credentials`.
- */
-export function consoleCorsHeaders(origin: string): Record<string, string> {
-  return { "access-control-allow-origin": origin, "access-control-expose-headers": "WWW-Authenticate", "vary": "Origin" }
+/** Add `values` to a comma-separated header, such as `Vary`, and keep the names that it already lists. */
+function appendHeaderList(headers: Headers, name: string, values: readonly string[]): void {
+  const listed = (headers.get(name) ?? "").split(",").map(value => value.trim()).filter(Boolean)
+  const known = new Set(listed.map(value => value.toLowerCase()))
+  headers.set(name, [...listed, ...values.filter(value => !known.has(value.toLowerCase()))].join(", "))
+}
+
+/** The CORS headers of a response to a listed origin. The Console reads the Bearer challenge of a `401`. */
+function addCorsHeaders(headers: Headers, origin: string): void {
+  headers.set("access-control-allow-origin", origin)
+  appendHeaderList(headers, "access-control-expose-headers", ["WWW-Authenticate"])
+  appendHeaderList(headers, "vary", ["Origin"])
 }
 
 /**
@@ -96,14 +100,14 @@ export function withListedConsoleOrigin(response: Response, request: Pick<Reques
   if (!installedConsoleOrigins().length) return response
   const origin = listedConsoleOrigin(request.headers.get("origin"))
   return withResponseHeaders(response, (headers) => {
-    if (origin) for (const [name, value] of Object.entries(consoleCorsHeaders(origin))) headers.set(name, value)
-    else headers.append("vary", "Origin")
+    if (origin) addCorsHeaders(headers, origin)
+    else appendHeaderList(headers, "vary", ["Origin"])
   })
 }
 
 /**
  * Copy a response with changed headers. A Response from a fetch or from another realm can have immutable headers, so it
- * is copied. The copy names the status: srvx's Node.js `Response` reads no status from a `Response` passed as `init`.
+ * is copied. The status is set explicitly: srvx's Node.js Response loses the status of a Response passed as `init`.
  */
 export function withResponseHeaders(response: Response, change: (headers: Headers) => void): Response {
   const headers = new Headers(response.headers)
@@ -112,7 +116,7 @@ export function withResponseHeaders(response: Response, change: (headers: Header
 }
 
 /**
- * Answer a CORS preflight to a Console data route. A Nitro middleware calls it before app middleware and app Auth, which
+ * Answer a CORS preflight to a Console data route. The Console preflight Nitro plugin calls it before every app middleware and app Auth, which
  * would reject a preflight because it has no credentials. A listed origin gets `204`; another origin gets `403`.
  * Returns `undefined` for every other request.
  */
@@ -129,17 +133,15 @@ export function answerConsolePreflight(event: ConsoleRequestEvent): Response | u
       status: 403,
     })
   }
-  return new Response(null, {
-    headers: {
-      ...consoleCorsHeaders(allowed),
-      "access-control-allow-headers": consoleCorsAllowedHeaders,
-      "access-control-allow-methods": "POST",
-      "access-control-max-age": "600",
-      "cache-control": "no-store",
-      "vary": "Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
-    },
-    status: 204,
+  const headers = new Headers({
+    "access-control-allow-headers": consoleCorsAllowedHeaders,
+    "access-control-allow-methods": "POST",
+    "access-control-max-age": "600",
+    "cache-control": "no-store",
   })
+  addCorsHeaders(headers, allowed)
+  appendHeaderList(headers, "vary", ["Access-Control-Request-Method", "Access-Control-Request-Headers"])
+  return new Response(null, { headers, status: 204 })
 }
 
 function withHeaders(response: Response, origin: string | undefined): Response {
@@ -147,7 +149,7 @@ function withHeaders(response: Response, origin: string | undefined): Response {
   if (!origin && !challenge) return response
   return withResponseHeaders(response, (headers) => {
     if (challenge) headers.set("www-authenticate", consoleBearerChallenge())
-    if (origin) for (const [name, value] of Object.entries(consoleCorsHeaders(origin))) headers.set(name, value)
+    if (origin) addCorsHeaders(headers, origin)
   })
 }
 
@@ -164,15 +166,16 @@ function errorResponse(error: unknown): Response {
 
 /**
  * Wrap a Console data route. A `401` gets `WWW-Authenticate: Bearer realm="vitehub-console"` when the route set no
- * challenge. A request from a listed origin gets `Access-Control-Allow-Origin` with that origin and `Vary: Origin`,
- * also on failures, so the Console can read the diagnostic. No route sends `Access-Control-Allow-Credentials`.
+ * challenge. A request from a listed origin gets `Access-Control-Allow-Origin` with that origin, `Vary: Origin`, and
+ * `Access-Control-Expose-Headers: WWW-Authenticate`, also on failures, so the Console can read the diagnostic and the
+ * challenge. No route sends `Access-Control-Allow-Credentials`.
  */
-export function withConsoleCors<TEvent extends ConsoleRequestEvent, TResult>(
-  handler: (event: TEvent) => Promise<TResult | Response>,
-): (event: TEvent) => Promise<TResult | Response> {
+export function withConsoleCors<TEvent extends ConsoleRequestEvent>(
+  handler: (event: TEvent) => Promise<Response>,
+): (event: TEvent) => Promise<Response> {
   return async (event) => {
     const origin = listedConsoleOrigin(header(event, "origin"))
-    let result: TResult | Response
+    let result: Response
     try {
       result = await handler(event)
     }
@@ -181,13 +184,6 @@ export function withConsoleCors<TEvent extends ConsoleRequestEvent, TResult>(
       if (!origin) throw error
       return withHeaders(errorResponse(error), origin)
     }
-    if (isRuntimeResponse(result)) return withHeaders(result, origin)
-    if (origin) {
-      for (const [name, value] of Object.entries(consoleCorsHeaders(origin))) {
-        event.res?.headers?.set(name, value)
-        event.node?.res?.setHeader(name, value)
-      }
-    }
-    return result
+    return withHeaders(result, origin)
   }
 }

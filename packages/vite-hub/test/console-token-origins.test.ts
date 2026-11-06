@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { DatabaseSync } from "node:sqlite"
 
 import { defineAuth } from "@vite-hub/auth"
@@ -8,10 +9,14 @@ import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import channelReplayHandler from "../src/console/runtime/server/channel-replay.ts"
-import consolePreflightHandler from "../src/console/runtime/server/console-preflight.ts"
-import { consoleTokensMatch } from "../src/console/runtime/server/console-token.ts"
-import { installConsoleOrigins } from "../src/console/runtime/server/cors.ts"
+import consolePreflightPlugin from "../src/console/runtime/server/console-preflight.ts"
+import { consoleTokenMatchesHash } from "../src/console/runtime/server/console-token.ts"
+import { answerConsolePreflight, installConsoleOrigins, withConsoleCors } from "../src/console/runtime/server/cors.ts"
+import envManageHandler from "../src/console/runtime/server/env-manage.ts"
+import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
+import scheduleRunHandler from "../src/console/runtime/server/schedule-run.ts"
+import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import { resolveConsoleAccessBuild, resolveConsoleOptions, resolveConsoleOrigins } from "../src/console/vite.ts"
 
@@ -21,6 +26,7 @@ import type { ConsoleAccessPolicy } from "../src/console/runtime/server/access.t
 const app = "https://app.example.com"
 const consoleOrigin = "https://console.vitehub.dev"
 const token = "test-console-token-0123456789abcdef"
+const tokenHash = createHash("sha256").update(token).digest("hex")
 const policyKey = Symbol.for("vitehub.console.access")
 const originsKey = Symbol.for("vitehub.console.origins")
 
@@ -49,8 +55,8 @@ afterEach(() => {
 })
 
 describe("console: { auth: \"token\" }", () => {
-  it("accepts the token from VITEHUB_CONSOLE_TOKEN", async () => {
-    vi.stubEnv("VITEHUB_CONSOLE_TOKEN", token)
+  it("accepts the token whose SHA-256 is in VITEHUB_CONSOLE_TOKEN_SHA256", async () => {
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
     install({ mode: "token" })
     const response = await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))
     expect(response.status, await response.clone().text()).toBe(200)
@@ -61,18 +67,20 @@ describe("console: { auth: \"token\" }", () => {
   it("reads the token from the Cloudflare env of the request", async () => {
     install({ mode: "token" })
     const request = Object.assign(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }), {
-      runtime: { name: "cloudflare", cloudflare: { context: { passThroughOnException: vi.fn(), waitUntil: vi.fn() }, env: { VITEHUB_CONSOLE_TOKEN: token } } },
+      runtime: { name: "cloudflare", cloudflare: { context: { passThroughOnException: vi.fn(), waitUntil: vi.fn() }, env: { VITEHUB_CONSOLE_TOKEN_SHA256: tokenHash.toUpperCase() } } },
     })
     expect((await send(request)).status).toBe(200)
   })
 
   it.each([
     ["a wrong token", `Bearer ${token}x`, "Bearer realm=\"vitehub-console\", error=\"invalid_token\""],
+    ["the hash in place of the token", `Bearer ${tokenHash}`, "Bearer realm=\"vitehub-console\", error=\"invalid_token\""],
+    ["a token shorter than 32 characters", "Bearer short-token", "Bearer realm=\"vitehub-console\", error=\"invalid_token\""],
     ["no token", undefined, "Bearer realm=\"vitehub-console\""],
     ["a cookie only", undefined, "Bearer realm=\"vitehub-console\""],
     ["a Basic credential", `Basic ${btoa(`user:${token}`)}`, "Bearer realm=\"vitehub-console\""],
   ])("rejects %s with 401 and a Bearer challenge", async (_name, authorization, challenge) => {
-    vi.stubEnv("VITEHUB_CONSOLE_TOKEN", token)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
     install({ mode: "token" })
     const response = await send(rpc({ ...(authorization ? { authorization } : {}), cookie: "better-auth.session_token=abc", [consoleRpcHeader]: "1" }))
     expect(response.status).toBe(401)
@@ -81,25 +89,28 @@ describe("console: { auth: \"token\" }", () => {
   })
 
   it.each([
-    ["is not set", undefined, "it is not set"],
-    ["is blank", "   ", "it is not set"],
-    ["is too short to be a secret", "short-token", "fewer than 32 characters"],
-  ])("refuses every request with a diagnostic when VITEHUB_CONSOLE_TOKEN %s", async (_name, value, message) => {
-    if (value !== undefined) vi.stubEnv("VITEHUB_CONSOLE_TOKEN", value)
-    else vi.stubEnv("VITEHUB_CONSOLE_TOKEN", undefined)
+    ["no hash is set", {}, "VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set"],
+    ["the hash is blank", { VITEHUB_CONSOLE_TOKEN_SHA256: "   " }, "it is not set"],
+    ["the hash is not 64 hex characters", { VITEHUB_CONSOLE_TOKEN_SHA256: tokenHash.slice(1) }, "VITEHUB_CONSOLE_TOKEN_SHA256 is not 64 hex characters"],
+    ["the hash has a non-hex character", { VITEHUB_CONSOLE_TOKEN_SHA256: `${tokenHash.slice(1)}g` }, "is not 64 hex characters"],
+    ["only the raw token is set", { VITEHUB_CONSOLE_TOKEN: token }, "VITEHUB_CONSOLE_TOKEN is set, but the server reads only VITEHUB_CONSOLE_TOKEN_SHA256"],
+  ] satisfies Array<[string, Record<string, string>, string]>)("refuses every request with a diagnostic when %s", async (_name, env, message) => {
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", undefined)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN", undefined)
+    for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value)
     install({ mode: "token" })
-    const response = await send(rpc({ authorization: `Bearer ${value ?? token}`, [consoleRpcHeader]: "1" }))
+    const response = await send(rpc({ authorization: `Bearer ${token}`, [consoleRpcHeader]: "1" }))
     expect(response.status).toBe(500)
     await expect(response.json()).resolves.toMatchObject({
       code: "CONSOLE_TOKEN_NOT_CONFIGURED",
       docs: expect.stringContaining("#use-a-console-token"),
-      fix: expect.stringMatching(/openssl rand -base64 32.*wrangler secret put VITEHUB_CONSOLE_TOKEN/),
-      message: expect.stringMatching(new RegExp(`VITEHUB_CONSOLE_TOKEN.*${message}`)),
+      fix: expect.stringMatching(/openssl rand -hex 32.*printf %s "\$TOKEN" \| sha256sum.*wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256/),
+      message: expect.stringContaining(message),
     })
   })
 
   it("gives authorize the request with via: \"token\" and no user, and lets it limit the sections", async () => {
-    vi.stubEnv("VITEHUB_CONSOLE_TOKEN", token)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
     const seen: ConsoleAuthorizeContext[] = []
     install({ authorize: (context) => {
       seen.push(context)
@@ -115,21 +126,21 @@ describe("console: { auth: \"token\" }", () => {
     expect(seen[0]).not.toHaveProperty("user")
   })
 
-  it("compares tokens in constant time: both sides are hashed with SHA-256 before the comparison", async () => {
+  it("compares in constant time: it hashes the bearer with SHA-256 and compares the digests", async () => {
+    const expected = Uint8Array.from(Buffer.from(tokenHash, "hex"))
     const digest = vi.spyOn(crypto.subtle, "digest")
-    await expect(consoleTokensMatch(token, token)).resolves.toBe(true)
-    await expect(consoleTokensMatch(token, `${token}x`)).resolves.toBe(false)
-    await expect(consoleTokensMatch(token, "x")).resolves.toBe(false)
-    expect(digest).toHaveBeenCalledTimes(6)
-    for (const [algorithm] of digest.mock.calls) expect(algorithm).toBe("SHA-256")
+    await expect(consoleTokenMatchesHash(expected, token)).resolves.toBe(true)
+    await expect(consoleTokenMatchesHash(expected, `${token}x`)).resolves.toBe(false)
+    await expect(consoleTokenMatchesHash(expected, tokenHash)).resolves.toBe(false)
+    expect(digest.mock.calls.map(([algorithm]) => algorithm)).toEqual(["SHA-256", "SHA-256", "SHA-256"])
     const hashed = digest.mock.calls.map(([, data]) => new TextDecoder().decode(data as Uint8Array))
-    expect(hashed).toEqual([token, token, token, `${token}x`, token, "x"])
+    expect(hashed).toEqual([token, `${token}x`, tokenHash])
   })
 })
 
 describe("console.origins", () => {
   it("accepts a listed origin with the token and answers with CORS headers", async () => {
-    vi.stubEnv("VITEHUB_CONSOLE_TOKEN", token)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
     install({ mode: "token" })
     const response = await send(rpc({ authorization: `Bearer ${token}`, origin: consoleOrigin, "sec-fetch-site": "cross-site" }))
     expect(response.status, await response.clone().text()).toBe(200)
@@ -140,7 +151,7 @@ describe("console.origins", () => {
   })
 
   it("rejects a cookie-only cross-origin call from a listed origin, with CORS headers so the Console reads why", async () => {
-    vi.stubEnv("VITEHUB_CONSOLE_TOKEN", token)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
     install({ mode: "token" })
     const response = await send(rpc({ cookie: "better-auth.session_token=abc", origin: consoleOrigin, "sec-fetch-site": "cross-site" }))
     expect(response.status).toBe(401)
@@ -163,7 +174,7 @@ describe("console.origins", () => {
     ["a listed origin when origins is []", consoleOrigin, []],
     ["the opaque null origin", "null", [consoleOrigin]],
   ])("rejects %s that sends a valid token", async (_name, origin, origins) => {
-    vi.stubEnv("VITEHUB_CONSOLE_TOKEN", token)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
     install({ mode: "token" }, origins)
     const response = await send(rpc({ authorization: `Bearer ${token}`, origin, "sec-fetch-site": "cross-site" }))
     expect(response.status).toBe(403)
@@ -192,7 +203,7 @@ describe("console.origins", () => {
   })
 
   it("lets Channel replay take a token call from a listed origin", async () => {
-    vi.stubEnv("VITEHUB_CONSOLE_TOKEN", token)
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
     install({ mode: "token" })
     const replay = (origin: string) => channelReplayHandler({ method: "POST", req: new Request(`${app}/_vitehub/channels/replay`, {
       body: JSON.stringify({}),
@@ -214,7 +225,7 @@ describe("Console preflight", () => {
 
   it.each(["/_vitehub/rpc/__call", "/_vitehub/rpc/__upload", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/_vitehub/channels/replay", "/portal/_vitehub/rpc/__call"])("answers a listed origin at %s", async (path) => {
     installConsoleOrigins([consoleOrigin])
-    const response = consolePreflightHandler(defineHandlerEvent(preflight(path, consoleOrigin)))
+    const response = answerConsolePreflight(defineHandlerEvent(preflight(path, consoleOrigin)))
     expect(response?.status).toBe(204)
     expect(response?.headers.get("access-control-allow-origin")).toBe(consoleOrigin)
     expect(response?.headers.get("access-control-allow-methods")).toBe("POST")
@@ -225,42 +236,134 @@ describe("Console preflight", () => {
 
   it("rejects an unlisted origin and leaves other requests to the app", async () => {
     installConsoleOrigins([consoleOrigin])
-    const rejected = consolePreflightHandler(defineHandlerEvent(preflight("/_vitehub/rpc/__call", "https://evil.example")))
+    const rejected = answerConsolePreflight(defineHandlerEvent(preflight("/_vitehub/rpc/__call", "https://evil.example")))
     expect(rejected?.status).toBe(403)
     expect(rejected?.headers.has("access-control-allow-origin")).toBe(false)
     await expect(rejected?.json()).resolves.toMatchObject({ code: "CONSOLE_ORIGIN_NOT_ALLOWED", message: expect.stringContaining("https://evil.example") })
-    expect(consolePreflightHandler(defineHandlerEvent(preflight("/api/items", consoleOrigin)))).toBeUndefined()
-    expect(consolePreflightHandler(defineHandlerEvent(new Request(`${app}/_vitehub/rpc/__call`, { headers: { origin: consoleOrigin }, method: "OPTIONS" })))).toBeUndefined()
+    expect(answerConsolePreflight(defineHandlerEvent(preflight("/api/items", consoleOrigin)))).toBeUndefined()
+    expect(answerConsolePreflight(defineHandlerEvent(new Request(`${app}/_vitehub/rpc/__call`, { headers: { origin: consoleOrigin }, method: "OPTIONS" })))).toBeUndefined()
   })
 
-  it("answers before app Auth middleware that rejects every request without a session", async () => {
+  it("registers a Nitro plugin, not a middleware, and only for cross-origin calls", () => {
+    const other: { handlers: Array<{ handler: string, middleware?: boolean }>, plugins?: string[] } = { handlers: [] }
+    addConsoleRpcHandler(other, "/runtime", "/", [])
+    expect(other.plugins ?? []).not.toContain("/runtime/server/console-preflight.js")
+    const config: { handlers: Array<{ handler: string, middleware?: boolean }>, plugins: string[] } = { handlers: [], plugins: ["app-plugin.js"] }
+    addConsoleRpcHandler(config, "/runtime", "/", [], false, true)
+    expect(config.plugins).toEqual(["/runtime/server/console-preflight.js", "app-plugin.js"])
+    expect(config.handlers.some(handler => handler.handler.endsWith("console-preflight.js"))).toBe(false)
+    // A replayed config without cross-origin calls drops the plugin again.
+    addConsoleRpcHandler(config, "/runtime", "/", [])
+    expect(config.plugins).toEqual(["app-plugin.js"])
+  })
+
+  it("answers on Nitro 3 before app middleware and app Auth that reject every request without a session", async () => {
     installConsoleOrigins([consoleOrigin])
     const database = new DatabaseSync(":memory:")
     onTestFinished(() => database.close())
     const definition = defineAuth(() => ({ baseURL: app, database, secret: "test-secret-at-least-32-bytes-long" }))
     await (await createAuthForRequest(definition, new Request(app)).$context).runMigrations()
     const appAuth = createAuthAccessHandler([{ authorize: true, route: "/**" }], definition)
-    const config: { handlers: Array<{ handler: string, middleware?: boolean, route?: string }> } = { handlers: [{ handler: "app-auth", middleware: true, route: "/**" }] }
-    const other = { handlers: [{ handler: "app-auth", middleware: true, route: "/**" }] }
-    addConsoleRpcHandler(other, "/runtime", "/", [])
-    // Other access modes take no cross-origin call, so they get no preflight middleware.
-    expect(other.handlers.some(handler => handler.handler.endsWith("console-preflight.js"))).toBe(false)
-    addConsoleRpcHandler(config, "/runtime", "/", [], false, true)
-    const middleware = config.handlers.filter(handler => handler.middleware)
-    expect(middleware.map(handler => handler.handler)).toEqual(["/runtime/server/console-preflight.js", "app-auth"])
-    // Nitro runs middleware in this order before any route handler.
+    // Nitro adds scanned `server/middleware/` files and configured middleware, then runs the plugins.
     const h3 = new H3()
-    for (const registration of middleware) {
-      h3.use(registration.handler === "app-auth"
-        ? async event => await appAuth(event as never) ?? undefined
-        : event => consolePreflightHandler(event))
-    }
+    h3.use(() => new Response("Sign in first.", { status: 401 }))
+    h3.use(async event => await appAuth(event as never) ?? undefined)
     h3.all("/**", () => new Response("route"))
+    consolePreflightPlugin({ h3 })
     const answered = await h3.fetch(preflight("/_vitehub/rpc/__call", consoleOrigin))
     expect(answered.status).toBe(204)
     expect(answered.headers.get("access-control-allow-origin")).toBe(consoleOrigin)
-    // App Auth is active: the actual call without a session never reaches the route.
+    // The app middleware is active: the actual call never reaches the route without its session.
     expect((await h3.fetch(rpc({ authorization: `Bearer ${token}`, origin: consoleOrigin }))).status).toBe(401)
+  })
+
+  it("answers on Nitro 2 from the request hook, which runs before every middleware", async () => {
+    installConsoleOrigins([consoleOrigin])
+    let hook: ((event: never) => Promise<void>) | undefined
+    consolePreflightPlugin({ h3App: {}, hooks: { hook: (_name, callback) => { hook = callback } } })
+    const respondWith = vi.fn(async (_response: Response) => undefined)
+    const request = preflight("/portal/_vitehub/rpc/__call", consoleOrigin)
+    await hook?.({ method: "OPTIONS", node: { req: { headers: Object.fromEntries(request.headers), method: "OPTIONS", originalUrl: "/portal/_vitehub/rpc/__call" } }, respondWith } as never)
+    expect(respondWith).toHaveBeenCalledOnce()
+    expect(respondWith.mock.calls[0]?.[0].status).toBe(204)
+    await hook?.({ method: "GET", node: { req: { headers: {}, method: "GET", originalUrl: "/" } }, respondWith } as never)
+    expect(respondWith).toHaveBeenCalledOnce()
+  })
+})
+
+describe("Console data route responses", () => {
+  it("adds Origin to an existing Vary list and exposes the challenge", async () => {
+    installConsoleOrigins([consoleOrigin])
+    const route = withConsoleCors(async () => new Response("no", { headers: { vary: "Accept-Encoding, origin" }, status: 401 }))
+    const response = await route({ req: new Request(app, { headers: { origin: consoleOrigin } }) })
+    expect(response.headers.get("vary")).toBe("Accept-Encoding, origin")
+    const other = await withConsoleCors(async () => new Response("no", { headers: { vary: "Accept-Encoding" } }))({ req: new Request(app, { headers: { origin: consoleOrigin } }) })
+    expect(other.headers.get("vary")).toBe("Accept-Encoding, Origin")
+    expect(response.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate")
+    expect(response.headers.get("www-authenticate")).toBe("Bearer realm=\"vitehub-console\"")
+  })
+
+  it("keeps the status when the server Response class ignores the status of a Response passed as init", async () => {
+    installConsoleOrigins([consoleOrigin])
+    const native = globalThis.Response
+    onTestFinished(() => {
+      globalThis.Response = native
+    })
+    // Like srvx on Node.js: the init is spread, so the status getter of a Response init is lost.
+    class SpreadResponse extends native {
+      constructor(body?: ConstructorParameters<typeof native>[0], init?: ResponseInit) {
+        super(body, init ? { ...init } : init)
+      }
+    }
+    globalThis.Response = SpreadResponse
+    const response = await withConsoleCors(async () => new native("no", { status: 401 }))({ req: new Request(app, { headers: { origin: consoleOrigin } }) })
+    expect(response.status).toBe(401)
+    expect(response.headers.get("access-control-allow-origin")).toBe(consoleOrigin)
+  })
+
+  it("lets Env management take a token call from a listed origin, and still lets the bridge decide", async () => {
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
+    install({ mode: "token" })
+    installConsoleSections("/console-token-env", ["env"])
+    const manage = vi.fn(async (_request: Request, _options?: { allowedOrigin?: string }) => Response.json({ ok: true }))
+    installConsoleEnv("/console-token-env", { entries: [] }, manage)
+    const call = (origin?: string) => defineHandler(envManageHandler).fetch(new Request(`${app}/_vitehub/env/manage`, {
+      body: JSON.stringify({ action: "inspect", path: "token" }),
+      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...(origin ? { origin } : {}) },
+      method: "POST",
+    }))
+    const listed = await call(consoleOrigin)
+    expect(listed.status).toBe(200)
+    expect(listed.headers.get("access-control-allow-origin")).toBe(consoleOrigin)
+    expect(manage.mock.calls.at(-1)?.[1]).toEqual({ allowedOrigin: consoleOrigin })
+    await call("https://evil.example")
+    expect(manage.mock.calls.at(-1)?.[1]).toEqual({})
+    await call()
+    expect(manage.mock.calls.at(-1)?.[1]).toEqual({})
+  })
+
+  it("runs a Schedule with the token from a listed origin, and keeps the section and write checks", async () => {
+    vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
+    let sections: string[] | undefined
+    install({ authorize: () => sections ? { sections } : true, mode: "token" })
+    const run = (headers: Record<string, string>) => defineHandler(scheduleRunHandler).fetch(new Request(`${app}/_vitehub/schedules/run`, {
+      body: JSON.stringify({ name: "nightly" }),
+      headers: { "content-type": "application/json", ...headers },
+      method: "POST",
+    }))
+    const listed = await run({ authorization: `Bearer ${token}`, origin: consoleOrigin })
+    // The access and origin checks passed: the route now looks for the Schedule.
+    expect(listed.status).toBe(404)
+    await expect(listed.json()).resolves.toMatchObject({ message: expect.stringContaining("manual: true") })
+    expect(listed.headers.get("access-control-allow-origin")).toBe(consoleOrigin)
+    const anonymous = await run({ origin: consoleOrigin })
+    expect(anonymous.status).toBe(401)
+    expect(anonymous.headers.get("www-authenticate")).toBe("Bearer realm=\"vitehub-console\"")
+    expect((await run({ authorization: `Bearer ${token}`, origin: "https://evil.example" })).status).toBe(403)
+    sections = ["schedules:read"]
+    expect((await run({ authorization: `Bearer ${token}` })).status).toBe(403)
+    sections = ["kv"]
+    expect((await run({ authorization: `Bearer ${token}` })).status).toBe(403)
   })
 })
 

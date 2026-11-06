@@ -11,7 +11,7 @@ export interface ConsoleSessionAuthorizeContext {
   via?: undefined
 }
 
-/** The request that `console.authorize` checks with `auth: "token"`. It sent `VITEHUB_CONSOLE_TOKEN`, so it has no user. */
+/** The request that `console.authorize` checks with `auth: "token"`. It sent the Console token, so it has no user. */
 export interface ConsoleTokenAuthorizeContext {
   request: Request
   user?: undefined

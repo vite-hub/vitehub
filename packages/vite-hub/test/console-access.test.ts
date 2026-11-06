@@ -32,7 +32,8 @@ import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
 // Page shells, static assets, and OAuth discovery carry no protected project data.
-// The Schedule run route runs a signed dispatch and nothing else; it does not read Console data.
+// The Schedule run route checks Console access only for a bearer call. Signed dispatches and other requests read no
+// Console data. The preflight plugin answers only CORS preflights.
 const shellRoutes = new Set(["client.get.ts", "mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "console-preflight.ts", "page.get.ts", "schedule-run.ts", "sign-in.ts", "page-session.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {

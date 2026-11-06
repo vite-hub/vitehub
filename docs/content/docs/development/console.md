@@ -81,7 +81,7 @@ Set `console` in the root ViteHub integration. Every environment must choose who
 | --- | --- |
 | `false` | Anyone who can reach `/_vitehub`. Use it on your own machine, or behind a host that already checks every request. |
 | `'app'` | Users with a session from the app [Auth](/docs/auth). |
-| `'token'` | Callers that send the secret in `VITEHUB_CONSOLE_TOKEN` as `Authorization: Bearer`, such as the CLI or a Console on another origin. See [Use a Console token](#use-a-console-token). |
+| `'token'` | Callers that send a token as `Authorization: Bearer` whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`, such as the CLI or a Console on another origin. See [Use a Console token](#use-a-console-token). |
 | `{ ... }` | Users of a separate Console Auth: inline GitHub sign-in, a Console Auth server file, or Cloudflare Access. |
 
 The Console turns on [Comments](/docs/comments), and Comments turns on the Database when `database` is unset. Apply the Comments tables once with `vitehub db generate` and `vitehub db migrate`. Set `comments: false` to leave Comments out. `database: false` with Comments on fails the build with `VITE_HUB_B0018`.
@@ -449,22 +449,23 @@ export default defineConfig({
 })
 ```
 
-The server reads the secret from the `VITEHUB_CONSOLE_TOKEN` environment variable on each request. The build does not contain it. Create a random value of at least 32 characters and set it in the host environment:
+The server never stores the token. It reads only its SHA-256 from the `VITEHUB_CONSOLE_TOKEN_SHA256` environment variable on each request, so a person or tool that reads the host env, or a pulled `.env` file, does not get a working token. The build does not contain it. Create a token, keep it where you keep secrets, and set its hash in the host environment:
 
 ```bash [Terminal]
-openssl rand -base64 32
-# Node and most hosts: set it in the server environment
-VITEHUB_CONSOLE_TOKEN=<value> node .output/server/index.mjs
+TOKEN=$(openssl rand -hex 32)
+printf %s "$TOKEN" | sha256sum   # 64 hex characters
+# Node and most hosts: set the hash in the server environment
+VITEHUB_CONSOLE_TOKEN_SHA256=<hash> node .output/server/index.mjs
 # Cloudflare
-wrangler secret put VITEHUB_CONSOLE_TOKEN
+wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256
 ```
 
-Each caller sends the token as `Authorization: Bearer <token>`. The server hashes both values with SHA-256 and compares the hashes in constant time. A missing or wrong token gets `401` with `CONSOLE_TOKEN_INVALID` and `WWW-Authenticate: Bearer realm="vitehub-console"`. When the variable is not set, or has fewer than 32 characters, every request gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`. Cookies and sessions never count in this mode.
+Each caller sends the token as `Authorization: Bearer <token>`. The server hashes it with SHA-256 and compares the two digests in constant time. A missing, wrong, or short token (fewer than 32 characters) gets `401` with `CONSOLE_TOKEN_INVALID` and `WWW-Authenticate: Bearer realm="vitehub-console"`. When `VITEHUB_CONSOLE_TOKEN_SHA256` is not set or is not 64 hex characters, every request gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`. The server does not accept the token itself as `VITEHUB_CONSOLE_TOKEN`: with only that variable set, the diagnostic says to store the hash instead. Cookies and sessions never count in this mode.
 
-The CLI sends `VITEHUB_CONSOLE_AUTHORIZATION` as the `Authorization` header:
+The CLI sends `VITEHUB_CONSOLE_AUTHORIZATION` as the `Authorization` header, with the token, not the hash:
 
 ```bash [Terminal]
-VITEHUB_CONSOLE_AUTHORIZATION="Bearer $VITEHUB_CONSOLE_TOKEN" vitehub logs list --url https://app.example.com
+VITEHUB_CONSOLE_AUTHORIZATION="Bearer $TOKEN" vitehub logs list --url https://app.example.com
 ```
 
 A token caller gets every Console section. Set `console.authorize` to limit it. The context has `via: 'token'` and no `user`:
@@ -476,7 +477,7 @@ export default defineConsoleAuthorize(({ via }) => via === 'token' ? { sections:
 ```
 
 ::warning
-The token is a bearer secret: anyone who has it can use the Console. Keep it out of source code and client bundles. To rotate it, set a new value for `VITEHUB_CONSOLE_TOKEN` and restart or redeploy the server. The old token stops working at once.
+The token is a bearer secret: anyone who has it can use the Console. Keep it out of source code and client bundles. To rotate it, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or redeploy the server. The old token stops working at once.
 ::
 
 The Console page on the app's own origin cannot send the token yet, so with `auth: 'token'` it opens in its signed-out state. Use the CLI, MCP, or a Console on another origin.
@@ -499,13 +500,13 @@ vitehub({
 The server accepts a cross-origin call only when all of these are true:
 
 - `console.origins` lists the `Origin` of the request.
-- The request sends a bearer token as `Authorization: Bearer`, and the access check accepts it: the `VITEHUB_CONSOLE_TOKEN` secret with `auth: 'token'`, or an OAuth access token for the Console resource when the app Auth [signs Consoles in with OAuth](#sign-a-console-in-with-oauth).
+- The request sends a bearer token as `Authorization: Bearer`, and the access check accepts it: the Console token with `auth: 'token'`, or an OAuth access token for the Console resource when the app Auth [signs Consoles in with OAuth](#sign-a-console-in-with-oauth).
 
 Cookies never authorize a cross-origin call, so another site cannot use a signed-in browser session. A call from an origin that is not listed gets `403` with `CONSOLE_ORIGIN_REJECTED`. Cloudflare Access, `auth: false`, and session calls keep every Console data route same-origin.
 
-The rule covers the Console data routes: the RPC at `/_vitehub/rpc/__call` and `/_vitehub/rpc/__upload`, Auth management at `/_vitehub/auth/manage`, and Channel replay at `/_vitehub/channels/replay`. Env management at `/_vitehub/env/manage` keeps the Env bridge's own same-origin check. The Schedule run route at `/_vitehub/schedules/run` takes only signed dispatches; a Console runs Schedules through the RPC.
+The rule covers the Console data routes: the RPC at `/_vitehub/rpc/__call` and `/_vitehub/rpc/__upload`, Auth management at `/_vitehub/auth/manage`, Env management at `/_vitehub/env/manage`, Channel replay at `/_vitehub/channels/replay`, and Schedule runs at `/_vitehub/schedules/run`. Env management still authenticates the request with its provider and checks the provider permissions. A Schedule run with a signed dispatch keeps the signature as its own authority. Without a signature, the route takes a bearer token as `Authorization: Bearer`, the Console token or an OAuth access token with `vitehub:write`, and needs the full `schedules` grant. A session runs a Schedule through the RPC instead.
 
-The responses to a listed origin carry `Access-Control-Allow-Origin: <origin>`, `Vary: Origin`, and `Access-Control-Expose-Headers: WWW-Authenticate`, so the Console can read the challenge of a `401`. They never carry `Access-Control-Allow-Credentials`. A middleware answers the `OPTIONS` preflight of these routes before app middleware and app Auth run, so a global Auth access route does not reject it. A listed origin gets `204` with `Access-Control-Allow-Methods: POST` and `Access-Control-Allow-Headers: authorization, content-type, x-vitehub-console`. Any other origin gets `403` with `CONSOLE_ORIGIN_NOT_ALLOWED`. Nitro runs middleware from your `server/middleware/` directory before ViteHub middleware, so your own middleware must let `OPTIONS` requests to `/_vitehub/**` through.
+The responses to a listed origin carry `Access-Control-Allow-Origin: <origin>`, `Access-Control-Expose-Headers: WWW-Authenticate`, and `Origin` in `Vary`, so the Console can read the challenge of a `401`. They never carry `Access-Control-Allow-Credentials`. A Nitro plugin answers the `OPTIONS` preflight of these routes before every app middleware, including the files in `server/middleware/`, and before app Auth. A listed origin gets `204` with `Access-Control-Allow-Methods: POST` and `Access-Control-Allow-Headers: authorization, content-type, x-vitehub-console`. Any other origin gets `403` with `CONSOLE_ORIGIN_NOT_ALLOWED`. The actual call then goes through your middleware as usual, so middleware that requires a session must let the Console data routes through and leave the check to the Console.
 
 Check the setup with curl:
 
@@ -516,7 +517,7 @@ curl -i -X OPTIONS https://app.example.com/_vitehub/rpc/__call \
   -H 'Access-Control-Request-Headers: authorization, content-type'
 curl -i https://app.example.com/_vitehub/rpc/__call \
   -H 'Origin: https://console.vitehub.dev' \
-  -H "Authorization: Bearer $VITEHUB_CONSOLE_TOKEN" \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   --data '{"operation":"sections.list","input":{}}'
 ```
@@ -671,7 +672,7 @@ Each Console data route checks access itself. The Console Auth middleware stays 
 | --- | --- |
 | `auth: false` | Allows the request. A production build and a production server log a warning. |
 | `auth: 'app'` | Checks the Primary Auth Session and every Auth access route that protects the Console. Returns `401` or `403`. With `consoleMcpOAuth()`, also accepts an OAuth access token for the Console resource, also from `console.origins`. |
-| `auth: 'token'` | Compares `Authorization: Bearer` with `VITEHUB_CONSOLE_TOKEN`. Returns `401`, or `500` when the variable is not set. Accepts a cross-origin call from `console.origins`. |
+| `auth: 'token'` | Compares the SHA-256 of `Authorization: Bearer` with `VITEHUB_CONSOLE_TOKEN_SHA256`. Returns `401`, or `500` when the hash is not set or is malformed. Accepts a cross-origin call from `console.origins`. |
 | `auth: { ... }` | Checks the Console Auth Session and its `authorize` callback with `withAuthorization()`. Returns `401` or `403`. It does not redirect to sign-in. |
 | `auth: { provider: 'cloudflare-access' }` | Verifies the Cloudflare Access token. Development has no Access edge, so the development server allows the request. |
 | `authorize` | Runs after any of the checks above. It can reject the request or limit it to some sections. |
@@ -990,8 +991,8 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_DEVELOPMENT_ONLY` | `403` | Rebuild and deploy with an explicit `console.auth` choice. Use `console: { auth: 'app' }` with the Primary Auth Definition, or configure a Console Auth session. Set `console.authorize` to restrict who may use it. |
 | `CONSOLE_ORIGIN_REJECTED` | `403` | Open the Console from its own URL. Proxies must forward the public `Host` and `Origin` headers. For a Console on another origin, see [Call the Console from another origin](#call-the-console-from-another-origin). |
 | `CONSOLE_ORIGIN_NOT_ALLOWED` | `403` | Add the origin to `console.origins`, use `auth: 'token'`, then build and deploy again. |
-| `CONSOLE_TOKEN_INVALID` | `401` | Send `Authorization: Bearer` with the value of `VITEHUB_CONSOLE_TOKEN`. For the CLI, set `VITEHUB_CONSOLE_AUTHORIZATION="Bearer $VITEHUB_CONSOLE_TOKEN"`. |
-| `CONSOLE_TOKEN_NOT_CONFIGURED` | `500` | Set `VITEHUB_CONSOLE_TOKEN` to a random value of at least 32 characters in the server environment, then restart or deploy. |
+| `CONSOLE_TOKEN_INVALID` | `401` | Send `Authorization: Bearer` with the token whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`. For the CLI, set `VITEHUB_CONSOLE_AUTHORIZATION="Bearer <token>"`. |
+| `CONSOLE_TOKEN_NOT_CONFIGURED` | `500` | Set `VITEHUB_CONSOLE_TOKEN_SHA256` to the SHA-256 of the token as 64 hex characters (`printf %s "$TOKEN" \| sha256sum`), remove `VITEHUB_CONSOLE_TOKEN`, then restart or deploy. |
 | `CONSOLE_ACCESS_NOT_CONFIGURED` | `500` | Build the app with the ViteHub plugin. |
 | `CONSOLE_AUTHORIZE_REQUIRED` | `500` | Set `console.authorize`. |
 | `CONSOLE_AUTH_NOT_CONFIGURED` | `500` | Add an Auth Definition, or configure Cloudflare Access. |
