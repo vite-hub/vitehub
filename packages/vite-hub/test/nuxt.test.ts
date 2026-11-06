@@ -3976,8 +3976,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     const { nuxt } = createNuxt()
     const githubToken = { source: "GITHUB_TOKEN" }
     const appName = { source: "PUBLIC_APP_NAME" }
-    // SAFETY: This fixture extends the mutable Vite options with ViteHub's Env declaration.
-    ;(nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }).env = {
+    // SAFETY: This fixture uses partial Env declarations to exercise type preparation without validation.
+    ;(nuxt.options.vite as { env?: Record<string, unknown> }).env = {
       public: { appName },
     }
 
@@ -4233,8 +4233,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
   it("replaces existing Env array declarations instead of concatenating data values", async () => {
     const { nuxt } = createNuxt()
-    // SAFETY: This fixture extends the mutable Vite options with ViteHub's Env declaration.
-    const vite = nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }
+    // SAFETY: This fixture uses array data to exercise Env merging without declaration validation.
+    const vite = nuxt.options.vite as { env?: Record<string, unknown> }
     vite.env = { public: { regions: ["old"] } }
 
     await viteHubNuxtModule(
