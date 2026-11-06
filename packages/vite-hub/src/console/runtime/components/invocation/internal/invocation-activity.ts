@@ -298,8 +298,10 @@ function payloadDetail(attributes: Record<string, unknown>): string | undefined 
 /** Sentences for common snake_case tool identifiers. Other identifiers keep their words with the underscores removed. */
 const toolTitles: Record<string, string> = {
   apply_patch: "Changed files",
+  command_execution: "Ran command",
   edit_file: "Changed files",
   exec_command: "Ran command",
+  file_change: "Changed files",
   grep_search: "Searched code",
   list_dir: "Listed directory",
   read_file: "Read file",
@@ -311,10 +313,22 @@ const toolTitles: Record<string, string> = {
 
 function normalizedTitle(value: string): string {
   const trimmed = value.replace(/\s+(?:complete|completed)$/i, "").trim();
-  const known = toolTitles[trimmed.toLocaleLowerCase()];
+  // Provider tools arrive as `<server>.<tool>`, and proxied MCP tools as `<server>.mcp_<service>_<tool>`.
+  const namespaced = /^[a-z0-9-]+\.[a-z0-9_]+$/i.test(trimmed);
+  const name = namespaced ? trimmed.slice(trimmed.indexOf(".") + 1).replace(/^mcp_(?=[a-z0-9]+_)/i, "") : trimmed;
+  const known = toolTitles[name.toLocaleLowerCase()];
   if (known) return known;
-  const title = /^[a-z0-9]+(?:_[a-z0-9]+)+$/i.test(trimmed) ? trimmed.replaceAll("_", " ") : trimmed;
+  const title = namespaced || /^[a-z0-9]+(?:_[a-z0-9]+)+$/i.test(name)
+    ? name.split("_").map(word => word.toLocaleLowerCase() === "mcp" ? "MCP" : word).join(" ")
+    : name;
   return title ? title[0]!.toUpperCase() + title.slice(1) : "Activity";
+}
+
+/** Shows the script that `sh -lc '<script>'` wrappers run, so the row reads as the command the agent typed. */
+function shellScript(command: string): string {
+  const match = /^(?:\/(?:usr\/)?bin\/)?(?:ba|z|da)?sh\s+-l?c\s+(['"])([\s\S]*)\1$/.exec(command.trim());
+  if (!match) return command;
+  return match[1] === "'" ? match[2]!.replaceAll("'\\''", "'") : match[2]!.replace(/\\(["\\$`])/g, "$1");
 }
 
 function activityPreview(
@@ -323,7 +337,7 @@ function activityPreview(
   paths: readonly string[],
   title: string,
 ): string | undefined {
-  const detail = command?.command ?? payloadDetail(attributes) ?? (paths.length
+  const detail = (command ? shellScript(command.command) : undefined) ?? payloadDetail(attributes) ?? (paths.length
     ? `${paths[0]}${paths.length > 1 ? ` +${paths.length - 1} more` : ""}`
     : undefined);
   if (!detail || normalizedTitle(detail).toLocaleLowerCase() === title.toLocaleLowerCase()) return;

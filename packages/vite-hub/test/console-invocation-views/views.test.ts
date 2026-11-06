@@ -3426,6 +3426,76 @@ describe("Agent Invocation UI", () => {
     wrapper.unmount();
   });
 
+  it("shows Codex steps as the commands and tools the agent ran", async () => {
+    const timestamp = "2026-11-06T09:00:00.000Z";
+    const usage = (sequence: number, reasoningTokens?: number) => ({
+      attributes: { "usage.model": "gpt-6", "usage.provider": "codex", ...reasoningTokens ? { "usage.reasoningTokens": reasoningTokens } : {} },
+      name: "agent.usage.recorded",
+      sequence,
+      timestamp,
+      type: "run" as const,
+    });
+    const invocation: AgentInvocationView = {
+      completedAt: "2026-11-06T09:01:00.000Z",
+      createdAt: timestamp,
+      id: "codex-steps",
+      observations: [
+        { attributes: { "input.messages": [{ id: "prompt", role: "user", parts: [{ type: "text", text: "Check the thread" }] }] }, name: "agent.input", sequence: 1, timestamp, type: "run" },
+        { attributes: { "tool.id": "cat", "tool.input": { command: "/bin/sh -lc 'cat AGENTS.md; echo '\\''done'\\'''", toolName: "command_execution" }, "tool.name": "command_execution" }, name: "agent.tool.start", sequence: 2, timestamp, type: "run" },
+        usage(3),
+        { attributes: { "message.content": "I’ll check the earlier conversation.", "message.id": "progress", "message.phase": "final", "message.role": "assistant" }, name: "agent.message.delta", sequence: 4, timestamp, type: "run" },
+        { attributes: { "tool.id": "threads", "tool.name": "t3-code.mcp_productlane_threads_get" }, name: "agent.tool.start", sequence: 5, timestamp, type: "run" },
+        { attributes: { "tool.id": "resources", "tool.name": "codex.list_mcp_resources" }, name: "agent.tool.start", sequence: 6, timestamp, type: "run" },
+        usage(7),
+        usage(8, 181),
+        { attributes: { "message.content": "Done.", "message.id": "answer", "message.phase": "final", "message.role": "assistant" }, name: "agent.message.delta", sequence: 9, timestamp, type: "run" },
+      ],
+      startedAt: timestamp,
+      status: "completed",
+      traceId: "trace",
+      updatedAt: "2026-11-06T09:01:00.000Z",
+    };
+
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    const work = wrapper.get(".vh-invocation-work__details");
+    if (!(work.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
+    work.element.open = true;
+    await work.trigger("toggle");
+    const steps = wrapper.findAll(".vh-invocation-work__activities > li");
+    expect(steps.map(step => step.find(".vh-invocation-event__title").exists() ? step.get(".vh-invocation-event__title").text() : step.get(".vh-invocation-message__content").text())).toEqual([
+      "Ran command",
+      "I’ll check the earlier conversation.",
+      "Productlane threads get",
+      "List MCP resources",
+      "Thinking",
+    ]);
+    expect(steps[0]!.get(".vh-invocation-event__suffix").text()).toBe("cat AGENTS.md; echo 'done'");
+    expect(steps[4]!.get(".vh-invocation-event__suffix").text()).toBe("181 tokens");
+    expect(steps[1]!.find(".vh-invocation-message__meta").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("keeps the last empty model step of a live session", () => {
+    const timestamp = "2026-11-06T09:00:00.000Z";
+    const invocation: AgentInvocationView = {
+      createdAt: timestamp,
+      id: "codex-live",
+      observations: [
+        { attributes: { "input.messages": [{ id: "prompt", role: "user", parts: [{ type: "text", text: "Check the thread" }] }] }, name: "agent.input", sequence: 1, timestamp, type: "run" },
+        { attributes: { "tool.id": "cat", "tool.input": { command: "ls" }, "tool.name": "command_execution" }, name: "agent.tool.start", sequence: 2, timestamp, type: "run" },
+        { attributes: { "usage.provider": "codex" }, name: "agent.usage.recorded", sequence: 3, timestamp, type: "run" },
+      ],
+      startedAt: timestamp,
+      status: "running",
+      traceId: "trace",
+      updatedAt: timestamp,
+    };
+
+    const wrapper = mount(AgentInvocation, { props: { invocation } });
+    expect(wrapper.findAll(".vh-invocation-work__activities .vh-invocation-event__title").map(title => title.text())).toEqual(["Ran command", "Thinking"]);
+    wrapper.unmount();
+  });
+
   it("keeps provider summary and commentary items as separate markdown blocks", async () => {
     const timestamp = "2026-08-24T00:00:00.000Z";
     const invocation: AgentInvocationView = {
