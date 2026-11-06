@@ -49,10 +49,9 @@ form[aria-busy="true"] .send { opacity: .4; cursor: progress; }
 .sim-switch a[aria-current] { font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
 .sim-switch select { display: none; max-width: 100%; height: 20px; padding: 0 2px; border: 1px solid currentColor; border-radius: 4px; background: none; color: inherit; font: inherit; }
 .sim-switch select option { color: initial; }
-@media (pointer: coarse) { .sim-strip:has(.sim-switch) { height: auto; min-height: 44px; } .sim-switch a, .sim-switch select { min-height: 44px; } }
-@media (max-width: 480px) { .sim-switch .sim-links { display: none; } .sim-switch select { display: block; } .sim-strip:has(.sim-switch) .sim-optional { display: none; } }
+@media (pointer: coarse) { :root:not([data-embed]) .sim-strip:has(.sim-switch) { height: auto; min-height: 44px; } .sim-switch a, .sim-switch select { min-height: 44px; } }
+@media (max-width: 480px) { .sim-switch .sim-links { display: none; } .sim-switch select { display: block; } :root:not([data-embed]) .sim-strip:has(.sim-switch) .sim-optional { display: none; } }
 [data-embed] .sim-switch { display: none; }
-[data-embed] .sim-strip .sim-optional { display: inline; }
 `
 
 // Runs before the first paint, so an embedded page never shows its app chrome.
