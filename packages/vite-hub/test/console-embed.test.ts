@@ -57,6 +57,8 @@ describe("console.embed", () => {
     expect(assetBases(nitro)).toEqual(["/_vitehub/.well-known/skills", "/_vitehub/page/assets"])
     // The Console page tool script is a Console asset, so the pill gets no Console button. The session still answers.
     await expect(generatedPlugin()).resolves.toContain('installConsolePageTool(nitroApp, { base: "/", embed: false })')
+    // Console links, such as the Agent `/debug` reply, open the hosted Console.
+    await expect(generatedPlugin()).resolves.toContain('globalThis[Symbol.for("vitehub.console.hosted")] = true')
   })
 
   it("serves the Console pages and assets in a production build with embed: true", async () => {
@@ -67,6 +69,7 @@ describe("console.embed", () => {
     expect(routesOf(nitro, client)).toEqual(["/api/_vitehub/console/client.js"])
     expect(assetBases(nitro)).toEqual(["/_vitehub/assets", "/_vitehub/.well-known/skills", "/_vitehub/page/assets"])
     await expect(generatedPlugin()).resolves.toContain('installConsolePageTool(nitroApp, { base: "/" })')
+    await expect(generatedPlugin()).resolves.not.toContain("vitehub.console.hosted")
   })
 
   it.each([undefined, false])("always serves the Console pages in vite dev with embed %s", async (embed) => {
@@ -76,6 +79,7 @@ describe("console.embed", () => {
     expect(routesOf(nitro, notEmbedded)).toEqual([])
     expect(assetBases(nitro)).toContain("/_vitehub/assets")
     await expect(generatedPlugin()).resolves.toContain('installConsolePageTool(nitroApp, { base: "/" })')
+    await expect(generatedPlugin()).resolves.not.toContain("vitehub.console.hosted")
   })
 
   it("rejects a value that is not a boolean", () => {

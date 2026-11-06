@@ -272,6 +272,8 @@ function renderConsoleNitroPlugin(
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
+    // Without the Console pages, `consoleInvocationUrl()` in `@vite-hub/runtime` links the hosted Console.
+    ...(pageTools && !consoleTools ? ['globalThis[Symbol.for("vitehub.console.hosted")] = true'] : []),
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
     // The first Console request or agent tool that needs the operations loads them, with every primitive they import.

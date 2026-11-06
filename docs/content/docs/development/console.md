@@ -189,7 +189,8 @@ export default defineConfig({
 `embed: true` adds the Console page handler, the redirect of a signed-out page visit to the sign-in page, and about 600 hashed files at `/_vitehub/assets`. It changes nothing in `vite dev`, which always serves the Console pages, so the [DevTools entry](#open-the-console-in-devtools) keeps working. These features need the Console pages on the app origin, so a production build has them only with `embed: true`:
 
 - The **Console** and **Content** buttons of the [ViteHub tools pill](#open-the-console-from-the-apps-pages).
-- Links that open an Agent Invocation in the Console, such as the link of a Channel reply. They point to `/_vitehub/agents/...` on the app.
+
+Links that open an Agent Invocation in the Console, such as the `/debug` reply, the session link of a Channel reply, GitHub activity, and log events, follow the same choice. In `vite dev` and with `embed: true`, they open `/_vitehub/agents/<agent>/invocations/<id>` on the app. Without the embed, they open the hosted Console at `https://console.vitehub.dev/open?project=<app URL>&path=/agents/<agent>/invocations/<id>`, which switches to the project when this browser linked it, or asks to link it. An app on an `http:` origin that is not loopback cannot be a hosted Console project, so its links keep the `/_vitehub` URL.
 
 If `console` is omitted or set to `false`, ViteHub does not register a Console page, RPC route, Nitro plugin, or public asset path. A disabled Console returns the host's normal not-found response.
 
