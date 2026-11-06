@@ -301,6 +301,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Queue",
   }),
   rateLimit: feature({
+    developmentOverrides: ["cloudflare"],
     docs: "/docs/rate-limit",
     hosts: {
       cloudflare: native("cloudflare", "Cloudflare", "Native Cloudflare Rate Limiting binding."),

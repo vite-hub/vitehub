@@ -81,4 +81,17 @@ describe("feature catalog", () => {
     // @ts-expect-error Development needs a preset, including when JavaScript calls this API.
     expect(() => featureSupport("workflow", "dev")).toThrow(/deployment preset/)
   })
+
+  it("uses process-local Rate Limit memory during Cloudflare development", () => {
+    expect(featureSupport("rateLimit", "dev", "cloudflare")).toMatchObject({
+      adapter: "memory",
+      guarantee: "process-local",
+      level: "native",
+    })
+    expect(featureSupport("rateLimit", "cloudflare")).toMatchObject({
+      adapter: "cloudflare",
+      guarantee: "native",
+      level: "native",
+    })
+  })
 })
