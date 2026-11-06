@@ -16,6 +16,8 @@ export interface ViteHubConfigSite {
   keys: Readonly<Record<string, ConfigValue>>
   /** True when a spread can supply keys that are not in `keys`. */
   spread: boolean
+  /** Top-level Nuxt options used to locate server discovery directories. */
+  nuxt?: { keys: Readonly<Record<string, ConfigValue>>, spread: boolean }
 }
 export type LocateResult = { ok: true, site: ViteHubConfigSite } | { ok: false, reason: ManualReason, line?: number }
 export type ConfigEdit = { op: "set", key: string, value: JsonValue } | { op: "delete", key: string }
@@ -162,9 +164,14 @@ function locateVite(code: string, program: File): Located | Failure {
   const root = defaultExport(program)
   if (!names.size || !root) return fail("no-vitehub")
   const calls: Array<CallExpression> = []
-  walk(root, (node) => {
-    if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name)) calls.push(node)
+  let conditional: CallExpression | undefined
+  walk(root, (node, ancestors) => {
+    if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name)) {
+      calls.push(node)
+      if (ancestors.some(parent => parent.type === "ConditionalExpression" || parent.type === "LogicalExpression" || parent.type === "IfStatement" || parent.type === "SwitchCase")) conditional = node
+    }
   })
+  if (conditional) return fail("dynamic-options", conditional)
   const [call, second] = calls
   if (!call) {
     // A call outside the export may reach it through a binding. Do not claim it is absent.
@@ -194,16 +201,32 @@ function locateNuxt(code: string, program: File): Located | Failure {
   walk(program, (node) => {
     if (node.type === "StringLiteral" && node.value === nuxtModule) mentioned = true
   })
-  if (!mentioned) return fail("no-vitehub")
   const exported = defaultExport(program)
   if (!exported) return fail("no-vitehub")
   let root = unwrap(exported)
   if (root.type === "CallExpression" && root.arguments[0]) root = unwrap(root.arguments[0])
   if (root.type !== "ObjectExpression") return fail("dynamic-options", root)
+  const nuxt = readKeys(code, root)
+  if ("ok" in nuxt) return nuxt
+  if (!mentioned) {
+    const extended = nuxt.keys.extends
+    if (extended && !(extended.kind === "literal" && Array.isArray(extended.value) && extended.value.length === 0)) return fail("dynamic-options", root)
+    return fail("no-vitehub")
+  }
+  const located = locateNuxtOptions(code, program, root, names)
+  return "ok" in located ? located : { ...located, site: { ...located.site, nuxt } }
+}
+
+function locateNuxtOptions(code: string, program: File, root: ObjectExpression, names: Set<string>): Located | Failure {
   const modulesProperty = findMember(root, "modules")
+  const keyProperty = findMember(root, "vitehub")
+  const lastSpread = root.properties.findLast(member => member.type === "SpreadElement")
+  if (lastSpread && [modulesProperty, keyProperty].some(property => !property || start(property) < start(lastSpread))) return fail("spread", lastSpread)
   if (!modulesProperty) return fail("no-vitehub")
   const modules = unwrap(modulesProperty.value)
   if (modules.type !== "ArrayExpression") return fail("dynamic-options", modules)
+  const dynamicEntry = modules.elements.find(element => element?.type === "SpreadElement" || element?.type === "ConditionalExpression" || element?.type === "LogicalExpression")
+  if (dynamicEntry) return fail("dynamic-options", dynamicEntry)
   const isHead = (node: Node | null | undefined) => Boolean(node && ((node.type === "StringLiteral" && node.value === nuxtModule) || (node.type === "Identifier" && names.has(node.name))))
   const entries = modules.elements.filter((element): element is Expression => {
     if (!element || element.type === "SpreadElement") return false
@@ -212,7 +235,6 @@ function locateNuxt(code: string, program: File): Located | Failure {
   const [entry, second] = entries
   if (!entry) return fail("no-vitehub")
   if (second) return fail("multiple-vitehub", second)
-  const keyProperty = findMember(root, "vitehub")
   const tupleOptions = entry.type === "ArrayExpression" ? entry.elements[1] : undefined
   if (tupleOptions && tupleOptions.type === "SpreadElement") return fail("dynamic-options", tupleOptions)
   if (keyProperty && !tupleOptions) return siteFor(code, "nuxt-config-key", keyProperty.value, { kind: "key" }, program)
@@ -245,6 +267,15 @@ function parse(code: string): File | Failure {
 function locate(file: string, code: string): Located | Failure {
   const program = parse(code)
   if ("ok" in program) return program
+  // CommonJS can hide both the plugin binding and the exported configuration.
+  // Leave it manual until the scanner can model require/module.exports safely.
+  let commonjs: Node | undefined
+  walk(program, (node) => {
+    if (node.type !== "AssignmentExpression" || node.left.type !== "MemberExpression") return
+    const { object, property, computed } = node.left
+    if (object.type === "Identifier" && object.name === "module" && keyName(property, computed) === "exports") commonjs = node
+  })
+  if (commonjs) return fail("dynamic-options", commonjs)
   return isNuxtFile(file) ? locateNuxt(code, program) : locateVite(code, program)
 }
 

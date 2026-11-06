@@ -167,6 +167,32 @@ describe("editViteHubConfig", () => {
     expect(locateViteHubConfig("vite.config.ts", fallback)).toMatchObject({ ok: true, site: { form: "vite-call", keys: {} } })
   })
 
+  it.each([
+    "enabled ? [vitehub({ kv: true })] : []",
+    "enabled && vitehub({ kv: true })",
+  ])("keeps conditional plugin calls manual: %s", (plugins) => {
+    const code = `import { vitehub } from "vite-hub"; export default { plugins: ${plugins} }`
+    expect(locateViteHubConfig("vite.config.ts", code)).toMatchObject({ ok: false, reason: "dynamic-options" })
+    expect(editViteHubConfig("vite.config.ts", code, [{ op: "set", key: "kv", value: false }]))
+      .toMatchObject({ ok: false, reason: "dynamic-options" })
+  })
+
+  it.each([
+    `modules: [...(enabled ? ["vite-hub/nuxt"] : [])]`,
+    `modules: [enabled ? "vite-hub/nuxt" : "other-module"]`,
+    `extends: ["./base"]`,
+  ])("keeps unresolved Nuxt module registration manual: %s", (options) => {
+    expect(locateViteHubConfig("nuxt.config.ts", `export default defineNuxtConfig({ ${options} })`))
+      .toMatchObject({ ok: false, reason: "dynamic-options" })
+  })
+
+  it.each(["vite.config.cjs", "nuxt.config.cts"])("leaves CommonJS exports manual in %s", (file) => {
+    const code = `const { vitehub } = require("vite-hub"); module.exports = { plugins: [vitehub({ kv: true })] }`
+    expect(locateViteHubConfig(file, code)).toMatchObject({ ok: false, reason: "dynamic-options" })
+    expect(editViteHubConfig(file, code, [{ op: "set", key: "kv", value: false }]))
+      .toMatchObject({ ok: false, reason: "dynamic-options" })
+  })
+
   it("reports expression values with their source", () => {
     const code = "import { vitehub } from \"vite-hub\"\nexport default {\n  plugins: [vitehub({\n    agent: process.env.AGENT === \"1\",\n  })],\n}\n"
     expect(locateViteHubConfig("vite.config.ts", code)).toMatchObject({
@@ -207,6 +233,24 @@ describe("editViteHubConfig", () => {
     const deleted = edit("nuxt.config.ts", overridden, [{ op: "delete", key: "preset" }])
     expect(locateViteHubConfig("nuxt.config.ts", deleted)).toMatchObject({ ok: true, site: { keys: { kv: { kind: "literal", value: true } } } })
     expect(deleted).not.toContain("preset")
+  })
+
+  it.each([
+    'modules: ["vite-hub/nuxt"], vitehub: { kv: true }, ...shared',
+    'modules: ["vite-hub/nuxt"], ...shared, vitehub: { kv: true }',
+    'vitehub: { kv: true }, ...shared, modules: ["vite-hub/nuxt"]',
+    '...shared, modules: ["vite-hub/nuxt"]',
+    '...shared, vitehub: { kv: true }',
+  ])("leaves Nuxt root spreads manual when they can supply or override options: %s", (properties) => {
+    const code = `import viteHubNuxt from "vite-hub/nuxt"\nexport default defineNuxtConfig({ ${properties} })`
+    expect(locateViteHubConfig("nuxt.config.ts", code)).toMatchObject({ ok: false, reason: "spread" })
+    expect(editViteHubConfig("nuxt.config.ts", code, [{ op: "set", key: "kv", value: false }]))
+      .toMatchObject({ ok: false, reason: "spread" })
+  })
+
+  it("reads Nuxt options that override a root spread", () => {
+    const code = 'export default defineNuxtConfig({ ...shared, modules: ["vite-hub/nuxt"], vitehub: { kv: true } })'
+    expect(locateViteHubConfig("nuxt.config.ts", code)).toMatchObject({ ok: true, site: { keys: { kv: { kind: "literal", value: true } } } })
   })
 
   it("does not evaluate code", () => {
