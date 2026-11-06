@@ -168,6 +168,39 @@ describe("vitehub remove", () => {
     expect(forced.json.references).toHaveLength(2)
   })
 
+  it.each(["vite-hub/realtime", "vite-hub/realtime/client"])("keeps the owner package when only a retained facade imports it: %s", async (specifier) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { "@vite-hub/realtime": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      "src/client.ts": `export const load = () => import(${JSON.stringify(specifier)})\n`,
+      "vite.config.ts": viteConfig(`{ preset: "cloudflare", realtime: true }`),
+    })
+    const pm = fakePackageManager(root)
+
+    const forced = await remove(["realtime", "--yes", "--force"], root, pm.spawn)
+
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
+    expect(forced.json.uninstall).toEqual({ devPackages: [], packages: [] })
+    expect(forced.json.references).toEqual([{ feature: "realtime", file: "src/client.ts", line: 1, module: specifier }])
+    expect(pm.calls).toEqual([])
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8"))).toMatchObject({ dependencies: { "@vite-hub/realtime": "1.0.0" } })
+  })
+
+  it("keeps the owner package imported by an edited starter after forced removal", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
+    const pm = fakePackageManager(root)
+    expect((await add(["schedule", "--name", "nightly"], root, pm.spawn)).exitCode).toBe(0)
+    const file = join(root, "server/schedules/nightly.ts")
+    const edited = `${await readFile(file, "utf8")}// Keep this schedule.\n`
+    await writeFile(file, edited)
+
+    const forced = await remove(["schedule", "--yes", "--force"], root, pm.spawn)
+
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
+    expect(forced.json.uninstall).toEqual({ devPackages: [], packages: [] })
+    expect(pm.calls).toEqual([["pnpm", "add", "@vite-hub/schedule"]])
+    expect(await readFile(file, "utf8")).toBe(edited)
+  })
+
   it("writes false for a feature that is on by default", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
 

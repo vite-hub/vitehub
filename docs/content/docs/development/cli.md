@@ -305,6 +305,12 @@ The app still uses the feature. `references` lists each file, with the line and 
 
 The package manager exited with an error after ViteHub changed the config and deleted the starter files. Run the uninstall command by hand to see the error.
 
+## Use Setup in the development Console
+
+Run `vite dev` and open `/_vitehub/setup` to plan and apply the same feature changes as `vitehub add` and `vitehub remove`. Setup is available only during development.
+
+The page obtains its session token only over a loopback TCP connection. For a remote dev server, forward its port to your machine, for example `ssh -L 5173:127.0.0.1:5173 user@dev-server`, then open `http://localhost:5173/_vitehub/setup`. A host name listed explicitly in `server.allowedHosts` also works over the local connection, including HTTP. Listing a host does not grant network clients access to the session token.
+
 ## Link a project to its host
 
 `vitehub link` connects the project to a project on its host, so later commands know where to deploy. It runs on your machine with your host login. It does not add a CI workflow.

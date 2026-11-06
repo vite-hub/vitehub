@@ -57,6 +57,11 @@ function isLoopback(name: string): boolean {
   return name === "localhost" || name.endsWith(".localhost") || name === "[::1]" || /^127(?:\.\d{1,3}){3}$/u.test(name)
 }
 
+function isLoopbackPeer(req: IncomingMessage): boolean {
+  const address = req.socket.remoteAddress?.replace(/^::ffff:/u, "")
+  return address === "::1" || (address !== undefined && /^127(?:\.\d{1,3}){3}$/u.test(address))
+}
+
 /**
  * Loopback `Host` and `Origin` only, plus host names that `server.allowedHosts` lists one by one. An IP literal of the
  * network, `allowedHosts: true`, or `server.https` does not open the Setup endpoints, because they write files.
@@ -164,13 +169,20 @@ function register(server: ViteDevServer, state: SetupDevState): void {
   })
   const respond = (res: ServerResponse, result: SetupSessionResult) => writeJson(res, setupHttpStatus(result), result.body)
 
-  // The page reads the token here. A browser sends `sec-fetch-site: same-origin` only for a page of this origin, and
-  // a cross-origin page cannot read the answer, so only the Console of this dev server gets the token.
+  // Only a local TCP peer can bootstrap the credential; Host and Fetch Metadata can be forged by network clients.
+  // The non-simple header forces a browser preflight across origins. The shared guard checks the exact Origin,
+  // and Fetch Metadata, when present, adds another check. HTTP hostnames can omit that metadata.
   registerViteHubDevEndpoint(server, {
-    authorize,
+    authorize: (req) => {
+      const rejection = authorize(req)
+      if (rejection) return rejection
+      if (!isLoopbackPeer(req)) return new Response("Open Setup through a local connection or an SSH port forward.", { status: 403 })
+      const site = req.headers["sec-fetch-site"]
+      return site === undefined || site === "same-origin" ? undefined : new Response(`Forbidden ${label} request.`, { status: 403 })
+    },
     handle: (_req, res) => writeJson(res, 200, { route: setupDevRoute, schemaVersion: 1, serverId: state.serverId, token: state.token }),
-    header: "sec-fetch-site",
-    headerValue: "same-origin",
+    header: "x-vitehub-setup",
+    headerValue: "session",
     label,
     methods: ["GET"],
     route: `${setupDevRoute}/session`,
@@ -193,14 +205,14 @@ function register(server: ViteDevServer, state: SetupDevState): void {
  * The dev Setup endpoints below `/__vitehub/setup`, on the Vite dev server only (`apply: "serve"`). They do what
  * `vitehub status`, `catalog`, `add`, and `remove` do, with the same engine and documents:
  *
- * - `GET session`: the server id and the token, for a same-origin page.
+ * - `GET session`: the server id and the token, for a same-origin page on a local connection (`x-vitehub-setup: session`).
  * - `GET catalog`, `GET status`: the `--json` documents.
  * - `POST plan`: `{ action, features, ... }` gives the `--dry-run --json` plan with a `planId`.
  * - `POST apply`: `{ planId }` applies that plan once, when no file that it read has changed.
  * - `GET events`: Server-Sent Events: `hello` with the server id, then install `log` lines and `applied`.
  *
  * Every route except `session` needs the `x-vitehub-dev-token` header. The server owns the project root: a request
- * never names a path or a command.
+ * never names a path or a command. Remote servers need local port forwarding to bootstrap a session.
  */
 export function setupDevPlugin(options: SetupDevPluginOptions = {}): Plugin {
   return {

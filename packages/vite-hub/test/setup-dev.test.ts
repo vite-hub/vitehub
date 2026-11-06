@@ -1,11 +1,12 @@
 import { createServer, request as httpRequest } from "node:http"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { networkInterfaces, tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { readViteHubDevToken } from "@vite-hub/internal/dev-token"
 import { afterEach, describe, expect, it } from "vitest"
 
+import { connectSetup } from "../src/console/runtime/client/setup.ts"
 import { isSetupDevRequestAllowed, setupDevPlugin, setupDevRoute, setupDevTokenNamespace } from "../src/setup-dev.ts"
 
 import type { IncomingMessage, Server, ServerResponse } from "node:http"
@@ -29,7 +30,7 @@ afterEach(async () => {
 })
 
 /** The Setup plugin on a minimal dev server: the parts of a Vite server that `registerViteHubDevEndpoint` uses. */
-async function start(allowedHosts: readonly string[] | true = []): Promise<Running> {
+async function start(allowedHosts: readonly string[] | true = [], listenHost = "127.0.0.1"): Promise<Running> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-setup-dev-"))
   await writeFile(join(root, "package.json"), JSON.stringify({ name: "app", packageManager: "pnpm@10.0.0", type: "module" }))
   await writeFile(join(root, "vite.config.ts"), "import { defineConfig } from \"vite\"\nimport { vitehub } from \"vite-hub\"\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: \"node\" })],\n})\n")
@@ -64,10 +65,10 @@ async function start(allowedHosts: readonly string[] | true = []): Promise<Runni
     }
     next(0)
   })
-  await new Promise<void>(done => http.listen(0, "127.0.0.1", done))
+  await new Promise<void>(done => http.listen(0, listenHost, done))
   const address = http.address()
   if (!address || typeof address === "string") throw new TypeError("Expected a TCP address.")
-  const session = await send(address.port, "GET", "session", { "sec-fetch-site": "same-origin" })
+  const session = await send(address.port, "GET", "session", { "sec-fetch-site": "same-origin", "x-vitehub-setup": "session" })
   const { serverId, token } = JSON.parse(session.body) as { serverId: string, token: string }
   const close = async () => {
     if (!closed) await fake.close()
@@ -79,9 +80,9 @@ async function start(allowedHosts: readonly string[] | true = []): Promise<Runni
 }
 
 /** One HTTP request with exact headers. `fetch` cannot send a custom `Host`. */
-async function send(port: number, method: string, path: string, headers: Record<string, string> = {}, body?: unknown): Promise<{ body: string, status: number }> {
+async function send(port: number, method: string, path: string, headers: Record<string, string> = {}, body?: unknown, connectHost = "127.0.0.1"): Promise<{ body: string, status: number }> {
   return await new Promise((done, fail) => {
-    const req = httpRequest({ headers: { host: `localhost:${port}`, ...headers, ...(body === undefined ? {} : { "content-type": "application/json" }) }, host: "127.0.0.1", method, path: `${setupDevRoute}/${path}`, port }, (res) => {
+    const req = httpRequest({ headers: { host: `localhost:${port}`, ...headers, ...(body === undefined ? {} : { "content-type": "application/json" }) }, host: connectHost, method, path: `${setupDevRoute}/${path}`, port }, (res) => {
       let text = ""
       res.setEncoding("utf8").on("data", (chunk: string) => { text += chunk }).on("end", () => done({ body: text, status: res.statusCode ?? 0 }))
     })
@@ -95,6 +96,13 @@ function auth(running: Running, headers: Record<string, string> = {}): Record<st
 }
 
 describe("dev Setup endpoints", () => {
+  it("connects the Console client without Fetch Metadata", async () => {
+    const running = await start()
+    const client = await connectSetup(`http://127.0.0.1:${running.port}${setupDevRoute}`)
+    expect(client.serverId).toBe(running.serverId)
+    expect(await client.status()).toMatchObject({ root: running.root })
+  })
+
   it("rejects a foreign Origin and a DNS rebinding Host with 403", async () => {
     const running = await start()
     expect(await send(running.port, "GET", "status", auth(running, { origin: "https://evil.example" }))).toMatchObject({ status: 403 })
@@ -111,8 +119,27 @@ describe("dev Setup endpoints", () => {
 
   it("accepts a remote host only when allowedHosts names it, and still needs the token", async () => {
     const running = await start(["dev.example.com"])
+    // HTTP browsers omit Fetch Metadata and Origin on a same-origin GET. A local tunnel preserves this flow.
+    const session = await send(running.port, "GET", "session", { host: "dev.example.com", "x-vitehub-setup": "session" })
+    expect(session.status).toBe(200)
+    expect(JSON.parse(session.body)).toMatchObject({ serverId: running.serverId, token: running.token })
     expect(await send(running.port, "GET", "status", { host: "dev.example.com" })).toMatchObject({ status: 403 })
     expect(await send(running.port, "GET", "status", auth(running, { host: "dev.example.com", origin: "http://dev.example.com" }))).toMatchObject({ status: 200 })
+  })
+
+  const networkAddress = Object.values(networkInterfaces()).flat().find(address => address?.family === "IPv4" && !address.internal)?.address
+  it.skipIf(!networkAddress)("does not give a network peer the token even with forged browser and proxy headers", async () => {
+    const running = await start(["dev.example.com"], "0.0.0.0")
+    for (const host of [`localhost:${running.port}`, "dev.example.com"]) {
+      const response = await send(running.port, "GET", "session", {
+        host,
+        "sec-fetch-site": "same-origin",
+        "x-forwarded-for": "127.0.0.1",
+        "x-vitehub-setup": "session",
+      }, undefined, networkAddress)
+      expect(response.status).toBe(403)
+      expect(response.body).not.toContain(running.token)
+    }
   })
 
   it("needs the token on every route except the session", async () => {
@@ -122,9 +149,18 @@ describe("dev Setup endpoints", () => {
       expect(await send(running.port, method, route, { "x-vitehub-dev-token": "0".repeat(64) }, method === "POST" ? {} : undefined)).toMatchObject({ status: 403 })
     }
     // A cross-site page gets no token, and the token file is the same one the CLI reads.
-    expect(await send(running.port, "GET", "session", { "sec-fetch-site": "cross-site" })).toMatchObject({ status: 403 })
+    expect(await send(running.port, "GET", "session", { "sec-fetch-site": "cross-site", "x-vitehub-setup": "session" })).toMatchObject({ status: 403 })
+    expect(await send(running.port, "GET", "session", { origin: "http://evil.example", "x-vitehub-setup": "session" })).toMatchObject({ status: 403 })
+    expect(await send(running.port, "GET", "session", { origin: `http://localhost:${running.port + 1}`, "x-vitehub-setup": "session" })).toMatchObject({ status: 403 })
     expect(await send(running.port, "GET", "session")).toMatchObject({ status: 403 })
     expect(await readViteHubDevToken(running.root, { namespace: setupDevTokenNamespace, serverId: running.serverId })).toBe(running.token)
+  })
+
+  it("bootstraps an IPv6 loopback peer and an IPv4-mapped loopback peer", async () => {
+    const running = await start([], "::")
+    const session = await send(running.port, "GET", "session", { host: `[::1]:${running.port}`, "x-vitehub-setup": "session" }, undefined, "::1")
+    expect(session.status).toBe(200)
+    expect(JSON.parse(session.body)).toMatchObject({ serverId: running.serverId, token: running.token })
   })
 
   it("plans, applies a plan once, and streams the install output", async () => {

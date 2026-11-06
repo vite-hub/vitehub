@@ -110,7 +110,7 @@ export class SetupRequestError extends Error {
 
 /** The id of the running dev server. It changes when the server restarts. */
 export async function readSetupSession(route: string): Promise<{ serverId: string, token: string }> {
-  const response = await fetch(`${route}/session`, { cache: "no-store", credentials: "same-origin", headers: { accept: "application/json" } })
+  const response = await fetch(`${route}/session`, { cache: "no-store", credentials: "same-origin", headers: { accept: "application/json", "x-vitehub-setup": "session" } })
   if (!response.ok) throw new SetupRequestError(response.status, (await response.text()) || `The Setup session answered ${response.status}.`)
   // SAFETY: The Setup session route answers `{ serverId, token }`.
   return await response.json() as { serverId: string, token: string }

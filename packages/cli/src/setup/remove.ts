@@ -236,12 +236,16 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   for (const file of listMatchingFiles(project.root, name => sourceFile.test(name) && !declarationFile.test(name))) {
     const path = relative(project.root, file)
     // A deleted starter is no use; a kept starter keeps its imports installed.
-    if ((starters.has(path) && !args.keepFiles) || edited.includes(path)) continue
+    if (starters.has(path) && !args.keepFiles) continue
     const content = await readFile(file, "utf8")
     for (const match of content.matchAll(specifierPattern)) {
       const specifier = match[2]!
       imported.add(packageName(specifier))
-      if (starters.has(path)) continue
+      // Facades still load their optional owner packages after a forced removal.
+      for (const id of featureIds) {
+        if (importsModule(specifier, runtimeModule(id))) for (const name of features[id].packages) imported.add(name)
+      }
+      if (starters.has(path) || edited.includes(path)) continue
       for (const [module, id] of modules) {
         if (importsModule(specifier, module)) blocking.push({ feature: id, file: path, line: lineAt(content, match.index), module: specifier })
       }
