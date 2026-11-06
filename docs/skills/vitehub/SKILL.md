@@ -9,7 +9,9 @@ Use one proof loop: orient, route, inspect the contract, build, and prove. Exact
 
 ## 1. Orient
 
-- Inspect the package manifest, lockfile, Vite or Nuxt config, server entry, and nearby project instructions.
+- Run `pnpm vitehub status --json` first. It parses the config without running it, so it works on a broken config and in an empty folder. It names the framework, the host, each feature as `on`, `off`, or `unknown`, the missing packages with their fix, and the host link. Where `vite-hub` is not installed yet, run `pnpm dlx vite-hub status --json`. No npm package is named `vitehub`, so `npx vitehub` fails. Use the package name `vite-hub`.
+- Run `pnpm vitehub catalog --json` before you choose a feature or a host. It lists each feature key, its packages, and how each host supports it (`native`, `explicit`, or `unsupported`), from the same catalog that the build checks. See [Read a project without loading it](https://vitehub.dev/raw/docs/development/cli.md#read-a-project-without-loading-it).
+- Then read only what the two commands do not answer: the lockfile, the server entry, nearby project instructions, and config parts that `status` reports as `unknown` or `manual`.
 - Identify installed ViteHub packages and versions, package manager, framework, host target, and requested outcome.
 - Open `https://vitehub.dev/llms.txt`, then select the smallest raw Markdown page covering the primary behavior. Links inside references are selection menus; do not open every linked page.
 
@@ -54,7 +56,7 @@ Read only the references whose conditions match, but read them before writing co
 | Agent Channel, Trigger, webhook admission, concurrency, or Agent delivery | [Channels and Triggers](references/channels-triggers.md) |
 | Capability, tool, secret, rate limit, telemetry, or other granted authority | [Capabilities and authority](references/capabilities-authority.md) |
 | Schedule, Workflow, orchestration retry, idempotency, or terminal state | [Schedules, Workflows, and Invocations](references/schedules-workflows-invocations.md) |
-| Sandbox, trusted host, isolation, required command, or deployment target | [Sandboxes and hosts](references/sandboxes-hosts.md) |
+| Sandbox, trusted host, isolation, required command, host link, or deployment | [Sandboxes and hosts](references/sandboxes-hosts.md) |
 | A proof has failed, generated state disagrees, or a runtime/host failure needs diagnosis | [Proof and recovery](references/proof-recovery.md) |
 | Looking for a complete public application pattern | [Project patterns](references/project-patterns.md) |
 
@@ -63,7 +65,7 @@ Routing is complete when every requested behavior has one primary lane and every
 ## 3. Inspect the installed contract
 
 - Read each installed package's `package.json`, exports, relevant types, and generated declarations before writing imports or options.
-- For a fresh application, install `vite-hub` and use its root integration plus feature subpaths. Opt-in features such as Agent, Auth, Database, Schedule, Workspace, Realtime, Content, and Comments also need their owner package next to `vite-hub`, as the Installation guide lists; the build error names any missing package. Use other direct owner packages only for a focused library, an unexported advanced subpath, or an installed older contract.
+- For a fresh application, install `vite-hub` and use its root integration plus feature subpaths. Opt-in features such as Agent, Auth, Database, Schedule, Workspace, Realtime, Content, and Comments also need their owner package next to `vite-hub`. `vitehub add` installs it, `vitehub status` lists any that is missing, and the build error names it. Use other direct owner packages only for a focused library, an unexported advanced subpath, or an installed older contract.
 - When docs, examples, and installed artifacts disagree, implement the installed artifacts and record the mismatch. Treat project examples as patterns whose imports must be revalidated.
 
 Contract inspection is complete when every planned package, import, option, generated path, and runtime entry exists in the installed graph; no syntax is inferred only from memory.
@@ -76,6 +78,14 @@ Before editing, map every requested behavior to:
 | --- | --- | --- | --- | --- | --- |
 
 Then implement the smallest coherent set: manifest and lockfile, framework integration, discovered Definition where needed, application or orchestration entrypoint, and proof surface. Keep application authority in application code; grant an Agent access only through visible Capabilities, Workspace rules, Sources, or Channels.
+
+Turn features on with `vitehub add <feature>`, not by editing `vitehub({...})` by hand. It checks the host against the catalog, installs the owner packages, creates the starter file, and edits the config last, so the manifest, lockfile, and config stay in step. See [Add a feature](https://vitehub.dev/raw/docs/development/cli.md#add-a-feature).
+
+- Run `--dry-run` first and read the diff, then apply with `--yes`. Without a terminal, `add` writes nothing until it gets `--yes`.
+- Pass `--name <name>` for a starter Definition, such as `server/queues/<name>.ts`. It never overwrites a file.
+- Pass provider options as `--option key=value`, such as `--option email.driver=resend`.
+- Follow the exit code. `0`: done or unchanged. `2`: input is needed; run the `rerun` command it prints, or supply the options listed in `missing` with their `choices`. `3`: the host does not support the feature, or `add` cannot edit the config; for `SETUP_CONFIG_MANUAL`, paste the printed `snippet` into the `vitehub()` options by hand. For an unsupported feature, choose another host or report the boundary, because a hand-written key does not give the host the feature.
+- `vitehub remove` is not available yet. To turn a feature off, set its key to `false` in `vitehub({...})` by hand.
 
 Building is complete when every requested behavior has an implemented row and no placeholder, unused integration, implicit authority, or unowned persistence remains.
 

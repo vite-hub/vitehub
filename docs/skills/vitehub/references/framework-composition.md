@@ -8,7 +8,7 @@ Start with [Vite Integrations and Provider Output](https://vitehub.dev/raw/docs/
 
 ## Current application contract
 
-Fresh apps install `vite-hub`, register `vitehub()` from the root, and use feature subpaths for runtime APIs. Direct `hubX()` integrations belong to an installed owner-package contract or deliberate advanced composition.
+Fresh apps install `vite-hub`, register `vitehub()` from the root, and use feature subpaths for runtime APIs. Turn features on and set provider options with `vitehub add <feature> --option key=value`, because it checks the host and edits only an object-literal `vitehub({...})`. Edit the config by hand when `add` exits with `3` and prints a `snippet`, or when the options are an expression that `vitehub status` reports as `manual`. Direct `hubX()` integrations belong to an installed owner-package contract or deliberate advanced composition.
 
 For Vite plus Nitro, keep ordering explicit:
 
