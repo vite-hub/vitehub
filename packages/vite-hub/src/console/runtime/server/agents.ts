@@ -19,8 +19,8 @@ export type ConsoleAgentDefinitionEntry = {
   fallbackName: string
 }
 
-/** Loads the Agent capabilities of a Console invocation. Generated output imports them on the first invocation. */
-export type ConsoleAgentCapabilities = () => Promise<RuntimeCapabilities>
+/** The Agent capabilities of a Console invocation, or a loader that imports them on the first invocation. */
+export type ConsoleAgentCapabilities = RuntimeCapabilities | (() => Promise<RuntimeCapabilities>)
 
 export type ConsoleAgentDefinitionInstallation =
   | { capabilities?: ConsoleAgentCapabilities, invocations: AgentInvocations, projectRoot?: never }
@@ -148,7 +148,8 @@ export function installConsoleAgentDefinitions(
 
 export async function getConsoleAgentCapabilities(): Promise<RuntimeCapabilities> {
   const invocations = resolveConsoleInvocations() as ConsoleAgentInvocations | undefined
-  return await invocations?.[consoleAgentCapabilitiesKey]?.() ?? {}
+  const capabilities = invocations?.[consoleAgentCapabilitiesKey]
+  return typeof capabilities === "function" ? await capabilities() : capabilities ?? {}
 }
 
 export function getConsoleAgents(): readonly string[] {
