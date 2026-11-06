@@ -122,6 +122,7 @@ export interface OperationDefinition<Input, Output> {
   cli?: {
     /** Defaults: namespace = section, command = verb. */
     namespace?: string
+    /** A space groups commands: `jobs list` and `jobs show` run as `vitehub <namespace> jobs list` and `jobs show`. */
     command?: string
     /** Input keys read from positional arguments, in order. */
     positional?: string[]
