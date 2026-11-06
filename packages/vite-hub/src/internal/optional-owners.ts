@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
+import { features } from "@vite-hub/internal/features"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -25,27 +26,28 @@ export type OptionalOwnerPackage
 
 /**
  * The packages that the app installs for each feature, in `pnpm add` order. `vite-hub` declares each one as an optional
- * peer, so it resolves them from the app.
+ * peer, so it resolves them from the app. Features in the catalog of `@vite-hub/internal/features` read their packages
+ * from it.
  */
 export const optionalFeaturePackages = {
-  "agent": ["@vite-hub/agent"],
-  "auth": ["@vite-hub/auth", "better-auth"],
+  "agent": features.agent.packages,
+  "auth": features.auth.packages,
   "cms": ["@vite-hub/cms"],
-  "comments": ["@vite-hub/comments"],
+  "comments": features.comments.packages,
   // Connections store grants in the default Database and turn `database` on.
-  "connections": ["@vite-hub/database", "drizzle-orm"],
+  "connections": features.connections.packages,
   // The Console journal of Agent Invocations.
   "console agents": ["@libsql/client", "drizzle-orm"],
   "console sign-in": ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
   "content": ["@vite-hub/content"],
   // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
-  "database": ["@vite-hub/database", "drizzle-orm"],
+  "database": features.database.packages,
   "presets": ["@vite-hub/presets", "@vite-hub/agent"],
-  "realtime": ["@vite-hub/realtime"],
-  "schedule": ["@vite-hub/schedule"],
+  "realtime": features.realtime.packages,
+  "schedule": features.schedule.packages,
   "shell": ["@vite-hub/shell"],
   "ui": ["@vite-hub/ui"],
-  "workspace": ["@vite-hub/workspace"],
+  "workspace": features.workspace.packages,
 } as const satisfies Record<string, readonly string[]>
 
 export type OptionalFeature = keyof typeof optionalFeaturePackages
