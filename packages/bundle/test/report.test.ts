@@ -146,6 +146,26 @@ describe("app report", () => {
   })
 })
 
+describe("why", () => {
+  it("prefers the static chain that loads a module at startup over a shorter lazy one", () => {
+    const entry = `${root}/server/index.ts`
+    const usage = `${root}/server/routes/usage.ts`
+    const chat = `${root}/server/routes/chat.ts`
+    const drizzle = `${root}/node_modules/drizzle-orm/libsql/driver.js`
+    const libsql = `${root}/node_modules/@libsql/client/web.js`
+    const report = collectEnvironmentReport({
+      "index.mjs": chunk("index.mjs", "i".repeat(400), { [entry]: 100, [chat]: 100, [drizzle]: 100, [libsql]: 100 }, { entry }),
+      "usage.mjs": chunk("usage.mjs", "u".repeat(100), { [usage]: 100 }),
+    }, {
+      build: "b", environment: "nitro", side: "server", root, outDir: `${root}/.output/server`,
+      getModuleInfo: graph({ [entry]: [chat], [chat]: [drizzle], [drizzle]: [libsql], [usage]: [libsql] }, [entry], { [entry]: [usage] }),
+    })
+    expect(explainBundle([report], "@libsql/client")[0]!.chain.map(step => step.id)).toEqual([
+      "server/index.ts", "server/routes/chat.ts", "node_modules/drizzle-orm/libsql/driver.js", "node_modules/@libsql/client/web.js",
+    ])
+  })
+})
+
 describe("files and CLI", () => {
   function run(root: string, args: string[]): { code: number | void, stdout: string, stderr: string } {
     let stdout = ""

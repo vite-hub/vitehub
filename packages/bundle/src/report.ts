@@ -112,14 +112,21 @@ function matches(id: string, target: string): boolean {
   return !id.startsWith("node_modules/") && (id.startsWith(`${target}/`) || id.endsWith(`/${target}`))
 }
 
-/** The shortest import chain from an entry of one environment to a module that matches. */
+/**
+ * The shortest import chain from an entry of one environment to a module that matches. Static imports come first: a
+ * module that loads at startup gets the chain that loads it, not a lazy one. Without a static chain, `import()` counts.
+ */
 function chainIn(report: BundleEnvironmentReport, found: (id: string) => boolean): string[] | undefined {
+  return searchChain(report, found, false) ?? searchChain(report, found, true)
+}
+
+function searchChain(report: BundleEnvironmentReport, found: (id: string) => boolean, dynamic: boolean): string[] | undefined {
   // One id can sit in several chunks. Its edges are the union.
   const modules = new Map<string, { entry: boolean, next: Set<string> }>()
   for (const module of report.chunks.flatMap(chunk => chunk.modules)) {
     const row = modules.get(module.id) ?? { entry: false, next: new Set<string>() }
     row.entry ||= module.entry
-    for (const next of [...module.imports, ...module.dynamicImports]) row.next.add(next)
+    for (const next of dynamic ? [...module.imports, ...module.dynamicImports] : module.imports) row.next.add(next)
     modules.set(module.id, row)
   }
   const previous = new Map<string, string | undefined>()
