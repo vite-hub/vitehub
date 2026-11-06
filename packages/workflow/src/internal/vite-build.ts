@@ -644,6 +644,8 @@ interface GenerateProviderOutputsOptions {
   workspaceDependencyRuntimeImports?: WorkspaceDependencyRuntimeImports
   workspaceImportBase?: string
   transformRegistry?: (code: string, id: string) => string | Promise<string>
+  /** Nitro's Worker holds the Cloudflare Workflows, so no separate Cloudflare Workflow Worker is written. */
+  cloudflareInNitro?: boolean
 }
 
 interface WorkspaceDependencyRuntimeImports {
@@ -1527,7 +1529,7 @@ async function generateProviderOutputsWithinLock(
     }
   }
   artifacts = await publishGeneratedArtifacts()
-  const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare"
+  const cloudflareOutput = cloudflareWorkflowConfig && cloudflareWorkflowConfig.provider === "cloudflare" && !options.cloudflareInNitro
     ? createCloudflareOutput(options.rootDir, artifacts, {
         ...options.providerImportAliases,
         ...options.providerRuntimeImportAliases?.cloudflare,
