@@ -77,7 +77,7 @@ icon: i-lucide-terminal
 
   // Read what a command does before you run it
   export default defineEventHandler(async (event) => {
-    const body = await readValidatedBody(event, v.object({ command: v.string() }))
+    const body = await readValidatedBody(event, body => v.parse(v.object({ command: v.string() }), body))
     const facts = await analyzeShellCommand(body.command)
 
     // For example: { commands: ['rg'], ... }

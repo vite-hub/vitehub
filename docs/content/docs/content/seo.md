@@ -123,10 +123,16 @@ The result includes `description`, `robots: noindex` when set, Open Graph `og:ti
 
 Turn on the routes in `defineContent()`:
 
-```ts [server/content.ts] fragment
+```ts [server/content.ts]
+import { defineContent, documents, seo, singleton } from 'vite-hub/content'
+import { z } from 'zod'
+
 export const content = defineContent({
   workspace: 'site',
-  collections: { posts, home },
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string(), seo: seo() } }),
+    home: singleton({ path: 'home.md', url: '/', fields: { title: z.string() } }),
+  },
   seo: { site: 'https://vitehub.dev', sitemap: true, robots: { disallow: ['/_vitehub'] } },
 })
 ```
