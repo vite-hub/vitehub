@@ -44,6 +44,7 @@ interface ConsoleProjectsState {
   store: ConsoleProjectStore
   /** The one-time links for new projects, in the same storage as the projects. */
   pendingLinks: ConsolePendingLinkStore
+  /** `navigator.locks`, so one tab at a time confirms a link. Without it the Console confirms no link. */
   pendingLinkLocks?: ConsolePendingLinkLocks
   /** Load a Console page, such as the Overview after a switch. */
   navigate: (url: string) => void
@@ -103,6 +104,7 @@ export function startConsoleProjects(options: {
   navigate: (url: string) => void
   pageOrigin: string
   storage: ConsoleProjectStorage
+  /** `navigator.locks`, so one tab at a time confirms a link. Without it the Console confirms no link. */
   pendingLinkLocks?: ConsolePendingLinkLocks
 }): ConsoleProjectsState {
   const store = createConsoleProjectStore(options.storage)
@@ -311,9 +313,10 @@ export type ConsoleLinkResult =
 export async function confirmConsoleLink(pendingId: string, target: ConsoleProjectTarget): Promise<ConsoleLinkResult> {
   const projects = useState()
   if (!projects.pendingLinkLocks) {
-    return { kind: "problem", final: false, problem: { title: "Update your browser", message: "This browser cannot coordinate one-time links between tabs. Use a browser with Web Locks support and open the link again." } }
+    return { kind: "problem", final: false, problem: { title: "Update your browser", message: "This browser cannot let only one tab use a link, so the Console does not send the key. Open the link in a current browser, on an https:// Console." } }
   }
-  // The lock covers the first disclosure as well as consumption, across all tabs of this Console origin.
+  // Without Web Locks, two tabs could both send the secret, so the Console sends nothing. With them, one tab at a time
+  // runs the whole claim: check, bind to the target, send, check again, save, and remove.
   return projects.pendingLinkLocks.request(`${consolePendingLinksStorageKey}:${pendingId}`, () => confirmLockedConsoleLink(projects, pendingId, target))
 }
 

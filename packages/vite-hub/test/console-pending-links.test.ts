@@ -167,6 +167,27 @@ describe("linking from a pending link", () => {
     const secondResult = await second
     expect(fetch).toHaveBeenCalledTimes(1)
     expect(secondResult).toMatchObject({ kind: "problem", final: true })
+    // The losing tab saved nothing: the only project is the one that the first tab linked.
+    expect(createConsoleProjectStore(storage).list().map(project => project.url)).toEqual([app.url])
+  })
+
+  it("lets only one of two tabs that confirm the same app at once send the secret", async () => {
+    let finish!: (response: Response) => void
+    const response = new Promise<Response>(resolve => { finish = resolve })
+    const { fetch, module, storage, ticket, pendingLinkLocks } = await session(async () => (await response).clone())
+    vi.resetModules()
+    const otherTab = await import("../src/console/runtime/client/project-session.ts")
+    otherTab.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate: vi.fn(), pageOrigin: "https://console.example.com", storage, pendingLinkLocks })
+
+    const results = Promise.all([module.confirmConsoleLink(ticket.pendingId, app), otherTab.confirmConsoleLink(ticket.pendingId, app)])
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    finish(Response.json(projectGet))
+
+    const [first, second] = await results
+    expect(first).toMatchObject({ kind: "linked" })
+    expect(second).toMatchObject({ kind: "problem", final: true, problem: { title: "This link cannot be used here" } })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(createConsoleProjectStore(storage).list()).toHaveLength(1)
   })
 
   it("keeps a failed link bound to its first confirmed project across tabs, and permits retrying that project", async () => {
