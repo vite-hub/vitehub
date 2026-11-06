@@ -1,7 +1,7 @@
 import { expectTypeOf, it } from "vitest"
 
 import type { AgentInvocationSummary } from "@vite-hub/agent"
-import type { AgentInvocationsDatabase } from "../src/agent/server.ts"
+import type { AgentInvocationsDatabase } from "../src/agent.ts"
 
 it("requires D1 derived insert columns and preserves nullable libSQL reads", () => {
   type D1 = Extract<AgentInvocationsDatabase, { driver: "d1" }>

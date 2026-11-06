@@ -207,6 +207,12 @@ describe("Default Agent journal host defaults", () => {
     expect(explicit.plugin).not.toContain("cloudflare:workers")
   })
 
+  it("rejects a local journal file in a Cloudflare production build", async () => {
+    await expect(generatedJournalPlugin({ ...cloudflare, agent: { invocations: { databaseUrl: "file:journal.sqlite" } } }, "build"))
+      .rejects.toThrow(expect.objectContaining({ code: "VITE_HUB_B0021" }))
+    await expect(generatedJournalPlugin({ ...cloudflare, agent: { invocations: { databaseUrl: "file:journal.sqlite" } } }, "serve")).resolves.toBeDefined()
+  })
+
   it("fails the build for the removed Console journal options", () => {
     for (const key of ["databaseUrl", "observations", "retention"]) {
       expect(() => vitehub({ preset: "node", agent: true, console: { auth: false, [key]: {} } as ViteHubOptions["console"] }))

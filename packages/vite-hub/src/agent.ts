@@ -55,3 +55,6 @@ export const defineAgent: DefineAgent = ((options: Parameters<DefineAgent>[0]) =
   })
   return agent
 }) as DefineAgent
+
+export { getAgentInvocations, getAgentInvocationsDatabase } from "./agent/invocations/journal.ts"
+export type { AgentInvocationsDatabase } from "./agent/invocations/journal.ts"

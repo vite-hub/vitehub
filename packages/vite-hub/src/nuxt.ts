@@ -1,5 +1,5 @@
 import { defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
-import { assertAgentInvocationsRetention, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
+import { assertAgentInvocationsRetention, assertAgentInvocationsUrl, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 import { readFileSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
@@ -1029,6 +1029,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     // An explicit `databaseUrl` keeps libSQL.
     const d1Binding = agentJournal?.databaseUrl ? undefined : defaultDatabaseD1Binding(plan.preset, database, { root: databaseRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })
     assertAgentInvocationsRetention(agentJournal?.retention, d1Binding !== undefined)
+    assertAgentInvocationsUrl(plan.preset, agentJournal?.databaseUrl)
     await writeAgentInvocationsNitroPlugin({ database: Boolean(options.database), d1Binding, default: agentJournal, projectRoot })
   }
   await writeNuxtAgentJournal(configuredOptions.database, journalDatabaseRoot)

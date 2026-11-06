@@ -23,7 +23,7 @@ export interface ConsoleInvocationLink {
   id: string
 }
 
-/** The Console Runtime Capability. Read the Agent Invocation journal with `getAgentInvocations()` from `vite-hub/agent/server`. */
+/** The Console Runtime Capability. Read the Agent Invocation journal with `getAgentInvocations()` from `vite-hub/agent`. */
 export interface ConsoleRuntime {
   invocationUrl: (invocation: ConsoleInvocationLink | Record<string, unknown>) => string
 }

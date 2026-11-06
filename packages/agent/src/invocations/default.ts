@@ -1,13 +1,10 @@
 // The default Agent Invocation journal: local SQLite or libSQL, or D1 on Cloudflare.
 // libSQL loads on the first read or write, so a server that records no run does not load it.
-import { mkdirSync } from "node:fs"
-import { dirname, resolve } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
-
+// It imports no Node builtin, so a Worker that selects D1 or memory starts without Node compatibility.
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../invocations.ts"
 import { createD1AgentInvocationStore, d1AgentInvocationSchema } from "./d1.ts"
-import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "./default-location.ts"
+import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsUrlEnv } from "./default-location.ts"
 
 import type { Client } from "@libsql/client"
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "./d1.ts"
@@ -93,35 +90,40 @@ function runtimeEnv(options: Pick<DefaultAgentInvocationsOptions, "env">): Reado
   return options.env ?? globalThis.process?.env ?? {}
 }
 
-function localFile(projectRoot: string, url: string): { file?: string, url: string } {
-  const fragmentIndex = url.indexOf("#")
-  const urlWithoutFragment = fragmentIndex === -1 ? url : url.slice(0, fragmentIndex)
-  const queryIndex = urlWithoutFragment.indexOf("?")
-  const fileUrl = queryIndex === -1 ? urlWithoutFragment : urlWithoutFragment.slice(0, queryIndex)
-  const query = queryIndex === -1 ? "" : urlWithoutFragment.slice(queryIndex)
-  const isAbsoluteFileUrl = /^file:\//i.test(fileUrl)
-  const relativeFilePath = isAbsoluteFileUrl ? undefined : decodeURIComponent(fileUrl.slice("file:".length))
-  if (relativeFilePath === ":memory:") return { url: urlWithoutFragment }
-  const file = isAbsoluteFileUrl ? fileURLToPath(fileUrl) : resolve(projectRoot, relativeFilePath!)
-  return { file, url: `${pathToFileURL(file).href}${query}` }
+/** The selected store before the file system is read. `url` is undefined for the default file. */
+type DefaultAgentInvocationsTarget =
+  | { kind: "d1", url: string }
+  | { kind: "memory", url: "memory:" }
+  | { authToken?: string, kind: "remote", url: string }
+  | { kind: "file", url?: string }
+
+function selectTarget(options: Omit<DefaultAgentInvocationsOptions, "observations" | "retention">): DefaultAgentInvocationsTarget {
+  const env = runtimeEnv(options)
+  const configuredUrl = env[defaultAgentInvocationsUrlEnv]?.trim()
+  if (!configuredUrl && options.d1) return { kind: "d1", url: `d1:${options.d1.binding}` }
+  const url = configuredUrl || options.databaseUrl
+  if (url && !/^file:/i.test(url)) {
+    const authToken = env[defaultAgentInvocationsAuthTokenEnv]
+    return authToken ? { authToken, kind: "remote", url } : { kind: "remote", url }
+  }
+  // A Worker without a D1 binding or a remote URL has no durable journal.
+  if (isWorkersRuntime()) return { kind: "memory", url: "memory:" }
+  return { kind: "file", url }
+}
+
+async function resolveTarget(projectRoot: string, target: DefaultAgentInvocationsTarget): Promise<DefaultAgentInvocationsLocation & { file?: string }> {
+  if (target.kind !== "file") return target.kind === "remote" && target.authToken ? { authToken: target.authToken, url: target.url } : { url: target.url! }
+  const { resolveLocalJournalFile } = await import("./default-file.ts")
+  return resolveLocalJournalFile(projectRoot, target.url)
 }
 
 /**
  * Where the default journal stores records. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` wins over `databaseUrl` and `d1`.
- * It does not touch the file system.
+ * It does not create files.
  */
-export function resolveDefaultAgentInvocationsLocation(options: Omit<DefaultAgentInvocationsOptions, "observations" | "retention">): DefaultAgentInvocationsLocation {
-  const env = runtimeEnv(options)
-  const configuredUrl = env[defaultAgentInvocationsUrlEnv]?.trim()
-  if (!configuredUrl && options.d1) return { url: `d1:${options.d1.binding}` }
-  const url = configuredUrl || options.databaseUrl || `file:${resolve(options.projectRoot, defaultAgentInvocationsPath)}`
-  if (!/^file:/i.test(url)) {
-    const authToken = env[defaultAgentInvocationsAuthTokenEnv]
-    return authToken ? { authToken, url } : { url }
-  }
-  // A Worker without a D1 binding or a remote URL has no durable journal.
-  if (isWorkersRuntime()) return { url: "memory:" }
-  return { url: localFile(options.projectRoot, url).url }
+export async function resolveDefaultAgentInvocationsLocation(options: Omit<DefaultAgentInvocationsOptions, "observations" | "retention">): Promise<DefaultAgentInvocationsLocation> {
+  const { file: _file, ...location } = await resolveTarget(options.projectRoot, selectTarget(options))
+  return location
 }
 
 /** Reads the database behind a journal from `createDefaultAgentInvocations()`. Other journals, and the Worker memory journal, return `undefined`. */
@@ -186,16 +188,13 @@ function d1Journal(d1: DefaultAgentInvocationsD1, options: DefaultAgentInvocatio
   return invocations
 }
 
-function libsqlJournal(location: DefaultAgentInvocationsLocation, options: DefaultAgentInvocationsOptions): AgentInvocations {
+function libsqlJournal(target: DefaultAgentInvocationsTarget, options: DefaultAgentInvocationsOptions): AgentInvocations {
   const retention = options.retention
   // Concurrent first uses share one open. A failed open lets the next use try again.
   let opened: Promise<{ client: Client, store: Required<AgentInvocationStore> }> | undefined
-  const open = () => opened ??= Promise.all([import("@libsql/client"), import("./sqlite.ts")])
-    .then(([{ createClient }, { createLibsqlAgentInvocationStore }]) => {
-      if (/^file:/i.test(location.url)) {
-        const { file } = localFile(options.projectRoot, location.url)
-        if (file) mkdirSync(dirname(file), { recursive: true })
-      }
+  const open = () => opened ??= Promise.all([import("@libsql/client"), import("./sqlite.ts"), resolveTarget(options.projectRoot, target)])
+    .then(async ([{ createClient }, { createLibsqlAgentInvocationStore }, { file, ...location }]) => {
+      if (file) (await import("./default-file.ts")).createJournalDirectory(file)
       const client = createClient(location)
       try {
         return {
@@ -243,8 +242,8 @@ function libsqlJournal(location: DefaultAgentInvocationsLocation, options: Defau
  * - Memory on a Worker without D1 or a remote URL.
  */
 export function createDefaultAgentInvocations(options: DefaultAgentInvocationsOptions): AgentInvocations {
-  const location = resolveDefaultAgentInvocationsLocation(options)
-  if (options.d1 && location.url.startsWith("d1:")) return d1Journal(options.d1, options)
-  if (location.url === "memory:") return journal(createMemoryAgentInvocationStore(), options.observations)
-  return libsqlJournal(location, options)
+  const target = selectTarget(options)
+  if (options.d1 && target.kind === "d1") return d1Journal(options.d1, options)
+  if (target.kind === "memory") return journal(createMemoryAgentInvocationStore(), options.observations)
+  return libsqlJournal(target, options)
 }

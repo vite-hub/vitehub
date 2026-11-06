@@ -54,6 +54,12 @@ export function assertAgentInvocationsRetention(retention: AgentRetentionPolicy 
   }
 }
 
+/** A Worker cannot open a local file, so a Cloudflare production build rejects a `file:` journal URL instead of keeping records in memory. */
+export function assertAgentInvocationsUrl(preset: string | undefined, databaseUrl: string | undefined): void {
+  if (preset !== "cloudflare" || !databaseUrl || !/^file:/i.test(databaseUrl.trim())) return
+  throw viteHubErrorDiagnostics.VITE_HUB_B0021({ message: "[vitehub] agent.invocations.databaseUrl is a local file, which a Cloudflare Worker cannot open. Remove it to use the D1 binding of the default Database, or set a remote libSQL URL." })
+}
+
 /** Render the Nitro plugin that installs the Database store loader and the app-wide journal before Agents run. */
 export function renderAgentInvocationsNitroPlugin(options: AgentInvocationsRenderOptions): string {
   const journal = options.projectRoot !== undefined && isDefaultAgentJournal(options.default)
@@ -114,6 +120,7 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
           ? options.resolveD1Binding?.(root, viteConfig[VITEHUB_SERVER_DIRS])
           : undefined
         assertAgentInvocationsRetention(setting?.retention, d1Binding !== undefined)
+        if (environment?.command === "build") assertAgentInvocationsUrl(options.preset, setting?.databaseUrl)
         localFileWarning = environment?.command === "build" && !setting?.databaseUrl && presetsWithoutPersistentFiles.has(options.preset ?? "")
           ? `[vitehub] Agent Invocation journal: the ${options.preset} preset has no persistent filesystem, so the default journal file .vitehub/data/agent-invocations.sqlite does not keep records. Set agent.invocations to "database", or set agent.invocations.databaseUrl to a remote libSQL URL.`
           : undefined

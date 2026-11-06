@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -14,14 +14,22 @@ afterEach(() => {
 })
 
 describe("default Agent Invocation journal", () => {
-  it("resolves the default file, an explicit URL, D1, and the runtime env var", () => {
+  it("resolves the default file, an explicit URL, D1, and the runtime env var", async () => {
     const projectRoot = join(tmpdir(), "vitehub-default-journal-location")
-    expect(resolveDefaultAgentInvocationsLocation({ env: {}, projectRoot })).toEqual({ url: pathToFileURL(join(projectRoot, ".vitehub/data/agent-invocations.sqlite")).href })
-    expect(resolveDefaultAgentInvocationsLocation({ databaseUrl: "file:data/journal.sqlite", env: {}, projectRoot })).toEqual({ url: pathToFileURL(join(projectRoot, "data/journal.sqlite")).href })
+    await expect(resolveDefaultAgentInvocationsLocation({ env: {}, projectRoot })).resolves.toEqual({ url: pathToFileURL(join(projectRoot, ".vitehub/data/agent-invocations.sqlite")).href })
+    await expect(resolveDefaultAgentInvocationsLocation({ databaseUrl: "file:data/journal.sqlite", env: {}, projectRoot })).resolves.toEqual({ url: pathToFileURL(join(projectRoot, "data/journal.sqlite")).href })
     const d1 = { binding: "DB", env: () => ({}) }
-    expect(resolveDefaultAgentInvocationsLocation({ d1, env: {}, projectRoot })).toEqual({ url: "d1:DB" })
+    await expect(resolveDefaultAgentInvocationsLocation({ d1, env: {}, projectRoot })).resolves.toEqual({ url: "d1:DB" })
     const env = { VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN: "token", VITEHUB_AGENT_INVOCATIONS_DATABASE_URL: "libsql://journal.example.com" }
-    expect(resolveDefaultAgentInvocationsLocation({ d1, databaseUrl: "file:other.sqlite", env, projectRoot })).toEqual({ authToken: "token", url: "libsql://journal.example.com" })
+    await expect(resolveDefaultAgentInvocationsLocation({ d1, databaseUrl: "file:other.sqlite", env, projectRoot })).resolves.toEqual({ authToken: "token", url: "libsql://journal.example.com" })
+  })
+
+  it("imports no Node builtin outside the lazy file module, so a Worker without Node compatibility can start", () => {
+    for (const file of ["default.ts", "default-location.ts", "d1.ts"]) {
+      const source = readFileSync(new URL(`../src/invocations/${file}`, import.meta.url), "utf8")
+      expect(source, file).not.toMatch(/from ["']node:/)
+    }
+    expect(readFileSync(new URL("../src/invocations/default.ts", import.meta.url), "utf8")).toContain('import("./default-file.ts")')
   })
 
   it("keeps records in memory on a Worker without D1 or a remote URL", () => {

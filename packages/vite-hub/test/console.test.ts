@@ -4617,9 +4617,9 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("allows a runtime URL to override the configured journal URL", () => {
+  it("allows a runtime URL to override the configured journal URL", async () => {
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "libsql://runtime.example.com")
-    expect(resolveDefaultAgentInvocationsLocation({ databaseUrl: "libsql://configured.example.com", projectRoot: process.cwd() })).toEqual({ url: "libsql://runtime.example.com" })
+    await expect(resolveDefaultAgentInvocationsLocation({ databaseUrl: "libsql://configured.example.com", projectRoot: process.cwd() })).resolves.toEqual({ url: "libsql://runtime.example.com" })
   })
 
   it("anchors the durable journal to the project root and shares it between runtime instances", async () => {
@@ -4728,7 +4728,7 @@ describe("Agent invocation console", () => {
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "file:data/my%20journal%231.sqlite")
     try {
       const databasePath = join(projectRoot, "data/my journal#1.sqlite")
-      expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({ url: pathToFileURL(databasePath).href })
+      await expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).resolves.toEqual({ url: pathToFileURL(databasePath).href })
       await createDefaultAgentInvocations({ projectRoot }).list()
 
       expect(existsSync(databasePath)).toBe(true)
@@ -4745,7 +4745,7 @@ describe("Agent invocation console", () => {
     const databaseUrl = pathToFileURL(databasePath).href
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", databaseUrl)
     try {
-      expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({ url: databaseUrl })
+      await expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).resolves.toEqual({ url: databaseUrl })
       await createDefaultAgentInvocations({ projectRoot }).list()
 
       expect(existsSync(databasePath)).toBe(true)
@@ -4782,49 +4782,49 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("recognizes one-slash absolute journal database file URLs", () => {
+  it("recognizes one-slash absolute journal database file URLs", async () => {
     const databasePath = join(tmpdir(), "vitehub-console-one-slash", "console.sqlite")
     const databaseUrl = pathToFileURL(databasePath).href.replace("file:///", "file:/")
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", databaseUrl)
 
-    expect(resolveDefaultAgentInvocationsLocation({ projectRoot: join(tmpdir(), "vitehub-console-project") })).toEqual({
+    await expect(resolveDefaultAgentInvocationsLocation({ projectRoot: join(tmpdir(), "vitehub-console-project") })).resolves.toEqual({
       url: pathToFileURL(databasePath).href,
     })
   })
 
-  it("resolves journal database file URL schemes case-insensitively", () => {
+  it("resolves journal database file URL schemes case-insensitively", async () => {
     const projectRoot = join(tmpdir(), "vitehub-console-uppercase-scheme-project")
     const relativeDatabasePath = join(projectRoot, "data/invocations.sqlite")
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "FILE:data/invocations.sqlite")
 
-    expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({
+    await expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).resolves.toEqual({
       url: pathToFileURL(relativeDatabasePath).href,
     })
 
     const absoluteDatabasePath = join(tmpdir(), "vitehub-console-uppercase-scheme", "console.sqlite")
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", pathToFileURL(absoluteDatabasePath).href.replace("file:", "FILE:"))
 
-    expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({
+    await expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).resolves.toEqual({
       url: pathToFileURL(absoluteDatabasePath).href,
     })
   })
 
-  it("preserves query parameters on configured journal database file URLs", () => {
+  it("preserves query parameters on configured journal database file URLs", async () => {
     const projectRoot = join(tmpdir(), "vitehub-console-query-project")
     const databasePath = join(projectRoot, "data/invocations.sqlite")
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "file:data/invocations.sqlite?mode=rwc")
 
-    expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({
+    await expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).resolves.toEqual({
       url: `${pathToFileURL(databasePath).href}?mode=rwc`,
     })
   })
 
-  it("excludes fragments from configured relative journal database file paths", () => {
+  it("excludes fragments from configured relative journal database file paths", async () => {
     const projectRoot = join(tmpdir(), "vitehub-console-fragment-project")
     const databasePath = join(projectRoot, "data/invocations.sqlite")
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "file:data/invocations.sqlite?mode=rwc#journal")
 
-    expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({
+    await expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).resolves.toEqual({
       url: `${pathToFileURL(databasePath).href}?mode=rwc`,
     })
   })
@@ -4833,30 +4833,30 @@ describe("Agent invocation console", () => {
     const databaseUrl = "file::memory:?cache=shared"
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", databaseUrl)
 
-    expect(resolveDefaultAgentInvocationsLocation({ projectRoot: process.cwd() })).toEqual({ url: databaseUrl })
+    await expect(resolveDefaultAgentInvocationsLocation({ projectRoot: process.cwd() })).resolves.toEqual({ url: databaseUrl })
     await expect(createDefaultAgentInvocations({ projectRoot: process.cwd() }).list()).resolves.toMatchObject({ invocations: [] })
   })
 
-  it("recognizes percent-encoded in-memory journal database URLs", () => {
+  it("recognizes percent-encoded in-memory journal database URLs", async () => {
     const databaseUrl = "file:%3Amemory%3A?cache=shared"
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", databaseUrl)
 
-    expect(resolveDefaultAgentInvocationsLocation({ projectRoot: process.cwd() })).toEqual({ url: databaseUrl })
+    await expect(resolveDefaultAgentInvocationsLocation({ projectRoot: process.cwd() })).resolves.toEqual({ url: databaseUrl })
   })
 
-  it("resolves journal database paths that begin with the in-memory name", () => {
+  it("resolves journal database paths that begin with the in-memory name", async () => {
     const projectRoot = join(tmpdir(), "vitehub-console-memory-prefix-project")
     const databasePath = join(projectRoot, ":memory:backup.sqlite")
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "file::memory:backup.sqlite")
 
-    expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({ url: pathToFileURL(databasePath).href })
+    await expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).resolves.toEqual({ url: pathToFileURL(databasePath).href })
   })
 
-  it("configures the journal database authentication token", () => {
+  it("configures the journal database authentication token", async () => {
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "libsql://console.example.com")
     vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN", "console-token")
 
-    expect(resolveDefaultAgentInvocationsLocation({ projectRoot: process.cwd() })).toEqual({
+    await expect(resolveDefaultAgentInvocationsLocation({ projectRoot: process.cwd() })).resolves.toEqual({
       authToken: "console-token",
       url: "libsql://console.example.com",
     })

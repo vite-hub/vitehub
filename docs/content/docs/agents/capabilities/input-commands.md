@@ -71,12 +71,12 @@ The context also includes the resolved host Runtime Capabilities that the applic
 
 When you import `inputCommands()` from `vite-hub/agent/capabilities` and enable the Console with `vitehub({ console })`, handlers also receive `context.console.invocationUrl()` for links to inspected work.
 `invocationUrl()` requires an invocation with `agentName` and `id`, and either `vitehub({ publicUrl })` or a request context.
-Read the journal itself with `getAgentInvocations()` and `getAgentInvocationsDatabase()` from `vite-hub/agent/server`. They work with the Console on or off. `getAgentInvocationsDatabase()` opens the [default journal](/docs/agents/invocation-storage#use-the-default-journal) database for Drizzle queries on first use. It resolves to `undefined` for another journal store and on a Worker that keeps the journal in memory.
+Read the journal itself with `getAgentInvocations()` and `getAgentInvocationsDatabase()` from `vite-hub/agent`. They work with the Console on or off. `getAgentInvocationsDatabase()` opens the [default journal](/docs/agents/invocation-storage#use-the-default-journal) database for Drizzle queries on first use. It resolves to `undefined` for another journal store and on a Worker that keeps the journal in memory.
 
 ```ts [server/agents/support.ts]
 import { desc } from 'drizzle-orm'
 import { inputCommands } from 'vite-hub/agent/capabilities'
-import { getAgentInvocationsDatabase } from 'vite-hub/agent/server'
+import { getAgentInvocationsDatabase } from 'vite-hub/agent'
 
 const history = inputCommands({
   commands: {
