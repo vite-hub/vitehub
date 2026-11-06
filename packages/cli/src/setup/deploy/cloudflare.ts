@@ -1,13 +1,14 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 
+import { createCloudflareProvisionClient } from "@vite-hub/internal/provision"
 import { join, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes } from "../envelope.ts"
-import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, isRecord, listsName, optionalString, splitManifestCommand } from "./host.ts"
+import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, isoTime, isRecord, listsName, optionalString, parseCommitMessage, splitManifestCommand } from "./host.ts"
 
-import type { DeployAdapter, DeployContext, DeployResult } from "./host.ts"
+import type { DeployAdapter, DeployCommit, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, ListDeployments } from "./host.ts"
 
 /** The flags that ViteHub's own build writes into `commands.deploy` (`packages/vite-hub/src/index.ts`). */
 const valueFlags = new Set(["--config", "--secrets-file"])
@@ -153,4 +154,132 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
       await writeFile(file, `${JSON.stringify(config, null, 2)}\n`)
     },
   }
+}
+
+interface CloudflareVersion {
+  id: string
+  createdAt: string
+  hasPreview: boolean
+  commit?: DeployCommit
+  source: HostDeploymentSource
+}
+
+/** Version and deployment `source` values: https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/ */
+function cloudflareSource(value: unknown): HostDeploymentSource {
+  if (value === "wrangler" || value === "cf_cli") return "cli"
+  if (value === "workersci") return "git"
+  if (value === "dash" || value === "dash_template" || value === "quick_editor" || value === "playground") return "dashboard"
+  if (value === "api" || value === "terraform" || value === "integration") return "api"
+  return "unknown"
+}
+
+function parseVersion(value: unknown): CloudflareVersion | undefined {
+  if (!isRecord(value)) return
+  const id = optionalString(value.id)
+  if (!id) return
+  const metadata = isRecord(value.metadata) ? value.metadata : {}
+  // `wrangler deploy --message` and `wrangler versions upload --message` store the marker on the version.
+  const commit = isRecord(value.annotations) ? parseCommitMessage(value.annotations["workers/message"]) : undefined
+  return { createdAt: isoTime(metadata.created_on), hasPreview: metadata.hasPreview === true, id, source: cloudflareSource(metadata.source), ...(commit ? { commit } : {}) }
+}
+
+function parseVersions(value: unknown): CloudflareVersion[] {
+  const items = isRecord(value) && Array.isArray(value.items) ? value.items : []
+  return items.flatMap(item => parseVersion(item) ?? [])
+}
+
+interface CloudflareDeployment {
+  id: string
+  createdAt: string
+  source: HostDeploymentSource
+  /** The version with the most traffic. */
+  versionId?: string
+  versionIds: string[]
+}
+
+function parseDeployments(value: unknown): CloudflareDeployment[] {
+  const items = isRecord(value) && Array.isArray(value.deployments) ? value.deployments : []
+  return items.flatMap((item: unknown) => {
+    const id = isRecord(item) ? optionalString(item.id) : undefined
+    if (!id || !isRecord(item)) return []
+    const versions = (Array.isArray(item.versions) ? item.versions : []).flatMap((version: unknown) => {
+      const versionId = isRecord(version) ? optionalString(version.version_id) : undefined
+      return versionId && isRecord(version) ? [{ id: versionId, percentage: typeof version.percentage === "number" ? version.percentage : 0 }] : []
+    })
+    const main = versions.toSorted((a, b) => b.percentage - a.percentage)[0]
+    return [{ createdAt: isoTime(item.created_on), id, source: cloudflareSource(item.source), versionIds: versions.map(version => version.id), ...(main ? { versionId: main.id } : {}) }]
+  })
+}
+
+/** A Workers API request that answers undefined on any error, for data that only adds to a listing. */
+async function optional<T>(request: Promise<T>): Promise<T | undefined> {
+  try {
+    return await request
+  }
+  catch {
+    return undefined
+  }
+}
+
+/**
+ * Workers API, newest first:
+ * - `GET /accounts/{account_id}/workers/scripts/{script_name}/deployments`: the first one gets the traffic, as in
+ *   `wrangler deployments list`. https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/list/
+ * - `GET .../versions?deployable=true`: the versions, with the `workers/message` annotation. A version in no
+ *   deployment is a preview (`wrangler versions upload`). https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/
+ * - `GET /accounts/{account_id}/workers/subdomain`: the `workers.dev` URL. https://developers.cloudflare.com/api/resources/workers/subresources/subdomains/methods/get/
+ */
+export const listCloudflareDeployments: ListDeployments = async (context, { limit }) => {
+  const accountId = context.credentials.accountId ?? context.link.account?.id
+  if (!accountId) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_ACCOUNT_REQUIRED({ host: "cloudflare" }), setupExitCodes.inputNeeded, { missing: [{ field: "CLOUDFLARE_ACCOUNT_ID" }], rerun: "vitehub link --host cloudflare --account <id>" })
+  const client = createCloudflareProvisionClient({ accountId, token: context.credentials.token }, context.fetch)
+  const script = `/workers/scripts/${encodeURIComponent(context.link.project.name)}`
+  const [deployments, versions, subdomain] = await Promise.all([
+    client(`${script}/deployments`, { parse: parseDeployments }),
+    client(`${script}/versions`, { parse: parseVersions, query: { deployable: "true", per_page: String(Math.max(limit, 10)) } }),
+    optional(client("/workers/subdomain", { parse: value => isRecord(value) ? optionalString(value.subdomain) : undefined })),
+  ])
+  const byId = new Map((versions.result ?? []).map(version => [version.id, version]))
+  const listed = (deployments.result ?? []).slice(0, limit)
+  // A deployment of an older version than the version list holds: read that version alone.
+  const missing = [...new Set(listed.flatMap(item => item.versionId && !byId.has(item.versionId) ? [item.versionId] : []))]
+  for (const version of await Promise.all(missing.map(id => optional(client(`${script}/versions/${encodeURIComponent(id)}`, { parse: parseVersion }))))) {
+    if (version?.result) byId.set(version.result.id, version.result)
+  }
+
+  const name = context.link.project.name
+  const host = subdomain?.result ? `${subdomain.result}.workers.dev` : undefined
+  const previewUrl = (version: CloudflareVersion | undefined) => host && version?.hasPreview ? `https://${version.id.slice(0, 8)}-${name}.${host}` : undefined
+  const deployed = new Set(listed.flatMap(item => item.versionIds))
+  const result: HostDeployment[] = listed.map((item, index) => {
+    const version = item.versionId ? byId.get(item.versionId) : undefined
+    const url = index === 0 && host ? `https://${name}.${host}` : previewUrl(version)
+    return {
+      createdAt: item.createdAt,
+      id: item.id,
+      live: index === 0,
+      source: item.source,
+      state: "ready",
+      target: "production",
+      ...(url ? { url } : {}),
+      ...(item.versionId ? { version: item.versionId } : {}),
+      ...(version?.commit ? { commit: { ...version.commit, from: "vitehub" } } : {}),
+    } satisfies HostDeployment
+  })
+  for (const version of versions.result ?? []) {
+    if (deployed.has(version.id)) continue
+    const url = previewUrl(version)
+    result.push({
+      createdAt: version.createdAt,
+      id: version.id,
+      live: false,
+      source: version.source,
+      state: "ready",
+      target: "preview",
+      version: version.id,
+      ...(url ? { url } : {}),
+      ...(version.commit ? { commit: { ...version.commit, from: "vitehub" } } : {}),
+    })
+  }
+  return result.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit)
 }

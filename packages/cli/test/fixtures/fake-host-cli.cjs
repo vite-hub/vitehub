@@ -89,6 +89,15 @@ function netlify() {
 }
 
 function deno() {
+  // `deno deploy deployments list` and `deno deploy apps get` print FAKE_DENO_DEPLOYMENTS and FAKE_DENO_APP.
+  if (argv[0] === "deploy" && argv[1] === "deployments" && argv[2] === "list") {
+    process.stdout.write(process.env.FAKE_DENO_DEPLOYMENTS ?? JSON.stringify({ items: [], nextCursor: null }))
+    return
+  }
+  if (argv[0] === "deploy" && argv[1] === "apps" && argv[2] === "get") {
+    process.stdout.write(process.env.FAKE_DENO_APP ?? JSON.stringify({ productionRevisionId: null, productionUrl: null }))
+    return
+  }
   if (argv[0] === "deploy" && argv[1] === "env" && argv[2] === "load") {
     if (!state.denoApp) process.exit(4)
     const [key, value] = stdin.trim().split("=")

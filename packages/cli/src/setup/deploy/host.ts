@@ -32,6 +32,8 @@ export interface DeployRunOptions {
   stdin?: string
   /** Copies the child's output, line by line and redacted, to the CLI's stderr. */
   show?: boolean
+  /** Stops the child after this many milliseconds. Its result then has a `null` exit code. */
+  timeoutMs?: number
 }
 
 /** Runs a host CLI with an argument array and no shell. */
@@ -79,6 +81,44 @@ export interface DeployAdapter {
   setTemporaryVar?: (name: string, value: string) => Promise<void>
 }
 
+/** Where a deployment came from, when the host says. */
+export type HostDeploymentSource = "cli" | "git" | "dashboard" | "api" | "unknown"
+
+/** One deployment as the host lists it. */
+export interface HostDeployment {
+  id: string
+  /** The URL of this deployment. Absent when the host gives it no own URL. */
+  url?: string
+  createdAt: string
+  state: "ready" | "building" | "error" | "canceled" | "unknown"
+  target: "production" | "preview"
+  /** True for the deployment that receives production traffic. */
+  live: boolean
+  /** The Worker version of a Cloudflare deployment. */
+  version?: string
+  /**
+   * The deployed commit. `from: "vitehub"` is the marker of `vitehub deploy`. `from: "host"` is the commit of a Git
+   * integration build, which builds a clean checkout.
+   */
+  commit?: DeployCommit & { from: "vitehub" | "host" }
+  source: HostDeploymentSource
+}
+
+/** What a host listing reads. The link names the host project, and the credentials resolved. */
+export interface DeploymentsContext {
+  root: string
+  link: SetupLink
+  credentials: Extract<HostCredentials, { ok: true }>
+  env: NodeJS.ProcessEnv
+  run: DeployRun
+  fetch: typeof fetch
+  /** Stops each host CLI run after this many milliseconds. */
+  timeoutMs?: number
+}
+
+/** Lists the newest `limit` deployments of the linked project, newest first, from the host. */
+export type ListDeployments = (context: DeploymentsContext, options: { limit: number }) => Promise<HostDeployment[]>
+
 /** Replaces every value in `secrets` with `<redacted>`. */
 export function redact(text: string, secrets: readonly string[]): string {
   return secrets.reduce((result, secret) => secret ? result.replaceAll(secret, "<redacted>") : result, text)
@@ -90,7 +130,7 @@ export function redact(text: string, secrets: readonly string[]): string {
  */
 export function createDeployRun(stderr: { write: (chunk: string) => unknown }, secrets: readonly string[]): DeployRun {
   return (command, args, options) => new Promise((resolve, reject) => {
-    const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: ["pipe", "pipe", "pipe"] })
+    const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: ["pipe", "pipe", "pipe"], ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}) })
     const output = { stderr: "", stdout: "" }
     let pending = ""
     const show = (chunk: string, flush = false) => {
@@ -216,6 +256,26 @@ export function findUrl(text: string, host: RegExp): string | undefined {
 /** The `vitehub:` marker that Cloudflare and Netlify store as the deploy message. */
 export function commitMessage(commit: DeployCommit): string {
   return `vitehub:${JSON.stringify({ commit: commit.sha, dirty: commit.dirty })}`
+}
+
+/** Reads the `vitehub:` marker of `commitMessage`. Returns undefined for any other message. */
+export function parseCommitMessage(message: unknown): DeployCommit | undefined {
+  if (typeof message !== "string" || !message.startsWith("vitehub:")) return
+  let value: unknown
+  try {
+    value = JSON.parse(message.slice("vitehub:".length))
+  }
+  catch {
+    return
+  }
+  if (!isRecord(value) || typeof value.commit !== "string" || !/^[0-9a-f]{40,64}$/u.test(value.commit)) return
+  return { dirty: value.dirty === true, sha: value.commit }
+}
+
+/** A host time, such as an ISO string or a millisecond timestamp, as an ISO string. */
+export function isoTime(value: unknown): string {
+  const time = typeof value === "number" || typeof value === "string" ? new Date(value) : undefined
+  return time && !Number.isNaN(time.getTime()) ? time.toISOString() : ""
 }
 
 /** Reads the commit with git, using argument arrays. Returns undefined without git or outside a repository. */

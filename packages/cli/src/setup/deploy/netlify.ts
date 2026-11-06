@@ -5,9 +5,9 @@ import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes } from "../envelope.ts"
-import { commitMessage, hostCli, hostCliFailed, isRecord, lastJsonObject, optionalString } from "./host.ts"
+import { commitMessage, hostCli, hostCliFailed, isoTime, isRecord, lastJsonObject, optionalString, parseCommitMessage } from "./host.ts"
 
-import type { DeployAdapter, DeployContext } from "./host.ts"
+import type { DeployAdapter, DeployContext, HostDeployment, ListDeployments } from "./host.ts"
 
 interface NetlifySite {
   id: string
@@ -88,4 +88,51 @@ export function netlifyAdapter(context: DeployContext): DeployAdapter {
     },
     projectExists: async () => site !== undefined,
   }
+}
+
+const buildingStates = new Set(["new", "pending_review", "accepted", "enqueued", "building", "uploading", "uploaded", "preparing", "prepared", "processing", "processed", "retrying"])
+
+function netlifyState(value: unknown): HostDeployment["state"] {
+  if (value === "ready") return "ready"
+  if (value === "error") return "error"
+  if (value === "rejected") return "canceled"
+  return typeof value === "string" && buildingStates.has(value) ? "building" : "unknown"
+}
+
+function parseNetlifyDeploys(value: unknown, published: string | undefined): HostDeployment[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item: unknown) => {
+    const id = isRecord(item) ? optionalString(item.id) : undefined
+    if (!id || !isRecord(item)) return []
+    // `netlify deploy --message` is the deploy `title`. A Git build has `commit_ref`.
+    const marked = parseCommitMessage(item.title)
+    const ref = optionalString(item.commit_ref)
+    const commit: HostDeployment["commit"] = marked ? { ...marked, from: "vitehub" } : ref ? { dirty: false, from: "host", sha: ref } : undefined
+    const url = optionalString(item.deploy_ssl_url) ?? optionalString(item.deploy_url)
+    return [{
+      createdAt: isoTime(item.created_at),
+      id,
+      live: id === published,
+      source: marked ? "cli" : ref ? "git" : "unknown",
+      state: netlifyState(item.state),
+      target: item.context === "production" ? "production" : "preview",
+      ...(url ? { url } : {}),
+      ...(commit ? { commit } : {}),
+    } satisfies HostDeployment]
+  })
+}
+
+/**
+ * Netlify API (https://open-api.netlify.com/), with the site id that `vitehub link` or the first `vitehub deploy` stored:
+ * - `GET /api/v1/sites/{site_id}/deploys?per_page=`, newest first (`listSiteDeploys`).
+ * - `GET /api/v1/sites/{site_id}`: `published_deploy.id` is the deploy that serves production (`getSite`).
+ */
+export const listNetlifyDeployments: ListDeployments = async (context, { limit }) => {
+  const siteId = context.link.project.id
+  if (!siteId) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_PROJECT_ID_REQUIRED({ host: "netlify" }), setupExitCodes.inputNeeded, { missing: [{ field: "project.id" }], rerun: "vitehub link --host netlify" })
+  const client = createNetlifyApiClient(context.credentials.token, context.fetch)
+  const path = `/sites/${encodeURIComponent(siteId)}`
+  const [site, deploys] = await Promise.all([client(path), client(`${path}/deploys`, { query: { page: "1", per_page: String(limit) } })])
+  const published = isRecord(site) && isRecord(site.published_deploy) ? optionalString(site.published_deploy.id) : undefined
+  return parseNetlifyDeploys(deploys, published).slice(0, limit)
 }

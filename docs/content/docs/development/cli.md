@@ -75,6 +75,7 @@ Available namespaces:
 | `vitehub link` | Available | ViteHub CLI | Link the project to its project on the host in `.vitehub/link.json`. Does not load the project config. |
 | `vitehub unlink` | Available | ViteHub CLI | Remove `.vitehub/link.json`. Does not load the project config. |
 | `vitehub deploy` | Available | ViteHub CLI | Build the app and run the host deploy that the build wrote, with your local login. Sets the Console link secret. Does not load the project config. |
+| `vitehub deployments` | Available | ViteHub CLI | List the deployments of the linked project from the host, and mark the one that receives production traffic. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent codex-home` | Available | Agent Package | Inspect or manage the Agent Codex home. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
@@ -206,6 +207,7 @@ pnpm vitehub status --json
 - `framework`: `vite`, `nuxt`, or `none`, from the config files and the dependencies.
 - `config`: the file and the config form, or `manual` with the reason when the options are not an object literal.
 - `host`: the `preset` from the config, else the host from the environment, as `detectPreset()` reads it, else `node`. `source` tells which one. A dynamic preset or config reports `name: "unknown"` and feature support with `level: "unknown"`.
+- `live`: the deployment that receives production traffic, with its commit and how many commits it is `behind` and `ahead` of HEAD. See [List deployments](#list-deployments).
 - `features`: each feature as `on`, `off`, or `unknown`. The reason is `config` when the config sets the key, `default` when it does not (including file discovery in `server/`), and `implied` when another feature turns it on or may turn it on. Expressions and keys overridden by a spread are `unknown`; their implications remain uncertain, respecting explicit `false`. An enabled feature lists `missingPackages` and a `fix`, such as the install command.
 
 With `--json`, a command prints exactly one JSON document on stdout, `{ "schemaVersion": 1, ... }`. A failure prints `{ "schemaVersion": 1, "error": { "code", "message", "why", "fix", "docs" } }`. The exit code is `0` when the command is done, `1` for an error, `2` when input is needed, `3` for an unsupported or conflicting change, and `4` for a stale plan.
@@ -406,6 +408,63 @@ The host does not list `VITEHUB_CONSOLE_TOKEN_SHA256` after the command set it, 
 ### `SETUP_DEPLOY_SECRET_UNSUPPORTED`
 
 On Windows, the Deno secret has no stdin path. Set the variable in the host dashboard. The command exits with `3`.
+
+## List deployments
+
+`vitehub deployments` reads the deployments of the linked project from the host each time. ViteHub keeps no local deploy log. It needs a host link in `.vitehub/link.json` (from `vitehub link` or a first `vitehub deploy`) and the credentials that `vitehub link` reads.
+
+```bash [Terminal]
+pnpm vitehub deployments
+pnpm vitehub deployments --limit 20 --json
+```
+
+Each deployment has `id`, `url`, `createdAt`, `state` (`ready`, `building`, `error`, `canceled`, or `unknown`), `target` (`production` or `preview`), `live` (true for the one that receives production traffic), `source` (`cli`, `git`, `dashboard`, `api`, or `unknown`), and `commit`. `commit.from` is `vitehub` for the marker that `vitehub deploy` writes, and `host` for the commit of a Git integration build. `--limit` is 1 to 100, and the default is 10.
+
+```json [vitehub deployments --json]
+{
+  "schemaVersion": 1,
+  "host": "cloudflare",
+  "project": { "name": "my-app" },
+  "deployments": [
+    {
+      "id": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e",
+      "url": "https://my-app.example.workers.dev",
+      "createdAt": "2026-11-05T18:11:19.117Z",
+      "state": "ready",
+      "target": "production",
+      "live": true,
+      "version": "bcf48806-b317-4351-9ee7-36e7d557d4de",
+      "commit": { "sha": "4f2a9c0e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39", "dirty": false, "from": "vitehub" },
+      "source": "cli"
+    }
+  ]
+}
+```
+
+| Host | Deployments | Live | Commit |
+| --- | --- | --- | --- |
+| Cloudflare | Workers API `.../workers/scripts/{name}/deployments` and `.../versions`. A version in no deployment is a preview. | The newest deployment | The `workers/message` annotation of the version |
+| Vercel | `GET /v6/deployments?projectId=` | `targets.production` of the project | `meta.vitehubCommit`, else `meta.githubCommitSha` |
+| Netlify | `GET /api/v1/sites/{site_id}/deploys` | `published_deploy` of the site | The deploy `title`, else `commit_ref` |
+| Deno | `deno deploy deployments list --json` | `productionRevisionId` of `deno deploy apps get --json` | None. Deno Deploy keeps no deploy message. |
+
+`vitehub status` adds a `live` field and a `live` line, such as `live  4f2a9c0 (3 commits behind)`. `behind` and `ahead` come from `git rev-list --left-right --count <sha>...HEAD` when the commit is in the local repository. Otherwise `live.unknownReason` is `commit-not-local`, `no-marker`, or `no-git`. `status` asks the host only when the project is linked and the credentials resolve, and waits at most 5 seconds. When it cannot read the host, `live` is `null` and `liveReason` is `offline`, `not-linked`, `no-credentials`, `no-live-deployment`, `timeout`, or `host-error`. The exit code stays `0`. Pass `--offline` to skip the host request.
+
+### `SETUP_DEPLOYMENTS_NOT_LINKED`
+
+The project has no host link. Run `vitehub link`. The command exits with `2`.
+
+### `SETUP_DEPLOYMENTS_CREDENTIALS_MISSING`
+
+No token was found for the linked host. Run the login command or set the variable that the `fix` names. The command exits with `2`.
+
+### `SETUP_DEPLOYMENTS_ACCOUNT_REQUIRED`
+
+The Cloudflare account is not known. Set `CLOUDFLARE_ACCOUNT_ID`, or run `vitehub link --host cloudflare --account <id>`. The command exits with `2`.
+
+### `SETUP_DEPLOYMENTS_PROJECT_ID_REQUIRED`
+
+The Netlify link has no site id. Run `vitehub link --host netlify`. The command exits with `2`.
 
 ## Read and write blobs
 

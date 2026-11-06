@@ -1,0 +1,17 @@
+{
+  "accountId": "team_LLHUOMOoDlqOp8wPE4kFo9pE",
+  "id": "prj_12HKQaOmR5t5Uy6vdcQsNIiZgHGB",
+  "name": "my-app",
+  "framework": null,
+  "targets": {
+    "production": {
+      "id": "dpl_2euZBFqxYdDMDG1jTrHFnNZ2eUVa",
+      "url": "my-app-9jaeg38me-acme.vercel.app",
+      "alias": ["my-app.vercel.app"],
+      "readyState": "READY",
+      "target": "production",
+      "meta": { "githubCommitSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+    }
+  },
+  "latestDeployments": []
+}

@@ -1,13 +1,14 @@
 import { existsSync } from "node:fs"
 import { readdir, readFile, writeFile } from "node:fs/promises"
 
+import { createVercelProvisionClient } from "@vite-hub/internal/provision"
 import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes } from "../envelope.ts"
-import { hostCli, hostCliFailed, isRecord, lastJsonObject, listsName, optionalString } from "./host.ts"
+import { hostCli, hostCliFailed, isoTime, isRecord, lastJsonObject, listsName, optionalString } from "./host.ts"
 
-import type { DeployAdapter, DeployContext, DeployResult } from "./host.ts"
+import type { DeployAdapter, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, ListDeployments } from "./host.ts"
 
 /** Every `.vc-config.json` of a Vercel Build Output API function. */
 async function functionConfigs(folder: string): Promise<string[]> {
@@ -82,4 +83,73 @@ export function vercelAdapter(context: DeployContext): DeployAdapter {
       }
     },
   }
+}
+
+const gitSources = new Set(["git", "git-deploy-hook", "api-trigger-git-deploy", "import/repo", "clone/repo"])
+
+/** `source` of a deployment: https://vercel.com/docs/rest-api/reference/endpoints/deployments/list-deployments */
+function vercelSource(value: unknown, commit: HostDeployment["commit"]): HostDeploymentSource {
+  if (value === "cli") return "cli"
+  if (typeof value === "string" && gitSources.has(value)) return "git"
+  if (value === "redeploy" || value === "import" || value === "drop" || value === "v0-web") return "dashboard"
+  return commit?.from === "host" ? "git" : "unknown"
+}
+
+function vercelState(value: unknown): HostDeployment["state"] {
+  if (value === "READY") return "ready"
+  if (value === "ERROR") return "error"
+  if (value === "CANCELED" || value === "DELETED") return "canceled"
+  if (value === "BUILDING" || value === "INITIALIZING" || value === "QUEUED" || value === "BLOCKED") return "building"
+  return "unknown"
+}
+
+/** `vitehubCommit` and `vitehubDirty` from `vercel deploy --meta`, else the commit of a Git integration build. */
+function vercelCommit(meta: unknown): HostDeployment["commit"] {
+  if (!isRecord(meta)) return
+  const marked = optionalString(meta.vitehubCommit)
+  if (marked && /^[0-9a-f]{40,64}$/u.test(marked)) return { dirty: meta.vitehubDirty === "true", from: "vitehub", sha: marked }
+  const git = optionalString(meta.githubCommitSha) ?? optionalString(meta.gitlabCommitSha) ?? optionalString(meta.bitbucketCommitSha)
+  return git ? { dirty: false, from: "host", sha: git } : undefined
+}
+
+function parseVercelDeployments(value: unknown, production: string | undefined): HostDeployment[] {
+  const items = isRecord(value) && Array.isArray(value.deployments) ? value.deployments : []
+  return items.flatMap((item: unknown) => {
+    const id = isRecord(item) ? optionalString(item.uid) ?? optionalString(item.id) : undefined
+    if (!id || !isRecord(item)) return []
+    const commit = vercelCommit(item.meta)
+    const url = optionalString(item.url)
+    return [{
+      createdAt: isoTime(item.created ?? item.createdAt),
+      id,
+      live: id === production,
+      source: vercelSource(item.source, commit),
+      state: vercelState(item.state ?? item.readyState),
+      target: item.target === "production" ? "production" : "preview",
+      ...(url ? { url: url.startsWith("https://") ? url : `https://${url}` } : {}),
+      ...(commit ? { commit } : {}),
+    } satisfies HostDeployment]
+  })
+}
+
+/**
+ * Vercel REST API, with `teamId` for a team:
+ * - `GET /v6/deployments?projectId=&limit=`, newest first. The Vercel CLI 65.11 lists with v6; the docs show the same
+ *   fields on v7: https://vercel.com/docs/rest-api/reference/endpoints/deployments/list-deployments
+ * - `GET /v9/projects/{idOrName}`: `targets.production` is the deployment that serves production, which the Vercel CLI
+ *   also reads. https://vercel.com/docs/rest-api/reference/endpoints/projects/find-a-project-by-id-or-name
+ */
+export const listVercelDeployments: ListDeployments = async (context, { limit }) => {
+  const linked = context.link.account?.id
+  // `vitehub link` stores the project owner, which is a user id on a personal account. Only a team id goes in `teamId`.
+  const teamId = context.credentials.teamId ?? (linked?.startsWith("team_") ? linked : undefined)
+  const client = createVercelProvisionClient({ teamId, token: context.credentials.token }, context.fetch)
+  const project = context.link.project.id ?? context.link.project.name
+  const [details, list] = await Promise.all([
+    client(`/v9/projects/${encodeURIComponent(project)}`),
+    client("/v6/deployments", { query: { limit: String(limit), projectId: project } }),
+  ])
+  const targets = isRecord(details) && isRecord(details.targets) ? details.targets : undefined
+  const production = targets && isRecord(targets.production) ? optionalString(targets.production.id) : undefined
+  return parseVercelDeployments(list, production).slice(0, limit)
 }

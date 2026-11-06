@@ -1,0 +1,21 @@
+{
+  "success": true,
+  "errors": [],
+  "messages": [],
+  "result": {
+    "items": [
+      {
+        "id": "6a5b4c3d-2e1f-4a0b-9c8d-7e6f5a4b3c2d",
+        "number": 3,
+        "metadata": { "author_email": "dev@example.com", "author_id": "408cbcdfd4dda4617efef40b04d168a1", "created_on": "2026-11-06T08:00:00.000Z", "hasPreview": true, "modified_on": "2026-11-06T08:00:00.000Z", "source": "wrangler" },
+        "annotations": { "workers/message": "vitehub:{\"commit\":\"cccccccccccccccccccccccccccccccccccccccc\",\"dirty\":true}", "workers/tag": "cccccccccccc", "workers/triggered_by": "version_upload" }
+      },
+      {
+        "id": "bcf48806-b317-4351-9ee7-36e7d557d4de",
+        "number": 2,
+        "metadata": { "author_email": "dev@example.com", "author_id": "408cbcdfd4dda4617efef40b04d168a1", "created_on": "2026-11-05T18:11:10.000Z", "hasPreview": true, "modified_on": "2026-11-05T18:11:10.000Z", "source": "wrangler" },
+        "annotations": { "workers/message": "vitehub:{\"commit\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"dirty\":false}", "workers/tag": "bbbbbbbbbbbb", "workers/triggered_by": "upload" }
+      }
+    ]
+  }
+}

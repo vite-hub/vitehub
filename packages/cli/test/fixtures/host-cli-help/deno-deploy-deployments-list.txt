@@ -1,0 +1,23 @@
+
+Usage:   deno deploy deployments list
+Version: 0.0.9909
+
+Description:
+
+  List deployments (revisions) for an application
+
+Options:
+
+  -h, --help                       - Show this help.
+  --token                <token>   - Auth token to use
+  --config               <config>  - Path for the config file
+  --ignore               <path>    - Ignore particular source files
+  -q, --quiet                      - Suppress non-essential output
+  -j, --json                       - Emit JSON on stdout instead of human-readable output
+  -y, --non-interactive            - Fail fast instead of prompting; values must be supplied via flags or env vars (alias: -y)
+  --org                  <name>    - The name of the organization
+  --app                  <name>    - The name of the application
+  --limit                <n>       - Maximum number of deployments to return (default 20)
+  --cursor               <c>       - Pagination cursor from a previous --json run
+  --status               <status>  - Filter by status: one of skipped, queued, building, succeeded, failed
+
