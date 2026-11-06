@@ -65,6 +65,29 @@ describe("vitehub remove", () => {
     expect(await snapshot(root)).toEqual(original)
   })
 
+  it.each([
+    { layout: 'serverDir: "backend"', directory: "backend" },
+    { layout: 'rootDir: "app"', directory: "app/server" },
+    { layout: 'rootDir: "app", serverDir: "backend"', directory: "app/backend" },
+  ])("removes the starter from the configured Nuxt server directory: $layout", async ({ layout, directory }) => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "nuxt.config.ts": `export default defineNuxtConfig({ ${layout}, modules: [["vite-hub/nuxt", { preset: "cloudflare" }]] })\n`,
+    })
+    const original = await snapshot(root)
+    const pm = fakePackageManager(root)
+    const path = `${directory}/schedules/nightly.ts`
+    expect((await add(["schedule", "--name", "nightly"], root, pm.spawn)).exitCode).toBe(0)
+    expect(existsSync(join(root, path))).toBe(true)
+
+    const { exitCode, json } = await remove(["schedule", "--yes"], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.changes).toContainEqual(expect.objectContaining({ kind: "delete", path }))
+    expect(existsSync(join(root, path))).toBe(false)
+    expect(await snapshot(root)).toEqual(original)
+  })
+
   it("keeps the packages that another enabled feature declares", async () => {
     const root = await createProject({
       "package.json": JSON.stringify({ dependencies: { "@vite-hub/database": "1.0.0", "drizzle-orm": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
@@ -185,6 +208,32 @@ describe("vitehub remove", () => {
     expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
     expect(forced.json.uninstall).toEqual({ devPackages: [], packages: [] })
     expect(forced.json.references).toHaveLength(2)
+  })
+
+  it.each([
+    'import(/* @vite-ignore */ "@vite-hub/realtime/client")',
+    'import(/* webpackChunkName: "realtime" */ "@vite-hub/realtime/client")',
+    'import(// load the client\n "@vite-hub/realtime/client")',
+    'require(/* client */ "@vite-hub/realtime/client")',
+  ])("keeps dependencies used by a commented import: %s", async (expression) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { "@vite-hub/realtime": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      "src/client.ts": `export const load = () => ${expression}\n`,
+      "vite.config.ts": viteConfig(`{ preset: "cloudflare", realtime: true }`),
+    })
+    const before = await snapshot(root)
+
+    const refused = await remove(["realtime", "--yes"], root)
+
+    expect(refused.exitCode).toBe(3)
+    expect(refused.json.error?.code).toBe("SETUP_FEATURE_IN_USE")
+    expect(refused.json.references).toEqual([{ feature: "realtime", file: "src/client.ts", line: 1, module: "@vite-hub/realtime/client" }])
+    expect(await snapshot(root)).toEqual(before)
+
+    const forced = await remove(["realtime", "--yes", "--force"], root)
+
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
+    expect(forced.json.uninstall).toEqual({ devPackages: [], packages: [] })
   })
 
   it("writes false for a feature that is on by default", async () => {

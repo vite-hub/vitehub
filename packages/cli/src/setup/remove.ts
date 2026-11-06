@@ -117,7 +117,7 @@ function importsModule(specifier: string, module: string): boolean {
 }
 
 /** Static imports, re-exports, dynamic imports, and `require` calls. Comments can match, which only makes `remove` stricter. */
-const specifierPattern = /\b(?:from|import|require)\s*\(?\s*(["'])([^"'\r\n]+)\1/gu
+const specifierPattern = /\b(?:from|import|require)\s*\(?\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\r\n]*)\s*)*(["'])([^"'\r\n]+)\1/gu
 const sourceFile = /\.(?:[cm]?[jt]sx?|vue)$/iu
 const declarationFile = /\.d\.[cm]?[jt]sx?$/iu
 
@@ -214,16 +214,20 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const edited: string[] = []
   for (const id of turnedOff) {
     const starter = features[id].definition
-    if (!starter || !existsSync(join(project.root, starter.dir))) continue
-    for (const file of listMatchingFiles(join(project.root, starter.dir), () => true)) {
-      const path = relative(project.root, file)
-      const content = await readFile(file, "utf8")
-      if (isStarter(starter, path, content)) {
-        starters.set(path, content)
-      }
-      else {
-        blocking.push({ feature: id, file: path })
-        edited.push(path)
+    if (!starter) continue
+    for (const directory of project.serverDirs ?? [join(project.root, "server")]) {
+      const folder = join(directory, relative("server", starter.dir))
+      if (!existsSync(folder)) continue
+      for (const file of listMatchingFiles(folder, () => true)) {
+        const path = relative(project.root, file)
+        const content = await readFile(file, "utf8")
+        if (isStarter(starter, join("server", relative(directory, file)), content)) {
+          starters.set(path, content)
+        }
+        else {
+          blocking.push({ feature: id, file: path })
+          edited.push(path)
+        }
       }
     }
   }
