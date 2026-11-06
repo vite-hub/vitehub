@@ -1,4 +1,5 @@
-import { ConsoleRequestError, consoleRpcUploadURL, requestConsole } from "./request"
+import { ConsoleRequestError, requestConsole } from "./request"
+import { projectHeaders, projectUrl, resolveProjectUrl } from "./project"
 import { consoleRpcHeader } from "../rpc"
 
 // These types mirror the media library contract in `server/media.ts`.
@@ -149,7 +150,6 @@ interface ConsoleUploadRequest {
   abort(): void
   addEventListener(type: "abort" | "error" | "load", listener: () => void): void
   readonly upload: { addEventListener(type: "progress", listener: (event: { lengthComputable: boolean, loaded: number, total: number }) => void): void }
-  withCredentials: boolean
 }
 
 /** Sends one file as `multipart/form-data` with XMLHttpRequest, which reports upload progress and fetch does not. */
@@ -159,8 +159,7 @@ function uploadRequest(url: string, form: FormData, options: ConsoleMediaUploadO
     const XHR = Reflect.get(globalThis, "XMLHttpRequest") as new () => ConsoleUploadRequest
     const request = new XHR()
     request.open("POST", url)
-    request.withCredentials = true
-    request.setRequestHeader(consoleRpcHeader, "1")
+    for (const [name, value] of Object.entries(projectHeaders({ [consoleRpcHeader]: "1" }))) request.setRequestHeader(name, value)
     request.responseType = "json"
     request.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) options.onProgress?.(event.loaded / event.total)
@@ -215,7 +214,7 @@ export function createConsoleMediaClient(base: string, section: string): Console
       }
       else if (options.folder) form.set("folder", options.folder)
       // SAFETY: The upload route returns `{ duplicate, file }`.
-      return await uploadRequest(`${consoleRpcUploadURL(base)}?section=${encodeURIComponent(section)}`, form, options) as ConsoleMediaUploadResult
+      return await uploadRequest(`${projectUrl("/_vitehub/rpc/__upload")}?section=${encodeURIComponent(section)}`, form, options) as ConsoleMediaUploadResult
     },
     async usage(pathnames) {
       const result = await call("usage", { pathnames: [...pathnames] })
@@ -228,10 +227,15 @@ export function createConsoleMediaClient(base: string, section: string): Console
 
 // Display helpers
 
-/** The URL that serves a pathname, or undefined when the store is not served. */
+/** The URL that serves a pathname on the project, or undefined when the store is not served. */
 export function consoleMediaUrl(served: string | null | undefined, pathname: string): string | undefined {
   if (!served) return undefined
-  return `${served}${pathname.split("/").map(encodeURIComponent).join("/")}`
+  return resolveProjectUrl(`${served}${pathname.split("/").map(encodeURIComponent).join("/")}`)
+}
+
+/** The URL of a media file on the project: its own served URL, or the served URL of its store. */
+export function consoleMediaFileUrl(file: Pick<ConsoleMediaFile, "pathname" | "url">, served: string | null | undefined): string | undefined {
+  return file.url === undefined ? consoleMediaUrl(served, file.pathname) : resolveProjectUrl(file.url)
 }
 
 export interface ConsoleMediaVariant {

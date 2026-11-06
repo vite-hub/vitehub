@@ -30,7 +30,8 @@ export default defineConfig({
 | --- | --- | --- | --- |
 | `driver` | `'resend' \| 'cloudflare-email'` | Required | Selects a built-in ViteHub Email driver. |
 | `options` | `EnvRuntimeConfigOptions` | `{}` | Supplies serializable non-secret literals and runtime Env declarations. Env source values resolve in the server runtime for every send; literals and non-secret defaults are included in build output, while defaults on secret declarations are rejected. |
-| `outbox` | `false \| { deliver?: boolean, limit?: number }` | `{ deliver: true, limit: 50 }` | Configures the [development outbox](/docs/email/hosts#development-outbox) in `vite dev`. Build output never contains it. |
+| `remote` | `boolean` | `false` | `true` makes `vite dev` send real email through the provider. Without it, a dev send stays in the [development outbox](/docs/email/hosts#development-outbox). Builds ignore it. |
+| `outbox` | `false \| { limit?: number }` | `{ limit: 50 }` | Configures the [development outbox](/docs/email/hosts#development-outbox) in `vite dev`. `false` needs `remote: true`. Build output never contains it. |
 
 Omission or `email: false` leaves Email off. `email: true` selects the `cloudflare-email` driver. The `cloudflare-email` driver requires Cloudflare hosting and generates an `EMAIL` `send_email` Worker binding. With other presets, set `driver: 'resend'`.
 
