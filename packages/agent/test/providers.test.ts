@@ -9389,7 +9389,7 @@ describe("server helpers", () => {
         "",
         { waitUntil: (task) => waitUntilTasks.push(task) },
       )
-      const response = await vi.waitFor(() => responsePromise)
+      const response = await withDeadline(responsePromise, 3_000, "Workflow webhook response waited for deferred workflow completion.")
       const json = await response.json()
 
       expect(response.status).toBe(200)

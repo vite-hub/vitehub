@@ -20,7 +20,7 @@ Applications that use the `vite-hub` distribution import the same runtime APIs f
 
 ## Run a Sandbox Task
 
-`runSandboxTask(name, payload?, options?)` infers its payload type from the default function and returns a native Web `Response`. A zero-argument function accepts an `unknown` payload.
+`runSandboxTask(name, payload, options?)` infers its payload type from the default function and returns a native Web `Response`. The payload is required when the registered handler requires it. Handlers with an optional payload or no parameters can be invoked without a payload. A zero-argument function accepts an `unknown` payload.
 
 ```ts [server/api/release-notes-json.post.ts]
 import { defineEventHandler } from 'h3'
@@ -38,7 +38,7 @@ export default defineEventHandler(async () => {
 
 | Option | Type | Description |
 | --- | --- | --- |
-| `context` | `Record<string, unknown>` | Second argument passed to the entrypoint. |
+| `context` | `Record<string, unknown>` | Second argument passed to the entrypoint. Defaults to `{}` when omitted. |
 | `signal` | `AbortSignal` | Abort the invocation. The caller's abort reason is preserved; this also stops cancellable provider operations. |
 | `sandboxId` | `string` | Cloudflare only. Reuse a named Sandbox instead of a new Sandbox for each run. |
 

@@ -34,6 +34,8 @@ Libraries can install `@vite-hub/content` and use the matching `@vite-hub/conten
 `defineContent()` returns a Comark Content hub with ViteHub adapters for named Sources and collections. The examples on this page use this definition: a read-only `docs` Source, a `posts` collection, and a `settings` singleton.
 
 ```ts [server/content.ts]
+import sqlite from 'comark-content/database/sqlite-node'
+import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
 import { cms } from 'vite-hub/cms'
 import { defineContent, documents, singleton } from 'vite-hub/content'
 import { glob } from 'vite-hub/source/glob'
@@ -41,6 +43,7 @@ import { z } from 'zod'
 
 export const content = defineContent({
   extends: cms,
+  plugins: [sqliteFullTextSearch({ database: sqlite() })],
   sources: {
     docs: glob({ cwd: 'docs', include: '**/*.md' }),
   },
@@ -51,9 +54,11 @@ export const content = defineContent({
     }),
     settings: singleton({ path: 'settings.json', fields: { title: z.string() } }),
   },
-  authorize: ({ user, action }) => user?.role === 'editor' && action !== 'publish',
+  authorize: ({ user, action }) => user?.role === 'admin' || (user?.role === 'editor' && action !== 'publish'),
 })
 ```
+
+Editors can read and edit drafts; admins can also publish.
 
 | Method | Behavior |
 | --- | --- |

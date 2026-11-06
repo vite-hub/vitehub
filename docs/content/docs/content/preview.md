@@ -19,11 +19,14 @@ import { z } from 'zod'
 
 export const content = defineContent({
   extends: cms,
+  authorize: ({ user, action }) => action === 'read' && Boolean(user),
   collections: {
     posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string() } }),
   },
 })
 ```
+
+This policy lets signed-in users read drafts. Replace it with your app's preview access rules.
 
 ```ts [server/api/preview.post.ts] fragment
 import { content } from '../content'
