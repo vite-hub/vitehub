@@ -2,12 +2,12 @@ import { ref, shallowRef } from "vue"
 
 import type { Ref, ShallowRef } from "vue"
 
-import { createConsolePendingLinkStore, parseConsoleLinkFragment } from "./pending-links"
+import { consolePendingLinksStorageKey, createConsolePendingLinkStore, parseConsoleLinkFragment } from "./pending-links"
 import { setConsoleProject } from "./project"
 import { consoleProjectProblem, probeConsoleProject } from "./project-link"
 import { consoleProjectHost, consoleProjectTarget, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "./projects"
 
-import type { ConsoleLinkRequest, ConsolePendingLinkStore, ConsolePendingLinkTicket } from "./pending-links"
+import type { ConsoleLinkRequest, ConsolePendingLinkLocks, ConsolePendingLinkStore, ConsolePendingLinkTicket } from "./pending-links"
 import type { ConsoleProjectInfo, ConsoleProjectProbe, ConsoleProjectProblem } from "./project-link"
 import type { ConsoleLinkedProject, ConsoleProjectStorage, ConsoleProjectStore, ConsoleProjectTarget } from "./projects"
 
@@ -44,6 +44,7 @@ interface ConsoleProjectsState {
   store: ConsoleProjectStore
   /** The one-time links for new projects, in the same storage as the projects. */
   pendingLinks: ConsolePendingLinkStore
+  pendingLinkLocks?: ConsolePendingLinkLocks
   /** Load a Console page, such as the Overview after a switch. */
   navigate: (url: string) => void
   /** The Console page that opens a project. */
@@ -102,6 +103,7 @@ export function startConsoleProjects(options: {
   navigate: (url: string) => void
   pageOrigin: string
   storage: ConsoleProjectStorage
+  pendingLinkLocks?: ConsolePendingLinkLocks
 }): ConsoleProjectsState {
   const store = createConsoleProjectStore(options.storage)
   const projects = store.list()
@@ -124,6 +126,7 @@ export function startConsoleProjects(options: {
     navigate: options.navigate,
     pageOrigin: options.pageOrigin,
     pendingLinks: createConsolePendingLinkStore(options.storage),
+    pendingLinkLocks: options.pendingLinkLocks,
     projects: shallowRef(projects),
     statuses: shallowRef({}),
     store,
@@ -307,8 +310,20 @@ export type ConsoleLinkResult =
  */
 export async function confirmConsoleLink(pendingId: string, target: ConsoleProjectTarget): Promise<ConsoleLinkResult> {
   const projects = useState()
+  if (!projects.pendingLinkLocks) {
+    return { kind: "problem", final: false, problem: { title: "Update your browser", message: "This browser cannot coordinate one-time links between tabs. Use a browser with Web Locks support and open the link again." } }
+  }
+  // The lock covers the first disclosure as well as consumption, across all tabs of this Console origin.
+  return projects.pendingLinkLocks.request(`${consolePendingLinksStorageKey}:${pendingId}`, () => confirmLockedConsoleLink(projects, pendingId, target))
+}
+
+async function confirmLockedConsoleLink(projects: ConsoleProjectsState, pendingId: string, target: ConsoleProjectTarget): Promise<ConsoleLinkResult> {
   const lookup = projects.pendingLinks.lookup(pendingId)
   if (lookup.kind !== "pending") return { kind: "problem", problem: pendingLinkProblems[lookup.kind], final: true }
+  if (lookup.link.targetUrl && lookup.link.targetUrl !== target.url) {
+    return { kind: "problem", final: true, problem: { title: "This link belongs to another project", message: `Retry the link for ${lookup.link.targetUrl}, or make a new link for this project and run the new command.` } }
+  }
+  projects.pendingLinks.bind(pendingId, target.url)
   const probe = await probeConsoleProject(target, lookup.link.secret)
   if (probe.kind === "token") {
     return {
@@ -321,7 +336,7 @@ export async function confirmConsoleLink(pendingId: string, target: ConsoleProje
     }
   }
   if (probe.kind !== "ready") return { kind: "problem", problem: consoleProjectProblem(probe, problemContext(target)), final: false }
-  // Another tab can confirm the same link while this request runs. Only the first one saves the project.
+  // Expiry or removal while the request ran still prevents saving the project.
   if (projects.pendingLinks.lookup(pendingId).kind !== "pending") return { kind: "problem", problem: pendingLinkProblems.unknown, final: true }
   projects.pendingLinks.remove(pendingId)
   const project = projects.store.save({ url: target.url, label: probe.info.name, token: lookup.link.secret })

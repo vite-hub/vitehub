@@ -70,6 +70,7 @@ startConsoleProjects({
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
   storage,
+  pendingLinkLocks: navigator.locks,
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);
 if (openRequest) continueConsoleOpen(openRequest);

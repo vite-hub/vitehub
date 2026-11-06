@@ -24,6 +24,8 @@ export interface ConsolePendingLink {
   secret: string
   /** When the Console made the link, in milliseconds since the epoch. */
   createdAt: number
+  /** The first confirmed app, retained on failure so the secret cannot be sent to a second project. */
+  targetUrl?: string
 }
 
 /** What the Console gives out for a new pending link: the id and the value of `VITEHUB_CONSOLE_TOKEN_SHA256`. */
@@ -43,8 +45,15 @@ export interface ConsolePendingLinkStore {
   create(): Promise<ConsolePendingLinkTicket>
   /** Find a pending link. Every read also removes the links that expired. */
   lookup(pendingId: string): ConsolePendingLinkLookup
+  /** Remember the confirmed app before sending its secret. The caller holds the link's Web Lock. */
+  bind(pendingId: string, targetUrl: string): void
   /** Remove a link, after it linked a project. */
   remove(pendingId: string): void
+}
+
+/** The browser's origin-wide Web Locks manager, passed in by the hosted Console. */
+export interface ConsolePendingLinkLocks {
+  request<T>(name: string, run: () => Promise<T>): Promise<T>
 }
 
 const pendingIdPattern = /^[\w-]{8,64}$/
@@ -79,9 +88,11 @@ function parseStoredLinks(raw: string | null): ConsolePendingLink[] {
     const pendingId: unknown = Reflect.get(entry, "pendingId")
     const secret: unknown = Reflect.get(entry, "secret")
     const createdAt: unknown = Reflect.get(entry, "createdAt")
+    const targetUrl: unknown = Reflect.get(entry, "targetUrl")
     if (String(pendingId) !== pendingId || !pendingIdPattern.test(pendingId) || String(secret) !== secret || !secret) continue
     if (!Number.isFinite(createdAt) || links.some(link => link.pendingId === pendingId)) continue
-    links.push({ pendingId, secret, createdAt: Number(createdAt) })
+    if (targetUrl !== undefined && (String(targetUrl) !== targetUrl || !targetUrl)) continue
+    links.push({ pendingId, secret, createdAt: Number(createdAt), ...(targetUrl !== undefined ? { targetUrl } : {}) })
   }
   return links
 }
@@ -116,6 +127,9 @@ export function createConsolePendingLinkStore(storage: ConsoleProjectStorage, op
       const link = links.find(entry => entry.pendingId === pendingId)
       if (!link) return { kind: "unknown" }
       return live.includes(link) ? { kind: "pending", link } : { kind: "expired" }
+    },
+    bind(pendingId, targetUrl) {
+      write(read().map(link => link.pendingId === pendingId ? { ...link, targetUrl } : link))
     },
     remove(pendingId) {
       write(read().filter(link => link.pendingId !== pendingId))
