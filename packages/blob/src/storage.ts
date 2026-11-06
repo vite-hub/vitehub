@@ -10,6 +10,7 @@ import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } f
 // Generated provider runtime modules import the handlers from this entry.
 export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
+export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
 import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobResult, BlobServeEvent, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
