@@ -61,6 +61,8 @@ interface StoredJob {
   key: string
   payload?: unknown
   queue: string
+  /** Original retention duration, captured before the first manual retry refreshes `expiresAt`. */
+  retentionMs?: number
   /**
    * `dead` jobs used all attempts, or failed with an error that a retry cannot fix. They stay on disk for inspection,
    * up to `localQueueDeadLimit` per Queue Definition. `done` jobs ran, but their file could not be deleted.
@@ -246,6 +248,9 @@ function checkPayloadSize(bytes: number, rules: LocalQueueDeliveryRules) {
 }
 
 function checkBatch(entries: readonly LocalQueueEntry[], bytes: number, rules: LocalQueueDeliveryRules) {
+  if (rules.rules === "vercel" && entries.length === 0) {
+    throw new RangeError("Vercel requires at least one job in a `sendBatch()`.")
+  }
   if (entries.length < 2) return
   if (rules.maxBatchJobs !== undefined && entries.length > rules.maxBatchJobs) {
     throw new RangeError(`${providerNames[rules.rules]} accepts up to ${rules.maxBatchJobs} jobs in one \`sendBatch()\`, got ${entries.length}.`)
@@ -586,7 +591,10 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         delete retry.error
         delete retry.failedAt
         // An expired job gets the retention it had when it was sent.
-        if (job.expiresAt !== undefined) retry.expiresAt = now + (job.expiresAt - job.enqueuedAt)
+        if (job.expiresAt !== undefined) {
+          retry.retentionMs = job.retentionMs ?? (job.expiresAt - job.enqueuedAt)
+          retry.expiresAt = now + retry.retentionMs
+        }
         retry.availableAt = now
         await persist(retry)
         jobs.set(job.key, retry)
