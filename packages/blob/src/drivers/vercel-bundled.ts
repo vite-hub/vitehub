@@ -156,7 +156,7 @@ function resolveBlobAccess(url: string, fallback: "private" | "public") {
 }
 
 export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreConfig): BlobDriverAdapter<ResolvedVercelBlobStoreConfig> {
-  const auth = { token: options.token }
+  const auth = options.token ? { token: options.token } : {}
 
   async function read(pathname: string) {
     const abortSignal = options.downloadTimeoutMs && options.downloadTimeoutMs > 0
