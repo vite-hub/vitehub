@@ -6,11 +6,12 @@ import { forgetConsoleProject, openConsoleProject, signInConsoleProject, switchC
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleProjectLink from "./console-project-link.vue";
+import ConsoleProjectLinkConfirm from "./console-project-link-confirm.vue";
 import ConsoleProjectToken from "./console-project-token.vue";
 
 /**
- * What the Console shows before it opens a project: the empty state of a hosted Console, the Console token form, or why
- * the project did not open. While the project answers, it draws the same shapes as the server page.
+ * What the Console shows before it opens a project: the empty state of a hosted Console, the Console token form, the
+ * `/link` page of a one-time link, or why the project did not open. While the project answers, it draws the same shapes as the server page.
  */
 const projects = useConsoleProjects();
 const gate = projects.gate;
@@ -89,6 +90,8 @@ onMounted(() => {
         <ConsoleProjectToken :busy="busy" :error="tokenError" @submit="signIn" />
       </template>
 
+      <ConsoleProjectLinkConfirm v-else-if="gate.kind === 'link'" :request="gate.request" />
+
       <template v-else-if="gate.kind === 'problem'">
         <div class="grid gap-1.5" role="alert">
           <h1 class="vitehub-project-gate__title">{{ gate.problem.title }}</h1>
@@ -97,7 +100,7 @@ onMounted(() => {
         <UButton icon="i-lucide-refresh-cw" label="Try again" class="justify-self-start" :loading="busy" @click="retry" />
       </template>
 
-      <div v-if="projects.mode === 'hosted' && current && gate.kind !== 'empty'" class="vitehub-project-gate__host">
+      <div v-if="projects.mode === 'hosted' && current && gate.kind !== 'empty' && gate.kind !== 'link'" class="vitehub-project-gate__host">
         <span class="min-w-0 truncate font-mono">{{ current.url }}</span>
         <UDropdownMenu :items="switchItems" :content="{ align: 'end' }" :ui="{ content: 'min-w-60' }">
           <UButton color="neutral" variant="ghost" size="xs" trailing-icon="i-lucide-chevron-down" label="Switch project" />

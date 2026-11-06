@@ -2,10 +2,12 @@ import { ref, shallowRef } from "vue"
 
 import type { Ref, ShallowRef } from "vue"
 
+import { createConsolePendingLinkStore, parseConsoleLinkFragment } from "./pending-links"
 import { setConsoleProject } from "./project"
 import { consoleProjectProblem, probeConsoleProject } from "./project-link"
 import { consoleProjectHost, consoleProjectTarget, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "./projects"
 
+import type { ConsoleLinkRequest, ConsolePendingLinkStore, ConsolePendingLinkTicket } from "./pending-links"
 import type { ConsoleProjectInfo, ConsoleProjectProbe, ConsoleProjectProblem } from "./project-link"
 import type { ConsoleLinkedProject, ConsoleProjectStorage, ConsoleProjectStore, ConsoleProjectTarget } from "./projects"
 
@@ -25,6 +27,8 @@ export type ConsoleProjectGate =
   | { kind: "empty" }
   | { kind: "token", rejected: boolean }
   | { kind: "problem", problem: ConsoleProjectProblem }
+  /** The `/link` page of a hosted Console: confirm the app of a one-time link, or why the link cannot be used. */
+  | { kind: "link", request: ConsoleLinkRequest }
   | { kind: "ready" }
 
 /** What linking found: the saved project, the token step, or why it failed. */
@@ -38,6 +42,8 @@ interface ConsoleProjectsState {
   /** The origin of the Console page, such as `https://console.example.com`. */
   pageOrigin: string
   store: ConsoleProjectStore
+  /** The one-time links for new projects, in the same storage as the projects. */
+  pendingLinks: ConsolePendingLinkStore
   /** Load a Console page, such as the Overview after a switch. */
   navigate: (url: string) => void
   /** The Console page that opens a project. */
@@ -117,6 +123,7 @@ export function startConsoleProjects(options: {
     mode: options.mode,
     navigate: options.navigate,
     pageOrigin: options.pageOrigin,
+    pendingLinks: createConsolePendingLinkStore(options.storage),
     projects: shallowRef(projects),
     statuses: shallowRef({}),
     store,
@@ -256,4 +263,69 @@ export async function checkConsoleProjects(): Promise<void> {
     const status: ConsoleProjectStatus = probe.kind === "ready" ? "ready" : probe.kind === "token" || probe.kind === "oauth" || probe.kind === "sign-in" ? "sign-in" : "unreachable"
     projects.statuses.value = { ...projects.statuses.value, [project.id]: status }
   }))
+}
+
+/**
+ * Make a one-time link for a new project in this browser. Give the app `pendingId` and `verifier` (the value of
+ * `VITEHUB_CONSOLE_TOKEN_SHA256`), such as with `vite-hub init --console <pendingId>:sha256:<verifier>`. The secret stays
+ * in this browser until the person confirms the app on `/link`.
+ */
+export function createConsolePendingLink(): Promise<ConsolePendingLinkTicket> {
+  return useState().pendingLinks.create()
+}
+
+/** Why a pending link cannot link a project. */
+const pendingLinkProblems: Record<"expired" | "unknown", ConsoleProjectProblem> = {
+  expired: { title: "This link expired", message: "A link works for 24 hours. Make a new link in this Console, and run the new command." },
+  unknown: { title: "This link cannot be used here", message: "This link was made in another browser or already used. Open the Console where you started the project, or relink." },
+}
+
+/**
+ * Show the `/link` page for the fragment of its URL, such as `#p=<pendingId>&url=<appOrigin>`. It sends no request: the
+ * app gets the secret only after the person confirms it with `confirmConsoleLink()`.
+ */
+export function startConsoleLink(hash: string): ConsoleLinkRequest {
+  const projects = useState()
+  const parsed = parseConsoleLinkFragment(hash)
+  const lookup = parsed.kind === "confirm" ? projects.pendingLinks.lookup(parsed.pendingId).kind : "pending"
+  const request: ConsoleLinkRequest = lookup === "pending" ? parsed : { kind: "problem", problem: pendingLinkProblems[lookup] }
+  projects.gate.value = { kind: "link", request }
+  return request
+}
+
+/**
+ * What confirming a link did. `final` is true when the link cannot be used again, so the page shows only the problem.
+ */
+export type ConsoleLinkResult =
+  | { kind: "linked", project: ConsoleLinkedProject }
+  | { kind: "problem", problem: ConsoleProjectProblem, final: boolean }
+
+/**
+ * Link the app of a pending link after the person confirmed it: send the secret of the link as the Console token of the
+ * app, save the project with that token, and delete the link. The caller then loads the project with
+ * `switchConsoleProject()`. A link that failed stays pending, so the person can fix the app and try again.
+ */
+export async function confirmConsoleLink(pendingId: string, target: ConsoleProjectTarget): Promise<ConsoleLinkResult> {
+  const projects = useState()
+  const lookup = projects.pendingLinks.lookup(pendingId)
+  if (lookup.kind !== "pending") return { kind: "problem", problem: pendingLinkProblems[lookup.kind], final: true }
+  const probe = await probeConsoleProject(target, lookup.link.secret)
+  if (probe.kind === "token") {
+    return {
+      kind: "problem",
+      final: false,
+      problem: {
+        title: "The host secret does not match",
+        message: `${consoleProjectHost(target)} refused the key of this link. Its VITEHUB_CONSOLE_TOKEN_SHA256 is not the hash from this link. Run the command again or relink.`,
+      },
+    }
+  }
+  if (probe.kind !== "ready") return { kind: "problem", problem: consoleProjectProblem(probe, problemContext(target)), final: false }
+  // Another tab can confirm the same link while this request runs. Only the first one saves the project.
+  if (projects.pendingLinks.lookup(pendingId).kind !== "pending") return { kind: "problem", problem: pendingLinkProblems.unknown, final: true }
+  projects.pendingLinks.remove(pendingId)
+  const project = projects.store.save({ url: target.url, label: probe.info.name, token: lookup.link.secret })
+  projects.store.select(project.id)
+  projects.projects.value = projects.store.list()
+  return { kind: "linked", project }
 }

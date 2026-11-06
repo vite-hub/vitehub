@@ -32,7 +32,8 @@ import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSection
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { consoleProjectReady, startConsoleProjects } from "./project-session";
+import { consoleProjectReady, startConsoleLink, startConsoleProjects } from "./project-session";
+import { takeConsoleLinkHash } from "./pending-links";
 import { memoryProjectStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
@@ -54,6 +55,9 @@ function projectStorage() {
   }
 }
 
+// A one-time link of a new project: /link#p=<pendingId>&url=<appOrigin>. Only the hosted Console links new projects.
+const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
+
 startConsoleProjects({
   base: hostBase,
   home: consoleBase,
@@ -62,6 +66,7 @@ startConsoleProjects({
   pageOrigin: window.location.origin,
   storage: projectStorage(),
 });
+if (linkHash !== undefined) startConsoleLink(linkHash);
 const sectionsBase = "/api/_vitehub/console/sections";
 const capabilitiesBase = "/api/_vitehub/console/invocation-capabilities";
 
