@@ -27,8 +27,8 @@ Keep reusable behavior in Definitions and task data in invocation input. Runtime
 
 ## Adapt an H3 event
 
-Use `getRuntimeContext()` in application-owned H3 or Nuxt routes. Create a new
-context for each invocation:
+Use `getRuntimeContext()` in application-owned H3 or Nuxt routes. This example
+uses Vite with Nitro 3. Create a new context for each invocation:
 
 The route runs this Agent:
 
@@ -52,7 +52,7 @@ import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readValidatedBody(event, v.object({ prompt: v.string() }))
+  const { prompt } = await readValidatedBody(event, v.parser(v.object({ prompt: v.string() })))
   const runtime = getRuntimeContext(event, {
     runtimeConfig: useRuntimeConfig(),
   })
@@ -65,6 +65,10 @@ export default defineEventHandler(async (event) => {
   }
 })
 ```
+
+For Nuxt routes, replace the `nitro/runtime-config` import with
+`import { useRuntimeConfig } from '#imports'` and pass `useRuntimeConfig(event)`
+in the `runtimeConfig` option. Nuxt supplies this server import through Nitro 2.
 
 The adapter accepts any event with [Standard Context](#standard-context)
 properties, which includes H3 1 and H3 2 events in a ViteHub app. It reads the

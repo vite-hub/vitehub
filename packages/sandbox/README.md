@@ -377,7 +377,7 @@ export default async function releaseNotes(payload: ReleaseNotesPayload = {}) {
 }
 ```
 
-Invoke the discovered name from server code. `runSandboxTask()` returns a native Web `Response` and infers its payload from the Definition:
+Invoke the discovered name from server code. `runSandboxTask()` returns a native Web `Response` and infers its payload from the Definition. A registered handler with a required payload requires that argument at invocation; optional and zero-argument handlers can be invoked without it. The handler's context defaults to `{}` when omitted:
 
 ```ts
 // src/server.ts
