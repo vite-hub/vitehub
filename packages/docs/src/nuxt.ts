@@ -63,7 +63,7 @@ export interface DocsStartOptions {
 export interface DocsModuleOptions {
   /** Folder of Markdown pages, relative to the app root. Defaults to `content`. */
   dir?: string
-  /** Mapped content folders, replacing dir. */
+  /** Mapped site content folders, replacing dir. The app-owned docsAssistant Workspace is configured separately. */
   sources?: DocsSource[]
   /** Section metadata overrides, keyed by section id. */
   sections?: Record<string, DocsSectionFile>

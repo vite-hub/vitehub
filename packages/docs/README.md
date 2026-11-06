@@ -52,6 +52,8 @@ The module reads the folder at build time. In development it watches the folder:
 
 Read pages from their original folders with `sources`. It replaces `dir`. Each source can set a public `mount` path, exclude file globs, and adapt frontmatter before schema validation. The module watches every source in development and serves its original Markdown through Nitro server assets.
 
+`sources` configures the site pages, search, and Markdown resources. It does not configure the app-owned `docsAssistant` Agent, whose default Workspace reads `content/**/*.md`. To let the assistant read mapped pages, configure its Workspace sources too, as described in [Docs assistant](#docs-assistant).
+
 ```ts
 export default defineNuxtConfig({
   modules: ["@vite-hub/docs/nuxt"],
@@ -284,7 +286,9 @@ The Agent and the Connection are app files on purpose. ViteHub discovers Agents 
 
 Set `VITEHUB_CONNECTIONS_KEY` to 32 random bytes in `.env`, start the app, and sign in once with `pnpm vitehub connections connect chatgpt --url http://localhost:3000`. Every page then shows an **Ask** button. `⌘I` (`Ctrl+I` on Windows and Linux) opens and closes the panel, and `Esc` closes it. On wide screens the panel is a column beside the page that you resize from its left edge. On narrow screens it is a sheet. `useDocsAssistant().toggle()` opens the panel from your own control.
 
-The preset reads `content/**/*.md` from a read-only Workspace, answers in the `web` Chat Channel at `/api/_vitehub/agents/docs/chat`, and gets the path of the open page. It allows 30 questions per hour for the whole site, 2 answers at a time, and 8 waiting. Change any part with `defineAgent({ extends: docsAssistant, ... })`, for example `driver: { instructions }`, `driver: { gateway: openai(), model }` for an API key, or `docsRateLimit({ limit, identity })`. Set `docs: { assistant: { agent: "support" } }` to use an Agent with another name. The preset reads `content/` also when `dir` names another folder; then set `workspace: { sources: { pages: glob({ cwd: dir, include: ["**/*.md"], keyCache: false }) } }`.
+The preset reads `content/**/*.md` from a read-only Workspace, answers in the `web` Chat Channel at `/api/_vitehub/agents/docs/chat`, and gets the path of the open page. It allows 30 questions per hour for the whole site, 2 answers at a time, and 8 waiting. Change any part with `defineAgent({ extends: docsAssistant, ... })`, for example `driver: { instructions }`, `driver: { gateway: openai(), model }` for an API key, or `docsRateLimit({ limit, identity })`. Set `docs: { assistant: { agent: "support" } }` to use an Agent with another name.
+
+The preset does not inherit `docs.dir` or `docs.sources`. With another `dir`, import `glob` from `@vite-hub/workspace` and override `workspace: { sources: { pages: glob({ cwd: dir, include: ["**/*.md"], keyCache: false }) } }`. With mapped sources, replace the default `pages` Source and add a glob for each mapped folder. Mirror each source's `exclude` as `ignore`, and set each glob's Workspace `mount` to `pages` plus its public mount, such as `pages/zoom`. This keeps file paths aligned with the assistant's page-link instructions. All glob folders must be inside the Workspace's `sourceRootDir`; use a common project root when pages live outside the Nuxt app. Frontmatter adapters apply to site metadata only; the assistant reads the source Markdown.
 
 Limits:
 
