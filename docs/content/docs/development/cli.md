@@ -127,6 +127,7 @@ Available namespaces:
 | `vitehub decisions run` | Available | Decisions Package | Run one Decision with a text and print the selection as JSON, or the questions with `--inspect`. |
 | `vitehub queue list` | Available | Queue Package | List the Queue Definitions of the app and the provider that sends their jobs. |
 | `vitehub queue send` | Available | Queue Package | Send one job to a Queue Definition. |
+| `vitehub queue jobs` | Available | Queue Package | List, show, retry, or clear stored jobs in development or on a Node server with the local provider. Supports `--json` and `--url`. Clearing jobs asks for confirmation, or needs `--yes` without a terminal. |
 | `vitehub task list` | Available | ViteHub Framework | List the Nitro tasks that the app registers. |
 | `vitehub task run` | Available | ViteHub Framework | Run one Nitro task, such as a seed or a backfill, with the app's bindings. |
 | `vitehub usage` | Available | ViteHub Framework | Read token use and cost of Agent Invocations over a time window. |
@@ -218,16 +219,10 @@ The Env integration contributes commands that report the status of declared Serv
 
 ```bash [Terminal]
 pnpm vitehub env inspect [--stage <name>] [--json]
-pnpm vitehub env check [--stage <name>] [--json] [--allow-missing-secrets]
+pnpm vitehub env check [--stage <name>] [--json]
 ```
 
 Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with its status, source, required, and secret flags. `env check` exits with status `1` when loading Server Env would fail, so it can gate CI or deployment steps.
-
-Some hosts add secrets at runtime, so the build environment does not have them. Cloudflare Worker secrets are an example. To check such a build, add `--allow-missing-secrets`. A missing secret from the host environment then passes. A missing value that is not secret, an invalid value, or a missing provider value still fails the check:
-
-```bash [Terminal]
-pnpm vitehub env check --stage production --allow-missing-secrets
-```
 
 ## Generate and derive secrets
 

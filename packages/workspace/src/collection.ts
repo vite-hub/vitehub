@@ -1,15 +1,15 @@
 import { array } from "@vite-hub/source"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
-import { useWorkspace } from "./core/use.ts"
+import { useWorkspaceFiles } from "./core/use.ts"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
 import type { ArrayCollectionOptions, ArrayCollectionQuery, ArrayCollectionQueryInput, ProviderCollectionSource } from "@vite-hub/source"
-import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade } from "./core/use.ts"
+import type { ReadonlyWorkspaceFiles, WritableWorkspaceFiles } from "./core/use.ts"
 import type { WorkspaceName } from "./core/types.ts"
 
-type WorkspaceFacade<Name extends WorkspaceName> = ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name>
+type WorkspaceFacade<Name extends WorkspaceName> = ReadonlyWorkspaceFiles<Name> | WritableWorkspaceFiles<Name>
 
 export interface WorkspaceFileCollectionOptions<Name extends WorkspaceName = WorkspaceName, TFilter extends string = string>
   extends ArrayCollectionOptions<TFilter> {
@@ -21,7 +21,7 @@ export interface WorkspaceFileCollectionOptions<Name extends WorkspaceName = Wor
 
 async function openWorkspace<Name extends WorkspaceName>(input: WorkspaceFileCollectionOptions<Name>["workspace"]): Promise<WorkspaceFacade<Name>> {
   if (hasRuntimeType(input, "function")) return await input()
-  if (hasRuntimeType(input, "string")) return useWorkspace(input)
+  if (hasRuntimeType(input, "string")) return useWorkspaceFiles(input)
   return input
 }
 

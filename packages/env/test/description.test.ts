@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { env } from "../src/core/declarations.ts"
 import { createRuntimeRegistry } from "../src/core/resolve.ts"
 import { describeServerEnv } from "../src/server.ts"
+import { cloudflareRequest } from "./cloudflare-request.ts"
 
 describe("Server Env declaration inventory", () => {
   it("describes host, provider and literal declarations without exposing their values or storage keys", () => {
@@ -34,7 +35,7 @@ describe("Server Env declaration inventory", () => {
       nested: { token: env({ source: env.source("NESTED_TOKEN") }) },
       "nested.token": env({ source: env.source("DOTTED_TOKEN") }),
     })
-    const inspection = await inspectServerEnv(registry, { env: { DOTTED_TOKEN: "dotted" } })
+    const inspection = await inspectServerEnv(registry, cloudflareRequest({ DOTTED_TOKEN: "dotted" }))
     expect(inspection.entries.map(entry => entry.path)).toEqual(describeServerEnv(registry).entries.map(entry => entry.path))
     // A dotted declaration key must not report its status under the nested path.
     expect(inspection.entries).toEqual([
@@ -50,9 +51,7 @@ describe("Server Env declaration inventory", () => {
       region: env(),
       url: env(),
     })
-    const inspection = await inspectServerEnv(registry, {
-      env: { VITEHUB_API_KEY: "canonical-secret", VENDOR_API_KEY: "vendor-secret", VITEHUB_REGION: "eu", REGION: "eu", URL: "https://example.test" },
-    })
+    const inspection = await inspectServerEnv(registry, cloudflareRequest({ VITEHUB_API_KEY: "canonical-secret", VENDOR_API_KEY: "vendor-secret", VITEHUB_REGION: "eu", REGION: "eu", URL: "https://example.test" }))
     expect(inspection.entries).toEqual([
       { masked: true, path: "env.server.apiKey", required: true, source: "env", status: "available", via: "canonical", conflict: true },
       { masked: false, path: "env.server.region", required: true, source: "env", status: "available", via: "canonical" },
@@ -66,7 +65,7 @@ describe("Server Env declaration inventory", () => {
     const registry = createRuntimeRegistry({
       channel: env({ source: env.source("CHANNEL_TOKEN", { canonical: false }) }),
     })
-    const inspection = await inspectServerEnv(registry, { env: { CHANNEL_TOKEN: "token" } })
+    const inspection = await inspectServerEnv(registry, cloudflareRequest({ CHANNEL_TOKEN: "token" }))
     expect(inspection.entries).toEqual([
       { masked: false, path: "env.server.channel", required: true, source: "env", status: "available" },
     ])
