@@ -120,13 +120,24 @@ With a partial prefix such as `docs/re`, a native page can be empty while `hasMo
 
 Filesystem listings skip child directories removed or replaced by files during traversal, so unaffected blobs remain visible. Permission and path-safety errors still propagate. A store root that is a regular file still fails.
 
+## Read-only handles
+
+`blob.store(name, { mode: "read" })` returns a `ReadonlyBlobStorage` handle with `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET` requests, and `media.get()`, `media.list()`, and `media.variants()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`. Another value throws `BLOB_R0038`, and a `PUT` sign request throws `BLOB_R0037`.
+
+```ts
+const reports = blob.store("reports", { mode: "read" })
+const [error, file] = await reports.get("2026/q1.pdf")
+```
+
+The mode limits this API, not the host. The R2 binding or provider token keeps full access, and code can still import the full `blob` export, so it is not a security boundary against code that reads the binding directly. `media.get()` and `serve()` with a transform or variant can store derived records and variants under the reserved `_vitehub/` prefix. They never change your objects.
+
 ## Uploads
 
-`blob.handleUpload(event, options)` stores the files of a `multipart/form-data` request and returns `[error, objects]`. Options: `formKey` (default `"files"`), `multiple` (default `true`), `ensure` (checked with `ensureBlob()`), and `put` (write options). Request errors throw H3 400 errors before anything is stored.
+`blob.handleUpload(event, options)` stores the files of a `multipart/form-data` request and returns `[error, objects]`. Options: `formKey` (default `"files"`), `multiple` (default `true`), `ensure` (checked with `ensureBlob()`), and `put` (write options). Request errors throw H3 400 errors before anything is stored. When the build targets Vercel, `vite dev` also throws an H3 413 error for a request body above 4.5 MB, as a [Vercel Function](https://vercel.com/docs/functions/limitations#request-body-size) does.
 
 `blob.handleMultipartUpload(event, options)` serves `create`, `upload`, `complete`, and `abort` requests from a route with `action` and `pathname` params, such as `server/api/files/multipart/[action]/[...pathname].ts`. `blob.createMultipartUpload()` and `blob.resumeMultipartUpload()` drive an upload from server code. The `fs`, `cloudflare-r2` (binding), and `vercel-blob` drivers support multipart uploads. Other drivers throw `BLOB_R0030`.
 
-Upload routes accept client-chosen pathnames. Authorize each request in the route. Blob methods decode a pathname once and reject empty pathnames, control characters, and `.` or `..` segments with `BLOB_R0034` (`statusCode: 400`). `put()` checks the final pathname after `prefix` and `addRandomSuffix`. `handleUpload()` stores file names as written, without URL-decoding.
+Upload routes accept client-chosen pathnames. Authorize each request in the route. Blob methods decode a pathname once and reject empty pathnames, control characters, and `.` or `..` segments with `BLOB_R0034` (`statusCode: 400`). `put()` checks the final pathname after `prefix` and `addRandomSuffix`. A `cloudflare-r2` store returns `BLOB_PATHNAME_TOO_LONG` for a pathname above the [R2 key limit](https://developers.cloudflare.com/r2/platform/limits/) of 1024 bytes. `handleUpload()` stores file names as written, without URL-decoding.
 
 Browser clients:
 
