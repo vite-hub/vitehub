@@ -692,8 +692,10 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
     await runNitroConfigHook(nitroConfig)
 
+    // Nitro 2 development bundles only the ViteHub packages that import a Nitro alias, through one matcher.
+    const viteHub = dev ? [expect.objectContaining({ name: "vite-hub/nitro-dev-inline" })] : ["vite-hub", "@vite-hub/"]
     expect(nitroConfig.externals).toEqual({
-      inline: ["existing-inline", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot],
+      inline: ["existing-inline", ...viteHub, "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot],
       external,
       trace: false,
     })
@@ -3527,7 +3529,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
         },
       },
       ownerPlugin: true,
-      externals: { inline: ["vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot] },
+      externals: { inline: [expect.objectContaining({ name: "vite-hub/nitro-dev-inline" }), "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot] },
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
       modules: ["agent-module", injectSourcemapsModule],
       preset: "cloudflare_module",

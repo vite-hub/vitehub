@@ -13,6 +13,7 @@ import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL,
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { nitroGeneratedRelativeImports } from "./internal/nitro-generated-imports.ts"
+import { nitroDevInlineMatcher, nitroDevInlineMatcherName, nitroOnlyId, nodeLoadableViteHubPackages } from "./internal/nitro-dev-externals.ts"
 import { nitroInjectSourcemapsModule, nitroInjectSourcemapsModuleName } from "./internal/nitro-inject-sourcemaps.ts"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
@@ -220,6 +221,7 @@ type NuxtLike = {
 
 const agentVueComposables = ["useAgent", "useAgentInvocation", "useAgentInvocations", "useChat"]
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
+const viteHubPackageJson = findPackageJSON(import.meta.url)!
 const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
 
 function resolveNuxtNitroMajor(rootDir: string): 2 | 3 {
@@ -1597,7 +1599,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const inline = Array.isArray(externals.inline) ? externals.inline : []
     // Facade exports, owner runtimes, and generated `.vitehub` modules must resolve generated aliases and virtual modules
     // inside Nitro. Nitro 2 development leaves every other absolute module to Node, which cannot read those aliases.
-    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot])] }
+    // There, Node also loads the ViteHub packages that import none, so a rebuild does not keep their code in memory.
+    const viteHubInline = nitroMajorVersion === 2 && nuxt.options.dev === true
+      ? [inline.find(entry => typeof entry === "function" && entry.name === nitroDevInlineMatcherName)
+        ?? nitroDevInlineMatcher(nodeLoadableViteHubPackages(viteHubPackageJson, nitroOnlyId(Object.keys(isRecord(config.alias) ? config.alias : {}))))]
+      : ["vite-hub", "@vite-hub/"]
+    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, ...viteHubInline, join(projectRoot, ".vitehub"), h3RuntimeRoot])] }
     installNitroRuntimeResolvers(config, replayPlugins)
     normalizeGeneratedNitroPlugins(config, projectRoot)
     installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.preset === "cloudflare", consoleSections)
