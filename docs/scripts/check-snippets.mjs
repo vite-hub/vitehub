@@ -276,7 +276,6 @@ async function envDeclarations(pageSnippets) {
   const configs = pageSnippets.filter(snippet => !snippet.fragment && viteConfigFile.test(snippet.label ?? "") && /\benv\s*:/.test(snippet.code))
   if (!configs.length) return []
   const env = { public: {}, server: {} }
-  let loaded = false
   const directory = mkdtempSync(join(packagesRoot, "vite-hub/.snippet-config-"))
   try {
     // Configs such as `envSchema(new URL('./.env.example', import.meta.url))` need the page's shown fixture.
@@ -291,22 +290,20 @@ async function envDeclarations(pageSnippets) {
       writeFileSync(file, snippet.code)
       let config
       try {
-        config = (await import(pathToFileURL(file).href)).default
+        config = await (await import(pathToFileURL(file).href)).default
+        if (typeof config === "function") config = await config({ command: "serve", mode: "development", isSsrBuild: false, isPreview: false })
       }
       catch {
-        // An illustrative config must not discard Env types derived from the page's executable examples.
-        continue
+        // Only explicitly marked fragments may be skipped; a failed config must not leave a partial Env contract.
+        return []
       }
       Object.assign(env.public, config?.env?.public)
       Object.assign(env.server, config?.env?.server)
-      loaded = true
     }
   }
   finally {
     rmSync(directory, { force: true, recursive: true })
   }
-  // If no config could execute, keep the generic Env fallback rather than emitting empty typed modules.
-  if (!loaded) return []
   const { createEnvTypes } = await import(pathToFileURL(join(packagesRoot, "env/dist/vite.js")).href)
   const pageRoot = pageSnippets[0].pageRoot
   // `vitehub()` registers Env, so the Auth integration types the `env` of `defineAuth()` as the Server Env.

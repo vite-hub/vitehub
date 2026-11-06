@@ -114,6 +114,23 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     expect(declarations.some(declaration => declaration.file.endsWith("/auth.d.ts"))).toBe(true)
   })
 
+  it.each(["function", "async function", "promise"])("resolves a %s Vite config before generating Env declarations", async (form) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/resolved-env-page")
+    const label = "vite.config.ts"
+    const config = '{ env: { public: { appName: env({ default: "Acme", mode: "build" }) } } }'
+    const callback = `({ command, mode, isSsrBuild, isPreview }) => {
+  if (command !== "serve" || mode !== "development" || isSsrBuild !== false || isPreview !== false) throw new Error("Unexpected ConfigEnv")
+  return ${config}
+}`
+    const exported = form === "promise" ? `Promise.resolve(${config})` : `${form === "async function" ? "async " : ""}${callback}`
+    const declarations = await generatedDeclarations([{
+      code: `import { env } from "@vite-hub/env/vite"\nexport default ${exported}`,
+      file: join(pageRoot, label), fragment: false, label, line: 1, page: "resolved-env-page.md", pageRoot,
+    }])
+
+    expect(declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code).toContain('"appName": string')
+  })
+
   it("generates Env types from all configs and the schema fixture on the Env configure page", async () => {
     const snippets = collectSnippets([{ file: join(repoRoot, "docs/content/docs/env/configure.md"), root: join(repoRoot, "docs") }])
     const declarations = await generatedDeclarations(snippets)
@@ -139,21 +156,27 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     expect(declarations).toEqual([])
   })
 
-  it.each([false, true])("retains Env types from valid configs when another cannot execute (failed first: %s)", async (failedFirst) => {
+  it.each([
+    [false, 'throw new Error("config failed")'],
+    [true, 'throw new Error("config failed")'],
+    [false, 'import "./unavailable-snippet-config.ts"'],
+    [true, 'import "./unavailable-snippet-config.ts"'],
+  ])("keeps fallback Env declarations when a mixed config fails (failed first: %s, failure: %s)", async (failedFirst, failure) => {
     const pageRoot = join(repoRoot, "docs/.snippets/mixed-env-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "mixed-env-page.md", pageRoot })
     const configs = [
       snippet("valid/vite.config.ts", `import { env } from "@vite-hub/env/vite"
 export default { env: { public: { appName: env({ default: "Acme", mode: "build" }) } } }`),
-      snippet("invalid/vite.config.ts", 'throw new Error("config failed")\nexport default { env: { public: {} } }'),
+      snippet("invalid/vite.config.ts", `${failure}\nexport default { env: { public: {} } }`),
     ]
     const declarations = await generatedDeclarations(failedFirst ? configs.toReversed() : configs)
 
-    expect(declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code).toContain('"appName": string')
+    expect(declarations).toEqual([])
   })
 
   it("retains Env types on the Doctor rules page despite its illustrative invalid config", async () => {
     const snippets = collectSnippets([{ file: join(repoRoot, "docs/content/docs/reference/doctor-rules.md"), root: join(repoRoot, "docs") }])
+    expect(snippets.find(snippet => snippet.code.includes("// Invalid") && snippet.code.includes("env: { server: { token:"))?.fragment).toBe(true)
     const declarations = await generatedDeclarations(snippets)
 
     expect(declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code).toContain('"githubToken": import("@vite-hub/env/secret").SecretEnv<string>')
