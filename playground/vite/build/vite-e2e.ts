@@ -1353,7 +1353,7 @@ async function writeCloudflareOutput(options: ViteE2EComposerOptions, artifacts:
 
   if (options.kv) {
     // SAFETY: The fixture owns the Cloudflare config object and supplies the shape expected by this integration.
-    configureCloudflareKV({ cloudflare: { wrangler: wranglerConfig } as never }, options.kv)
+    configureCloudflareKV({ cloudflare: { wrangler: wranglerConfig } as never }, options.kv, readProvisionStateSync(options.rootDir))
   }
   // SAFETY: The fixture owns the Cloudflare config object and supplies the shape expected by this integration.
   configureCloudflareArtifacts({ cloudflare: { wrangler: wranglerConfig } as never }, options.workspace || false)
@@ -1550,18 +1550,33 @@ export function createViteE2EComposer(options: ViteE2EComposerOptions): Plugin {
   }
 }
 
+// Live smoke names a fresh KV namespace, queue prefix, and workflow for each Cloudflare run.
+// Without these variables the playground keeps its default names.
+export function resolveViteE2EModuleOptions(hosting: string, env: Record<string, string | undefined> = process.env) {
+  const cloudflare = resolveHostedProvider(hosting) === "cloudflare"
+  const kvNamespaceName = cloudflare ? env.VITEHUB_KV_NAMESPACE_NAME?.trim() : undefined
+  const queueNamePrefix = cloudflare ? env.VITEHUB_QUEUE_NAME_PREFIX?.trim() : undefined
+  const workflowName = cloudflare ? env.VITEHUB_CLOUDFLARE_WORKFLOW_NAME?.trim() : undefined
+  return {
+    kv: kvNamespaceName ? { driver: "cloudflare-kv-binding" as const, namespaceName: kvNamespaceName } : undefined,
+    queue: queueNamePrefix ? { namePrefix: queueNamePrefix } : {},
+    workflow: workflowName ? { name: workflowName } : {},
+  }
+}
+
 export function resolveViteE2EOptions(rootDir: string, hosting: string) {
   const provider = resolveHostedProvider(hosting)
+  const moduleOptions = resolveViteE2EModuleOptions(hosting)
   return {
     blob: normalizeBlobOptions(provider === "vercel" ? { access: "private", driver: "vercel-blob" } : undefined, { hosting }),
     db: resolveDBViteConfig(undefined, rootDir),
     hosting: provider,
-    kv: normalizeKVOptions(undefined, { hosting }),
-    queue: normalizeQueueOptions({}, { hosting }) || false,
+    kv: normalizeKVOptions(moduleOptions.kv, { hosting }),
+    queue: normalizeQueueOptions(moduleOptions.queue, { hosting }) || false,
     rateLimit: provider === "cloudflare" ? { namespace: "vitehub-playground-vite-e2e" } : false,
     schedule: true,
     sandbox: resolveSandboxTaskFeatureConfig({}, hosting),
     workspace: normalizeWorkspaceOptions({}, { env: process.env, hosting, rootDir }),
-    workflow: normalizeWorkflowOptions({}, { hosting }) || false,
+    workflow: normalizeWorkflowOptions(moduleOptions.workflow, { hosting }) || false,
   }
 }
