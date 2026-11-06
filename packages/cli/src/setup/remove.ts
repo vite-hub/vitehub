@@ -262,7 +262,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   for (const id of turnedOff) {
     const packages = featurePackages(id, valueOf(project.config, id), host)
     const removable = (name: string) => !stillNeeded.has(name) && !imported.has(name) && !prod.includes(name) && !dev.includes(name)
-    for (const name of packages.prod) if (removable(name) && project.declared(name, false)) prod.push(name)
+    for (const name of packages.prod) if (removable(name) && project.declared(name, true)) prod.push(name)
     for (const name of packages.dev) if (removable(name) && project.declared(name, true)) dev.push(name)
   }
   const uninstall = [...prod, ...dev]

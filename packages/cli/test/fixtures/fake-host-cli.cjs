@@ -26,7 +26,14 @@ function readStdin() {
 
 const usesStdin = /secret put|env add|env load/u.test(argv.join(" "))
 const stdin = usesStdin ? readStdin() : ""
-appendFileSync(process.env.FAKE_HOST_LOG, `${JSON.stringify({ argv, cwd: process.cwd(), name, stdin })}\n`)
+const config = name === "wrangler" ? flag("--config") : name === "vercel" && argv[0] === "deploy" ? ".vercel/output/functions/__server.func/.vc-config.json" : undefined
+const generated = config ? JSON.parse(readFileSync(resolve(config), "utf8")) : undefined
+appendFileSync(process.env.FAKE_HOST_LOG, `${JSON.stringify({ argv, cwd: process.cwd(), name, stdin, generated, accountId: process.env.CLOUDFLARE_ACCOUNT_ID })}\n`)
+if (process.env.FAKE_HOST_ECHO_TOKEN) {
+  const token = process.env.CLOUDFLARE_API_TOKEN ?? process.env.VERCEL_TOKEN ?? process.env.NETLIFY_AUTH_TOKEN ?? process.env.DENO_DEPLOY_TOKEN
+  process.stdout.write(`stdout token: ${token}\n`)
+  process.stderr.write(`stderr token: ${token}\n`)
+}
 if ((process.env.FAKE_HOST_FAIL ?? "").split(",").includes(step)) {
   process.stderr.write(`${step} failed\n`)
   process.exit(1)
@@ -45,6 +52,7 @@ function wrangler() {
   }
   const preview = argv[0] === "versions"
   const config = JSON.parse(readFileSync(resolve(flag("--config")), "utf8"))
+  config.name = flag("--name") ?? config.name
   // Wrangler prints the value of each plain var in its bindings table.
   for (const [key, value] of Object.entries(config.vars ?? {})) process.stdout.write(`env.${key} ("${value}")  Environment Variable\n`)
   if (argv.includes("--temporary")) {
@@ -99,6 +107,10 @@ function deno() {
     return
   }
   if (argv[0] === "deploy" && argv[1] === "env" && argv[2] === "load") {
+    if (argv.includes("--replace")) {
+      process.stderr.write("unexpected argument '--replace' found\n")
+      process.exit(1)
+    }
     if (!state.denoApp) process.exit(4)
     const [key, value] = stdin.trim().split("=")
     state.secrets[key] = value

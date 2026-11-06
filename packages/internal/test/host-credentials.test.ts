@@ -1,11 +1,11 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { describeHostCredentials, resolveHostCredentials } from "../src/host-credentials.ts"
+import { describeHostCredentials, resolveHostCredentials, runHostCli } from "../src/host-credentials.ts"
 import { resolveCloudflareProvisionConfig, resolveVercelProvisionConfig } from "../src/provision.ts"
 
 const fakeWrangler = fileURLToPath(new URL("./fixtures/wrangler/fake-wrangler.mjs", import.meta.url))
@@ -47,6 +47,21 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
     expect(calls()).toEqual([])
   })
 
+  it("cancels a credential CLI at the caller's deadline", async () => {
+    await expect(runHostCli(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      env: {},
+      signal: AbortSignal.timeout(100),
+    })).rejects.toMatchObject({ name: "AbortError" })
+  })
+
+  it("leaves account discovery to the env token when no account is set", async () => {
+    installFakeWrangler()
+    const result = await resolveHostCredentials("cloudflare", { env: env({ CLOUDFLARE_API_TOKEN: "env-token" }) })
+
+    expect(result).toEqual({ ok: true, host: "cloudflare", source: "env", token: "env-token" })
+    expect(calls()).toEqual([])
+  })
+
   it("uses the wrangler login when the token env var is missing", async () => {
     installFakeWrangler()
     const result = await resolveHostCredentials("cloudflare", { env: env() })
@@ -63,6 +78,19 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
     expect(calls()).toEqual([["auth", "token", "--json"]])
   })
 
+  it.each([".env", ".env.local"])("uses project-local Wrangler without a global executable and ignores %s", async (file) => {
+    const pkg = join(dir, "node_modules", "wrangler")
+    mkdirSync(pkg, { recursive: true })
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "wrangler", bin: { wrangler: "cli.mjs" } }))
+    writeFileSync(join(pkg, "cli.mjs"), `import ${JSON.stringify(pathToFileURL(fakeWrangler).href)}\n`)
+    writeFileSync(join(dir, file), "CLOUDFLARE_API_TOKEN=project-token\n")
+
+    const result = await resolveHostCredentials("cloudflare", { cwd: dir, env: env() })
+
+    expect(result).toEqual({ ok: true, host: "cloudflare", source: "host-cli", token: "fake-oauth-token-from-wrangler", accountId: "fake-account-id" })
+    expect(calls()).toEqual([["auth", "token", "--json"], ["whoami", "--json"]])
+  })
+
   it.each([".env", ".env.local"])("ignores project %s credentials during login discovery", async (file) => {
     installFakeWrangler()
     writeFileSync(join(dir, file), "CLOUDFLARE_API_TOKEN=project-token\n")
@@ -71,7 +99,7 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
 
     expect(result).toEqual({ ok: true, host: "cloudflare", source: "host-cli", token: "fake-oauth-token-from-wrangler", accountId: "fake-account-id" })
     const fromEnv = await resolveHostCredentials("cloudflare", { cwd: dir, env: env({ CLOUDFLARE_API_TOKEN: "env-token" }) })
-    expect(fromEnv).toEqual({ ok: true, host: "cloudflare", source: "env", token: "env-token", accountId: "fake-account-id" })
+    expect(fromEnv).toEqual({ ok: true, host: "cloudflare", source: "env", token: "env-token" })
   })
 
   it("does not treat a Global API Key as a bearer token", async () => {
@@ -89,7 +117,7 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
       ok: false,
       host: "cloudflare",
       missing: ["CLOUDFLARE_API_TOKEN"],
-      fix: "Run `wrangler login`, or set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.",
+      fix: "Install Wrangler in the project and run `npx wrangler login`, or set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.",
     })
   })
 

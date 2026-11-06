@@ -1,12 +1,12 @@
 import { existsSync } from "node:fs"
-import { readdir, readFile, writeFile } from "node:fs/promises"
+import { readdir, readFile } from "node:fs/promises"
 
 import { createVercelProvisionClient } from "@vite-hub/internal/provision"
 import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes } from "../envelope.ts"
-import { hostCli, hostCliFailed, isoTime, isRecord, lastJsonObject, listsName, optionalString } from "./host.ts"
+import { hostCli, hostCliFailed, isoTime, isRecord, lastJsonObject, listsName, optionalString, withTemporaryOutput } from "./host.ts"
 
 import type { DeployAdapter, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, ListDeployments } from "./host.ts"
 
@@ -36,7 +36,8 @@ async function readClaim(root: string): Promise<DeployResult["claim"]> {
 export function vercelAdapter(context: DeployContext): DeployAdapter {
   const vercel = hostCli("vercel", "vercel", context.root, context.env)
   const team = context.credentials.ok ? context.credentials.teamId ?? (context.link?.host === "vercel" ? context.link.account?.id : undefined) : undefined
-  const target = context.temporary ? [] : ["--project", context.projectName, ...(team ? ["--scope", team] : [])]
+  const project = context.link?.host === "vercel" ? context.link.project.id ?? context.projectName : context.projectName
+  const target = context.temporary ? [] : ["--project", project, ...(team ? ["--scope", team] : [])]
   const environment = context.preview ? "preview" : "production"
   const run = (args: readonly string[], options: { stdin?: string, show?: boolean } = {}) =>
     context.run(vercel[0], [...vercel.slice(1), ...args], { cwd: context.root, env: context.env, ...options })
@@ -70,17 +71,12 @@ export function vercelAdapter(context: DeployContext): DeployAdapter {
     },
     // `vitehub link` confirmed the project through the Vercel API. Else the first deploy creates it.
     projectExists: async () => context.link?.host === "vercel" && context.link.verified,
-    async setTemporaryVar(name, value) {
+    async withTemporaryVar(name, value, deploy) {
       // A temporary deploy has no project to hold an env var. The Build Output API reads `environment` from each
       // function's `.vc-config.json`, so the hash goes there as a plain var. The project files do not change.
       const files = await functionConfigs(join(context.outputDir, "functions"))
       if (!files.length) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file: join(context.outputDir, "functions/**/.vc-config.json") }), setupExitCodes.error)
-      for (const file of files) {
-        const config: unknown = JSON.parse(await readFile(file, "utf8"))
-        if (!isRecord(config)) continue
-        config.environment = { ...(isRecord(config.environment) ? config.environment : {}), [name]: value }
-        await writeFile(file, `${JSON.stringify(config, null, 2)}\n`)
-      }
+      return await withTemporaryOutput(files, "environment", name, value, deploy)
     },
   }
 }
@@ -139,7 +135,7 @@ function parseVercelDeployments(value: unknown, production: string | undefined):
  * - `GET /v9/projects/{idOrName}`: `targets.production` is the deployment that serves production, which the Vercel CLI
  *   also reads. https://vercel.com/docs/rest-api/reference/endpoints/projects/find-a-project-by-id-or-name
  */
-export const listVercelDeployments: ListDeployments = async (context, { limit }) => {
+export const listVercelDeployments: ListDeployments = async (context, { limit, includeLive }) => {
   const linked = context.link.account?.id
   // `vitehub link` stores the project owner, which is a user id on a personal account. Only a team id goes in `teamId`.
   const teamId = context.credentials.teamId ?? (linked?.startsWith("team_") ? linked : undefined)
@@ -151,5 +147,10 @@ export const listVercelDeployments: ListDeployments = async (context, { limit })
   ])
   const targets = isRecord(details) && isRecord(details.targets) ? details.targets : undefined
   const production = targets && isRecord(targets.production) ? optionalString(targets.production.id) : undefined
-  return parseVercelDeployments(list, production).slice(0, limit)
+  const recent = parseVercelDeployments(list, production).slice(0, limit)
+  if (includeLive && production && !recent.some(item => item.live)) {
+    const live = await client(`/v13/deployments/${encodeURIComponent(production)}`)
+    recent.push(...parseVercelDeployments({ deployments: [live] }, production))
+  }
+  return recent
 }

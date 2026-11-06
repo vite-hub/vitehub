@@ -50,6 +50,21 @@ describe("vitehub remove", () => {
     expect(existsSync(join(root, "server"))).toBe(false)
   })
 
+  it("uninstalls an unused runtime package declared in devDependencies", async () => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ devDependencies: { "@vite-hub/realtime": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      "vite.config.ts": viteConfig(`{ preset: "cloudflare", realtime: true }`),
+    })
+    const pm = fakePackageManager(root)
+
+    const { exitCode, json } = await remove(["realtime", "--yes"], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.uninstall).toEqual({ command: "pnpm remove @vite-hub/realtime", devPackages: [], packages: ["@vite-hub/realtime"] })
+    expect(pm.calls).toEqual([["pnpm", "remove", "@vite-hub/realtime"]])
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8"))).toEqual({ name: "app", packageManager: "pnpm@10.0.0" })
+  })
+
   it("turns off features that only the removed feature implied and uninstalls their packages", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
     const original = await snapshot(root)
