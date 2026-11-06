@@ -26,12 +26,12 @@ import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   plugins: [
-    vitehub({ preset: 'node', logs: true, console: { auth: false } }),
+    vitehub({ preset: 'node', logs: true, console: command === 'serve' ? { auth: false } : false }),
     nitro(),
   ],
-})
+}))
 ```
 
 ::

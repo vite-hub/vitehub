@@ -34,7 +34,7 @@ import * as v from 'valibot'
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
-  const body = await readValidatedBody(event, v.object({ path: v.string(), text: v.string() }))
+  const body = await readValidatedBody(event, v.parser(v.object({ path: v.string(), text: v.string() })))
 
   const [error] = await blob.put(body.path, body.text, {
     contentType: 'text/plain',

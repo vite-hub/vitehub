@@ -51,8 +51,8 @@ export declare const databases: RuntimeDatabaseLookup
 export declare function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name]
 
 /**
- * Return the Cloudflare D1 binding of a Database, or the request's D1 session with read replication. Pass it to code
- * that needs a D1 binding, such as the D1 Agent Invocation store. Throws `DATABASE_NO_D1_BINDING` when the Database
+ * Return the Cloudflare D1 binding of a Database, or the request's D1 session with read replication. Exposes the shared
+ * prepare/batch API for consumers such as the D1 Agent Invocation store. Throws `DATABASE_NO_D1_BINDING` when the Database
  * does not run on a D1 binding here, and `DATABASE_NOT_FOUND` for an unknown name.
  */
 export declare function useDatabaseBinding(name: "default" | keyof RuntimeDatabaseRegistry): DatabaseD1Binding

@@ -94,6 +94,21 @@ pnpm add @openai/codex@0.149.1
 pnpm add @anthropic-ai/claude-agent-sdk@0.3.246
 ```
 
+Declare the Codex credentials in Server Env:
+
+```ts [vite.config.ts]
+import { env } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  env: {
+    server: {
+      codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+    },
+  },
+})
+```
+
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
 import { loadServerEnv } from '#vitehub/env/server'

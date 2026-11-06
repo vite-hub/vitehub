@@ -17,7 +17,7 @@ Keep the three pieces separate:
 ## Install
 
 ```sh
-pnpm add @vite-hub/agent @vite-hub/workspace ai
+pnpm add @vite-hub/agent @vite-hub/env @vite-hub/workspace ai
 ```
 
 `ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `title()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with `driver.run` can bundle without installing `ai`.
@@ -147,10 +147,13 @@ The Agent reads the Codex `auth.json` from a Server Env secret:
 
 ```ts
 // vite.config.ts
-import { env } from "@vite-hub/env/vite";
+import { hubAgent } from "@vite-hub/agent/vite";
+import { env, hubEnv } from "@vite-hub/env/vite";
+import { hubWorkspace } from "@vite-hub/workspace/vite";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  plugins: [hubEnv(), hubWorkspace(), hubAgent()],
   env: {
     server: {
       codexAuthJson: env({ secret: true, source: env.source("CODEX_AUTH_JSON") }),
@@ -289,17 +292,6 @@ Capability setup and close callbacks emit `agent.capability.<phase>` timing even
 `title()` accepts message input or a plain `prompt`. Its default prompt follows T3 Code’s subject-and-outcome rules, requests `{ "title": "..." }`, and caps the title at 39 characters. An explicit title Driver uses the configured fallback on failure or timeout. For a journaled run, title generation starts beside the main answer and cleanup joins it within its timeout. Metadata journals keep title text only when `metadataContent` includes `vitehub.session.title`.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
-
-```ts
-// vite.config.ts
-import { hubAgent } from "@vite-hub/agent/vite";
-import { hubWorkspace } from "@vite-hub/workspace/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [hubWorkspace(), hubAgent()],
-});
-```
 
 ## CLI inspection
 

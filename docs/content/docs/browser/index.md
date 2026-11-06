@@ -43,7 +43,7 @@ icon: i-lucide-monitor
 
   // Run the page-html file by its name
   export default defineEventHandler(async (event) => {
-    const input = await readValidatedBody(event, v.object({ url: v.string() }))
+    const input = await readValidatedBody(event, body => v.parse(v.object({ url: v.string() }), body))
     return await runBrowser('page-html', input)
   })
   ```

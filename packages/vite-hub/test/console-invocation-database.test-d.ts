@@ -1,6 +1,8 @@
 import { expectTypeOf, it } from "vitest"
 
 import type { AgentInvocationSummary } from "@vite-hub/agent"
+import type { Client, ResultSet } from "@libsql/client"
+import type { SqliteRemoteResult } from "drizzle-orm/sqlite-proxy"
 import type { ConsoleInvocationsDatabase } from "../src/console/runtime/server/invocations.ts"
 
 it("requires D1 derived insert columns and preserves nullable libSQL reads", () => {
@@ -36,4 +38,19 @@ it("queries the journal of either driver without narrowing", () => {
     .from(schema.invocations)
     .limit(1)
   expectTypeOf(latest).resolves.toEqualTypeOf<{ agentName: string, id: string }[]>()
+  expectTypeOf(db.batch([latest])).resolves.toEqualTypeOf<[{ agentName: string, id: string }[]]>()
+})
+
+it("preserves driver-specific query results after narrowing", () => {
+  // SAFETY: This type-only fixture is never evaluated; callers receive this discriminated union.
+  const database = {} as ConsoleInvocationsDatabase
+  if (database.driver === "libsql") {
+    expectTypeOf(database.db.$client).toEqualTypeOf<Client>()
+    const result = database.db.select().from(database.schema.invocations).run()
+    expectTypeOf(result).resolves.toEqualTypeOf<ResultSet>()
+  }
+  else {
+    const result = database.db.select().from(database.schema.invocations).run()
+    expectTypeOf(result).resolves.toEqualTypeOf<SqliteRemoteResult>()
+  }
 })

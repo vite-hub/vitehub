@@ -60,6 +60,8 @@ The ViteHub Vite Integration resolves `@vite-hub/database/drizzle` for server co
 
 Use Named Databases when the app needs more than one independent database. Name a database for a real data or deployment split, not for a source-code folder.
 
+The following Named Database example is an alternative to the Default Database above. Remove `src/database.ts` and `server/api/notes.get.ts` before using it. An app cannot combine Default and Named Database Definitions.
+
 ```ts [src/analytics.database.ts]
 import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
@@ -88,6 +90,8 @@ export default defineEventHandler(() => {
 ### Pass the D1 binding to other code
 
 Some code takes a Cloudflare D1 binding instead of a Drizzle client, such as the [D1 Agent Invocation store](/docs/agents/invocation-storage#store-invocations-in-cloudflare-d1). `useDatabaseBinding(name)` returns the D1 binding of a database, or the D1 session of the request when `cloudflare.readReplication` is on. Call it for each operation, inside the request or the task that uses it, because the binding belongs to the running Worker. It is the same value as `db.$client`, so its calls do not appear in the [request database stats](#see-database-work-on-each-request).
+
+The return type, `DatabaseD1Binding`, exposes `prepare()` and `batch()`, which both bindings and sessions support. It fits consumers of these operations, including the D1 Agent Invocation store. It is not the full Cloudflare `D1Database` type: sessions have no `exec()`, `withSession()`, or `dump()`.
 
 It throws `DATABASE_NO_D1_BINDING` when the database does not run on a D1 binding, such as local SQLite during `vite dev` or D1 over HTTP.
 

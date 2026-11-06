@@ -10,6 +10,8 @@ import { createConsoleUsageIndex } from "./usage-index.ts"
 import type { AgentInvocationRecord, AgentInvocationStore, AgentInvocationSummary } from "@vite-hub/agent"
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
+import type { Client } from "@libsql/client"
+import type { LibSQLDatabase } from "drizzle-orm/libsql"
 import type { AnySQLiteColumn, BaseSQLiteDatabase, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
 import type { SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
@@ -73,20 +75,23 @@ const consoleD1InvocationSchema: { invocations: typeof consoleD1InvocationsTable
 /**
  * Drizzle over the Console journal of either driver. Both are async SQLite databases with the same columns, so one type
  * queries both: a union of the two clients has no callable `select()`. Reads use the libSQL columns, where `search` and
- * `summary` can be null. `schema` keeps the exact columns of each driver for inserts.
+ * `summary` can be null. `schema` keeps the exact columns of each driver for inserts. Each branch also keeps its concrete
+ * client so narrowing restores driver-specific query results and APIs.
  */
 export type ConsoleInvocationsClient = BaseSQLiteDatabase<"async", unknown, typeof consoleInvocationSchema>
   & Pick<SqliteRemoteDatabase<typeof consoleInvocationSchema>, "batch">
 
-export type ConsoleInvocationsDatabase = {
-  db: ConsoleInvocationsClient
-} & ({
+export type ConsoleInvocationsDatabase = ({
   driver: "libsql"
+  db: LibSQLDatabase<typeof consoleInvocationSchema> & { $client: Client }
   schema: typeof consoleInvocationSchema
 } | {
   driver: "d1"
+  db: SqliteRemoteDatabase<typeof consoleInvocationSchema>
   schema: typeof consoleD1InvocationSchema
-})
+}) & {
+  db: ConsoleInvocationsClient
+}
 
 export interface ConsoleLibsqlJournal {
   database: ConsoleInvocationsDatabase

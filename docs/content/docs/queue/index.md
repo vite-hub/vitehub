@@ -16,7 +16,7 @@ icon: i-lucide-list-ordered
 
   // Returns when the queue accepts the job, before it runs
   export default defineEventHandler(async (event) => {
-    const { email } = await readValidatedBody(event, v.object({ email: v.string() }))
+    const { email } = await readValidatedBody(event, body => v.parse(v.object({ email: v.string() }), body))
     const [error, result] = await runQueue('welcome-email', { email })
     if (error) throw error
     return result
@@ -43,7 +43,7 @@ icon: i-lucide-list-ordered
 
   // Run the same job in 10 minutes
   export default defineEventHandler(async (event) => {
-    const { email } = await readValidatedBody(event, v.object({ email: v.string() }))
+    const { email } = await readValidatedBody(event, body => v.parse(v.object({ email: v.string() }), body))
     const [error, result] = await runQueue('welcome-email', { email }, { delaySeconds: 600 })
     if (error) throw error
     return result

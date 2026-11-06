@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "v
 
 import type { WorkflowExecutionContext, WorkflowProviderStep } from "../src/types.ts"
 import { normalizeWorkflowOptions } from "../src/config.ts"
+import { defineWorkflow } from "../src/definition.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
 import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
 import { createOpenWorkflowWorker, startOpenWorkflowWorker } from "../src/runtime/openworkflow-worker.ts"
@@ -1990,6 +1991,21 @@ describe("workflow runtime", () => {
     expect(openWorkflowMock.newWorker).toHaveBeenCalledWith({ concurrency: 3 })
     await worker.start()
     expect(worker.start).toHaveBeenCalled()
+  })
+
+  it.each(["default", "direct"])("rejects mismatched names in %s OpenWorkflow registry definitions", async (shape) => {
+    setWorkflowRuntimeConfig({
+      postgres: { url: "postgres://localhost/vitehub" },
+      provider: "openworkflow",
+    })
+    const definition = defineWorkflow("onboard", async () => ({ ok: true }))
+    setWorkflowRuntimeRegistry({
+      "onboard-user": async () => shape === "default" ? { default: definition } : definition,
+    })
+
+    await expect(createOpenWorkflowWorker()).rejects.toMatchObject({ code: "WORKFLOW_C0019" })
+    expect(openWorkflowMock.definitions.has("onboard-user")).toBe(false)
+    expect(openWorkflowMock.newWorker).not.toHaveBeenCalled()
   })
 
   it("registers OpenWorkflow handlers created in another JavaScript realm", async () => {

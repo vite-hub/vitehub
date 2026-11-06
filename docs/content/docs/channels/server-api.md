@@ -39,8 +39,9 @@ export default defineOutboundChannel({
           headers: { 'authorization': `Bearer ${process.env.SLACK_BOT_TOKEN}`, 'content-type': 'application/json' },
           body: JSON.stringify({ channel: channelId, text, thread_ts: threadTs }),
         })
-        const { ts } = await response.json() as { ts: string }
-        return { id: ts }
+        const result = await response.json() as { ok: true, ts: string } | { ok: false, error: string }
+        if (!result.ok) throw new Error(`Slack API error: ${result.error}`)
+        return { id: result.ts }
       },
     },
   },
@@ -87,12 +88,14 @@ Add another entry to `connectors` when the same logical destination can deliver 
 ```ts [server/utils/notify-builds.ts]
 import { useChannel } from 'vite-hub/channels/server'
 
-const [error] = await useChannel('alerts').send('Build finished.', {
-  connector: 'slack',
-  channelId: 'builds',
-  threadTs: '1730000000.000100',
-})
-if (error) throw error
+export async function notifyBuilds() {
+  const [error] = await useChannel('alerts').send('Build finished.', {
+    connector: 'slack',
+    channelId: 'builds',
+    threadTs: '1730000000.000100',
+  })
+  if (error) throw error
+}
 ```
 
 Keep `connector` explicit when a Channel has more than one delivery path. This makes the delivery choice visible at each call site.

@@ -301,6 +301,54 @@ describe("Workflow dev registry", () => {
     expect(await readFile(join(projectRoot, workflowDevGeneratedDir, "dev-registry.mjs"), "utf8")).not.toContain('"welcome"')
   })
 
+  it.each(["serve", "build"] as const)("clears stale step declarations when the final %s config disables Workflow", async (command) => {
+    const projectRoot = await createApp()
+    const folder = join(projectRoot, "server/workflows/onboard-user")
+    await mkdir(folder)
+    await writeFile(join(folder, "index.ts"), workflowModule("onboard-user"))
+    await writeFile(join(folder, "01.collect.ts"), "export default () => 'collected'\n")
+    const plugin = hubWorkflow({ provider: "vercel" })
+    const hook = plugin.config
+    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
+    await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command, mode: "development" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
+    const typesFile = join(projectRoot, ".vitehub/workflow.d.ts")
+    expect(await readFile(typesFile, "utf8")).toContain('"collect"')
+
+    await rm(folder, { recursive: true })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot, workflow: false })
+
+    const types = await readFile(typesFile, "utf8")
+    expect(types).toContain("interface WorkflowStepRegistry")
+    expect(types).not.toContain("onboard-user")
+    expect(types).not.toContain("01.collect.ts")
+  })
+
+  it("keeps a declaration available to the types entry before the first folder step is added", async () => {
+    const projectRoot = await createApp()
+    const plugin = hubWorkflow({ provider: "vercel" })
+    const hook = plugin.config
+    if (!hook || typeof hook === "function") throw new TypeError("Expected config object hook")
+    await (hook.handler as unknown as ConfigHook)({ root: projectRoot }, { command: "serve", mode: "development" })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ root: projectRoot })
+    const typesFile = join(projectRoot, ".vitehub/workflow.d.ts")
+    expect(await readFile(typesFile, "utf8")).toContain("interface WorkflowStepRegistry")
+
+    const watcher = Object.assign(new EventEmitter(), { add: vi.fn() })
+    const server = { watcher, environments: {}, config: { logger: { error: vi.fn() } } }
+    if (typeof plugin.configureServer !== "function") throw new TypeError("Expected configureServer")
+    await plugin.configureServer.call({} as never, server as never)
+    const folder = join(projectRoot, "server/workflows/onboard-user")
+    await mkdir(folder)
+    await writeFile(join(folder, "index.ts"), workflowModule("onboard-user"))
+    const step = join(folder, "01.collect.ts")
+    await writeFile(step, "export default () => 'collected'\n")
+    watcher.emit("add", step)
+
+    await waitFor(async () => (await readFile(typesFile, "utf8")).includes('"collect"'))
+    expect(server.config.logger.error).not.toHaveBeenCalled()
+  })
+
   it("uses final Workflow config from later config hooks", async () => {
     const projectRoot = await createApp()
     const plugin = hubWorkflow({ provider: "vercel" })

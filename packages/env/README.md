@@ -277,9 +277,10 @@ export default {
 To type code without running Vite, such as in a test or a docs check, pass the same `env` options to `createEnvTypes()`. It returns the contents of `.vitehub/types/env.d.ts`:
 
 ```ts
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { createEnvTypes, env } from "@vite-hub/env/vite";
 
+mkdirSync(".vitehub/types", { recursive: true });
 writeFileSync(".vitehub/types/env.d.ts", createEnvTypes({
   server: { githubToken: env({ secret: true, source: env.source("GITHUB_TOKEN") }) },
 }));
