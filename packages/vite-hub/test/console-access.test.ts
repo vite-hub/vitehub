@@ -512,14 +512,14 @@ describe("generated Console access", () => {
       console: { auth: "app", signInPage: "/sign-in" },
       resolveAuthConfig: () => appAuth([{ authorize: true, route: `${mount}/_vitehub/**` }, { authorize: true, route: `${mount}/api/_vitehub/console/**` }]),
     }, "build", config)
-    expect(config.nitro.handlers.slice(0, 4)).toEqual([
-      // App Auth can sign Consoles on `console.origins` in with OAuth, so their preflights are answered before app Auth.
-      { handler: expect.stringMatching(/server\/console-preflight\.js$/), middleware: true },
+    expect(config.nitro.handlers.slice(0, 3)).toEqual([
       { handler: expect.stringMatching(/server\/mcp-discovery\.js$/), middleware: true },
       { handler: expect.stringMatching(/server\/sign-in\.js$/), middleware: true, route: `${mount}/_vitehub/**` },
       { handler: expect.stringMatching(/server\/sign-in\.js$/), middleware: true, route: `${mount}/_vitehub` },
     ])
-    expect(config.nitro.handlers[4]).toEqual(appHandler)
+    expect(config.nitro.handlers[3]).toEqual(appHandler)
+    // App Auth can sign Consoles on `console.origins` in with OAuth, so a plugin answers their preflights first.
+    expect((config.nitro as { plugins?: string[] }).plugins).toContainEqual(expect.stringMatching(/server\/console-preflight\.js$/))
   })
 
   it.each([undefined, "/portal/"])("accepts exact GET rules for the registered Console API endpoints with base %s", async (base) => {

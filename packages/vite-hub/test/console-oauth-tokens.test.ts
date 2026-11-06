@@ -16,6 +16,7 @@ import consoleMcpAuthorizationServerHandler from "../src/console/runtime/server/
 import consoleMcpMetadataHandler from "../src/console/runtime/server/mcp-metadata.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
+import scheduleRunHandler from "../src/console/runtime/server/schedule-run.ts"
 import { resolveConsoleAccessBuild } from "../src/console/vite.ts"
 
 import type { ConsoleOAuthAuth } from "../src/console/runtime/server/bearer.ts"
@@ -213,6 +214,23 @@ describe("OAuth Console tokens", () => {
     const write = await rpc(access_token, "fixture.save", { value: "x" })
     expect(write.status).toBe(403)
     await expect(write.json()).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", message: expect.stringContaining("vitehub:write") })
+  })
+
+  it("runs a Schedule with a write token from a listed origin, and refuses a read-only token", async () => {
+    const run = (token: string) => defineHandler(scheduleRunHandler).fetch(new Request(`${app}/_vitehub/schedules/run`, {
+      body: JSON.stringify({ name: "nightly" }),
+      headers: { "authorization": `Bearer ${token}`, "content-type": "application/json", "origin": local },
+      method: "POST",
+    }))
+    const { access_token: write } = await consoleTokens()
+    const listed = await run(write)
+    // The access, scope, and origin checks passed: the route now looks for the Schedule.
+    expect(listed.status, await listed.clone().text()).toBe(404)
+    expect(listed.headers.get("access-control-allow-origin")).toBe(local)
+    const { access_token: read } = await consoleTokens({ cookie: (await signUp("grace@example.com")).cookie, scope: "vitehub:read" })
+    const refused = await run(read)
+    expect(refused.status).toBe(403)
+    expect(refused.headers.get("www-authenticate")).toContain("error=\"insufficient_scope\"")
   })
 
   it("refuses a client document on an origin that console.origins does not list, before it fetches the document", async () => {
