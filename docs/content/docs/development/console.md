@@ -270,8 +270,14 @@ vitehub({
 To open a deployed app there:
 
 1. Set `console: { auth: "token" }`. `console.origins` defaults to `["https://console.vitehub.dev"]`, so the hosted Console needs no other option. When you set `console.origins` yourself, keep `https://console.vitehub.dev` in the list.
-2. Set `VITEHUB_CONSOLE_TOKEN` to a long random value on the server, for example the output of `openssl rand -base64 32`, then deploy.
+2. Create a token, and set its SHA-256 hash as `VITEHUB_CONSOLE_TOKEN_SHA256` on the server, then deploy. The server keeps only the hash, so keep the token itself in a password manager.
 3. Open [console.vitehub.dev](https://console.vitehub.dev), select **Link project**, enter the app URL, and paste the token. See [Link a project](#link-a-project).
+
+```sh
+TOKEN=$(openssl rand -hex 32)
+echo "$TOKEN"                          # paste this into the Console
+printf %s "$TOKEN" | sha256sum | cut -d' ' -f1  # set this as VITEHUB_CONSOLE_TOKEN_SHA256
+```
 
 ```ts [vite.config.ts]
 vitehub({
@@ -318,7 +324,7 @@ The Console that an app serves also uses this storage. With `auth: "token"`, `/_
 
 ### What needs the Console that the app serves
 
-Some features act on the app's own pages or set cookies of the app, so they work only in the Console at `/_vitehub` of the app. A Console on another origin hides or turns them off, and links to the app's Console where that helps:
+Some features act on the app's own pages or set cookies of the app, so they work only in the Console at `/_vitehub` of the app. In production, an app serves that Console only with `console.embed: true`. A Console on another origin hides or turns them off, and links to the app's Console where that helps:
 
 - Live editing of Content documents. The editor saves alone, and saves still refuse to overwrite a newer version.
 - The Content page preview.
