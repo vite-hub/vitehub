@@ -56,12 +56,6 @@ interface GeneratedEmailDefinition {
 /** Development outbox options. The outbox is active only in `vite dev`. */
 export interface EmailOutboxOptions {
   /**
-   * `true` sends each captured message through the configured provider. `false` only captures the message and
-   * returns an `outbox-<n>` id with `driver: "outbox"`.
-   * @default true
-   */
-  deliver?: boolean
-  /**
    * Number of messages to keep in memory. The oldest message is removed first. The value must be an integer from 1
    * to 1000.
    * @default 50
@@ -73,11 +67,18 @@ export interface EmailVitePluginOptions {
   driver: EmailProvider
   options?: EnvRuntimeConfigOptions
   /**
-   * Development outbox. In `vite dev`, `email.send()` records each message. `false` disables the outbox. Build output
-   * never contains the outbox.
-   * @default { deliver: true, limit: 50 }
+   * Development outbox. In `vite dev`, `email.send()` records each message. `false` disables the outbox, and then
+   * `remote: true` is required. Build output never contains the outbox.
+   * @default { limit: 50 }
    */
   outbox?: false | EmailOutboxOptions
+  /**
+   * `true` makes `vite dev` send each message through the provider, after the outbox records it. Without it, a dev
+   * send stays in the outbox, returns an `outbox-<n>` id with `driver: "outbox"`, and makes no provider request.
+   * Builds ignore `remote`.
+   * @default false
+   */
+  remote?: boolean
 }
 
 export interface EmailVitePluginAPI {
@@ -164,7 +165,6 @@ function resolveOutboxImport(): string {
 
 /** Checked development outbox options. `undefined` means the outbox is disabled. */
 interface ResolvedEmailOutboxOptions {
-  deliver: boolean
   limit: number
 }
 
@@ -173,15 +173,20 @@ function resolveOutboxOptions(value: unknown): ResolvedEmailOutboxOptions | unde
   if (value !== undefined && !isRecord(value)) {
     throw emailErrorDiagnostics.EMAIL_INVALID_OUTBOX({ problem: "type" })
   }
-  const deliver = value?.deliver ?? true
-  const limit = value?.limit ?? 50
-  if (!v.is(v.boolean(), deliver)) {
+  if (value && "deliver" in value) {
     throw emailErrorDiagnostics.EMAIL_INVALID_OUTBOX({ problem: "deliver" })
   }
+  const limit = value?.limit ?? 50
   if (!v.is(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(1000)), limit)) {
     throw emailErrorDiagnostics.EMAIL_INVALID_OUTBOX({ problem: "limit" })
   }
-  return { deliver, limit }
+  return { limit }
+}
+
+function resolveRemote(value: unknown): boolean {
+  if (value === undefined) return false
+  if (!v.is(v.boolean(), value)) throw emailErrorDiagnostics.EMAIL_INVALID_REMOTE()
+  return value
 }
 
 function configuredDefinition(options: EmailVitePluginOptions): Omit<GeneratedEmailDefinition, "handler"> {
@@ -212,6 +217,16 @@ interface GeneratedEmailOutbox extends ResolvedEmailOutboxOptions {
   runtimeId: string
 }
 
+/** `vite dev` settings. A build passes `undefined`, so its output has no outbox and no remote notice. */
+interface GeneratedEmailDev {
+  outbox?: GeneratedEmailOutbox
+  remote: boolean
+}
+
+function remoteNotice(driver: EmailProvider): string {
+  return `[vitehub] Email is remote: \`vite dev\` sends real email through ${driver}.`
+}
+
 function renderConfiguredEmailDefinitionModule(
   definition: GeneratedEmailDefinition,
   driverImport: string,
@@ -219,8 +234,21 @@ function renderConfiguredEmailDefinitionModule(
   previewImport: string,
   cloudflare: boolean,
   cloudflareEmail: boolean,
-  outbox?: GeneratedEmailOutbox,
+  dev?: GeneratedEmailDev,
 ): string {
+  const outbox = dev?.outbox
+  const remote = dev?.remote === true
+  // A remote dev driver prints the notice on its first send. Factories resolve on each send, so a flag keeps it once.
+  const remoteDriver = remote
+    ? [
+        "let remoteNoticeShown = false",
+        "const createRemoteDriver = () => {",
+        `  if (!remoteNoticeShown) { remoteNoticeShown = true; console.warn(${JSON.stringify(remoteNotice(definition.driver))}) }`,
+        "  return createProviderDriver()",
+        "}",
+      ]
+    : []
+  const devDriver = remote ? "createRemoteDriver" : "createProviderDriver"
   return [
     `import createDriver from ${JSON.stringify(driverImport)}`,
     `import { resolveServerEnv } from ${JSON.stringify(runtimeEnvImport)}`,
@@ -236,13 +264,14 @@ function renderConfiguredEmailDefinitionModule(
       ? `{ ...${renderResolvedOptions(definition.options, "options")}, binding: vitehubEmailEnv.EMAIL, EmailMessage }`
       : renderResolvedOptions(definition.options, "options")})`,
     "}",
+    ...remoteDriver,
     // The `email.outbox-*` operations tell `email.outbox: false` from an app that has not sent a message yet.
     `globalThis[Symbol.for(${JSON.stringify(emailCaptureKey)})] = ${outbox !== undefined}`,
     `export const outboxRuntimeId = ${JSON.stringify(outbox?.runtimeId ?? "disabled")}`,
     "export const definition = {",
     outbox
-      ? `  driver: () => createEmailDevOutboxDriver({ deliver: ${outbox.deliver}, driver: createProviderDriver, limit: ${outbox.limit}, provider: ${JSON.stringify(definition.driver)}, runtimeId: ${JSON.stringify(outbox.runtimeId)} }),`
-      : "  driver: createProviderDriver,",
+      ? `  driver: () => createEmailDevOutboxDriver({ deliver: ${remote}, driver: ${devDriver}, limit: ${outbox.limit}, provider: ${JSON.stringify(definition.driver)}, runtimeId: ${JSON.stringify(outbox.runtimeId)} }),`
+      : `  driver: ${devDriver},`,
     "}",
     "export default definition",
     "",
@@ -392,6 +421,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   const configured = configuredDefinition(options)
   const driverImport = resolveDriverImport(configured.driver)
   const outbox = resolveOutboxOptions(options.outbox)
+  const remote = resolveRemote(options.remote)
   const outboxRuntimeId = randomUUID()
   let command: "build" | "serve" | undefined
   const runtimeEnvImport = internalOptions.runtimeEnvImport
@@ -539,10 +569,13 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
         handler: resolve(resolveViteHubGeneratedRoot(config), "email/definition.mjs"),
       }
       const entry = definition.handler.replace(/\.mjs$/, ".entry.mjs")
-      // The outbox is added only for `vite dev`. A build never imports the outbox module.
-      const devOutbox = command === "serve" && outbox ? { ...outbox, import: resolveOutboxImport(), runtimeId: outboxRuntimeId } : undefined
+      // The outbox and `remote` apply only to `vite dev`. A build never imports the outbox module.
+      if (command === "serve" && !outbox && !remote) throw emailErrorDiagnostics.EMAIL_REMOTE_REQUIRED()
+      const dev = command === "serve"
+        ? { outbox: outbox && { ...outbox, import: resolveOutboxImport(), runtimeId: outboxRuntimeId }, remote }
+        : undefined
       const previewImport = `./${relative(dirname(entry), previewRegistryPath()).replaceAll("\\", "/")}`
-      await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(definition, driverImport, runtimeEnvImport, previewImport, cloudflare, cloudflare && cloudflareEmail, devOutbox))
+      await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(definition, driverImport, runtimeEnvImport, previewImport, cloudflare, cloudflare && cloudflareEmail, dev))
       try {
         await bundleEsmEntry(entry, definition.handler, {
           define: resolveViteHubBundleDefines(config),

@@ -719,6 +719,7 @@ describe("hubEmail", () => {
         options: {
           apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
         },
+        remote: true,
       })],
       resolve: { alias: { "cloudflare:workers": cloudflareWorkers } },
       root,
