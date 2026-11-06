@@ -74,6 +74,8 @@ npx skills add http://localhost:3000/_vitehub --skill vitehub --agent claude-cod
 
 The skill files are static and need no Console sign-in, also in production. They contain only the public ViteHub skill, not data of the app.
 
+To publish the skills of your own app at its origin, for `npx skills add` and MCP clients, use [`vite-hub/skills`](/docs/development/skills).
+
 ## Ask for an outcome
 
 The skill activates from normal ViteHub requests.

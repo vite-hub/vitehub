@@ -13,6 +13,7 @@ import { setServedBlobRoute } from "../served.ts"
 
 export { setBlobPhotonLoader } from "../media/photon-module.ts"
 export { setBlobSharpModule } from "../media/sharp-module.ts"
+export { setBlobRequestBodyLimit } from "../internal/host-limits.ts"
 
 import type { BlobStorage, ResolvedBlobModuleOptions } from "../types.ts"
 
