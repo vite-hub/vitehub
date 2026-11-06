@@ -54,7 +54,7 @@ describe("vitehub add", () => {
       const before = await readFile(join(root, configFile), "utf8")
       const options = host === "node" && id === "schedule"
         ? ["--option", "schedule.runtime.driver=process"]
-        : (host === "netlify" || host === "deno") && ["comments", "connections", "console"].includes(id)
+        : featureSupport("database", host).level === "explicit" && ["comments", "connections", "console"].includes(id)
             ? ["--option", "database.connection.url=libsql://example.com"]
             : []
 
@@ -90,6 +90,72 @@ describe("vitehub add", () => {
     expect(json.install).toMatchObject({ command: "npm install @vite-hub/agent", packages: ["@vite-hub/agent"] })
     const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
     expect(config.ok && Object.keys(config.site.keys)).toEqual(["preset", "kv", "agent"])
+  })
+
+  it.each([
+    ['rootDir: "app"', "app/server"],
+    ['serverDir: "backend"', "backend"],
+    ['rootDir: "app", serverDir: "backend"', "app/backend"],
+  ])("writes Nuxt starters into the application server directory: %s", async (options, serverDir) => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options}, vitehub: { preset: "node" } })`,
+    })
+    const args = ["queue", "database", "--name", "jobs", "--no-install", "--yes"]
+    const result = await add(args, root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    const files = Object.keys(await snapshot(root))
+    expect(files).toContain(`${serverDir}/queues/jobs.ts`)
+    expect(files).toContain(`${serverDir}/databases/jobs/config.ts`)
+    expect(files.some(file => file.startsWith("server/"))).toBe(false)
+    expect((await add(args, root)).json.status).toBe("unchanged")
+  })
+
+  it.each(["schedule.runtime.intervalMs=1000", "schedule.runtime.driver=other", "schedule.runtime=false"])("requires a valid Node Schedule runtime driver for %s", async (option) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+    const before = await snapshot(root)
+    const result = await add(["schedule", "--option", option, "--no-install", "--yes"], root)
+    expect(result.exitCode).toBe(2)
+    expect(result.json.missing).toEqual([{ choices: ["process"], field: "schedule.runtime.driver" }])
+    expect(await snapshot(root)).toEqual(before)
+    const rerun = await runSetup<AddResult>(result.json.rerun!.split(" ").slice(1), root)
+    expect(rerun.exitCode, rerun.stdout).toBe(0)
+    const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
+    expect(config.ok && config.site.keys.schedule).toMatchObject({ value: { runtime: { driver: "process", ...(option.includes("intervalMs") ? { intervalMs: 1000 } : {}) } } })
+  })
+
+  it.each(["node", "netlify"])("enables a disabled Database prerequisite on %s", async (host) => {
+    for (const feature of ["comments", "connections", "console"]) {
+      const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}", database: false }`) })
+      if (host === "netlify") {
+        const before = await snapshot(root)
+        const first = await add([feature, "--no-install", "--yes"], root)
+        expect(first.exitCode).toBe(2)
+        expect(first.json.missing).toEqual([{ field: "database.connection" }])
+        expect(await snapshot(root)).toEqual(before)
+      }
+      const options = host === "netlify" ? ["--option", "database.connection.url=libsql://example.com"] : []
+      const result = await add([feature, ...options, "--no-install", "--yes"], root)
+      expect(result.exitCode, result.stdout).toBe(0)
+      expect(result.json.features).toContain("database")
+      expect(result.json.install.packages).toContain("@vite-hub/database")
+      const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
+      expect(config.ok && config.site.keys.database).toMatchObject({ value: host === "node" ? true : { connection: { url: "libsql://example.com" } } })
+      expect((await add([feature, ...options, "--no-install", "--yes"], root)).json.status).toBe("unchanged")
+    }
+  })
+
+  it("rejects a config changed during installation before writing starters", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+    const changed = viteConfig(`{ preset: "node", kv: true }`)
+    const spawn: ViteHubCliSpawn = async () => {
+      await writeFile(join(root, "vite.config.ts"), changed)
+      return { exitCode: 0 }
+    }
+    const result = await add(["schedule", "--option", "runtime.driver=process", "--name", "jobs", "--yes"], root, spawn)
+    expect(result.exitCode).toBe(4)
+    expect(result.json.error?.code).toBe("SETUP_STALE_PLAN")
+    expect(await snapshot(root)).toEqual({ "package.json": pnpmManifest, "vite.config.ts": changed })
   })
 
   it("exits 3 for a feature that the host does not support and writes nothing", async () => {
