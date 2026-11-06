@@ -38,6 +38,35 @@ describe("default Agent Invocation journal", () => {
     expect(defaultAgentInvocationsDatabase(invocations)).toBeUndefined()
   })
 
+  it.each([undefined, { binding: "DB", env: () => ({}) }])("rejects a file URL runtime override on a Worker with D1: %j", async (d1) => {
+    vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" })
+    const options = {
+      d1,
+      env: { VITEHUB_AGENT_INVOCATIONS_DATABASE_URL: " FILE:data/journal.sqlite " },
+      projectRoot: "/worker",
+    }
+    const error = expect.objectContaining({ code: "AGENT_R1029", fix: expect.stringContaining("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL") })
+    expect(() => createDefaultAgentInvocations(options)).toThrow(error)
+    await expect(resolveDefaultAgentInvocationsLocation(options)).rejects.toThrow(error)
+  })
+
+  it("rejects an explicit file URL on a Worker", () => {
+    vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" })
+    expect(() => createDefaultAgentInvocations({ databaseUrl: "file:data/journal.sqlite", env: {}, projectRoot: "/worker" }))
+      .toThrow(expect.objectContaining({ code: "AGENT_R1029" }))
+  })
+
+  it("keeps D1 and remote URL selection on a Worker", async () => {
+    vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" })
+    const d1 = { binding: "DB", env: () => ({}) }
+    const options = { d1, env: {}, projectRoot: "/worker" }
+    expect(defaultAgentInvocationsDatabase(createDefaultAgentInvocations(options))?.driver).toBe("d1")
+    await expect(resolveDefaultAgentInvocationsLocation(options)).resolves.toEqual({ url: "d1:DB" })
+    const remote = { ...options, env: { VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN: "token", VITEHUB_AGENT_INVOCATIONS_DATABASE_URL: "libsql://journal.example.com" } }
+    expect(defaultAgentInvocationsDatabase(createDefaultAgentInvocations(remote))?.driver).toBe("libsql")
+    await expect(resolveDefaultAgentInvocationsLocation(remote)).resolves.toEqual({ authToken: "token", url: "libsql://journal.example.com" })
+  })
+
   it("records an Agent run with content in the local file on first use", { timeout: 30_000 }, async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-default-journal-"))
     try {

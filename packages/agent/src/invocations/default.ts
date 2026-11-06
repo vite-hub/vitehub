@@ -50,7 +50,7 @@ export interface DefaultAgentInvocationsD1 {
 export interface DefaultAgentInvocationsOptions {
   /** The ViteHub project root. A relative `file:` URL and the default file resolve from it. */
   projectRoot: string
-  /** A `file:` or libSQL URL. Defaults to `file:.vitehub/data/agent-invocations.sqlite`. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` overrides it. */
+  /** A `file:` or libSQL URL. Defaults to `file:.vitehub/data/agent-invocations.sqlite`. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` overrides it. Workers reject explicit `file:` URLs. */
   databaseUrl?: string
   /** Store the journal in this D1 binding. `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` selects libSQL instead. */
   d1?: DefaultAgentInvocationsD1
@@ -106,8 +106,11 @@ function selectTarget(options: Omit<DefaultAgentInvocationsOptions, "observation
     const authToken = env[defaultAgentInvocationsAuthTokenEnv]
     return authToken ? { authToken, kind: "remote", url } : { kind: "remote", url }
   }
-  // A Worker without a D1 binding or a remote URL has no durable journal.
-  if (isWorkersRuntime()) return { kind: "memory", url: "memory:" }
+  // A Worker without a configured store has no durable journal. An explicit file URL is a configuration error.
+  if (isWorkersRuntime()) {
+    if (url) throw agentDiagnostics.AGENT_R1029()
+    return { kind: "memory", url: "memory:" }
+  }
   return { kind: "file", url }
 }
 
@@ -239,7 +242,7 @@ function libsqlJournal(target: DefaultAgentInvocationsTarget, options: DefaultAg
  * `defaultAgentInvocationsMetadataContent` attributes.
  * - Local SQLite at `.vitehub/data/agent-invocations.sqlite`, or the `databaseUrl` libSQL URL.
  * - D1 when `d1` is set and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` is not.
- * - Memory on a Worker without D1 or a remote URL.
+ * - Memory on a Worker without D1 or a configured URL. An explicit `file:` URL throws `AGENT_R1029`.
  */
 export function createDefaultAgentInvocations(options: DefaultAgentInvocationsOptions): AgentInvocations {
   const target = selectTarget(options)

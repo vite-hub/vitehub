@@ -90,6 +90,10 @@ The server opens the journal on the first record or read, so libSQL does not loa
 
 Earlier releases kept this journal in the Console, at `.vitehub/data/console.sqlite`, with `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed, and ViteHub does not move the old records. Set `databaseUrl` to the old file to keep reading it.
 
+### AGENT_R1029: Local file on a Cloudflare Worker
+
+The Worker rejects a selected `file:` URL at server start, including a `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` override. Set a remote libSQL URL, or remove the file URL to use the host default journal. This prevents the override from silently replacing D1 with memory.
+
 ## Use one journal for every Agent
 
 Set `agent.invocations` in the ViteHub options to give every Agent Definition the same journal:
