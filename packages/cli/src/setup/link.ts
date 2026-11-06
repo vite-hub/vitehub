@@ -42,6 +42,18 @@ export interface SetupLink {
   linkedAt: string
 }
 
+/**
+ * The pending Console link from `vitehub init --console`. `tokenSha256` is the SHA-256 of a secret that only the
+ * browser holds, so the file never holds the secret itself.
+ */
+export interface SetupConsoleLink {
+  pendingId: string
+  tokenSha256: string
+}
+
+/** The content of `.vitehub/link.json`: a host link, a pending Console link, or both. */
+export type SetupLinkFile = { schemaVersion: 1, console?: SetupConsoleLink } & Partial<Omit<SetupLink, "schemaVersion">>
+
 /** The link fields that `vitehub status` reports. */
 export type SetupLinkSummary = Pick<SetupLink, "host" | "account" | "project" | "verified">
 
@@ -264,12 +276,18 @@ async function linkNetlify(name: string, options: SetupLinkOptions, token: strin
   return { ...(site.account ? { account: site.account } : {}), created, project: { id: site.id, name: site.name }, verified: true }
 }
 
+/** `content` of a `.gitignore` with a `.vitehub` line, or undefined when it already ignores `.vitehub`. */
+export function gitignoreWithViteHub(content: string): string | undefined {
+  const ignored = content.split(/\r?\n/u).some(line => /^\/?(?:\*\*\/)?\.vitehub\/?$/u.test(line.trim()))
+  if (ignored) return
+  return `${content}${content === "" || content.endsWith("\n") ? "" : "\n"}.vitehub\n`
+}
+
 async function writeIfMissingLine(file: string): Promise<SetupLinkResult["gitignore"]> {
   if (!existsSync(file)) return "no-gitignore"
-  const content = await readFile(file, "utf8")
-  const ignored = content.split(/\r?\n/u).some(line => /^\/?(?:\*\*\/)?\.vitehub\/?$/u.test(line.trim()))
-  if (ignored) return "present"
-  await writeFile(file, `${content}${content === "" || content.endsWith("\n") ? "" : "\n"}.vitehub\n`)
+  const next = gitignoreWithViteHub(await readFile(file, "utf8"))
+  if (next === undefined) return "present"
+  await writeFile(file, next)
   return "added"
 }
 
@@ -303,9 +321,8 @@ export async function linkSetupProject(project: SetupProject, options: SetupLink
     verified: linked.verified,
     linkedAt: new Date().toISOString(),
   }
-  const file = join(project.root, SETUP_LINK_FILE)
-  await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, `${JSON.stringify(link, null, 2)}\n`)
+  const pending = await readSetupConsoleLink(project.root)
+  await writeSetupLinkFile(project.root, { ...link, ...(pending ? { console: pending } : {}) })
   return {
     created: linked.created,
     credentials: credentials.ok ? { source: credentials.source } : null,
@@ -315,16 +332,35 @@ export async function linkSetupProject(project: SetupProject, options: SetupLink
   }
 }
 
-/** Removes `.vitehub/link.json`. Returns false when the project has no link. */
+/** The text of `.vitehub/link.json` for `link`. */
+export function formatSetupLinkFile(link: SetupLinkFile): string {
+  return `${JSON.stringify(link, null, 2)}\n`
+}
+
+async function writeSetupLinkFile(root: string, link: SetupLinkFile): Promise<void> {
+  const file = join(root, SETUP_LINK_FILE)
+  await mkdir(dirname(file), { recursive: true })
+  await writeFile(file, formatSetupLinkFile(link))
+}
+
+/**
+ * Removes the host link from `.vitehub/link.json`. A pending Console link stays; without one, the file goes.
+ * Returns false when the project has no host link.
+ */
 export async function unlinkSetupProject(root: string): Promise<boolean> {
   const file = join(root, SETUP_LINK_FILE)
   if (!existsSync(file)) return false
+  const [link, pending] = await Promise.all([readSetupLink(root), readSetupConsoleLink(root)])
+  if (pending) {
+    if (!link) return false
+    await writeSetupLinkFile(root, { console: pending, schemaVersion: 1 })
+    return true
+  }
   await rm(file, { force: true })
   return true
 }
 
-/** Reads `.vitehub/link.json`. Returns undefined when the file is missing or is not a link. */
-export async function readSetupLink(root: string): Promise<SetupLink | undefined> {
+async function readLinkJson(root: string): Promise<Record<string, unknown> | undefined> {
   const file = join(root, SETUP_LINK_FILE)
   if (!existsSync(file)) return
   let value: unknown
@@ -334,7 +370,26 @@ export async function readSetupLink(root: string): Promise<SetupLink | undefined
   catch {
     return
   }
-  if (!isRecord(value) || value.schemaVersion !== 1 || typeof value.host !== "string" || !isLinkHost(value.host)) return
+  return isRecord(value) && value.schemaVersion === 1 ? value : undefined
+}
+
+/** A valid `--console` pending id: URL-safe characters only. */
+export const consolePendingIdPattern: RegExp = /^[\w-]{1,128}$/u
+
+/** Reads the pending Console link from `.vitehub/link.json`. Returns undefined when there is none. */
+export async function readSetupConsoleLink(root: string): Promise<SetupConsoleLink | undefined> {
+  const pending = (await readLinkJson(root))?.console
+  if (!isRecord(pending)) return
+  const pendingId = optionalString(pending.pendingId)
+  const tokenSha256 = optionalString(pending.tokenSha256)
+  if (!pendingId || !consolePendingIdPattern.test(pendingId) || !tokenSha256 || !/^[0-9a-f]{64}$/u.test(tokenSha256)) return
+  return { pendingId, tokenSha256 }
+}
+
+/** Reads the host link from `.vitehub/link.json`. Returns undefined when the file is missing or has no host link. */
+export async function readSetupLink(root: string): Promise<SetupLink | undefined> {
+  const value = await readLinkJson(root)
+  if (!value || typeof value.host !== "string" || !isLinkHost(value.host)) return
   const project = value.project
   const name = isRecord(project) ? optionalString(project.name) : undefined
   if (!isRecord(project) || !name) return
@@ -354,18 +409,21 @@ export async function readSetupLink(root: string): Promise<SetupLink | undefined
 /** What `vitehub status` adds to the feature status. */
 export interface SetupLinkStatus {
   link: SetupLinkSummary | null
+  /** The pending Console link from `vitehub init --console`, without the hash. */
+  console: { pendingId: string } | null
   /** For the linked host, else the config host. Never includes the token. `null` on a host without credentials (Node). */
   credentials: HostCredentialsDescription | null
 }
 
 /** The link and the credential status for `vitehub status`. The credentials never include the token. */
 export async function readSetupLinkStatus(project: SetupProject, host: string, context: ViteHubCliContext): Promise<SetupLinkStatus> {
-  const link = await readSetupLink(project.root)
+  const [link, pending] = await Promise.all([readSetupLink(project.root), readSetupConsoleLink(project.root)])
   const credentialHost = link?.host ?? (isLinkHost(host) ? host : undefined)
   const credentials = credentialHost
     ? await describeHostCredentials(credentialHost, { cwd: project.root, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
     : null
   return {
+    console: pending ? { pendingId: pending.pendingId } : null,
     credentials,
     link: link ? { host: link.host, ...(link.account ? { account: link.account } : {}), project: link.project, verified: link.verified } : null,
   }

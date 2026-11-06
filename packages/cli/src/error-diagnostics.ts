@@ -88,6 +88,21 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: ({ rerun }: { host?: unknown, project?: unknown, account?: unknown, rerun?: unknown }) => `Run \`${String(rerun)}\` to create it, or pass --project with the name of a project that exists.`,
       why: ({ host, project, account }: { host?: unknown, project?: unknown, account?: unknown, rerun?: unknown }) => `The ${String(host)} project ${JSON.stringify(String(project))} does not exist${account ? ` in account ${String(account)}` : ""}.`,
     },
+    SETUP_INIT_DIR_NOT_EMPTY: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_init_dir_not_empty",
+      fix: "Choose a new or empty folder, or run `vitehub init` on the folder of a Vite or Nuxt app.",
+      why: ({ dir }: { dir?: unknown }) => `${String(dir)} is not empty and holds no Vite or Nuxt app. ViteHub never overwrites a file.`,
+    },
+    SETUP_INIT_FRAMEWORK_MISMATCH: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_init_framework_mismatch",
+      fix: ({ found }: { dir?: unknown, found?: unknown, framework?: unknown }) => `Pass --framework ${String(found)}, or choose another folder.`,
+      why: ({ dir, found, framework }: { dir?: unknown, found?: unknown, framework?: unknown }) => `${String(dir)} holds a ${String(found)} app, not a ${String(framework)} app.`,
+    },
+    SETUP_CONSOLE_INVALID: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_console_invalid",
+      fix: "Copy the command from the Console \"New project\" page again. Never pass the Console token itself.",
+      why: () => "--console must be `<pendingId>:sha256:<64 hex characters>`. The value is not printed, because it can hold a secret.",
+    },
     CLI_R0004: {
       fix: "Run it again with --yes, or check the change first with a dry run when the command has one.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),

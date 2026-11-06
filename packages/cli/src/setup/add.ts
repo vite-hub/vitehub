@@ -167,36 +167,45 @@ export function readAddArgs(args: readonly string[]): SetupAddArgs {
   return parsed
 }
 
-function quote(value: string): string {
+/** Quotes `value` for a POSIX shell when it needs quotes. */
+export function shellQuote(value: string): string {
   return /^[\w@%+=:,./-]+$/u.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`
 }
 
-function flatten(prefix: string, value: JsonValue, out: string[]): string[] {
-  if (isRecord(value)) for (const [key, child] of Object.entries(value)) flatten(`${prefix}.${key}`, child, out)
+/** `value` as `--option` values under `prefix`, such as `["email.driver=resend"]`. */
+export function flattenOptions(prefix: string, value: JsonValue, out: string[] = []): string[] {
+  if (isRecord(value)) for (const [key, child] of Object.entries(value)) flattenOptions(`${prefix}.${key}`, child, out)
   else out.push(`${prefix}=${value === null || typeof value !== "object" ? String(value) : JSON.stringify(value)}`)
   return out
 }
 
+/** `--option` values by feature. */
+export type SetupOptions = Partial<Record<FeatureId, Record<string, JsonValue>>>
+
+/** Builds the command that `rerun` reports: the request with `extra` options and `extraFeatures` added. */
+export type SetupRerun = (args: SetupAddArgs, extra?: SetupOptions, extraFeatures?: readonly FeatureId[]) => string
+
 /** The `vitehub add` command for `args`, with `extra` options and `--yes` unless it is a dry run. */
-function rerunCommand(args: SetupAddArgs, extra: Partial<Record<FeatureId, Record<string, JsonValue>>> = {}, extraFeatures: readonly FeatureId[] = []): string {
+function rerunCommand(args: SetupAddArgs, extra: SetupOptions = {}, extraFeatures: readonly FeatureId[] = []): string {
   const ids = [...args.features, ...extraFeatures.filter(id => !args.features.includes(id))]
   const optionIds = [...new Set([...ids, ...Object.keys(args.options), ...Object.keys(extra)])] as FeatureId[]
   const options = optionIds.flatMap((id) => {
     const merged = mergeValue(args.options[id], extra[id])
-    return isRecord(merged) ? flatten(id, merged, []) : []
+    return isRecord(merged) ? flattenOptions(id, merged) : []
   })
   return [
     "vitehub add",
     ...ids,
     ...(args.name ? ["--name", args.name] : []),
-    ...options.flatMap(option => ["--option", quote(option)]),
+    ...options.flatMap(option => ["--option", shellQuote(option)]),
     ...(args.install ? [] : ["--no-install"]),
     ...(args.dryRun ? ["--dry-run"] : ["--yes"]),
     ...(args.json ? ["--json"] : []),
   ].join(" ")
 }
 
-function mergeValue(base: JsonValue | undefined, patch: JsonValue | undefined): JsonValue | undefined {
+/** Merges `patch` into `base`, object key by object key. */
+export function mergeValue(base: JsonValue | undefined, patch: JsonValue | undefined): JsonValue | undefined {
   if (patch === undefined) return base
   if (!isRecord(base) || !isRecord(patch)) return patch
   const merged: Record<string, JsonValue> = { ...base }
@@ -221,7 +230,8 @@ function toSource(value: JsonValue): string {
   return JSON.stringify(value)
 }
 
-function diffOf(path: string, before: string, after: string): string {
+/** A unified diff of `path`. An empty `before` is a new file. */
+export function setupDiff(path: string, before: string, after: string): string {
   return createTwoFilesPatch(before ? `a/${path}` : "/dev/null", `b/${path}`, before, after, undefined, undefined, { context: 3 })
     .replace(/^=+\n/u, "")
 }
@@ -242,7 +252,8 @@ function nextValue(id: FeatureId, status: SetupStatus, project: SetupProject, op
   return sameValue(literal, merged) ? undefined : { value: merged }
 }
 
-interface Planned {
+/** A `vitehub add` plan with the file contents that applying it writes. */
+export interface SetupAddPlanned {
   plan: SetupAddPlan
   configFile?: { path: string, before: string, after: string }
   files: { path: string, content: string }[]
@@ -250,7 +261,7 @@ interface Planned {
 }
 
 /** Plans `vitehub add` without writing anything. Throws `SetupFailure` when the change needs input or is not possible. */
-export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, env: NodeJS.ProcessEnv): Promise<Planned> {
+export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, env: NodeJS.ProcessEnv, rerun: SetupRerun = rerunCommand): Promise<SetupAddPlanned> {
   const status = setupStatus(project, env)
   const host = status.host.name
   if (host === "unknown") {
@@ -325,7 +336,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const fields = missing.map(item => `\`${item.field}\``).join(", ")
     throw new SetupFailure(cliErrorDiagnostics.SETUP_INPUT_NEEDED({ message: `[vitehub] Set ${fields} to add ${args.features.join(", ")} on the ${host} preset.` }), setupExitCodes.inputNeeded, {
       missing,
-      ...(rerunnable ? { rerun: rerunCommand(args, defaults, requires) } : {}),
+      ...(rerunnable ? { rerun: rerun(args, defaults, requires) } : {}),
     })
   }
 
@@ -339,8 +350,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   }
 
   const changes: SetupChange[] = []
-  const files: Planned["files"] = []
-  let configFile: Planned["configFile"]
+  const files: SetupAddPlanned["files"] = []
+  let configFile: SetupAddPlanned["configFile"]
 
   // Starter Definition files.
   if (args.name !== undefined) {
@@ -358,7 +369,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       const conflict = starter.conflicts(args.name).find(other => existsSync(join(project.root, other)))
       if (conflict) throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ definition: features[id].title, file: conflict, starter: path }), setupExitCodes.conflict)
       files.push({ content, path })
-      changes.push({ after: content, diff: diffOf(path, "", content), kind: "create", path })
+      changes.push({ after: content, diff: setupDiff(path, "", content), kind: "create", path })
     }
   }
 
@@ -368,17 +379,17 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const snippet = edits.map(edit => edit.op === "set" ? `${edit.key}: ${toSource(edit.value)},` : "").join("\n")
     const manual = (reason: string) => new SetupFailure(cliErrorDiagnostics.SETUP_CONFIG_MANUAL({ file, reason, snippet }), setupExitCodes.conflict, { data: { snippet } })
     if (manualReason || !project.configFile) throw manual(manualReason ?? "no-vitehub")
-    const before = await readFile(join(project.root, project.configFile), "utf8")
+    const before = project.configSource ?? await readFile(join(project.root, project.configFile), "utf8")
     const result = editViteHubConfig(project.configFile, before, edits)
     if (!result.ok) throw manual(result.reason)
     configFile = { after: result.code, before, path: project.configFile }
-    changes.push({ after: result.code, before, diff: diffOf(project.configFile, before, result.code), kind: "patch", path: project.configFile })
+    changes.push({ after: result.code, before, diff: setupDiff(project.configFile, before, result.code), kind: "patch", path: project.configFile })
   }
 
   // The features that this command turns on, through the config or through an implication.
   const alreadyOn = new Set(status.features.filter(item => item.enabled === "on").map(item => item.id))
   const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], host, keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
-  const install: Planned["install"] = { dev: [], prod: [] }
+  const install: SetupAddPlanned["install"] = { dev: [], prod: [] }
   const configured = (id: FeatureId): JsonValue | undefined => {
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
     return mergeValue(current?.kind === "literal" ? current.value : undefined, args.options[id])
@@ -430,7 +441,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   return { files, install, plan, ...(configFile ? { configFile } : {}) }
 }
 
-async function applyPlan(project: SetupProject, planned: Planned, args: SetupAddArgs, context: ViteHubCliContext): Promise<void> {
+async function applyPlan(project: SetupProject, planned: SetupAddPlanned, args: SetupAddArgs, context: ViteHubCliContext): Promise<void> {
   const { dev, prod } = planned.install
   if (args.install) {
     for (const [packages, isDev] of [[prod, false], [dev, true]] as const) {
@@ -477,7 +488,8 @@ function writeResult(plan: SetupAddPlan, context: ViteHubCliContext): void {
   context.stdout.write(`\nNext steps:\n${plan.nextSteps.map(step => `- ${step}`).join("\n")}\n`)
 }
 
-async function confirm(): Promise<boolean> {
+/** Asks on the terminal whether to apply the changes. */
+export async function confirmSetupChange(): Promise<boolean> {
   const terminal = createInterface({ input: process.stdin, output: process.stderr })
   try {
     return /^y(?:es)?$/iu.test((await terminal.question("Apply these changes? [y/N] ")).trim())
@@ -519,7 +531,7 @@ async function runAdd(args: string[], context: ViteHubCliContext): Promise<numbe
         })
       }
       writePlan(plan, context)
-      if (!await confirm()) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), setupExitCodes.error)
+      if (!await confirmSetupChange()) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), setupExitCodes.error)
     }
     await applyPlan(project, planned, parsed, context)
     const applied: SetupAddPlan = { ...plan, status: "applied" }

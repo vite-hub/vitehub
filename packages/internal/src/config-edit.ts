@@ -311,12 +311,17 @@ function skipBlanks(code: string, position: number): number {
 
 /** Adds `text` (a `key: value` pair) as the last member of `object`, copying the sibling layout. */
 function appendMember(output: MagicString, code: string, object: ObjectExpression, text: string, style: CodeStyle): void {
-  const closing = end(object) - 1
-  const last = object.properties.at(-1)
+  appendItem(output, code, object, object.properties.at(-1), text, style, " ")
+}
+
+/** Adds `text` as the last item of the object or array `list`, after `last`, copying the sibling layout. */
+function appendItem(output: MagicString, code: string, list: Node, last: Node | undefined, text: string, style: CodeStyle, pad: string): void {
+  const closing = end(list) - 1
   if (!last) {
-    const inner = code.slice(start(object) + 1, closing)
-    if (/^\s*$/.test(inner)) output.overwrite(start(object) + 1, closing, ` ${text} `)
-    else output.appendLeft(start(object) + 1, ` ${text},`)
+    const inner = code.slice(start(list) + 1, closing)
+    if (!inner) output.appendLeft(closing, `${pad}${text}${pad}`)
+    else if (/^\s*$/.test(inner)) output.overwrite(start(list) + 1, closing, `${pad}${text}${pad}`)
+    else output.appendLeft(start(list) + 1, `${pad}${text},`)
     return
   }
   const afterLast = skipBlanks(code, end(last))
@@ -439,4 +444,55 @@ export function editViteHubConfig(file: string, code: string, edits: readonly Co
     current = next
   }
   return { ok: true, code: current }
+}
+
+/**
+ * Registers ViteHub with `options` in a config that has no ViteHub yet: `vitehub()` in the Vite `plugins`, or the
+ * `[viteHubNuxt, options]` tuple in the Nuxt `modules`, and the import. Keeps the rest of the file byte for byte.
+ * A config that already registers ViteHub comes back unchanged.
+ */
+export function insertViteHubConfig(file: string, code: string, options: { readonly [key: string]: JsonValue }): EditResult {
+  const located = locate(file, code)
+  if (!("ok" in located)) return { ok: true, code }
+  if (located.reason !== "no-vitehub") return located
+  const program = parse(code)
+  if ("ok" in program) return program
+  const exported = defaultExport(program)
+  if (!exported) return fail("no-vitehub")
+  let root = unwrap(exported)
+  if (root.type === "CallExpression" && root.arguments[0]) root = unwrap(root.arguments[0])
+  if (root.type !== "ObjectExpression") return fail("dynamic-options", root)
+
+  const nuxt = isNuxtFile(file)
+  const style = detectStyle(code, program)
+  const source = nuxt ? nuxtModule : viteModule
+  const imported = importedNames(program, source, name => nuxt ? name === undefined : name === "vitehub")
+  const local = [...imported][0] ?? (nuxt ? "viteHubNuxt" : "vitehub")
+  const item = nuxt ? `[${local}, ${serialize(options, style)}]` : `${local}(${serialize(options, style)})`
+  const key = nuxt ? "modules" : "plugins"
+  const output = new MagicString(code)
+
+  const property = findMember(root, key)
+  if (property) {
+    const list = unwrap(property.value)
+    if (list.type !== "ArrayExpression") return fail("dynamic-options", list)
+    appendItem(output, code, list, list.elements.findLast(element => element !== null) ?? undefined, item, style, "")
+  }
+  else {
+    appendMember(output, code, root, `${key}: [${item}]`, style)
+  }
+
+  if (!imported.size) {
+    const semicolon = style.semicolons ? ";" : ""
+    const statement = nuxt ? `import ${local} from ${quoteString(source, style)}${semicolon}` : `import { ${local} } from ${quoteString(source, style)}${semicolon}`
+    const imports = program.program.body.filter(node => node.type === "ImportDeclaration")
+    const lastImport = imports.at(-1)
+    if (lastImport) output.appendLeft(end(lastImport), `${code.includes("\r\n") ? "\r\n" : "\n"}${statement}`)
+    else output.prepend(`${statement}\n\n`)
+  }
+
+  const next = output.toString()
+  const after = locate(file, next)
+  if ("ok" in after || !sameKeys(after.site.keys, Object.fromEntries(Object.entries(options).map(([name, value]) => [name, { kind: "literal", value }])))) return fail("parse-error")
+  return { ok: true, code: next }
 }

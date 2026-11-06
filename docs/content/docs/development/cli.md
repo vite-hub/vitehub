@@ -156,6 +156,39 @@ Available namespaces:
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
 | `vitehub provision status` | Available | ViteHub CLI plus package Provision Steps | Inspect the latest provider provisioning result. |
 
+## Create a project
+
+`vitehub init` creates a ViteHub app in a folder, or sets up the Vite or Nuxt app that is already there. The Console "New project" page prints this command for you. It runs from the `vite-hub` package, so it needs no install first.
+
+```bash [Terminal]
+pnpm dlx vite-hub init my-app --host cloudflare --features kv,queue --yes
+pnpm dlx vite-hub init my-app --host vercel --features email --option email.driver=resend --yes --json
+```
+
+- `<dir>`: the app folder. A new or empty folder gets the app from [Installation](/docs/getting-started/installation): `package.json`, `vite.config.ts` with `vitehub({ preset })`, `tsconfig.json`, `server/api/health.get.ts`, and a `.gitignore`. A folder with a Vite or Nuxt app keeps its files; `init` registers `vitehub()` or the Nuxt module in the config. Any other folder that is not empty exits with `3`.
+- `--host`: `cloudflare`, `vercel`, `netlify`, `deno`, or `node`. It becomes `preset`.
+- `--features`: feature ids separated by commas, as `vitehub catalog` lists them. `init` plans them in one step with `vitehub add`, so a feature that the host does not support exits with `3` before any file is written.
+- `--option feature.key=value`: an option of a feature, such as `email.driver=resend`. Repeat it for more options.
+- `--console <pendingId>:sha256:<hex>`: the pending link from the Console. `init` stores the id and the hash in `.vitehub/link.json`, which is gitignored. The Console keeps the token, and the CLI never receives it.
+- `--framework vite|nuxt`: the default is `vite`. For `nuxt`, `init` runs the pinned `nuxi init` with the minimal template, then adds the `vite-hub/nuxt` module.
+- `--pm pnpm|npm|yarn|bun`: the package manager. The default is the one that the folder uses, else the one that runs the command, else pnpm.
+- `--no-install` skips the install. `nextSteps` gives the install command. `--dry-run` prints the plan and writes nothing.
+- `--yes` applies the plan. Without a terminal, a missing input fails and names the flag, for example `Pass --host (cloudflare, vercel, netlify, deno, node) when running without an interactive terminal.` The command exits with `2` and gives `missing` and `rerun`.
+
+`init` writes the command that creates the same stack into `README.md`, between `<!-- vitehub:stack -->` and `<!-- /vitehub:stack -->`. The block never holds the `--console` value. `vitehub status --json` returns it as `stack.command`, and a pending Console link as `console.pendingId`. A second run of the same command changes nothing.
+
+### `SETUP_INIT_DIR_NOT_EMPTY`
+
+The folder has files but no Vite or Nuxt app, so `init` cannot create or adopt an app there. ViteHub never overwrites a file. Choose a new or empty folder. The command exits with `3`.
+
+### `SETUP_INIT_FRAMEWORK_MISMATCH`
+
+`--framework` names another framework than the app in the folder uses. Pass the framework of the app, or choose another folder. The command exits with `3`.
+
+### `SETUP_CONSOLE_INVALID`
+
+`--console` is not `<pendingId>:sha256:<64 hex characters>`. The error does not repeat the value, in case it holds a secret. Copy the command from the Console again. Never pass the Console token itself. The command exits with `1`.
+
 ## Read a project without loading it
 
 `vitehub catalog` and `vitehub status` run before the CLI loads the project config. They work in an empty folder and on a config that throws, because they parse the config file and never run it.
