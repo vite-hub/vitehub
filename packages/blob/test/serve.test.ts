@@ -141,6 +141,21 @@ describe("Blob response transforms", () => {
     expect(conditional["~standard"].res.status).toBe(304)
   })
 
+  it.each(["missing", "read failure", "invalid pathname"])("restores caller headers after a failed serve: %s", async (failure) => {
+    const request = event()
+    request.res.headers.set("x-frame-options", "DENY")
+    request.res.headers.set("x-empty", "")
+    request.res.headers.set("x-caller", "preserved")
+    const previous = [...request.res.headers]
+    if (failure === "read failure") vi.spyOn(driver, "get").mockRejectedValue(new Error("storage unavailable"))
+    const result = storage.serve(request, failure === "missing" ? "missing.txt" : failure === "invalid pathname" ? "../private/original" : "private/original", {
+      headers: { "X-Frame-Options": "SAMEORIGIN", "x-frame-options": "SAMEORIGIN", "X-Empty": "configured", "X-Blob": "temporary" },
+    })
+    if (failure === "invalid pathname") await expect(result).rejects.toThrow()
+    else expect((await result)[0]?.code).toBe(failure === "missing" ? "BLOB_NOT_FOUND" : "BLOB_OPERATION_FAILED")
+    expect([...request.res.headers]).toEqual(previous)
+  })
+
   it.each(["size", "contentType"] as const)("reads the body for HEAD when metadata lacks %s", async (field) => {
     const head = driver.head.bind(driver)
     vi.spyOn(driver, "head").mockImplementation(async (path) => {
