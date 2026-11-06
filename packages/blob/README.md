@@ -72,7 +72,7 @@ rm -rf .vitehub/data/blob/.vitehub/blob-writes
 
 This maintenance removes staging files. Published objects and their metadata remain in place. Do not run it while writers are active.
 
-Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Other configured tokens stay unchanged.
+On Vercel, the `vercel-blob` driver uses OIDC when the project has `BLOB_STORE_ID`, which Vercel adds when you connect a store. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`. Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Configured tokens always take precedence over OIDC.
 
 Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
@@ -119,6 +119,17 @@ With `folded: true`, files-sdk drivers whose provider has folders (S3 and S3-com
 With a partial prefix such as `docs/re`, a native page can be empty while `hasMore` is true. Continue with the returned cursor to reach the matching entries.
 
 Filesystem listings skip child directories removed or replaced by files during traversal, so unaffected blobs remain visible. Permission and path-safety errors still propagate. A store root that is a regular file still fails.
+
+## Read-only handles
+
+`blob.store(name, { mode: "read" })` returns a `ReadonlyBlobStorage` handle with `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET` requests, and `media.get()`, `media.list()`, and `media.variants()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`. Another value throws `BLOB_R0038`, and a `PUT` sign request throws `BLOB_R0037`.
+
+```ts
+const reports = blob.store("reports", { mode: "read" })
+const [error, file] = await reports.get("2026/q1.pdf")
+```
+
+The mode limits this API, not the host. The R2 binding or provider token keeps full access, and code can still import the full `blob` export, so it is not a security boundary against code that reads the binding directly. `media.get()` and `serve()` with a transform or variant can store derived records and variants under the reserved `_vitehub/` prefix. They never change your objects.
 
 ## Uploads
 

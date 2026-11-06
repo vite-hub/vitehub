@@ -22,11 +22,11 @@ it("loads more than ten resource pages before requesting templates that share it
   let finishPage: ((page: Page) => void) | undefined
   const firstPage = new Promise<Page>(resolve => { finishPage = resolve })
   const kinds: unknown[] = []
-  mocks.request.mockImplementation((_base: string, _operation: string, input: Record<string, unknown>) => {
+  mocks.request.mockImplementation((_operation: string, input: Record<string, unknown>) => {
     kinds.push(input.kind)
     return kinds.length === 1 ? firstPage : Promise.resolve({ connection, items: [], ...(input.kind === "resources" && kinds.length < 12 ? { nextCursor: `page-${kinds.length + 1}` } : {}) })
   })
-  const app = renderer.createApp({ ...Items, render: () => null }, { base: "/_vitehub", connection, kind: "resources", peers: [connection] })
+  const app = renderer.createApp({ ...Items, render: () => null }, { connection, kind: "resources", peers: [connection] })
   app.provide(ssrContextKey, {})
   try {
     app.mount({})
@@ -34,8 +34,8 @@ it("loads more than ten resource pages before requesting templates that share it
     expect(kinds).toEqual(["resources"])
     finishPage!({ connection, items: [], nextCursor: "next" })
     await vi.waitFor(() => expect(kinds).toEqual([...Array.from({ length: 12 }, () => "resources"), "resource-templates"]))
-    expect(mocks.request.mock.calls[1]![2]).toMatchObject({ cursor: "next" })
-    expect(mocks.request.mock.calls[11]![2]).toMatchObject({ cursor: "page-12" })
+    expect(mocks.request.mock.calls[1]![1]).toMatchObject({ cursor: "next" })
+    expect(mocks.request.mock.calls[11]![1]).toMatchObject({ cursor: "page-12" })
   }
   finally {
     finishPage!({ connection, items: [] })
@@ -58,7 +58,7 @@ it.each([
     if (calls > 1_005) throw new Error("Pagination test guard reached")
     return { connection, items: [], nextCursor: cursors[(calls - 1) % cursors.length] ?? `page-${calls}` }
   })
-  const app = renderer.createApp({ ...Items, render: () => null }, { base: "/_vitehub", connection, kind: "resources", onFailed: failed, peers: [connection] })
+  const app = renderer.createApp({ ...Items, render: () => null }, { connection, kind: "resources", onFailed: failed, peers: [connection] })
   app.provide(ssrContextKey, {})
   try {
     const view = app.mount({})
