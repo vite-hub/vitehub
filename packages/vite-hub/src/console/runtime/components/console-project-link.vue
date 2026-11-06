@@ -2,6 +2,7 @@
 import { ref, shallowRef, watch } from "vue";
 
 import type { ConsoleProjectProblem } from "../client/project-link";
+import { consoleTokenRefused } from "../client/project-link";
 import type { ConsoleProjectTarget } from "../client/projects";
 import { linkConsoleProject, switchConsoleProject } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
@@ -66,7 +67,7 @@ function back(): void {
       <div v-if="tokenStep" class="grid gap-3">
         <ConsoleProjectToken
           :busy="busy"
-          :error="problem?.message ?? (tokenStep.rejected ? `${consoleProjectHost(tokenStep.target)} refused this token. Copy the current value of VITEHUB_CONSOLE_TOKEN from the server and try again.` : undefined)"
+          :error="problem?.message ?? (tokenStep.rejected ? consoleTokenRefused(consoleProjectHost(tokenStep.target)) : undefined)"
           @submit="link"
         />
         <UButton color="neutral" variant="link" size="sm" class="justify-self-start px-0" icon="i-lucide-arrow-left" label="Use another URL" :disabled="busy" @click="back" />

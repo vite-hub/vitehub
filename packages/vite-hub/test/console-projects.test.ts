@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { envActivitySchema, requestEnvManagement } from "../src/console/runtime/client/env-management.ts"
 import { consoleProject, projectConsoleUrl, isRemoteProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleProjectProblem, probeConsoleProject } from "../src/console/runtime/client/project-link.ts"
 import { consoleProjectHost, consoleProjectsStorageKey, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "../src/console/runtime/client/projects.ts"
@@ -113,6 +114,9 @@ describe("project.get probe", () => {
   it("asks for a token on a 401 of auth: \"token\", also when the challenge header is hidden", async () => {
     expect(await probeConsoleProject(target, undefined, { fetch: json(401, tokenRejection) })).toEqual({ kind: "token", rejected: false })
     expect(await probeConsoleProject(target, "wrong", { fetch: json(401, tokenRejection, { "www-authenticate": 'Bearer realm="vitehub-console", error="invalid_token"' }) })).toEqual({ kind: "token", rejected: true })
+    // The server keeps only the hash of the token, so the fix names the hash variable and how to replace a lost token.
+    expect(consoleProjectProblem({ kind: "token", rejected: true }, { consoleOrigin: "https://console.example.com", host: "app.example.com", url: "https://app.example.com" }).message)
+      .toBe("app.example.com refused this token. Use the token whose SHA-256 hash is in VITEHUB_CONSOLE_TOKEN_SHA256. If you lost it, create a new token and set its hash.")
   })
 
   it("tells OAuth and app sign-in apart from the token", async () => {
@@ -148,8 +152,8 @@ describe("project.get probe", () => {
 
   it("names a URL without a Console and a server error with its fix", async () => {
     expect(await probeConsoleProject(target, undefined, { fetch: async () => new Response("Not found", { status: 404 }) })).toEqual({ kind: "missing" })
-    const unset = await probeConsoleProject(target, "secret", { fetch: json(500, { code: "CONSOLE_TOKEN_NOT_CONFIGURED", message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN in the server environment, and it is not set.", fix: "Set VITEHUB_CONSOLE_TOKEN.", ok: false, status: 500 }) })
-    expect(unset).toEqual({ kind: "failed", status: 500, message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN in the server environment, and it is not set.", fix: "Set VITEHUB_CONSOLE_TOKEN." })
+    const unset = await probeConsoleProject(target, "secret", { fetch: json(500, { code: "CONSOLE_TOKEN_NOT_CONFIGURED", message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set.", fix: "Set VITEHUB_CONSOLE_TOKEN_SHA256.", ok: false, status: 500 }) })
+    expect(unset).toEqual({ kind: "failed", status: 500, message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set.", fix: "Set VITEHUB_CONSOLE_TOKEN_SHA256." })
   })
 })
 
@@ -243,6 +247,31 @@ describe("linking a project", () => {
 })
 
 describe("remote project links", () => {
+  it.each([
+    ["", false],
+    ["https://app.example.com", false],
+    ["https://other.example.com", true],
+    ["http://app.example.com", true],
+    ["https://app.example.com:8443", true],
+  ])("classifies project origin %j against the page origin", (origin, remote) => {
+    vi.stubGlobal("location", new URL("https://app.example.com/console/"))
+    setConsoleProject({ origin, base: "/portal" })
+    expect(isRemoteProject()).toBe(remote)
+  })
+
+  it("allows Env management for a same-origin project and blocks another origin", async () => {
+    vi.stubGlobal("location", new URL("https://app.example.com/console/"))
+    const fetch = vi.fn(json(200, { events: [] }))
+    vi.stubGlobal("fetch", fetch)
+    setConsoleProject({ origin: "https://app.example.com", base: "/portal" })
+    await expect(requestEnvManagement("/_vitehub/env/manage", "env.server.token", "activity", envActivitySchema)).resolves.toEqual({ events: [] })
+    expect(fetch).toHaveBeenCalledWith("https://app.example.com/portal/_vitehub/env/manage", expect.objectContaining({ credentials: "same-origin", method: "POST" }))
+
+    setConsoleProject({ origin: "https://other.example.com", base: "/portal" })
+    await expect(requestEnvManagement("/_vitehub/env/manage", "env.server.token", "activity", envActivitySchema)).rejects.toMatchObject({ status: 403 })
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
   it("links features that need the app origin to the app's own Console", () => {
     expect(isRemoteProject()).toBe(false)
     expect(projectConsoleUrl("/kv")).toBe("/_vitehub/kv")

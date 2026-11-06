@@ -12,7 +12,7 @@ export interface ConsoleLinkedProject {
   url: string
   /** The project name that `project.get` returned when the project was linked or last opened. */
   label?: string
-  /** The Console token (`VITEHUB_CONSOLE_TOKEN`) that this browser sends as `Authorization: Bearer`. */
+  /** The Console token that this browser sends as `Authorization: Bearer`. The server keeps only its SHA-256 hash. */
   token?: string
 }
 
