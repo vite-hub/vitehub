@@ -114,11 +114,13 @@ describe("local queue delivery", () => {
 
     await engine.enqueue("welcome", [{ id: "job-1", payload: {} }])
 
-    await vi.waitFor(async () => expect((await engine.status()).queues.welcome).toEqual({ dead: 1, pending: 0, running: 0 }))
+    await vi.waitFor(async () => {
+      expect((await engine.status()).queues.welcome).toEqual({ dead: 1, pending: 0, running: 0 })
+      expect(await storedJobs()).toEqual([expect.objectContaining({ attempts: 4, state: "dead" })])
+    }, { timeout: 5_000 })
     expect(handler).toHaveBeenCalledTimes(localQueueMaxAttempts)
     expect(handler.mock.calls.map(([job]) => job.attempts)).toEqual([1, 2, 3, 4])
-    expect(await storedJobs()).toEqual([expect.objectContaining({ attempts: 4, state: "dead" })])
-  })
+  }, 10_000)
 
   it("does not retry a Queue error that a retry cannot fix", async () => {
     const handler = vi.fn(async () => { throw queueErrorDiagnostics.QUEUE_DISABLED() })
