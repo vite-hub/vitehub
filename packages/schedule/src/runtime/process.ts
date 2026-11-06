@@ -109,9 +109,9 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
 
   const context: ProcessWakeContext = {
     async latestScheduledAt(scheduleId) {
-      const runs = await options.scheduleRunStore.listRuns({ scheduleId })
       // Manual runs can use simulated times and must not move the cron catch-up cursor.
-      return runs.find(run => run.id.startsWith("srun_static_"))?.scheduledAt
+      const [run] = await options.scheduleRunStore.listRuns({ scheduleId, idPrefix: "srun_static_", limit: 1 })
+      return run?.scheduledAt
     },
     reportError,
     wake(input) {

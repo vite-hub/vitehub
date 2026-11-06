@@ -159,6 +159,8 @@ const scheduleRunStore = createKVScheduleRunStore({ kvStore: scheduleKVStorage }
 
 Generated Process Runtime wiring selects this adapter automatically. Applications using the framework can import it from `vite-hub/schedule/runtime/kv`. Use `setScheduleRunStore(store)` to install a custom `ScheduleRunStore`.
 
+Custom stores must apply the `listRuns({ scheduleId, idPrefix, limit })` filters before the limit. The Process Runtime requests `idPrefix: "srun_static_"` with `limit: 1` to read its newest cron run without loading manual run history.
+
 ## Run and inspect schedules
 
 `hubSchedule()` contributes the `schedule.runs`, `schedule.attempts`, and `schedule.run` operations. They are the `vitehub schedule runs <id> [--limit <n>]`, `attempts <runId>`, and `run <name>` commands, and the Console runs them too. Each command accepts `--json` and `--url`. Without `--url` the command calls the dev server of the project, whose Nitro runtime owns the same stores and registry as the running app. The operations import from `@vite-hub/schedule/operations`.

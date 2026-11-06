@@ -64,7 +64,7 @@ process.once('SIGTERM', () => void controller.close())
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `registry` | `ScheduleDefinitionRegistry` | Required | Static Schedule Definitions that this process runs. |
-| `scheduleRunStore` | `ScheduleRunStore` | Required | Stores Schedule Runs. Catch-up after a restart reads the newest run of each Schedule from it. |
+| `scheduleRunStore` | `ScheduleRunStore` | Required | Stores Schedule Runs. Catch-up after a restart reads the newest cron-triggered run of each Schedule from it. |
 | `onError` | `(error: unknown) => void` | None | Receives handler, store, and `waitUntil` failures. |
 | `intervalMs` | `number` | `60_000` | Milliseconds between two checks, from 1 to 60000. |
 | `concurrency` | `number` | `1` | Maximum number of runs at the same time. |
@@ -74,4 +74,4 @@ Call `controller.close()` during shutdown. It waits for active runs and their `w
 
 ## Read Schedule Runs
 
-`getScheduleRunStore()` returns the installed store. `listRuns({ scheduleId, limit })` lists runs newest first, and `listAttempts(runId)` lists the attempts of one run. `vitehub schedule runs <name>` and `vitehub schedule attempts <runId>` read the same store in development.
+`getScheduleRunStore()` returns the installed store. `listRuns({ scheduleId, idPrefix, limit })` lists runs newest first, and `listAttempts(runId)` lists the attempts of one run. The optional `idPrefix` filters run IDs before applying `limit`; custom stores must support it so the Process Runtime can read only the newest `srun_static_` run for catch-up. `vitehub schedule runs <name>` and `vitehub schedule attempts <runId>` read the same store in development.

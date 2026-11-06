@@ -88,6 +88,8 @@ export interface ScheduleRunAttemptRecord {
 }
 
 export interface ScheduleRunListOptions {
+  /** Only records whose ID starts with this prefix. Applied before `limit`. */
+  idPrefix?: string
   /** Maximum number of records, newest scheduled occurrence first. */
   limit?: number
   scheduleId?: string

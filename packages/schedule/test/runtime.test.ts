@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { deserializeResponse, serializeResponse } from "@vite-hub/runtime"
 import { defineSchedule, type ScheduleDefinition, type ScheduleKVStorage, type ScheduleRunAttemptRecord, type ScheduleRunRecord } from "../src/index.ts"
 import { createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
+import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
 function createTestKVStore(): ScheduleKVStorage {
@@ -675,6 +676,58 @@ describe("KV Schedule Run Store", () => {
     expect(get).toHaveBeenCalledTimes(10)
     expect(runs[0]?.scheduledAt.toISOString()).toBe("2026-01-01T01:39:00.000Z")
     expect(runs.every(run => run.scheduleId === "digest_with_underscore")).toBe(true)
+  })
+
+  it.each(["slash", "colon"])("filters run ID prefixes before limiting indexed history with %s keys", async (separator) => {
+    const kvStore = separator === "slash" ? createTestKVStore() : createColonKVStore()
+    const store = createKVScheduleRunStore({ kvStore })
+    for (let index = 0; index < 1001; index++) {
+      for (const source of ["static", "manual"]) {
+        const scheduledAt = new Date(Date.UTC(2026, 0, source === "static" ? 1 : index % 2 ? 0 : 3, 0, index))
+        await store.createRun({ id: `srun_${source}_opaque/%_${index}`, scheduleId: "reconcile", target: "reconcile",
+          scheduledAt, createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
+      }
+    }
+    const get = vi.spyOn(kvStore, "get")
+    // Reopen the existing index: no migration or record scan should be needed.
+    const reopened = createKVScheduleRunStore({ kvStore })
+    const controller = await installProcessScheduleRuntime({
+      now: () => new Date("2026-01-01T16:41:20.000Z"),
+      registry: { reconcile: async () => defineSchedule("0 0 * * *", vi.fn()) },
+      scheduleRunStore: reopened,
+    })
+    await controller.close()
+    expect(get).toHaveBeenCalledTimes(1)
+    get.mockClear()
+    const query = { scheduleId: "reconcile", idPrefix: "srun_static_", limit: 1 }
+    expect((await reopened.listRuns(query)).map(run => run.id)).toEqual(["srun_static_opaque/%_1000"])
+    expect(get).toHaveBeenCalledTimes(1)
+    get.mockClear()
+    expect(await reopened.listRunsBatch!([query, { ...query, idPrefix: "absent_" }])).toEqual([
+      [expect.objectContaining({ scheduledAt: new Date("2026-01-01T16:40:00.000Z") })], [],
+    ])
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(["memory", "kv"])("filters run ID prefixes before applying limits in the %s store", async (kind) => {
+    const kvStore = createTestKVStore()
+    const store = kind === "memory" ? createMemoryScheduleRunStore() : createKVScheduleRunStore({ kvStore })
+    for (const [id, scheduleId, time] of [
+      ["srun_static_older", "daily", "2026-01-01T00:00:00Z"],
+      ["srun_static_newer", "daily", "2026-01-02T00:00:00Z"],
+      ["srun_manual_future", "daily", "2026-01-03T00:00:00Z"],
+      ["srun_static_other", "other", "2026-01-04T00:00:00Z"],
+    ] as const) {
+      const scheduledAt = new Date(time)
+      await store.createRun({ id, scheduleId, target: "daily", scheduledAt,
+        createdAt: scheduledAt, updatedAt: scheduledAt, status: "succeeded", attemptCount: 1 })
+    }
+    if (kind === "kv") {
+      // The bounded legacy fallback must apply the same filter after backfilling.
+      for (const key of await kvStore.keys("vitehub:schedule/schedule-run-index/")) await kvStore.del(key)
+    }
+    expect((await store.listRuns({ scheduleId: "daily", idPrefix: "srun_static_", limit: 1 })).map(run => run.id)).toEqual(["srun_static_newer"])
+    expect((await store.listRuns({ idPrefix: "srun_static_" })).map(run => run.id)).toEqual(["srun_static_other", "srun_static_newer", "srun_static_older"])
   })
 
   it("reads indexed runs and attempts from a KV store that lists keys with colons", async () => {
