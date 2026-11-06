@@ -1,5 +1,5 @@
 import { defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
-import { assertAgentInvocationsRetention, assertAgentInvocationsUrl, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
+import { assertAgentInvocationsRetention, assertAgentInvocationsUrl, VITEHUB_AGENT_JOURNAL_D1, writeAgentInvocationsNitroPlugin } from "./agent-invocations-vite.ts"
 import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 import { readFileSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
@@ -1021,8 +1021,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     : projectRoot
   const agentJournal = options.agent && options.agent !== true ? options.agent.invocations : undefined
   /**
-   * The Agent Invocations Vite plugin resolves the D1 binding of the default journal from the Vite root. In Nuxt, an
-   * explicit Database root is relative to rootDir, so a production build writes the plugin again with that binding.
+   * In Nuxt, an explicit Database root is relative to rootDir, and Nuxt or replayed Vite plugins can change the Database.
+   * A production build resolves the D1 binding of the default journal here and hands it to the Agent Invocations Vite
+   * plugin, so the plugin writes the same binding when the Vite build runs its config hook again.
    */
   const writeNuxtAgentJournal = async (database: typeof configuredOptions.database, databaseRoot: string) => {
     if (!options.agent || nuxt.options.dev || nuxt.options.vitehubCliDiscovery || !isDefaultAgentJournal(agentJournal)) return
@@ -1030,6 +1031,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const d1Binding = agentJournal?.databaseUrl ? undefined : defaultDatabaseD1Binding(plan.preset, database, { root: databaseRoot, serverDirs: resolveNuxtServerDirs(nuxt.options) })
     assertAgentInvocationsRetention(agentJournal?.retention, d1Binding !== undefined)
     assertAgentInvocationsUrl(plan.preset, agentJournal?.databaseUrl)
+    ;(nuxt.options.vite as Record<string, unknown>)[VITEHUB_AGENT_JOURNAL_D1] = { binding: d1Binding }
     await writeAgentInvocationsNitroPlugin({ database: Boolean(options.database), d1Binding, default: agentJournal, projectRoot })
   }
   await writeNuxtAgentJournal(configuredOptions.database, journalDatabaseRoot)

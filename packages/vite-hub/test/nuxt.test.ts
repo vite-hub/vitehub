@@ -1236,6 +1236,31 @@ describe("ViteHub Nuxt integration", () => {
     await application.runCloseHook()
   })
 
+  it("keeps the effective Nuxt D1 binding when the Vite build runs the Agent journal plugin again", async () => {
+    const { vitehub } = await vi.importActual<typeof import("../src/index.ts")>("../src/index.ts")
+    mocks.vitehub.mockImplementation((options: Parameters<typeof vitehub>[0]) => vitehub(options).filter(
+      plugin => isTestRecord(plugin) && plugin.name === "vite-hub/agent-invocations",
+    ))
+    await rm(agentJournalPlugin, { force: true })
+    await mkdir("/tmp/vitehub-nuxt/custom-server/databases", { recursive: true })
+    await writeFile("/tmp/vitehub-nuxt/custom-server/databases/config.ts", 'export default defineDatabase({ schema: {} })\n')
+    const application = createNuxt(false)
+    // The top-level Nuxt Database binding differs from the `database: true` that vitehub() receives.
+    Object.assign(application.nuxt.options, { database: { binding: "TOP_LEVEL_DB", driver: "d1" } })
+    await viteHubNuxtModule({ preset: "cloudflare", agent: true, database: true }, application.nuxt)
+    expect(await generatedAgentJournal(application)).toContain('d1: { binding: "TOP_LEVEL_DB",')
+
+    // `nuxt build` runs the Vite config hooks of the module's plugins after the module wrote the plugin.
+    const plugin = (application.nuxt.options.vite.plugins as unknown[]).find(
+      (candidate): candidate is Plugin => isTestRecord(candidate) && candidate.name === "vite-hub/agent-invocations",
+    )
+    const hook = plugin?.config
+    if (!hook) throw new TypeError("Expected the Agent Invocations config hook.")
+    await Reflect.apply("handler" in hook ? hook.handler : hook, {}, [application.nuxt.options.vite, { command: "build", mode: "production" }])
+    expect(await readFile(agentJournalPlugin, "utf8")).toContain('d1: { binding: "TOP_LEVEL_DB",')
+    await application.runCloseHook()
+  })
+
   it.each([false, { binding: "REPLAY_DB", databaseId: "replay-id", databaseName: "replayed", driver: "d1" as const }])("uses replayed Database configuration for the Cloudflare journal: %j", async (database) => {
     await mkdir("/tmp/vitehub-nuxt/custom-server/databases", { recursive: true })
     await writeFile("/tmp/vitehub-nuxt/custom-server/databases/config.ts", 'export default defineDatabase({ schema: {} })\n')

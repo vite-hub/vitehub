@@ -15,6 +15,12 @@ import type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
 
 const generatedAgentInvocationsPlugin = ".vitehub/nitro/agent/invocations.mjs"
 
+/**
+ * Vite config key with the D1 binding of the default journal that a host framework resolved, such as Nuxt from its
+ * rootDir and replayed Database configuration. `binding: undefined` means no D1 binding. It wins over `resolveD1Binding`.
+ */
+export const VITEHUB_AGENT_JOURNAL_D1 = "__vitehubAgentJournalD1" as const
+
 export interface AgentInvocationsRenderOptions {
   /** Load the Database store, so `invocations: "database"` works in Agent Definitions. */
   database: boolean
@@ -108,7 +114,7 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
     name: "vite-hub/agent-invocations",
     async config(config, environment) {
       // SAFETY: ViteHub and Nitro extend Vite's user config with these documented top-level keys.
-      const viteConfig = config as typeof config & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[], nitro?: Record<string, unknown> }
+      const viteConfig = config as typeof config & { [VITEHUB_AGENT_JOURNAL_D1]?: { binding?: string }, [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[], nitro?: Record<string, unknown> }
       const root = config.root || process.cwd()
       const projectRoot = typeof viteConfig[VITEHUB_PROJECT_ROOT] === "string"
         ? resolve(viteConfig[VITEHUB_PROJECT_ROOT])
@@ -116,8 +122,9 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
       const setting = options.default
       if (isDefaultAgentJournal(setting)) {
         // Development and an explicit `databaseUrl` keep libSQL.
+        const hostD1 = viteConfig[VITEHUB_AGENT_JOURNAL_D1]
         d1Binding = environment?.command === "build" && !setting?.databaseUrl
-          ? options.resolveD1Binding?.(root, viteConfig[VITEHUB_SERVER_DIRS])
+          ? hostD1 ? hostD1.binding : options.resolveD1Binding?.(root, viteConfig[VITEHUB_SERVER_DIRS])
           : undefined
         assertAgentInvocationsRetention(setting?.retention, d1Binding !== undefined)
         if (environment?.command === "build") assertAgentInvocationsUrl(options.preset, setting?.databaseUrl)
