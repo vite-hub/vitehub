@@ -1,6 +1,6 @@
 import type { CloudflareSandboxOptions } from '../../../index.ts'
 import { resolveCloudflareSandbox } from '../../../internal/cloudflare.ts'
-import { getCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
+import { getActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'
 import type { CloudflareSandboxTaskDefinitionProviderOptions, SandboxTaskDefinitionOptions } from '../../module-types'
 import { sandboxTaskErrorDiagnostics } from "../../error-diagnostics.ts"
 
@@ -9,15 +9,9 @@ type SandboxTaskOptions = {
   provider: CloudflareSandboxTaskDefinitionProviderOptions
 }
 
-type SandboxTaskEvent = {
-  context?: {
-    cloudflare?: { env?: Record<string, unknown> }
-    _platform?: { cloudflare?: { env?: Record<string, unknown> } }
-  }
-}
-
-export async function resolveCloudflareTaskSandbox(options: SandboxTaskOptions, context: { event?: SandboxTaskEvent } = {}) {
-  const env = getCloudflareEnv(context.event)
+/** Resolve the Sandbox namespace from the bindings of the active Cloudflare request. */
+export async function resolveCloudflareTaskSandbox(options: SandboxTaskOptions) {
+  const env = getActiveCloudflareEnv()
   const bindingName = options.provider.binding || 'SANDBOX'
   // Only explicitly declared Worker bindings can select a Sandbox namespace.
   const namespace = env && Object.hasOwn(env, bindingName) ? env[bindingName] : undefined

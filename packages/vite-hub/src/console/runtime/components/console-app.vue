@@ -63,7 +63,6 @@ const props = defineProps<{
   capabilitiesBase: string;
   definitionsBase: string;
   kvBase: string;
-  hostBase: string;
   searchBase: string;
   sectionsBase: string;
   usageBase: string;
@@ -994,7 +993,7 @@ watch(selectedInvocationId, () => {
   selectedActivityId.value = undefined;
   selectedDetailStatus.value = undefined;
   const identity = selectedInvocationId.value
-    ? `${props.hostBase}/api/invocations/${selectedInvocationId.value}`
+    ? `${props.apiBase}/${selectedInvocationId.value}`
     : undefined;
   if (identity !== inspectorWorkspaceIdentity.value) {
     // A new session's URL omits the file. Back and Forward can restore one from the destination session.
@@ -1356,7 +1355,7 @@ onBeforeUnmount(() => {
             class="h-full min-h-0 overflow-hidden"
           >
             <ConsoleSessionInspector
-                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
+                :workspace-base="apiBase"
               v-if="invocationView"
               :invocation="invocationView"
               :maximized="true"
@@ -1456,7 +1455,7 @@ onBeforeUnmount(() => {
             </template>
             <template #details>
               <ConsoleSessionInspector
-                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
+                :workspace-base="apiBase"
                 v-if="invocationView"
                 :invocation="invocationView"
                 v-model:tab="inspectorTab"
@@ -1573,7 +1572,7 @@ onBeforeUnmount(() => {
             >
               <template #content>
                 <ConsoleSessionInspector
-                :workspace-base="`${hostBase}/api/_vitehub/console/invocations`"
+                :workspace-base="apiBase"
                   :invocation="invocationView"
                   :maximizable="false"
                   v-model:tab="inspectorTab"
