@@ -9,12 +9,10 @@ import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runti
  * Channels serve the real chat page of `@vite-hub/agent`, but no Agent answers its messages here.
  */
 
+// A simulated Channel has no provider history, so channels.list gives it no warning.
+const simulated = { durable: false, maxMessages: 100, mode: "provider-window", transcripts: false, ttlMs: 604_800_000 }
 const providerWindow = {
-  durable: false,
-  maxMessages: 100,
-  mode: "provider-window",
-  transcripts: false,
-  ttlMs: 604_800_000,
+  ...simulated,
   warning: "Transcripts are not durable. The provider keeps 100 messages for 7 days, so older messages may be missing.",
 }
 const durable = { durable: true, maxMessages: 100, mode: "durable-transcripts", transcripts: true, ttlMs: 604_800_000 }
@@ -22,8 +20,8 @@ const durable = { durable: true, maxMessages: 100, mode: "durable-transcripts", 
 const simulatorRoute = (agent: string, channel: string) => `/api/_vitehub/agents/${agent}/webhooks/${channel}`
 
 const channels = [
-  { agent: "release-engineer", channel: "slack", conversations: true, provider: "slack", retention: providerWindow, simulated: true, simulator: simulatorRoute("release-engineer", "slack") },
-  { agent: "release-engineer", channel: "discord", conversations: true, provider: "discord", retention: providerWindow, simulated: true, simulator: simulatorRoute("release-engineer", "discord") },
+  { agent: "release-engineer", channel: "slack", conversations: true, provider: "slack", retention: simulated, simulated: true, simulator: simulatorRoute("release-engineer", "slack") },
+  { agent: "release-engineer", channel: "discord", conversations: true, provider: "discord", retention: simulated, simulated: true, simulator: simulatorRoute("release-engineer", "discord") },
   { agent: "product-reviewer", channel: "telegram", conversations: true, provider: "telegram", retention: durable, simulated: false },
 ]
 

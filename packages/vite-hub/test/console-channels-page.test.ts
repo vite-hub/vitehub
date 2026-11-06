@@ -129,6 +129,44 @@ describe("Channels page", () => {
     expect(host.querySelector("[data-button='Open chat']")).toBeNull()
   })
 
+  it("shows the simulated chat page edge to edge and keeps it while a thread is open", async () => {
+    const route = "/api/_vitehub/agents/support/webhooks/slack"
+    const channels = [{ agent: "support", channel: "slack", conversations: true, provider: "slack", retention, simulated: true, simulator: route }]
+    const threads = vi.fn(async () => ({ threads: [{ invocationCount: 1, participants: ["learner"], thread: "slack:learner:1" }] }))
+    mocks.request.mockImplementation(async (path: string) => path === "/api/c/channels" ? { channels } : path === "/api/c/channels/threads" ? await threads() : answers[path])
+    const { host, router } = await mountPage({ agent: "support", channel: "slack" }, "iframe")
+    const row = host.querySelector("nav[aria-label='Channels and threads'] > button")
+    expect(row?.textContent).toContain("slack · simulated")
+    // The retention warning is about a transcript. Nothing is between the header and the chat page.
+    const pane = host.querySelector("section[aria-label='Conversation']")!
+    expect(pane.firstElementChild?.tagName).toBe("IFRAME")
+
+    // The chat page posts a message at the end of each reply. Only a message from its own frame reloads the threads.
+    const frame = host.querySelector("iframe")!
+    // happy-dom does not load iframe pages, so the frame gets a stand-in window.
+    const chat = {}
+    Object.defineProperty(frame, "contentWindow", { value: chat })
+    const window = page() as unknown as Window
+    const calls = threads.mock.calls.length
+    window.dispatchEvent(new window.MessageEvent("message", { data: { type: "vitehub:channel-reply" }, origin: window.location.origin, source: null }))
+    window.dispatchEvent(new window.MessageEvent("message", { data: { type: "vitehub:channel-reply" }, origin: "https://evil.example", source: chat }))
+    await new Promise(done => setTimeout(done, 10))
+    expect(threads.mock.calls.length).toBe(calls)
+    window.dispatchEvent(new window.MessageEvent("message", { data: { type: "vitehub:channel-reply" }, origin: window.location.origin, source: chat }))
+    await vi.waitFor(() => expect(threads.mock.calls.length).toBe(calls + 1))
+
+    // A thread hides the chat page but keeps it, so the chat is still there after the thread closes.
+    await router.push({ path: "/channels", query: { agent: "support", channel: "slack", thread: "slack:learner:1" } })
+    await vi.waitFor(() => expect(host.querySelector("[data-slot=message]")).not.toBeNull())
+    expect(host.querySelector("iframe")).toBe(frame)
+    expect(frame.style.display).toBe("none")
+    // With a transcript open, the retention warning comes first.
+    expect(pane.firstElementChild).not.toBe(frame)
+    await router.push({ path: "/channels", query: { agent: "support", channel: "slack" } })
+    await vi.waitFor(() => expect(frame.style.display).toBe(""))
+    expect(host.querySelector("iframe")).toBe(frame)
+  })
+
   it("links only http(s) attachments", async () => {
     mocks.request.mockImplementation(async (path: string) => answers[path])
     const { host } = await mountPage()
