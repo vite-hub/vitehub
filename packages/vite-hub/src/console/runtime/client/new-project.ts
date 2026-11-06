@@ -101,7 +101,7 @@ const optionRequires: Readonly<Record<string, { value: string, feature: FeatureI
 
 /** The options that `vitehub add` needs for a feature on a host, beyond the `explicit` option of the catalog. */
 function requiredInputs(id: FeatureId, host: NewProjectHost, dir: string): NewProjectOptionInput[] {
-  if (id === "console") return [{ feature: id, path: "console.auth", choices: ["token", "app"], detail: "How the Console signs in. `token` is for this hosted Console, with `VITEHUB_CONSOLE_TOKEN`. `app` uses the sign-in of the app." }]
+  if (id === "console") return [{ feature: id, path: "console.auth", choices: ["token"], detail: "The hosted Console signs in with the key of the one-time link. App sign-in needs a session on the app's origin." }]
   if (id === "observability") return [{ feature: id, path: "observability.service", placeholder: packageNameOf(dir), detail: "The service name in the telemetry of the app." }]
   if (id === "schedule" && host === "node") return [{ feature: id, path: "schedule.runtime.driver", choices: ["process"], detail: "A Node server runs Schedules in its own process." }]
   return []

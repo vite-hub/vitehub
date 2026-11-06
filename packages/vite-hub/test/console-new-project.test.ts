@@ -109,6 +109,19 @@ describe("planNewProject", () => {
     expect(plan.problems).toEqual([{ field: "option", path: "email.driver", message: "email.driver must be resend." }])
   })
 
+  it("offers only token auth and rejects app auth from a shared URL", () => {
+    for (const { id: host } of newProjectHosts) {
+      const value = stack({ host, features: ["console"], options: { "database.connection.url": "libsql://db.example.com" } })
+      expect(planNewProject(value).options.find(input => input.path === "console.auth")?.choices).toEqual(["token"])
+      expect(value.options["console.auth"]).toBe("token")
+      expect(planNewProject(value).problems).toEqual([])
+
+      const shared = readNewProjectQuery(`?host=${host}&features=console&option=console.auth%3Dapp`)
+      expect(planNewProject(shared).problems).toContainEqual({ field: "option", path: "console.auth", message: "console.auth must be token." })
+      expect(newProjectCommand(shared, ticket)).toBeUndefined()
+    }
+  })
+
   it("needs a host and a folder name that vite-hub init reads as a folder", () => {
     expect(planNewProject(stack({ dir: "" })).problems.map(problem => problem.field)).toEqual(["dir", "host"])
     expect(newProjectDirProblem("my-app")).toBeUndefined()

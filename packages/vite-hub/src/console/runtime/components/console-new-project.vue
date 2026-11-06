@@ -134,8 +134,8 @@ async function create(): Promise<void> {
   try {
     ticket.value = await createConsolePendingLink();
   }
-  catch {
-    createError.value = "Could not make a link. Allow this Console to use browser storage, then try again.";
+  catch (error) {
+    createError.value = error instanceof Error ? error.message : "Could not make a link. Allow this Console to use browser storage, then try again.";
   }
   creating.value = false;
 }

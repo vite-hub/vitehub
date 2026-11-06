@@ -48,10 +48,10 @@ function projectStorage() {
   try {
     const storage = window.localStorage;
     storage.getItem("vitehub-console:projects");
-    return storage;
+    return { storage, storagePersistent: true };
   } catch {
     // A browser that blocks storage keeps the projects for this tab only.
-    return memoryProjectStorage();
+    return { storage: memoryProjectStorage(), storagePersistent: false };
   }
 }
 
@@ -64,7 +64,7 @@ startConsoleProjects({
   mode: hosted ? "hosted" : "embedded",
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
-  storage: projectStorage(),
+  ...projectStorage(),
   pendingLinkLocks: navigator.locks,
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);

@@ -307,6 +307,7 @@ The hosted Console can start a new app for you. It needs a `vite-hub` release wi
 1. Select **New project** on the empty Console, in the project menu, or in <kbd>⌘</kbd><kbd>K</kbd>. The page is at `/new`.
 2. Enter the folder name and pick the host. Features that the host cannot run are greyed out and say why.
 3. Pick the features. The page adds the features that they turn on, such as Database for Comments, and marks them **Added by**. When the host needs an option for a feature, such as `email.driver` on Vercel, the page asks for it.
+   Console uses token auth so the one-time link can sign in from the hosted Console. App sign-in needs a session on the app's origin.
 4. Select **Create command**, copy the command, and run it in your terminal:
 
 ```bash [Terminal]
@@ -316,6 +317,8 @@ pnpm dlx vite-hub init my-app --host cloudflare --features kv,queue --console <i
 5. Deploy the app, then open the link that the CLI prints in the same browser. See [Link a new project](#link-a-new-project).
 
 The address of the page holds the stack: the folder, the host, the features, and the options, such as `/new?host=vercel&features=email&option=email.driver%3Dresend`. Share it, or reload it, and the page shows the same stack. The `--console` value is not in the address, because its link works only in the browser that made it. When you change the stack after **Create command**, the command changes and keeps the same link.
+
+Creating a command needs persistent browser storage and Web Locks, which keep the key across navigation and let only one tab confirm a link. Allow browser storage and use a current browser on an HTTPS Console.
 
 ### Link a new project
 
