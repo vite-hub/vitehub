@@ -1,4 +1,5 @@
 import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText, transformChannelTextStream } from "../internal/channel-citations.ts"
+import { isSimulatedChatAdapter } from "../internal/channel-simulation.ts"
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { createExecutionContext, getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
@@ -10508,7 +10509,12 @@ export function createDiscordGatewayRouteHandler(
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const chatOptions = getAgentChatOptions(agent)
       const adapters = await resolveChatAdapters(chatOptions, context)
-      const entries = resolveDiscordAdapters(adapters)
+      const discordAdapters = resolveDiscordAdapters(adapters)
+      const entries = discordAdapters.filter(([, adapter]) => !isSimulatedChatAdapter(adapter))
+      if (entries.length === 0 && discordAdapters.length > 0) {
+        // A simulated Discord Channel has no Gateway: there is nothing to listen to.
+        return new Response(null, { status: 204 })
+      }
       if (entries.length === 0) {
         return createJsonErrorResponse(500, "Discord Gateway route requires a Discord chat adapter.")
       }

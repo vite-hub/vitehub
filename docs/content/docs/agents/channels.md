@@ -46,6 +46,33 @@ Built-in helpers include `discord()`, `github()`, [`gitlab()` and `forgejo()`](/
 
 `webChat()` enables a generated AI SDK chat route by default. `http()` is a generic HTTP Channel and keeps its route disabled unless you pass `http({ route: true })`.
 
+## Try Channels without credentials
+
+Set `agent.channels.simulate` to talk to the Agent through its Slack, Discord, Teams, and Telegram Channels in `vite dev` before you create any bot or token:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ preset: 'node', agent: { channels: { simulate: true } } }),
+  ],
+})
+```
+
+Each simulated Channel replaces its provider with the Chat SDK [web adapter](https://chat-sdk.dev/adapters/official/web). Its webhook route accepts an AI SDK chat request and streams the reply as an AI SDK UI message stream:
+
+```sh
+curl -N http://localhost:3000/api/_vitehub/agents/support/webhooks/discord \
+  -H 'content-type: application/json' \
+  -d '{"id":"try-1","messages":[{"id":"m1","role":"user","parts":[{"type":"text","text":"Hello"}]}]}'
+```
+
+Point an AI SDK `useChat` client at the same route to chat from a page. The Agent still runs as that Channel, with its instructions and message settings. A simulated Channel is a direct message with one user: mentions, threads, cards, and buttons are not simulated. Webhook verification, Telegram polling, and the Discord Gateway are off.
+
+The option sets the Server Env value `VITEHUB_CHANNELS=simulate` in `vite dev` only, and `vite dev` prints a line when it does. `VITEHUB_CHANNELS=simulate vite dev` works too. The runtime ignores the value when `NODE_ENV` is `production`.
+
 ## Answer replies in subscribed threads
 
 Built-in chat Channels require a mention for channel messages by default. Set

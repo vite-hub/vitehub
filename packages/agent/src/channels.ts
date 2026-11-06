@@ -1,4 +1,5 @@
 import { formatChannelCitationStream, formatChannelCitationText } from "./internal/channel-citations.ts"
+import { createSimulatedChatAdapter, isChannelSimulated } from "./internal/channel-simulation.ts"
 import { createForgeChannelSyncProvider } from "./internal/forge-channel-sync.ts"
 import { forgeIngest, forgeWebhookInput, forgeChannelMetadata, forgeChannelPullRequest, forgeActivityComment } from "./internal/forge-events.ts"
 import { messageChannelReplyBody, setMessageChannelDeliveredReplyBody } from "./internal/message-channel-delivery-body.ts"
@@ -3676,11 +3677,12 @@ export function defineChannel<
   THistoryItem = unknown,
 >(
   kind: TKind,
-  options: AgentChannelDefinitionOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {},
+  definitionOptions: AgentChannelDefinitionOptions<TRuntimeConfig, TData, TMethods, THistoryItem> = {},
 ): AgentChannelDefinitionOf<TRuntimeConfig, TKind, TData, TMethods> {
   if (!hasRuntimeType(kind, "string") || !kind.trim()) {
     throw agentDiagnostics.AGENT_R0371({ message: "[vitehub] defineChannel() requires a non-empty Channel kind." })
   }
+  const options = isChannelSimulated(kind) ? simulatedChannelOptions(kind, definitionOptions) : definitionOptions
   if (options.instructions !== undefined && (!hasRuntimeType(options.instructions, "string") || !options.instructions.trim())) {
     throw agentDiagnostics.AGENT_R0557({ message: `[vitehub] Channel "${kind}" instructions must be a non-empty string.` })
   }
@@ -3701,6 +3703,29 @@ export function defineChannel<
   if (options[channelDeliveryHandlers]?.title || options.message?.methods?.title) customTitleEffectChannels.add(channel)
   // SAFETY: defineChannel constructs the validated definition while preserving the generic method type.
   return channel as AgentChannelDefinitionOf<TRuntimeConfig, TKind, TData, TMethods>
+}
+
+/**
+ * A simulated chat Channel keeps its kind, instructions, and message settings, and swaps its provider for the
+ * simulated chat: no credentials, no webhook verification, no polling or Gateway listener.
+ */
+function simulatedChannelOptions<
+  TRuntimeConfig extends AgentRuntimeConfig,
+  TData,
+  TMethods extends AgentChannelMessageMethods<TRuntimeConfig, TData>,
+  THistoryItem,
+>(
+  kind: string,
+  options: AgentChannelDefinitionOptions<TRuntimeConfig, TData, TMethods, THistoryItem>,
+): AgentChannelDefinitionOptions<TRuntimeConfig, TData, TMethods, THistoryItem> {
+  const { listener: _listener, webhooks, ...rest } = options
+  return {
+    ...rest,
+    adapter: () => createSimulatedChatAdapter(kind),
+    webhooks: Array.isArray(webhooks)
+      ? webhooks.map(registration => ({ ...registration, secretToken: false }))
+      : webhooks && hasRuntimeType(webhooks, "object") ? { ...webhooks, secretToken: false } : true,
+  }
 }
 
 /** A Channel trigger. With `durableState: true`, `invoke` gets `AgentDurableChannelTriggerContext`. */

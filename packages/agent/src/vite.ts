@@ -1,4 +1,5 @@
 import { validateAgentStaticRoute } from "./internal/routes.ts"
+import { channelSimulationEnv } from "./internal/channel-simulation.ts"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
 import { existsSync, statSync } from "node:fs"
@@ -2157,6 +2158,7 @@ async function generateAgentWebhookRouteHandler(
           "    while (!controller.signal.aborted) {",
           "      try {",
           `        const response = await handler(new Request("http://vitehub.local/api/_vitehub/agents/" + encodeURIComponent(name) + "/discord/gateway"), { agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}${gatewayStateOption}abortSignal: controller.signal, durationMs: discordGatewayDurationMs })`,
+          "        if (response.status === 204) return",
           "        if (!response.ok) throw vitehubAgentRuntimeError('AGENT_R0896', `Discord Gateway listener failed with ${response.status}.`)",
           "      }",
           "      catch (error) {",
@@ -3023,6 +3025,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
     })
     if (normalized && config.command === "serve") {
+      if (agent && agent.channels?.simulate && globalThis.process.env[channelSimulationEnv] !== "simulate") {
+        globalThis.process.env[channelSimulationEnv] = "simulate"
+        config.logger.info("[vitehub] Simulated Channels: Slack, Discord, Teams, and Telegram run on a simulated chat. POST an AI SDK chat request to /api/_vitehub/agents/<agent>/webhooks/<channel>.")
+      }
       const registryEntry = subpath(getAgentImportBase(agent, frameworkOptions), "server/registry")
       // Standalone hubAgent() also needs the app root in Node-loaded packages. Build the global's name at runtime
       // because Nitro's replace rewrites define names inside strings too.

@@ -84,6 +84,9 @@ catalogs:
     '@chat-adapter/telegram':
       specifier: 4.44.0
       version: 4.44.0
+    '@chat-adapter/web':
+      specifier: 4.44.0
+      version: 4.44.0
     chat:
       specifier: 4.44.0
       version: 4.44.0
@@ -824,6 +827,9 @@ importers:
       '@chat-adapter/telegram':
         specifier: catalog:chat
         version: 4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
+      '@chat-adapter/web':
+        specifier: catalog:chat
+        version: 4.44.0(@ai-sdk/vue@4.0.130(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7))(ai@7.0.130(zod@4.6.7))(react@19.2.6)(vue@3.5.44(typescript@6.0.3))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
@@ -4672,6 +4678,33 @@ packages:
   '@chat-adapter/telegram@4.44.0':
     resolution: {integrity: sha512-d0o1MZuVfXLCTwxkZfjG2njRBOMB9qd4tEIKEsiTSvpjWlMZCL/YnTsvCIhEMP977tHQIF51EWMJQlwWtcnhUA==}
     engines: {node: '>=20'}
+
+  '@chat-adapter/web@4.44.0':
+    resolution: {integrity: sha512-lIOnh052Hlr4lPdL44irHdpUvhM6hnr/8BIc87RzFoMjBrJIMz3CjT6K99rD56CgCXuQ0a6DWOCEQCNIrabrjw==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@ai-sdk/react': ^3 || ^4
+      '@ai-sdk/svelte': ^4 || ^5
+      '@ai-sdk/vue': ^3 || ^4
+      ai: 7.0.130
+      react: ^19
+      svelte: ^5
+      vue: 3.5.44
+    peerDependenciesMeta:
+      '@ai-sdk/react':
+        optional: true
+      '@ai-sdk/svelte':
+        optional: true
+      '@ai-sdk/vue':
+        optional: true
+      ai:
+        optional: true
+      react:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
 
   '@clack/core@1.5.1':
     resolution: {integrity: sha512-iHTrHA8MtVuLl2TfZySmcKv1qO2PoyC9Z7pfSDozEuV5vtY3/wcOPKJXlqJ5Oq2Cx5DDGQGAMVx6HZfRRoVEbQ==}
@@ -20294,6 +20327,20 @@ snapshots:
       chat: 4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
     transitivePeerDependencies:
       - ai
+      - supports-color
+      - workflow
+      - zod
+
+  '@chat-adapter/web@4.44.0(@ai-sdk/vue@4.0.130(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7))(ai@7.0.130(zod@4.6.7))(react@19.2.6)(vue@3.5.44(typescript@6.0.3))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)':
+    dependencies:
+      '@chat-adapter/shared': 4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
+      chat: 4.44.0(ai@7.0.130(zod@4.6.7))(workflow@5.2.3(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
+    optionalDependencies:
+      '@ai-sdk/vue': 4.0.130(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
+      ai: 7.0.130(zod@4.6.7)
+      react: 19.2.6
+      vue: 3.5.44(typescript@6.0.3)
+    transitivePeerDependencies:
       - supports-color
       - workflow
       - zod

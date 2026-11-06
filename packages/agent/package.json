@@ -244,6 +244,7 @@
     "@ai-sdk/provider": "catalog:ai",
     "@cfworker/json-schema": "4.1.1",
     "@chat-adapter/telegram": "catalog:chat",
+    "@chat-adapter/web": "catalog:chat",
     "@libsql/client": "catalog:database",
     "@sqlite.org/sqlite-wasm": "catalog:database",
     "@modelcontextprotocol/sdk": "catalog:ai",
