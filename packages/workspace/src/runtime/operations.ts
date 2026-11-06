@@ -1,7 +1,7 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
-import { useWorkspace } from "../core/use.ts"
+import { useWorkspaceFiles } from "../core/use.ts"
 import { workspaceHistoryDefaultLimit } from "../results.ts"
 
 import type { WorkspaceEntry, WorkspaceHistoryReader, WorkspaceRevision } from "../core/types.ts"
@@ -142,7 +142,7 @@ export async function runWorkspaceOperation(operation: "history" | "refs" | "sho
     if (operation === "history" && "cursor" in input && input.cursor !== undefined && input.ref === undefined) {
       throw new WorkspaceOperationError("WORKSPACE_HISTORY_INVALID", 400, "The cursor belongs to one ref. Pass the same ref.")
     }
-    const { history } = useWorkspace(input.workspace)
+    const { history } = useWorkspaceFiles(input.workspace)
     if (operation === "refs") {
       const refs = await history.refs()
       return { workspace: input.workspace, refs: refs.map(ref => ({ name: ref.name, head: describeRevision(ref.head) })) }

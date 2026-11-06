@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { defineWorkspace } from "../src/core/define.ts"
 import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.ts"
-import { useWorkspace } from "../src/core/use.ts"
+import { useWorkspace } from "../src/core/use-tools.ts"
 import { createMemoryWorkspaceStore } from "../src/storage/memory.ts"
 
 afterEach(() => resetWorkspaceRegistry())
