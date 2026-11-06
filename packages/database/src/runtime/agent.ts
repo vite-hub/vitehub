@@ -56,3 +56,57 @@ export function createAgentDatabase(databases: Record<string, AgentDatabaseEntry
     },
   }
 }
+
+/**
+ * The Cloudflare D1 binding of a Database, or the request's D1 session with read replication. The methods match
+ * Cloudflare's `D1Database`, so code that takes a D1 binding accepts it.
+ */
+export interface DatabaseD1Binding {
+  prepare(query: string): DatabaseD1Statement
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Matches Cloudflare D1's batch contract; the SQL decides the row shape.
+  batch<T = Record<string, unknown>>(statements: DatabaseD1Statement[]): Promise<DatabaseD1Result<T>[]>
+  exec(query: string): Promise<unknown>
+}
+
+export interface DatabaseD1Statement {
+  bind(...values: unknown[]): DatabaseD1Statement
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Matches Cloudflare D1's all contract; the SQL decides the row shape.
+  all<T = Record<string, unknown>>(): Promise<DatabaseD1Result<T>>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Matches Cloudflare D1's first contract; the SQL decides the row shape.
+  first<T = Record<string, unknown>>(column?: string): Promise<T | null>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Matches Cloudflare D1's raw contract; the SQL decides the row shape.
+  raw<T = unknown[]>(): Promise<T[]>
+  // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Matches Cloudflare D1's run contract; the SQL decides the row shape.
+  run<T = Record<string, unknown>>(): Promise<DatabaseD1Result<T>>
+}
+
+export interface DatabaseD1Result<T = Record<string, unknown>> {
+  meta: { changes: number } & Record<string, unknown>
+  results: T[]
+  success: boolean
+}
+
+interface BindingDatabaseEntry {
+  db: object
+}
+
+function isD1Binding(value: unknown): value is DatabaseD1Binding {
+  return typeof value === "object" && value !== null
+    && typeof Reflect.get(value, "prepare") === "function"
+    && typeof Reflect.get(value, "batch") === "function"
+}
+
+/**
+ * Return a lookup of the D1 binding of each Database. `db.$client` is the binding, or the request's D1 session with
+ * read replication, so read it for each call. Throws `DATABASE_NOT_FOUND` for an unknown name and
+ * `DATABASE_NO_D1_BINDING` when the Database does not run on a D1 binding here.
+ */
+export function createDatabaseBindingLookup(databases: Record<string, BindingDatabaseEntry>) {
+  return (name: string): DatabaseD1Binding => {
+    const entry = Object.hasOwn(databases, name) ? databases[name] : undefined
+    if (!entry) throw databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: name })
+    const client: unknown = Reflect.get(entry.db, "$client")
+    if (!isD1Binding(client)) throw databaseErrorDiagnostics.DATABASE_NO_D1_BINDING({ database: name })
+    return client
+  }
+}

@@ -54,7 +54,7 @@ export default defineEventHandler(async () => {
 | Code | Thrown |
 | --- | --- |
 | `DATABASE_D1_INVALID_RESPONSE`, `DATABASE_D1_REQUEST_FAILED` | When a D1 HTTP query fails |
-| `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NOT_FOUND` | When code first uses the database |
+| `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NO_D1_BINDING`, `DATABASE_NOT_FOUND` | When code first uses the database |
 | `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS` | Printed by `vitehub db migrate`, which then exits with code 1 |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub db export`, which then exits with code 1 |
 | `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | With `migrateOnStart`, when the Node server starts. `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fails the build |
@@ -97,9 +97,13 @@ The database uses D1 HTTP, and a value is missing at runtime: `cloudflare.databa
 
 `connectDatabase()` cannot use the location. It reads `d1:BINDING`, `env:VARIABLE`, `libsql://` and `https://` URLs, and `file:` paths. Postgres URLs are not supported yet, and a `file:` path needs Node: import `connectDatabase()` from `@vite-hub/database/connect/node`.
 
+### DATABASE_NO_D1_BINDING
+
+`useDatabaseBinding(name)` found no Cloudflare D1 binding for the database. The database runs on local SQLite, libSQL, D1 HTTP, or Postgres here. Call it only where the database runs on a D1 binding, such as a Cloudflare Worker. Elsewhere, query the database with `useDatabase(name).db`.
+
 ### DATABASE_NOT_FOUND
 
-`agentDb.database(name)` received a name that has no Database Definition. A query on a Named Database that has no runtime configuration also throws it.
+`agentDb.database(name)` or `useDatabaseBinding(name)` received a name that has no Database Definition. A query on a Named Database that has no runtime configuration also throws it.
 
 `useDatabase(name)` does not throw this error. For an unknown name it returns `undefined`, so `const { db } = useDatabase('typo')` fails with a `TypeError`. `useDatabase('default')` always returns an entry. Its `db` throws `DATABASE_DISABLED` when the app has no Default Database.
 

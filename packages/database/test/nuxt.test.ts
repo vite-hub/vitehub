@@ -1050,10 +1050,11 @@ describe("Database Nuxt integration", () => {
       await callHook(hooks, "nitro:config", {})
       const code = await readFile(join(buildDir, "vitehub/database/local-runtime.mjs"), "utf8")
       const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
-      const runtime = new Function("definition_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
+      const runtime = new Function("definition_0", "createDefinitionRuntime", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", evaluable)(
         { name: "__proto__", schema: { marker: "schema" } },
         () => ({ marker: "database" }),
         () => ({}),
+        () => () => undefined,
         () => new Error("missing"),
       ) as { databases: Record<string, unknown>, useDatabase: (name: string) => unknown }
 
@@ -1083,11 +1084,12 @@ describe("Database Nuxt integration", () => {
       expect(code).toContain('import { historySchema as contributedSchema_0_0 } from "history-tables/schema"')
       const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { useDatabase }"
       const created: unknown[] = []
-      const runtime = new Function("definition_0", "contributedSchema_0_0", "createDefinitionRuntime", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
+      const runtime = new Function("definition_0", "contributedSchema_0_0", "createDefinitionRuntime", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", evaluable)(
         { name: "default", schema: { notes: "notes" } },
         { historyRefs: "refs" },
         (input: unknown) => created.push(input),
         () => ({}),
+        () => () => undefined,
         () => new Error("missing"),
       ) as { useDatabase: (name: string) => { schema: unknown } }
 

@@ -1,10 +1,5 @@
 [
   {
-    "id": "docs/content/docs/agents/invocation-storage.md#1bfd2292966b",
-    "label": "server/invocations.ts",
-    "error": "TS2307 Cannot find module 'cloudflare:workers' or its corresponding type declarations."
-  },
-  {
     "id": "docs/content/docs/rate-limit/index.md#cb8cae0e5e63",
     "label": "server/api/messages.post.ts",
     "error": "TS2345 Argument of type 'AuthRequestInput' is not assignable to parameter of type 'RateLimitRequestEvent'."

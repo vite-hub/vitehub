@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import { renderDatabaseRuntimeModule } from "../../database/src/internal/runtime-module.ts"
-import { createAgentDatabase, defaultDatabaseNotConfiguredError } from "../../database/src/runtime/agent.ts"
+import { createAgentDatabase, createDatabaseBindingLookup, defaultDatabaseNotConfiguredError } from "../../database/src/runtime/agent.ts"
 import { selectCommentsDatabase } from "../src/runtime/database.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { defineComments } from "../src/index.ts"
@@ -55,8 +55,8 @@ it("installs Comments on the sole named Database in a generated runtime registry
     imports: [],
   })
   const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn databases"
-  const databases = new Function("main", "createAgentDatabase", "defaultDatabaseNotConfiguredError", evaluable)(
-    main, createAgentDatabase, defaultDatabaseNotConfiguredError,
+  const databases = new Function("main", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", evaluable)(
+    main, createAgentDatabase, createDatabaseBindingLookup, defaultDatabaseNotConfiguredError,
   ) as CommentsDatabaseRegistry
 
   expect(selectCommentsDatabase(databases) === main).toBe(true)

@@ -1,7 +1,8 @@
 import virtualSchema from "#vitehub/database/schema"
 import { databases as runtimeDatabases, db as runtimeDb } from "./runtime/drizzle-runtime.ts"
-import { createAgentDatabase } from "./runtime/agent.ts"
+import { createAgentDatabase, createDatabaseBindingLookup } from "./runtime/agent.ts"
 
+import type { DatabaseD1Binding } from "./runtime/agent.ts"
 import type { DatabaseDialect, RuntimeDrizzleDatabase, RuntimePostgresDatabase } from "./types.ts"
 
 type DrizzleRuntimeDatabase<TSchema extends Record<string, unknown>, TDialect extends DatabaseDialect = "sqlite"> = TDialect extends "postgresql"
@@ -48,6 +49,17 @@ export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Na
   return undefined as unknown as RuntimeDatabaseRegistry[Name]
 }
 
+const lookupDatabaseBinding = createDatabaseBindingLookup(databases)
+
+/**
+ * Return the Cloudflare D1 binding of a Database, or the request's D1 session with read replication. Pass it to code
+ * that needs a D1 binding, such as the D1 Agent Invocation store. Throws `DATABASE_NO_D1_BINDING` when the Database
+ * does not run on a D1 binding here, and `DATABASE_NOT_FOUND` for an unknown name.
+ */
+export function useDatabaseBinding(name: "default" | keyof RuntimeDatabaseRegistry): DatabaseD1Binding {
+  return lookupDatabaseBinding(name)
+}
+
 export const agentDb = createAgentDatabase(databases)
 
 // SAFETY: The generated registry types the default database, and the virtual schema is that database's schema.
@@ -56,4 +68,5 @@ export const agentDb = createAgentDatabase(databases)
 export const schema = virtualSchema as DefaultDatabaseEntry["schema"]
 export { chunkParameters } from "./runtime/chunk-parameters.ts"
 export type { ChunkParametersOptions } from "./runtime/chunk-parameters.ts"
+export type { DatabaseD1Binding, DatabaseD1Result, DatabaseD1Statement } from "./runtime/agent.ts"
 export * from "#vitehub/database/schema"
