@@ -1,4 +1,4 @@
-import type { ViteHubContext } from "@vite-hub/runtime"
+import type { ViteHubContext } from "@vite-hub/runtime/h3"
 import type { AccessAuthorize, AnonymousAccessAuthorize, ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
