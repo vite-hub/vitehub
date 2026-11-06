@@ -4,6 +4,7 @@ import type { Plugin } from "vite"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../../packages/vite-hub/src/console/runtime/diagnostics.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
 import { consoleRequestURL } from "../../packages/vite-hub/src/console/runtime/server/request.ts"
+import { channelsFixture } from "./channels-fixture.ts"
 import { callCommentsFixture } from "./comments.ts"
 import { mcpClientFixture } from "./mcp-client-fixture.ts"
 
@@ -40,6 +41,8 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
   const input = payload.input ?? {}
   const comment = callCommentsFixture(payload.operation, input)
   if (comment) return comment
+  const channel = channelsFixture(payload.operation, input)
+  if (channel) return channel
   let route = fixtureRoutes[payload.operation]
   let method = "GET"
   let body: unknown

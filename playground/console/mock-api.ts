@@ -48,6 +48,7 @@ const sections = [
   "agents",
   "skills",
   "usage",
+  "channels",
   "mcp-client",
   "blob",
   "databases",
