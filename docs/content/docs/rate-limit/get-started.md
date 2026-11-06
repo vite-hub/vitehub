@@ -40,7 +40,7 @@ export default defineConfig({
 
 Require the Rate Limit directly in ordinary server code. The guard does not need a dedicated directory, file suffix, or module-scope declaration.
 
-The name `image-upload` identifies this policy. `limit: 2` permits two requests per client in a one-minute window. Put the guard before any upload or other side effect.
+The name `image-upload` identifies this policy. `limit: 2` permits two requests per client in a one-minute window. On the Node preset, the window is a fixed window that starts at second 0 of each clock minute. [Rate limiting algorithms](/docs/guides/rate-limiting-algorithms) shows what that means at the edge of a window. Put the guard before any upload or other side effect.
 
 ```ts [server/api/image-upload.post.ts]
 import { defineEventHandler } from 'h3'

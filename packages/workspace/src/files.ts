@@ -1,0 +1,8 @@
+export { useWorkspaceFiles } from "./core/use.ts"
+export type { ReadonlyWorkspaceFiles, ReadonlyWorkspaceFs, UseWorkspaceOptions, WorkspaceHistory, WritableWorkspaceFiles, WritableWorkspaceFs } from "./core/use.ts"
+export type * from "./core/types.ts"
+export { isWorkspaceConflict } from "./core/errors.ts"
+export { normalizeSafeWorkspacePath } from "./core/path.ts"
+export { registerWorkspacePlugin } from "./core/plugins.ts"
+export { resolveWorkspaceStoreTarget } from "./storage/target.ts"
+export type { WorkspaceStoreTarget } from "./storage/target.ts"
