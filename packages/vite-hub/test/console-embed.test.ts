@@ -90,8 +90,8 @@ describe("console.embed", () => {
 describe("console.auth false in production", () => {
   it.each([{ auth: false as const }, { auth: false as const, authorize: hostManagedAuthorize }])("fails a production build with %o", async (console) => {
     await expect(configure(console, "build")).rejects.toMatchObject({
-      code: "VITE_HUB_B0020",
-      message: expect.stringContaining('console.auth false is for development. Use auth: "app" with an app Auth Definition, or a Console Auth config object.'),
+      code: "VITE_HUB_B0022",
+      message: expect.stringContaining('console.auth false is for development. Use auth: "token" and set VITEHUB_CONSOLE_TOKEN_SHA256'),
     })
   })
 

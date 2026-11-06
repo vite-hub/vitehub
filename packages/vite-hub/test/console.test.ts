@@ -1591,7 +1591,7 @@ describe("Agent invocation console", () => {
   it.each(["cloudflare", "node"])("refuses host-managed auth: false in a %s production build", async (preset) => {
     const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset, sections: ["agents"] })
     await expect(callPluginHook(plugin.config, {}, [{ root: process.cwd() }, { command: "build", mode: "production" }]))
-      .rejects.toMatchObject({ code: "VITE_HUB_B0020" })
+      .rejects.toMatchObject({ code: "VITE_HUB_B0022" })
   })
 
   it.each([

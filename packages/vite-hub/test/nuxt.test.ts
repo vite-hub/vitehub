@@ -2477,8 +2477,8 @@ describe("ViteHub Nuxt integration", () => {
 
   it("refuses a production Console without sign-in, and keeps it for development and nuxi prepare", async () => {
     await expect(viteHubNuxtModule({ console: { auth: false }, preset: "node" }, createNuxt(false).nuxt)).rejects.toMatchObject({
-      code: "VITE_HUB_B0020",
-      message: expect.stringContaining('console.auth false is for development. Use auth: "app" with an app Auth Definition, or a Console Auth config object.'),
+      code: "VITE_HUB_B0022",
+      message: expect.stringContaining('console.auth false is for development. Use auth: "token" and set VITEHUB_CONSOLE_TOKEN_SHA256'),
     })
     await expect(viteHubNuxtModule({ console: { auth: false }, preset: "node" }, createNuxt(true).nuxt)).resolves.toBeUndefined()
     const prepare = createNuxt(false)

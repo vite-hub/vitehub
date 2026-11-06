@@ -454,7 +454,7 @@ describe("vitehub", () => {
     )
 
     await expect(callHook(plugin.config, [{}, { command: "build", mode: "production" }]))
-      .rejects.toMatchObject({ code: "VITE_HUB_B0020" })
+      .rejects.toMatchObject({ code: "VITE_HUB_B0022" })
     await expect(callHook(plugin.config, [{}, { command: "serve", mode: "development" }]))
       .resolves.toBeUndefined()
   })

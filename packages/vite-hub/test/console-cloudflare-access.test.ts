@@ -441,8 +441,8 @@ describe("Cloudflare Access Console Auth", () => {
         const config = { root }
         await Reflect.apply("handler" in configHook ? configHook.handler : configHook, {}, [config, { command: "build", mode: "production" }])
       }
-      await expect(run("cloudflare")).rejects.toMatchObject({ code: "VITE_HUB_B0020" })
-      await expect(run("node")).rejects.toMatchObject({ code: "VITE_HUB_B0020" })
+      await expect(run("cloudflare")).rejects.toMatchObject({ code: "VITE_HUB_B0022" })
+      await expect(run("node")).rejects.toMatchObject({ code: "VITE_HUB_B0022" })
     }
     finally {
       await rm(root, { recursive: true, force: true })
