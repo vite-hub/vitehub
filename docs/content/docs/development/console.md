@@ -267,14 +267,14 @@ vitehub({
 
 1. Select **Link project**.
 2. Enter the app URL: its origin, with its base path if it has one, such as `https://app.example.com` or `https://app.example.com/portal`. A pasted Console URL such as `https://app.example.com/_vitehub/kv` also works.
-3. The Console reads [`project.get`](#read-the-project). When the project asks for a token, paste the value of `VITEHUB_CONSOLE_TOKEN` and select **Sign in**.
+3. The Console reads [`project.get`](#read-the-project). When the project asks for a token, paste the token that you created for it and select **Sign in**. The server keeps only its SHA-256 hash, in `VITEHUB_CONSOLE_TOKEN_SHA256`.
 
 The Console then opens the project and shows only the sections that the project lists for this token. When linking fails, the Console says why:
 
 | Message | Fix |
 | --- | --- |
 | `<console> is not in console.origins for <host>` | Add the Console origin to `console.origins`, then build and deploy again. The browser hides why a cross-origin request failed, so the project can also be offline. |
-| `<host> refused this token` | Copy the current value of `VITEHUB_CONSOLE_TOKEN` from the server. |
+| `<host> refused this token` | Paste the token whose hash is in `VITEHUB_CONSOLE_TOKEN_SHA256`. If you lost it, create a new token and set its hash. |
 | `This project runs vite-hub <version>. This Console needs protocol 1.` | Update `vite-hub` in the app. |
 | `This project signs in with OAuth` | OAuth sign-in for a Console on another origin is not ready. Use `auth: "token"`. |
 
@@ -288,7 +288,7 @@ The project list and the tokens stay in this browser, in `localStorage` of the C
 
 - Each token gives Console access to its project, as far as [`authorize`](#limit-a-user-to-some-sections) allows. Anyone who uses this browser profile can read it, and so can any script that runs on the Console origin. Use a browser profile that only you use, and serve the Console from an origin that serves nothing else.
 - Another browser or another Console origin has its own list. Link the projects again there.
-- To revoke access, set a new `VITEHUB_CONSOLE_TOKEN` on the server and restart or deploy it. Each Console then asks for the new token.
+- To revoke access, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or deploy the server. Each Console then asks for the new token.
 
 To remove a project, open the project list, select the **×** next to the project, and confirm **Forget project**. The browser removes the URL and the token. The project does not change.
 
