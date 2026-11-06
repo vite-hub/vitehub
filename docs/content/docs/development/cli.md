@@ -69,6 +69,7 @@ Available namespaces:
 
 | Command | Status | Owner | Use it for |
 | --- | --- | --- | --- |
+| `vitehub init` | Available | ViteHub CLI | Create a Vite or Nuxt app, or adopt an existing app, with a host and features. Does not load the project config. |
 | `vitehub add` | Available | ViteHub CLI | Turn on features: edit the `vitehub()` options, install the owner packages, and create a starter Definition. Does not load the project config. |
 | `vitehub catalog` | Available | ViteHub CLI | List every feature and how each host supports it. Does not load the project config. |
 | `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, and what each one still needs. Does not load the project config. |
@@ -222,10 +223,10 @@ pnpm vitehub add email --option email.driver=resend --yes --json
 - `--dry-run` prints the diff, or the plan with `--json`, and writes nothing.
 - `--yes` applies the plan. In a terminal without `--yes`, the command shows the diff and asks. Without a terminal, or with `--json`, it prints the plan and exits with `2` and a `rerun` command that includes `--yes`.
 - `--no-install` skips the install. The plan still lists the packages and the install command.
-- `--name <name>` creates a starter Definition, such as `server/queues/<name>.ts`, for each feature that has Definitions: Agent, Database, Queue, Realtime, Schedule, and Workflow. It never overwrites a file.
+- `--name <name>` creates a starter Definition, such as `server/queues/<name>.ts`, for each feature that has Definitions: Agent, Database, Queue, Realtime, Schedule, and Workflow. In Nuxt, it uses the application server directory when literal `rootDir` and `serverDir` options make that directory known. It never overwrites a file.
 - `--option key=value` sets an option of the feature, such as `--option email.driver=resend`. With one feature, the feature name is optional. Dotted keys make nested objects.
 
-The command sets `<feature>: true`, or the object from `--option`. A feature that is already on gives no change, so a second run prints `"status": "unchanged"`. Features that an added feature turns on, such as Workflow for Agent, are listed in `implied`; the config names them only when you supply their provider options. For example, on Netlify or Deno, `add comments` requires `--option database.connection.url=libsql://your-host` before writing the config.
+The command sets `<feature>: true`, or the object from `--option`. A feature that is already on gives no change, so a second run prints `"status": "unchanged"`. Features that an added feature turns on, such as Workflow for Agent, are listed in `implied`; the config names them when you supply their provider options. When an added feature requires Database, the command explicitly enables it if it was disabled. For example, on Netlify or Deno, `add comments` requires `--option database.connection.url=libsql://your-host` before writing the config.
 
 The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`. When ViteHub can choose the values, `rerun` is a command that succeeds as it is, including any provider prerequisites. Node Schedules require `--option schedule.runtime.driver=process`, or `--option schedule.providerOutput=false` when you will wake them yourself.
 
@@ -278,7 +279,7 @@ pnpm vitehub unlink
 - `--account`: the Cloudflare account id, the Vercel team id, or the Netlify team slug.
 - `--create`: create the project when the host does not have it. Without it, a missing project exits with `3`.
 
-The credentials come from environment variables first, then from the host CLI login: `CLOUDFLARE_API_TOKEN` or `wrangler login`, `VERCEL_TOKEN` and `VERCEL_TEAM_ID`, `NETLIFY_AUTH_TOKEN`. ViteHub never stores or prints a token.
+The credentials come from environment variables first, then from the host CLI login: `CLOUDFLARE_API_TOKEN` or a Wrangler login, `VERCEL_TOKEN` and `VERCEL_TEAM_ID`, `NETLIFY_AUTH_TOKEN`. For Cloudflare, install Wrangler in the project (for example, `pnpm add -D wrangler`) and run `pnpm exec wrangler login`, or make `wrangler` available on `PATH`. A login made only through a cached `npx` or `pnpm dlx` invocation needs that installation before ViteHub can discover it. ViteHub never stores or prints a token.
 
 The command looks up the project through the host API: a Worker on Cloudflare, a project on Vercel, a site on Netlify. Deno has no lookup yet, so the link keeps the name with `verified: false`. The link is in `.vitehub/link.json`:
 
@@ -387,16 +388,10 @@ The Env integration contributes commands that report the status of declared Serv
 
 ```bash [Terminal]
 pnpm vitehub env inspect [--stage <name>] [--json]
-pnpm vitehub env check [--stage <name>] [--json] [--allow-missing-secrets]
+pnpm vitehub env check [--stage <name>] [--json]
 ```
 
 Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with its status, source, required, and secret flags. `env check` exits with status `1` when loading Server Env would fail, so it can gate CI or deployment steps.
-
-Some hosts add secrets at runtime, so the build environment does not have them. Cloudflare Worker secrets are an example. To check such a build, add `--allow-missing-secrets`. A missing secret from the host environment then passes. A missing value that is not secret, an invalid value, or a missing provider value still fails the check:
-
-```bash [Terminal]
-pnpm vitehub env check --stage production --allow-missing-secrets
-```
 
 ## Generate and derive secrets
 

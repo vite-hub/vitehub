@@ -264,7 +264,8 @@ function packageName(spec: string): string {
 }
 
 function dlx(packageManager: SetupPackageManager, spec: string, args: readonly string[]): [string, string[]] {
-  if (packageManager === "npm") return ["npx", ["--yes", spec, ...args]]
+  // Yarn Classic has no dlx; keep Yarn for the scaffold's packageManager and the subsequent install.
+  if (packageManager === "npm" || packageManager === "yarn") return ["npx", ["--yes", spec, ...args]]
   if (packageManager === "bun") return ["bunx", [spec, ...args]]
   return [packageManager, ["dlx", spec, ...args]]
 }

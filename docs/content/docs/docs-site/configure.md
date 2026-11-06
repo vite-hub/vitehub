@@ -72,6 +72,23 @@ navigation.order: 4
 ---
 ```
 
+### Moved pages
+
+When a page moves, keep its old URL with a `redirect` route rule:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/docs/nuxt'],
+  routeRules: {
+    '/docs/guide/setup': { redirect: { to: '/docs/guide/install', statusCode: 301 } },
+  },
+})
+```
+
+The link checker passes links to the old URL. Instead, a production build checks the rule: it stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when the rule goes to a docs URL that no page answers, or when it starts at a page that still exists. Rules from other modules count too. A wildcard rule, such as `/docs/old/**`, is not checked this way.
+
+Rules added in a module's `nitro:config` hook are also validated, but keep the link checker's own redirect warnings.
+
 ### Taglines, credits, and keywords
 
 ```md [content/docs/icons/index.md]
