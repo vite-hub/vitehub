@@ -262,11 +262,12 @@ function configureConsoleNitroRoutes(
   baseURL: string,
   sections: readonly ConsoleSectionId[],
   consoleAuthHandlers: ConsoleAuthHandlers | undefined,
-  previousConsoleAuthHandlers?: ConsoleAuthHandlers,
-  rpcOnly = false,
-  signInPage?: string,
-  oauth = false,
-  embed = true,
+  previousConsoleAuthHandlers: ConsoleAuthHandlers | undefined,
+  rpcOnly: boolean | undefined,
+  signInPage: string | undefined,
+  oauth: boolean,
+  // Required, so no caller serves the Console pages of a production build by accident.
+  embed: boolean,
 ): { kit: ReturnType<typeof createNitroServerKit>, publicAssets: NonNullable<ConsoleNitroConfig["publicAssets"]> } {
   // Nitro serves its routes below its own `baseURL`, so the routes get only the part of the Vite base that Nitro does not
   // add. Without a Nitro `baseURL`, this is the whole Vite base.

@@ -10,14 +10,14 @@ import { hostManagedAuthorize } from "./support/console-authorize.ts"
 describe("Console pages and the prerender crawler", () => {
   it("keeps the crawler away from the Console pages, which need a signed-in request", () => {
     const nitro: Parameters<typeof addConsolePageHandlers>[0] = { prerender: { ignore: ["/private"] } }
-    addConsolePageHandlers(nitro, "/runtime")
-    addConsolePageHandlers(nitro, "/runtime")
+    addConsolePageHandlers(nitro, "/runtime", undefined, undefined, true)
+    addConsolePageHandlers(nitro, "/runtime", undefined, undefined, true)
     expect(nitro.prerender?.ignore).toEqual(["/private", "/_vitehub"])
   })
 
   it("ignores the Console below the application base", () => {
     const nitro: Parameters<typeof addConsolePageHandlers>[0] = {}
-    addConsolePageHandlers(nitro, "/runtime", "/docs/")
+    addConsolePageHandlers(nitro, "/runtime", "/docs/", undefined, true)
     expect(nitro.prerender?.ignore).toEqual(["/docs/_vitehub"])
   })
 

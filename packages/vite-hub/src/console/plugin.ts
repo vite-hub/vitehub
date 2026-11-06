@@ -213,7 +213,8 @@ function renderConsoleNitroPlugin(
   development = false,
   applicationBase = "/",
   pageTools = true,
-  consoleTools = true,
+  // A caller that omits it gets the Console tools only in development, never in a production build.
+  consoleTools: boolean = development,
 ): string {
   assertConsoleRetention(retention, journal)
   const accessCode = renderConsoleAccess(access)
@@ -325,7 +326,8 @@ export async function writeConsoleNitroPlugin(
   development = false,
   applicationBase = "/",
   pageTools = true,
-  consoleTools = true,
+  // A caller that omits it gets the Console tools only in development, never in a production build.
+  consoleTools: boolean = development,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(

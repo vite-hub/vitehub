@@ -9,8 +9,8 @@ import { addConsolePageHandlers, ignoreConsolePrerender } from "../src/console/n
 describe("Console prerendering with a Nitro base", () => {
   it("also ignores the Console relative to the Nitro base in Nuxt", () => {
     const nitro = { baseURL: "/docs/", prerender: { ignore: ["/private"] } }
-    addConsolePageHandlers(nitro, "/runtime", "/docs/")
-    addConsolePageHandlers(nitro, "/runtime", "/docs/")
+    addConsolePageHandlers(nitro, "/runtime", "/docs/", undefined, true)
+    addConsolePageHandlers(nitro, "/runtime", "/docs/", undefined, true)
     expect(nitro.prerender.ignore).toEqual(["/private", "/docs/_vitehub", "/_vitehub"])
   })
 

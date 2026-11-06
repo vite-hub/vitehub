@@ -560,7 +560,8 @@ async function installConsole(
   retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
-  embed = true,
+  // A caller that omits it serves the Console pages only in development, never in a production build.
+  embed: boolean = nuxt.options.dev === true,
 ): Promise<string> {
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))

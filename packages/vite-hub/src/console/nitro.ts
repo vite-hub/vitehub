@@ -36,9 +36,10 @@ export function ignoreConsolePrerender(nitro: NitroPrerenderConfig, base?: strin
 export function addConsolePageHandlers(
   nitro: NitroPrerenderConfig & { handlers?: NitroHandler[], publicAssets?: NitroPublicAsset[] },
   consoleRuntimeRoot: string,
-  base?: string,
-  signInPage?: string,
-  embed = true,
+  base: string | undefined,
+  signInPage: string | undefined,
+  // Required, so no caller serves the Console pages of a production build by accident.
+  embed: boolean,
 ): void {
   const page = join(consoleRuntimeRoot, "server/page.get.js")
   const notEmbedded = join(consoleRuntimeRoot, "server/not-embedded.js")
