@@ -51,9 +51,11 @@ export const content = defineContent({
     }),
     settings: singleton({ path: 'settings.json', fields: { title: z.string() } }),
   },
-  authorize: ({ user, action }) => user?.role === 'editor' && action !== 'publish',
+  authorize: ({ user, action }) => user?.role === 'admin' || (user?.role === 'editor' && action !== 'publish'),
 })
 ```
+
+Editors can read and edit drafts; admins can also publish.
 
 | Method | Behavior |
 | --- | --- |
