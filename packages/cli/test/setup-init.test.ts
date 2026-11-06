@@ -194,6 +194,18 @@ describe("vitehub init", () => {
     expect(result.json.install.devPackages).toEqual(["typescript@^6", "@types/node@^24"])
   })
 
+  it("leaves an app untouched when a root spread can override its plugins", async () => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ devDependencies: { vite: "^8.0.0" }, type: "module" }),
+      "vite.config.ts": "export default { plugins: [], ...shared }\n",
+    })
+    const before = await snapshot(root)
+    const result = await init([".", "--host", "node", "--features", "kv", "--no-install", "--yes"], root)
+    expect(result.exitCode).toBe(3)
+    expect(result.json.error).toMatchObject({ code: "SETUP_CONFIG_MANUAL" })
+    expect(await snapshot(root)).toEqual(before)
+  })
+
   it("refuses a folder that is not empty and holds no app", async () => {
     const parent = await createProject({ "app/notes.txt": "keep me\n" })
     const result = await init(["app", "--host", "node", "--features", "kv", "--yes"], parent)
@@ -219,7 +231,7 @@ describe("vitehub init", () => {
     expect(result.json.stack.command).toBe("pnpm dlx vite-hub init app --host cloudflare --features kv --pm npm --yes")
   })
 
-  it("creates a Nuxt app with the pinned nuxi, then adopts it", async () => {
+  it.each(["pnpm", "yarn"] as const)("creates a Nuxt app with the pinned nuxi using %s, then adopts it", async (pm) => {
     const parent = await createProject()
     const calls: string[][] = []
     const spawn: ViteHubCliSpawn = async (command, args) => {
@@ -232,15 +244,15 @@ describe("vitehub init", () => {
       }
       return { exitCode: 0, signal: null }
     }
-    const result = await init(["site", "--host", "vercel", "--features", "kv", "--framework", "nuxt", "--yes"], parent, spawn)
+    const result = await init(["site", "--host", "vercel", "--features", "kv", "--framework", "nuxt", "--pm", pm, "--yes"], parent, spawn)
     expect(result.exitCode, result.stdout).toBe(0)
-    expect(calls[0]).toEqual(["pnpm", "dlx", nuxiPackage, "init", "site", "--template", "minimal", "--packageManager", "pnpm", "--no-install", "--no-gitInit", "--no-modules"])
-    expect(calls.slice(1)).toEqual([["pnpm", "add", ...result.json.install.packages]])
+    expect(calls[0]).toEqual([...(pm === "yarn" ? ["npx", "--yes"] : ["pnpm", "dlx"]), nuxiPackage, "init", "site", "--template", "minimal", "--packageManager", pm, "--no-install", "--no-gitInit", "--no-modules"])
+    expect(calls.slice(1)).toEqual([[pm, "add", ...result.json.install.packages]])
     expect(result.json.install.packages.slice(0, 2)).toEqual([...initPackages.nuxt.prod])
     expect(result.json).toMatchObject({ framework: "nuxt", mode: "create", scaffold: { command: expect.stringContaining(nuxiPackage) }, status: "applied" })
     const config = await readFile(join(parent, "site/nuxt.config.ts"), "utf8")
     expect(locateViteHubConfig("nuxt.config.ts", config)).toMatchObject({ ok: true, site: { form: "nuxt-module-tuple", keys: { kv: { value: true }, preset: { value: "vercel" } } } })
-    expect(result.json.stack.command).toBe("pnpm dlx vite-hub init site --host vercel --features kv --framework nuxt --yes")
+    expect(result.json.stack.command).toBe(`pnpm dlx vite-hub init site --host vercel --features kv --framework nuxt${pm === "yarn" ? " --pm yarn" : ""} --yes`)
   })
 
   it("installs the packages that the installation docs list", async () => {

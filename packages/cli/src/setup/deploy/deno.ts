@@ -41,7 +41,7 @@ export async function denoAdapter(context: DeployContext, organization: string):
     },
     async setSecret(name, value) {
       if (process.platform === "win32") throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_SECRET_UNSUPPORTED({ host: "deno", reason: "Windows has no /dev/stdin for `deno deploy env load`." }), setupExitCodes.conflict)
-      const result = await runDeno(["env", "load", "/dev/stdin", "--replace"], `${name}=${value}\n`)
+      const result = await runDeno(["env", "load", "/dev/stdin"], `${name}=${value}\n`)
       if (result.exitCode !== 0) throw hostCliFailed(`deno deploy env load (${name})`, result, context.secrets)
     },
     async hasSecret(name) {

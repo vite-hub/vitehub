@@ -4,9 +4,9 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
-import { featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
-import { basename, dirname, join } from "pathe"
+import { basename, dirname, join, relative, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
@@ -15,7 +15,8 @@ import { installArgs, installCommand, setsOption, setupStatus } from "./status.t
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConfigEdit, JsonValue } from "@vite-hub/internal/config-edit"
-import type { FeatureHost, FeatureId, HostSupport } from "@vite-hub/internal/features"
+import type { DeploymentPreset } from "@vite-hub/internal/deployment"
+import type { FeatureId, HostSupport } from "@vite-hub/internal/features"
 import type { SetupMissing } from "./envelope.ts"
 import type { SetupProject } from "./project.ts"
 import type { SetupStatus } from "./status.ts"
@@ -69,12 +70,6 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
   "workflow.provider": { values: ["openworkflow"] },
 }
 
-/** Packages that an option value needs, in addition to the feature's packages. */
-const optionPackages: Partial<Record<string, Readonly<Record<string, readonly string[]>>>> = {
-  "blob.driver": { s3: ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"] },
-  "workflow.provider": { openworkflow: ["openworkflow"] },
-}
-
 /** Option keys that select a provider or a store. A feature that sets one does not use the host default. */
 const providerKeys = ["authority", "driver", "postgres", "provider", "sqlite", "store"]
 
@@ -83,7 +78,7 @@ function selectsProvider(value: JsonValue | undefined): boolean {
 }
 
 /** How `host` supports `id`, with the override that `env` selects, such as BLOB_READ_WRITE_TOKEN for the Vercel Workspace. */
-function hostSupport(id: FeatureId, host: FeatureHost, env: NodeJS.ProcessEnv): HostSupport {
+function hostSupport(id: FeatureId, host: DeploymentPreset, env: NodeJS.ProcessEnv): HostSupport {
   const support = featureSupport(id, host)
   if (support.level !== "native") return support
   return support.envOverrides?.find(override => env[override.env]?.trim())?.support ?? support
@@ -289,7 +284,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   let rerunnable = true
   const keep = status.features.filter(item => item.enabled === "off" && item.reason === "config" && !args.features.includes(item.id)).map(item => item.id)
   // Implications and provider prerequisites need their inputs before any file can be written.
-  const inputFeatures = [...args.features, ...impliedFeatures(args.features, host, keep)]
+  // Database is mandatory for Comments and Connections, including Console's implied Comments.
+  const inputFeatures = [...args.features, ...impliedFeatures(args.features, host, keep.filter(id => id !== "database"))]
+  if (inputFeatures.includes("database") && keep.includes("database")) requires.push("database")
   for (const id of inputFeatures) {
     const support = featureSupport(id, host)
     const options = args.options[id]
@@ -317,7 +314,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
         missing.push({ choices: ["auto"], field: "schedule.providerOutput" })
         setPath(defaults.schedule ??= {}, ["providerOutput"], "auto")
       }
-      if (!isRecord(value) || value.runtime === undefined) {
+      if (!isRecord(value) || !isRecord(value.runtime) || value.runtime.driver !== "process") {
         missing.push({ choices: ["process"], field: "schedule.runtime.driver" })
         setPath(defaults.schedule ??= {}, ["runtime", "driver"], "process")
       }
@@ -352,6 +349,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const changes: SetupChange[] = []
   const files: SetupAddPlanned["files"] = []
   let configFile: SetupAddPlanned["configFile"]
+  const serverDir = relative(project.root, project.serverDirs?.[0] ?? join(project.root, "server"))
+  const nuxtRoot = project.config?.ok ? project.config.site.nuxt?.keys.rootDir : undefined
+  const definitionRoot = nuxtRoot?.kind === "literal" && typeof nuxtRoot.value === "string" ? resolve(project.root, nuxtRoot.value) : project.root
 
   // Starter Definition files.
   if (args.name !== undefined) {
@@ -359,14 +359,16 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (!withStarter.length) throw invalid(`${args.features.join(", ")} has no Definition files, so --name has no effect. Features with Definitions: ${featureIds.filter(id => features[id].definition).join(", ")}.`)
     for (const id of withStarter) {
       const starter = features[id].definition!
-      const path = starter.file(args.name)
+      const path = join(serverDir, relative("server", starter.file(args.name)))
       const content = starter.template(args.name)
       const file = join(project.root, path)
       if (existsSync(file)) {
         if (await readFile(file, "utf8") === content) continue
         throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ file: path }), setupExitCodes.conflict)
       }
-      const conflict = starter.conflicts(args.name).find(other => existsSync(join(project.root, other)))
+      const conflict = starter.conflicts(args.name).flatMap(other => other.startsWith("server/")
+        ? (project.serverDirs ?? [join(project.root, "server")]).map(directory => relative(project.root, join(directory, relative("server", other))))
+        : [relative(project.root, join(definitionRoot, other))]).find(other => existsSync(join(project.root, other)))
       if (conflict) throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ definition: features[id].title, file: conflict, starter: path }), setupExitCodes.conflict)
       files.push({ content, path })
       changes.push({ after: content, diff: setupDiff(path, "", content), kind: "create", path })
@@ -395,15 +397,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     return mergeValue(current?.kind === "literal" ? current.value : undefined, args.options[id])
   }
   for (const id of [...addedFeatures, ...implied]) {
-    const value = configured(id)
-    const selected = Object.entries(optionPackages).flatMap(([option, byValue]) => {
-      if (!option.startsWith(`${id}.`) || !isRecord(value)) return []
-      const choice = value[option.slice(id.length + 1)]
-      return typeof choice === "string" ? byValue?.[choice] ?? [] : []
-    })
-    // Node selects OpenWorkflow when its storage is set and no provider is.
-    if (id === "workflow" && host === "node" && isRecord(value) && value.provider === undefined && (value.sqlite !== undefined || value.postgres !== undefined)) selected.push("openworkflow")
-    for (const name of [...features[id].packages, ...selected]) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
+    for (const name of featurePackages(id, configured(id), host)) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
     for (const name of features[id].devPackages) if (!project.declared(name, true) && !install.dev.includes(name)) install.dev.push(name)
   }
   const command = installCommand(project.packageManager, install.prod, install.dev)
@@ -422,9 +416,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (support.level === "native" && support.guarantee === "process-local") nextSteps.push(`${features[id].title} on ${host} uses ${support.display} by default. ${support.detail}`)
   }
   if (args.name !== undefined && args.features.includes("workflow") && host === "vercel" && !selectsProvider(configured("workflow"))) {
-    nextSteps.push(`server/workflows/${args.name}.ts has no \`native\` entry, so Vercel runs it inline. Add one for durable runs: https://vitehub.dev/docs/workflows/configure#add-a-durable-vercel-entry`)
+    nextSteps.push(`${join(serverDir, "workflows", `${args.name}.ts`)} has no \`native\` entry, so Vercel runs it inline. Add one for durable runs: https://vitehub.dev/docs/workflows/configure#add-a-durable-vercel-entry`)
   }
-  if (args.name !== undefined && args.features.includes("realtime")) nextSteps.push(`server/realtime/${args.name}.ts stores documents in the Workspace "${args.name}". Add a Workspace Definition in server/workspaces/${args.name}.ts.`)
+  if (args.name !== undefined && args.features.includes("realtime")) nextSteps.push(`${join(serverDir, "realtime", `${args.name}.ts`)} stores documents in the Workspace "${args.name}". Add a Workspace Definition in ${join(serverDir, "workspaces", `${args.name}.ts`)}.`)
   for (const id of args.features) nextSteps.push(`${features[id].title}: https://vitehub.dev${features[id].docs}`)
   nextSteps.push("Run `vitehub status` to check the result.")
 
@@ -453,6 +447,9 @@ async function applyPlan(project: SetupProject, planned: SetupAddPlanned, args: 
         throw new SetupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [project.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
       }
     }
+  }
+  if (planned.configFile && await readFile(join(project.root, planned.configFile.path), "utf8") !== planned.configFile.before) {
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: planned.configFile.path }), setupExitCodes.stalePlan)
   }
   for (const file of planned.files) {
     await mkdir(dirname(join(project.root, file.path)), { recursive: true })

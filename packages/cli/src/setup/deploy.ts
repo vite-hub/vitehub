@@ -174,8 +174,7 @@ async function deployWithConsole(adapter: DeployAdapter, host: DeployHost, pendi
   if (temporary) {
     // The hash is SHA-256 of a 256-bit random token, so it is not secret by itself, and a temporary account has no
     // login to set a host secret with. It goes into the build output as a plain runtime var.
-    await adapter.setTemporaryVar!(CONSOLE_TOKEN_VARIABLE, pending.tokenSha256)
-    return { result: await adapter.deploy(), secret: "var" }
+    return { result: await adapter.withTemporaryVar!(CONSOLE_TOKEN_VARIABLE, pending.tokenSha256, () => adapter.deploy()), secret: "var" }
   }
   if (!await adapter.projectExists()) await adapter.deploy()
   await adapter.setSecret(CONSOLE_TOKEN_VARIABLE, pending.tokenSha256)
@@ -241,7 +240,7 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const projectName = link?.project.name ?? output.identityName
   if (!projectName) throw new SetupFailure(cliErrorDiagnostics.SETUP_LINK_NAME_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "project" }], rerun: "vitehub link --project <name>" })
   const pending = await readSetupConsoleLink(project.root)
-  const secrets = pending ? [pending.tokenSha256] : []
+  const secrets = [...(pending ? [pending.tokenSha256] : []), ...(credentials.ok ? [credentials.token] : [])]
   const run = createDeployRun(context.stderr, secrets)
   const deployContext: DeployContext = {
     commit: await readDeployCommit(run, project.root, context.env),

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 
 import { createCloudflareProvisionClient } from "@vite-hub/internal/provision"
@@ -6,7 +6,7 @@ import { join, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes } from "../envelope.ts"
-import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, isoTime, isRecord, listsName, optionalString, parseCommitMessage, splitManifestCommand } from "./host.ts"
+import { commandRejected, commitMessage, findUrl, hostCli, hostCliFailed, isoTime, isRecord, listsName, optionalString, parseCommitMessage, splitManifestCommand, withTemporaryOutput } from "./host.ts"
 
 import type { DeployAdapter, DeployCommit, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, ListDeployments } from "./host.ts"
 
@@ -87,9 +87,12 @@ function claimExpiry(text: string): string | undefined {
 export async function cloudflareAdapter(context: DeployContext): Promise<DeployAdapter> {
   const command = await readWranglerCommand(context.outputDir)
   const wrangler = hostCli("wrangler", "wrangler", context.root, context.env)
+  const linked = !context.temporary && context.link?.host === "cloudflare" ? context.link : undefined
+  const accountId = (context.credentials.ok ? context.credentials.accountId : undefined) ?? linked?.account?.id
+  const target = linked ? ["--name", linked.project.name] : []
   const env: NodeJS.ProcessEnv = {
     ...context.env,
-    ...(context.credentials.ok && context.credentials.accountId ? { CLOUDFLARE_ACCOUNT_ID: context.credentials.accountId } : {}),
+    ...(accountId ? { CLOUDFLARE_ACCOUNT_ID: accountId } : {}),
   }
   const run = (args: readonly string[], options: { stdin?: string, show?: boolean, env?: NodeJS.ProcessEnv } = {}) =>
     context.run(wrangler[0], [...wrangler.slice(1), ...args], { cwd: context.outputDir, env: options.env ?? env, ...options })
@@ -102,6 +105,7 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
         const args = context.preview
           ? ["versions", "upload", ...command.args.filter(arg => !plainFlags.has(arg))]
           : ["deploy", ...command.args]
+        args.push(...target)
         if (context.temporary) args.push("--temporary")
         if (context.commit) args.push("--tag", context.commit.sha.slice(0, 12), "--message", commitMessage(context.commit))
         const result = await run(args, { env: { ...env, WRANGLER_OUTPUT_FILE_PATH: outputFile }, show: true })
@@ -119,7 +123,7 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
           url,
           ...(version ? { version } : {}),
           ...(claimUrl ? { claim: { url: claimUrl, ...(expiresAt ? { expiresAt } : {}) } } : {}),
-          ...(name ? { project: { name, ...(context.credentials.ok && context.credentials.accountId ? { accountId: context.credentials.accountId } : {}) } } : {}),
+          ...(name ? { project: { name, ...(accountId ? { accountId } : {}) } } : {}),
         }
       }
       finally {
@@ -129,11 +133,11 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
     async setSecret(name, value) {
       // `wrangler secret put` reads the value from stdin when stdin is not a terminal. On a Worker that does not
       // exist yet, it creates a draft Worker without a prompt.
-      const result = await run(["secret", "put", name, "--config", command.config], { stdin: value })
+      const result = await run(["secret", "put", name, "--config", command.config, ...target], { stdin: value })
       if (result.exitCode !== 0) throw hostCliFailed(`wrangler secret put ${name}`, result, context.secrets)
     },
     async hasSecret(name) {
-      const result = await run(["secret", "list", "--config", command.config, "--format", "json"])
+      const result = await run(["secret", "list", "--config", command.config, "--format", "json", ...target])
       if (result.exitCode !== 0) return false
       try {
         return listsName(JSON.parse(result.stdout), ["name"], name)
@@ -144,14 +148,10 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
     },
     // `wrangler secret put` creates a draft Worker, so the secret can go first.
     projectExists: async () => true,
-    async setTemporaryVar(name, value) {
+    async withTemporaryVar(name, value, deploy) {
       // A temporary account has no login for `wrangler secret put`, so the hash goes into the generated config as a
       // plain var. The project config does not change.
-      const file = resolve(context.outputDir, command.config)
-      const config: unknown = JSON.parse(await readFile(file, "utf8"))
-      if (!isRecord(config)) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file }), setupExitCodes.error)
-      config.vars = { ...(isRecord(config.vars) ? config.vars : {}), [name]: value }
-      await writeFile(file, `${JSON.stringify(config, null, 2)}\n`)
+      return await withTemporaryOutput([resolve(context.outputDir, command.config)], "vars", name, value, deploy)
     },
   }
 }

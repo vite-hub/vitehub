@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process"
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
+import { readFile, writeFile } from "node:fs/promises"
 import { delimiter } from "node:path"
+import process from "node:process"
 
 import { dirname, join } from "pathe"
 
@@ -72,7 +74,7 @@ export interface DeployResult {
 
 /**
  * One host. `setSecret` sends the value over stdin or in a JSON request body, never in argv.
- * `setTemporaryVar` writes a plain runtime var into the build output, for a temporary deploy that has no account.
+ * `withTemporaryVar` writes a plain runtime var for the deploy and restores the generated files afterwards.
  */
 export interface DeployAdapter {
   deploy: () => Promise<DeployResult>
@@ -80,7 +82,24 @@ export interface DeployAdapter {
   hasSecret: (name: string) => Promise<boolean>
   /** False when the host project does not exist yet, so a secret has no place to go before the first deploy. */
   projectExists: () => Promise<boolean>
-  setTemporaryVar?: (name: string, value: string) => Promise<void>
+  withTemporaryVar?: (name: string, value: string, deploy: () => Promise<DeployResult>) => Promise<DeployResult>
+}
+
+/** Keep temporary vars in generated output only while the host reads it, including when writing or deploying fails. */
+export async function withTemporaryOutput(files: readonly string[], key: "vars" | "environment", name: string, value: string, deploy: () => Promise<DeployResult>): Promise<DeployResult> {
+  const originals = await Promise.all(files.map(file => readFile(file)))
+  try {
+    for (const [index, file] of files.entries()) {
+      const config: unknown = JSON.parse(originals[index]!.toString("utf8"))
+      if (!isRecord(config)) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_OUTPUT_MISSING({ file }), setupExitCodes.error)
+      config[key] = { ...(isRecord(config[key]) ? config[key] : {}), [name]: value }
+      await writeFile(file, `${JSON.stringify(config, null, 2)}\n`)
+    }
+    return await deploy()
+  }
+  finally {
+    await Promise.all(files.map((file, index) => writeFile(file, originals[index]!)))
+  }
 }
 
 /** Where a deployment came from, when the host says. */
@@ -134,26 +153,27 @@ export function createDeployRun(stderr: { write: (chunk: string) => unknown }, s
   return (command, args, options) => new Promise((resolve, reject) => {
     const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: ["pipe", "pipe", "pipe"], ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}), ...(options.signal ? { signal: options.signal } : {}) })
     const output = { stderr: "", stdout: "" }
-    let pending = ""
-    const show = (chunk: string, flush = false) => {
+    const pending = { stderr: "", stdout: "" }
+    const show = (stream: "stderr" | "stdout", chunk: string, flush = false) => {
       if (!options.show) return
-      pending += chunk
-      const end = flush ? pending.length : pending.lastIndexOf("\n") + 1
+      pending[stream] += chunk
+      const end = flush ? pending[stream].length : pending[stream].lastIndexOf("\n") + 1
       if (end === 0) return
-      stderr.write(redact(pending.slice(0, end), secrets))
-      pending = pending.slice(end)
+      stderr.write(redact(pending[stream].slice(0, end), secrets))
+      pending[stream] = pending[stream].slice(end)
     }
     for (const stream of ["stdout", "stderr"] as const) {
       child[stream].setEncoding("utf8")
       child[stream].on("data", (chunk: string) => {
         output[stream] += chunk
-        show(chunk)
+        show(stream, chunk)
       })
     }
     child.on("error", reject)
     child.on("close", (exitCode) => {
-      show("", true)
-      resolve({ exitCode, ...output })
+      show("stdout", "", true)
+      show("stderr", "", true)
+      resolve({ exitCode, stdout: redact(output.stdout, secrets), stderr: redact(output.stderr, secrets) })
     })
     // A CLI that exits before it reads stdin closes the pipe. That is not an error of the deploy.
     child.stdin.on("error", () => {})
@@ -161,24 +181,50 @@ export function createDeployRun(stderr: { write: (chunk: string) => unknown }, s
   })
 }
 
-function executableIn(folder: string, name: string): string | undefined {
+/** Resolve npm/pnpm Windows shims to Node entrypoints without evaluating any batch or shell syntax. */
+function windowsNodeEntry(file: string): readonly [string, string] | undefined {
+  if (/\.(?:exe|cmd|bat)$/iu.test(file)) return
+  if (!existsSync(file)) return
+  const source = readFileSync(file, "utf8")
+  if (/\.[cm]?js$/iu.test(file) || /^#![^\r\n]*\bnode(?:\.exe)?(?:\s|$)/u.test(source)) return [process.execPath, file]
+}
+
+function executableIn(folder: string, name: string, platform: NodeJS.Platform): readonly [string, ...string[]] | undefined {
   const file = join(folder, name)
-  return existsSync(file) ? file : undefined
+  if (platform !== "win32") return existsSync(file) ? [file] : undefined
+  if (existsSync(`${file}.exe`)) return [`${file}.exe`]
+  const shim = `${file}.cmd`
+  if (existsSync(shim)) {
+    // npm uses %dp0%; pnpm and Yarn use %~dp0. Only use existing Node files relative to the shim.
+    for (const match of readFileSync(shim, "utf8").matchAll(/"(?:%dp0%|%~dp0)[\\/]([^"\r\n]+)"/giu)) {
+      const entry = windowsNodeEntry(join(folder, match[1]!.replaceAll("\\", "/")))
+      if (entry) return entry
+    }
+  }
+  return windowsNodeEntry(file)
 }
 
 /**
  * The host CLI as a command and its first arguments: the project's `node_modules/.bin` (walking up), then `PATH`,
  * then `npx --yes <package>`, which the build output also names.
  */
-export function hostCli(name: string, npmPackage: string, root: string, env: NodeJS.ProcessEnv): readonly [string, ...string[]] {
+export function hostCli(name: string, npmPackage: string, root: string, env: NodeJS.ProcessEnv, platform: NodeJS.Platform = process.platform): readonly [string, ...string[]] {
   for (let folder = root; ; folder = dirname(folder)) {
-    const found = executableIn(join(folder, "node_modules", ".bin"), name)
-    if (found) return [found]
+    const found = executableIn(join(folder, "node_modules", ".bin"), name, platform)
+    if (found) return found
     if (dirname(folder) === folder) break
   }
-  for (const folder of (env.PATH ?? "").split(delimiter).filter(Boolean)) {
-    const found = executableIn(folder, name)
-    if (found) return [found]
+  const path = (env.PATH ?? "").split(platform === "win32" ? ";" : delimiter).filter(Boolean)
+  for (const folder of path) {
+    const found = executableIn(folder, name, platform)
+    if (found) return found
+  }
+  if (platform === "win32") {
+    for (const folder of [...path, dirname(process.execPath)]) {
+      const npx = executableIn(folder, "npx", platform)
+      if (npx) return [...npx, "--yes", npmPackage]
+    }
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_FAILED({ exitCode: null, output: "Could not find a Node.js entrypoint for npx. Install Node.js with npm or install the host CLI locally.", step: "npx" }), setupExitCodes.error)
   }
   return ["npx", "--yes", npmPackage]
 }

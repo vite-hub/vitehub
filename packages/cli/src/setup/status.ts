@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs"
 
 import { deploymentPresetFromNitro, detectPreset } from "@vite-hub/internal/deployment"
-import { featureHosts, featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { featureHosts, featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { join } from "pathe"
 
 import type { ConfigForm, ManualReason } from "@vite-hub/internal/config-edit"
@@ -133,8 +133,10 @@ export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv): Setu
         ? { level: "unknown", detail: "The config does not statically identify the deployment host." }
         : featureSupport(id, host.name)
       const definition = features[id]
+      const value = project.config?.ok ? project.config.site.keys[id] : undefined
+      const packages = featurePackages(id, value?.kind === "literal" ? value.value : undefined, host.name)
       const missing = state.enabled === "on"
-        ? { dev: definition.devPackages.filter(name => !project.installed(name)), prod: definition.packages.filter(name => !project.installed(name)) }
+        ? { dev: definition.devPackages.filter(name => !project.installed(name)), prod: packages.filter(name => !project.installed(name)) }
         : { dev: [], prod: [] }
       const fix = state.enabled === "on" ? featureFix(project, id, support, host.name, missing) : undefined
       return { id, ...state, missingPackages: [...missing.prod, ...missing.dev], support, ...(fix ? { fix } : {}) }
