@@ -80,7 +80,7 @@ When a page moves, keep its old URL with a `redirect` route rule:
 export default defineNuxtConfig({
   modules: ['@vite-hub/docs/nuxt'],
   routeRules: {
-    '/docs/guide/setup': { redirect: { to: '/docs/guide/install', statusCode: 301 } },
+    '/docs/guide/setup': { redirect: { to: '/docs/guide/install', status: 301 } },
   },
 })
 ```
