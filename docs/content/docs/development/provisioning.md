@@ -31,7 +31,7 @@ CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --
 VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider vercel --dry-run
 ```
 
-Provider steps use read credentials during planning to distinguish existing resources from resources to create. A dry run does not call `apply()` or write Provision State. A dry run without credentials does not fail. Steps that cannot look up current state skip their actions, and the CLI prints `provision: plan not checked.` instead of `no ... resources to create`. Database, KV, Blob, and Queue steps all report a skipped lookup this way.
+Provider steps use read credentials during planning to distinguish existing resources from resources to create. Each step reads every page of the provider's resource list, so an account with many D1 databases, KV namespaces, R2 buckets, or Queues does not plan a create for a resource that already exists. A dry run does not call `apply()` or write Provision State. A dry run without credentials does not fail. Steps that cannot look up current state skip their actions, and the CLI prints `provision: plan not checked.` instead of `no ... resources to create`. Database, KV, Blob, and Queue steps all report a skipped lookup this way.
 
 Each line shows the action status, the resource kind, and the resource name.
 
@@ -112,9 +112,9 @@ fix: kv "cache": No Definition declares it. If no deployment uses ns-cache, run 
 
 ViteHub never deletes the resource or edits the file. Check that no deployment, preview, or other app binds the id before you delete it. An entry that shares its id with a declared entry only needs its line removed from the file. An entry in a category that no active package owns, for example after you remove `hubKv()`, is also marked `not declared`.
 
-If a current Definition has no recorded id, status defers deletion guidance for that Provision Step. Verify its resource id before deleting anything. For automatically provisioned resources, run `vitehub provision run --provider cloudflare` to record the current resources, then check status again. A renamed Definition may reuse the resource recorded under its old key.
+Status defers deletion guidance when it cannot verify a current Definition's recorded resource against current config. A renamed Definition may reuse the resource recorded under its old key, even when its new key already has an id from an older Definition. D1 and KV ids cannot be matched to configured resource names locally: compare the provider's resource names and bindings with current Definitions before deleting anything. For R2 and Queues, `vitehub provision run --provider cloudflare` refreshes recorded identities that status can compare with config.
 
-R2 shared-resource checks include the bucket's jurisdiction, and deletion hints include `--jurisdiction` when needed. Older R2 entries containing only a bucket name have an unknown jurisdiction, so status never assumes they share a resource; check the jurisdiction before following their deletion hints.
+R2 shared-resource checks include the bucket's jurisdiction, and deletion hints include `--jurisdiction` when needed. Older R2 entries containing only a bucket name have an unknown jurisdiction, so status never assumes they share a resource and defers their deletion guidance while any R2 Store remains declared. Check the jurisdiction before following deletion hints when no R2 Stores remain declared.
 
 The plan is also not checked when an applicable Provision Step skips its lookup. For example, Vercel Blob requires both `VERCEL_TOKEN` and `VERCEL_PROJECT_ID`.
 

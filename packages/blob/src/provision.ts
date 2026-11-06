@@ -241,9 +241,14 @@ export function createBlobCloudflareProvisionStep(resolveOptions: () => BlobModu
     id: "blob:cloudflare-r2",
     provider: "cloudflare",
     recordedState(context) {
+      const stores = new Map(resolvedStoreEntries(resolveOptions(), context.env).filter(([, store]) => store.driver === "cloudflare-r2"))
       return [{
         category: BLOB_R2_PROVISION_CATEGORY,
-        declared: resolvedStoreEntries(resolveOptions(), context.env).filter(([, store]) => store.driver === "cloudflare-r2").map(([name]) => name),
+        declared: [...stores.keys()],
+        declaredResourceIdentity: key => {
+          const store = stores.get(key)
+          return store?.driver === "cloudflare-r2" && store.bucketName ? `r2:${store.jurisdiction ?? "default"}/${store.bucketName}` : undefined
+        },
         // Older state recorded only the name, which cannot establish whether two buckets share a jurisdiction.
         resourceIdentity: ({ id }) => parseRecordedR2Bucket(id) ? `r2:${id}` : undefined,
         deleteHint: ({ id }) => {

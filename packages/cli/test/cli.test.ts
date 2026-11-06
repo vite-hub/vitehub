@@ -1076,7 +1076,7 @@ export default function (_options, nuxt) {
               id: "test:cloudflare",
               plan,
               provider: "cloudflare",
-              recordedState: () => [{ category: "d1", declared: ["main"], deleteHint: ({ id }: { id: string }) => `run \`delete-db ${id}\`` }],
+              recordedState: () => [{ category: "d1", declared: ["main"], declaredResourceIdentity: () => "db-main", deleteHint: ({ id }: { id: string }) => `run \`delete-db ${id}\`` }],
             }],
           },
         },
@@ -1115,7 +1115,7 @@ export default function (_options, nuxt) {
 
   it.each([
     ["d1", "d1"], ["kv", "kv"], ["d1Nuxt", "d1Nuxt"], ["d1", "d1Nuxt"], ["d1Nuxt", "d1"],
-  ])("defers %s deletion guidance until renamed %s Definitions have recorded ids", async (category, declaredCategory) => {
+  ])("defers %s deletion guidance for renamed %s Definitions, including stale target keys", async (category, declaredCategory) => {
     const rootDir = await createTempDir()
     const stateFile = join(rootDir, ".vitehub", "provision.json")
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
@@ -1157,15 +1157,17 @@ export default function (_options, nuxt) {
     await writeFile(stateFile, JSON.stringify({ cloudflare: recorded }))
     const different = stream()
     await runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", "--json"], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout: different })
-    expect(JSON.parse(different.output()).undeclared[0].fix).toContain("delete-resource resource-id")
+    expect(JSON.parse(different.output()).undeclared[0].fix).toContain("Verify its resource id before deleting anything")
+    expect(JSON.parse(different.output()).undeclared[0].fix).not.toContain("delete-resource")
   })
 
   it.each([
-    { currentId: "default/assets", staleId: "eu/assets", shared: false },
-    { currentId: "default/assets", staleId: "default/assets", shared: true },
-    { currentId: "default/assets", staleId: "assets", shared: false },
-    { currentId: "assets", staleId: "assets", shared: false },
-  ])("uses provider resource identity when matching R2 $currentId with $staleId", async ({ currentId, staleId, shared }) => {
+    { currentId: "default/assets", staleId: "eu/assets", shared: false, deferred: false },
+    { currentId: "default/assets", staleId: "default/assets", shared: true, deferred: false },
+    { currentId: "default/assets", staleId: "assets", shared: false, deferred: true },
+    { currentId: "assets", staleId: "assets", shared: false, deferred: true },
+    { currentId: "default/other", staleId: "default/assets", shared: false, deferred: true },
+  ])("uses provider resource identity when matching R2 $currentId with $staleId", async ({ currentId, staleId, shared, deferred }) => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
     await writeFile(join(rootDir, ".vitehub", "provision.json"), JSON.stringify({
@@ -1179,6 +1181,7 @@ export default function (_options, nuxt) {
         recordedState: () => [{
           category: "r2",
           declared: ["current"],
+          declaredResourceIdentity: () => "r2:default/assets",
           resourceIdentity: ({ id }: { id: string }) => id.includes("/") ? `r2:${id}` : undefined,
           deleteHint: () => "delete the bucket in its jurisdiction",
         }],
@@ -1190,6 +1193,11 @@ export default function (_options, nuxt) {
     const [entry] = JSON.parse(stdout.output()).undeclared
     expect(entry).toMatchObject({ category: "r2", key: "old", id: staleId })
     expect(entry.fix.includes("keep the resource")).toBe(shared)
+    if (deferred) {
+      expect(entry.fix).toContain("Verify its resource id before deleting anything")
+      expect(entry.fix).not.toContain("delete the bucket")
+    }
+    else if (!shared) expect(entry.fix).toContain("delete the bucket in its jurisdiction")
   })
 
   it("counts existing but incomplete actions as pending", async () => {

@@ -320,6 +320,9 @@ describe("blob cloudflare provision step", () => {
 
     const [category] = step.recordedState?.({ env: {} }) ?? []
     expect(category).toMatchObject({ category: "r2", declared: ["files", "uploads"] })
+    expect(category?.declaredResourceIdentity?.("files")).toBe("r2:default/files")
+    expect(category?.declaredResourceIdentity?.("uploads")).toBe("r2:eu/uploads")
+    expect(category?.declaredResourceIdentity?.("removed")).toBeUndefined()
     expect(category?.deleteHint({ id: "old-assets", key: "old" })).toBe("run `wrangler r2 bucket delete old-assets` (add `--jurisdiction <jurisdiction>` if the bucket has one)")
     expect(category?.deleteHint({ id: "$(touch /tmp/x)", key: "old" })).toBe("delete the R2 bucket in the Cloudflare dashboard")
   })

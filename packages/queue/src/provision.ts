@@ -1,4 +1,4 @@
-import { createCloudflareProvisionClient, isShellSafeProvisionValue, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
+import { createCloudflareProvisionClient, isShellSafeProvisionValue, listCloudflarePages, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
 
 import { discoverQueueDefinitions } from "./discovery.ts"
 import { getCloudflareQueueName } from "./internal/cloudflare-resource-name.ts"
@@ -30,9 +30,12 @@ export function createQueueProvisionStep(resolveRootDir: () => string, resolveNa
     id: "queue:cloudflare-queues",
     provider: "cloudflare",
     recordedState() {
+      const namePrefix = resolveNamePrefix()
+      const queues = new Map(discoverQueueDefinitions({ rootDir: resolveRootDir() }).map(definition => [definition.name, getCloudflareQueueName(definition.name, namePrefix)]))
       return [{
         category: QUEUE_CLOUDFLARE_PROVISION_CATEGORY,
-        declared: discoverQueueDefinitions({ rootDir: resolveRootDir() }).map(definition => definition.name),
+        declared: [...queues.keys()],
+        declaredResourceIdentity: key => queues.get(key),
         deleteHint: ({ id }) => isShellSafeProvisionValue(id)
           ? `run \`wrangler queues delete ${id}\``
           : "delete the Queue in the Cloudflare dashboard",
@@ -51,8 +54,9 @@ export function createQueueProvisionStep(resolveRootDir: () => string, resolveNa
       const queues = discoverQueueDefinitions({ rootDir: resolveRootDir() }).map(definition => ({ definition: definition.name, name: getCloudflareQueueName(definition.name, namePrefix) }))
       if (!queues.length) return []
 
-      const listed = await request("/queues", { parse: parseQueues })
-      const existing = new Set((listed.result ?? []).map(queue => queue.queue_name).filter((name): name is string => Boolean(name)))
+      // The Queues list accepts `page` but documents no page size, so result_info decides when to stop.
+      const listed = await listCloudflarePages(request, "/queues", { parse: parseQueues })
+      const existing = new Set(listed.map(queue => queue.queue_name).filter((name): name is string => Boolean(name)))
 
       return queues.map(({ definition, name }): ProvisionAction => ({
         kind: "cloudflare-queue",
