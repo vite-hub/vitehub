@@ -83,7 +83,7 @@ Set `console` in the root ViteHub integration. Every environment must choose who
 | `'app'` | Users with a session from the app [Auth](/docs/auth). |
 | `{ ... }` | Users of a separate Console Auth: inline GitHub sign-in, a Console Auth server file, or Cloudflare Access. |
 
-The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to turn it on, and the Console shows its **Comments** section. Comments turns on the Database when `database` is unset. Apply the Comments tables once with `vitehub db generate` and `vitehub db migrate`. `database: false` with Comments on fails the build with `VITE_HUB_B0018`.
+The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to turn it on, and the Console shows its **Comments** section. Comments turns on the Database when `database` is unset. Apply the Comments tables once with `vitehub db generate` and `vitehub db migrate`. `database: false` with Comments on fails the build: `VITE_HUB_B0018` for the `comments` option, `COMMENTS_B0001` for a `server/comments.ts` file.
 
 For local development, use `auth: false`:
 
