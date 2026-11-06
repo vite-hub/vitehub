@@ -7,11 +7,10 @@ import type { I18nRuntimeConfig } from "./runtime.ts"
 
 type HeaderBag = { get(name: string): string | null }
 
-/** The parts of an H3 1 or H3 2 event that the server scope reads. */
+/** The parts of an H3 2 event that the server scope reads. */
 interface RequestEvent {
   context?: Record<string, unknown>
   req?: { headers?: HeaderBag } | unknown
-  node?: { req?: { headers?: Record<string, string | string[] | undefined> } }
 }
 
 interface NitroAppLike {
@@ -28,16 +27,11 @@ export interface I18nServerOptions {
 
 const eventKey = "vitehubI18n"
 
+const noHeaders: HeaderBag = { get: () => null }
+
 function requestHeaders(event: RequestEvent): HeaderBag {
   const headers = (event.req as { headers?: unknown } | undefined)?.headers
-  if (headers && typeof (headers as HeaderBag).get === "function") return headers as HeaderBag
-  const node = event.node?.req?.headers ?? {}
-  return {
-    get: (name) => {
-      const value = node[name.toLowerCase()]
-      return Array.isArray(value) ? value.join(", ") : value ?? null
-    },
-  }
+  return headers && typeof (headers as HeaderBag).get === "function" ? headers as HeaderBag : noHeaders
 }
 
 /**

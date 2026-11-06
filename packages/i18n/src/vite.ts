@@ -8,6 +8,7 @@ import { isLinguiTemplateTransform, linguiTemplateTransform } from "@lingui/vue/
 
 import { compileCatalogs, compileCatalogModule } from "./catalogs.ts"
 import { catalogPath, createLinguiConfig } from "./lingui.ts"
+import { i18nErrorDiagnostics } from "./errors.ts"
 import { resolveI18nLocaleConfig } from "./locales.ts"
 import { transformMacros } from "./macros.ts"
 
@@ -42,12 +43,10 @@ export type I18nVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & Vite
 
 type ViteHubConfig = (UserConfig | ResolvedConfig) & { i18n?: I18nOptions, nitro?: unknown, [VITEHUB_NITRO_MAJOR_VERSION]?: 2 | 3 }
 
-function renderNitroPlugin(importBase: string, nitroMajor: 2 | 3, messagesFile: string): string {
-  const context = nitroMajor === 2
-    ? `import { defineNitroPlugin as definePlugin, useEvent as current } from "nitropack/runtime"`
-    : `import { definePlugin } from "nitro"\nimport { useRequest as current } from "nitro/context"`
+function renderNitroPlugin(importBase: string, messagesFile: string): string {
   return [
-    context,
+    `import { definePlugin } from "nitro"`,
+    `import { useRequest } from "nitro/context"`,
     `import { installI18nServer } from ${JSON.stringify(`${importBase}/server`)}`,
     `import { config, messages } from ${JSON.stringify(messagesFile)}`,
     "",
@@ -56,7 +55,7 @@ function renderNitroPlugin(importBase: string, nitroMajor: 2 | 3, messagesFile: 
     "    config,",
     "    messages,",
     "    current: () => {",
-    "      try { return current() }",
+    "      try { return useRequest() }",
     "      catch { return undefined }",
     "    },",
     "  })",
@@ -102,7 +101,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     lingui = createLinguiConfig({ rootDir: projectRoot, locale, importBase })
   }
 
-  const writeServerFiles = async (nitroMajor: 2 | 3): Promise<void> => {
+  const writeServerFiles = async (): Promise<void> => {
     if (!projectRoot || !locale || !lingui) return
     const messagesFile = resolve(projectRoot, generatedMessages)
     const messages = await compileCatalogs(lingui)
@@ -111,7 +110,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       `export const messages = ${JSON.stringify(messages)}`,
       "",
     ].join("\n"))
-    await writeFileIfChanged(resolve(projectRoot, generatedPlugin), renderNitroPlugin(importBase, nitroMajor, messagesFile))
+    await writeFileIfChanged(resolve(projectRoot, generatedPlugin), renderNitroPlugin(importBase, messagesFile))
   }
 
   // The CLI can run before Vite resolves the config, so it builds the config from the plugin options.
@@ -152,8 +151,9 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       async handler(config) {
         const viteHubConfig = config as ViteHubConfig
         setup(viteHubConfig)
-        const nitroMajor = viteHubConfig[VITEHUB_NITRO_MAJOR_VERSION] ?? 3
-        await writeServerFiles(nitroMajor)
+        // Server messages read the request from Nitro 3's async context. Nitro 2 has no such context on every host.
+        if (viteHubConfig[VITEHUB_NITRO_MAJOR_VERSION] === 2) throw i18nErrorDiagnostics.I18N_UNSUPPORTED_HOST()
+        await writeServerFiles()
         const kit = createNitroServerKit(viteHubConfig.nitro)
         kit.addPlugin(resolve(projectRoot!, generatedPlugin), "start")
         // Nitro runs each request in an async context, so `t` in server code finds the locale of its request.
@@ -199,8 +199,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     async handleHotUpdate(context) {
       if (!context.file.endsWith(".po")) return
-      const nitroMajor = (context.server.config as ViteHubConfig)[VITEHUB_NITRO_MAJOR_VERSION] ?? 3
-      await writeServerFiles(nitroMajor)
+      await writeServerFiles()
     },
   }
 }

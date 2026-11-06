@@ -9,6 +9,10 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ problem }: { problem: string }) => problem,
       fix: "Set `i18n.locales` to a list of BCP 47 tags with the source language first, for example `{ i18n: { locales: [\"en\", \"es\"] } }`.",
     },
+    I18N_UNSUPPORTED_HOST: {
+      why: "i18n needs Nitro 3, which runs each request in an async context. Nuxt 4 builds the server with Nitro 2.",
+      fix: "Upgrade to Nuxt 5, or use `vitehub()` with Nitro 3 in a Vite app.",
+    },
     // Thrown when code calls a message macro that the ViteHub build did not compile.
     I18N_MACRO_NOT_COMPILED: {
       why: ({ name }: { name: string }) => `\`${name}\` from \`vite-hub/i18n\` ran without the ViteHub build, so it has no message ID.`,
