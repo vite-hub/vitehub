@@ -106,7 +106,8 @@ afterEach(() => {
 describe.each(["local", "open"] as const)("every Console route of a %s development Console", (mode) => {
   beforeEach(() => installConsoleAccess({ mode }))
 
-  it("refuses a remote client with CONSOLE_LOOPBACK_ONLY before the route runs", async () => {
+  // Let cold route imports finish before another test changes the process-wide access policy.
+  it("refuses a remote client with CONSOLE_LOOPBACK_ONLY before the route runs", { timeout: 30_000 }, async () => {
     const routes = await registeredConsoleRoutes()
     const files = new Set(routes.map(entry => sourceFile(entry.handler)))
     // A route that this list does not name must be classified here, so no Console route skips the rule.
@@ -138,7 +139,7 @@ describe.each(["local", "open"] as const)("every Console route of a %s developme
     }
   })
 
-  it("serves the same routes to this machine", async () => {
+  it("serves the same routes to this machine", { timeout: 30_000 }, async () => {
     useViteHubDevPeerKey()
     const routes = (await registeredConsoleRoutes()).filter(entry => !outsideConsoleAccess.has(sourceFile(entry.handler)))
     for (const entry of routes) {

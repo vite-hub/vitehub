@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { registerHooks } from "node:module"
 import { tmpdir } from "node:os"
@@ -17,6 +18,7 @@ import {
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
+import { viteHubDevPeerUpgradeListener } from "@vite-hub/internal/dev-peer"
 import { resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubComments } from "@vite-hub/comments/vite"
@@ -1114,16 +1116,25 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it.each(["/", "/portal/"])("publishes the Nuxt dev server with base %s, and removes the file on close", async (baseURL) => {
+  it.each([
+    ["/", false],
+    ["/portal/", false],
+    ["/", true],
+    ["/portal/", true],
+  ] as const)("publishes the Nuxt dev server with base %s (Console: %s), and removes the file on close", async (baseURL, consoleEnabled) => {
     const file = "/tmp/vitehub-nuxt/.vitehub/dev-server.json"
     await rm(file, { force: true })
     const application = createNuxt(true)
     Object.assign(application.nuxt.options, { app: { baseURL } })
-    await viteHubNuxtModule({ preset: "node" }, application.nuxt)
-    expect(application.listenHooks).toHaveLength(1)
+    await viteHubNuxtModule({ preset: "node", console: consoleEnabled ? { auth: false } : false }, application.nuxt)
+    expect(application.listenHooks).toHaveLength(consoleEnabled ? 2 : 1)
     // Nothing is written before Nuxt listens.
     await expect(readFile(file, "utf8")).rejects.toThrow()
-    application.listenHooks[0]!({}, { url: "http://localhost:3000/" })
+    const server = new EventEmitter()
+    const upgrade = vi.fn()
+    server.on("upgrade", upgrade)
+    for (const listen of application.listenHooks) listen(server, { url: "http://localhost:3000/" })
+    expect(server.listeners("upgrade")).toEqual(consoleEnabled ? [viteHubDevPeerUpgradeListener, upgrade] : [upgrade])
     expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ root: "/tmp/vitehub-nuxt", url: `http://localhost:3000${baseURL}` })
     await application.runCloseHook()
     await expect(readFile(file, "utf8")).rejects.toThrow()

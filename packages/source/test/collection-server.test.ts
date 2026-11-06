@@ -1,4 +1,5 @@
 import { H3 } from "h3"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
@@ -45,9 +46,10 @@ describe("defineCollectionHandler", () => {
 
     // Mirrors Auth's withAuthorization contract: the Auth package tests the real session lookup.
     const withAuthorization: CollectionAuthorizationGuard = (authorize, handler) => async (event) => {
-      const user = event.req.headers.get("cookie") === "session=u1" ? { id: "u1" } : undefined
+      const request = getStandardContext(event).req
+      const user = request.headers.get("cookie") === "session=u1" ? { id: "u1" } : undefined
       if (!user) return Response.json({ error: "Unauthorized." }, { status: 401 })
-      const result = authorize === true || await authorize({ request: event.req, session: {}, user })
+      const result = authorize === true || await authorize({ request, session: {}, user })
       if (result instanceof Response) return result
       if (result !== true) return Response.json({ error: "Forbidden." }, { status: 403 })
       return handler(event)
