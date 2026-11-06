@@ -82,6 +82,7 @@ const runtimeEntries = [
   "src/console/runtime/client/publish.ts",
   "src/console/runtime/client/mcp.ts",
   "src/console/runtime/client/mcp-client.ts",
+  "src/console/runtime/client/open-link.ts",
   "src/console/runtime/client/operation-view.ts",
   "src/console/runtime/client/problem.ts",
   "src/console/runtime/client/project.ts",
@@ -474,6 +475,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/live"];
           delete exports["./console/runtime/client/mcp-client"];
           delete exports["./console/runtime/client/mcp"];
+          delete exports["./console/runtime/client/open-link"];
           delete exports["./console/runtime/client/operation-view"];
           delete exports["./console/runtime/client/media"];
           delete exports["./console/runtime/client/media-library"];

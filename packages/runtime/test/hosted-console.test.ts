@@ -14,6 +14,13 @@ describe("hosted Console links", () => {
   it("keeps the application mount, and drops a trailing slash and a pasted Console path", () => {
     expect(new URL(hostedConsoleUrl("https://app.example.com/portal/", "/kv")).searchParams.get("project")).toBe("https://app.example.com/portal")
     expect(new URL(hostedConsoleUrl("https://app.example.com/portal/_vitehub/kv", "/kv")).searchParams.get("project")).toBe("https://app.example.com/portal")
+    expect(normalizeConsoleProjectUrl("https://app.example.com/portal/_vitehub")).toBe("https://app.example.com/portal")
+  })
+
+  it("keeps an application base that only starts with _vitehub", () => {
+    expect(normalizeConsoleProjectUrl("https://app.example.com/_vitehub-app")).toBe("https://app.example.com/_vitehub-app")
+    expect(normalizeConsoleProjectUrl("https://app.example.com/portal/_vitehub-assets")).toBe("https://app.example.com/portal/_vitehub-assets")
+    expect(normalizeConsoleProjectUrl("https://app.example.com/_vitehub-app/_vitehub/kv")).toBe("https://app.example.com/_vitehub-app")
   })
 
   it("uses another Console origin", () => {
