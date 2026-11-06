@@ -177,6 +177,9 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   for (const id of args.features) {
     const state = enabled(deleted, id)
     if (state.enabled === "off") continue
+    if (features[id].enabledByDiscovery && project.framework === "nuxt" && !project.serverDirs) {
+      throw manual("Nuxt server directories require config evaluation")
+    }
     if (state.reason === "implied" && !args.force) {
       const disabled = deleted.features.filter(item => item.enabled === "off" && item.reason === "config").map(item => item.id)
       const by = deleted.features.filter(item => item.enabled === "on" && item.reason !== "implied" && impliedFeatures([item.id], host, disabled).includes(id)).map(item => item.id)
@@ -235,14 +238,18 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   for (const file of listMatchingFiles(project.root, name => sourceFile.test(name) && !declarationFile.test(name))) {
     const path = relative(project.root, file)
     // A deleted starter is no use; a kept starter keeps its imports installed.
-    if ((starters.has(path) && !args.keepFiles) || edited.includes(path)) continue
+    if (starters.has(path) && !args.keepFiles) continue
     const content = await readFile(file, "utf8")
     for (const match of content.matchAll(specifierPattern)) {
       const specifier = match[2]!
       imported.add(packageName(specifier))
-      if (starters.has(path)) continue
       for (const [module, id] of modules) {
-        if (importsModule(specifier, module)) blocking.push({ feature: id, file: path, line: lineAt(content, match.index), module: specifier })
+        if (!importsModule(specifier, module)) continue
+        // Framework subpaths still need their optional owner packages.
+        if (module === runtimeModule(id)) {
+          for (const name of packagesOf(id, valueOf(project.config, id), host)) imported.add(name)
+        }
+        if (!starters.has(path) && !edited.includes(path)) blocking.push({ feature: id, file: path, line: lineAt(content, match.index), module: specifier })
       }
     }
   }

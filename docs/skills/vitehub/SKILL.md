@@ -9,7 +9,7 @@ Use one proof loop: orient, route, inspect the contract, build, and prove. Exact
 
 ## 1. Orient
 
-- Run `pnpm vitehub status --json` first. It parses the config without running it, so it works on a broken config and in an empty folder. It names the framework, the host, each feature as `on`, `off`, or `unknown`, the missing packages with their fix, and the host link. Where `vite-hub` is not installed yet, run `pnpm dlx vite-hub status --json`. No npm package is named `vitehub`, so `npx vitehub` fails. Use the package name `vite-hub`.
+- In an existing project, run `pnpm vitehub status --json` first. It parses the config without running it, so it works on a broken config. It names the framework, the host, each feature as `on`, `off`, or `unknown`, the missing packages with their fix, and the host link. In an empty folder, start with `pnpm dlx vite-hub catalog --json`, then create the project with `pnpm dlx vite-hub init`. Where a project exists but `vite-hub` is not installed yet, run `pnpm dlx vite-hub status --json`. No npm package is named `vitehub`, so `npx vitehub` fails. Use the package name `vite-hub`.
 - Run `pnpm vitehub catalog --json` before you choose a feature or a host. It lists each feature key, its packages, and how each host supports it (`native`, `explicit`, or `unsupported`), from the same catalog that the build checks. See [Read a project without loading it](https://vitehub.dev/raw/docs/development/cli.md#read-a-project-without-loading-it).
 - Then read only what the two commands do not answer: the lockfile, the server entry, nearby project instructions, and config parts that `status` reports as `unknown` or `manual`.
 - Identify installed ViteHub packages and versions, package manager, framework, host target, and requested outcome.

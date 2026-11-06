@@ -116,6 +116,25 @@ describe("vitehub remove", () => {
     expect(existsSync(join(root, "server/workflows/onboard.ts"))).toBe(true)
   })
 
+  it.each(["--force", "--keep-files"])("keeps a retained starter's owner package with %s", async (flag) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
+    const pm = fakePackageManager(root)
+    expect((await add(["schedule", "--name", "nightly"], root, pm.spawn)).exitCode).toBe(0)
+    const path = join(root, "server/schedules/nightly.ts")
+    if (flag === "--force") await writeFile(path, `${await readFile(path, "utf8")}// Keep this Definition.\n`)
+    const content = await readFile(path, "utf8")
+    const manifest = await readFile(join(root, "package.json"), "utf8")
+    const calls = [...pm.calls]
+
+    const { exitCode, json } = await remove(["schedule", "--yes", flag], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.uninstall).toEqual({ devPackages: [], packages: [] })
+    expect(await readFile(path, "utf8")).toBe(content)
+    expect(await readFile(join(root, "package.json"), "utf8")).toBe(manifest)
+    expect(pm.calls).toEqual(calls)
+  })
+
   it("refuses a feature that another enabled feature implies, and writes false with --force", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare", agent: true, workflow: true }`) })
     const before = await readFile(join(root, "vite.config.ts"), "utf8")
@@ -194,6 +213,25 @@ describe("vitehub remove", () => {
     expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
     expect(forced.json.kept).toEqual([])
     expect(await readFile(join(root, "vite.config.ts"), "utf8")).toBe(viteConfig(`{ preset: "node", comments: false }`))
+  })
+
+  it.each([
+    'rootDir: process.env.APP_ROOT',
+    'serverDir: process.env.SERVER_DIR',
+    'extends: ["./base"]',
+  ])("refuses removal when Nuxt discovery roots need evaluation: %s", async (layout) => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "nuxt.config.ts": `export default defineNuxtConfig({ ${layout}, modules: [["vite-hub/nuxt", { preset: "node", comments: true }]] })\n`,
+      "server/comments.ts": "export default {}\n",
+    })
+    const before = await snapshot(root)
+
+    const { exitCode, json } = await remove(["comments", "--yes"], root)
+
+    expect(exitCode).toBe(3)
+    expect(json.error?.code).toBe("SETUP_CONFIG_MANUAL")
+    expect(await snapshot(root)).toEqual(before)
   })
 
   it("plans in a dry run and asks for --yes without a terminal, writing nothing", async () => {
