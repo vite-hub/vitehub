@@ -1039,6 +1039,37 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("replaces the state setup that Nitro wrote before Vite resolved a Cloudflare build", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-state-rewrite-"))
+    try {
+      const registryFile = join(root, ".vitehub", "workflow", "registry.mjs")
+      const plugin = hubAgent({})
+      // Nuxt writes the Workflow registry from its Nitro config hook, before Vite resolves the Cloudflare preset.
+      const written = plugin.vitehub?.agent?.transformWorkflowRegistry("export default {}\n", registryFile)
+      if (!written) throw new Error("Expected a Nitro workflow registry")
+      expect(written).toContain("createLibsqlAgentState")
+
+      const configResolvedHook: unknown = plugin.configResolved
+      // SAFETY: hubAgent installs configResolved as an async Vite hook.
+      const configResolved = configResolvedHook as (config: Record<string, unknown>) => Promise<void>
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
+      await configResolved({ command: "build", plugins: [], preset: "cloudflare", root })
+      const registry = await transform(written, "/virtual/.vitehub/workflow/registry.mjs")
+      if (!registry) throw new Error("Expected a Cloudflare workflow registry")
+
+      expect(registry.match(/import \{ setAgentChannelDeliveryWorkflowStateResolver \}/g)).toHaveLength(1)
+      expect(registry).toContain("createCloudflareAgentState({ namespace })")
+      expect(registry).not.toContain("createLibsqlAgentState")
+      expect(registry.endsWith("export default {}\n")).toBe(true)
+      expect(await transform(registry, "/virtual/.vitehub/workflow/registry.mjs")).toBe(registry)
+      expect(plugin.vitehub?.agent?.transformWorkflowRegistry(registry, registryFile)).toBe(registry)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("invalidates generated Agent modules when an Agent changes", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invalidation-"))
@@ -1607,7 +1638,7 @@ describe("agent Vite plugin", () => {
       // SAFETY: hubAgent installs configResolved as an async Vite hook.
       const configResolved = configResolvedHook as (config: { command: "build" | "serve", plugins: Array<{ name: string }>, root: string }) => Promise<void>
       await configResolved({ command: "serve", plugins: [], root })
-      expect(await readFile(handler, "utf8")).toContain("import { handleAgentInvocationsDevRequest as handleViteHubDevRequest } from \"@vite-hub/agent/runtime/invocations-dev\"")
+      expect(await readFile(handler, "utf8")).toContain("import { defineEventHandler, handleAgentInvocationsDevRequest as handleViteHubDevRequest } from \"@vite-hub/agent/runtime/invocations-dev\"")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -2014,6 +2045,7 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain("process.env.NODE_ENV === 'development'")
       expect(gatewayRoute).toContain("Discord Gateway route requires VITEHUB_DISCORD_GATEWAY_SECRET.")
       expect(gatewayRoute).toContain('import { isViteHubBearerSecretEqual, toEventRequest } from "@vite-hub/agent/server/internal"')
+      expect(gatewayRoute).not.toMatch(/from\s*["']h3["']/)
       expect(gatewayRoute).not.toContain("!== secret")
       expect(gatewayRoute).toContain("runtime: 'vite'")
       expect(gatewayRoute).toContain("waitUntil: waitUntilFromEvent(event)")

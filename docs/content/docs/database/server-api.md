@@ -65,7 +65,7 @@ export default defineEventHandler(() => {
 
 ### Stay under the bound parameter limit
 
-Cloudflare D1 binds at most 100 parameters in one statement. A longer `inArray()` list or a multi-row insert fails on D1, even when it works on local SQLite. `chunkParameters(values, options)` splits the values into arrays that fit one statement each:
+Cloudflare D1 binds at most 100 parameters in one statement. A longer `inArray()` list or a multi-row insert rejects with [`DATABASE_D1_TOO_MANY_PARAMETERS`](/docs/database/limits-and-errors#database_d1_too_many_parameters) on D1, and in a dev server for Cloudflare that uses local SQLite. `chunkParameters(values, options)` splits the values into arrays that fit one statement each:
 
 ```ts [server/utils/files.ts]
 import { and, eq, inArray } from 'drizzle-orm'
