@@ -7,7 +7,7 @@ ViteHub is maintained as an open-source project. It does not operate a sales des
 
 ## Questions and implementation help
 
-Use the [ViteHub Discord community](https://discord.gg/YTRDsRP3) for implementation questions, design discussion, and help choosing between Server Primitives and Agents. Include the installed ViteHub package version, the host or framework, the expected behavior, and a minimal example when possible. Remove tokens, personal data, private repository content, and provider credentials before posting.
+Use the [ViteHub Discord community](https://discord.gg/pYWKEAKKDH) for implementation questions, design discussion, and help choosing between Server Primitives and Agents. Include the installed ViteHub package version, the host or framework, the expected behavior, and a minimal example when possible. Remove tokens, personal data, private repository content, and provider credentials before posting.
 
 ## Bugs and documentation
 

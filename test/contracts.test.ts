@@ -196,7 +196,7 @@ describe("package manifest contracts", () => {
 
     expect(security).toContain("https://github.com/vite-hub/vitehub/security/advisories")
     expect(security).toContain("https://github.com/vite-hub/vitehub/issues/new")
-    expect(security).toContain("https://discord.gg/YTRDsRP3")
+    expect(security).toContain("https://discord.gg/pYWKEAKKDH")
     expect(security).toContain("Published 0.x versions | No backports")
     expect(security).not.toMatch(/mailto:|[\w.+-]+@[\w.-]+/)
     expect(readme).toContain("[Apache License 2.0](LICENSE)")
