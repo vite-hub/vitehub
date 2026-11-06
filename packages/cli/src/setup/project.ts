@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
+import { createRequire } from "node:module"
 
 import { locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { dirname, join, resolve } from "pathe"
@@ -19,7 +20,9 @@ export interface SetupProject {
   configFile?: string
   /** Where `vitehub()` options are in `configFile`. `undefined` when there is no config file. */
   config: LocateResult | undefined
-  /** True when `name` is in a `node_modules` folder of `root` or of a parent folder. */
+  /** Static discovery directories; undefined when Nuxt directories or layers need evaluation. */
+  serverDirs?: readonly string[]
+  /** True when `name` is resolvable from the project or present in an ancestor's node_modules. */
   installed: (name: string) => boolean
 }
 
@@ -71,6 +74,22 @@ function detectPackageManager(root: string, manifest: PackageManifest | undefine
   return packageManagerName(env.npm_config_user_agent) ?? "npm"
 }
 
+function nuxtServerDirs(root: string, config: LocateResult | undefined): string[] | undefined {
+  const nuxt = config?.ok ? config.site.nuxt : undefined
+  if (!nuxt || nuxt.spread) return
+  // Resolving extended and automatically registered layers requires loading their configs.
+  const extended = nuxt.keys.extends
+  if (extended && !(extended.kind === "literal" && Array.isArray(extended.value) && extended.value.length === 0)) return
+  if (nuxt.keys._layers || nuxt.keys.srcDir || existsSync(join(root, "layers"))) return
+  const rootDir = nuxt.keys.rootDir
+  const serverDir = nuxt.keys.serverDir
+  if (rootDir && (rootDir.kind !== "literal" || typeof rootDir.value !== "string")) return
+  if (serverDir && (serverDir.kind !== "literal" || typeof serverDir.value !== "string")) return
+  const appRoot = rootDir?.kind === "literal" && typeof rootDir.value === "string" ? resolve(root, rootDir.value) : root
+  if (existsSync(join(appRoot, "layers"))) return
+  return [resolve(appRoot, serverDir?.kind === "literal" && typeof serverDir.value === "string" ? serverDir.value || "server" : "server")]
+}
+
 /**
  * Reads the project in `root` without loading its config: the config file is parsed, never run.
  * Throws `SETUP_NOT_A_PROJECT` when `root` has no package.json and no Vite or Nuxt config.
@@ -87,12 +106,25 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
   const configFile = framework === "nuxt" ? nuxtConfig ?? viteConfig : viteConfig
   const config = configFile ? locateViteHubConfig(configFile, await readFile(join(root, configFile), "utf8")) : undefined
   const folders = parentFolders(root)
+  const require = createRequire(join(root, "package.json"))
   return {
     config,
     ...(configFile ? { configFile } : {}),
     framework,
-    installed: name => folders.some(folder => existsSync(join(folder, "node_modules", name, "package.json"))),
+    installed: (name) => {
+      // Yarn PnP and other active loader hooks can resolve packages without node_modules.
+      // Resolve metadata or an entry point without evaluating either one.
+      for (const specifier of [`${name}/package.json`, name]) {
+        try {
+          require.resolve(specifier)
+          return true
+        }
+        catch {}
+      }
+      return folders.some(folder => existsSync(join(folder, "node_modules", name, "package.json")))
+    },
     packageManager: detectPackageManager(root, manifest, env),
     root,
+    serverDirs: framework === "nuxt" ? nuxtServerDirs(root, config) : [join(root, "server")],
   }
 }

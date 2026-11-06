@@ -1,3 +1,7 @@
+import { registerHooks } from "node:module"
+import { join } from "node:path"
+import { pathToFileURL } from "node:url"
+
 import { describe, expect, it } from "vitest"
 
 import { createProject, pnpmManifest, runSetup, viteConfig } from "./setup-helpers.ts"
@@ -83,6 +87,87 @@ describe("vitehub status", () => {
       expect(feature(json, "comments")).toMatchObject({ enabled: disabled ? "off" : "on", reason: disabled ? "config" : "default" })
       expect(feature(json, "database").enabled).toBe(disabled ? "off" : "on")
       if (!disabled) expect(feature(json, "database").missingPackages).toContain("@vite-hub/database")
+    }
+  })
+
+  it.each([
+    ["backend", "backend/comments.ts", "on"],
+    ["backend", "server/comments.ts", "off"],
+    ["", "server/comments.ts", "on"],
+  ])("discovers Nuxt Comments only in serverDir %j: %s", async (serverDir, file, enabled) => {
+    const root = await createProject({
+      [file]: `throw new Error("must not load discovery files")`,
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], serverDir: ${JSON.stringify(serverDir)} })`,
+      "package.json": pnpmManifest,
+    })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(feature(json, "comments")).toMatchObject({ enabled, reason: "default" })
+    expect(feature(json, "database")).toMatchObject({ enabled, reason: enabled === "on" ? "implied" : "default" })
+    if (enabled === "on") expect(feature(json, "database").missingPackages).toContain("@vite-hub/database")
+  })
+
+  it.each([
+    [`serverDir: process.env.SERVER_DIR`, {}],
+    [`extends: ["./base"]`, { "base/nuxt.config.ts": "export default {}", "base/server/comments.ts": "export default {}" }],
+    ["", { "layers/base/nuxt.config.ts": "export default {}", "layers/base/server/comments.ts": "export default {}" }],
+  ])("keeps unresolved Nuxt discovery unknown: %s", async (options, files) => {
+    const root = await createProject({
+      ...files,
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options} })`,
+      "package.json": pnpmManifest,
+    })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(feature(json, "comments").enabled).toBe("unknown")
+    expect(feature(json, "database").enabled).toBe("unknown")
+    expect(feature(json, "kv").enabled).toBe("off")
+  })
+
+  it("keeps explicit false authoritative with unresolved Nuxt discovery", async () => {
+    const root = await createProject({
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], serverDir: process.env.SERVER_DIR, vitehub: { comments: false } })`,
+      "package.json": pnpmManifest,
+    })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(feature(json, "comments")).toMatchObject({ enabled: "off", reason: "config" })
+    expect(feature(json, "database").enabled).toBe("off")
+  })
+
+  it.each(["vite", "nuxt"])("reports CommonJS %s config as manual instead of absent", async (framework) => {
+    const root = await createProject({
+      [`${framework}.config.cjs`]: framework === "vite"
+        ? `const { vitehub } = require("vite-hub"); module.exports = { plugins: [vitehub({ kv: true })] }`
+        : `module.exports = { modules: ["vite-hub/nuxt"], vitehub: { kv: true } }`,
+      "package.json": pnpmManifest,
+    })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(json.config).toMatchObject({ manual: "dynamic-options" })
+    expect(json.host.name).toBe("unknown")
+    expect(feature(json, "kv")).toMatchObject({ enabled: "unknown", reason: "config" })
+  })
+
+  it("uses the active package resolver for dependencies outside node_modules", async () => {
+    const root = await createProject({
+      ".yarn/cache/schedule/index.cjs": `throw new Error("must not load installed packages")`,
+      "package.json": JSON.stringify({ packageManager: "yarn@4.0.0" }),
+      "vite.config.ts": viteConfig("{ schedule: true }"),
+    })
+    // Yarn PnP installs a resolver hook; use Node's hook API to exercise that boundary.
+    const hooks = registerHooks({
+      resolve(specifier, context, nextResolve) {
+        if (specifier === "@vite-hub/schedule" && context.parentURL === pathToFileURL(join(root, "package.json")).href) {
+          return { shortCircuit: true, url: pathToFileURL(join(root, ".yarn/cache/schedule/index.cjs")).href }
+        }
+        return nextResolve(specifier, context)
+      },
+    })
+    try {
+      const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+      expect(json.packageManager).toBe("yarn")
+      expect(feature(json, "schedule").missingPackages).toEqual([])
+      expect(feature(json, "schedule").fix).toBeUndefined()
+    }
+    finally {
+      hooks.deregister()
     }
   })
 
