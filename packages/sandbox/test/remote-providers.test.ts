@@ -490,6 +490,24 @@ describe("remote Sandbox providers", () => {
     await session.close();
   });
 
+  it("retries a Cloudflare command that failed before the Container was ready", async () => {
+    vi.useFakeTimers();
+    let calls = 0;
+    const stub = cloudflareStub(async () => {
+      calls++;
+      if (calls === 1) throw new Error("The container is starting. Please retry in a moment.");
+      return { exitCode: 0, stderr: "", stdout: "ready", success: true };
+    });
+    const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const session = await sandbox.open();
+
+    const result = session.exec("probe");
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(result).resolves.toMatchObject({ code: 0, stdout: "ready" });
+    expect(calls).toBe(2);
+    await session.close();
+  });
+
   it("never retries a Cloudflare command and exposes the host retryable flag", async () => {
     vi.useFakeTimers();
     const lost = hostError("Network connection lost.", { retryable: true });

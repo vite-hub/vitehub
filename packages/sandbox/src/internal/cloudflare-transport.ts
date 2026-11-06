@@ -1,6 +1,7 @@
 import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 const retryDelays = [1_000, 2_000, 5_000, 10_000, 15_000]
-const transientMessage = /container is starting|currently provisioning|retry in a moment|network connection lost|not listening in the tcp address|durable object reset|code was updated|aborterror|aborted|maximum number of running container instances exceeded|there is no container instance that can be provided to this durable object/i
+const notStartedMessage = /container is starting|currently provisioning|retry in a moment|not listening in the tcp address|maximum number of running container instances exceeded|there is no container instance that can be provided to this durable object/i
+const transientMessage = /network connection lost|durable object reset|code was updated|aborterror|aborted/i
 
 export const cloudflareControlPlaneTimeout = 15_000
 export const cloudflareExecTimeout = 180_000
@@ -32,7 +33,7 @@ export async function withCloudflareRequest<T>(operation: string, options: Cloud
       if (signal?.aborted) throw signal.reason
       const message = [error instanceof Error ? error.message : String(error), error instanceof Error && error.cause instanceof Error ? error.cause.message : ''].join('\n')
       const host = hostRetryFlags(error)
-      if (attempt === retryDelays.length || !options.idempotent || !transient(host, message))
+      if (attempt === retryDelays.length || !shouldRetry(options.idempotent, host, message))
         throw sandboxErrorDiagnostics.SANDBOX_R0088({ message: `[vitehub] Cloudflare Sandbox ${operation} failed: ${message.trim()}`, cause: error, retryable: host.retryable })
       await waitForRetry(retryDelays[attempt], signal)
     }
@@ -40,11 +41,15 @@ export async function withCloudflareRequest<T>(operation: string, options: Cloud
   throw sandboxErrorDiagnostics.SANDBOX_R0089({ message: `[vitehub] Cloudflare Sandbox ${operation} retries exhausted.` })
 }
 
-function transient(host: HostRetryFlags, message: string) {
+function shouldRetry(idempotent: boolean, host: HostRetryFlags, message: string) {
   // Cloudflare: an overloaded Durable Object must not receive more requests.
   if (host.overloaded) return false
+  // provider-message-match: Cloudflare has no flag for a Container that is not ready. The request never reached a process, so even a command can retry.
+  if (notStartedMessage.test(message)) return true
+  // A lost response can follow a started command, so only an idempotent request can retry.
+  if (!idempotent) return false
   if (host.retryable !== undefined) return host.retryable
-  // provider-message-match: Container startup and Sandbox SDK errors reach the Worker without a retryable flag.
+  // provider-message-match: Sandbox SDK errors can reach the Worker without a retryable flag.
   return transientMessage.test(message)
 }
 
