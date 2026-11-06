@@ -100,7 +100,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
     `import { setBlobRuntimeConfig, setBlobRuntimeStorage, setNamedBlobRuntimeStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("runtime/state")))}`,
   ]
   if (selectedDriverModules.length > 0) {
-    imports.push(`import { createBlobStorage, createLazyBlobMedia, handleBlobMultipartUpload, handleBlobUpload } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
+    imports.push(`import { createBlobStorage, createLazyBlobMedia, handleBlobMultipartUpload, handleBlobUpload, blobStoreMode, readonlyBlobStorage } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("storage")))}`)
     imports.push(`import { blobResult, unknownBlobStoreError } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("errors")))}`)
   }
   for (const driverModule of selectedDriverModules) {
@@ -177,6 +177,12 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "  return store",
           "}",
           "",
+          "function selectGeneratedBlobStore(name, options, createStorage) {",
+          "  const mode = blobStoreMode(options)",
+          "  const storage = createStorage(name)",
+          "  return mode === \"read\" ? readonlyBlobStorage(storage) : storage",
+          "}",
+          "",
           "function createGeneratedBlobStorage(name = \"default\") {",
           "  const existing = blobStorages.get(name)",
           "  if (existing) return existing",
@@ -205,7 +211,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "      const [error, object] = await storage.put(pathname, body, options)",
           "      return error ? [error, undefined] : [null, withServedBlobUrl(name, object)]",
           "    },",
-          "    store: storeName => createGeneratedBlobStorage(storeName),",
+          "    store: (storeName, options) => selectGeneratedBlobStore(storeName, options, createGeneratedBlobStorage),",
           "  }",
           "  blobStorages.set(name, runtimeStorage)",
           "  return runtimeStorage",
@@ -230,7 +236,7 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
           "    async put(pathname, body, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"put\"); return error ? [error, undefined] : storage.put(pathname, body, options) },",
           "    async sign(pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"sign\"); return error ? [error, undefined] : storage.sign(pathname, options) },",
           "    async serve(event, pathname, options) { const [error, storage] = await resolveGeneratedBlobStorage(name, \"serve\"); return error ? [error, undefined] : storage.serve(event, pathname, options) },",
-          "    store: storeName => createLazyGeneratedBlobStorage(storeName),",
+          "    store: (storeName, options) => selectGeneratedBlobStore(storeName, options, createLazyGeneratedBlobStorage),",
           "  }",
           "}",
           "",
