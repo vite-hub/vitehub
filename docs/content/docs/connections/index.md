@@ -83,6 +83,28 @@ icon: i-lucide-plug
     return response[1].json()
   })
   ```
+
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
+  import { env } from 'vite-hub/env'
+
+  export default defineConfig({
+    plugins: [vitehub({ preset: 'node', connections: true })],
+    // Types useServerEnv().google in server code
+    env: {
+      server: {
+        google: {
+          clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+          clientSecret: env({
+            secret: true,
+            source: env.source('GOOGLE_CLIENT_SECRET'),
+          }),
+        },
+      },
+    },
+  })
+  ```
   :::
 ::
 

@@ -78,6 +78,27 @@ icon: i-lucide-send
     return receipt
   })
   ```
+
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
+  import { env } from 'vite-hub/env'
+
+  export default defineConfig({
+    plugins: [vitehub({ preset: 'node', channels: true })],
+    // Types useServerEnv().slack in server code
+    env: {
+      server: {
+        slack: {
+          webhookUrl: env({
+            secret: true,
+            source: env.source('SLACK_WEBHOOK_URL'),
+          }),
+        },
+      },
+    },
+  })
+  ```
   :::
 ::
 
