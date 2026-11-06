@@ -2,6 +2,7 @@ import { H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ensureBlob } from "../src/ensure.ts"
+import { normalizeBlobOptions } from "../src/config.ts"
 import { blob } from "../src/runtime/storage.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import {
@@ -443,6 +444,20 @@ describe("blob runtime", () => {
 
     expect(vercelBlobMock.put).toHaveBeenLastCalledWith("notes/hello.txt", "hello", expect.objectContaining({ access: "private" }))
     expect(vercelBlobMock.put).toHaveBeenLastCalledWith("notes/hello.txt", "hello", expect.not.objectContaining({ token: expect.anything() }))
+  })
+
+  it("passes a masked configured token to the Vercel SDK ahead of OIDC", async () => {
+    const config = normalizeBlobOptions({ driver: "vercel-blob", token: "build-token" }, {
+      env: { BLOB_READ_WRITE_TOKEN: "build-token", BLOB_STORE_ID: "oidc-store" },
+    })
+    const runtimeConfig: ResolvedBlobModuleOptions = JSON.parse(JSON.stringify(config))
+    process.env.BLOB_READ_WRITE_TOKEN = "runtime-token"
+    process.env.BLOB_STORE_ID = "oidc-store"
+    setBlobRuntimeConfig(runtimeConfig)
+
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+
+    expect(vercelBlobMock.put).toHaveBeenLastCalledWith("notes/hello.txt", "hello", expect.objectContaining({ token: "runtime-token" }))
   })
 
   it.each([undefined, false, true])("preserves Vercel list options and result shape with folded %s", async (folded) => {

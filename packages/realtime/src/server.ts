@@ -1,5 +1,5 @@
 import { assertAuthOrigin } from "@vite-hub/auth/server"
-import { isWorkspaceConflict, normalizeSafeWorkspacePath } from "@vite-hub/workspace"
+import { isWorkspaceConflict, normalizeSafeWorkspacePath } from "@vite-hub/workspace/files"
 import { H3Event, HTTPError, defineEventHandler, defineWebSocketHandler } from "h3"
 import * as decoding from "lib0/decoding"
 import * as encoding from "lib0/encoding"

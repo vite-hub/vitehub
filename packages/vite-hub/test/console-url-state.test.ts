@@ -275,11 +275,11 @@ describe("Operation views such as Comments", async () => {
   it("loads the filter of the URL and leaves the first filter out of it", async () => {
     mocks.operation.mockResolvedValue([])
     const { replace, router, state } = await mountPage<{ choose: (id: string) => void }>(View, { definitionsBase: "/definitions", details, sectionsBase: "/sections" }, "/comments?filter=resolved", routes)
-    await vi.waitFor(() => expect(mocks.operation).toHaveBeenLastCalledWith("/definitions", details.view, { status: "resolved" }, expect.anything()))
+    await vi.waitFor(() => expect(mocks.operation).toHaveBeenLastCalledWith(details.view, { status: "resolved" }, expect.anything()))
     state.choose("open")
     await settle(router, {})
     expect(replace).toHaveBeenCalledOnce()
-    await vi.waitFor(() => expect(mocks.operation).toHaveBeenLastCalledWith("/definitions", details.view, { status: "open" }, expect.anything()))
+    await vi.waitFor(() => expect(mocks.operation).toHaveBeenLastCalledWith(details.view, { status: "open" }, expect.anything()))
   })
 })
 

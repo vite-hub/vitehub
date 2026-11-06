@@ -83,11 +83,13 @@ function resolveVercelStore(
   config: Partial<VercelBlobStoreConfig> = {},
   env: Record<string, string | undefined> = process.env,
 ): ResolvedVercelBlobStoreConfig {
+  const token = resolveBuildRuntimeValue(config.token, env, "BLOB_READ_WRITE_TOKEN") ?? MASKED_BLOB_RUNTIME_VALUE
   return {
     ...config,
     access: config.access ?? "public",
     driver: "vercel-blob",
-    token: resolveBuildRuntimeValue(config.token, env, "BLOB_READ_WRITE_TOKEN") ?? MASKED_BLOB_RUNTIME_VALUE,
+    token,
+    ...(token === MASKED_BLOB_RUNTIME_VALUE && trimmed(config.token) ? { tokenFromConfig: true } : {}),
   }
 }
 
@@ -356,12 +358,15 @@ export function resolveRuntimeVercelBlobStore(
   config: ResolvedVercelBlobStoreConfig,
   env: Record<string, string | undefined>,
 ): ResolvedVercelBlobStoreConfig {
-  const { token: configuredToken, ...store } = config
+  const { token: configuredToken, tokenFromConfig, ...store } = config
   if (!isMaskedBlobRuntimeValue(configuredToken)) return config
-  if (readEnv(env, "BLOB_STORE_ID")) return store
+  if (!tokenFromConfig && readEnv(env, "BLOB_STORE_ID")) return store
 
   const token = readEnv(env, "BLOB_READ_WRITE_TOKEN")
   if (!token) {
+    if (tokenFromConfig) {
+      throw blobErrorDiagnostics.BLOB_C0009({ message: "Missing runtime environment variable `BLOB_READ_WRITE_TOKEN` for the configured Vercel Blob token." })
+    }
     throw blobErrorDiagnostics.BLOB_C0009({ message: "Missing Vercel Blob credentials. Connect a Blob store to the Vercel project so it gets `BLOB_STORE_ID`, or set `BLOB_READ_WRITE_TOKEN` off Vercel." })
   }
   return { ...store, token }
