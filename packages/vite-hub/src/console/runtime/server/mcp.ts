@@ -5,7 +5,6 @@ import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { consoleAccessAllows, consoleAccessWrites, consoleRequest, installedConsoleOAuth, readConsoleAccessUser, readConsoleOperationUser, withConsoleAccess } from "./access.ts"
 import { consoleMcpReadScope, consoleMcpWriteScope, isBearerRejection, mcpChallenge, resolveConsoleOAuth } from "./bearer.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
-import { assertLoopbackWithoutSignIn } from "./loopback.ts"
 import { serveMcp } from "./mcp-protocol.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { isConsoleDevelopmentRuntime } from "./request.ts"
@@ -169,14 +168,7 @@ export async function mcpUnauthorized(event: ConsoleRequestEvent): Promise<Respo
 }
 
 const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) => {
-  const { req: request, runtime } = getStandardContext(event)
-  try {
-    await assertLoopbackWithoutSignIn(request, new URL(request.url), { access, remoteAddress: runtime?.clientAddress })
-  }
-  catch (error) {
-    const { code, fix, message } = toOperationFailure(error)
-    return Response.json({ code, ...(fix ? { fix } : {}), message }, { headers: { "cache-control": "no-store" }, status: 403 })
-  }
+  const request = getStandardContext(event).req
   const context = { access, event, request }
   const installed = getConsoleSections()
   const registered = getViteHubMcpTools().filter(tool => installed.includes(tool.section))

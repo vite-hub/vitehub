@@ -3,7 +3,7 @@ import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
-import { addViteHubDevPeerDevHandler } from "@vite-hub/internal/dev-peer"
+import { addViteHubDevPeerDevHandler, addViteHubDevPeerUpgradeSigner } from "@vite-hub/internal/dev-peer"
 import { viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "@vite-hub/internal/build/page-tools"
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -928,6 +928,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     },
     configureServer(server) {
       publishDevServer(server)
+      // Nitro's WebSocket upgrades skip its dev handlers. The listener signs only after the Nitro module made a key.
+      if (server.httpServer) addViteHubDevPeerUpgradeSigner(server.httpServer)
       if (fixture) server.watcher.add(fixture)
       if (consoleAuthHandlers?.clientSources.length) server.watcher.add(consoleAuthHandlers.clientSources)
       const refresh = async (path: string) => {
