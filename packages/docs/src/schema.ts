@@ -70,6 +70,10 @@ export interface DocsSectionFile {
   order?: number
   /** Catalog group of the section. `categories` in the docs options orders the groups. */
   category?: string
+  /** Rail group of the section: sections of one group share one rail item and one sidebar. */
+  group?: string
+  /** Folds each page group of the sidebar until the reader opens it. The group of the current page opens itself. */
+  fold?: boolean
   /** Ids of sections listed under Related in this section's sidebar. */
   related?: string[]
 }
@@ -129,6 +133,8 @@ export const docsSectionSchema: z.ZodType<DocsSectionFile> = z.strictObject({
   icon: z.string().optional(),
   order: z.number().optional(),
   category: z.string().optional(),
+  group: z.string().optional(),
+  fold: z.boolean().optional(),
   related: z.array(z.string()).optional(),
 })
 
