@@ -58,7 +58,7 @@ export function netlifyAdapter(context: DeployContext): DeployAdapter {
 
   return {
     async deploy() {
-      const args = ["deploy", "--no-build", "--dir", publishDir, "--json", ...(context.preview ? [] : ["--prod"])]
+      const args = ["deploy", "--no-build", "--dir", publishDir, "--json", ...(context.preview ? ["--context", "deploy-preview"] : ["--prod"])]
       // ViteHub writes this wrapper for the older Nitro layout. Netlify finds `.netlify/v1/functions` by itself.
       if (existsSync(join(context.outputDir, "functions", "server.mjs"))) args.push("--functions", join(context.outputDir, "functions"))
       args.push(...(site ? ["--site", site.id] : ["--site-name", context.projectName]))

@@ -87,7 +87,7 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
   const command = await readWranglerCommand(context.outputDir)
   const wrangler = hostCli("wrangler", "wrangler", context.root, context.env)
   const linked = !context.temporary && context.link?.host === "cloudflare" ? context.link : undefined
-  const accountId = (context.credentials.ok ? context.credentials.accountId : undefined) ?? linked?.account?.id
+  const accountId = linked?.account?.id ?? (context.credentials.ok ? context.credentials.accountId : undefined)
   const target = linked ? ["--name", linked.project.name] : []
   const env: NodeJS.ProcessEnv = {
     ...context.env,
