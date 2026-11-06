@@ -18,6 +18,7 @@ import { hubEnv } from "@vite-hub/env/vite"
 import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig, type KVVitePluginAPI } from "@vite-hub/kv/vite"
 import { hubQueue } from "@vite-hub/queue/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
+import { hubBundle } from "@vite-hub/bundle/vite"
 import { hubSandboxTask } from "@vite-hub/sandbox/task/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
@@ -108,6 +109,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/agent": true,
   "@vite-hub/auth": true,
   "@vite-hub/blob": true,
+  "@vite-hub/bundle": false,
   "@vite-hub/browser": true,
   "@vite-hub/sandbox": true,
   "@vite-hub/channels": true,
@@ -392,6 +394,11 @@ export interface ViteHubOptions {
   /** The ViteHub Console at `/_vitehub`. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
   console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
+  /**
+   * Writes a bundle report of each production build to `.vitehub/bundle/`: client and server size, the code that loads
+   * at startup, and why each package is there. Read it with `vitehub bundle`. Off by default.
+   */
+  bundle?: boolean
   database?: boolean | DBModulePublicOptions
   email?: boolean | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
@@ -1345,6 +1352,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.queue && plan.services.queue.supported) {
     plugins.push(afterApplicationConfig(hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" })))
   }
+  if (options.bundle) plugins.push(hubBundle())
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
     // SAFETY: ViteHub adds its private generated import base to the public Rate Limit options before calling the owned integration.
