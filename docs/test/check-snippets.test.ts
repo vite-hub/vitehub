@@ -81,10 +81,10 @@ describe("documentation snippet check", () => {
     const pageRoot = join(repoRoot, "docs/.snippets/registry-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "registry-page.md", pageRoot })
     const snippets = [
-      snippet("server/queues/welcome-email.ts", "import { defineQueue } from 'vite-hub/queue'\nexport default defineQueue<{ email: string }>(async () => {})"),
-      snippet("server/api/signup.ts", "import { runQueue } from 'vite-hub/queue'\nexport const sent = runQueue('welcome-email', { email: 'ada@example.com' })"),
-      snippet("server/api/typo.ts", "import { runQueue } from 'vite-hub/queue'\nexport const sent = runQueue('welcom-email', { email: 'ada@example.com' })"),
-      snippet("server/api/payload.ts", "import { runQueue } from 'vite-hub/queue'\nexport const sent = runQueue('welcome-email', { address: 'ada@example.com' })"),
+      snippet("server/queues/welcome-email.ts", "import { defineQueue } from '@vite-hub/queue'\nexport default defineQueue<{ email: string }>(async () => {})"),
+      snippet("server/api/signup.ts", "import { runQueue } from '@vite-hub/queue'\nexport const sent = runQueue('welcome-email', { email: 'ada@example.com' })"),
+      snippet("server/api/typo.ts", "import { runQueue } from '@vite-hub/queue'\nexport const sent = runQueue('welcom-email', { email: 'ada@example.com' })"),
+      snippet("server/api/payload.ts", "import { runQueue } from '@vite-hub/queue'\nexport const sent = runQueue('welcome-email', { address: 'ada@example.com' })"),
     ]
     const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
 
