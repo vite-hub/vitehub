@@ -111,6 +111,8 @@ export default defineConfig({
 
 Direct clients from `createQueueClient()` always redact plain handler errors. They cannot share a directory with the generated dev engine, which reports error details: that fails with `QUEUE_LOCAL_MODE_MISMATCH`. Use `getQueue()` in the dev server, or give the direct client a separate `base` directory.
 
+When a production server reopens a dev store, it redacts stored errors without a code before it exposes the jobs. Queue errors and `ViteHubError` keep their code and message.
+
 - A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or after a Queue error that a retry cannot fix, it becomes a dead job. A dead job stays in its file with the last error. The provider keeps the 100 newest dead jobs of each Queue Definition.
 - The server writes the attempt count before the handler runs. A job whose handler was running when the process stopped runs again after the restart. If that was the fourth attempt, the job becomes a dead job instead.
 - Delivery is at least once. A successful handler can run again after a restart if the process stops before completion is saved, or if both deleting the job and saving its completed state fail. Make handler side effects idempotent.

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { setImmediate } from "node:timers/promises"
 
+import { ViteHubError } from "@vite-hub/runtime"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeQueueOptions } from "../src/config.ts"
@@ -221,6 +222,77 @@ describe("local queue durability", () => {
 
     expect((await second.status()).queues.welcome).toEqual({ dead: 1, pending: 0, running: 0 })
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  it.each(["dead", "pending"] as const)("redacts recovered %s handler errors outside development", async (state) => {
+    const error = new TypeError("SMTP down for ada@example.com")
+    // Error stacks are optional. The message still needs redaction when one is absent.
+    if (state === "pending") error.stack = undefined
+    const options = {
+      base,
+      load: async () => ({ handler: async () => { throw error } }),
+      missing: missingQueueDefinitionError,
+      retryDelayMs: () => 60_000,
+      rules: { ...localQueueDeliveryRules.local, maxAttempts: state === "dead" ? 1 : 4 },
+    }
+    const first = createLocalQueueEngine({ ...options, development: true })
+    try {
+      await first.enqueue("welcome", [{ id: "job-1", payload: { email: "ada@example.com" } }])
+      await vi.waitFor(async () => expect((await first.status()).queues.welcome).toEqual({ dead: state === "dead" ? 1 : 0, pending: state === "pending" ? 1 : 0, running: 0 }))
+    }
+    finally {
+      first.close()
+    }
+
+    const dev = createLocalQueueEngine({ ...options, development: true })
+    try {
+      expect((await dev.job("job-1"))?.error).toEqual({ message: error.message, name: error.name, ...(error.stack ? { stack: error.stack } : {}) })
+    }
+    finally {
+      dev.close()
+    }
+
+    const production = createLocalQueueEngine(options)
+    try {
+      const redacted = { message: "[vitehub] Queue Delivery failed.", name: "Error" }
+      expect(await production.jobs()).toMatchObject([{ error: redacted, state }])
+      const job = await production.job("job-1")
+      expect(job?.error).toEqual(redacted)
+      expect(job?.payload).toEqual({ email: "ada@example.com" })
+      expect(await storedJobs()).toEqual([expect.objectContaining({ error: redacted, payload: { email: "ada@example.com" }, state })])
+    }
+    finally {
+      production.close()
+    }
+  })
+
+  it.each([
+    queueErrorDiagnostics.QUEUE_DISABLED(),
+    new ViteHubError("WELCOME_REJECTED", "Mailer rejected the address."),
+  ])("keeps a coded handler error after production reopens a dev store (%s)", async (error) => {
+    const first = createLocalQueueEngine({
+      base,
+      development: true,
+      load: async () => ({ handler: async () => { throw error } }),
+      missing: missingQueueDefinitionError,
+      rules: { ...localQueueDeliveryRules.local, maxAttempts: 1 },
+    })
+    try {
+      await first.enqueue("welcome", [{ id: "job-1", payload: {} }])
+      await vi.waitFor(async () => expect((await first.status()).queues.welcome).toEqual({ dead: 1, pending: 0, running: 0 }))
+    }
+    finally {
+      first.close()
+    }
+
+    const second = engineFor({})
+    try {
+      expect((await second.job("job-1"))?.error).toEqual((await first.job("job-1"))?.error)
+      expect((await second.job("job-1"))?.error?.code).toBe(error.code)
+    }
+    finally {
+      second.close()
+    }
   })
 })
 

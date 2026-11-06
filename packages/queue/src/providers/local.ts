@@ -454,6 +454,11 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
           await unlink(job).catch(() => {})
           continue
         }
+        // A production server can reopen the directory used by `vite dev`.
+        if (options.development !== true && job.error && !job.error.code) {
+          job.error = { message: "[vitehub] Queue Delivery failed.", name: "Error" }
+          await persist(job)
+        }
         if (job.state === "dead") delete job.payload
         recovered.push(job)
       }

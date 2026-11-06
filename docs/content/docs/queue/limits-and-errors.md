@@ -207,6 +207,8 @@ Dev does not emulate these parts of the host:
 
 ## Production checks
 
+When a production local server reopens jobs stored by `vite dev`, it redacts stored errors without a code. Queue errors and `ViteHubError` keep their code and message.
+
 - A successful `runQueue()` means that the provider accepted the job. Track handler results in your own storage, or use [Workflows](/docs/workflows) when the caller needs run status.
 - Providers can deliver a job more than once. Make handlers safe to run again after a partial side effect.
 - Cloudflare needs a deployed request-scoped binding and an existing queue. `vitehub provision run --provider cloudflare` can create the generated queues when account credentials are present. See [Provisioning](/docs/development/provisioning).
