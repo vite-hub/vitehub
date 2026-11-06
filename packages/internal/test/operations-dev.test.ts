@@ -65,7 +65,7 @@ describe("local operation RPC", () => {
     const { handler, run, request } = fixture()
     useViteHubDevPeerKey()
     const signed = async (remoteAddress: string, headers: Record<string, string> = {}) => {
-      const req = { headers: { ...headers }, method: "POST", socket: { remoteAddress }, url: "/_vitehub/rpc/__call" }
+      const req = { headers: { host: "localhost", ...headers }, method: "POST", socket: { remoteAddress }, url: "/_vitehub/rpc/__call" }
       await viteHubDevPeerDevHandler({ node: { req } })
       return Object.fromEntries(Object.entries(req.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
     }
@@ -75,6 +75,8 @@ describe("local operation RPC", () => {
     expect((await handler({ req: request(body, await signed("127.0.0.1")) })).status).toBe(200)
     expect(run).toHaveBeenCalledTimes(2)
     expect((await handler({ req: request(body, await signed("192.168.0.38", { [viteHubDevPeerHeader]: "v1.forged" })) })).status).toBe(403)
+    // A tunnel on this machine connects from 127.0.0.1 and adds the address of the client it forwards.
+    expect((await handler({ req: request(body, await signed("127.0.0.1", { "x-forwarded-for": "203.0.113.9" }), undefined, null) })).status).toBe(403)
     expect((await handler({ req: request(body, {}, undefined, "127.0.0.1") })).status).toBe(403)
     expect(run).toHaveBeenCalledTimes(2)
   })

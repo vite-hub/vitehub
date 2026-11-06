@@ -27,6 +27,7 @@ import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleF
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { addConsolePageToolRoutes, addConsoleRpcHandler, ignoreConsolePrerender } from "./nitro.ts"
 import { transformConsoleOperationFeatures } from "./operation-features.ts"
+import { consoleDevAccessNotice } from "./dev-access-notice.ts"
 import { consoleOpenAccessWarning, isConsoleSignInPage } from "./runtime/server/access.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveConsoleJournal, type ConsoleJournal } from "../storage-config.ts"
@@ -930,6 +931,15 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       publishDevServer(server)
       // Nitro's WebSocket upgrades skip its dev handlers. The listener signs only after the Nitro module made a key.
       if (server.httpServer) addViteHubDevPeerUpgradeSigner(server.httpServer)
+      const configured = resolvedConsoleConfiguration
+      if (configured && server.httpServer) {
+        const http = server.httpServer
+        const mode = "local" in configured && configured.local === true ? "local" : configured.auth === false || configured.auth === undefined ? "open" : "auth"
+        http.once("listening", () => {
+          const notice = consoleDevAccessNotice(mode, http.address())
+          if (notice) server.config.logger[notice.level](notice.message)
+        })
+      }
       if (fixture) server.watcher.add(fixture)
       if (consoleAuthHandlers?.clientSources.length) server.watcher.add(consoleAuthHandlers.clientSources)
       const refresh = async (path: string) => {
