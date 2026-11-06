@@ -1,5 +1,6 @@
 import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthResolvedDefinitionOptions, AuthRuntimeConfiguration, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
 import type { ConsoleAuthorize } from "./auth-types.ts"
+import type { ViteHubContext } from "@vite-hub/runtime"
 import { createAuthForRequest } from "@vite-hub/auth/server"
 import { installStandardContext } from "@vite-hub/runtime/h3"
 import { consoleOAuthPlugins } from "./auth-oauth.ts"
@@ -29,7 +30,7 @@ export async function prepareConsoleAuth(
   input: ConsoleAuthDefinition,
   definition: AuthDefinition,
   request: Request,
-  event?: object,
+  event?: ViteHubContext,
 ): Promise<void> {
   if (input.migrate === false) return
   let migration = migrations.get(definition)

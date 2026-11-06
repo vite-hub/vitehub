@@ -328,15 +328,21 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
     async serve(input, pathname: string, options = {}) {
       const event = serveEvent(input)
       const added = Object.entries(options.headers ?? {})
+      const previous = added.map(([name]) => [name, event.res.headers.get(name)] as const)
       for (const [name, value] of added) event.res.headers.set(name, value)
-      const removeAdded = () => { for (const [name] of added) event.res.headers.delete(name) }
+      const restoreHeaders = () => {
+        for (const [name, value] of previous) {
+          if (value === null) event.res.headers.delete(name)
+          else event.res.headers.set(name, value)
+        }
+      }
       try {
         const result = await serveRequest(event, pathname, options)
-        if (result[0]) removeAdded()
+        if (result[0]) restoreHeaders()
         return result
       }
       catch (error) {
-        removeAdded()
+        restoreHeaders()
         throw error
       }
     },

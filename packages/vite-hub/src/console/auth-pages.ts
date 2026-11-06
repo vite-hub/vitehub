@@ -294,11 +294,13 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
     const request = toEventRequest(event)
     const url = consoleRequestURL({ req: request })
     const authRequest = { headers: request.headers, url: url.href }
-    let auth = await resolveAuth(authRequest, undefined, event)
+    // SAFETY: Nitro installs Standard Context; Auth also adapts standalone H3 events on first use.
+    const authEvent = event as ViteHubContext
+    let auth = await resolveAuth(authRequest, undefined, authEvent)
     let context = await auth.$context
     // A static provider has no origin until its first HTTP request. Resolve it before reading its URLs.
     if (!context.baseURL) {
-      auth = await resolveAuth(authRequest, { baseURL: url.origin }, event)
+      auth = await resolveAuth(authRequest, { baseURL: url.origin }, authEvent)
       context = await auth.$context
     }
     if (new URL(context.baseURL).origin !== url.origin) {

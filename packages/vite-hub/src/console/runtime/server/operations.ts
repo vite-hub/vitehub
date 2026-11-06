@@ -1,4 +1,5 @@
 import { defineOperation, operationAccessAllows, operationCall, operationSection } from "@vite-hub/internal/operations"
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot"
 
 import { bindConsoleAccess, consoleOperationAccess } from "./access.ts"
@@ -51,19 +52,23 @@ function legacyEvent(route: string, method: "GET" | "POST", request: LegacyReque
   const params: Record<string, string> = {}
   if (request.agent) params.agent = request.agent
   if (request.id) params.id = request.id
+  const req = new Request(url, {
+    ...(method === "POST" ? { body: JSON.stringify(request.body) } : {}),
+    headers: context.request?.headers,
+    method,
+    signal: context.request?.signal,
+  })
+  // An omitted RPC body is already decoded; Fetch's empty-body JSON parser would reject it.
+  if (method === "POST" && request.body === undefined) req.json = async () => undefined
   const event: ConsoleRequestEvent = {
     env: context.env,
     context: Object.keys(params).length ? { params } : undefined,
     method,
-    req: new Request(url, {
-      ...(method === "POST" ? { body: JSON.stringify(request.body) } : {}),
-      headers: context.request?.headers,
-      method,
-      signal: context.request?.signal,
-    }),
-    res: context.response ?? {},
+    req,
+    res: Object.assign(context.response ?? {}, { headers: new Headers() }),
   }
   if (context.waitUntil) event.waitUntil = context.waitUntil
+  installStandardContext(event)
   return bindConsoleAccess(context.access, event)
 }
 

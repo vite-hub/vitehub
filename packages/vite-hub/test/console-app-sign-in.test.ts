@@ -3,6 +3,7 @@ import { defineAuth } from "@vite-hub/auth"
 import { createAuthForRequest, createAuthAccessHandler, requireAuthAccessRoutes, withAuthorization } from "@vite-hub/auth/server"
 import { getAuthForRequest, resetAuth } from "../../auth/src/server.ts"
 import { H3, H3Event } from "h3"
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
 import { createConsoleAppAuthAccess, createConsoleAppAuthPages } from "../src/console/auth-pages.ts"
@@ -77,9 +78,11 @@ function proxySignInEvent(host: "fetch" | "h3", browserOrigin = origin) {
     "x-forwarded-host": "app.example.com, proxy.internal",
     "x-forwarded-proto": "https, http",
   }
-  return host === "fetch"
+  const event = host === "fetch"
     ? new H3Event(new Request(`http://internal:3000${path}`, { method: "POST", headers }))
     : { node: { req: { method: "POST", headers, url: path.slice("/portal".length), originalUrl: path, async *[Symbol.asyncIterator]() {} }, res: {} } }
+  installStandardContext(event)
+  return event
 }
 
 describe("Console reuses app Auth sign-in", () => {
