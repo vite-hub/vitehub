@@ -6,7 +6,7 @@ navigation.order: 3
 icon: i-lucide-sliders-horizontal
 ---
 
-ViteHub uses [Lingui](https://lingui.dev) to extract and compile the messages. Your app has no Lingui config and imports nothing from Lingui. You set the locales in the ViteHub options, and ViteHub does the rest.
+ViteHub uses [Lingui](https://lingui.dev) to read and compile the messages. Your app has no Lingui config and imports nothing from Lingui. You set the locales in the ViteHub options, and ViteHub does the rest.
 
 ## Choose the locales
 
@@ -171,17 +171,20 @@ export function statusLabel(status: keyof typeof labels) {
 
 ## Translate the messages
 
-The messages live in one PO catalog for each locale, in `locales/<locale>.po` at the project root. Translators edit these files with a text editor or a PO editor such as Poedit.
+The source text is the key. Each translation is one JSON file in `locales/<locale>/` at the project root, so two people who translate different messages never edit the same file:
 
-Run `extract` after you add or change messages:
-
-```bash [Terminal]
-pnpm vitehub i18n extract
+```json [locales/es/a0413cbe9.json]
+{
+  "source": "Deploy your agent",
+  "translation": "Despliega tu agente",
+  "review": "edited",
+  "updatedAt": "2026-11-06T12:00:00.000Z"
+}
 ```
 
-`extract` adds new messages and keeps the translations that exist. It removes messages that the code no longer uses. Add `--keep-obsolete` to keep them in the file.
+The file name is the message ID, a hash of `source` and `context`. Edit `translation`, not `source`. A record whose `source` does not match its name is skipped, and `status` lists it. `review` is `machine`, `edited`, or `verified`.
 
-`status` shows the coverage of each locale. It does not change a file:
+`status` reads the messages in the code and compares them with the records. It changes no file:
 
 ```bash [Terminal]
 pnpm vitehub i18n status --json
@@ -189,23 +192,38 @@ pnpm vitehub i18n status --json
 
 ```json
 [
-  { "locale": "en", "source": true, "catalog": "locales/en.po", "messages": 4, "translated": 4, "missing": 0 },
-  { "locale": "es", "source": false, "catalog": "locales/es.po", "messages": 4, "translated": 3, "missing": 1 }
+  { "locale": "en", "source": true, "folder": "", "messages": 4, "translated": 4, "missing": 0, "unused": 0, "problems": [] },
+  { "locale": "es", "source": false, "folder": "locales/es", "messages": 4, "translated": 3, "missing": 1, "unused": 0, "problems": [] }
 ]
 ```
 
-Both commands accept `--json`. The `missing` count tells a CI job or an Agent which locales need work. `status` exits with `0` also when messages are missing.
+The `missing` count tells a CI job or an Agent which locales need work. `status` exits with `0` also when messages are missing.
 
-To add a locale, add it to `i18n.locales` and run `extract`. The new catalog starts with every message untranslated.
+Translators who use Poedit or a translation service work with PO files. `export` writes every message of a locale with its translation, and `import` saves the translations of a PO file as records:
+
+```bash [Terminal]
+pnpm vitehub i18n export es --output es.po
+pnpm vitehub i18n import es es.po
+```
+
+When you change the source text of a message, it gets a new ID, and its old record becomes unused. `prune` lists the unused records, and deletes them with `--yes`:
+
+```bash [Terminal]
+pnpm vitehub i18n prune
+pnpm vitehub i18n prune --yes
+```
+
+To add a locale, add it to `i18n.locales`. It starts with every message untranslated.
 
 ## What the build does
 
-- **Messages become IDs.** The build replaces each message with a short ID, a hash of the source text and its context. In a production build, the app code has IDs and no source text.
-- **One chunk for each locale.** Each catalog is a separate chunk. The browser loads only the catalog of the active locale.
-- **The server has every locale.** The server loads the compiled catalogs of all locales when it starts, so a request never waits for a catalog.
-- **A missing translation shows the source text.** A message that has no translation in a locale shows the text of the source locale, never an ID.
+- **Messages become IDs in the browser.** The build replaces each message with a short ID, a hash of the source text and its context. In a production build, the browser code has IDs and no source text.
+- **The build collects the messages.** A production build reads every message that it compiles. You do not run a command before the build, and no message shows its ID.
+- **One chunk for each locale.** Each catalog is a separate chunk with the messages of the browser code only. The browser loads only the catalog of the active locale. Translations of server-only messages stay on the server.
+- **The server has every locale.** Server code keeps the source text. The server loads the translations of all locales when it starts, so a request never waits for a catalog.
+- **A missing translation shows the source text.** A message that has no translation in a locale shows the text of the source locale.
 
-The build reads the catalogs when it starts. Run `extract` before a production build. A message that is not in the catalogs has no text in a production build, so it shows its ID. See [Limits](/docs/i18n/limits-and-errors#limits).
+The build writes the messages that it found to `.vitehub/i18n/manifest.json`, by Vite environment. Do not commit it.
 
 ## Inspect i18n
 
@@ -216,4 +234,4 @@ pnpm vitehub inspect definitions --kind i18n
 pnpm vitehub inspect provider-output
 ```
 
-`inspect definitions` lists each locale with its catalog and its counts of messages, translations, and missing translations. `inspect provider-output` lists `.vitehub/i18n/messages.mjs`, the compiled messages that the server loads.
+`inspect definitions` lists each locale with its records folder and its counts of messages, translations, missing translations, and unused records. `inspect provider-output` lists `.vitehub/i18n/messages.mjs`, the compiled translations that the server loads, and `.vitehub/i18n/manifest.json`, the messages of the last build.

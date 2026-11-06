@@ -10,8 +10,9 @@ icon: i-lucide-circle-alert
 
 - **Nitro 3 only.** i18n runs in Vite with Nitro 3 and in Nuxt 5. Nuxt 4 builds the server with Nitro 2, which has no request context on every host, so the build stops with [`I18N_UNSUPPORTED_HOST`](#i18n_unsupported_host).
 - **Async context.** ViteHub turns on Nitro's `experimental.asyncContext`, so `t` finds the request that runs it.
-- **Catalogs at build time.** The build reads `locales/<locale>.po` when it starts. A translation that you add after the build shows after the next build.
-- **Messages that are not in the catalogs.** Run `vitehub i18n extract` before a production build. A production build keeps only message IDs in the app code, so a message that `extract` did not collect shows its ID. In development, the same message shows its source text, but its placeholders and plural forms are not filled in.
+- **Translations at build time.** The build reads `locales/<locale>/` when it starts. A translation that you add after the build shows after the next build. In development, a saved record shows after a reload.
+- **Messages from files on disk.** The build reads the messages of each module from its file, so a message that another Vite plugin generates is not collected. It still works on the server, but in the browser a production build shows its ID.
+- **Build time.** A production build parses each source file that it compiles a second time, to collect the messages.
 - **Memory on the server.** The server loads the compiled messages of every locale when it starts.
 - **Locale matching.** A locale matches by its full tag, then by its language. The first configured locale with the same language wins. With `["en", "pt-BR", "pt-PT"]`, a request for `pt` gets `pt-BR`.
 - **Top-level messages.** A `t` call at the top level of a module runs before any request and before the page picks a locale. Use [`msg` and `translate()`](/docs/i18n/server-api#msg-and-translate) there.
@@ -34,7 +35,7 @@ The app builds the server with Nitro 2. i18n needs Nitro 3, which runs each requ
 
 ### I18N_UNKNOWN_LOCALE
 
-`setLocale()` got a locale that is not in `i18n.locales`. Pass one of the configured locales, or add the locale to `i18n.locales` and run `vitehub i18n extract`.
+`setLocale()` got a locale that is not in `i18n.locales`. Pass one of the configured locales, or add the locale to `i18n.locales`.
 
 ```ts
 const [error] = await setLocale("fr")

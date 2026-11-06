@@ -21,7 +21,7 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
     // Runtime errors. `setLocale()` returns them as `[error, undefined]`.
     I18N_UNKNOWN_LOCALE: {
       why: ({ locale, locales }: { locale: string, locales: readonly string[] }) => `\`${locale}\` is not one of the configured locales: ${locales.join(", ")}.`,
-      fix: "Pass one of `i18n.locales`, or add the locale to `i18n.locales` and run `vitehub i18n extract`.",
+      fix: "Pass one of `i18n.locales`, or add the locale to `i18n.locales`.",
     },
   },
 })

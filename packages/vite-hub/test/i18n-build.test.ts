@@ -11,7 +11,7 @@ import { createProject, runCli } from "./support/content-cms.ts"
 
 const app = () => [vue(), vitehub({ i18n: { locales: ["en", "es"] }, preset: "node" })]
 
-async function translate(file: string, translations: Record<string, string>): Promise<void> {
+async function translatePo(file: string, translations: Record<string, string>): Promise<void> {
   let po = await readFile(file, "utf8")
   for (const [source, translation] of Object.entries(translations)) {
     const entry = `msgid ${JSON.stringify(source)}\nmsgstr ""`
@@ -22,7 +22,7 @@ async function translate(file: string, translations: Record<string, string>): Pr
 }
 
 describe("i18n in a built Nitro 3 app", () => {
-  it("extracts messages with the CLI, then serves each request in its own locale", async () => {
+  it("translates with the CLI, then serves each request in its own locale", async () => {
     const root = await createProject({
       "index.html": "<!doctype html><html lang=\"en\"><body><div id=\"app\"></div><script type=\"module\" src=\"/src/main.ts\"></script></body></html>\n",
       "package.json": JSON.stringify({ name: "i18n-build", private: true, type: "module" }),
@@ -49,17 +49,21 @@ describe("i18n in a built Nitro 3 app", () => {
       "server/routes/__vitehub_fixture_ready.ts": "export default () => 'ok'\n",
     })
 
-    const extract = await runCli(root, app(), ["i18n", "extract", "--json"])
-    expect(extract.stderr).toBe("")
-    expect(extract.exitCode).toBe(0)
-    expect(JSON.parse(extract.stdout)).toEqual([
+    const before = await runCli(root, app(), ["i18n", "status", "--json"])
+    expect(before.stderr).toBe("")
+    expect(before.exitCode).toBe(0)
+    expect(JSON.parse(before.stdout)).toEqual([
       expect.objectContaining({ locale: "en", messages: 3, source: true }),
       expect.objectContaining({ locale: "es", messages: 3, missing: 3 }),
     ])
-    await translate(join(root, "locales/es.po"), {
+    const exported = await runCli(root, app(), ["i18n", "export", "es", "--output", "es.po"])
+    expect(exported.exitCode).toBe(0)
+    await translatePo(join(root, "es.po"), {
       "Payment received": "Pago recibido",
       "Deploy your agent": "Despliega tu agente",
     })
+    const imported = await runCli(root, app(), ["i18n", "import", "es", "es.po", "--json"])
+    expect(JSON.parse(imported.stdout)).toEqual({ locale: "es", saved: 2, unchanged: 0 })
     const status = await runCli(root, app(), ["i18n", "status", "--json"])
     expect(JSON.parse(status.stdout)[1]).toMatchObject({ locale: "es", translated: 2, missing: 1 })
 
@@ -79,6 +83,7 @@ describe("i18n in a built Nitro 3 app", () => {
     const client = await Promise.all((await readdir(assets)).map(file => readFile(join(assets, file), "utf8")))
     expect(client.some(code => code.includes("Despliega tu agente")), "the Spanish catalog ships to the client").toBe(true)
     expect(client.find(code => code.includes("createApp")), "the app code has message IDs, not text").not.toContain("Deploy your agent")
+    expect(client.some(code => code.includes("Pago recibido")), "translations of server-only messages stay on the server").toBe(false)
 
     const server = await startBuiltServer(root, {})
     try {

@@ -1,32 +1,43 @@
-import { existsSync } from "node:fs"
-import { relative, resolve } from "node:path"
+import { readFile } from "node:fs/promises"
+import { resolve } from "node:path"
 
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isLinguiTemplateTransform, linguiTemplateTransform } from "@lingui/vue/compiler"
+import MagicString from "magic-string"
 
-import { compileCatalogs, compileCatalogModule } from "./catalogs.ts"
-import { catalogPath, createLinguiConfig } from "./lingui.ts"
+import { compileMessages } from "./catalogs.ts"
+import { createLinguiConfig, recordsRoot } from "./lingui.ts"
 import { i18nErrorDiagnostics } from "./errors.ts"
 import { resolveI18nLocaleConfig } from "./locales.ts"
 import { transformMacros } from "./macros.ts"
+import { addMessage, extractFileMessages, manifestFile } from "./manifest.ts"
+import { readRecords } from "./records.ts"
 
 import type { LinguiConfigNormalized } from "@lingui/conf"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { I18nLocaleConfig, I18nOptions } from "./locales.ts"
+import type { I18nManifest, SourceMessages } from "./manifest.ts"
+import type { TranslationRecords } from "./records.ts"
 
 const packageName = "@vite-hub/i18n"
 const pluginName = "@vite-hub/i18n/vite"
 const clientModule = "virtual:vite-hub/i18n/client"
 const resolvedClientModule = `\0${clientModule}`
+const catalogModule = "virtual:vite-hub/i18n/catalog/"
+const resolvedCatalogModule = `\0${catalogModule}`
+/** A production catalog holds this string until the chunk renders. Then every message of the bundle is known. */
+const catalogMarker = (locale: string) => `__VITEHUB_I18N_CATALOG_${locale}__`
+const catalogMarkerRe = /"__VITEHUB_I18N_CATALOG_([\w-]+)__"/g
 const generatedPlugin = ".vitehub/nitro/i18n/plugin.mjs"
 const generatedMessages = ".vitehub/i18n/messages.mjs"
 const mergeNoExternal = createNoExternalAddition(packageName)
 
 const sourceRe = /\.(?:vue|[cm]?[jt]sx?)(?:\?.*)?$/
+const recordRe = /[\\/]locales[\\/][^\\/]+[\\/][\da-f]{9}\.json$/
 const nodeModulesRe = /[\\/]node_modules[\\/]/
 const otherFormQueryRe = /[?&](?:raw|url|inline|worker|sharedworker)(?:&|=|$)|[?&]type=style(?:&|$)/
 
@@ -64,12 +75,8 @@ function renderNitroPlugin(importBase: string, messagesFile: string): string {
   ].join("\n")
 }
 
-function renderClientModule(importBase: string, rootDir: string, locale: I18nLocaleConfig): string {
-  const loaders = locale.locales.map((entry) => {
-    const file = catalogPath(rootDir, entry)
-    const load = existsSync(file) ? `() => import(${JSON.stringify(file)})` : "() => Promise.resolve({ messages: {} })"
-    return `    ${JSON.stringify(entry)}: ${load},`
-  })
+function renderClientModule(importBase: string, locale: I18nLocaleConfig): string {
+  const loaders = locale.locales.map(entry => `    ${JSON.stringify(entry)}: () => import(${JSON.stringify(`${catalogModule}${entry}`)}),`)
   return [
     `import { configureI18n } from ${JSON.stringify(`${importBase}/runtime`)}`,
     "",
@@ -93,6 +100,10 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   let locale: I18nLocaleConfig | undefined
   let lingui: LinguiConfigNormalized | undefined
   let isProduction = false
+  let isBuild = false
+  /** Messages of each environment in this build. The client catalogs and the manifest come from it. */
+  const manifest: I18nManifest = { environments: {} }
+  let buildRecords: Promise<Record<string, TranslationRecords>> | undefined
 
   const setup = (config: ViteHubConfig): void => {
     configured = { ...options, ...config.i18n }
@@ -101,10 +112,20 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     lingui = createLinguiConfig({ rootDir: projectRoot, locale, importBase })
   }
 
+  const readAllRecords = async (): Promise<Record<string, TranslationRecords>> => {
+    if (!projectRoot || !locale) return {}
+    const root = recordsRoot(projectRoot)
+    const entries = await Promise.all(locale.locales.map(async entry =>
+      [entry, entry === locale!.sourceLocale ? {} : (await readRecords(root, entry)).records] as const))
+    return Object.fromEntries(entries)
+  }
+
+  // Server code keeps the source text of each message, so the server needs only the translations.
   const writeServerFiles = async (): Promise<void> => {
     if (!projectRoot || !locale || !lingui) return
     const messagesFile = resolve(projectRoot, generatedMessages)
-    const messages = await compileCatalogs(lingui)
+    const records = await readAllRecords()
+    const messages = Object.fromEntries(locale.locales.map(entry => [entry, compileMessages(records[entry] ?? {})]))
     await writeFileIfChanged(messagesFile, [
       `export const config = ${JSON.stringify({ ...locale, catalogs: {} })}`,
       `export const messages = ${JSON.stringify(messages)}`,
@@ -136,30 +157,39 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
           label: "Locales",
           list: async () => {
             const { inspectI18n } = await import("./inspect.ts")
-            const statuses = await inspectI18n(resolveLingui(inspectionRoot()))
-            return statuses.map(status => ({
+            const status = await inspectI18n(resolveLingui(inspectionRoot()))
+            return status.locales.map(entry => ({
               fields: [
-                { label: "Messages", value: String(status.messages) },
-                { label: "Translated", value: String(status.translated) },
-                { label: "Missing", value: String(status.missing) },
+                { label: "Messages", value: String(entry.messages) },
+                { label: "Translated", value: String(entry.translated) },
+                { label: "Missing", value: String(entry.missing) },
+                { label: "Unused", value: String(entry.unused) },
               ],
-              file: status.catalog,
-              name: status.source ? `${status.locale} (source)` : status.locale,
+              file: entry.folder || manifestFile,
+              name: entry.source ? `${entry.locale} (source)` : entry.locale,
               source: "locales",
             }))
           },
         }],
-        providerOutput: [{
-          description: "Compiled messages that the server loads",
-          owner: "i18n",
-          path: resolve(inspectionRoot(), generatedMessages),
-        }],
+        providerOutput: [
+          {
+            description: "Compiled translations that the server loads",
+            owner: "i18n",
+            path: resolve(inspectionRoot(), generatedMessages),
+          },
+          {
+            description: "Source messages of the last build, by environment",
+            owner: "i18n",
+            path: resolve(inspectionRoot(), manifestFile),
+          },
+        ],
       }),
     },
     config: {
       order: "pre",
-      async handler(config) {
+      async handler(config, env) {
         const viteHubConfig = config as ViteHubConfig
+        isBuild = env?.command === "build"
         setup(viteHubConfig)
         // Server messages read the request from Nitro 3's async context. Nitro 2 has no such context on every host.
         if (viteHubConfig[VITEHUB_NITRO_MAJOR_VERSION] === 2) throw i18nErrorDiagnostics.I18N_UNSUPPORTED_HOST()
@@ -187,41 +217,100 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     resolveId(id) {
       if (id === clientModule) return resolvedClientModule
+      if (id.startsWith(catalogModule)) return `\0${id}`
     },
-    load(id) {
-      if (id !== resolvedClientModule || !projectRoot || !locale) return
-      return renderClientModule(importBase, projectRoot, locale)
+    async load(id) {
+      if (!projectRoot || !locale) return
+      if (id === resolvedClientModule) return renderClientModule(importBase, locale)
+      if (!id.startsWith(resolvedCatalogModule)) return
+      const entry = locale.locales.find(candidate => candidate === id.slice(resolvedCatalogModule.length))
+      if (!entry) return
+      // A production build fills the catalog when the chunk renders, after every module has given its messages.
+      if (isBuild) return `export const messages = ${JSON.stringify(catalogMarker(entry))}\n`
+      const records = entry === locale.sourceLocale ? {} : (await readRecords(recordsRoot(projectRoot), entry)).records
+      return `export const messages = ${JSON.stringify(compileMessages(records))}\n`
     },
     transform: {
-      filter: { id: { include: [/\.po$/, sourceRe], exclude: [nodeModulesRe, otherFormQueryRe] } },
+      filter: { id: { include: [sourceRe], exclude: [nodeModulesRe, otherFormQueryRe] } },
       async handler(code, id) {
-        if (!lingui || nodeModulesRe.test(id) || otherFormQueryRe.test(id)) return
-        const file = id.split("?")[0]!
-        if (file.endsWith(".po")) {
-          const compiled = await compileCatalogModule(lingui, relative(lingui.rootDir, file))
-          if (!compiled) return
-          for (const dependency of compiled.dependencies) this.addWatchFile(dependency)
-          return { code: compiled.code, map: null, moduleType: "js" }
+        if (!lingui || nodeModulesRe.test(id) || otherFormQueryRe.test(id) || !sourceRe.test(id)) return
+        const server = this.environment.config.consumer === "server"
+        if (isBuild && !id.includes("?")) {
+          // The build reads each message from the file on disk, so origins point at the lines that you wrote.
+          const source = await readFile(id, "utf8").catch(() => undefined)
+          const messages = manifest.environments[this.environment.name] ??= {}
+          for (const message of source ? await extractFileMessages(id, source, lingui) : []) addMessage(messages, message, lingui.rootDir)
         }
-        if (!sourceRe.test(id)) return
-        return transformMacros(code, id, lingui, importBase, isProduction ? "id-only" : "all")
+        // Browser code ships only message IDs. Server code keeps the source text, so a message without a
+        // translation falls back to it.
+        return transformMacros(code, id, lingui, importBase, isProduction && !server ? "id-only" : "all")
       },
     },
-    async handleHotUpdate(context) {
-      if (!context.file.endsWith(".po")) return
-      await writeServerFiles()
+    async renderChunk(code) {
+      if (!code.includes("__VITEHUB_I18N_CATALOG_")) return
+      // The catalog of an environment holds only the messages of its code. Translations of server-only messages
+      // stay out of the browser.
+      const sources = manifest.environments[this.environment.name] ?? {}
+      const records = await (buildRecords ??= readAllRecords())
+      const output = new MagicString(code)
+      for (const match of code.matchAll(catalogMarkerRe)) {
+        const entry = match[1]!
+        output.overwrite(match.index, match.index + match[0].length, JSON.stringify(compileMessages(records[entry] ?? {}, sources)))
+      }
+      return { code: output.toString(), map: output.generateMap({ hires: "boundary" }) }
+    },
+    async writeBundle() {
+      if (!projectRoot) return
+      await writeFileIfChanged(resolve(projectRoot, manifestFile), `${JSON.stringify(sortManifest(manifest), null, 2)}\n`)
+    },
+    configureServer(server) {
+      if (!projectRoot) return
+      // The records folder can sit outside the Vite root, as in Nuxt. Watch it, and reload the server and the page
+      // after a record changes.
+      server.watcher.add(recordsRoot(projectRoot))
+      server.watcher.on("all", async (_event, file) => {
+        if (!recordRe.test(file)) return
+        await writeServerFiles()
+        const messagesFile = resolve(projectRoot!, generatedMessages)
+        for (const environment of Object.values(server.environments)) {
+          const graph = environment.moduleGraph
+          const modules = [
+            ...(locale?.locales.map(entry => graph.getModuleById(`${resolvedCatalogModule}${entry}`)) ?? []),
+            ...(graph.getModulesByFile(messagesFile) ?? []),
+          ]
+          for (const module of modules) if (module) graph.invalidateModule(module)
+          environment.hot.send({ type: "full-reload" })
+        }
+      })
     },
   }
+}
+
+function sortManifest(manifest: I18nManifest): I18nManifest {
+  const environments: Record<string, SourceMessages> = {}
+  for (const name of Object.keys(manifest.environments).sort()) {
+    const messages = manifest.environments[name]!
+    environments[name] = Object.fromEntries(Object.keys(messages).sort().map(id => [id, messages[id]!]))
+  }
+  return { environments }
 }
 
 interface VueOptions {
   template?: { compilerOptions?: { nodeTransforms?: unknown[] } }
 }
 
+const templateTransformKey = Symbol.for("vite-hub.i18n.template-transform")
+
+type NodeTransform = (node: unknown, context: { ssr?: boolean }) => unknown
+
+/** Browser templates get message IDs only in production. Server templates keep the source text as a fallback. */
 function installTemplateTransform(vueOptions: VueOptions, isProduction: boolean): void {
   const template = vueOptions.template ??= {}
   const compilerOptions = template.compilerOptions ??= {}
   const nodeTransforms = compilerOptions.nodeTransforms ??= []
-  if (nodeTransforms.some(isLinguiTemplateTransform)) return
-  nodeTransforms.push(linguiTemplateTransform({ descriptorFields: isProduction ? "id-only" : "all" }))
+  if (nodeTransforms.some(transform => isLinguiTemplateTransform(transform) || (transform as { [templateTransformKey]?: true })[templateTransformKey])) return
+  const browser = linguiTemplateTransform({ descriptorFields: isProduction ? "id-only" : "all" }) as NodeTransform
+  const server = linguiTemplateTransform({ descriptorFields: "all" }) as NodeTransform
+  const transform: NodeTransform = (node, context) => (context.ssr ? server : browser)(node, context)
+  nodeTransforms.push(Object.assign(transform, { [templateTransformKey]: true }))
 }

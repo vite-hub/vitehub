@@ -74,6 +74,7 @@ catalogs:
     "@lingui/core": 6.12.0
     "@lingui/extractor-vue": 6.12.0
     "@lingui/format-po": 6.12.0
+    "@lingui/message-utils": 6.12.0
     "@lingui/vue": 6.12.0
   markdown:
     "@comark/html": 0.8.1
