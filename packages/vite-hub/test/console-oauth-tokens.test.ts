@@ -206,8 +206,12 @@ describe("OAuth Console tokens", () => {
   it("rejects a Console resource request for an unrelated resource", async () => {
     const { cookie } = await signUp()
     const authorization = await call(`/oauth2/authorize?${authorizeQuery({ resource: `${app}/other-resource` })}`, { headers: { cookie } })
-    expect(authorization.status).toBe(400)
-    await expect(authorization.json()).resolves.toMatchObject({ error: "invalid_target" })
+    expect(authorization.status).toBe(302)
+    const callback = new URL(authorization.headers.get("location") ?? "", app)
+    expect(`${callback.origin}${callback.pathname}`).toBe(redirectUri)
+    expect(callback.searchParams.get("error")).toBe("invalid_target")
+    expect(callback.searchParams.get("state")).toBe("console-test")
+    expect(callback.searchParams.has("code")).toBe(false)
   })
 
   it("lets a read-only token read, and refuses a write", async () => {
