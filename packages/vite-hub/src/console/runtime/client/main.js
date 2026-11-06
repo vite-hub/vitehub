@@ -32,6 +32,7 @@ import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSection
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
+import { continueConsoleOpen, startConsoleOpen } from "./open-link";
 import { consoleProjectReady, startConsoleLink, startConsoleProjects } from "./project-session";
 import { takeConsoleLinkHash } from "./pending-links";
 import { memoryProjectStorage } from "./projects";
@@ -57,6 +58,10 @@ function projectStorage() {
 
 // A one-time link of a new project: /link#p=<pendingId>&url=<appOrigin>. Only the hosted Console links new projects.
 const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
+const storage = projectStorage();
+// A link to one page of a project: /open?project=<app URL>&path=<Console path>. It runs before the router starts, so
+// a linked project opens at the path.
+const openRequest = hosted ? startConsoleOpen(window, consoleBase, storage) : undefined;
 
 startConsoleProjects({
   base: hostBase,
@@ -64,9 +69,10 @@ startConsoleProjects({
   mode: hosted ? "hosted" : "embedded",
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
-  storage: projectStorage(),
+  storage,
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);
+if (openRequest) continueConsoleOpen(openRequest);
 const sectionsBase = "/api/_vitehub/console/sections";
 const capabilitiesBase = "/api/_vitehub/console/invocation-capabilities";
 
