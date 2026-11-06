@@ -549,7 +549,8 @@ describe("local queue delivery with hosted provider rules", () => {
 
     await vi.waitFor(() => expect(handler.mock.calls.length).toBeGreaterThan(localQueueMaxAttempts + 2))
     engine.close()
-    expect((await engine.status()).queues.welcome?.dead).toBe(0)
+    // Closing stops new attempts; wait for the current attempt's writes before removing its directory.
+    await vi.waitFor(async () => expect((await engine.status()).queues.welcome).toEqual({ dead: 0, pending: 1, running: 0 }))
   })
 
   it("expires a Vercel job at the end of its retention", async () => {
