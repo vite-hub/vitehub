@@ -154,7 +154,7 @@ export async function generatedDeclarations(pageSnippets) {
     definition.steps.push(snippet.file)
     workflows.set(match[1], definition)
   }
-  const declarations = registryDeclarations(pageSnippets)
+  const declarations = await registryDeclarations(pageSnippets)
   if (!workflows.size) return declarations
   const { createWorkflowTypes } = await import(pathToFileURL(join(packagesRoot, "workflow/dist/vite.js")).href)
   const file = join(pageSnippets[0].pageRoot, ".vitehub/workflow.d.ts")
@@ -175,24 +175,19 @@ function definitionName(directory, kind) {
 }
 
 /** Source names a Collection after its relative file path and imports the export matching the filename. */
-function collectionNames(label, code) {
+async function collectionNames(label, code) {
   const name = /^server\/collections\/(.+)\.m?ts$/.exec(label)?.[1]
   if (!name) return []
   const exportName = name.split("/").at(-1)
-  const source = ts.createSourceFile(label, code, ts.ScriptTarget.Latest, true)
-  const definition = source.statements
-    .filter(statement => ts.isVariableStatement(statement) && statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword))
-    .flatMap(statement => statement.declarationList.declarations)
-    .find(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === exportName)
-  if (!definition) return []
-  const call = definition.initializer
-  if (call && ts.isCallExpression(call) && ts.isIdentifier(call.expression) && call.expression.text === "defineCollection") {
-    const options = call.arguments[1] ?? call.arguments[0]
-    const route = options && ts.isObjectLiteralExpression(options) && options.properties.find(property =>
-      ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) && property.name.text === "route")
-    if (route && route.initializer.kind === ts.SyntaxKind.FalseKeyword) return []
-  }
-  return [name]
+  const { inspectCollectionModule } = await import(pathToFileURL(join(packagesRoot, "source/dist/vite.js")).href)
+  return inspectCollectionModule(label, code, exportName).routeEnabled ? [name] : []
+}
+
+async function channelNames(label, code) {
+  const names = definitionName("channels", "channel")(label)
+  if (!names.length || !label.startsWith("server/channels/")) return names
+  const { isOutboundChannelSource } = await import(pathToFileURL(join(packagesRoot, "channels/dist/vite.js")).href)
+  return isOutboundChannelSource(code, label) ? names : []
 }
 
 const globalModules = name => entries => ["declare global {", `  interface ${name} {`, ...entries.map(([key, path]) => `    ${key}: typeof import(${path})`), "  }", "}", "export {}"]
@@ -209,7 +204,7 @@ const registries = [
     type: "queue",
   },
   // @vite-hub/channels, @vite-hub/connections, and @vite-hub/browser: `renderRegistryTypes()` in src/vite.ts
-  { definitions: definitionName("channels", "channel"), render: globalModules("ViteHubChannelDefinitionModules"), type: "channels" },
+  { definitions: channelNames, render: globalModules("ViteHubChannelDefinitionModules"), type: "channels" },
   { definitions: definitionName("connections", "connection"), render: globalModules("ViteHubConnectionDefinitionModules"), type: "connections" },
   { definitions: definitionName("browsers", "browser"), render: globalModules("ViteHubBrowserDefinitionModules"), type: "browser" },
   {
@@ -230,7 +225,7 @@ const registries = [
       `import ${JSON.stringify(module)}`,
       `declare module ${JSON.stringify(module)} {`,
       "  interface DatabaseRegistry {",
-      ...entries.map(([key, path]) => `    ${key}: { schema: typeof import(${path}).default.schema }`),
+      ...entries.map(([key, path]) => `    ${key}: { dialect: typeof import(${path}).default extends { dialect: "postgresql" } ? "postgresql" : "sqlite"; schema: typeof import(${path}).default.schema }`),
       "  }",
       "}",
     ]),
@@ -238,14 +233,14 @@ const registries = [
   },
 ]
 
-function registryDeclarations(pageSnippets) {
+async function registryDeclarations(pageSnippets) {
   const declarations = []
   for (const registry of registries) {
     const definitions = new Map()
     for (const snippet of pageSnippets) {
       if (snippet.fragment || !snippet.label) continue
       const label = snippet.label.replace(/^\/+/, "")
-      for (const name of registry.definitions(label, snippet.code)) if (!definitions.has(name)) definitions.set(name, snippet.file)
+      for (const name of await registry.definitions(label, snippet.code)) if (!definitions.has(name)) definitions.set(name, snippet.file)
     }
     if (!definitions.size) continue
     const file = join(pageSnippets[0].pageRoot, `.vitehub/${registry.type}.d.ts`)
