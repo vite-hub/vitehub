@@ -171,7 +171,7 @@ export async function mcpUnauthorized(event: ConsoleRequestEvent): Promise<Respo
 const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) => {
   const { req: request, runtime } = getStandardContext(event)
   try {
-    assertLoopbackWithoutSignIn(request, new URL(request.url), { access, remoteAddress: runtime?.clientAddress })
+    await assertLoopbackWithoutSignIn(request, new URL(request.url), { access, remoteAddress: runtime?.clientAddress })
   }
   catch (error) {
     const { code, fix, message } = toOperationFailure(error)

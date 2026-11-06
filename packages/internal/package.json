@@ -63,6 +63,11 @@
       "import": "./dist/dev-endpoint.js",
       "default": "./dist/dev-endpoint.js"
     },
+    "./dev-peer": {
+      "types": "./dist/dev-peer.d.ts",
+      "import": "./dist/dev-peer.js",
+      "default": "./dist/dev-peer.js"
+    },
     "./dev-token": {
       "types": "./dist/dev-token.d.ts",
       "import": "./dist/dev-token.js",

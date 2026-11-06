@@ -170,7 +170,7 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
   if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
-  assertLoopbackWithoutSignIn(request, url, context)
+  await assertLoopbackWithoutSignIn(request, url, context)
   assertOperationProject(request, installedConsoleProjectRoot())
   if (isConsoleRpcPath(url.pathname, consoleRpcUploadPath)) {
     if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
