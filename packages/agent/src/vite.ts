@@ -1947,7 +1947,6 @@ async function generateAgentDeploymentCatalog(
     "inheritAgentLayerOptions",
     "markDiscoveredAgentName",
     "resetPublicUrlAgentNames",
-    ...(options.workspaceRegistry !== false ? ["setAgentWorkspaceDefinitions"] : []),
     channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
     ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute", "resolvePublicUrl"] : []),
     ...(workspaceEntries ? ["markDiscoveredWorkspaceAgentDefinitionRegistered"] : []),
@@ -1960,6 +1959,9 @@ async function generateAgentDeploymentCatalog(
         ? [`import { resolveAgentInspectionMetadata${typescript ? ", type ResolvedAgentRuntimeContext" : ""} } from ${JSON.stringify(options.agentImportBase)}`]
         : []),
       `import { ${serverInternalImports} } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`,
+      ...(options.workspaceRegistry !== false
+        ? [`import { setAgentWorkspaceDefinitions } from ${JSON.stringify(subpath(options.agentImportBase, "server/workspace"))}`]
+        : []),
       ...hostedWorkspaceRuntime.imports,
       ...entries.map(entry => entry.import),
       ...standaloneChannels.map((channel, index) => `import standaloneChannel${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, channel.handler))}`),
