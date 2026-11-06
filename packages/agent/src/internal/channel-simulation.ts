@@ -1,4 +1,4 @@
-import type { Adapter } from "chat"
+import type { Adapter, ChatInstance } from "chat"
 
 /** The Server Env variable that turns on Channel simulation. `vitehub({ agent: { channels: { simulate: true } } })` sets it in `vite dev`. */
 export const channelSimulationEnv = "VITEHUB_CHANNELS"
@@ -31,7 +31,7 @@ export function isChannelSimulated(kind: string): boolean {
  * share one adapter name, so each one gets the Channel kind as its name and thread prefix.
  */
 export async function createSimulatedChatAdapter(kind: string): Promise<Adapter> {
-  const { createWebAdapter } = await import("@chat-adapter/web")
+  const [{ createWebAdapter }, { AsyncLocalStorage }] = await Promise.all([import("@chat-adapter/web"), import("node:async_hooks")])
   const prefix = `${kind}:`
   const adapter = createWebAdapter({
     userName: "agent",
@@ -43,6 +43,30 @@ export async function createSimulatedChatAdapter(kind: string): Promise<Adapter>
   Object.defineProperty(adapter, "name", { value: kind })
   adapter.decodeThreadId = threadId => decode(threadId.startsWith(prefix) ? `web:${threadId.slice(prefix.length)}` : threadId)
   adapter.encodeThreadId = data => `${prefix}${encode(data).slice("web:".length)}`
+
+  // The web adapter keeps the request of a reply in an AsyncLocalStorage. A StackBlitz WebContainer loses that store
+  // after the first `await`, so `postMessage()` and `stream()` would not find the request. Take a snapshot of the
+  // request context when the adapter gives the message to Chat, and enter it again for each reply in that thread.
+  const requests = new Map<string, <T>(run: () => T) => T>()
+  const inRequest = <T>(threadId: string, run: () => T): T => {
+    const enter = requests.get(threadId)
+    return enter ? enter(run) : run()
+  }
+  const initialize = adapter.initialize.bind(adapter)
+  adapter.initialize = chat => initialize(new Proxy(chat, {
+    get: (target, key) => key !== "processMessage" ? Reflect.get(target, key) : (...args: Parameters<ChatInstance["processMessage"]>) => {
+      const threadId = args[1]
+      const enter = AsyncLocalStorage.snapshot()
+      requests.set(threadId, enter)
+      return target.processMessage(...args).finally(() => {
+        if (requests.get(threadId) === enter) requests.delete(threadId)
+      })
+    },
+  }))
+  const postMessage = adapter.postMessage.bind(adapter)
+  const stream = adapter.stream.bind(adapter)
+  adapter.postMessage = (threadId, message) => inRequest(threadId, () => postMessage(threadId, message))
+  adapter.stream = (threadId, iterable, options) => inRequest(threadId, () => stream(threadId, iterable, options))
   simulatedAdapters.add(adapter)
   return adapter
 }
