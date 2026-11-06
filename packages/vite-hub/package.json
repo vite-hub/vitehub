@@ -1288,7 +1288,7 @@
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack",
     "dev": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack --watch",
-    "typecheck": "node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
+    "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {

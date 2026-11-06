@@ -149,21 +149,30 @@ afterEach(async () => {
 })
 
 describe("Blob Nitro runtime module", () => {
-  it.each(["lazy", "eager"])("uses the R2 HTTP API for a remote development store with a local binding (%s)", async (kind) => {
+  it.each(["lazy", "eager"])("uses native and HTTP R2 per development store when only one is remote (%s)", async (kind) => {
     const rootDir = await createWorkspaceTempDir("vitehub-blob-remote-r2-")
     const resolved = normalizeBlobOptions({
-      accountId: "account",
-      accessKeyId: "access-key",
-      bucketName: "assets",
-      driver: "cloudflare-r2",
-      publicBaseUrl: "https://assets.example.test",
-      remote: true,
-      secretAccessKey: "secret-key",
+      stores: {
+        default: { binding: "BLOB", bucketName: "local-assets", driver: "cloudflare-r2" },
+        remote: {
+          accountId: "account",
+          accessKeyId: "access-key",
+          binding: "REMOTE_BLOB",
+          bucketName: "assets",
+          driver: "cloudflare-r2",
+          publicBaseUrl: "https://assets.example.test",
+          remote: true,
+          secretAccessKey: "secret-key",
+        },
+      },
     }, { dev: true })
     if (!resolved) throw new Error("Blob config must resolve to a store.")
+    const localList = vi.fn(async () => ({ objects: [], truncated: false }))
+    const localPut = vi.fn(async () => ({ key: "local.txt", size: 5 }))
+    vi.stubGlobal("BLOB", { list: localList, put: localPut })
     const list = vi.fn()
     const put = vi.fn()
-    vi.stubGlobal("BLOB", { list, put })
+    vi.stubGlobal("REMOTE_BLOB", { list, put })
     const send = vi.spyOn(S3Client.prototype, "send").mockImplementation(async () => ({ Contents: [], ETag: '"etag"', IsTruncated: false }))
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
     try {
@@ -173,7 +182,14 @@ describe("Blob Nitro runtime module", () => {
       const storage = kind === "lazy" ? runtime.blob : runtime.createGeneratedBlobStorage()
 
       expect(await storage.list()).toMatchObject([null, { blobs: [], hasMore: false }])
-      expect((await storage.put("remote.txt", "hello"))[0]).toBeNull()
+      expect(await storage.put("local.txt", "hello")).toMatchObject([null, { pathname: "local.txt", size: 5 }])
+      expect(localList).toHaveBeenCalledOnce()
+      expect(localPut).toHaveBeenCalledWith("local.txt", "hello", expect.any(Object))
+      expect(send).not.toHaveBeenCalled()
+
+      const remote = storage.store("remote")
+      expect(await remote.list()).toMatchObject([null, { blobs: [], hasMore: false }])
+      expect((await remote.put("remote.txt", "hello"))[0]).toBeNull()
       expect(send).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ Bucket: "assets", Key: "remote.txt" }) }), undefined)
       expect(list).not.toHaveBeenCalled()
       expect(put).not.toHaveBeenCalled()

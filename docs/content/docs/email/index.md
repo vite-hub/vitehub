@@ -92,7 +92,7 @@ icon: i-lucide-mail
   :::
 
   :::product-feature-item{title="See each email while you develop" icon="i-lucide-inbox" to="/docs/email/hosts#development-outbox"}
-  In `vite dev`, an outbox keeps a copy of each email. Set `deliver: false` to skip the real send.
+  In `vite dev`, each email stays in an outbox. Set `remote: true` to also send it through the provider.
   :::
 
   :::product-feature-item{title="Test without sending" icon="i-lucide-flask-conical" to="/docs/email/server-api#test-without-delivery"}

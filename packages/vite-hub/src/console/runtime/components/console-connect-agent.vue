@@ -4,13 +4,11 @@ import { computed, ref, useId } from "vue";
 import type { ConsoleNavigation } from "../client/sections";
 
 import { consoleMcpCommands } from "../client/mcp";
+import { projectUrl } from "../client/project";
 
 const props = defineProps<{ auth: ConsoleNavigation["auth"] }>();
 
-const origin = typeof window === "undefined" ? "" : window.location.origin;
-// The page may sit under an application mount, such as `/portal/_vitehub`.
-const mount = typeof window === "undefined" ? "" : window.location.pathname.slice(0, window.location.pathname.lastIndexOf("/_vitehub"));
-const url = computed(() => `${origin}${mount}/_vitehub/mcp`);
+const url = computed(() => (typeof window === "undefined" ? "" : new URL(projectUrl("/_vitehub/mcp"), window.location.href).href));
 const commands = computed(() => consoleMcpCommands(url.value, props.auth));
 const selected = ref(0);
 const current = computed(() => commands.value[Math.min(selected.value, commands.value.length - 1)]);
