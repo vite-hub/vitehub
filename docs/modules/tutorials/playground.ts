@@ -28,6 +28,7 @@ export const playgroundTemplates: PlaygroundTemplateSource[] = [
   { id: "cache", label: "Cache", description: "Cache a route for 10 seconds.", fixture: "playground-cache", open: "server/api/time.get.ts", preview: "/api/time" },
   { id: "rate-limit", label: "Rate Limit", description: "Allow three requests a minute.", fixture: "playground-rate-limit", open: "server/api/upload.get.ts", preview: "/api/upload" },
   { id: "agent", label: "Agent", description: "An Agent that a route invokes.", fixture: "first-agent", open: "server/agents/greeting.ts", preview: "/api/health" },
+  { id: "channels", label: "Channels", description: "Chat with an Agent in a simulated Slack.", fixture: "playground-channels", open: "server/agents/support.ts", preview: "/api/_vitehub/agents/support/webhooks/slack" },
 ];
 
 /**
