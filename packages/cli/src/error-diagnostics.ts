@@ -58,7 +58,9 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SETUP_INSTALL_FAILED: {
       docs: "https://vitehub.dev/docs/development/cli#setup_install_failed",
-      fix: "Run the install command by hand to see the error, then run the command again. ViteHub did not write starter or config files; the package manager may have changed package manifests or lockfiles.",
+      fix: ({ filesWritten }: { filesWritten?: unknown }) => `Run the install command by hand to see the error, then run the command again. ${filesWritten
+        ? "The new app files were written before installation failed; keep them when retrying."
+        : "ViteHub did not write starter or config files; the package manager may have changed package manifests or lockfiles."}`,
       why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
     },
     SETUP_STALE_PLAN: {
