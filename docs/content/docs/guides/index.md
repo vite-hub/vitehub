@@ -18,6 +18,12 @@ in ViteHub and call the server API from application code.
 - [Run the Claude Agent SDK in production](/docs/guides/claude-agent-sdk).
 - [Run the Codex SDK in production](/docs/guides/codex-sdk).
 
+## Build a chat bot
+
+- [Build an AI Slack bot](/docs/guides/slack-ai-bot).
+- [Build an AI Discord bot](/docs/guides/discord-ai-bot).
+- [Build an AI Telegram bot](/docs/guides/telegram-ai-bot).
+
 ## Connect a database
 
 - [Use Turso with ViteHub and Drizzle](/docs/guides/turso).

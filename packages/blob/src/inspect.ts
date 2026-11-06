@@ -38,7 +38,7 @@ export function inspectBlobResources(
         owner: "blob",
         ...(!isMaskedBlobRuntimeValue(store.token)
           ? { source: "config" }
-          : env.BLOB_STORE_ID
+          : !store.tokenFromConfig && env.BLOB_STORE_ID
             ? { env: "BLOB_STORE_ID", id: env.BLOB_STORE_ID, source: "env" }
             : env.BLOB_READ_WRITE_TOKEN
               ? { env: "BLOB_READ_WRITE_TOKEN", source: "env" }

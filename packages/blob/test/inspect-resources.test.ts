@@ -64,9 +64,9 @@ describe("Blob resource inspection", () => {
     }
   })
 
-  it("reports the environment source when a configured token is masked to use the same runtime variable", () => {
+  it.each([undefined, "store_abc"])("reports the environment source when a configured token is masked, with store id %s", (storeId) => {
     const token = "env-secret"
-    const resources = inspectBlobResources({ driver: "vercel-blob", token }, { env: { BLOB_READ_WRITE_TOKEN: token } })
+    const resources = inspectBlobResources({ driver: "vercel-blob", token }, { env: { BLOB_READ_WRITE_TOKEN: token, BLOB_STORE_ID: storeId } })
     expect(resources).toEqual([
       { definition: "default", env: "BLOB_READ_WRITE_TOKEN", host: "vercel", kind: "vercel-blob-store", owner: "blob", source: "env" },
     ])
