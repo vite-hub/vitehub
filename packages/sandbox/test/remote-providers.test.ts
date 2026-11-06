@@ -449,21 +449,63 @@ describe("remote Sandbox providers", () => {
     }
   });
 
-  it("retries transient Cloudflare transport failures", async () => {
+  it("retries a safe Cloudflare request when the host marks the failure retryable", async () => {
     vi.useFakeTimers();
+    const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
+    const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const session = await sandbox.open();
+    let writes = 0;
+    stub.writeFile = async () => {
+      writes++;
+      if (writes === 1) throw hostError("Internal error in Durable Object storage.", { retryable: true });
+      return { success: true };
+    };
+
+    const result = session.files.write("/workspace/output", new TextEncoder().encode("data"));
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(result).resolves.toBeUndefined();
+    expect(writes).toBe(2);
+    await session.close();
+  });
+
+  it.each([
+    { flags: { overloaded: true, retryable: true }, name: "an overloaded Durable Object" },
+    { flags: { retryable: false }, name: "a non-retryable failure" },
+  ])("does not retry a safe Cloudflare request after $name", async ({ flags }) => {
+    vi.useFakeTimers();
+    const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
+    const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const session = await sandbox.open();
+    let writes = 0;
+    stub.writeFile = async () => {
+      writes++;
+      throw hostError("Network connection lost.", flags);
+    };
+
+    const result = session.files.write("/workspace/output", new TextEncoder().encode("data"));
+    const rejection = expect(result).rejects.toThrow("writeFile failed: Network connection lost.");
+    await vi.runAllTimersAsync();
+    await rejection;
+    expect(writes).toBe(1);
+    await session.close();
+  });
+
+  it("never retries a Cloudflare command and exposes the host retryable flag", async () => {
+    vi.useFakeTimers();
+    const lost = hostError("Network connection lost.", { retryable: true });
     let calls = 0;
     const stub = cloudflareStub(async () => {
       calls++;
-      if (calls === 1) throw new Error("Durable Object reset while container is starting");
-      return { exitCode: 0, stderr: "", stdout: "ready", success: true };
+      throw lost;
     });
     const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
     const session = await sandbox.open();
 
     const result = session.exec("probe");
-    await vi.advanceTimersByTimeAsync(1_000);
-    await expect(result).resolves.toMatchObject({ code: 0, stdout: "ready" });
-    expect(calls).toBe(2);
+    const rejection = expect(result).rejects.toMatchObject({ cause: lost, data: { retryable: true } });
+    await vi.runAllTimersAsync();
+    await rejection;
+    expect(calls).toBe(1);
     await session.close();
   });
 
@@ -738,6 +780,10 @@ describe("remote Sandbox providers", () => {
     await session.close();
   });
 });
+
+function hostError(message: string, flags: { overloaded?: boolean; retryable?: boolean }) {
+  return Object.assign(new Error(message), flags);
+}
 
 function namespace(stub: CloudflareSandboxStub) {
   return { get: () => stub, idFromName: (name: string) => name };

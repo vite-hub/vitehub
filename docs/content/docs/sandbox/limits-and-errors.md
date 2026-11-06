@@ -19,6 +19,12 @@ icon: i-lucide-circle-alert
 
 If execution and cleanup both fail, the response keeps the primary error code and message. Timeouts keep `SANDBOX_TASK_TIMEOUT` and HTTP 504. When you call `resolveSandboxTaskRunner().run()` directly, the thrown error retains both failures in an `AggregateError` in its cause chain. Provider diagnostics remain available through causes. JSON responses omit causes.
 
+## Cloudflare retries
+
+The Cloudflare runtime retries a request only when a second call has the same effect as the first. These are session cleanup, file reads, full file writes, file deletes, file listing, and recursive directory creation. It retries when Cloudflare marks the error `retryable`. When the error has no flag, it retries temporary failures such as a Container that is still starting. It does not retry when Cloudflare marks the Durable Object `overloaded`.
+
+The runtime never retries `session.exec()`, a new process, a file move, or a port exposure. If the response is lost, the command may have run, so a second call can run it twice. The error keeps the Cloudflare flag in `error.data.retryable` and the original error in `error.cause`. Retry the command yourself only when it is safe to run twice.
+
 ## Production checks
 
 A Definition name and its payload select work. They are not a permission boundary. Code inside the Sandbox can use the filesystem, environment, network, credentials, and child processes that the provider exposes.

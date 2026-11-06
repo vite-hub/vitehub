@@ -97,7 +97,11 @@ export const sandboxErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SANDBOX_R0085: dynamicError,
     SANDBOX_R0086: dynamicError,
     SANDBOX_R0087: dynamicError,
-    SANDBOX_R0088: dynamicError,
+    SANDBOX_R0088: {
+      why: ({ message }: { message: string; retryable: boolean | undefined }) => message,
+      // The Cloudflare host flag. ViteHub does not retry a request that can run twice, so the caller decides.
+      data: ({ retryable }: { message: string; retryable: boolean | undefined }) => ({ retryable }),
+    },
     SANDBOX_R0089: dynamicError,
     SANDBOX_R0090: dynamicError,
     SANDBOX_R0091: dynamicError,

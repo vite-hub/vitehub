@@ -174,7 +174,7 @@ function createCloudflareSession(
   let destroyPromise: Promise<void> | undefined;
   const destroy = async () => {
     if (destroyPromise) return await destroyPromise;
-    destroyPromise = withCloudflareRequest("destroy", cloudflareStopTimeout, async () => await stub.destroy());
+    destroyPromise = withCloudflareRequest("destroy", { idempotent: true, timeout: cloudflareStopTimeout }, async () => await stub.destroy());
     try {
       await destroyPromise;
     } catch (error) {
@@ -182,8 +182,11 @@ function createCloudflareSession(
       throw error;
     }
   };
-  const request = <T>(operation: string, run: () => Promise<T>, timeout = cloudflareControlPlaneTimeout, signal?: AbortSignal) =>
-    withCloudflareRequest(operation, timeout, run, signal);
+  const request = <T>(
+    operation: string,
+    { idempotent, signal, timeout = cloudflareControlPlaneTimeout }: { idempotent: boolean; signal?: AbortSignal; timeout?: number },
+    run: () => Promise<T>,
+  ) => withCloudflareRequest(operation, { idempotent, signal, timeout }, run);
   const run = async (options: {
     abortSignal?: AbortSignal;
     command: string;
@@ -193,11 +196,11 @@ function createCloudflareSession(
   }) => {
     const timeout = options.timeout ?? cloudflareExecTimeout;
     const result = await abortable(
-      request("exec", async () => await stub.exec(options.command, {
+      request("exec", { idempotent: false, timeout }, async () => await stub.exec(options.command, {
         cwd: options.workingDirectory ?? "/workspace",
         env: { ...baseEnv, ...options.env },
         timeout,
-      }), timeout),
+      })),
       options.abortSignal,
       destroy,
     );
@@ -211,13 +214,13 @@ function createCloudflareSession(
     },
     async existsFile({ abortSignal, path }) {
       abortSignal?.throwIfAborted();
-      if (stub.exists) return (await request("exists", async () => await stub.exists!(path))).exists;
+      if (stub.exists) return (await request("exists", { idempotent: true }, async () => await stub.exists!(path))).exists;
       return (await run({ abortSignal, command: `test -e ${shellQuote(path)}` })).exitCode === 0;
     },
     ...(hostname && stub.exposePort
       ? {
           async getPortUrl({ port, protocol = "http" }: { port: number; protocol?: "http" | "https" | "ws" }) {
-            const result = await request("exposePort", async () => await stub.exposePort!(port, {
+            const result = await request("exposePort", { idempotent: false }, async () => await stub.exposePort!(port, {
               hostname,
               protocol: protocol === "ws" ? "http" : protocol,
             }));
@@ -228,7 +231,7 @@ function createCloudflareSession(
     async listFiles({ abortSignal, path, recursive }) {
       abortSignal?.throwIfAborted();
       if (stub.listFiles) {
-        const result = await request("listFiles", async () => await stub.listFiles!(path, { recursive }));
+        const result = await request("listFiles", { idempotent: true }, async () => await stub.listFiles!(path, { recursive }));
         return result.files
           .filter((file): file is typeof file & { type: "directory" | "file" | "symlink" } =>
             file.type === "directory" || file.type === "file" || file.type === "symlink"
@@ -241,7 +244,7 @@ function createCloudflareSession(
     async makeDirectory({ abortSignal, path, recursive }) {
       abortSignal?.throwIfAborted();
       if (stub.mkdir) {
-        const result = await request("mkdir", async () => await stub.mkdir!(path, { recursive }));
+        const result = await request("mkdir", { idempotent: recursive === true }, async () => await stub.mkdir!(path, { recursive }));
         if (result && !result.success) throw sandboxErrorDiagnostics.SANDBOX_R0022({ message: `[vitehub] Cloudflare failed to create ${path}.` });
         return;
       }
@@ -255,7 +258,7 @@ function createCloudflareSession(
       ? {
           async moveFile({ abortSignal, destination, source }: { abortSignal?: AbortSignal; destination: string; source: string }) {
             abortSignal?.throwIfAborted();
-            const result = await request("moveFile", async () => await stub.moveFile!(source, destination));
+            const result = await request("moveFile", { idempotent: false }, async () => await stub.moveFile!(source, destination));
             if (result && !result.success) throw sandboxErrorDiagnostics.SANDBOX_R0024({ message: `[vitehub] Cloudflare failed to move ${source}.` });
           },
         }
@@ -263,13 +266,13 @@ function createCloudflareSession(
     async readBinaryFile({ abortSignal, path }) {
       abortSignal?.throwIfAborted();
       const result = await abortable(
-        request("readFile", async () => await stub.readFile(path, { encoding: "base64" }), cloudflareReadTimeout, abortSignal),
+        request("readFile", { idempotent: true, signal: abortSignal, timeout: cloudflareReadTimeout }, async () => await stub.readFile(path, { encoding: "base64" })),
         abortSignal,
       );
       if (result.success === false) {
         const exists = stub.exists
           ? (await abortable(
-              request("exists", async () => await stub.exists!(path), cloudflareControlPlaneTimeout, abortSignal),
+              request("exists", { idempotent: true, signal: abortSignal }, async () => await stub.exists!(path)),
               abortSignal,
             )).exists
           : false;
@@ -281,7 +284,7 @@ function createCloudflareSession(
     async removeFile({ abortSignal, path, recursive }) {
       abortSignal?.throwIfAborted();
       if (!recursive && stub.deleteFile) {
-        const result = await request("deleteFile", async () => await stub.deleteFile!(path));
+        const result = await request("deleteFile", { idempotent: true }, async () => await stub.deleteFile!(path));
         if (result && !result.success) throw sandboxErrorDiagnostics.SANDBOX_R0026({ message: `[vitehub] Cloudflare failed to remove ${path}.` });
         return;
       }
@@ -304,13 +307,13 @@ function createCloudflareSession(
             workingDirectory?: string;
           }) {
             commandOptions.abortSignal?.throwIfAborted();
-            const process = await request("startProcess", async () => await stub.startProcess!(commandOptions.command, {
+            const process = await request("startProcess", { idempotent: false }, async () => await stub.startProcess!(commandOptions.command, {
               cwd: commandOptions.workingDirectory ?? "/workspace",
               env: { ...baseEnv, ...commandOptions.env },
               ...(commandOptions.stdin ? { stdin: true } : {}),
             }));
             const logs = stub.streamProcessLogs
-              ? request("streamProcessLogs", async () => await stub.streamProcessLogs!(process.id))
+              ? request("streamProcessLogs", { idempotent: true }, async () => await stub.streamProcessLogs!(process.id))
               : undefined;
             return cloudflareProcess(process, logs);
           },
@@ -319,7 +322,7 @@ function createCloudflareSession(
     async stop() {},
     async writeBinaryFile({ abortSignal, content, path }) {
       abortSignal?.throwIfAborted();
-      const result = await request("writeFile", async () => await stub.writeFile(path, encodeBase64(content), {
+      const result = await request("writeFile", { idempotent: true }, async () => await stub.writeFile(path, encodeBase64(content), {
         encoding: "base64",
       }));
       if (result && !result.success) throw sandboxErrorDiagnostics.SANDBOX_R0028({ message: `[vitehub] Cloudflare failed to write ${path}.` });
