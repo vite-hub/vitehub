@@ -85,8 +85,10 @@ export function addConsoleRpcHandler(
   base?: string,
   sections: readonly string[] = [],
   oauth = false,
+  crossOrigin = false,
 ): void {
   const kit = createNitroServerKit(nitro)
+  const preflight = join(consoleRuntimeRoot, "server/console-preflight.js")
   // Nitro 2 resolves plugin names against srcDir, so this virtual plugin needs an absolute filename.
   const nitro2McpDiscovery = join(consoleRuntimeRoot, "server/mcp-discovery-nitro2.js")
   // SAFETY: The Console adds Nitro handlers with a string handler and an optional route.
@@ -102,6 +104,9 @@ export function addConsoleRpcHandler(
     // Nitro 2 reads middleware routes as prefixes, so `/**` matches no request. Its non-root app base is handled by
     // the request hook below; Nitro 3 runs this route-less middleware for every request.
     { absolute: true, suffix: "/**", handler: join(consoleRuntimeRoot, "server/mcp-discovery.js"), middleware: true },
+    // CORS preflights to the data routes above carry no credentials, so they must be answered before app middleware
+    // and app Auth reject them. Route-less, like the discovery middleware, so Nitro 2 and Nitro 3 both run it.
+    { suffix: "/**", handler: preflight, middleware: true },
     { absolute: true, suffix: "/.well-known/oauth-protected-resource", handler: join(consoleRuntimeRoot, "server/mcp-metadata.js"), method: "get" },
     { absolute: true, suffix: "/.well-known/oauth-protected-resource/**", handler: join(consoleRuntimeRoot, "server/mcp-metadata.js"), method: "get" },
     // Better Auth serves its authorization server metadata below its own base path. MCP clients ask at the origin root.
@@ -164,6 +169,8 @@ export function addConsoleRpcHandler(
   for (const registration of registrations) {
     // Other Console access modes leave the application's origin-wide OAuth discovery routes alone.
     if (registration.absolute && !oauth) continue
+    // Only `console.origins` with `auth: "token"` accepts cross-origin calls.
+    if (registration.handler === preflight && !crossOrigin) continue
     if (registration.suffix === "/_vitehub/auth/manage" && !sections.includes("auth")) continue;
     if (registration.suffix === "/_vitehub/channels/replay" && !sections.includes("agents")) continue;
     const route = registration.absolute ? registration.suffix : mountPath(base, registration.suffix)

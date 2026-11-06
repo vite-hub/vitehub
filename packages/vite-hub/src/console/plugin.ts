@@ -91,7 +91,7 @@ export function assertConsoleRetention(retention: AgentRetentionPolicy | undefin
  * `authorize` is the `console.authorize` server file.
  */
 export interface ConsoleAccessBuild {
-  mode: "open" | "auth" | "cloudflare-access" | "local"
+  mode: "open" | "auth" | "cloudflare-access" | "local" | "token"
   authorize?: string
   check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
   /** How MCP clients sign in with OAuth. Only `auth` mode accepts access tokens. `path` is the mounted MCP endpoint. */
@@ -100,6 +100,8 @@ export interface ConsoleAccessBuild {
   impersonation?: true
   /** Path of the sign-in page under the application mount, such as `/sign-in`. */
   signInPage?: string
+  /** `console.origins`, for `token` mode only: the browser origins that may call the data routes with the token. */
+  origins?: readonly string[]
 }
 
 interface ConsoleRuntimeCapabilityImport {
@@ -184,6 +186,10 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
   }
   if (access.impersonation) fields.push("impersonation: true")
   if (access.signInPage) fields.push(`signInPage: ${JSON.stringify(access.signInPage)}`)
+  if (access.origins?.length) {
+    imports.push('import { installConsoleOrigins as vitehubInstallConsoleOrigins } from "vite-hub/console/sections"')
+    afterInstall.push(`vitehubInstallConsoleOrigins(${JSON.stringify(access.origins)})`)
+  }
   return {
     imports,
     install: [

@@ -5,6 +5,7 @@ import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 import { consoleMountBase } from "../console-route.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
+import { checkConsoleToken } from "./console-token.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 
@@ -19,11 +20,13 @@ import type { ConsoleSectionId } from "../sections.ts"
  * - `local`: the development server only. Production requests fail closed.
  * - `auth`: a ViteHub Auth Session. `check` is built on `withAuthorization()`.
  * - `cloudflare-access`: the Cloudflare Access application token.
+ * - `token`: `Authorization: Bearer` with the `VITEHUB_CONSOLE_TOKEN` secret. See `checkConsoleToken()`.
  * `impersonation: true` is `console.impersonation`. The Auth section can then start and stop impersonation.
  */
 export type ConsoleAccessPolicy =
   | { mode: "open", authorize?: ConsoleAuthorize, impersonation?: boolean, signInPage?: string }
   | { mode: "local" }
+  | { mode: "token", authorize?: ConsoleAuthorize }
   | {
     mode: "auth" | "cloudflare-access"
     authorize?: ConsoleAuthorize
@@ -80,7 +83,7 @@ const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
 // Responses that `console.authorize` returned, so a page visit gets them as they are.
 const authorizeResponses = new WeakSet<Response>()
-const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "local", "open"])
+const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "local", "open", "token"])
 
 export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
 
@@ -331,6 +334,11 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   else if (policy.mode === "open") {
     // open access intentionally performs no authentication
   }
+  else if (policy.mode === "token") {
+    // The token is the only way in. A cookie or a session never counts.
+    const denied = await checkConsoleToken(consoleRequest(event), event)
+    if (denied) return denied
+  }
   else {
     const bearer = policy.mode === "auth" && policy.oauth ? await verifyConsoleBearer(consoleRequest(event), event, policy.oauth, isConsoleDevelopmentRuntime()) : undefined
     // A token that fails is a rejection, not a fall back to the session: the client has to sign in again.
@@ -360,7 +368,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   }
   let sections: ConsoleAccess["sections"] = "all"
   if (policy.mode !== "local" && policy.authorize) {
-    const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
+    const request = consoleRequest(event)
+    const result: unknown = await policy.authorize(policy.mode === "token" ? { request, via: "token" } : user ? { request, user } : { request })
     if (isRuntimeResponse(result)) {
       authorizeResponses.add(result)
       return result

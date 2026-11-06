@@ -101,6 +101,7 @@ const runtimeEntries = [
   "src/console/runtime/server/agents.get.ts",
   "src/console/runtime/server/channel-replay.ts",
   "src/console/runtime/server/client.get.ts",
+  "src/console/runtime/server/console-preflight.ts",
   "src/console/runtime/server/database.get.ts",
   "src/console/runtime/server/definitions.get.ts",
   "src/console/runtime/server/documents.ts",
@@ -497,6 +498,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/env.get"];
           delete exports["./console/runtime/server/auth-manage"];
           delete exports["./console/runtime/server/env-manage"];
+          delete exports["./console/runtime/server/console-preflight"];
           delete exports["./console/runtime/server/env"];
           delete exports["./console/runtime/server/logs.get"];
           delete exports["./console/runtime/server/mcp"];
