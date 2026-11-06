@@ -12,14 +12,14 @@ An Agent preset is a reusable Agent Definition. It supplies defaults, instructio
 
 The ready-made presets are in the `@vite-hub/presets` package. Import them from `vite-hub/presets/<name>`. They are built from ViteHub primitives, such as Channels, Capabilities, and process hosts.
 
-## Choose a preset
+## Choose a host
 
 | Preset | Use it for | Host requirements |
 | --- | --- | --- |
 | [Babysitter](/docs/agents/babysitter) | Repair pull requests, address reviews, wait for checks, and optionally merge. | A persistent Node process, SQL Agent State, Git, a GitHub App, and Codex or Claude Code. |
 | [Workspace](/docs/agents/workspace-preset) | Read mounted Sources and cite files at their resolved GitHub revision. | A configured Workspace and the Codex Driver. |
 
-These are Agent presets. The deployment `preset` in `vitehub({ preset: 'node' })` selects the server host; it does not select an Agent workflow.
+These are Agent presets. The deployment `preset` in `vitehub({ host: 'node' })` selects the server host; it does not select an Agent workflow.
 
 ## Select and configure
 

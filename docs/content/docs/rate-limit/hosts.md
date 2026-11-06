@@ -40,7 +40,7 @@ export default defineConfig({
 })
 ```
 
-`vitehub({ preset: 'cloudflare', rateLimit: true })` sets the namespace to the deployment name and ignores a configured `rateLimit.namespace`. The deployment name comes from `vitehub({ name })`, `WRANGLER_CI_OVERRIDE_NAME`, the `package.json` name, or the project directory, in that order.
+`vitehub({ host: 'cloudflare', rateLimit: true })` sets the namespace to the deployment name and ignores a configured `rateLimit.namespace`. The deployment name comes from `vitehub({ name })`, `WRANGLER_CI_OVERRIDE_NAME`, the `package.json` name, or the project directory, in that order.
 
 Cloudflare native enforcement is best-effort and exposes only 10-second and 60-second windows. It does not return portable quota metadata, so incompatible policies fail during the build. Use a different namespace for staging, production, and any separately deployed Worker because Cloudflare shares counters with the same namespace ID across Workers.
 

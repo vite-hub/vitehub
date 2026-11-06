@@ -20,7 +20,7 @@ only `vite-hub`.
 pnpm add vite-hub
 ```
 
-Register the module with a [deployment preset](/docs/frameworks-hosts#choose-a-preset).
+Register the module with a [host](/docs/frameworks-hosts#choose-a-host).
 The module accepts the same options as `vitehub()`.
 
 ```ts [nuxt.config.ts]
@@ -28,7 +28,7 @@ import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
   modules: [
-    [viteHubNuxt, { preset: "node" }],
+    [viteHubNuxt, { host: "node" }],
   ],
 })
 ```
@@ -82,7 +82,7 @@ Definition.
 | --- | --- |
 | Generated types | The module adds the `.vitehub` declarations to the Nuxt and Nitro TypeScript configs. You do not add them to `tsconfig.json`. |
 | Generated Agent files | Agent route handlers and wrappers are written under `<buildDir>/vitehub/agent/**`, normally `.nuxt/vitehub/agent/**`, instead of `.vitehub/agent/**`. Agent discovery still uses `server/agents`. |
-| Database on Cloudflare | With the `cloudflare` preset, `database` defaults to `driver: 'd1'`. This configures one D1 host resource that Nitro and Nuxt Content share. |
+| Database on Cloudflare | With the `cloudflare` host, `database` defaults to `driver: 'd1'`. This configures one D1 host resource that Nitro and Nuxt Content share. |
 | Console | The Console runs as Nuxt pages. Install `@nuxt/ui`, `@iconify-json/lucide`, and `@iconify-json/ph`. Read [Console](/docs/development/console). |
 | Server auto-imports | When Nitro auto-imports are on, server code can use `kv` (with `kv`), `blob` (with `blob`), and `db` and `schema` (with `database`) without an import. Explicit `vite-hub/*` imports also work. An entry with the same name from another source fails module setup. |
 | Database tables from modules | A Nuxt module adds Database tables with the same Vite plugin contribution as a Vite app. Push the plugin to `nuxt.options.vite.plugins` during setup. Read [Contribute tables from a Nuxt module](/docs/database/configure#contribute-tables-from-a-nuxt-module). |
@@ -91,7 +91,7 @@ Definition.
 ## Inspect the output
 
 Inspect generated Agent files in Nuxt's build directory. Other `.vitehub` files
-and the preset's production output use the same paths as a Vite application.
+and the host's production output use the same paths as a Vite application.
 
 ```bash [Terminal]
 find .nuxt/vitehub -maxdepth 4 -type f | sort

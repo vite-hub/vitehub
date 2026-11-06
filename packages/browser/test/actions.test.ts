@@ -35,9 +35,9 @@ describe("Browser Run actions", () => {
   it("names the preset and the fix when the build does not enable Browser", async () => {
     availability.current = {
       available: false,
-      preset: "vercel",
+      host: "vercel",
       reason: "Vercel has no built-in Browser Provider.",
-      fix: "Deploy with the Cloudflare preset and set `browser: true` in vitehub().",
+      fix: "Deploy with the Cloudflare host and set `browser: true` in vitehub().",
     }
     expect(isBrowserAvailable()).toBe(false)
 
@@ -46,10 +46,10 @@ describe("Browser Run actions", () => {
     await expect(response.json()).resolves.toEqual({
       error: {
         code: "BROWSER_UNAVAILABLE",
-        message: "[vitehub:browser] Browser is not available on the vercel preset. Vercel has no built-in Browser Provider. Deploy with the Cloudflare preset and set `browser: true` in vitehub().",
+        message: "[vitehub:browser] Browser is not available on the vercel host. Vercel has no built-in Browser Provider. Deploy with the Cloudflare host and set `browser: true` in vitehub().",
         details: {
-          fix: "Deploy with the Cloudflare preset and set `browser: true` in vitehub().",
-          preset: "vercel",
+          fix: "Deploy with the Cloudflare host and set `browser: true` in vitehub().",
+          host: "vercel",
           reason: "Vercel has no built-in Browser Provider.",
         },
       },

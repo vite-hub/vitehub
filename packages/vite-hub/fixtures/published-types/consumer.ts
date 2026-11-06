@@ -85,7 +85,7 @@ export default defineConfig({
   },
   plugins: [vitehub({
     name: "published-consumer",
-    preset: "node",
+    host: "node",
     agent: true,
     blob: true,
     database: true,

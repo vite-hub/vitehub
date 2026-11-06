@@ -17,7 +17,7 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       browser: {
         binding: 'RENDER_BROWSER',
         remote: true,

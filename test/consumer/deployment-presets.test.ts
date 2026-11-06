@@ -22,7 +22,7 @@ function flattenPlugins(options: PluginOption[]): Plugin[] {
 }
 
 it("keeps implicit Workflow inert when Agent targets Netlify", async () => {
-  const workflow = flattenPlugins(vitehub({ agent: true, preset: "netlify" }))
+  const workflow = flattenPlugins(vitehub({ agent: true, host: "netlify" }))
     .find(plugin => plugin.name === "@vite-hub/workflow/vite") as Plugin & {
       vitehub?: { workflow?: { prepareScheduleRuntime?: () => Promise<unknown> } }
     }
@@ -33,8 +33,8 @@ it("keeps implicit Workflow inert when Agent targets Netlify", async () => {
 })
 
 it("disables Workflow in the Netlify consumer fixture", async () => {
-  const previousPreset = process.env.VITEHUB_PRESET
-  process.env.VITEHUB_PRESET = "netlify"
+  const previousHost = process.env.VITEHUB_HOST
+  process.env.VITEHUB_HOST = "netlify"
   try {
     const config = (await import("../../fixtures/consumer/vite-hub/vite.config.ts")).default
     if (typeof config === "function" || config instanceof Promise) throw new TypeError("Expected an object Vite config.")
@@ -48,8 +48,8 @@ it("disables Workflow in the Netlify consumer fixture", async () => {
     expect(names).not.toContain("@vite-hub/workflow/vite")
   }
   finally {
-    if (previousPreset === undefined) delete process.env.VITEHUB_PRESET
-    else process.env.VITEHUB_PRESET = previousPreset
+    if (previousHost === undefined) delete process.env.VITEHUB_HOST
+    else process.env.VITEHUB_HOST = previousHost
   }
 })
 
@@ -63,7 +63,7 @@ it("preserves Nitro Netlify output when emitting the ViteHub deployment manifest
     const config = await resolveConfig({
       root,
       plugins: [vitehub({
-        preset: "netlify",
+        host: "netlify",
         agent: false,
         blob: false,
         database: false,
@@ -100,7 +100,6 @@ it("preserves Nitro Netlify output when emitting the ViteHub deployment manifest
         directory: ".netlify",
         entry: "functions-internal/server/server.mjs",
       },
-      preset: "netlify",
       runtime: "node",
     })
   } finally {
@@ -210,7 +209,7 @@ it("derives Cloudflare provider output from the Workers Builds target", async ()
       },
       plugins: [
         vitehub({
-          preset: "cloudflare",
+          host: "cloudflare",
           agent: false,
           blob: true,
           database: false,
@@ -322,7 +321,7 @@ it("loads the generated Schedule module and emits each Cloudflare cron once", as
       },
       plugins: [
         vitehub({
-          preset: "cloudflare",
+          host: "cloudflare",
           agent: false,
           blob: false,
           database: false,
@@ -386,7 +385,7 @@ export default defineEventHandler(async () => {
       // Nitro leaves generated runtime plugins external, so `deno check` follows their ViteHub imports
       // outside the artifact. These plugins do not affect native package uploads.
       plugins: flattenPlugins([vitehub({
-        preset: "deno",
+        host: "deno",
         agent: false,
         blob: false,
         database: false,

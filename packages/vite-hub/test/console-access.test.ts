@@ -429,7 +429,7 @@ describe("generated Console access", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-access-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ preset: "node", sections: ["agents"], ...options })
+      const plugin = consoleVitePlugin({ host: "node", sections: ["agents"], ...options })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a Console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook

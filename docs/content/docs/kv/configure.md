@@ -46,7 +46,7 @@ Nitro keeps `defineCachedFunction()`, `defineCachedEventHandler()`, and route ru
 
 ```ts [vite.config.ts]
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', kv: true, cache: { driver: 'kv' } })],
+  plugins: [vitehub({ host: 'cloudflare', kv: true, cache: { driver: 'kv' } })],
 })
 ```
 

@@ -710,7 +710,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true }),
+    vitehub({ host: 'node', agent: true }),
   ],
 })
 ```

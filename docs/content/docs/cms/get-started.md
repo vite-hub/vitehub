@@ -28,7 +28,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false } })],
+  plugins: [vitehub({ host: 'node', console: { auth: false } })],
 })
 ```
 

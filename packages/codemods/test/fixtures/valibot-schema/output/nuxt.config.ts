@@ -8,7 +8,7 @@ export default defineNuxtConfig({
     untouched: 'keep me',
   },
   vitehub: {
-    preset: 'node',
+    host: 'node',
     env: {
       public: {
         apiBase: env({ default: 'https://api.example.com', mode: 'build', source: env.source('NUXT_PUBLIC_API_BASE') }),

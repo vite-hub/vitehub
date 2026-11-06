@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Save a theme setting under `settings`, then read it in a second request. Both routes return `{ "settings": { "theme": "system" } }`.
 
-Start with the working app from [Installation](/docs/getting-started/installation). Use its Node.js, pnpm, Vite, Nitro, and H3 setup, and run commands from the app root. The Node preset uses a local `fs-lite` store under `.vitehub/data/kv`. No provider account is required.
+Start with the working app from [Installation](/docs/getting-started/installation). Use its Node.js, pnpm, Vite, Nitro, and H3 setup, and run commands from the app root. The Node host uses a local `fs-lite` store under `.vitehub/data/kv`. No provider account is required.
 
 ::tutorial-step{title="Enable KV"}
 ## Enable KV
@@ -23,7 +23,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', kv: true })],
+  plugins: [vitehub({ host: 'node', kv: true })],
 })
 ```
 

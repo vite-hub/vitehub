@@ -22,9 +22,9 @@ export interface ConfigEditInput {
 
 export interface ConfigEditResult {
   code: string
-  /** ViteHub deployment preset that the codemod set, if any. */
-  preset?: string
-  presetNote?: string
+  /** ViteHub host that the codemod set, if any. */
+  host?: string
+  hostNote?: string
   imports: string[]
   /** Sources of the imports that only the removed code used, such as `valibot`. */
   removedImports: string[]
@@ -34,7 +34,7 @@ export interface ConfigEditResult {
 
 const vitehubModule = "vite-hub/nuxt"
 
-const nitroPresets: Record<string, string> = {
+const nitroPresetHosts: Record<string, string> = {
   "cloudflare-module": "cloudflare",
   "cloudflare": "cloudflare",
   "deno-deploy": "deno",
@@ -296,10 +296,10 @@ function objectPropertyArray(object: ObjectExpression, name: string) {
   return property?.value.type === "ArrayExpression" ? property.value : undefined
 }
 
-function hasInlinePreset(entry: Node | undefined): boolean {
+function hasInlineHost(entry: Node | undefined): boolean {
   if (entry?.type !== "ArrayExpression") return false
   const options = entry.elements[1]
-  return options?.type === "ObjectExpression" && Boolean(findProperty(options, "preset"))
+  return options?.type === "ObjectExpression" && Boolean(findProperty(options, "host"))
 }
 
 /** Edits nuxt.config: swaps the module, removes `safeRuntimeConfig` and migrated keys, and adds `vitehub.env`. */
@@ -371,23 +371,23 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
   }
 
   const existingOptions = findProperty(config.root, "vitehub")
-  const existingPreset = existingOptions?.value.type === "ObjectExpression" ? findProperty(existingOptions.value, "preset") : undefined
-  const inlinePreset = hasInlinePreset(existingViteHub)
+  const existingHost = existingOptions?.value.type === "ObjectExpression" ? findProperty(existingOptions.value, "host") : undefined
+  const inlineHost = hasInlineHost(existingViteHub)
   const preset = nitroPreset(config)
-  if (preset.property && preset.value === undefined && !inlinePreset && !existingPreset) {
-    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.preset, then run the codemod again.`)
+  if (preset.property && preset.value === undefined && !inlineHost && !existingHost) {
+    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.host, then run the codemod again.`)
   }
-  let vitehubPreset: string | undefined = "node"
-  let presetNote: string | undefined = `ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.`
+  let vitehubHost: string | undefined = "node"
+  let hostNote: string | undefined = `ViteHub needs a host, so the codemod set vitehub.host to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.`
   if (preset.value) {
-    vitehubPreset = nitroPresets[preset.value.trim().toLowerCase().replaceAll("_", "-")]
-    presetNote = vitehubPreset
+    vitehubHost = nitroPresetHosts[preset.value.trim().toLowerCase().replaceAll("_", "-")]
+    hostNote = vitehubHost
       ? undefined
-      : `nitro.preset "${preset.value}" has no ViteHub deployment preset. Set vitehub.preset to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.`
+      : `nitro.preset "${preset.value}" has no ViteHub host. Set vitehub.host to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.`
   }
-  if (inlinePreset) {
-    vitehubPreset = undefined
-    presetNote = undefined
+  if (inlineHost) {
+    vitehubHost = undefined
+    hostNote = undefined
   }
 
   const unit = style.indent
@@ -397,14 +397,14 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
     if (findProperty(existingOptions.value, "env")) throw new CodemodError(`${config.fileName} already sets vitehub.env. Merge the Env declarations by hand.`)
     const innerIndent = existingOptions.value.properties[0] ? indentAt(config.code, start(existingOptions.value.properties[0])) : `${baseIndent}${unit}`
     const entries = [`env: ${envExpression(input.env, envName, innerIndent, style)}`]
-    if (vitehubPreset && !findProperty(existingOptions.value, "preset")) entries.unshift(`preset: ${quoteString(vitehubPreset, style)}`)
-    else if (findProperty(existingOptions.value, "preset")) presetNote = undefined
+    if (vitehubHost && !findProperty(existingOptions.value, "host")) entries.unshift(`host: ${quoteString(vitehubHost, style)}`)
+    else if (findProperty(existingOptions.value, "host")) hostNote = undefined
     editor.insertProperties(existingOptions.value, entries, new Set())
   }
   else {
     const innerIndent = `${baseIndent}${unit}`
     const entries = [
-      ...(vitehubPreset ? [`${innerIndent}preset: ${quoteString(vitehubPreset, style)},`] : []),
+      ...(vitehubHost ? [`${innerIndent}host: ${quoteString(vitehubHost, style)},`] : []),
       `${innerIndent}env: ${envExpression(input.env, envName, innerIndent, style)},`,
     ]
     rootEntries.push(`vitehub: {\n${entries.join("\n")}\n${baseIndent}}`)
@@ -416,8 +416,8 @@ export function editNuxtConfig(input: ConfigEditInput): ConfigEditResult {
   const code = editor.output.toString()
   return {
     code,
-    preset: vitehubPreset,
-    presetNote,
+    host: vitehubHost,
+    hostNote,
     imports: input.env.kind === "fields" ? ["vite-hub/env"] : ["@vite-hub/env/vite"],
     removedImports: editor.removedImports,
     lineOf: createLineResolver(code),

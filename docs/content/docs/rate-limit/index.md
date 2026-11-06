@@ -18,7 +18,7 @@ icon: i-lucide-gauge
   export default defineConfig({
     plugins: [
       // On Node, counts stay in memory
-      vitehub({ preset: 'node', rateLimit: true }),
+      vitehub({ host: 'node', rateLimit: true }),
       nitro(),
     ],
   })

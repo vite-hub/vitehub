@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest"
 import { vitehub } from "../src/index.ts"
 
 function publicUrlPlugin(publicUrl: Parameters<typeof vitehub>[0]["publicUrl"]): Plugin {
-  const plugin = vitehub({ preset: "node", publicUrl })
+  const plugin = vitehub({ host: "node", publicUrl })
     .find((candidate): candidate is Plugin => !!candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/public-url")
   if (!plugin) throw new Error("Missing public URL plugin.")
   return plugin

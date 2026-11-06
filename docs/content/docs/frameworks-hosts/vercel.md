@@ -6,11 +6,11 @@ navigation.group: Deployment hosts
 icon: i-simple-icons-vercel
 ---
 
-Use the `vercel` preset to deploy a ViteHub application to Vercel. A production
+Use the `vercel` host to deploy a ViteHub application to Vercel. A production
 build writes Vercel Build Output under `.vercel/output`. Definitions stay
 portable; Vercel-specific behavior stays in the config and the generated output.
 
-| Feature | Default on the `vercel` preset |
+| Feature | Default on the `vercel` host |
 | --- | --- |
 | Blob | Vercel Blob with OIDC (`BLOB_STORE_ID`), or `BLOB_READ_WRITE_TOKEN` off Vercel |
 | KV | Upstash Redis with `KV_REST_API_URL` and `KV_REST_API_TOKEN` |
@@ -32,9 +32,9 @@ portable; Vercel-specific behavior stays in the config and the generated output.
 | External Database | A Database Definition backed by Cloudflare D1 over authenticated HTTP, or Database integration `connection` backed by hosted libSQL. |
 | Credentials | `VERCEL_TOKEN` and `VERCEL_PROJECT_ID` for Blob Provision, with an optional team id; Server Env for app runtime secrets. |
 
-## Configure the preset
+## Configure the host
 
-Select the `vercel` preset and enable the features the application uses.
+Select the `vercel` host and enable the features the application uses.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -43,7 +43,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       blob: true,
       queue: true,
     }),
@@ -84,7 +84,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       database: {
         connection: {
           url: env({ source: env.source('TURSO_DATABASE_URL') }),

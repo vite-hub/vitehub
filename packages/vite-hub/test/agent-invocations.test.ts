@@ -178,7 +178,7 @@ describe("vitehub({ agent: { invocations } })", () => {
   it("generates a Nitro plugin that loads before the Console plugin", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invocations-"))
     try {
-      const plugin = agentInvocationsPlugin({ agent: { invocations: { database: "journal", store: "database" } }, database: true, preset: "node" })
+      const plugin = agentInvocationsPlugin({ agent: { invocations: { database: "journal", store: "database" } }, database: true, host: "node" })
       if (!plugin) throw new Error("Missing Agent Invocations plugin.")
       const config = { nitro: { plugins: ["/app/.vitehub/nitro/console/plugin.mjs"] }, root }
       // SAFETY: The plugin reads only the root and the Nitro config, which this fixture supplies.
@@ -201,16 +201,16 @@ describe("vitehub({ agent: { invocations } })", () => {
   })
 
   it("adds the plugin only for a Database or an app-wide journal", () => {
-    expect(agentInvocationsPlugin({ agent: true, preset: "node" })).toBeUndefined()
-    expect(agentInvocationsPlugin({ agent: { invocations: false }, preset: "node" })).toBeUndefined()
-    expect(agentInvocationsPlugin({ agent: true, database: true, preset: "node" })).toBeDefined()
-    expect(agentInvocationsPlugin({ agent: { invocations: "memory" }, preset: "node" })).toBeDefined()
-    expect(agentInvocationsPlugin({ database: true, preset: "node" })).toBeUndefined()
+    expect(agentInvocationsPlugin({ agent: true, host: "node" })).toBeUndefined()
+    expect(agentInvocationsPlugin({ agent: { invocations: false }, host: "node" })).toBeUndefined()
+    expect(agentInvocationsPlugin({ agent: true, database: true, host: "node" })).toBeDefined()
+    expect(agentInvocationsPlugin({ agent: { invocations: "memory" }, host: "node" })).toBeDefined()
+    expect(agentInvocationsPlugin({ database: true, host: "node" })).toBeUndefined()
   })
 
   it("requires Database for the Database journal and a Nitro Agent host", () => {
-    expect(() => vitehub({ agent: { invocations: "database" }, preset: "node" })).toThrow("requires database")
-    expect(() => vitehub({ agent: { invocations: "memory" }, preset: "netlify" })).toThrow("requires Nitro-hosted Agents")
-    expect(() => vitehub({ agent: { invocations: "memory", runtime: "deno" }, preset: "node" })).toThrow("requires Nitro-hosted Agents")
+    expect(() => vitehub({ agent: { invocations: "database" }, host: "node" })).toThrow("requires database")
+    expect(() => vitehub({ agent: { invocations: "memory" }, host: "netlify" })).toThrow("requires Nitro-hosted Agents")
+    expect(() => vitehub({ agent: { invocations: "memory", runtime: "deno" }, host: "node" })).toThrow("requires Nitro-hosted Agents")
   })
 })

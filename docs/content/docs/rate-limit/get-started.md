@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Allow two requests in one minute, then reject the third with HTTP `429`. Add the guard before the work in your route so requests over the limit cannot reach that work.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. The Node preset counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. See [Hosts](/docs/rate-limit/hosts) for shared enforcement.
+You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. The Node host counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. See [Hosts](/docs/rate-limit/hosts) for shared enforcement.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
@@ -22,14 +22,14 @@ pnpm add vite-hub nitro h3
 pnpm add -D vite
 ```
 
-Enable Rate Limit on the `node` preset for this local check. Supported deployment presets and provider configuration are in [Hosts](/docs/rate-limit/hosts).
+Enable Rate Limit on the `node` host for this local check. Supported hosts and provider configuration are in [Hosts](/docs/rate-limit/hosts).
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', rateLimit: true })],
+  plugins: [vitehub({ host: 'node', rateLimit: true })],
 })
 ```
 
@@ -40,7 +40,7 @@ export default defineConfig({
 
 Require the Rate Limit directly in ordinary server code. The guard does not need a dedicated directory, file suffix, or module-scope declaration.
 
-The name `image-upload` identifies this policy. `limit: 2` permits two requests per client in a one-minute window. On the Node preset, the window is a fixed window that starts at second 0 of each clock minute. [Rate limiting algorithms](/docs/guides/rate-limiting-algorithms) shows what that means at the edge of a window. Put the guard before any upload or other side effect.
+The name `image-upload` identifies this policy. `limit: 2` permits two requests per client in a one-minute window. On the Node host, the window is a fixed window that starts at second 0 of each clock minute. [Rate limiting algorithms](/docs/guides/rate-limiting-algorithms) shows what that means at the edge of a window. Put the guard before any upload or other side effect.
 
 ```ts [server/api/image-upload.post.ts]
 import { defineEventHandler } from 'h3'

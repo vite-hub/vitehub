@@ -255,7 +255,7 @@ Rate Limits (rate-limit): 1
 
 `--json` prints `{ "definitions": [{ "kind", "label", "definitions": [...] }] }`. Each Definition has `name`, `file` relative to the project root, `source`, and `fields`. An unknown `--kind` exits with status 1 and lists the available kinds.
 
-`inspect provider-output` lists the Provider Output files that active packages and the deployment preset write, and shows which ones exist. Deployment paths use the preset's default output directory, for example `.output` or `.vercel/output`. Run a production build first to generate deployment output.
+`inspect provider-output` lists the Provider Output files that active packages and the host write, and shows which ones exist. Deployment paths use the host's default output directory, for example `.output` or `.vercel/output`. Run a production build first to generate deployment output.
 
 ```bash [Terminal]
 pnpm build

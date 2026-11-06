@@ -37,7 +37,7 @@ export function stubLanding(slug: string, name: string, docsTo: string): Primiti
         illustrative: true,
         files: [
           { path: "package.json", language: "json", content: '{\n  "private": true,\n  "type": "module"\n}' },
-          { path: "nuxt.config.ts", language: "typescript", content: '// Illustrative pseudocode.\n// Configure the ViteHub Nuxt module and deployment preset using the host setup guide.' },
+          { path: "nuxt.config.ts", language: "typescript", content: '// Illustrative pseudocode.\n// Configure the ViteHub Nuxt module and host using the host setup guide.' },
           { path: `server/${slug}/index.ts`, language: "typescript", content: `// Illustrative pseudocode.\n// Configure ${name} using its documented API.\n// Call the configured primitive from your server code.` },
         ],
       },

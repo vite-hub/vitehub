@@ -15,7 +15,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       console: { auth: false },
       publicUrl: 'https://agents.example.com',

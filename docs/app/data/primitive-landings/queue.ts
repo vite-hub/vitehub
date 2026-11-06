@@ -66,7 +66,7 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "cloudflare", queue: true, console: false })],
+  plugins: [vitehub({ host: "cloudflare", queue: true, console: false })],
   build: {
     ssr: true,
     rolldownOptions: { input: resolve(import.meta.dirname, "src/server.ts") },
@@ -98,7 +98,7 @@ import { vitehub } from "vite-hub"
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: "cloudflare", queue: true, console: false }),
+    vitehub({ host: "cloudflare", queue: true, console: false }),
     nitro(),
   ],
 })`,
@@ -125,7 +125,7 @@ import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
   modules: [
-    [viteHubNuxt, { preset: "cloudflare", queue: true, console: false }],
+    [viteHubNuxt, { host: "cloudflare", queue: true, console: false }],
   ],
 })`,
         },

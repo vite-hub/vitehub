@@ -7,7 +7,7 @@ navigation.group: Storage
 icon: i-simple-icons-vercel
 ---
 
-To use Vercel Blob from a Vite app, set `preset: 'vercel'` and `blob: true` in `vitehub()`, and connect a Blob store to the Vercel project. ViteHub then selects the `vercel-blob` driver, and server code reads and writes files with `blob` from `vite-hub/blob`. You do not install `@vercel/blob`. ViteHub bundles it in the driver.
+To use Vercel Blob from a Vite app, set `host: 'vercel'` and `blob: true` in `vitehub()`, and connect a Blob store to the Vercel project. ViteHub then selects the `vercel-blob` driver, and server code reads and writes files with `blob` from `vite-hub/blob`. You do not install `@vercel/blob`. ViteHub bundles it in the driver.
 
 ## What Vercel Blob is
 
@@ -17,18 +17,18 @@ ViteHub uses the Vercel SDK inside the `vercel-blob` driver. Your code calls the
 
 ## Set up Vercel Blob
 
-### Enable Blob with the Vercel preset
+### Enable Blob with the Vercel host
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', blob: true })],
+  plugins: [vitehub({ host: 'vercel', blob: true })],
 })
 ```
 
-`blob: true` on the `vercel` preset selects `driver: 'vercel-blob'` with `access: 'public'`. For a private store, set the driver and the access mode yourself:
+`blob: true` on the `vercel` host selects `driver: 'vercel-blob'` with `access: 'public'`. For a private store, set the driver and the access mode yourself:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -37,7 +37,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       blob: { driver: 'vercel-blob', access: 'private' },
     }),
   ],
@@ -113,7 +113,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       blob: {
         driver: 'vercel-blob',
         access: 'private',
@@ -128,7 +128,7 @@ export default defineConfig({
 
 ## How to use Vercel Blob locally
 
-With the `vercel` preset, the dev server also uses Vercel Blob, so it needs the token. Link the app to the Vercel project, then copy the project variables to `.env.local`:
+With the `vercel` host, the dev server also uses Vercel Blob, so it needs the token. Link the app to the Vercel project, then copy the project variables to `.env.local`:
 
 ```bash [Terminal]
 vercel link
@@ -167,9 +167,9 @@ Some limits come from Vercel, and some come from the ViteHub driver. Read [Verce
 
 ## Move the same code to another host
 
-Routes that import `blob` from `vite-hub/blob` stay the same. Change the preset, and ViteHub selects the default store of the new host:
+Routes that import `blob` from `vite-hub/blob` stay the same. Change the host, and ViteHub selects the default store of the new host:
 
-| Preset | Default Blob store |
+| Host | Default Blob store |
 | --- | --- |
 | `cloudflare` | A Cloudflare R2 bucket named after the application, with binding `BLOB`. |
 | `netlify` | Netlify Blobs. |

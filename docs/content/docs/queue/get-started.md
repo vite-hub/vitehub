@@ -12,9 +12,9 @@ Submit a welcome job from an API route and watch its handler log the delivery. T
 
 Start with the working app from [Installation](/docs/getting-started/installation). Use its Node.js, pnpm, Vite, Nitro, and H3 setup, and run commands from the app root.
 
-`pnpm dev` runs each job in the dev server for every preset, with no account, so you can test the handler before you deploy. See [Queue hosts](/docs/queue/hosts#develop-locally). This tutorial then deploys to Cloudflare. Completing this tutorial requires a Cloudflare account with Queues available, permission to create a queue and deploy a Worker, and access to Worker logs. Provisioning and deployment create real provider resources and can incur charges. The deployed Worker must have the generated producer binding and consumer configuration.
+`pnpm dev` runs each job in the dev server for every host, with no account, so you can test the handler before you deploy. See [Queue hosts](/docs/queue/hosts#develop-locally). This tutorial then deploys to Cloudflare. Completing this tutorial requires a Cloudflare account with Queues available, permission to create a queue and deploy a Worker, and access to Worker logs. Provisioning and deployment create real provider resources and can incur charges. The deployed Worker must have the generated producer binding and consumer configuration.
 
-This tutorial changes the app's preset from `node` to `cloudflare`. Any other enabled features also need their Cloudflare resources. See [Queue hosts](/docs/queue/hosts) for Vercel and the local provider. There is no Queue provider for Deno.
+This tutorial changes the app's host from `node` to `cloudflare`. Any other enabled features also need their Cloudflare resources. See [Queue hosts](/docs/queue/hosts) for Vercel and the local provider. There is no Queue provider for Deno.
 
 ::tutorial-step{title="Enable Queue for Cloudflare"}
 ## Enable Queue for Cloudflare
@@ -27,11 +27,11 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'cloudflare', queue: true })],
+  plugins: [vitehub({ host: 'cloudflare', queue: true })],
 })
 ```
 
-`vitehub()` includes the Nitro integration. The preset selects the Queue provider and Nitro output. If you chose Nuxt in Installation, set these same options on the existing `vite-hub/nuxt` module and keep Nuxt's server integration.
+`vitehub()` includes the Nitro integration. The host selects the Queue provider and Nitro output. If you chose Nuxt in Installation, set these same options on the existing `vite-hub/nuxt` module and keep Nuxt's server integration.
 
 Install Wrangler to read the deployed Worker's logs later:
 

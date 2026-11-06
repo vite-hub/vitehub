@@ -127,12 +127,11 @@ export function observabilityVitePlugin(options: ObservabilityOptions, target: {
       // SAFETY: ViteHub and Agent plugins extend these public Vite config keys.
       const resolved = config as typeof config & {
         agent?: boolean | { runtime?: string }
-        vitehub?: { preset?: string }
-        preset?: string
+        vitehub?: { host?: string }
         nitro?: { preset?: string }
       }
       const agent = resolved.agent ?? target.agent
-      const hosting = resolveHost({ hosting: resolved.vitehub?.preset ?? resolved.preset ?? target.hosting, nitro: resolved.nitro })
+      const hosting = resolveHost({ hosting: resolved.vitehub?.host ?? target.hosting, nitro: resolved.nitro })
       if (agent && ((typeof agent === "object" && agent.runtime === "deno") || hosting === "netlify")) {
         throw viteHubErrorDiagnostics.VITE_HUB_R0129({ message: "[vitehub] observability currently requires Nitro-hosted Agents. Netlify and Deno Agent output are not supported." })
       }

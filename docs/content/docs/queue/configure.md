@@ -32,7 +32,7 @@ export default defineConfig({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `provider` | `'cloudflare' \| 'vercel' \| 'local'` | inferred | Selects the Queue Provider. ViteHub resolves Cloudflare for Cloudflare hosting, `local` for a Node server (`preset: 'node'` or the Nitro `node-server` preset), and Vercel for other supported production builds. Netlify cannot infer a Queue Provider, so set `provider` or disable Queue there. |
+| `provider` | `'cloudflare' \| 'vercel' \| 'local'` | inferred | Selects the Queue Provider. ViteHub resolves Cloudflare for Cloudflare hosting, `local` for a Node server (`host: 'node'` or the Nitro `node-server` preset), and Vercel for other supported production builds. Netlify cannot infer a Queue Provider, so set `provider` or disable Queue there. |
 | `cache` | `boolean` | `true` | Controls named QueueClient reuse for providers that can cache clients. Cloudflare QueueClients still resolve the request-scoped binding for each request. |
 | `binding` | `string` | derived | Cloudflare only. Overrides the generated binding name. You can use it with one Queue Definition only. |
 | `namePrefix` | `string` | none | Cloudflare only. Prefixes the generated queue names: `<namePrefix>queue--<hex-name>`. |
@@ -49,7 +49,7 @@ Disables runtime queue dispatch and skips generated Vercel queue consumer functi
 | --- | --- | --- | --- |
 | Cloudflare | `queue: { provider: 'cloudflare' }` | Worker queue handler and `wrangler.json` `queues.producers` / `queues.consumers` entries. | Uses request-scoped queue bindings. Supports `contentType` and `delaySeconds`. |
 | Vercel | `queue: { provider: 'vercel', region?: string }` | One Nitro route per Queue Definition with a Vercel queue trigger. | Requires `@vercel/queue`. Supports idempotency, region, retention, and delayed send options. |
-| Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs the stored jobs in the server process. | The default of the Node preset. Supports `delaySeconds` and `idempotencyKey`. The jobs stay on one host. `pnpm dev` uses it for every provider, with the rules of the provider of the build. |
+| Local | `queue: { provider: 'local', base?: string }` | A Nitro plugin that runs the stored jobs in the server process. | The default of the Node host. Supports `delaySeconds` and `idempotencyKey`. The jobs stay on one host. `pnpm dev` uses it for every provider, with the rules of the provider of the build. |
 
 ViteHub has no Queue Provider for Deno. The local provider keeps the jobs on one host: see [Local delivery](/docs/queue/limits-and-errors#local-delivery) before you run more than one server. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a deployment target.
 

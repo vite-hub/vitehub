@@ -101,7 +101,7 @@ A direct Vercel client from `createQueueClient()` needs a `topic`. `getQueue()` 
 
 ### QUEUE_PROVIDER_MISMATCH
 
-The generated Cloudflare, Vercel, or local runtime received another provider. Set `queue.provider` to the provider of the deployment preset, and build again.
+The generated Cloudflare, Vercel, or local runtime received another provider. Set `queue.provider` to the provider of the host, and build again.
 
 ### QUEUE_RUNTIME_NOT_INSTALLED
 
@@ -147,7 +147,7 @@ The derived Cloudflare queue name contains characters that Cloudflare does not a
 
 ### QUEUE_MISSING_PROVIDER
 
-ViteHub cannot select a provider for the hosting target, for example Netlify or Deno. Set `queue.provider`, select the Cloudflare, Vercel, or Node deployment preset, or set `queue: false`.
+ViteHub cannot select a provider for the hosting target, for example Netlify or Deno. Set `queue.provider`, select the Cloudflare, Vercel, or Node host, or set `queue: false`.
 
 ### QUEUE_NAME_COLLISION
 
@@ -163,7 +163,7 @@ The `hubQueue()` plugin in the Vite config does not expose the Queue Nitro confi
 
 ## Local delivery
 
-The local provider is the Queue Provider of the Node preset. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. In `vite dev`, a Cloudflare or Vercel app uses it too, with the rules of [Dev delivery](#dev-delivery).
+The local provider is the Queue Provider of the Node host. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. In `vite dev`, a Cloudflare or Vercel app uses it too, with the rules of [Dev delivery](#dev-delivery).
 
 - `runQueue()` writes the job to a file in `.vitehub/data/queue` and returns. The server process then runs the Queue Definition.
 - A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or after a Queue error that a retry cannot fix, the job becomes a dead job. A dead job stays in its file with the last error, and `vitehub queue list` counts it. The provider keeps the 100 newest dead jobs of each Queue Definition and deletes older ones. `vitehub queue list` shows this limit as `deadLimit`. `vitehub queue jobs retry <message-id>` runs a dead job again, and `vitehub queue jobs clear --state dead` removes the dead jobs.

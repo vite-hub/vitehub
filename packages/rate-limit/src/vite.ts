@@ -103,8 +103,8 @@ function resolveProvider(options: RateLimitModuleOptions, command: "build" | "se
 }
 
 function buildTargetsCloudflare(config: ResolvedConfig, configured: RateLimitModuleOptions, nitro: unknown): boolean {
-  // ViteHub records the deployment preset separately from its memory runtime provider in dev.
-  if ((config as { vitehub?: { preset?: string } }).vitehub?.preset === "cloudflare") return true
+  // ViteHub records the host separately from its memory runtime provider in dev.
+  if ((config as { vitehub?: { host?: string } }).vitehub?.host === "cloudflare") return true
   if (configured.provider === "cloudflare") return true
   return (configured.provider ?? "auto") === "auto" && getHostingProvider(resolveHost({ nitro })) === "cloudflare"
 }

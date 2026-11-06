@@ -190,11 +190,11 @@ function renderNitroRequestStatsMiddleware() {
   ].join("\n")
 }
 
-// Under `vitehub()`, the dev server config names the deployment preset in `vitehub.preset`, and Nitro has none.
+// Under `vitehub()`, the dev server config names the host in `vitehub.host`, and Nitro has none.
 function devServerTargetsCloudflare(config: ResolvedConfig | undefined): boolean {
   if (config?.command !== "serve") return false
   const vitehub: unknown = Reflect.get(config, "vitehub")
-  const hosting: unknown = vitehub && typeof vitehub === "object" ? Reflect.get(vitehub, "preset") : undefined
+  const hosting: unknown = vitehub && typeof vitehub === "object" ? Reflect.get(vitehub, "host") : undefined
   return resolveHost({ hosting, nitro: Reflect.get(config, "nitro") }) === "cloudflare"
 }
 

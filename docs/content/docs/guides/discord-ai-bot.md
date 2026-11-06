@@ -7,13 +7,13 @@ navigation.group: Chat bots
 icon: i-simple-icons-discord
 ---
 
-To build an AI Discord bot with ViteHub, create an application in the Discord Developer Portal, turn on the Message Content intent, and add `discord({ adapter: true })` from `vite-hub/agent/channels` to a `defineAgent()` file. Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID`, then run the app with the `node` preset. The Node server opens the Discord Gateway connection when it starts, and the Agent answers direct messages and messages that mention the bot.
+To build an AI Discord bot with ViteHub, create an application in the Discord Developer Portal, turn on the Message Content intent, and add `discord({ adapter: true })` from `vite-hub/agent/channels` to a `defineAgent()` file. Set `DISCORD_BOT_TOKEN`, `DISCORD_PUBLIC_KEY`, and `DISCORD_APPLICATION_ID`, then run the app with the `node` host. The Node server opens the Discord Gateway connection when it starts, and the Agent answers direct messages and messages that mention the bot.
 
 ## What a ViteHub Discord bot is
 
 A [Discord bot](https://discord.com/developers/docs/intro) is the bot user of a Discord application. Discord does not send ordinary chat messages to a webhook. A bot receives them through the [Gateway](https://discord.com/developers/docs/events/gateway), a WebSocket connection that stays open. The HTTP interactions endpoint receives only slash commands, buttons, and other interactions.
 
-In ViteHub, the bot is a [Channel](/docs/agents/channels) of an Agent. `discord()` builds a [Chat SDK](https://chat-sdk.dev) Discord adapter. On the `node` preset, ViteHub adds a Nitro plugin that opens the Gateway connection when the server starts, opens a new connection every 9 minutes, and closes it when the server stops. Each message that ViteHub accepts starts one Agent Invocation. The Agent writes the answer. In a server channel, ViteHub posts the answer in a thread under the message.
+In ViteHub, the bot is a [Channel](/docs/agents/channels) of an Agent. `discord()` builds a [Chat SDK](https://chat-sdk.dev) Discord adapter. On the `node` host, ViteHub adds a Nitro plugin that opens the Gateway connection when the server starts, opens a new connection every 9 minutes, and closes it when the server stops. Each message that ViteHub accepts starts one Agent Invocation. The Agent writes the answer. In a server channel, ViteHub posts the answer in a thread under the message.
 
 ## Create the Discord application
 
@@ -35,7 +35,7 @@ pnpm add @chat-adapter/discord
 
 Use the version that matches the `chat` package that ViteHub installs. `pnpm why chat` shows it.
 
-### Enable Agents on the Node preset
+### Enable Agents on the Node host
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -44,7 +44,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -52,7 +52,7 @@ export default defineConfig({
 })
 ```
 
-The `node` preset is what starts the Gateway listener in the server process. `workflow: false` keeps each reply inline in that process.
+The `node` host is what starts the Gateway listener in the server process. `workflow: false` keeps each reply inline in that process.
 
 ### Define the Agent
 
@@ -121,7 +121,7 @@ If the bot does not answer, look for `[vitehub:agent] Discord Gateway listener f
 
 ## Deploy the bot
 
-Deploy the `node` preset to a server or container that runs all the time. Read [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
+Deploy the `node` host to a server or container that runs all the time. Read [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
 
 ```bash [Terminal]
 pnpm build
@@ -139,18 +139,18 @@ Run one server process for the bot. Each process opens its own Gateway connectio
 
 ## Serverless hosts
 
-A serverless function cannot keep the Gateway connection open, so ViteHub starts the listener only on the `node` preset. You can generate a wake route instead:
+A serverless function cannot keep the Gateway connection open, so ViteHub starts the listener only on the `node` host. You can generate a wake route instead:
 
 ```ts [vite.config.ts]
 vitehub({
-  preset: 'vercel',
+  host: 'vercel',
   agent: { routes: { discordGateway: true } },
 })
 ```
 
 This adds `GET /api/_vitehub/agents/<agent>/discord/gateway`. In production the route requires `VITEHUB_DISCORD_GATEWAY_SECRET` and an `Authorization: Bearer <secret>` header. Each call opens the Gateway for 9 minutes, or for `VITEHUB_DISCORD_GATEWAY_DURATION_MS`, and forwards each event to the Agent webhook route at `/api/_vitehub/agents/<agent>/webhooks/discord`.
 
-ViteHub does not call this route for you. You must call it on a timer that overlaps the listener time, and the host must let the function run for that time. Many serverless plans stop a function sooner. ViteHub has no deployed test of this path. Use the `node` preset when you need a Discord bot that is always online. On the `node` preset, `routes.discordGateway` adds no route, because the server process owns the listener.
+ViteHub does not call this route for you. You must call it on a timer that overlaps the listener time, and the host must let the function run for that time. Many serverless plans stop a function sooner. ViteHub has no deployed test of this path. Use the `node` host when you need a Discord bot that is always online. On the `node` host, `routes.discordGateway` adds no route, because the server process owns the listener.
 
 ## Limits
 

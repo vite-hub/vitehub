@@ -340,7 +340,7 @@ describe("Cloudflare Access Console Auth", () => {
   ])("guards Console routes at the application mount: %j", async ({ mount, ...bases }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-cf-access-vite-base-"))
     try {
-      const plugin = consoleVitePlugin({ console: { auth: { provider: "cloudflare-access", audience, teamDomain } }, preset: "cloudflare" })
+      const plugin = consoleVitePlugin({ console: { auth: { provider: "cloudflare-access", audience, teamDomain } }, host: "cloudflare" })
       const hook = plugin.config
       if (!hook) throw new TypeError("Expected Console config hook.")
       const handler = "handler" in hook ? hook.handler : hook
@@ -379,7 +379,7 @@ describe("Cloudflare Access Console Auth", () => {
         configFile: false,
         base: "/early/",
         plugins: [
-          consoleVitePlugin({ console: { auth: { provider: "cloudflare-access", audience, teamDomain } }, preset: "cloudflare" }),
+          consoleVitePlugin({ console: { auth: { provider: "cloudflare-access", audience, teamDomain } }, host: "cloudflare" }),
           { name: "change-console-base", config: () => bases },
         ],
       }, "build", "production")
@@ -403,7 +403,7 @@ describe("Cloudflare Access Console Auth", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-cf-access-vite-"))
     try {
       const run = async (command: "build" | "serve") => {
-        const plugin = consoleVitePlugin({ console: { auth: { provider: "cloudflare-access" } }, preset: "cloudflare" })
+        const plugin = consoleVitePlugin({ console: { auth: { provider: "cloudflare-access" } }, host: "cloudflare" })
         const hook = plugin.config
         if (!hook) throw new TypeError("Expected Console config hook.")
         const handler = "handler" in hook ? hook.handler : hook
@@ -434,7 +434,7 @@ describe("Cloudflare Access Console Auth", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const run = async (preset: string) => {
-        const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset })
+        const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, host: preset })
         const configHook = plugin.config
         const resolvedHook = plugin.configResolved
         if (!configHook || !resolvedHook) throw new TypeError("Expected Console config hooks.")

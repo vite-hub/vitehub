@@ -726,7 +726,7 @@ describe("Vite schedule integration", () => {
     const nitro = await createNitro({ ...nitroConfig, compatibilityDate: "2026-10-01", logLevel: 0, rootDir: root })
     vi.stubEnv("NITRO_PRESET", undefined)
     vi.stubEnv("SERVER_PRESET", undefined)
-    vi.stubEnv("VITEHUB_HOSTING", "vercel")
+    vi.stubEnv("VITEHUB_HOST", "vercel")
     try {
       await (plugin.config as (config: Record<string, unknown>, env: { command: "build", mode: string }) => unknown)(
         { root },

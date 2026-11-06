@@ -74,7 +74,7 @@ The checkout already contains the finished files. Read and edit them as you foll
 }
 ```
 
-The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the Node preset once. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before the ViteHub UI module so Nuxt installs its Icon and color-mode dependencies. The ViteHub UI module registers the chat components. Disable font downloads so the offline app does not need a font service.
+The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the Node host once. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before the ViteHub UI module so Nuxt installs its Icon and color-mode dependencies. The ViteHub UI module registers the chat components. Disable font downloads so the offline app does not need a font service.
 
 Set `buildDir: ".nuxt"` to keep generated TypeScript inside the project. The pinned Nitro version skips TypeScript transforms under `node_modules`, where this Nuxt version puts its default build directory.
 
@@ -84,7 +84,7 @@ import viteHub from "vite-hub/nuxt";
 export default defineNuxtConfig({
   buildDir: ".nuxt",
   modules: ["@nuxt/ui", "@vite-hub/ui/nuxt", [viteHub, {
-    preset: "node",
+    host: "node",
     agent: true,
     workflow: false,
     console: false,
@@ -828,7 +828,7 @@ Return `CHAT_MODE` to `offline` and restart whenever you need the exact teaching
 ::tutorial-step{title="Run on a persistent Node server"}
 ## Run on a persistent Node server
 
-The deployment target is a self-hosted Node.js server with one process and a persistent local disk. Keep `preset: 'node'`. Do not also set a Nitro preset.
+The deployment target is a self-hosted Node.js server with one process and a persistent local disk. Keep `host: 'node'`. Do not also set a Nitro preset.
 
 ```sh [commands/build-node]
 corepack pnpm build

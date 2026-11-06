@@ -6,13 +6,13 @@ navigation.group: Deployment hosts
 icon: i-simple-icons-cloudflare
 ---
 
-Use the `cloudflare` preset to deploy a ViteHub application as a Cloudflare
+Use the `cloudflare` host to deploy a ViteHub application as a Cloudflare
 Worker. A production build writes the Worker and its `wrangler.json` under
 `.output/server`, with the bindings that the enabled features need. Definitions
 and Runtime Helpers stay host-neutral; Cloudflare details stay in the config and
 the generated output.
 
-| Feature | Default on the `cloudflare` preset |
+| Feature | Default on the `cloudflare` host |
 | --- | --- |
 | Blob | R2 bucket named after the application |
 | KV | Workers KV binding `KV` |
@@ -22,7 +22,7 @@ the generated output.
 | Sandbox | Cloudflare Sandbox |
 | Workflow | Cloudflare Workflows |
 | Workspace | `memory` Store unless you select Cloudflare Artifacts |
-| Browser and `email: true` | Browser Run and Cloudflare Email. Both require this preset. |
+| Browser and `email: true` | Browser Run and Cloudflare Email. Both require this host. |
 
 The application name comes from `vitehub({ name })`, then
 `WRANGLER_CI_OVERRIDE_NAME` in Workers Builds, then the `package.json` name.
@@ -38,9 +38,9 @@ It also becomes the Worker name unless `nitro.cloudflare.wrangler.name` is set.
 | Runtime context | Runtime Host Context passed by the host integration, not app-owned global state. |
 | Agent state | Agent Package state provider configuration when Cloudflare-backed state is selected. |
 
-## Configure the preset
+## Configure the host
 
-Select the `cloudflare` preset and enable the features the application uses.
+Select the `cloudflare` host and enable the features the application uses.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -49,7 +49,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       database: true,
       queue: true,
     }),
@@ -88,7 +88,7 @@ CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --
 
 ## Generated output
 
-Cloudflare output can include worker bundles, `wrangler.json`, D1 bindings, queue consumers, Rate Limiting bindings, cron triggers, and package-specific runtime imports. The Cloudflare preset materialises its deployment artifact under `.output/server`.
+Cloudflare output can include worker bundles, `wrangler.json`, D1 bindings, queue consumers, Rate Limiting bindings, cron triggers, and package-specific runtime imports. The Cloudflare host materialises its deployment artifact under `.output/server`.
 
 In Nuxt, the preset enables Nitro's `cloudflare.deployConfig` by default so a
 local production build emits `.output/server/wrangler.json`. An explicit
@@ -149,7 +149,7 @@ import { vitehub } from 'vite-hub'
 
 export default {
   plugins: vitehub({
-    preset: 'cloudflare',
+    host: 'cloudflare',
     cloudflare: { secretsFile: '.env' },
   }),
 }
@@ -161,9 +161,9 @@ When the file exists at build time, ViteHub adds `--secrets-file` with its path 
 
 ### Rate Limiting bindings
 
-With `vitehub({ preset: 'cloudflare', rateLimit: true })`, ViteHub selects the Cloudflare provider and uses the application name as the namespace. Each handler-local `requireRateLimit()` policy contributes one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.
+With `vitehub({ host: 'cloudflare', rateLimit: true })`, ViteHub selects the Cloudflare provider and uses the application name as the namespace. Each handler-local `requireRateLimit()` policy contributes one `ratelimits` entry to Nitro's Wrangler config. Do not repeat those bindings in `nitro.cloudflare.wrangler`.
 
-When you compose the owner integration directly, add the Nitro plugin with a Cloudflare preset and set the namespace yourself. The preset selects the Cloudflare provider. Nitro writes the bindings to the generated `wrangler.json`.
+When you compose the owner integration directly, add the Nitro plugin with a Cloudflare host and set the namespace yourself. The Cloudflare host selects the Cloudflare provider. Nitro writes the bindings to the generated `wrangler.json`.
 
 ```ts [vite.config.ts]
 import { hubRateLimit } from '@vite-hub/rate-limit/vite'
@@ -212,7 +212,7 @@ import { vitehub } from 'vite-hub'
 
 export default {
   plugins: vitehub({
-    preset: 'cloudflare',
+    host: 'cloudflare',
     browser: true,
   }),
 }

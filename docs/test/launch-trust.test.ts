@@ -60,7 +60,7 @@ describe("launch documentation trust boundaries", () => {
     expect(matrix).toMatch(
       /\| Browser\s+\| Local provider\s+\| Browser Run.*\| Local provider\s+\|/,
     );
-    expect(matrixData).toContain("Browser Definitions require ViteHub's Cloudflare preset");
+    expect(matrixData).toContain("Browser Definitions require ViteHub's Cloudflare host");
     expect(matrixData).toContain(
       "Pass createBrowser({ provider: localBrowser({ executablePath }) }) for a trusted local process",
     );
@@ -72,10 +72,10 @@ describe("launch documentation trust boundaries", () => {
     );
     expect(matrix).toContain("Standalone `Deno.cron`");
     expect(matrixData).toContain(
-      'vitehub({ preset: \\"deno\\", schedule: true }) is not supported',
+      'vitehub({ host: \\"deno\\", schedule: true }) is not supported',
     );
     expect(matrix).toContain(
-      '`vitehub({ preset: "deno", schedule: true })` rejects Schedule',
+      '`vitehub({ host: "deno", schedule: true })` rejects Schedule',
     );
     expect(matrix).toContain("A production build stages the Nitro application and package-owned standalone Schedule output under `.output`");
     expect(matrix).toContain("**Available**");
@@ -112,9 +112,9 @@ describe("launch documentation trust boundaries", () => {
     expect(matrix).toContain("Local Vite delivers Queue Jobs in the dev server");
     expect(matrix).toContain("Netlify requires an explicit Cloudflare or Vercel Queue Provider");
     expect(matrix).toContain("every other host requires the explicit built-in Resend driver or a programmatic custom driver");
-    expect(matrix).toContain("distributed Vercel, Netlify, and Deno presets reject memory");
+    expect(matrix).toContain("distributed Vercel, Netlify, and Deno hosts reject memory");
     expect(matrixData).toContain(
-      "The Cloudflare preset supports the built-in Cloudflare Email driver default",
+      "The Cloudflare host supports the built-in Cloudflare Email driver default",
     );
     expect(matrixData).toContain(
       "Cloudflare Durable Objects provide the production room authority",
@@ -200,13 +200,13 @@ describe("launch documentation trust boundaries", () => {
     }
   });
 
-  it("records current preset and discovery defaults", () => {
+  it("records current host and discovery defaults", () => {
     const config = readFileSync(resolve(docsRoot, "reference/config-options.md"), "utf8");
     const conventions = readFileSync(resolve(docsRoot, "reference/file-conventions.md"), "utf8");
 
-    expect(config).toContain("`vitehub()` requires exactly one built-in `preset`");
+    expect(config).toContain("`vitehub()` builds for exactly one built-in `host`");
     expect(config).toContain(
-      "Email accepts `true` with the Cloudflare preset, where it selects the Cloudflare Email driver; other presets reject that boolean default and require explicit provider options.",
+      "Email accepts `true` with the Cloudflare host, where it selects the Cloudflare Email driver; other hosts reject that boolean default and require explicit provider options.",
     );
     expect(config).toContain("Netlify does not infer a provider");
     expect(conventions).toContain("`server/databases/<name>/config.ts`");

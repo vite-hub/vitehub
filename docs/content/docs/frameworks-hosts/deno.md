@@ -6,7 +6,7 @@ navigation.group: Deployment hosts
 icon: i-simple-icons-deno
 ---
 
-Use the `deno` preset to deploy a ViteHub application to Deno Deploy. Nitro
+Use the `deno` host to deploy a ViteHub application to Deno Deploy. Nitro
 builds the server at `.output/server/index.mjs`. Agent Definitions, Schedule
 Definitions, KV Stores, and Runtime Helpers stay portable; Deno-specific code
 stays in generated output and driver configuration.
@@ -16,18 +16,18 @@ stays in generated output and driver configuration.
 | Concern | ViteHub boundary |
 | --- | --- |
 | Agent chat and webhook routes | The Nitro server mounts the conventional chat dispatcher and webhook route. Route-enabled Channels select which Agents answer chat requests. |
-| Static cron schedules | The Schedule integration writes `.vitehub/schedule/deno-cron.mjs` for Deno `Deno.cron` wake output. `vitehub({ schedule })` fails on this preset, so add `hubSchedule()` directly. |
+| Static cron schedules | The Schedule integration writes `.vitehub/schedule/deno-cron.mjs` for Deno `Deno.cron` wake output. `vitehub({ schedule })` fails on this host, so add `hubSchedule()` directly. |
 | Lightweight state | KV defaults to `driver: 'deno-kv'` and native `Deno.openKv()`. |
 | Not available | Blob without an explicit store, Queue, Rate Limit, and Sandbox fail the build. |
 | Deployment | Deno Deploy owns environment variables, permissions, logs, and production rollout. |
 
 The Agent integration option `runtime: 'deno'` writes a separate
-`.vitehub/agent/deno-server.ts`. The `deno` preset rejects that option because
+`.vitehub/agent/deno-server.ts`. The `deno` host rejects that option because
 the separate server is outside the deployed Nitro entry.
 
-## Configure the preset
+## Configure the host
 
-Select the `deno` preset. This example also adds static Schedule output, so
+Select the `deno` host. This example also adds static Schedule output, so
 install the Schedule owner package first.
 
 ```bash [Terminal]
@@ -42,7 +42,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'deno',
+      host: 'deno',
       agent: true,
       console: false,
       workflow: false,

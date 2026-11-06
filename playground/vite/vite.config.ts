@@ -68,7 +68,7 @@ const inputByMode: Record<ViteHubMode, string> = {
 const input = inputByMode[buildMode]
 
 export default defineConfig(async () => {
-  const hosting = process.env.VITEHUB_HOSTING || ""
+  const hosting = process.env.VITEHUB_HOST || ""
   const baseConfig = {
     appType: "custom" as const,
     build: {

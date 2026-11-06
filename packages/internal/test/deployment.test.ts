@@ -8,7 +8,7 @@ import { afterAll, describe, expect, it } from "vitest"
 import { finalizeDeploymentPlanOutput } from "../src/build/deployment-plan-output.ts"
 import {
   assertDeploymentService,
-  deploymentPresetFromNitro,
+  hostFromNitroPreset,
   resolveDeploymentPlan,
 } from "../src/deployment.ts"
 import { getHostingProvider } from "../src/hosting.ts"
@@ -27,15 +27,15 @@ async function temporaryDirectory(prefix: string) {
 
 describe("built-in deployment plans", () => {
   it.each([
-    ["cloudflare", "cloudflare-module", "cloudflare", "workerd"],
-    ["netlify", "netlify", "netlify", "node"],
-    ["vercel", "vercel", "vercel", "node"],
-    ["deno", "deno-deploy", "deno-deploy", "deno"],
-    ["node", "node-server", "self-hosted", "node"],
+    ["cloudflare", "cloudflare-module", "workerd"],
+    ["netlify", "netlify", "node"],
+    ["vercel", "vercel", "node"],
+    ["deno", "deno-deploy", "deno"],
+    ["node", "node-server", "node"],
   ] as const)(
     "resolves %s once into host, runtime, and Nitro output policy",
-    (preset, nitroPreset, host, runtime) => {
-      expect(resolveDeploymentPlan(preset)).toMatchObject({ host, nitroPreset, preset, runtime })
+    (host, nitroPreset, runtime) => {
+      expect(resolveDeploymentPlan(host)).toMatchObject({ host, nitroPreset, runtime })
     },
   )
   it("keeps service guarantees explicit", () => {
@@ -54,7 +54,7 @@ describe("built-in deployment plans", () => {
       supported: true,
     })
     expect(() => assertDeploymentService(resolveDeploymentPlan("deno"), "sandbox")).toThrow(
-      'The "deno" preset cannot provide sandbox',
+      'The "deno" host cannot provide sandbox',
     )
   })
   it("says which presets provide Browser and Realtime", () => {
@@ -74,10 +74,10 @@ describe("built-in deployment plans", () => {
     ).toEqual(["cloudflare", "netlify", "vercel", undefined, undefined])
   })
   it("normalizes only the five built-in preset families", () => {
-    expect(deploymentPresetFromNitro("cloudflare_module")).toBe("cloudflare")
-    expect(deploymentPresetFromNitro("deno-deploy")).toBe("deno")
-    expect(deploymentPresetFromNitro("node-server")).toBe("node")
-    expect(deploymentPresetFromNitro("bun")).toBeUndefined()
+    expect(hostFromNitroPreset("cloudflare_module")).toBe("cloudflare")
+    expect(hostFromNitroPreset("deno-deploy")).toBe("deno")
+    expect(hostFromNitroPreset("node-server")).toBe("node")
+    expect(hostFromNitroPreset("bun")).toBeUndefined()
   })
   it("validates and records the whole output contract", async () => {
     for (const preset of ["cloudflare", "netlify", "vercel", "deno", "node"] as const) {
@@ -88,7 +88,8 @@ describe("built-in deployment plans", () => {
       await writeFile(entry, "export {}\n", "utf8")
       await finalizeDeploymentPlanOutput({ plan, rootDir })
       const manifest = JSON.parse(await readFile(resolve(rootDir, plan.output.directory, "deployment.json"), "utf8"))
-      expect(manifest).toMatchObject({ host: plan.host, output: plan.output, preset, runtime: plan.runtime, services: plan.services })
+      expect(manifest).toMatchObject({ host: preset, output: plan.output, runtime: plan.runtime, services: plan.services })
+      expect(manifest).not.toHaveProperty("preset")
       if (preset === "netlify") {
         const wrapper = await readFile(resolve(rootDir, ".netlify", "functions", "server.mjs"), "utf8")
         expect(wrapper).toBe('export { default } from "../functions-internal/server/server.mjs"\n')

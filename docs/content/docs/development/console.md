@@ -96,7 +96,7 @@ export default defineConfig({
     agent: true,
     blob: true,
     console: { auth: false },
-    preset: 'cloudflare',
+    host: 'cloudflare',
     kv: true,
     schedule: true,
     workflow: true,
@@ -115,7 +115,7 @@ export default defineConfig({
     vitehub({
       agent: true,
       console: { auth: false },
-      preset: 'node',
+      host: 'node',
     }),
   ],
 })
@@ -131,7 +131,7 @@ export default defineNuxtConfig({
     [viteHubNuxt, {
       agent: true,
       console: { auth: false },
-      preset: 'node',
+      host: 'node',
     }],
   ],
 })
@@ -230,7 +230,7 @@ By default, connections stay in server memory, and a restart ends them. Enable t
 
 ```ts
 vitehub({
-  preset: 'cloudflare',
+  host: 'cloudflare',
   console: { auth: 'app', mcpClient: true },
   kv: true,
 })
@@ -308,7 +308,7 @@ export default defineConfig({
   plugins: [vitehub({
     auth: true,
     console: true,
-    preset: 'node',
+    host: 'node',
   })],
 })
 ```
@@ -376,7 +376,7 @@ export default defineConfig({
         baseURL: 'https://agent.example.com',
       },
     },
-    preset: 'node',
+    host: 'node',
   })],
 })
 ```
@@ -385,7 +385,7 @@ Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and [`VITEHUB_SECRET`](/docs/env
 
 If you previously protected the Console through Primary Auth, remove its `/_vitehub/**` and `/api/_vitehub/console/**` access routes when you switch to Console Auth. Keep `auth: true` if application routes still use Primary Auth. Otherwise, both auth guards apply and maintainers must sign in twice.
 
-Inline Console Auth uses `node:sqlite` and requires the Node deployment preset. Other presets need a file-based Console Auth Definition with a database adapter supported by the host.
+Inline Console Auth uses `node:sqlite` and requires the Node host. Other hosts need a file-based Console Auth Definition with a database adapter supported by the host.
 
 Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `BETTER_AUTH_SECRET` in the server environment. `baseURL` is the public origin used for OAuth redirects; set it when a proxy terminates TLS. The GitHub callback URL is `https://agent.example.com/api/_vitehub/console/auth/callback/github`. For Nuxt apps mounted below `/`, ViteHub includes `app.baseURL` in the callback and redirects. Put `databasePath` on persistent storage. Console Auth creates or updates its Better Auth tables before the first protected request. It refuses a missing database or secret. Application requests and channel requests keep their own authentication.
 
@@ -443,7 +443,7 @@ export default defineConfig({
   plugins: [vitehub({
     agent: true,
     console: { auth: false, authorize: './server/console-authorize.ts' },
-    preset: 'node',
+    host: 'node',
   })],
 })
 ```
@@ -654,7 +654,7 @@ vitehub({
   connections: { management: true },
   console: { auth: 'app', authorize: './server/console-authorize.ts' },
   database: true,
-  preset: 'node',
+  host: 'node',
 })
 ```
 
@@ -803,15 +803,15 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Agents is absent from the Console home | Configure `agent`. The Console only lists primitives active in the same ViteHub configuration. |
 | KV is absent from the Console home | Configure `kv`. The Console only lists stores from the active KV configuration. |
 | A KV key page stops at 200 entries | Load the next page or enter a key prefix to narrow the list. The Console does not fetch values until selection. |
-| Blob is absent from the Console home | Configure `blob` with a preset that supports Blob or an explicit Blob store. |
+| Blob is absent from the Console home | Configure `blob` with a host that supports Blob or an explicit Blob store. |
 | Blob inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to list the configured store. |
 | Databases is absent from the Console home | Configure `database`. The Console catalogs Database Definitions only when the integration is enabled. |
 | Rate Limits is absent from the Console home | Configure `rateLimit` and use statically declared `requireRateLimit()` policies. |
 | Workspaces is absent from the Console home | Configure `workspace` and add a discovered Workspace Definition. |
-| Sandbox Tasks is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox. |
+| Sandbox Tasks is absent from the Console home | Configure `sandboxTask: true` with a host that supports Sandbox. |
 | KV inspection returns a provider error | Check that the deployed Console runtime has permission and credentials to read the configured store. Read-only Console requests still perform provider reads. |
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
-| Sandboxes is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox Tasks. |
+| Sandboxes is absent from the Console home | Configure `sandboxTask: true` with a host that supports Sandbox Tasks. |
 | A production build fails with `VITE_HUB_B0014` | Set `console.authorize` to a server file that default-exports `defineConsoleAuthorize()`. |
 | `console: true` reports missing app Auth or Console access policy | Enable `auth: true` and authorize the Console routes in the app Auth Definition. The shorthand uses app Auth; use `console: { auth: false }` only when you want no sign-in. |
 | ViteHub reports that `console.auth` is required (`VITE_HUB_B0004`) | Add `auth` to the `console` object. Use `false`, `'app'`, or a Console Auth config. |
@@ -819,7 +819,7 @@ The Console does not calculate missing provider data. Token counts, model metada
 | `auth: 'app'` fails with `VITE_HUB_B0006` | Set `console.authorize`, or add Auth access routes with an `authorize` callback for the routes in the message. |
 | The build or server warns that `auth: false` has no sign-in | Add `console.authorize`, or set `console.auth` to `'app'` or a Console Auth config. |
 | Console data routes return `500` with "console.authorize must return" | Return `true`, `false`, a `Response`, or `{ sections: string[] }` from `authorize`. Create the `Response` with the global `Response`. An object shaped like a Response, or a Response from another Fetch implementation, is an invalid result. |
-| Agent Console startup fails on a hosted preset | Set `agent.invocations: 'database'`, or attach one durable Agent Invocations journal to every discovered Agent Definition. The local SQLite fallback requires a writable, persistent filesystem. |
+| Agent Console startup fails on a hosted platform | Set `agent.invocations: 'database'`, or attach one durable Agent Invocations journal to every discovered Agent Definition. The local SQLite fallback requires a writable, persistent filesystem. |
 | The page returns `401` | Sign in through the Auth provider configured by the host. |
 | The page returns `403` with **Access denied** | `authorize` or the `auth` check rejected this account. Check the `authorize` callback and the current user's role or permission. |
 | A section is missing or returns `403` | `console.authorize` returned `{ sections }` without that section id. |

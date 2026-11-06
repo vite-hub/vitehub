@@ -160,7 +160,7 @@ export interface ConsoleVitePluginOptions {
   resolveD1Binding?: (root: string, serverDirs: string[] | undefined) => string | undefined
   databaseUrl?: string
   databaseDiscoveryRoot?: string
-  preset?: string
+  host?: string
   rateLimitDiscoveryRoot?: string
   rateLimitScanDirs?: string[]
   resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
@@ -357,10 +357,10 @@ function authRouteProtects(
  * The warning that a production build logs for `auth: false`, or `undefined` when there is nothing to warn about.
  * Without `authorize`, anyone can use the Console. On Cloudflare, `authorize` alone does not verify the Cloudflare Access token.
  */
-export function consoleOpenAccessBuildWarning(configured: ConsoleOptions, preset: string | undefined): string | undefined {
+export function consoleOpenAccessBuildWarning(configured: ConsoleOptions, host: string | undefined): string | undefined {
   if (configured.auth !== false) return
   if (!configured.authorize) return consoleOpenAccessWarning
-  if (preset === "cloudflare") return '[vitehub] console: { auth: false } trusts console.authorize to check every request. On Cloudflare, use console: { auth: { provider: "cloudflare-access" } } so the Worker verifies the Cloudflare Access token.'
+  if (host === "cloudflare") return '[vitehub] console: { auth: false } trusts console.authorize to check every request. On Cloudflare, use console: { auth: { provider: "cloudflare-access" } } so the Worker verifies the Cloudflare Access token.'
 }
 
 /** Resolve the `console.authorize` file. A configured path must exist. */
@@ -647,9 +647,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         development: environment.command !== "build",
         sections,
       })
-      openAccessBuildWarning = environment.command === "build" && !cliDiscovery ? consoleOpenAccessBuildWarning(configured, options.preset) : undefined
+      openAccessBuildWarning = environment.command === "build" && !cliDiscovery ? consoleOpenAccessBuildWarning(configured, options.host) : undefined
       const configuredConsoleAuth = consoleAuthConfig(configured)
-      const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(root, configuredConsoleAuth, options.preset) : undefined
+      const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(root, configuredConsoleAuth, options.host) : undefined
       consoleAuthMode = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build")
       // SAFETY: The Env plugin adds this optional string to Vite configuration.
       const developmentSecretEnvKey = (config as typeof config & { __vitehubEnvDevelopmentSecretEnvKey?: string }).__vitehubEnvDevelopmentSecretEnvKey

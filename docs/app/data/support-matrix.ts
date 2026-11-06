@@ -177,7 +177,7 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
           deno: cell("none", "Browser Definitions do not have a Deno provider.", "—"),
           nitro: cell(
             "none",
-            "Browser Definitions require ViteHub's Cloudflare preset, not a generic Nitro preset.",
+            "Browser Definitions require ViteHub's Cloudflare host, not a generic Nitro preset.",
             "—",
           ),
           node: cell(
@@ -271,7 +271,7 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
           ),
           cloudflare: cell(
             "available",
-            "The Cloudflare preset supports the built-in Cloudflare Email driver default or Resend.",
+            "The Cloudflare host supports the built-in Cloudflare Email driver default or Resend.",
             "Cloudflare Email",
           ),
           vercel: cell("package", "Configure the built-in Resend driver.", "Resend"),
@@ -372,17 +372,17 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
           ),
           vercel: cell(
             "none",
-            "Realtime has no distributed Vercel authority, and process memory is rejected for the Vercel preset.",
+            "Realtime has no distributed Vercel authority, and process memory is rejected for the Vercel host.",
             "—",
           ),
           netlify: cell(
             "none",
-            "Realtime has no distributed Netlify authority, and process memory is rejected for the Netlify preset.",
+            "Realtime has no distributed Netlify authority, and process memory is rejected for the Netlify host.",
             "—",
           ),
           deno: cell(
             "none",
-            "Realtime has no distributed Deno authority, and process memory is rejected for the Deno preset.",
+            "Realtime has no distributed Deno authority, and process memory is rejected for the Deno host.",
             "—",
           ),
           nitro: cell(
@@ -450,7 +450,7 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
           ),
           deno: cell(
             "package",
-            "The standalone Schedule integration generates Deno.cron wake output. vitehub({ preset: \"deno\", schedule: true }) is not supported.",
+            "The standalone Schedule integration generates Deno.cron wake output. vitehub({ host: \"deno\", schedule: true }) is not supported.",
             "Standalone Deno.cron",
           ),
           nitro: cell(

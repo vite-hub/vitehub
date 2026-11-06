@@ -36,7 +36,7 @@ export default defineSchedule({
 ```
 
 ```ts [vite.config.ts]
-vitehub({ preset: 'cloudflare', schedule: true })
+vitehub({ host: 'cloudflare', schedule: true })
 ```
 
 Each run publishes every pending or overdue schedule whose time has come, earliest first, and returns `{ published, failed }`. `published` lists `{ schedule, revision, documents }` for each schedule that ran. Content does not wake on its own: without a runner, schedules stay pending and turn [overdue](#statuses).

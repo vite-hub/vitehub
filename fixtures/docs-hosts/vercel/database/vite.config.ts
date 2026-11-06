@@ -5,7 +5,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       database: {
         connection: {
           url: env({ source: env.source('TURSO_DATABASE_URL') }),

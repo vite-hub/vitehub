@@ -230,7 +230,7 @@ export function resolveNitroVercelFunctionName(
   const clientOutDir = config.environments?.client?.build?.outDir
   const vercel = preset
     ? preset.startsWith("vercel")
-    : env.VITEHUB_HOSTING === "vercel"
+    : env.VITEHUB_HOST === "vercel"
       || Boolean(env.VERCEL)
       || Boolean(clientOutDir && /(^|[/\\])\.vercel[/\\]output([/\\]|$)/.test(clientOutDir))
   return nitro && vercel

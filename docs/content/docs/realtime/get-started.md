@@ -33,7 +33,7 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      preset: 'node',
+      host: 'node',
       realtime: { authority: 'memory' },
       workspace: true,
     }),

@@ -352,6 +352,12 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, host: "nuxt" | 
         fix: "Rename `sandbox` to `sandboxTask: true`.",
       }
     }
+    else if (name === "preset") {
+      report = {
+        why: "`preset` is not a ViteHub option. It was renamed to `host`, so this key does nothing and ViteHub detects the host instead.",
+        fix: "Rename `preset` to `host`.",
+      }
+    }
     else if (name === "devtools") {
       report = {
         why: "The ViteHub `devtools` option was removed with the browser DevTools, so this key does nothing.",
@@ -360,14 +366,14 @@ function checkViteHubOptions(ctx: RuleContext, options: unknown, host: "nuxt" | 
     }
     else if (name === "sandboxTask" && isObject) {
       report = {
-        why: "`sandboxTask` takes only `true` or `false`. ViteHub turns Sandbox Tasks on only for `true`, so an object silently turns them off. The preset selects the provider.",
+        why: "`sandboxTask` takes only `true` or `false`. ViteHub turns Sandbox Tasks on only for `true`, so an object silently turns them off. The host selects the provider.",
         fix: "Set `sandboxTask: true`.",
       }
     }
     else if (name === "queue" && isObject) {
       report = {
-        why: "`queue` takes only `true` or `false`. ViteHub ignores the fields of this object, because the preset selects the Queue provider.",
-        fix: "Set `queue: true`, and choose the provider with `preset`.",
+        why: "`queue` takes only `true` or `false`. ViteHub ignores the fields of this object, because the host selects the Queue provider.",
+        fix: "Set `queue: true`, and choose the provider with `host`.",
       }
     }
     else if (name === "env" && host === "vite" && isObject) {
@@ -439,7 +445,7 @@ export const noNuxtHubLeftovers: DoctorRule = createRule({
       if (hub) {
         ctx.report(diagnostics.VHUB0032({
           why: "`vite-hub/nuxt` does not read the NuxtHub `hub` key, so these features stay off.",
-          fix: "Rename `hub` to `vitehub` and add a `preset`. For example, `hub: { db: \"sqlite\" }` becomes `vitehub: { preset: \"node\", database: true }`.",
+          fix: "Rename `hub` to `vitehub` and add a `host`. For example, `hub: { db: \"sqlite\" }` becomes `vitehub: { host: \"node\", database: true }`.",
         }), { range: ctx.range(hub) })
       }
     }

@@ -13,7 +13,7 @@ import { vitehub } from "../src/index.ts"
 
 import type { EnvViteUserConfig } from "@vite-hub/env"
 
-describe("built-in deployment preset integration", () => {
+describe("built-in host integration", () => {
   it.each([undefined, "custom-output"])(
     "inspects deployment output from a separate Nitro root with output %s",
     async (outputDir) => {
@@ -27,7 +27,7 @@ describe("built-in deployment preset integration", () => {
             root,
             nitro: { rootDir: nitroRoot, ...(outputDir ? { output: { dir: outputDir } } : {}) },
             plugins: [
-              vitehub({ preset: "node", blob: false, env: false, queue: false, rateLimit: false }),
+              vitehub({ host: "node", blob: false, env: false, queue: false, rateLimit: false }),
             ],
           } as Parameters<typeof resolveConfig>[0],
           "build",
@@ -46,13 +46,13 @@ describe("built-in deployment preset integration", () => {
   );
 
 
-  it.each(["cloudflare", "netlify", "vercel", "deno", "node"] as const)("resolves the minimal %s preset with real owner plugins", async (preset) => {
+  it.each(["cloudflare", "netlify", "vercel", "deno", "node"] as const)("resolves the minimal %s host with real owner plugins", async (host) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-preset-config-"))
     onTestFinished(() => rm(root, { force: true, recursive: true }))
     const config = await resolveConfig({
       root,
       plugins: [vitehub({
-        preset,
+        host,
         blob: false,
         env: false,
         queue: false,
@@ -75,7 +75,7 @@ describe("built-in deployment preset integration", () => {
         },
         root,
         plugins: [vitehub({
-          preset: "cloudflare",
+          host: "cloudflare",
           blob: false,
           env: false,
           queue: false,
@@ -97,13 +97,13 @@ describe("built-in deployment preset integration", () => {
       })
       expect(development.vitehub).toEqual({
         marker: "preserved",
-        preset: "cloudflare",
+        host: "cloudflare",
       })
 
       const production = await resolveConfig({
         root,
         plugins: [vitehub({
-          preset: "cloudflare",
+          host: "cloudflare",
           blob: false,
           env: false,
           queue: false,
@@ -117,7 +117,7 @@ describe("built-in deployment preset integration", () => {
         preset: "cloudflare-module",
       })
       expect(production.vitehub).toEqual({
-        preset: "cloudflare",
+        host: "cloudflare",
       })
     }
     finally {
@@ -131,7 +131,7 @@ describe("built-in deployment preset integration", () => {
       const config = await resolveConfig({
         root,
         plugins: [
-          vitehub({ name: "logical-app", preset: "cloudflare" }),
+          vitehub({ name: "logical-app", host: "cloudflare" }),
           {
             name: "nitro-config",
             config() {
@@ -166,7 +166,7 @@ describe("built-in deployment preset integration", () => {
           blob: false,
           env: false,
           kv: true,
-          preset: "cloudflare",
+          host: "cloudflare",
           queue: false,
           rateLimit: false,
         })],
@@ -204,7 +204,7 @@ describe("built-in deployment preset integration", () => {
           },
         },
         root,
-        plugins: [vitehub({ env: { providers: { credentials: "./server/env/credentials.ts" } }, preset: "cloudflare" })],
+        plugins: [vitehub({ env: { providers: { credentials: "./server/env/credentials.ts" } }, host: "cloudflare" })],
       } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
 
       expect((config as typeof config & {
@@ -230,7 +230,7 @@ describe("built-in deployment preset integration", () => {
         name: "application-root",
         config: () => ({ root: agentRoot }),
       }
-      const hub = vitehub({ agent: true, preset: "cloudflare" })
+      const hub = vitehub({ agent: true, host: "cloudflare" })
       const config = await resolveConfig({
         root,
         plugins: position === "before" ? [rootPlugin, hub] : [hub, rootPlugin],
@@ -259,7 +259,7 @@ describe("built-in deployment preset integration", () => {
       await writeFile(join(root, "package.json"), JSON.stringify({ name: "original-root" }))
       await writeFile(join(appRoot, "package.json"), JSON.stringify({ name: "application-root" }))
       const rootPlugin = { name: "application-root", config: () => ({ root: appRoot }) }
-      const hub = vitehub({ preset: "cloudflare", blob: true, queue: true, rateLimit: true, sandboxTask: true, env: false })
+      const hub = vitehub({ host: "cloudflare", blob: true, queue: true, rateLimit: true, sandboxTask: true, env: false })
       const config = await resolveConfig({
         configFile: false,
         nitro: { modules: [{ name: "capture-resources", setup(nitro) {
@@ -300,7 +300,7 @@ describe("built-in deployment preset integration", () => {
       ].join("\n"))
       const config = await resolveConfig({
         root,
-        plugins: [vitehub({ agent: true, preset: "cloudflare" })],
+        plugins: [vitehub({ agent: true, host: "cloudflare" })],
       } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
       // A gateway key is optional, so a server that also hosts Agents without the gateway still starts.
       expect((config as typeof config & {
@@ -332,7 +332,7 @@ describe("built-in deployment preset integration", () => {
         ...(server ? { env: { server } } : {}),
         root,
         // A single vendor name can be required by Wrangler only when canonical aliases are disabled.
-        plugins: [vitehub({ agent: true, env: { prefix: false }, preset: "cloudflare" })],
+        plugins: [vitehub({ agent: true, env: { prefix: false }, host: "cloudflare" })],
       } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
       const requiredSecrets = (config: Awaited<ReturnType<typeof resolve>>) => (config as typeof config & {
         nitro?: { cloudflare?: { wrangler?: { secrets?: { required?: string[] } } } }
@@ -448,7 +448,7 @@ describe("built-in deployment preset integration", () => {
         },
         logLevel: "silent",
         root,
-        plugins: [vitehub({ preset: "cloudflare" }), nitro() as never],
+        plugins: [vitehub({ host: "cloudflare" }), nitro() as never],
       } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
       await builder.buildApp()
 
@@ -488,7 +488,7 @@ describe("built-in deployment preset integration", () => {
           },
         },
         root,
-        plugins: [vitehub({ preset: "cloudflare" }), nitro() as never],
+        plugins: [vitehub({ host: "cloudflare" }), nitro() as never],
       } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
       await builder.buildApp()
 
@@ -536,7 +536,7 @@ describe("built-in deployment preset integration", () => {
           },
         },
         root,
-        plugins: [vitehub({ database: { driver: "d1" }, preset: "cloudflare" }), nitro() as never],
+        plugins: [vitehub({ database: { driver: "d1" }, host: "cloudflare" }), nitro() as never],
       } as Parameters<typeof createBuilder>[0])
       await builder.buildApp()
 
@@ -580,7 +580,7 @@ describe("built-in deployment preset integration", () => {
           },
         },
         root,
-        plugins: [vitehub({ agent: true, preset: "cloudflare", workflow: false }), nitro() as never],
+        plugins: [vitehub({ agent: true, host: "cloudflare", workflow: false }), nitro() as never],
       } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
       await builder.buildApp()
 
@@ -614,7 +614,7 @@ describe("built-in deployment preset integration", () => {
       const builder = await createBuilder({
         logLevel: "silent",
         root,
-        plugins: [vitehub({ agent: true, preset: "cloudflare", workflow: false }), nitro() as never],
+        plugins: [vitehub({ agent: true, host: "cloudflare", workflow: false }), nitro() as never],
       })
       await builder.buildApp()
 
@@ -647,7 +647,7 @@ describe("built-in deployment preset integration", () => {
       const builder = await createBuilder({
         logLevel: "silent",
         root,
-        plugins: [vitehub({ agent: true, preset: "cloudflare", workflow: false }), nitro() as never],
+        plugins: [vitehub({ agent: true, host: "cloudflare", workflow: false }), nitro() as never],
       })
 
       await expect(builder.buildApp()).rejects.toThrow(/AGENT_B0019[\s\S]*cannot run in a Cloudflare Worker/)
@@ -669,7 +669,7 @@ describe("built-in deployment preset integration", () => {
         env: { server: { token: env({ secret: true }) } },
         logLevel: "silent",
         root,
-        plugins: [vitehub({ env: false, preset: "cloudflare" }), hubEnv({ prefix: "APP_" }), nitro() as never],
+        plugins: [vitehub({ env: false, host: "cloudflare" }), hubEnv({ prefix: "APP_" }), nitro() as never],
       } as Parameters<typeof createBuilder>[0] & EnvViteUserConfig)
       await builder.buildApp()
 
@@ -694,7 +694,7 @@ describe("built-in deployment preset integration", () => {
         logLevel: "silent",
         root,
         plugins: [
-          vitehub({ preset: "cloudflare" }),
+          vitehub({ host: "cloudflare" }),
           {
             name: "app/server-env",
             enforce: "pre",
@@ -719,7 +719,7 @@ describe("built-in deployment preset integration", () => {
       const config = await resolveConfig({
         env: { server: { token: env({ secret: true }) } },
         root,
-        plugins: [vitehub({ env: false, preset: "cloudflare" }), hubEnv({ prefix })],
+        plugins: [vitehub({ env: false, host: "cloudflare" }), hubEnv({ prefix })],
       } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
       const required = (config as typeof config & {
         nitro?: { cloudflare?: { wrangler?: { secrets?: { required?: string[] } } } }
@@ -742,7 +742,7 @@ describe("built-in deployment preset integration", () => {
         },
         root,
         plugins: [
-          vitehub({ env: false, preset: "cloudflare" }),
+          vitehub({ env: false, host: "cloudflare" }),
           hubEnv(),
         ],
       } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
@@ -764,16 +764,16 @@ describe("built-in deployment preset integration", () => {
       await resolveConfig({
         env: { server },
         root,
-        plugins: [vitehub({ env: false, preset: "cloudflare" }), envPlugin],
+        plugins: [vitehub({ env: false, host: "cloudflare" }), envPlugin],
       } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
       const emptyCloudflareConfig = await resolveConfig({
         root,
-        plugins: [vitehub({ env: false, preset: "cloudflare" }), envPlugin],
+        plugins: [vitehub({ env: false, host: "cloudflare" }), envPlugin],
       } as Parameters<typeof resolveConfig>[0], "build")
       const nodeConfig = await resolveConfig({
         env: { server },
         root,
-        plugins: [vitehub({ env: false, preset: "node" }), envPlugin],
+        plugins: [vitehub({ env: false, host: "node" }), envPlugin],
       } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
 
       expect((emptyCloudflareConfig as typeof emptyCloudflareConfig & {
@@ -785,12 +785,12 @@ describe("built-in deployment preset integration", () => {
         resolveConfig({
           env: { server: { first: env({ secret: true, source: env.source("VITEHUB_FIRST") }) } },
           root,
-          plugins: [vitehub({ env: false, preset: "cloudflare" }), envPlugin],
+          plugins: [vitehub({ env: false, host: "cloudflare" }), envPlugin],
         } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build"),
         resolveConfig({
           env: { server: { second: env({ secret: true, source: env.source("VITEHUB_SECOND") }) } },
           root,
-          plugins: [vitehub({ env: false, preset: "cloudflare" }), envPlugin],
+          plugins: [vitehub({ env: false, host: "cloudflare" }), envPlugin],
         } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build"),
       ])
       const required = (config: typeof first) => (config as typeof config & {
@@ -815,7 +815,7 @@ describe("built-in deployment preset integration", () => {
         },
         root,
         plugins: [
-          vitehub({ preset: "cloudflare" }),
+          vitehub({ host: "cloudflare" }),
           {
             name: "app/cloudflare-environments",
             enforce: "post",
@@ -853,7 +853,7 @@ describe("built-in deployment preset integration", () => {
           },
         },
         root,
-        plugins: [vitehub({ preset: "node" })],
+        plugins: [vitehub({ host: "node" })],
       } as Parameters<typeof resolveConfig>[0] & EnvViteUserConfig, "build")
 
       expect((config as typeof config & { nitro?: { cloudflare?: unknown } }).nitro?.cloudflare).toBeUndefined()

@@ -55,7 +55,7 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
       await writeFile(join(root, "index.html"), "<main>ok</main>\n")
       const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
-      const hub = vitehub({ preset: "node", console: { auth: false, authorize: hostManagedAuthorize } })
+      const hub = vitehub({ host: "node", console: { auth: false, authorize: hostManagedAuthorize } })
       const builder = await createBuilder({
         logLevel: "silent",
         plugins: nitroPosition === "before" ? [nitro() as never, hub] : [hub, nitro() as never],
@@ -89,7 +89,7 @@ describe("Plugin order with the Nitro Vite plugin", () => {
     try {
       // A Nitro version with such a hook leaves ViteHub no way to run it later exactly once.
       const nitroInit = { name: "nitro:init", config } as never
-      await expect(resolveConfig({ configFile: false, plugins: [nitroInit, vitehub({ preset: "node" })], root }, "build"))
+      await expect(resolveConfig({ configFile: false, plugins: [nitroInit, vitehub({ host: "node" })], root }, "build"))
         .rejects.toMatchObject({ code: "VITE_HUB_R0135", message: expect.stringContaining("Put vitehub() before nitro()") })
     }
     finally {
@@ -101,7 +101,7 @@ describe("Plugin order with the Nitro Vite plugin", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-plugin-order-"))
     try {
       const nitroEnv = { name: "nitro:env" } as never
-      const config = await resolveConfig({ configFile: false, plugins: [nitroEnv, vitehub({ preset: "node" })], root }, "build")
+      const config = await resolveConfig({ configFile: false, plugins: [nitroEnv, vitehub({ host: "node" })], root }, "build")
       expect(config.plugins.some(plugin => plugin.name === "vite-hub/nitro-order")).toBe(true)
     }
     finally {

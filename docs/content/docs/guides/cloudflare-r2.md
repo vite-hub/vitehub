@@ -25,7 +25,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
 	plugins: [vitehub({
-		preset: 'cloudflare',
+		host: 'cloudflare',
 		blob: {
 			driver: 'cloudflare-r2',
 			binding: 'BLOB',

@@ -10,7 +10,7 @@ icon: i-lucide-rocket
 
 Upload `hello.txt`, then fetch its contents in a separate request. The upload returns object metadata. The read returns `Hello from ViteHub` from storage.
 
-Start with the working app from [Installation](/docs/getting-started/installation). Use its Node.js, pnpm, Vite, Nitro, and H3 setup, and run commands from the app root. The Node preset uses the local `fs` driver under `.vitehub/data/blob`. No provider account is required.
+Start with the working app from [Installation](/docs/getting-started/installation). Use its Node.js, pnpm, Vite, Nitro, and H3 setup, and run commands from the app root. The Node host uses the local `fs` driver under `.vitehub/data/blob`. No provider account is required.
 
 ::tutorial-step{title="Enable Blob"}
 ## Enable Blob
@@ -23,7 +23,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', blob: true })],
+  plugins: [vitehub({ host: 'node', blob: true })],
 })
 ```
 

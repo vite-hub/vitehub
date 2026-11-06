@@ -55,11 +55,11 @@ icon: i-lucide-terminal-square
   import { defineConfig } from 'vite'
   import { vitehub } from 'vite-hub'
 
-  // The Vercel preset uses Vercel Sandbox.
-  // Use preset 'cloudflare' for Cloudflare Sandbox.
+  // The Vercel host uses Vercel Sandbox.
+  // Use host 'cloudflare' for Cloudflare Sandbox.
   export default defineConfig({
     plugins: [
-      vitehub({ preset: 'vercel', sandboxTask: true }),
+      vitehub({ host: 'vercel', sandboxTask: true }),
     ],
   })
   ```

@@ -194,7 +194,7 @@ describe("vitehub/no-vitehub-plugin-in-nuxt", () => {
     expect(await codes(noViteHubPluginInNuxt, {
       "nuxt.config.ts": lines(
         "import { vitehub } from \"vite-hub\"",
-        "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vite: { plugins: [vitehub({ preset: \"node\" })] } })",
+        "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vite: { plugins: [vitehub({ host: \"node\" })] } })",
       ),
     }, "nuxt")).toEqual(["VHUB0030"])
   })
@@ -217,7 +217,7 @@ describe("vitehub/valid-vitehub-options", () => {
         "import { vitehub } from \"vite-hub\"",
         "export default defineConfig({ plugins: [vitehub({ preset: \"vercel\", sandbox: true, devtools: false, sandboxTask: { provider: \"vercel\" }, queue: { provider: \"vercel\" }, env: { server: { token: 1 } } })] })",
       ),
-    })).toEqual(Array(5).fill("VHUB0031"))
+    })).toEqual(Array(6).fill("VHUB0031"))
   })
 
   it("accepts connections in the Nuxt module, in the vitehub key and in inline options", async () => {
@@ -225,7 +225,7 @@ describe("vitehub/valid-vitehub-options", () => {
       "nuxt.config.ts": lines(
         "export default defineNuxtConfig({",
         "  modules: [[\"vite-hub/nuxt\", { connections: true }]],",
-        "  vitehub: { preset: \"node\", connections: { management: true } },",
+        "  vitehub: { host: \"node\", connections: { management: true } },",
         "})",
       ),
     }, "nuxt")).toEqual([])
@@ -236,9 +236,9 @@ describe("vitehub/valid-vitehub-options", () => {
       "vite.config.ts": lines(
         "import { defineConfig } from \"vite\"",
         "import { vitehub } from \"vite-hub\"",
-        "export default defineConfig({ env: { server: {} }, plugins: [vitehub({ preset: \"vercel\", sandboxTask: true, queue: true, connections: true, env: { prefix: \"APP_\" } })] })",
+        "export default defineConfig({ env: { server: {} }, plugins: [vitehub({ host: \"vercel\", sandboxTask: true, queue: true, connections: true, env: { prefix: \"APP_\" } })] })",
       ),
-      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { preset: \"node\", env: { server: {} }, connections: false } })\n",
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { host: \"node\", env: { server: {} }, connections: false } })\n",
     }, "nuxt")).toEqual([])
   })
 })
@@ -254,7 +254,7 @@ describe("vitehub/no-nuxthub-leftovers", () => {
 
   it("accepts ViteHub config and apps that still use only NuxtHub", async () => {
     expect(await codes(noNuxtHubLeftovers, {
-      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { preset: \"node\", kv: true } })\n",
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: { host: \"node\", kv: true } })\n",
       "server/api/a.ts": "import { kv } from \"vite-hub/kv\"\nexport { kv }\n",
     }, "nuxt")).toEqual([])
     expect(await codes(noNuxtHubLeftovers, {

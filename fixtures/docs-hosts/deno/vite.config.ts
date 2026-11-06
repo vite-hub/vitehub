@@ -5,7 +5,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'deno',
+      host: 'deno',
       agent: true,
       console: false,
       workflow: false,

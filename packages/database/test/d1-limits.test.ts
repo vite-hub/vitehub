@@ -147,9 +147,9 @@ describe("the Vite databases module", () => {
   }
 
   it("asks local SQLite for the D1 limits only in a dev server for Cloudflare", async () => {
-    expect(await databasesModule({ command: "serve", vitehub: { preset: "cloudflare" } })).toContain('localLimits: "d1"')
+    expect(await databasesModule({ command: "serve", vitehub: { host: "cloudflare" } })).toContain('localLimits: "d1"')
     expect(await databasesModule({ command: "serve", nitro: { preset: "cloudflare-module" } })).toContain('localLimits: "d1"')
-    expect(await databasesModule({ command: "serve", vitehub: { preset: "node" } })).not.toContain("localLimits")
-    expect(await databasesModule({ command: "build", vitehub: { preset: "cloudflare" } })).not.toContain("localLimits")
+    expect(await databasesModule({ command: "serve", vitehub: { host: "node" } })).not.toContain("localLimits")
+    expect(await databasesModule({ command: "build", vitehub: { host: "cloudflare" } })).not.toContain("localLimits")
   })
 })

@@ -8,7 +8,7 @@ icon: i-lucide-cloud-cog
 
 ## Develop locally
 
-`pnpm dev` runs Queue jobs in the dev server for every preset. `runQueue()` stores the job in `.vitehub/data/queue`, and the dev server runs the Queue Definition. A Cloudflare or Vercel app needs no binding or credentials. The dev server follows the retry, delay, and size rules of the provider of the build, so a handler fails and retries as it does on the host. [Dev delivery](/docs/queue/limits-and-errors#dev-delivery) lists the rules and what dev does not emulate.
+`pnpm dev` runs Queue jobs in the dev server for every host. `runQueue()` stores the job in `.vitehub/data/queue`, and the dev server runs the Queue Definition. A Cloudflare or Vercel app needs no binding or credentials. The dev server follows the retry, delay, and size rules of the provider of the build, so a handler fails and retries as it does on the host. [Dev delivery](/docs/queue/limits-and-errors#dev-delivery) lists the rules and what dev does not emulate.
 
 ```bash [Terminal]
 pnpm vitehub queue list
@@ -20,7 +20,7 @@ pnpm vitehub queue jobs clear --state dead --yes
 
 `queue list` shows `provider: "local"`, the job directory, `durability: "single-host"`, `deadLimit` (the dead jobs kept per Queue Definition), and the pending, running, and dead jobs of each Queue Definition. In a Cloudflare or Vercel app it also shows `rules`, the provider of the build. `queue jobs list` shows each stored job with its attempts and last error. `queue jobs show` adds the payload. `queue jobs retry` runs a job now, and a dead job gets a new set of attempts. `queue jobs clear` removes pending and dead jobs. It asks for confirmation on a terminal and needs `--yes` elsewhere. Each command takes `--json`, and `--url` for a deployed app. The Console and agents run the same `queue.jobs-*` operations.
 
-With `preset: 'node'`, the built server uses the local provider too. This also works in Docker and in a StackBlitz WebContainer. The jobs survive a restart on the same disk. In Docker, mount `.vitehub/data` as a volume, or a new container starts without them. Run one server process per directory. [Local delivery](/docs/queue/limits-and-errors#local-delivery) lists the retry and dead-job rules.
+With `host: 'node'`, the built server uses the local provider too. This also works in Docker and in a StackBlitz WebContainer. The jobs survive a restart on the same disk. In Docker, mount `.vitehub/data` as a volume, or a new container starts without them. Run one server process per directory. [Local delivery](/docs/queue/limits-and-errors#local-delivery) lists the retry and dead-job rules.
 
 For Cloudflare or Vercel, use a build to check that ViteHub generates the right Nitro output. A standalone Node process, such as a `tsx` script, does not run Vite discovery or load the generated Queue Runtime Registry, so `runQueue()` cannot find queue files from there.
 

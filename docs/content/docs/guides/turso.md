@@ -27,7 +27,7 @@ import { env } from 'vite-hub/env'
 
 export default defineConfig({
 	plugins: [vitehub({
-		preset: 'node',
+		host: 'node',
 		database: {
 			connection: {
 				url: env({ source: env.source('TURSO_DATABASE_URL') }),
@@ -50,7 +50,7 @@ export TURSO_DATABASE_URL='libsql://your-database.turso.io'
 export TURSO_AUTH_TOKEN='your-auth-token'
 ```
 
-Use `preset: 'vercel'` for a Vercel build. Keep the same connection declaration
+Use `host: 'vercel'` for a Vercel build. Keep the same connection declaration
 and routes. The provider remains Turso.
 
 ## Apply the schema and check a row

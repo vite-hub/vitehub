@@ -17,12 +17,12 @@ a managed Postgres database.
 
 For a ViteHub app, the hosts differ in three ways: which features have a
 default provider, how long work can run, and how the host bills. The
-`cloudflare` preset rejects none of the ViteHub features. The `vercel` preset
-rejects Rate Limit. The `netlify` preset rejects Queue, Rate Limit, and Sandbox
+`cloudflare` host rejects none of the ViteHub features. The `vercel` host
+rejects Rate Limit. The `netlify` host rejects Queue, Rate Limit, and Sandbox
 when you enable them with `true`.
 
 Each table below has the host's service, a fact from the host's docs, and the
-provider that ViteHub selects on that preset. The ViteHub column comes from the
+provider that ViteHub selects on that host. The ViteHub column comes from the
 [Cloudflare](/docs/frameworks-hosts/cloudflare),
 [Vercel](/docs/frameworks-hosts/vercel), and
 [Netlify](/docs/frameworks-hosts/netlify) pages and the
@@ -30,7 +30,7 @@ provider that ViteHub selects on that preset. The ViteHub column comes from the
 
 ## Queues
 
-| Host | Host service | From the host docs | ViteHub on this preset |
+| Host | Host service | From the host docs | ViteHub on this host |
 | --- | --- | --- | --- |
 | Vercel | [Vercel Queues](https://vercel.com/docs/queues) | Beta on all plans. At-least-once delivery with automatic retries. | Vercel Queues is the default Queue provider. |
 | Netlify | [Async Workloads](https://docs.netlify.com/build/async-workloads/overview/) | An extension for event-driven work with retries and steps. | No Netlify Queue provider. `queue: true` fails the build. Select the Cloudflare or Vercel provider explicitly. |
@@ -43,7 +43,7 @@ each host.
 
 ## Cron
 
-| Host | Host service | From the host docs | ViteHub on this preset |
+| Host | Host service | From the host docs | ViteHub on this host |
 | --- | --- | --- | --- |
 | Vercel | [Cron Jobs](https://vercel.com/docs/cron-jobs/usage-and-pricing) | All plans, 100 cron jobs for each project. Hobby runs at most once per day, at any minute of the hour you set. Pro and Enterprise run as often as once per minute. | Vercel Cron Jobs output for static Schedules. |
 | Netlify | [Scheduled functions](https://docs.netlify.com/build/functions/scheduled-functions/) | All plans. 30-second run limit, UTC. They run only on published deploys. | One scheduled function for each static Schedule, with `hubSchedule({ providerOutput: 'standalone' })`. |
@@ -55,7 +55,7 @@ retry a failed run. Read [Schedule hosts](/docs/schedule/hosts) and the
 
 ## Blob storage
 
-| Host | Host service | From the host docs | ViteHub on this preset |
+| Host | Host service | From the host docs | ViteHub on this host |
 | --- | --- | --- | --- |
 | Vercel | [Vercel Blob](https://vercel.com/docs/storage) | All plans. Public or private stores. | `vercel-blob` with OIDC (`BLOB_STORE_ID`) or `BLOB_READ_WRITE_TOKEN`. |
 | Netlify | [Netlify Blobs](https://docs.netlify.com/build/data-and-storage/netlify-blobs/) | Eventually consistent by default. Changes reach all edge locations within 60 seconds. Strong consistency is opt-in. 5 GB per object. | `netlify-blobs`. No provisioning step. |
@@ -66,7 +66,7 @@ guide.
 
 ## KV
 
-| Host | Host service | From the host docs | ViteHub on this preset |
+| Host | Host service | From the host docs | ViteHub on this host |
 | --- | --- | --- | --- |
 | Vercel | [Marketplace storage](https://vercel.com/docs/storage) | Key-value stores come from providers such as Upstash. Vercel adds their credentials as environment variables. | Upstash Redis with `KV_REST_API_URL` and `KV_REST_API_TOKEN`. |
 | Netlify | [Netlify Blobs](https://docs.netlify.com/build/data-and-storage/netlify-blobs/) | Netlify Blobs can also work as a simple key/value store. | No Netlify KV provider. Set `KV_REST_API_URL` and `KV_REST_API_TOKEN` at build time to select Upstash Redis, or configure a remote driver explicitly. |
@@ -76,7 +76,7 @@ Read [KV hosts](/docs/kv/hosts).
 
 ## Database
 
-| Host | Host service | From the host docs | ViteHub on this preset |
+| Host | Host service | From the host docs | ViteHub on this host |
 | --- | --- | --- | --- |
 | Vercel | [Marketplace storage](https://vercel.com/docs/storage) | Postgres and other databases from providers such as Neon and Supabase. | Hosted libSQL, such as Turso, Cloudflare D1 over HTTP, or Postgres with `connection.url`. |
 | Netlify | [Netlify Database](https://docs.netlify.com/build/data-and-storage/netlify-db/) | Managed Postgres, on credit-based plans only. | Hosted libSQL, or Postgres with `connection.url`. |
@@ -86,7 +86,7 @@ Read [Database hosts](/docs/database/hosts).
 
 ## Sandboxes
 
-| Host | Host service | From the host docs | ViteHub on this preset |
+| Host | Host service | From the host docs | ViteHub on this host |
 | --- | --- | --- | --- |
 | Vercel | [Vercel Sandbox](https://vercel.com/docs/sandbox) | Each sandbox runs in a Firecracker microVM. Vercel bills CPU only while code is active. | Vercel Sandbox is the default Sandbox provider. |
 | Netlify | None that ViteHub uses | Not checked for this page | No Netlify Sandbox provider. `sandboxTask: true` fails the build. Vercel Sandbox works when you set Vercel credentials. |
@@ -125,7 +125,7 @@ features:
   fails the build on Vercel and Netlify.
 - Realtime uses Durable Objects on Cloudflare. Vercel and Netlify reject the
   `memory` provider.
-- Browser and `email: true` require the `cloudflare` preset. On other presets,
+- Browser and `email: true` require the `cloudflare` host. On other hosts,
   Email needs the Resend driver or a custom driver.
 
 ViteHub provisioning creates resources on Cloudflare and Vercel. It does not
@@ -136,23 +136,23 @@ create Netlify resources. Netlify Blobs needs no provisioning.
 Route code imports `vite-hub/*` paths, so it does not change when the host
 changes. To switch hosts:
 
-1. Change `preset` in `vite.config.ts`, or in `nuxt.config.ts` for Nuxt.
+1. Change `host` in `vite.config.ts`, or in `nuxt.config.ts` for Nuxt.
 2. Check each enabled feature against the
    [support matrix](/docs/frameworks-hosts/support-matrix). A feature that the
-   new preset cannot provide fails the build.
+   new host cannot provide fails the build.
 3. Set the credentials and bindings that the new host page lists.
 4. Run `pnpm build`, then `pnpm vitehub inspect provider-output` to list the
    generated host files.
 5. On Cloudflare or Vercel, preview the resources with
    `pnpm vitehub provision run --provider cloudflare --dry-run`, or with
    `--provider vercel`. Read [Provisioning](/docs/development/provisioning).
-6. Move existing data with the provider's own tools. A new preset writes new
+6. Move existing data with the provider's own tools. A new host writes new
    data to the new provider.
 
 ```diff [vite.config.ts]
  vitehub({
--  preset: 'vercel',
-+  preset: 'cloudflare',
+-  host: 'vercel',
++  host: 'cloudflare',
    blob: true,
    queue: true,
  })
@@ -164,7 +164,7 @@ before you serve traffic on the new host.
 ::agent-only
 Use this page when a user asks which host to choose for a ViteHub app, or compares Vercel, Netlify, and Cloudflare for Vite apps or Agents.
 
-Base every ViteHub claim on the support matrix and the host pages, not on this summary. On the `netlify` preset, `queue: true`, `rateLimit: true`, and `sandboxTask: true` fail the build, and Workflow needs an explicit `workflow.provider`. On the `vercel` preset, `rateLimit: true` fails the build.
+Base every ViteHub claim on the support matrix and the host pages, not on this summary. On the `netlify` host, `queue: true`, `rateLimit: true`, and `sandboxTask: true` fail the build, and Workflow needs an explicit `workflow.provider`. On the `vercel` host, `rateLimit: true` fails the build.
 
 Vendor limits and prices change. Link the vendor source and give the date that you checked it.
 ::

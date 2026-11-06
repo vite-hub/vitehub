@@ -164,7 +164,7 @@ Put Cloudflare D1 bindings, hosted libSQL URLs, and Nuxt host resources in Datab
 
 Run `vitehub inspect definitions --kind database` to list the Definitions that ViteHub discovered.
 
-A Vite app that builds with the Nitro Vite plugin and a Cloudflare preset gets each Database Definition's resolved `cloudflare` binding in `nitro.cloudflare.wrangler.d1_databases`. You do not repeat it in Nitro config. A binding with the same name in Nitro config is replaced by the Definition's binding; other bindings stay. A Definition is added only when it has a `databaseName` and a D1 id from `databaseId` or provision state. Its migration SQL is copied beside the generated Wrangler config.
+A Vite app that builds with the Nitro Vite plugin and a Cloudflare host gets each Database Definition's resolved `cloudflare` binding in `nitro.cloudflare.wrangler.d1_databases`. You do not repeat it in Nitro config. A binding with the same name in Nitro config is replaced by the Definition's binding; other bindings stay. A Definition is added only when it has a `databaseName` and a D1 id from `databaseId` or provision state. Its migration SQL is copied beside the generated Wrangler config.
 
 Cloudflare Nuxt output copies discovered D1 migration SQL beside the generated Wrangler config, so `.output/server` can apply migrations without the source checkout.
 

@@ -125,7 +125,7 @@ it("installs the Deno polling host before importing cron registrations", async (
 it("bundles the Channel host from the retained Netlify Agent registry", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-netlify-output-"))
   try {
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
     await mkdir(join(root, "server/agents"), { recursive: true })
     await writeFile(join(root, "server/agents/poller.ts"), "export default {}\n")
@@ -144,7 +144,7 @@ it("bundles the Channel host from the retained Netlify Agent registry", async ()
 it("installs configured workspace dependency loaders in the retained polling host", async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-gmail-poll-loaders-"))
   try {
-    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_HOST", "netlify")
     await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
     await mkdir(join(root, "server/agents"), { recursive: true })
     await writeFile(join(root, "server/agents/poller.ts"), "export default {}\n")

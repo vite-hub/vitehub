@@ -56,7 +56,7 @@ icon: i-lucide-list-ordered
   export default defineConfig({
     plugins: [
       // Jobs go to Cloudflare Queues
-      vitehub({ preset: 'cloudflare', queue: true }),
+      vitehub({ host: 'cloudflare', queue: true }),
       nitro(),
     ],
   })

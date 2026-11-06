@@ -21,7 +21,7 @@ pnpm add postgres drizzle-orm
 pnpm add -D drizzle-kit
 ```
 
-Enable `database: true` in your existing ViteHub options. Use `preset: 'node'`
+Enable `database: true` in your existing ViteHub options. Use `host: 'node'`
 for the first check.
 
 ## Define a Postgres table

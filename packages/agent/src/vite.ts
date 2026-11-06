@@ -10,7 +10,7 @@ import { contributeProviderDeploymentOutput, createDefaultNetlifyOutputRoot, cre
 import { encodeProviderOutputAliases, resolveViteHubBundleDefines } from "@vite-hub/internal/build/esbuild"
 import { providerOutputAliasSources, rebasePublishedProviderSourceLinks, removeProviderOutputArtifactDir, retainProviderOutputAliases, retainProviderOutputSources, rewriteRetainedProviderSourcePaths } from "@vite-hub/internal/build/provider-output-sources"
 import { copyNodeRuntimePackages, copyVercelFunctionRuntimePackages } from "@vite-hub/internal/build/vercel-runtime-packages"
-import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
+import { hostFromNitroPreset } from "@vite-hub/internal/deployment"
 import { registerViteHubNitroDevEndpoint, renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { createNoExternalAddition, createProviderOutputEnvironmentOwner, hasNitroConfigContext, isServerEnvironment, generatedViteHubWatchIgnoredAddition, loadsViteHubPackagesNatively, renderNativePackageInstallPlugin, resolveViteHubGeneratedRoot, resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -610,17 +610,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function readHostingPreset(value: unknown): string | undefined {
-  return isRecord(value) && typeof value.preset === "string" ? value.preset : undefined
+function readStringField(value: unknown, field: "host" | "preset"): string | undefined {
+  return isRecord(value) && typeof value[field] === "string" ? value[field] : undefined
 }
 
 function resolveAgentHosting(config: unknown): "cloudflare" | "netlify" | "vercel" | undefined {
   const target = isRecord(config) ? config : {}
   const values = [
-    readHostingPreset(target.vitehub),
-    typeof target.preset === "string" ? target.preset : undefined,
-    readHostingPreset(target.nitro),
-    process.env.VITEHUB_HOSTING,
+    readStringField(target.vitehub, "host"),
+    readStringField(target.nitro, "preset"),
+    process.env.VITEHUB_HOST,
   ]
   for (const value of values) {
     const provider = getHostingProvider(value)
@@ -882,7 +881,7 @@ function createAgentProviderRuntimePackagesNitroModule(rootDir: string): (nitro:
   options: { dev?: boolean, output: { serverDir: string }, preset?: string | null }
 }) => void {
   return (nitro) => {
-    if (nitro.options.dev !== false || deploymentPresetFromNitro(nitro.options.preset) !== "node") return
+    if (nitro.options.dev !== false || hostFromNitroPreset(nitro.options.preset) !== "node") return
     nitro.hooks.hook("compiled", async () => {
       const packages = resolveProviderRuntimePackages({ rootDir })
       if (!packages.length) return
@@ -1785,8 +1784,8 @@ function generatedNetlifyRuntimeHelpers(): string[] {
     "}",
     "",
     "function ensureNetlifyHostingEnv() {",
-    "  if (typeof process === 'object' && process && process.env && !process.env.VITEHUB_HOSTING) {",
-    "    process.env.VITEHUB_HOSTING = 'netlify'",
+    "  if (typeof process === 'object' && process && process.env && !process.env.VITEHUB_HOST) {",
+    "    process.env.VITEHUB_HOST = 'netlify'",
     "  }",
     "}",
   ]

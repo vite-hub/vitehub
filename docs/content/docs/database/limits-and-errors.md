@@ -55,7 +55,7 @@ A query to Cloudflare D1, through the binding or through D1 HTTP, checks these [
 | SQL statement length, in UTF-8 bytes | 100,000 bytes | `DATABASE_D1_STATEMENT_TOO_LONG` |
 | One bound string or BLOB | 2,000,000 bytes | `DATABASE_D1_VALUE_TOO_LARGE` |
 
-`vite dev` for Cloudflare uses local SQLite when no D1 binding exists, and SQLite accepts more than D1. When the build targets Cloudflare, with `vitehub({ preset: 'cloudflare' })` or the Cloudflare Nitro preset, the dev server runs the same checks on local SQLite for each Database with D1 options. A query that D1 rejects then rejects in development with the same code. Other dev servers, and local SQLite in production, keep the SQLite limits.
+`vite dev` for Cloudflare uses local SQLite when no D1 binding exists, and SQLite accepts more than D1. When the build targets Cloudflare, with `vitehub({ host: 'cloudflare' })` or the Cloudflare Nitro preset, the dev server runs the same checks on local SQLite for each Database with D1 options. A query that D1 rejects then rejects in development with the same code. Other dev servers, and local SQLite in production, keep the SQLite limits.
 
 D1 also limits the size of a row to 2,000,000 bytes. ViteHub does not check it, because a row can be larger than its bound values. Migrations that `vitehub db migrate` runs are not checked.
 
@@ -131,7 +131,7 @@ With `migrateOnStart`, the server throws this error when it starts and does not 
 
 ### DATABASE_MIGRATE_ON_START_UNSUPPORTED
 
-`migrateOnStart` applies migrations only to local SQLite files in a production Node server. The build fails with this error for another host, a Postgres database, or D1 over HTTP. The server fails to start with it when a database connects to remote libSQL, or Definitions sharing a SQLite file have an unrecorded migration at or below the latest applied timestamp. Use compatible migration histories or separate files for shared-file conflicts. For unsupported connections, build with the Node preset and a `file:` URL, or remove `migrateOnStart` and run `vitehub db migrate` from the deployment.
+`migrateOnStart` applies migrations only to local SQLite files in a production Node server. The build fails with this error for another host, a Postgres database, or D1 over HTTP. The server fails to start with it when a database connects to remote libSQL, or Definitions sharing a SQLite file have an unrecorded migration at or below the latest applied timestamp. Use compatible migration histories or separate files for shared-file conflicts. For unsupported connections, build with the Node host and a `file:` URL, or remove `migrateOnStart` and run `vitehub db migrate` from the deployment.
 
 ## Export errors
 

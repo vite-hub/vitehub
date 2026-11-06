@@ -34,7 +34,7 @@ const config = {
   root: process.cwd(),
   plugins: [vitehub({
     // Queue and Sandbox require a preset that provides both capabilities.
-    preset: "cloudflare",
+    host: "cloudflare",
     agent: true,
     auth: true,
     blob: true,

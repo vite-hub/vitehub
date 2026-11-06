@@ -7,7 +7,7 @@ export default defineNuxtConfig({
     preset: 'vercel',
   },
   vitehub: {
-    preset: 'vercel',
+    host: 'vercel',
     env: {
       public: {
         siteName: env({ default: 'Acme', mode: 'build', source: env.source('NUXT_PUBLIC_SITE_NAME') }),
