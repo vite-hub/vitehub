@@ -75,6 +75,11 @@ describe("preview package manifests", () => {
     expect(() => previewVersion("0123abc")).toThrow("Expected a full commit SHA")
   })
 
+  it("lets a running main publish finish when main moves", async () => {
+    const workflow = await readFile(resolve(repoRoot, ".github/workflows/pkg-pr-new.yml"), "utf8")
+    expect(workflow).toContain("cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}")
+  })
+
   it("runs between the fresh build and the preview publish", async () => {
     const workflow = await readFile(resolve(repoRoot, ".github/workflows/pkg-pr-new.yml"), "utf8")
     const build = workflow.indexOf("- run: vp run --no-cache --filter \"./packages/*\" build")
