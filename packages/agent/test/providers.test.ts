@@ -391,6 +391,7 @@ function chatWebhookRequest(messageId: number, threadId = 456, text = "hello") {
 }
 
 describe("agent Vite plugin", () => {
+  // Install env stubs before the first await: timed-out test bodies can keep running after the next test starts.
   it("serializes shared Provider Output finalization", async () => {
     const { hubAgent } = await import("../src/vite.ts")
 
@@ -1205,8 +1206,8 @@ describe("agent Vite plugin", () => {
   })
 
   it("publishes the conventional Netlify chat path", async () => {
-    const { hubAgent } = await import("../src/vite.ts")
     vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-chat-route-"))
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -1241,8 +1242,9 @@ describe("agent Vite plugin", () => {
   })
 
   it("rejects wrong Discord Gateway secrets in the generated Netlify function", async () => {
-    const { hubAgent } = await import("../src/vite.ts")
     vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_DISCORD_GATEWAY_SECRET", "gateway-secret")
+    const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-gateway-secret-"))
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -1262,7 +1264,6 @@ describe("agent Vite plugin", () => {
       expect(wrapper).toContain("!isViteHubBearerSecretEqual(request.headers.get('authorization'), secret)")
       expect(wrapper).not.toContain("!== secret")
 
-      vi.stubEnv("VITEHUB_DISCORD_GATEWAY_SECRET", "gateway-secret")
       const generated: { default: (request: Request, context: { params: Record<string, string> }) => Promise<Response> } = await import(pathToFileURL(join(root, ".netlify/v1/functions/vitehub-agent.mjs")).href)
       const gateway = (authorization?: string) => generated.default(
         new Request("https://example.com/api/_vitehub/agents/support/discord/gateway", authorization ? { headers: { authorization } } : {}),
@@ -1278,8 +1279,8 @@ describe("agent Vite plugin", () => {
 }, 60_000)
 
   it("publishes retained folder Agent Workspace sources before generation cleanup", async () => {
-    const { hubAgent } = await import("../src/vite.ts")
     vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-workspace-sources-"))
     const agentRoot = join(root, "server", "agents", "support")
     // Bound this consumer independently of Git metadata above the temporary root.
@@ -1354,8 +1355,8 @@ describe("agent Vite plugin", () => {
   })
 
   it("keeps parent instruction references literal in Netlify provider output", async () => {
-    const { hubAgent } = await import("../src/vite.ts")
     vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    const { hubAgent } = await import("../src/vite.ts")
     const container = await mkdtemp(join(tmpdir(), "vitehub-agent-parent-instructions-"))
     const root = join(container, "apps", "web")
     const agentRoot = join(root, "server", "agents", "support")
@@ -1403,13 +1404,13 @@ describe("agent Vite plugin", () => {
   })
 
   it.each(["absent", "configured"] as const)("writes Netlify provider output during Netlify local dev with KV %s", async (kvMode) => {
+    vi.stubEnv("VITEHUB_HOSTING", undefined)
+    vi.stubEnv("NETLIFY_DEV", "true")
     const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-dev-routes-"))
     try {
       await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
-      vi.stubEnv("VITEHUB_HOSTING", undefined)
-      vi.stubEnv("NETLIFY_DEV", "true")
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
@@ -1490,10 +1491,10 @@ describe("agent Vite plugin", () => {
   })
 
   it("cleans stale Netlify agent output when generated routes are disabled", async () => {
+    vi.stubEnv("VITEHUB_HOSTING", "netlify")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-cleanup-"))
     try {
-      vi.stubEnv("VITEHUB_HOSTING", "netlify")
       const plugin = hubAgent()
       const configResolvedHook: unknown = plugin.configResolved
       // SAFETY: hubAgent installs configResolved as an async Vite hook.
@@ -2171,7 +2172,6 @@ describe("agent Vite plugin", () => {
       expect(denoServer).toContain("vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)")
       expect(existsSync(join(root, ".vitehub/agent/schedule-registry.js"))).toBe(false)
 
-      vi.stubEnv("VITEHUB_HOSTING", "netlify")
       const netlifyPlugin = hubAgent({ routes: { discordGateway: true } })
       if (isRuntimeFunction(netlifyPlugin.configResolved)) {
         await netlifyPlugin.configResolved.call(
@@ -2183,6 +2183,7 @@ describe("agent Vite plugin", () => {
             build: { outDir: "dist/client" },
             command: "build",
             plugins: [schedulePlugin],
+            preset: "netlify",
             resolve: { alias: agentProviderOutputAliases() },
             root,
           } as never,
@@ -2250,7 +2251,6 @@ describe("agent Vite plugin", () => {
       })
       expect(await readFile(emailBundle, "utf8")).toContain("api.resend.com")
 
-      vi.stubEnv("VITEHUB_HOSTING", "netlify")
       const netlifyPlugin = hubAgent()
       if (isRuntimeFunction(netlifyPlugin.configResolved)) {
         await netlifyPlugin.configResolved.call(
@@ -2261,6 +2261,7 @@ describe("agent Vite plugin", () => {
             build: { outDir: "dist/client" },
             command: "build",
             plugins: [emailPlugin, { name: "@vite-hub/database/vite" }],
+            preset: "netlify",
             resolve: {
               alias: agentProviderOutputAliases([
                 // Listed before `@vite-hub/email`, which would otherwise rewrite the email Capability import.
@@ -2897,10 +2898,10 @@ export default defineAgent({
   })
 
   it("writes local SQLite state in Vite development with a Cloudflare production preset", async () => {
+    vi.stubEnv("VITEHUB_HOSTING", undefined)
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-local-state-routes-"))
     try {
-      vi.stubEnv("VITEHUB_HOSTING", undefined)
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent()
@@ -3008,13 +3009,13 @@ export default defineAgent({
   })
 
   it("writes generated Nitro webhook handlers with sqlite state providers", async () => {
+    vi.stubEnv("TURSO-AUTH-TOKEN", "build-token-with-hyphen-env")
     const { hubAgent } = await import("../src/vite.ts")
 
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     for (const provider of ["sqlite", "libsql"] as const) {
       const root = await mkdtemp(join(tmpdir(), `vitehub-agent-${provider}-state-routes-`))
       try {
-        vi.stubEnv("TURSO-AUTH-TOKEN", "build-token-with-hyphen-env")
         await mkdir(join(root, "server", "agents"), { recursive: true })
         await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
         const plugin = hubAgent({
