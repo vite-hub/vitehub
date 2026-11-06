@@ -45,7 +45,7 @@ describe("createDocsManifest", () => {
     const manifest = manifestOf({
       "docs/index.md": "---\ntitle: ViteHub docs\nnavigation.order: 0\n---\n\nStart here.\n",
       "docs/server-primitives/index.md": "---\ntitle: Overview\nnavigation.order: 1\n---\n\nServer content.\n",
-      "docs/server-primitives/.navigation.yml": "title: Server primitives\nicon: i-lucide-server-cog\norder: 30\ncategory: Data\n",
+      "docs/server-primitives/.navigation.yml": "title: Server primitives\nicon: i-lucide-server-cog\norder: 30\ncategory: Data\ngroup: Platform\n",
       "docs/server-primitives/kv.md": "---\ntitle: KV\nnavigation.order: 2\nnavigation.group: Storage\n---\n\nKV content.\n",
       "docs/server-primitives/middle.md": "---\ntitle: Middle\nnavigation.order: 1.5\n---\n\nOrdered between the overview and KV.\n",
       "docs/server-primitives/hidden.md": "---\ntitle: Hidden\nnavigation: false\n---\n\nHidden content.\n",
@@ -61,6 +61,7 @@ describe("createDocsManifest", () => {
       title: "Server primitives",
       icon: "i-lucide-server-cog",
       category: "Data",
+      group: "Platform",
       order: 30,
     })
     // The overview comes first. A page without an order sorts after the ordered ones.

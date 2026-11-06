@@ -1,7 +1,7 @@
 <script setup lang="ts">
-const title = "Server primitives for Vite";
+const title = "Server primitives and Agents for Vite apps";
 const description =
-  "Write server code once and deploy it across supported Vite hosts with one API for databases, storage, queues, workflows, and more.";
+  "ViteHub is an open-source Vite plugin. Use one API for databases, storage, queues, workflows, and AI Agents, and deploy to Cloudflare, Vercel, Netlify, or Node.";
 
 useSeoMeta({
   title,
@@ -39,6 +39,7 @@ useSchemaOrg([
     featureList: [
       "One server API for every supported host",
       "Server primitives for databases, storage, queues, and workflows",
+      "AI Agents defined in one file, with Channels for Slack, Discord, and Telegram",
       "Inspectable provider output for production",
     ],
     offers: {

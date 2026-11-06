@@ -11,6 +11,8 @@ import {
   docsMarkdownLinks,
   docsMcpInstallLinks,
   docsPageIcon,
+  docsRailEntries,
+  docsRailEntry,
   docsRailGroups,
   docsRailIcon,
   docsRawPath,
@@ -18,8 +20,10 @@ import {
   docsRelatedSections,
   docsSectionForPath,
   docsSectionHome,
+  docsSectionGroup,
   docsSectionIcon,
   docsSidebarGroups,
+  docsSidebarSections,
   findDocsPage,
   normalizeDocsBase,
   normalizeDocsPath,
@@ -121,6 +125,86 @@ describe("docs catalog and rail", () => {
   })
 })
 
+describe("docs groups", () => {
+  // `blob` joins in its `.navigation.yml`, `kv` through the option.
+  const grouped = { ...manifest, sections: manifest.sections.map(candidate => candidate.id === "blob" ? { ...candidate, group: "Storage" } : candidate) }
+  const groups = [{ title: "Storage", icon: "i-lucide-hard-drive", sections: ["kv"] }]
+  const options = { categories, railExclude: ["Reference"], groups }
+  const rail = (entries: ReturnType<typeof docsRailEntries>) => entries.map(items => items.map(entry => [entry.title, entry.icon, entry.sections.map(candidate => candidate.id)]))
+
+  it("places a section in the group that the option or its `.navigation.yml` names", () => {
+    expect(docsSectionGroup(section("kv"), groups)).toBe("Storage")
+    expect(docsSectionGroup(grouped.sections.find(candidate => candidate.id === "blob")!, [])).toBe("Storage")
+    expect(docsSectionGroup(section("start"), groups)).toBeNull()
+    // The option wins over the file.
+    expect(docsSectionGroup({ id: "blob", group: "Storage" }, [{ title: "Files", sections: ["blob"] }])).toBe("Files")
+  })
+
+  it("shows one rail item for the sections of a group, at the place of its first section", () => {
+    expect(rail(docsRailEntries(grouped, options))).toEqual([
+      [["Start here", null, ["start"]]],
+      [["Storage", "i-lucide-hard-drive", ["kv", "blob"]]],
+      [["Misc", null, ["misc"]]],
+    ])
+    // A group that the option does not list keeps the icon of its first section.
+    expect(rail(docsRailEntries(grouped, { ...options, groups: [] }))).toEqual([
+      [["Start here", null, ["start"]]],
+      [["KV", null, ["kv"]], ["Storage", null, ["blob"]]],
+      [["Misc", null, ["misc"]]],
+    ])
+    expect(docsRailEntry(grouped, options, section("blob"))?.sections.map(candidate => candidate.id)).toEqual(["kv", "blob"])
+    // The rail leaves out excluded categories, so their sections have no rail item.
+    expect(docsRailEntry(grouped, options, section("reference"))).toBeNull()
+  })
+
+  it("keeps a section of an excluded category in its group", () => {
+    // `reference` is in Reference, which the rail leaves out. The group still lists it, after the rail places the group.
+    const withReference = [{ title: "Storage", icon: "i-lucide-hard-drive", sections: ["kv", "reference"] }]
+    const entries = docsRailEntries(grouped, { ...options, groups: withReference })
+    expect(rail(entries)).toEqual([
+      [["Start here", null, ["start"]]],
+      [["Storage", "i-lucide-hard-drive", ["kv", "blob", "reference"]]],
+      [["Misc", null, ["misc"]]],
+    ])
+    expect(docsRailEntry(grouped, { ...options, groups: withReference }, section("reference"))?.title).toBe("Storage")
+  })
+
+  it("counts the sections of a group as one rail item", () => {
+    const icons = { rail: {}, sections: {} }
+    expect(docsHasRail(manifest, icons)).toBe(true)
+    // start, Storage, and the rest: three items.
+    expect(docsHasRail(manifest, icons, [{ title: "Storage", sections: ["kv", "blob"] }, { title: "More", sections: ["reference", "misc"] }])).toBe(false)
+    // A group icon is enough for a rail.
+    const plain = { ...manifest, sections: manifest.sections.map(candidate => ({ ...candidate, icon: null })) }
+    expect(docsHasRail(plain, icons)).toBe(false)
+    expect(docsHasRail(plain, icons, [{ title: "Storage", icon: "i-lucide-hard-drive", sections: ["kv"] }])).toBe(true)
+    // The rail shows the icon of a group's first section, so a later member's icon does not count.
+    const lastIcon = { ...plain, sections: plain.sections.map(candidate => candidate.id === "blob" ? { ...candidate, icon: "i-lucide-box" } : candidate) }
+    expect(docsHasRail(lastIcon, icons)).toBe(true)
+    expect(docsHasRail(lastIcon, icons, [{ title: "Storage", sections: ["kv", "blob"] }])).toBe(false)
+  })
+
+  it("lists each section of a group as its home page, then its other pages", () => {
+    const blocks = docsSidebarSections([section("kv"), section("blob")])
+    // Both sections are in Data, so the list has no category heading.
+    expect(blocks.map(block => [block.category, block.sections.map(entry => [entry.section.id, entry.home?.path, entry.groups.map(group => [group.label, group.pages.map(page => page.title)])])])).toEqual([
+      [null, [
+        ["kv", "/docs/kv", [[null, ["Get started"]], ["Guides", ["Configure KV", "Expire keys"]], [null, ["Server API"]]]],
+        ["blob", "/docs/blob", []],
+      ]],
+    ])
+  })
+
+  it("heads each category when the sections span several", () => {
+    const blocks = docsSidebarSections([section("start"), section("kv"), section("blob"), section("misc")])
+    expect(blocks.map(block => [block.category, block.sections.map(entry => entry.section.id)])).toEqual([
+      ["Start", ["start"]],
+      ["Data", ["kv", "blob"]],
+      [null, ["misc"]],
+    ])
+  })
+})
+
 describe("docs home links", () => {
   // The playground is a small site: no `content/docs/index.md`, two sections without icons, and `guides` has no Overview.
   const small = createDocsManifest({ dir: resolve(import.meta.dirname, "../../../playground/docs/content"), base: "/docs" })
@@ -156,6 +240,28 @@ describe("docs rail", () => {
     const plain = { ...manifest, sections: manifest.sections.map(candidate => ({ ...candidate, icon: null })) }
     expect(docsHasRail(plain, noIcons)).toBe(false)
     expect(docsHasRail(plain, { rail: { kv: "kv" }, sections: {} })).toBe(true)
+  })
+
+  it("does not count an excluded category as the fourth rail item", () => {
+    const four = { ...manifest, sections: manifest.sections.filter(candidate => candidate.id !== "misc") }
+    const options = { categories, railExclude: ["Reference"] }
+    expect(docsHasRail(four, noIcons)).toBe(true)
+    expect(docsRailEntries(four, { ...options, groups: [] }).flat()).toHaveLength(3)
+    expect(docsHasRail(four, noIcons, [], options)).toBe(false)
+  })
+
+  it("does not enable the rail for an icon in an excluded category", () => {
+    const plain = { ...manifest, sections: manifest.sections.map(candidate => ({ ...candidate, icon: null })) }
+    const icons = { rail: { reference: "i-lucide-book" }, sections: {} }
+    const options = { categories, railExclude: ["Reference"] }
+    expect(docsHasRail(plain, icons)).toBe(true)
+    expect(docsRailEntries(plain, { ...options, groups: [] }).flat()).toHaveLength(4)
+    expect(docsHasRail(plain, icons, [], options)).toBe(false)
+    // An excluded section still supplies the displayed icon when a visible member places its group.
+    const first = { ...plain, sections: [plain.sections.find(candidate => candidate.id === "reference")!, ...plain.sections.filter(candidate => candidate.id !== "reference")] }
+    expect(docsHasRail(first, icons, [{ title: "Storage", sections: ["reference", "kv"] }], options)).toBe(true)
+    // Unknown categories are rendered even when their name appears in railExclude.
+    expect(docsHasRail(plain, icons, [], { categories: ["Start", "Data"], railExclude: ["Reference"] })).toBe(true)
   })
 
   it("keeps the rail of vitehub.dev", () => {
