@@ -1,3 +1,4 @@
+import { Request as WorkerRequest } from "miniflare";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createConnectionsRuntime } from "../src/runtime.ts";
@@ -25,6 +26,26 @@ function streamedPost(body: ReadableStream<Uint8Array>): Request {
 }
 
 describe("createConnectionsHandler", () => {
+  it("accepts a host's Web Request without exposing it as an actor event or consuming its body", async () => {
+    const request = new WorkerRequest(`${origin}/_vitehub/connections`, {
+      body: JSON.stringify({ action: "list" }),
+      headers: { "content-type": "application/json", origin },
+      method: "POST",
+    });
+    expect(request).not.toBeInstanceOf(Request);
+    const actor = vi.fn(async () => {
+      expect(request.bodyUsed).toBe(false);
+      await expect(request.clone().json()).resolves.toEqual({ action: "list" });
+      return "user:local" as const;
+    });
+    const handler = createConnectionsHandler({ actor, runtime: () => createTestRuntime().runtime });
+    // SAFETY: Miniflare implements the Web Request API with its host's Fetch types.
+    const response = await handler(request as unknown as Request);
+    expect(response.status).toBe(200);
+    expect(actor).toHaveBeenCalledWith(request, undefined);
+    await expect(response.json()).resolves.toMatchObject({ connections: [{ name: "mail" }] });
+  });
+
   it.each(["", "   ", "/", "//", "connections", "  /  ", "/portal?x", "/portal#section"])("rejects invalid base path %s during setup", (basePath) => {
     expect(() => createConnectionsHandler({ actor: () => "user:local", basePath, runtime: () => createTestRuntime().runtime }))
       .toThrow("Connections basePath")

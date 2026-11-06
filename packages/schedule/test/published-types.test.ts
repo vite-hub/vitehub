@@ -47,7 +47,7 @@ it("publishes virtual Schedule registry declarations", async () => {
     await cp(join(packageRoot, "dist"), join(installedPackageRoot, "dist"), { recursive: true })
     await cp(join(runtimePackageRoot, "dist"), join(installedRuntimePackageRoot, "dist"), { recursive: true })
 
-    // Runtime's public types refer to these production dependencies.
+    // Runtime's public diagnostic and Standard Context types refer to its production dependencies.
     for (const dependency of ["nostics", "standard-context"]) {
       await cp(join(runtimePackageRoot, "node_modules", dependency), join(root, "node_modules", dependency), { dereference: true, recursive: true })
     }
