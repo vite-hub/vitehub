@@ -151,7 +151,16 @@ export interface LocalQueueProviderOptions extends QueueSharedOptions {
   provider: "local"
   /** Queue Definition that receives the jobs. `getQueue()` sets it. */
   queue?: string
+  /** The provider whose delivery rules the jobs follow. Defaults to `local`. `vite dev` sets the provider of the build. */
+  rules?: LocalQueueRules
 }
+
+/**
+ * The provider whose documented delivery rules the local provider follows: attempts, retry delay, the largest delay,
+ * payload, and batch, and the enqueue options it accepts. In `vite dev`, a Cloudflare or Vercel app runs its jobs
+ * with the local provider and the rules of its provider.
+ */
+export type LocalQueueRules = QueueProvider
 
 interface LocalQueueModuleProviderOptions extends QueueSharedOptions {
   /** Directory of the stored jobs, relative to the working directory. Defaults to `.vitehub/data/queue`. */
@@ -174,7 +183,15 @@ export type QueueModuleOptions =
   | (QueueSharedOptions & { base?: string; namePrefix?: string; provider?: undefined })
   | QueueModuleProviderOptions
 
-export type ResolvedQueueOptions = QueueModuleProviderOptions
+/** Local options after resolution. `vite dev` adds `rules` for a Cloudflare or Vercel app. */
+export interface ResolvedLocalQueueOptions extends LocalQueueModuleProviderOptions {
+  rules?: LocalQueueRules
+}
+
+export type ResolvedQueueOptions =
+  | CloudflareQueueModuleProviderOptions
+  | ResolvedLocalQueueOptions
+  | VercelQueueModuleProviderOptions
 
 export interface QueueJob<TPayload = unknown> {
   attempts: number

@@ -41,10 +41,10 @@ afterEach(() => {
 it("derives Open page and action permissions from a fetched thread outside the active list", async () => {
   const own = { author: thread.author, body: "My reply", createdAt: 1, attachments: [], id: "owned", mentions: [], threadId: thread.id }
   const other = { ...own, id: "other", author: { id: "ben" } }
-  mocks.request.mockImplementation(async (_path, operation) => operation === "comments.get" ? thread : {
+  mocks.request.mockImplementation(async (operation) => operation === "comments.get" ? thread : {
     canWrite: false, user: { id: "ana" }, capabilities: { reply: false, resolve: true, deleteThread: false, edit: [own.id], delete: [other.id] },
   })
-  const app = renderer.createApp({ ...Panel, render: () => null }, { id: thread.id, definitionsBase: "/definitions", view })
+  const app = renderer.createApp({ ...Panel, render: () => null }, { id: thread.id, view })
   app.provide(ssrContextKey, {})
   const instance = app.mount({})
   mounted.push(() => app.unmount())
@@ -59,7 +59,7 @@ it("derives Open page and action permissions from a fetched thread outside the a
   expect(state.can("delete", { thread, message: other })).toBe(true)
   expect(state.can("delete", { thread, message: own })).toBe(false)
   expect(state.can("delete", { thread })).toBe(false)
-  expect(mocks.request).toHaveBeenCalledWith("/definitions", "comments.session", { subject: thread.subject, threadId: thread.id }, expect.anything())
+  expect(mocks.request).toHaveBeenCalledWith("comments.session", { subject: thread.subject, threadId: thread.id }, expect.anything())
 })
 
 it("reloads the active operation after changes and deletions to preserve filters and ordering", async () => {
@@ -85,5 +85,5 @@ it("reloads the active operation after changes and deletions to preserve filters
   state.refreshItems()
   await vi.waitFor(() => expect(state.items).toEqual([]))
   expect(mocks.request).toHaveBeenCalledTimes(4)
-  for (const call of mocks.request.mock.calls) expect(call.slice(0, 3)).toEqual(["/definitions", "comments.list", { status: "open" }])
+  for (const call of mocks.request.mock.calls) expect(call.slice(0, 2)).toEqual(["comments.list", { status: "open" }])
 })

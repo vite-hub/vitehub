@@ -58,6 +58,11 @@
       "import": "./dist/deployment.js",
       "default": "./dist/deployment.js"
     },
+    "./features": {
+      "types": "./dist/features.d.ts",
+      "import": "./dist/features.js",
+      "default": "./dist/features.js"
+    },
     "./dev-endpoint": {
       "types": "./dist/dev-endpoint.d.ts",
       "import": "./dist/dev-endpoint.js",
