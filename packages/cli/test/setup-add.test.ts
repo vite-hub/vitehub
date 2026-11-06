@@ -389,4 +389,51 @@ describe("vitehub add", () => {
     expect(json.error).toMatchObject({ code: "SETUP_INSTALL_FAILED", message: "`pnpm add @vite-hub/schedule` exited with code 1." })
     expect(await snapshot(root)).toEqual(before)
   })
+
+  it.each(["node", "deno"])("says that the default Workflow runs inline on %s, and not when a provider is set", async (host) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}" }`) })
+
+    const inline = await add(["workflow", "--dry-run"], root)
+    expect(inline.json.nextSteps).toContainEqual(expect.stringMatching(/^Workflow on .* uses Vercel Workflow by default\. .*inline in the request process/u))
+    expect(inline.json.install.packages).toEqual([])
+
+    const durable = await add(["workflow", "--option", "workflow.provider=openworkflow", "--dry-run"], root)
+    expect(durable.json.nextSteps.join("\n")).not.toContain("inline")
+    expect(durable.json.install.packages).toEqual(["openworkflow"])
+  })
+
+  it("installs OpenWorkflow when Node storage selects it", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+
+    const { json } = await add(["workflow", "--option", "workflow.sqlite.path=.data/workflows.db", "--dry-run"], root)
+
+    expect(json.install.packages).toEqual(["openworkflow"])
+    expect(json.nextSteps.join("\n")).not.toContain("inline")
+  })
+
+  it("says that the Vercel Workspace keeps files in memory until a Blob token is set", async () => {
+    const root = await copyFixture("vercel")
+
+    const memory = await runSetup<AddResult>(["add", "workspace", "--dry-run", "--json"], root)
+    expect(memory.json.nextSteps).toContainEqual(expect.stringContaining("Workspace on vercel uses memory / Blob / GitHub by default. Process-local memory by default."))
+
+    const blob = await runSetup<AddResult>(["add", "workspace", "--dry-run", "--json"], root, { BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_test" })
+    expect(blob.json.nextSteps.join("\n")).not.toContain("memory")
+  })
+
+  it("points a Vercel Workflow starter to the durable native entry", async () => {
+    const root = await copyFixture("vercel")
+
+    const { json } = await add(["workflow", "--name", "onboard-user", "--dry-run"], root)
+
+    expect(json.nextSteps).toContainEqual(expect.stringContaining("server/workflows/onboard-user.ts has no `native` entry"))
+  })
+
+  it("installs the S3 SDK for the S3 Blob driver", async () => {
+    const root = await copyFixture("deno")
+
+    const { json } = await add(["blob", "--option", "blob.driver=s3", "--option", "blob.bucket=app-assets", "--dry-run"], root)
+
+    expect(json.install.packages).toEqual(["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"])
+  })
 })

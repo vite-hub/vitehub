@@ -15,7 +15,7 @@ import { installArgs, installCommand, setsOption, setupStatus } from "./status.t
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConfigEdit, JsonValue } from "@vite-hub/internal/config-edit"
-import type { FeatureId } from "@vite-hub/internal/features"
+import type { FeatureHost, FeatureId, HostSupport } from "@vite-hub/internal/features"
 import type { SetupMissing } from "./envelope.ts"
 import type { SetupProject } from "./project.ts"
 import type { SetupStatus } from "./status.ts"
@@ -67,6 +67,26 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
   "kv.driver": { values: ["upstash"] },
   "realtime.authority": { values: ["memory"] },
   "workflow.provider": { values: ["openworkflow"] },
+}
+
+/** Packages that an option value needs, in addition to the feature's packages. */
+const optionPackages: Partial<Record<string, Readonly<Record<string, readonly string[]>>>> = {
+  "blob.driver": { s3: ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"] },
+  "workflow.provider": { openworkflow: ["openworkflow"] },
+}
+
+/** Option keys that select a provider or a store. A feature that sets one does not use the host default. */
+const providerKeys = ["authority", "driver", "postgres", "provider", "sqlite", "store"]
+
+function selectsProvider(value: JsonValue | undefined): boolean {
+  return isRecord(value) && providerKeys.some(key => value[key] !== undefined)
+}
+
+/** How `host` supports `id`, with the override that `env` selects, such as BLOB_READ_WRITE_TOKEN for the Vercel Workspace. */
+function hostSupport(id: FeatureId, host: FeatureHost, env: NodeJS.ProcessEnv): HostSupport {
+  const support = featureSupport(id, host)
+  if (support.level !== "native") return support
+  return support.envOverrides?.find(override => env[override.env]?.trim())?.support ?? support
 }
 
 /** Features whose key accepts only a boolean. */
@@ -357,8 +377,20 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const alreadyOn = new Set(status.features.filter(item => item.enabled === "on").map(item => item.id))
   const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], host, keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
   const install: Planned["install"] = { dev: [], prod: [] }
+  const configured = (id: FeatureId): JsonValue | undefined => {
+    const current = project.config?.ok ? project.config.site.keys[id] : undefined
+    return mergeValue(current?.kind === "literal" ? current.value : undefined, args.options[id])
+  }
   for (const id of [...addedFeatures, ...implied]) {
-    for (const name of features[id].packages) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
+    const value = configured(id)
+    const selected = Object.entries(optionPackages).flatMap(([option, byValue]) => {
+      if (!option.startsWith(`${id}.`) || !isRecord(value)) return []
+      const choice = value[option.slice(id.length + 1)]
+      return typeof choice === "string" ? byValue?.[choice] ?? [] : []
+    })
+    // Node selects OpenWorkflow when its storage is set and no provider is.
+    if (id === "workflow" && host === "node" && isRecord(value) && value.provider === undefined && (value.sqlite !== undefined || value.postgres !== undefined)) selected.push("openworkflow")
+    for (const name of [...features[id].packages, ...selected]) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
     for (const name of features[id].devPackages) if (!project.declared(name, true) && !install.dev.includes(name)) install.dev.push(name)
   }
   const command = installCommand(project.packageManager, install.prod, install.dev)
@@ -369,6 +401,15 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const support = featureSupport(id, host)
     if (support.level === "unsupported") nextSteps.push(`${id} is turned on by ${args.features.join(", ")} but is not supported on ${host}: ${support.detail} Set \`${id}: false\` to turn it off.`)
     else if (support.level === "explicit" && !setsOption(project, support.option) && !(args.options[id] && support.option.slice(id.length + 1) in args.options[id])) nextSteps.push(`${id} is turned on by ${args.features.join(", ")}. Set \`${support.option}\` on ${host}, or set \`${id}: false\`. ${support.detail}`)
+  }
+  // Host defaults that build and run, but keep state in one process.
+  for (const id of [...addedFeatures, ...implied]) {
+    if (selectsProvider(configured(id))) continue
+    const support = hostSupport(id, host, env)
+    if (support.level === "native" && support.guarantee === "process-local") nextSteps.push(`${features[id].title} on ${host} uses ${support.display} by default. ${support.detail}`)
+  }
+  if (args.name !== undefined && args.features.includes("workflow") && host === "vercel" && !selectsProvider(configured("workflow"))) {
+    nextSteps.push(`server/workflows/${args.name}.ts has no \`native\` entry, so Vercel runs it inline. Add one for durable runs: https://vitehub.dev/docs/workflows/configure#add-a-durable-vercel-entry`)
   }
   if (args.name !== undefined && args.features.includes("realtime")) nextSteps.push(`server/realtime/${args.name}.ts stores documents in the Workspace "${args.name}". Add a Workspace Definition in server/workspaces/${args.name}.ts.`)
   for (const id of args.features) nextSteps.push(`${features[id].title}: https://vitehub.dev${features[id].docs}`)

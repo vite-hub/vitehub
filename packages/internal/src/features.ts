@@ -426,10 +426,10 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
     docs: "/docs/workflows",
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
-      deno: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Set workflow.provider explicitly to select OpenWorkflow."),
+      deno: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Outside Vercel it runs each Workflow inline in the request process, so a restart loses the run. Set `workflow.provider` to \"openworkflow\" for durable runs.", "process-local"),
       dev: native("vercel", "Vercel Workflow", "The default Node preset selects Vercel Workflow. Node hosting selects OpenWorkflow when workflow.sqlite.path or workflow.postgres.url is configured."),
       netlify: explicit("workflow.provider", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow provider is provided."),
-      node: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Setting workflow.sqlite.path or workflow.postgres.url selects OpenWorkflow unless workflow.provider is explicit."),
+      node: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Outside Vercel it runs each Workflow inline in the request process, so a restart loses the run. Set `workflow.sqlite.path` or `workflow.postgres.url` to select durable OpenWorkflow.", "process-local"),
       vercel: native("vercel", "Vercel Workflow", "Vercel Workflow provider and Workflow DevKit output."),
     },
     id: "workflow",
