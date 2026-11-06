@@ -70,6 +70,7 @@ Available namespaces:
 | Command | Status | Owner | Use it for |
 | --- | --- | --- | --- |
 | `vitehub add` | Available | ViteHub CLI | Turn on features: edit the `vitehub()` options, install the owner packages, and create a starter Definition. Does not load the project config. |
+| `vitehub remove` | Available | ViteHub CLI | Turn off features: edit the `vitehub()` options, delete unchanged starter Definitions, and uninstall packages that nothing else uses. Does not load the project config. |
 | `vitehub catalog` | Available | ViteHub CLI | List every feature and how each host supports it. Does not load the project config. |
 | `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, and what each one still needs. Does not load the project config. |
 | `vitehub link` | Available | ViteHub CLI | Link the project to its project on the host in `.vitehub/link.json`. Does not load the project config. |
@@ -244,7 +245,7 @@ The command needs more input, such as a feature name or the provider option that
 
 ### `SETUP_CONFIG_MANUAL`
 
-`vitehub add` cannot edit the config safely: there is no `vitehub()` call, there are two, or the options are not an object literal. The error gives the keys to paste into the `vitehub()` options, and the JSON output has them in `snippet`.
+`vitehub add` or `vitehub remove` cannot edit the config safely: there is no `vitehub()` call, there are two, or the options are not an object literal. The error gives the keys to paste into the `vitehub()` options, and the JSON output has them in `snippet`.
 
 ### `SETUP_FILE_EXISTS`
 
@@ -265,6 +266,39 @@ The folder has no `package.json`, no `vite.config.*`, and no `nuxt.config.*`. Ru
 ### `SETUP_CONFIG_NOT_LITERAL`
 
 The `vitehub()` options are not an object literal, for example a variable, a function call, or `mergeConfig()`. ViteHub does not run the config to read them. Write the options as an object literal, such as `vitehub({ kv: true })`, or edit the config by hand. `vitehub status` reports this case as `config.manual` and exits with `0`.
+
+## Remove a feature
+
+`vitehub remove` undoes `vitehub add`. It plans the change first, then edits the config, deletes the starter files, and uninstalls the packages last, so the app stops using the feature before its files go. It parses the config and never runs it.
+
+```bash [Terminal]
+pnpm vitehub remove queue --dry-run
+pnpm vitehub remove queue --yes
+pnpm vitehub remove workflow --force --yes --json
+```
+
+- `--dry-run`, `--yes`, and `--json` work as they do for `add`. Without a terminal and without `--yes`, the command exits with `2` and a `rerun` command.
+- `--keep-files` keeps the starter Definitions.
+- `--no-uninstall` keeps the packages. `nextSteps` has the uninstall command.
+- `--force` turns the feature off while the app still uses it. It writes `<feature>: false` when another feature turns it on, and it keeps every file that the app wrote.
+
+The command deletes the `vitehub()` key. A feature that is on without a key, such as Env, gets `<feature>: false`. A feature that only the removed feature turned on, such as Workflow for Agent, goes off too and is listed in `turnedOff`. When `add` was the last change, `remove` gives back the original bytes of the config, the starter files, and package.json.
+
+`remove` deletes a file only when it is exactly a starter that `add` writes. It refuses with `3` while the app still uses the feature: an import of `vite-hub/<feature>` or of a package that only this feature needs, a changed or extra file in the Definition folder, such as `server/queues/`, or a discovered file, such as `server/comments.ts`. The error lists each file and line in `references`. It uninstalls a package only when no enabled feature declares it and no source file imports it.
+
+`remove` never deletes host resources, such as a D1 database or a KV namespace, the local data in `.vitehub/data`, host credentials, or `.vitehub/link.json`. `nextSteps` names the host resources to delete by hand.
+
+### `SETUP_FEATURE_IMPLIED`
+
+Another enabled feature turns the feature on, such as Agent for Workflow, so deleting its key changes nothing. Remove the other feature too, or pass `--force` to write `<feature>: false`. The JSON output names the other features in `impliedBy`.
+
+### `SETUP_FEATURE_IN_USE`
+
+The app still uses the feature. `references` lists each file, with the line and the module for an import. Delete or move them and run the command again, or pass `--force` to turn the feature off and keep the files.
+
+### `SETUP_UNINSTALL_FAILED`
+
+The package manager exited with an error after ViteHub changed the config and deleted the starter files. Run the uninstall command by hand to see the error.
 
 ## Link a project to its host
 
