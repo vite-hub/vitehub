@@ -13,6 +13,7 @@ import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL,
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { nitroGeneratedRelativeImports } from "./internal/nitro-generated-imports.ts"
+import { nitroInjectSourcemapsModule, nitroInjectSourcemapsModuleName } from "./internal/nitro-inject-sourcemaps.ts"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
@@ -321,6 +322,8 @@ function nitroViteHubH3(generatedRoots: string[]) {
     resolveId(id: string, importer?: string) {
       if (!/^h3(?:\/|$)/.test(id) || !importer) return
       const path = importer.split("?", 1)[0]!.replaceAll("\\", "/")
+      // The asset middleware uses the host Nitro version's H3 API, including Nitro 2's toWebRequest.
+      if (roots.some(root => path === `${root}nitro/cloudflare-assets.mjs`)) return
       if (!roots.some(root => path.startsWith(root))) {
         const directory = dirname(path)
         let owned = owners.get(directory)
@@ -1688,6 +1691,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     installNitroRuntimeResolvers(config, replayPlugins)
     normalizeGeneratedNitroPlugins(config, projectRoot)
     installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.preset === "cloudflare", consoleSections)
+    if (nitroMajorVersion === 2) {
+      const modules = Array.isArray(config.modules) ? config.modules : config.modules ? [config.modules] : []
+      if (!modules.some(module => isRecord(module) && module.name === nitroInjectSourcemapsModuleName)) config.modules = [...modules, nitroInjectSourcemapsModule]
+    }
     if (nuxt.options.dev && plan.preset === "cloudflare") {
       const alias = (config.alias ??= {}) as Record<string, string>
       alias["cloudflare:workers"] ??= await writeCloudflareWorkersDevShim(nuxt.options.buildDir)
