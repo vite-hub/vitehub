@@ -50,6 +50,32 @@ describe("vitehub remove", () => {
     expect(existsSync(join(root, "server"))).toBe(false)
   })
 
+  it.each([
+    ['rootDir: "app"', "app/server"],
+    ['serverDir: "backend"', "backend"],
+    ['rootDir: "app", serverDir: "backend"', "app/backend"],
+  ])("removes Nuxt starters from the application server directory: %s", async (options, serverDir) => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options}, vitehub: { preset: "node" } })`,
+    })
+    const original = await snapshot(root)
+    const pm = fakePackageManager(root)
+    const added = await add(["queue", "database", "--name", "jobs"], root, pm.spawn)
+    expect(added.exitCode, JSON.stringify(added.json.error)).toBe(0)
+
+    const { exitCode, json } = await remove(["queue", "database", "--yes"], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.references).toEqual([])
+    expect(json.changes.filter(change => change.kind === "delete").map(change => change.path)).toEqual([
+      `${serverDir}/databases/jobs/config.ts`,
+      `${serverDir}/queues/jobs.ts`,
+    ])
+    expect(await snapshot(root)).toEqual(original)
+    expect(existsSync(join(root, serverDir))).toBe(false)
+  })
+
   it("turns off features that only the removed feature implied and uninstalls their packages", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
     const original = await snapshot(root)
@@ -190,6 +216,51 @@ describe("vitehub remove", () => {
     expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
     expect(forced.json.uninstall).toEqual({ devPackages: [], packages: [] })
     expect(forced.json.references).toHaveLength(2)
+  })
+
+  it.each([
+    ["types/schedule.d.ts", 'import type { ScheduleDefinition } from "@vite-hub/schedule"\n', "@vite-hub/schedule"],
+    ["types/schedule.d.mts", 'export * from "vite-hub/schedule"\n', "vite-hub/schedule"],
+    ["types/schedule.d.cts", 'declare module "@vite-hub/schedule" {}\nexport {}\n', "@vite-hub/schedule"],
+  ])("keeps packages used by a declaration file: %s", async (path, content, module) => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { "@vite-hub/schedule": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      [path]: content,
+      "vite.config.ts": viteConfig(`{ preset: "cloudflare", schedule: true }`),
+    })
+    const original = await snapshot(root)
+    const pm = fakePackageManager(root)
+
+    const refused = await remove(["schedule", "--yes"], root, pm.spawn)
+
+    expect(refused.exitCode).toBe(3)
+    expect(refused.json.error?.code).toBe("SETUP_FEATURE_IN_USE")
+    expect(refused.json.references).toEqual([{ feature: "schedule", file: path, line: 1, module }])
+    expect(await snapshot(root)).toEqual(original)
+
+    const forced = await remove(["schedule", "--yes", "--force"], root, pm.spawn)
+
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
+    expect(forced.json.uninstall).toEqual({ devPackages: [], packages: [] })
+    expect(pm.calls).toEqual([])
+    expect(await readFile(join(root, path), "utf8")).toBe(content)
+    expect(await readFile(join(root, "package.json"), "utf8")).toBe(original["package.json"])
+  })
+
+  it("ignores generated declaration files when scanning package uses", async () => {
+    const root = await createProject({
+      ".nuxt/types/schedule.d.ts": 'export * from "@vite-hub/schedule"\n',
+      "node_modules/@vite-hub/schedule/index.d.ts": 'export * from "@vite-hub/schedule"\n',
+      "package.json": JSON.stringify({ dependencies: { "@vite-hub/schedule": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      "vite.config.ts": viteConfig(`{ preset: "cloudflare", schedule: true }`),
+    })
+    const pm = fakePackageManager(root)
+
+    const { exitCode, json } = await remove(["schedule", "--yes"], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.references).toEqual([])
+    expect(pm.calls).toEqual([["pnpm", "remove", "@vite-hub/schedule"]])
   })
 
   it("writes false for a feature that is on by default", async () => {

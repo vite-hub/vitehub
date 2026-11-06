@@ -116,10 +116,9 @@ function importsModule(specifier: string, module: string): boolean {
   return specifier === module || specifier.startsWith(`${module}/`)
 }
 
-/** Static imports, re-exports, dynamic imports, and `require` calls. Comments can match, which only makes `remove` stricter. */
-const specifierPattern = /\b(?:from|import|require)\s*\(?\s*(["'])([^"'\r\n]+)\1/gu
+/** Static imports, re-exports, dynamic imports, `require` calls, and module augmentations. Comments can match, which only makes `remove` stricter. */
+const specifierPattern = /\b(?:from|import|require|declare\s+module)\s*\(?\s*(["'])([^"'\r\n]+)\1/gu
 const sourceFile = /\.(?:[cm]?[jt]sx?|vue)$/iu
-const declarationFile = /\.d\.[cm]?[jt]sx?$/iu
 
 function lineAt(content: string, index: number): number {
   let line = 1
@@ -211,16 +210,19 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const edited: string[] = []
   for (const id of turnedOff) {
     const starter = features[id].definition
-    if (!starter || !existsSync(join(project.root, starter.dir))) continue
-    for (const file of listMatchingFiles(join(project.root, starter.dir), () => true)) {
-      const path = relative(project.root, file)
-      const content = await readFile(file, "utf8")
-      if (isStarter(starter, path, content)) {
-        starters.set(path, content)
-      }
-      else {
-        blocking.push({ feature: id, file: path })
-        edited.push(path)
+    if (!starter) continue
+    for (const directory of directories) {
+      const folder = join(directory, relative("server", starter.dir))
+      for (const file of listMatchingFiles(folder, () => true)) {
+        const path = relative(project.root, file)
+        const content = await readFile(file, "utf8")
+        if (isStarter(starter, join("server", relative(directory, file)), content)) {
+          starters.set(path, content)
+        }
+        else {
+          blocking.push({ feature: id, file: path })
+          edited.push(path)
+        }
       }
     }
   }
@@ -231,7 +233,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     for (const name of packagesOf(id, valueOf(project.config, id), host)) if (!stillNeeded.has(name) && !modules.has(name)) modules.set(name, id)
   }
   const imported = new Set<string>()
-  for (const file of listMatchingFiles(project.root, name => sourceFile.test(name) && !declarationFile.test(name))) {
+  for (const file of listMatchingFiles(project.root, name => sourceFile.test(name))) {
     const path = relative(project.root, file)
     // A deleted starter is no use; a kept starter keeps its imports installed.
     if (starters.has(path) && !args.keepFiles) continue
