@@ -468,12 +468,16 @@ The CLI sends `VITEHUB_CONSOLE_AUTHORIZATION` as the `Authorization` header, wit
 VITEHUB_CONSOLE_AUTHORIZATION="Bearer $TOKEN" vitehub logs list --url https://app.example.com
 ```
 
-A token caller gets every Console section. Set `console.authorize` to limit it. The context has `via: 'token'` and no `user`:
+A token caller gets every Console section. Set `console.authorize` to limit it. The context has `via: 'token'` and no `user`. An Agent that calls Console operations as tools gets `via: 'agent'` and never `via: 'token'`, so allow it on its own:
 
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'
 
-export default defineConsoleAuthorize(({ via }) => via === 'token' ? { sections: ['kv', 'logs:read'] } : false)
+export default defineConsoleAuthorize(({ via }) => {
+  if (via === 'token') return { sections: ['kv', 'logs:read'] }
+  if (via === 'agent') return { sections: ['kv:read'] }
+  return false
+})
 ```
 
 ::warning

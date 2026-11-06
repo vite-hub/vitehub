@@ -6,9 +6,8 @@ import type { ConsoleRequestEvent } from "./request.ts"
 interface ConsolePreflightNitroApp {
   /** Nitro 3: the H3 2 app. Nitro composes `~middleware` again after the plugins run. */
   h3?: { "~middleware"?: unknown[] }
-  /** Nitro 2: the H3 1 app. Its `request` hook runs before every middleware. */
-  h3App?: object
-  hooks?: { hook(name: "request", hook: (event: ConsoleRequestEvent & { handled?: boolean, respondWith?: (response: Response) => Promise<void> }) => Promise<void>): void }
+  /** Nitro 2: the H3 1 app. Its stack is already populated when plugins run. */
+  h3App?: { stack?: unknown[] }
 }
 
 /**
@@ -22,10 +21,10 @@ export default function consolePreflightPlugin(nitroApp: ConsolePreflightNitroAp
     middleware.unshift((event: ConsoleRequestEvent, next: () => unknown) => answerConsolePreflight(event) ?? next())
     return
   }
-  if (!nitroApp.h3App || !nitroApp.hooks) return
-  nitroApp.hooks.hook("request", async (event) => {
-    if (event.handled) return
-    const response = answerConsolePreflight(event)
-    if (response && event.respondWith) await event.respondWith(response)
+  // H3 1 checks `event.handled` only after invoking a stack layer, even when a request hook responded already.
+  // Return the response from the first layer so H3 stops before scanned or configured app middleware.
+  nitroApp.h3App?.stack?.unshift({
+    handler: (event: ConsoleRequestEvent) => answerConsolePreflight(event),
+    route: "/",
   })
 }
