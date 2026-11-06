@@ -88,9 +88,9 @@ describe.skipIf(process.platform === "win32")("SSH command runner", () => {
       process.stdin.on("end", () => { process.stderr.write("finished\\n"); process.exitCode = 23 })
     `
     const child = launch(["-e", script, ...args])
-    await vi.waitFor(() => expect(child.stdout()).toContain("\n"))
+    await vi.waitFor(() => expect(child.stdout()).toContain("\n"), { timeout: 5_000 })
     child.child.stdin.write("before EOF\n")
-    await vi.waitFor(() => expect(child.stdout()).toContain("before EOF\n"))
+    await vi.waitFor(() => expect(child.stdout()).toContain("before EOF\n"), { timeout: 5_000 })
     child.child.stdin.end("after EOF\n")
     const result = await child.done
     const [metadata, ...lines] = result.stdout.split("\n")

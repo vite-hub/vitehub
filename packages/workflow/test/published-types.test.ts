@@ -25,7 +25,7 @@ it("publishes Workflow error types for the shared ViteHubError contract", async 
       await cp(join(sourceRoot, "dist"), join(installedPackageRoot, "dist"), { recursive: true })
     }
 
-    // Runtime's public types refer to these production dependencies.
+    // Runtime's public diagnostic and Standard Context types refer to its production dependencies.
     for (const dependency of ["nostics", "standard-context"]) {
       await cp(join(runtimeRoot, "node_modules", dependency), join(root, "node_modules", dependency), { dereference: true, recursive: true })
     }

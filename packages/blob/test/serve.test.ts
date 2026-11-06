@@ -146,14 +146,17 @@ describe("Blob response transforms", () => {
     request.res.headers.set("x-frame-options", "DENY")
     request.res.headers.set("x-empty", "")
     request.res.headers.set("x-caller", "preserved")
+    const cookies = ["session=original; Path=/; HttpOnly", "theme=dark; Expires=Wed, 01 Jan 2031 00:00:00 GMT; Path=/"]
+    for (const cookie of cookies) request.res.headers.append("set-cookie", cookie)
     const previous = [...request.res.headers]
     if (failure === "read failure") vi.spyOn(driver, "get").mockRejectedValue(new Error("storage unavailable"))
     const result = storage.serve(request, failure === "missing" ? "missing.txt" : failure === "invalid pathname" ? "../private/original" : "private/original", {
-      headers: { "X-Frame-Options": "SAMEORIGIN", "x-frame-options": "SAMEORIGIN", "X-Empty": "configured", "X-Blob": "temporary" },
+      headers: { "X-Frame-Options": "SAMEORIGIN", "x-frame-options": "SAMEORIGIN", "X-Empty": "configured", "X-Blob": "temporary", "Set-Cookie": "session=temporary; Path=/" },
     })
     if (failure === "invalid pathname") await expect(result).rejects.toThrow()
     else expect((await result)[0]?.code).toBe(failure === "missing" ? "BLOB_NOT_FOUND" : "BLOB_OPERATION_FAILED")
     expect([...request.res.headers]).toEqual(previous)
+    expect(request.res.headers.getSetCookie()).toEqual(cookies)
   })
 
   it.each(["size", "contentType"] as const)("reads the body for HEAD when metadata lacks %s", async (field) => {

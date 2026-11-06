@@ -329,10 +329,15 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
       const event = serveEvent(input)
       const added = Object.entries(options.headers ?? {})
       const previous = added.map(([name]) => [name, event.res.headers.get(name)] as const)
+      const previousCookies = event.res.headers.getSetCookie()
       for (const [name, value] of added) event.res.headers.set(name, value)
       const restoreHeaders = () => {
         for (const [name, value] of previous) {
-          if (value === null) event.res.headers.delete(name)
+          if (name.toLowerCase() === "set-cookie") {
+            event.res.headers.delete(name)
+            for (const cookie of previousCookies) event.res.headers.append(name, cookie)
+          }
+          else if (value === null) event.res.headers.delete(name)
           else event.res.headers.set(name, value)
         }
       }

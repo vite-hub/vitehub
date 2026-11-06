@@ -131,6 +131,22 @@ describe("Console reuses app Auth sign-in", () => {
     expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe(`${origin}/portal/api/auth/callback/github`)
   })
 
+  it.each(["request", "request-only", "h3"] as const)("provides Standard Context to app Auth for %s inputs", async (host) => {
+    const request = new Request(`${origin}/portal/_vitehub/sign-in`)
+    const event = host === "request" ? request : host === "request-only" ? { req: request } : new H3Event(request)
+    const resolveAuth = vi.fn(getAuthForRequest)
+    const pages = createConsoleAppAuthPages(resolveAuth)
+
+    await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
+    const response = await pages.signIn(event)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("Sign in with GitHub")
+    const authEvent = resolveAuth.mock.calls[0]?.[2]
+    expect(authEvent?.["~standard"].req).toBe(request)
+    expect(authEvent?.["~standard"].res.headers).toBeInstanceOf(Headers)
+    if (host === "h3") expect(authEvent).toBe(event)
+  })
+
   it.each(["fetch", "h3"] as const)("uses the public proxy origin for static Auth with %s requests", async (host) => {
     const pages = createConsoleAppAuthPages(getAuthForRequest)
     const event = proxySignInEvent(host)
