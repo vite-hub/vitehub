@@ -216,7 +216,7 @@ async function stateOf(auth: McpOAuthAuth): Promise<McpOAuthState> {
 const pathOf = (url: string) => new URL(url).pathname.replace(/\/+$/, "")
 
 // SAFETY: `getAuthForRequest()` returns the app's Better Auth, which has every member that McpOAuthAuth names once `mcpOAuth()` is installed.
-const appAuth = (request: Request) => getAuthForRequest(request) as unknown as McpOAuthAuth
+const appAuth = (request: Pick<Request, "headers" | "url">) => getAuthForRequest(request) as unknown as McpOAuthAuth
 
 /** Options of {@link serveMcpOAuthDiscovery}. */
 export interface McpOAuthDiscoveryOptions {
@@ -305,10 +305,12 @@ function banned(user: Record<string, unknown>): boolean {
  * authorization server. The signature algorithm is pinned to the keys, and the issuer, the audience (the resource), and
  * the expiry are checked with 30 seconds of tolerance. The client must still be enabled and, when the token names a
  * session, that session must still exist and be unexpired. Sender-constrained tokens, including DPoP-bound tokens, are
- * rejected even when presented as bearer tokens. Returns `AUTH_MCP_TOKEN_MISSING` without a bearer token and
- * `AUTH_MCP_TOKEN_INVALID` for a token that fails a check. Throws `AUTH_MCP_OAUTH_MISSING` when the Auth has no `mcpOAuth()`.
+ * rejected even when presented as bearer tokens. It reads only the URL and the headers, so pass H3's `event.req` or any
+ * value with `url` and `headers`, and the body stays for the MCP handler. Returns `AUTH_MCP_TOKEN_MISSING` without a
+ * bearer token and `AUTH_MCP_TOKEN_INVALID` for a token that fails a check. Throws `AUTH_MCP_OAUTH_MISSING` when the
+ * Auth has no `mcpOAuth()`.
  */
-export async function verifyMcpRequest(request: Request, options: VerifyMcpRequestOptions = {}): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID" | "AUTH_MCP_TOKEN_MISSING">> {
+export async function verifyMcpRequest(request: Pick<Request, "headers" | "url">, options: VerifyMcpRequestOptions = {}): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID" | "AUTH_MCP_TOKEN_MISSING">> {
   const token = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
   if (!token) return [mcpErrors.AUTH_MCP_TOKEN_MISSING(), undefined]
   const auth = options.auth ?? appAuth(request)
