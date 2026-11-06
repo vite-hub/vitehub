@@ -52,8 +52,13 @@ describe("vitehub add", () => {
       // Only the config files, so the loop stays fast on a slow temp disk.
       const root = await createProject(Object.fromEntries(Object.entries(files).filter((entry): entry is [string, string] => entry[1] !== undefined)))
       const before = await readFile(join(root, configFile), "utf8")
+      const options = host === "node" && id === "schedule"
+        ? ["--option", "schedule.runtime.driver=process"]
+        : (host === "netlify" || host === "deno") && ["comments", "connections", "console"].includes(id)
+            ? ["--option", "database.connection.url=libsql://example.com"]
+            : []
 
-      const first = await add([id, "--no-install", "--yes"], root)
+      const first = await add([id, ...options, "--no-install", "--yes"], root)
       expect(first.exitCode, `${id}: ${first.stdout}`).toBe(0)
       expect(first.loadConfig).not.toHaveBeenCalled()
       const after = await readFile(join(root, configFile), "utf8")
@@ -62,13 +67,13 @@ describe("vitehub add", () => {
       expect(status.features.find(feature => feature.id === id)?.enabled, id).toBe("on")
       if (first.json.status === "applied") {
         expect(first.json.changes, id).toEqual([expect.objectContaining({ after, before, kind: "patch", path: configFile })])
-        expect(first.json.changes[0]!.diff, id).toMatch(new RegExp(`^\\+.*\\b${id}: (true|\\{\\})`, "mu"))
+        expect(first.json.changes[0]!.diff, id).toMatch(new RegExp(`^\\+.*\\b${id}: (true|\\{)`, "mu"))
       }
       else {
         expect(after, id).toBe(before)
       }
 
-      const second = await add([id, "--no-install", "--yes"], root)
+      const second = await add([id, ...options, "--no-install", "--yes"], root)
       expect(second.exitCode, id).toBe(0)
       expect(second.json).toMatchObject({ changes: [], status: "unchanged" })
       expect(await readFile(join(root, configFile), "utf8"), id).toBe(after)
@@ -128,6 +133,82 @@ describe("vitehub add", () => {
     const rerun = await runSetup<AddResult>(json.rerun!.split(" ").slice(1), root)
     expect(rerun.exitCode).toBe(0)
     expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("kv: { driver: 'upstash' }")
+  })
+
+  it("collects the KV prerequisite when the cache driver is supplied", async () => {
+    const root = await copyFixture("netlify")
+    const before = await snapshot(root)
+
+    const first = await add(["cache", "--option", "cache.driver=kv", "--no-install", "--yes"], root)
+    expect(first.exitCode).toBe(2)
+    expect(first.json.missing).toEqual([{ choices: ["upstash"], field: "kv.driver" }])
+    expect(await snapshot(root)).toEqual(before)
+
+    const rerun = await runSetup<AddResult>(first.json.rerun!.split(" ").slice(1), root)
+    expect(rerun.exitCode).toBe(0)
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("kv: { driver: 'upstash' }")
+    expect((await add(["cache", "--option", "cache.driver=kv", "--no-install", "--yes"], root)).json.status).toBe("unchanged")
+  })
+
+  it.each([["netlify", "upstash"], ["node", "fs-lite"]])("enables supplied cache prerequisites on %s", async (host, driver) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}" }`) })
+    const args = ["cache", "--option", "cache.driver=kv", "--option", `kv.driver=${driver}`, "--no-install", "--yes"]
+
+    const result = await add(args, root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.features).toEqual(["cache", "kv"])
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain(`kv: { driver: "${driver}" }`)
+    expect((await add(args, root)).json.status).toBe("unchanged")
+  })
+
+  it("requires a wake configuration for Node Schedules", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+    const before = await snapshot(root)
+
+    const first = await add(["schedule", "--no-install", "--yes"], root)
+    expect(first.exitCode).toBe(2)
+    expect(first.json.missing).toEqual([{ choices: ["process"], field: "schedule.runtime.driver" }])
+    expect(await snapshot(root)).toEqual(before)
+
+    const rerun = await runSetup<AddResult>(first.json.rerun!.split(" ").slice(1), root)
+    expect(rerun.exitCode).toBe(0)
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("schedule: { runtime: { driver: \"process\" } }")
+    expect((await add(["schedule", "--no-install", "--yes"], root)).json.status).toBe("unchanged")
+  })
+
+  it("preserves manual Node Schedule wake ownership", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node", schedule: { providerOutput: false } }`) })
+    expect((await add(["schedule", "--no-install", "--yes"], root)).json.status).toBe("unchanged")
+  })
+
+  it("repairs a Node Schedule wake configuration that selects provider output", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node", schedule: { runtime: { driver: "process" }, providerOutput: "standalone" } }`) })
+    const first = await add(["schedule", "--no-install", "--yes"], root)
+    expect(first.exitCode).toBe(2)
+    expect(first.json.missing).toEqual([{ choices: ["auto"], field: "schedule.providerOutput" }])
+    const rerun = await runSetup<AddResult>(first.json.rerun!.split(" ").slice(1), root)
+    expect(rerun.exitCode).toBe(0)
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain('providerOutput: "auto"')
+  })
+
+  it.each(["netlify", "deno"])("collects provider inputs for implied Database features on %s", async (host) => {
+    for (const feature of ["comments", "connections", "console"]) {
+      const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}" }`) })
+      const before = await snapshot(root)
+
+      const first = await add([feature, "--no-install", "--yes"], root)
+      expect(first.exitCode, feature).toBe(2)
+      expect(first.json.missing).toEqual([{ field: "database.connection" }])
+      expect(first.json.rerun).toBeUndefined()
+      expect(await snapshot(root)).toEqual(before)
+
+      const second = await add([feature, "--option", "database.connection.url=libsql://example.com", "--no-install", "--yes"], root)
+      expect(second.exitCode, second.stdout).toBe(0)
+      expect(second.json.implied).toContain("database")
+      expect(second.json.nextSteps.some(step => step.includes("Set `database.connection`"))).toBe(false)
+      expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain('database: { connection: { url: "libsql://example.com" } }')
+      expect((await add([feature, "--no-install", "--yes"], root)).json.status).toBe("unchanged")
+    }
   })
 
   it("rejects the Cloudflare Email driver on other hosts before writing", async () => {
@@ -204,6 +285,7 @@ describe("vitehub add", () => {
     expect((await add(["queue", "--name", "../escape"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["kv", "--option", "nope"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["queue", "--option", "driver=x"], root)).json.error?.code).toBe("CLI_R0003")
+    expect((await add(["email", "--option", "database.connection.url=libsql://example.com"], root)).json.error?.code).toBe("CLI_R0003")
     expect((await add(["nope"], root)).json.error?.code).toBe("CLI_R0003")
   })
 
@@ -301,7 +383,7 @@ describe("vitehub add", () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
     const before = await snapshot(root)
 
-    const { exitCode, json } = await add(["schedule", "--name", "cleanup", "--yes"], root, spawn)
+    const { exitCode, json } = await add(["schedule", "--option", "runtime.driver=process", "--name", "cleanup", "--yes"], root, spawn)
 
     expect(exitCode).toBe(1)
     expect(json.error).toMatchObject({ code: "SETUP_INSTALL_FAILED", message: "`pnpm add @vite-hub/schedule` exited with code 1." })

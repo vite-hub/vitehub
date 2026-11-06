@@ -190,9 +190,9 @@ pnpm vitehub add email --option email.driver=resend --yes --json
 - `--name <name>` creates a starter Definition, such as `server/queues/<name>.ts`, for each feature that has Definitions: Agent, Database, Queue, Realtime, Schedule, and Workflow. It never overwrites a file.
 - `--option key=value` sets an option of the feature, such as `--option email.driver=resend`. With one feature, the feature name is optional. Dotted keys make nested objects.
 
-The command sets `<feature>: true`, or the object from `--option`. A feature that is already on gives no change, so a second run prints `"status": "unchanged"`. Features that an added feature turns on, such as Workflow for Agent, are listed in `implied`; `vitehub()` turns them on, so the config does not name them.
+The command sets `<feature>: true`, or the object from `--option`. A feature that is already on gives no change, so a second run prints `"status": "unchanged"`. Features that an added feature turns on, such as Workflow for Agent, are listed in `implied`; the config names them only when you supply their provider options. For example, on Netlify or Deno, `add comments` requires `--option database.connection.url=libsql://your-host` before writing the config.
 
-The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`, and `rerun` is a command that succeeds as it is.
+The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`. When ViteHub can choose the values, `rerun` is a command that succeeds as it is, including any provider prerequisites. Node Schedules require `--option schedule.runtime.driver=process`, or `--option schedule.providerOutput=false` when you will wake them yourself.
 
 ### `SETUP_FEATURE_UNSUPPORTED`
 

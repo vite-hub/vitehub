@@ -167,6 +167,13 @@ describe("editViteHubConfig", () => {
     expect(locateViteHubConfig("vite.config.ts", fallback)).toMatchObject({ ok: true, site: { form: "vite-call", keys: {} } })
   })
 
+  it.each(["vite.config.cjs", "nuxt.config.cts"])("leaves CommonJS exports manual in %s", (file) => {
+    const code = `const { vitehub } = require("vite-hub"); module.exports = { plugins: [vitehub({ kv: true })] }`
+    expect(locateViteHubConfig(file, code)).toMatchObject({ ok: false, reason: "dynamic-options" })
+    expect(editViteHubConfig(file, code, [{ op: "set", key: "kv", value: false }]))
+      .toMatchObject({ ok: false, reason: "dynamic-options" })
+  })
+
   it("reports expression values with their source", () => {
     const code = "import { vitehub } from \"vite-hub\"\nexport default {\n  plugins: [vitehub({\n    agent: process.env.AGENT === \"1\",\n  })],\n}\n"
     expect(locateViteHubConfig("vite.config.ts", code)).toMatchObject({

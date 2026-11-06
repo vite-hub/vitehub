@@ -16,6 +16,8 @@ export interface ViteHubConfigSite {
   keys: Readonly<Record<string, ConfigValue>>
   /** True when a spread can supply keys that are not in `keys`. */
   spread: boolean
+  /** Top-level Nuxt options used to locate server discovery directories. */
+  nuxt?: { keys: Readonly<Record<string, ConfigValue>>, spread: boolean }
 }
 export type LocateResult = { ok: true, site: ViteHubConfigSite } | { ok: false, reason: ManualReason, line?: number }
 export type ConfigEdit = { op: "set", key: string, value: JsonValue } | { op: "delete", key: string }
@@ -200,6 +202,13 @@ function locateNuxt(code: string, program: File): Located | Failure {
   let root = unwrap(exported)
   if (root.type === "CallExpression" && root.arguments[0]) root = unwrap(root.arguments[0])
   if (root.type !== "ObjectExpression") return fail("dynamic-options", root)
+  const nuxt = readKeys(code, root)
+  if ("ok" in nuxt) return nuxt
+  const located = locateNuxtOptions(code, program, root, names)
+  return "ok" in located ? located : { ...located, site: { ...located.site, nuxt } }
+}
+
+function locateNuxtOptions(code: string, program: File, root: ObjectExpression, names: Set<string>): Located | Failure {
   const modulesProperty = findMember(root, "modules")
   if (!modulesProperty) return fail("no-vitehub")
   const modules = unwrap(modulesProperty.value)
@@ -245,6 +254,15 @@ function parse(code: string): File | Failure {
 function locate(file: string, code: string): Located | Failure {
   const program = parse(code)
   if ("ok" in program) return program
+  // CommonJS can hide both the plugin binding and the exported configuration.
+  // Leave it manual until the scanner can model require/module.exports safely.
+  let commonjs: Node | undefined
+  walk(program, (node) => {
+    if (node.type !== "AssignmentExpression" || node.left.type !== "MemberExpression") return
+    const { object, property, computed } = node.left
+    if (object.type === "Identifier" && object.name === "module" && keyName(property, computed) === "exports") commonjs = node
+  })
+  if (commonjs) return fail("dynamic-options", commonjs)
   return isNuxtFile(file) ? locateNuxt(code, program) : locateVite(code, program)
 }
 

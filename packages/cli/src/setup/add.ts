@@ -50,7 +50,7 @@ export interface SetupAddPlan {
   features: readonly FeatureId[]
   changes: readonly SetupChange[]
   install: { packages: readonly string[], devPackages: readonly string[], command?: string }
-  /** Features that the added features turn on. `vitehub()` turns them on, so the config does not name them. */
+  /** Features that the added features turn on. Only supplied provider options need an explicit config key. */
   implied: readonly FeatureId[]
   nextSteps: readonly string[]
 }
@@ -144,7 +144,7 @@ export function readAddArgs(args: readonly string[]): SetupAddArgs {
     const separator = option.indexOf("=")
     if (separator <= 0) throw invalid(`--option ${JSON.stringify(option)} must be key=value, such as \`email.driver=resend\`.`)
     const path = option.slice(0, separator).split(".")
-    const head = parsed.features.find(id => id === path[0])
+    const head = featureIds.find(id => id === path[0])
     const id = head ?? (parsed.features.length === 1 ? parsed.features[0] : undefined)
     const keys = head ? path.slice(1) : path
     if (!id || !keys.length || keys.some(key => !key)) throw invalid(`--option ${JSON.stringify(option)} must start with one of the features, such as \`${parsed.features[0] ?? "email"}.driver=resend\`.`)
@@ -167,7 +167,8 @@ function flatten(prefix: string, value: JsonValue, out: string[]): string[] {
 /** The `vitehub add` command for `args`, with `extra` options and `--yes` unless it is a dry run. */
 function rerunCommand(args: SetupAddArgs, extra: Partial<Record<FeatureId, Record<string, JsonValue>>> = {}, extraFeatures: readonly FeatureId[] = []): string {
   const ids = [...args.features, ...extraFeatures.filter(id => !args.features.includes(id))]
-  const options = ids.flatMap((id) => {
+  const optionIds = [...new Set([...ids, ...Object.keys(args.options), ...Object.keys(extra)])] as FeatureId[]
+  const options = optionIds.flatMap((id) => {
     const merged = mergeValue(args.options[id], extra[id])
     return isRecord(merged) ? flatten(id, merged, []) : []
   })
@@ -262,11 +263,14 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const defaults: Partial<Record<FeatureId, Record<string, JsonValue>>> = {}
   const requires: FeatureId[] = []
   let rerunnable = true
-  // Include provider prerequisites in this pass so the suggested rerun collects all their inputs too.
-  const inputFeatures = [...args.features]
+  const keep = status.features.filter(item => item.enabled === "off" && item.reason === "config" && !args.features.includes(item.id)).map(item => item.id)
+  // Implications and provider prerequisites need their inputs before any file can be written.
+  const inputFeatures = [...args.features, ...impliedFeatures(args.features, host, keep)]
   for (const id of inputFeatures) {
     const support = featureSupport(id, host)
     const options = args.options[id]
+    const current = project.config?.ok ? project.config.site.keys[id] : undefined
+    const value = mergeValue(current?.kind === "literal" ? current.value : undefined, options)
     if (support.level === "explicit") {
       const key = support.option.slice(id.length + 1)
       if (!(options && key in options) && !setsOption(project, support.option)) {
@@ -274,10 +278,24 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
         missing.push({ field: support.option, ...(choices ? { choices: choices.values } : {}) })
         if (choices) setPath(defaults[id] ??= {}, [key], choices.values[0])
         else rerunnable = false
-        if (choices?.requires && status.features.find(item => item.id === choices.requires)?.enabled !== "on" && !inputFeatures.includes(choices.requires)) {
-          requires.push(choices.requires)
-          inputFeatures.push(choices.requires)
-        }
+      }
+    }
+    for (const [field, choice] of Object.entries(optionChoices)) {
+      if (!choice?.requires || !field.startsWith(`${id}.`)) continue
+      const key = field.slice(id.length + 1)
+      const selected = (isRecord(value) ? value[key] : undefined) ?? defaults[id]?.[key]
+      if (typeof selected !== "string" || !choice.values.includes(selected)) continue
+      if (!inputFeatures.includes(choice.requires)) inputFeatures.push(choice.requires)
+      if (!args.features.includes(choice.requires) && !requires.includes(choice.requires) && status.features.find(item => item.id === choice.requires)?.enabled !== "on") requires.push(choice.requires)
+    }
+    if (id === "schedule" && host === "node" && current?.kind !== "expression" && !(isRecord(value) && value.providerOutput === false)) {
+      if (isRecord(value) && (value.providerOutput === "nitro" || value.providerOutput === "standalone")) {
+        missing.push({ choices: ["auto"], field: "schedule.providerOutput" })
+        setPath(defaults.schedule ??= {}, ["providerOutput"], "auto")
+      }
+      if (!isRecord(value) || value.runtime === undefined) {
+        missing.push({ choices: ["process"], field: "schedule.runtime.driver" })
+        setPath(defaults.schedule ??= {}, ["runtime", "driver"], "process")
       }
     }
     for (const key of requiredOptions[id] ?? []) {
@@ -286,6 +304,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       missing.push({ field: `${id}.${key}` })
       setPath(defaults[id] ??= {}, [key], basename(project.root).toLowerCase().replace(/[^a-z0-9]+/gu, "-") || "app")
     }
+  }
+  for (const id of Object.keys(args.options) as FeatureId[]) {
+    if (!inputFeatures.includes(id)) throw invalid(`${id} is not requested or required by ${args.features.join(", ")}.`)
   }
   if (missing.length) {
     const fields = missing.map(item => `\`${item.field}\``).join(", ")
@@ -298,7 +319,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
 
   const edits: ConfigEdit[] = []
   let expression = false
-  for (const id of args.features) {
+  const addedFeatures = [...args.features, ...requires]
+  for (const id of new Set([...addedFeatures, ...inputFeatures.filter(id => args.options[id])])) {
     const next = nextValue(id, status, project, args.options[id])
     expression ||= next === "expression"
     if (next !== undefined) edits.push({ key: id, op: "set", value: next === "expression" ? mergeValue(true, args.options[id])! : next.value })
@@ -341,10 +363,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
 
   // The features that this command turns on, through the config or through an implication.
   const alreadyOn = new Set(status.features.filter(item => item.enabled === "on").map(item => item.id))
-  const keep = status.features.filter(item => item.enabled === "off" && item.reason === "config" && !args.features.includes(item.id)).map(item => item.id)
-  const implied = impliedFeatures([...new Set([...alreadyOn, ...args.features])], host, keep).filter(id => !args.features.includes(id))
+  const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], host, keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
   const install: Planned["install"] = { dev: [], prod: [] }
-  for (const id of [...args.features, ...implied]) {
+  for (const id of [...addedFeatures, ...implied]) {
     for (const name of features[id].packages) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
     for (const name of features[id].devPackages) if (!project.declared(name, true) && !install.dev.includes(name)) install.dev.push(name)
   }
@@ -355,7 +376,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   for (const id of implied) {
     const support = featureSupport(id, host)
     if (support.level === "unsupported") nextSteps.push(`${id} is turned on by ${args.features.join(", ")} but is not supported on ${host}: ${support.detail} Set \`${id}: false\` to turn it off.`)
-    else if (support.level === "explicit" && !setsOption(project, support.option)) nextSteps.push(`${id} is turned on by ${args.features.join(", ")}. Set \`${support.option}\` on ${host}, or set \`${id}: false\`. ${support.detail}`)
+    else if (support.level === "explicit" && !setsOption(project, support.option) && !(args.options[id] && support.option.slice(id.length + 1) in args.options[id])) nextSteps.push(`${id} is turned on by ${args.features.join(", ")}. Set \`${support.option}\` on ${host}, or set \`${id}: false\`. ${support.detail}`)
   }
   if (args.name !== undefined && args.features.includes("realtime")) nextSteps.push(`server/realtime/${args.name}.ts stores documents in the Workspace "${args.name}". Add a Workspace Definition in server/workspaces/${args.name}.ts.`)
   for (const id of args.features) nextSteps.push(`${features[id].title}: https://vitehub.dev${features[id].docs}`)
@@ -363,7 +384,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
 
   const plan: SetupAddPlan = {
     changes,
-    features: args.features,
+    features: addedFeatures,
     host: status.host,
     implied,
     install: { devPackages: install.dev, packages: install.prod, ...(command ? { command } : {}) },

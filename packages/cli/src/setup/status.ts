@@ -74,8 +74,12 @@ function readEnabled(project: SetupProject, id: FeatureId): Enabled {
   if (value?.kind === "expression") return { enabled: "unknown", reason: "config" }
   if (value) return { enabled: value.value === false ? "off" : "on", reason: "config" }
   if (config.site.spread) return { enabled: "unknown", reason: "config" }
-  const discovered = features[id].enabledByDiscovery?.some(file => existsSync(join(project.root, "server", file)))
-  return { enabled: features[id].enabledByDefault || discovered ? "on" : "off", reason: "default" }
+  if (features[id].enabledByDefault) return { enabled: "on", reason: "default" }
+  const discovery = features[id].enabledByDiscovery
+  const directories = project.serverDirs ?? (project.framework === "nuxt" ? undefined : [join(project.root, "server")])
+  if (discovery && !directories) return { enabled: "unknown", reason: "default" }
+  const discovered = discovery?.some(file => directories?.some(directory => existsSync(join(directory, file))))
+  return { enabled: discovered ? "on" : "off", reason: "default" }
 }
 
 /** True when the config sets `option`, such as `blob.driver`, as a literal key of the feature object. */
