@@ -71,6 +71,7 @@ import type { KVModuleOptions } from "@vite-hub/kv"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/esbuild"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
+import type { I18nOptions } from "@vite-hub/i18n"
 import type { RealtimeModuleOptions } from "@vite-hub/realtime"
 import type { SandboxTaskPublicOptions } from "@vite-hub/sandbox/task/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
@@ -123,6 +124,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/email": true,
   "@vite-hub/env": true,
   "@vite-hub/gateways": true,
+  "@vite-hub/i18n": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
   "@vite-hub/presets": true,
@@ -402,6 +404,12 @@ export interface ViteHubOptions {
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
+  /**
+   * Messages in the source language, translated per request: `{ i18n: { locales: ["en", "es"] } }`. The first locale is
+   * the language of the code. Write ``t`Save` `` in templates, and import `t` from `vite-hub/i18n` in scripts and server
+   * code. `vitehub i18n extract` collects the messages into `locales/<locale>.po`.
+   */
+  i18n?: I18nOptions
   /**
    * Comments on the app's pages. `true`, or an object with the Database, the SQL dialect, or `overlay: false` (no page
    * tool), turns it on, with `server/comments.ts` or else the default `defineComments()`, and turns the Database on
@@ -1114,6 +1122,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["connections", options.connections],
     // `withConnectionsDatabase()` turns `database` on for Connections, so name the feature that the app enabled.
     ["database", options.database && !options.connections],
+    ["i18n", options.i18n],
     ["realtime", options.realtime],
     ["schedule", options.schedule],
     ["workspace", options.workspace],
@@ -1345,6 +1354,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
     plugins.push(afterApplicationConfig(hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" })))
+  }
+  if (options.i18n) {
+    // SAFETY: ViteHub adds the public import path of its re-exports to the public i18n options.
+    plugins.push(requireOptionalOwner(ownerModules.i18nVite, "i18n").hubI18n({ ...options.i18n, importBase: "vite-hub/i18n" } as I18nOptions))
   }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit

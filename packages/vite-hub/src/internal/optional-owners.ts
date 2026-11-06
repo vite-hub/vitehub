@@ -16,6 +16,7 @@ export type OptionalOwnerPackage
     | "@vite-hub/comments"
     | "@vite-hub/content"
     | "@vite-hub/database"
+    | "@vite-hub/i18n"
     | "@vite-hub/presets"
     | "@vite-hub/realtime"
     | "@vite-hub/schedule"
@@ -40,6 +41,7 @@ export const optionalFeaturePackages = {
   "content": ["@vite-hub/content"],
   // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
   "database": ["@vite-hub/database", "drizzle-orm"],
+  "i18n": ["@vite-hub/i18n"],
   "presets": ["@vite-hub/presets", "@vite-hub/agent"],
   "realtime": ["@vite-hub/realtime"],
   "schedule": ["@vite-hub/schedule"],

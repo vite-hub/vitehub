@@ -783,6 +783,26 @@
       "import": "./dist/gateways/ai-sdk.js",
       "default": "./dist/gateways/ai-sdk.js"
     },
+    "./i18n": {
+      "types": "./dist/i18n.d.ts",
+      "import": "./dist/i18n.js",
+      "default": "./dist/i18n.js"
+    },
+    "./i18n/runtime": {
+      "types": "./dist/i18n/runtime.d.ts",
+      "import": "./dist/i18n/runtime.js",
+      "default": "./dist/i18n/runtime.js"
+    },
+    "./i18n/server": {
+      "types": "./dist/i18n/server.d.ts",
+      "import": "./dist/i18n/server.js",
+      "default": "./dist/i18n/server.js"
+    },
+    "./i18n/vue": {
+      "types": "./dist/i18n/vue.d.ts",
+      "import": "./dist/i18n/vue.js",
+      "default": "./dist/i18n/vue.js"
+    },
     "./kv": {
       "types": "./dist/kv.d.ts",
       "import": "./dist/kv.js",
@@ -1373,6 +1393,7 @@
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/docs": "workspace:*",
+    "@vite-hub/i18n": "workspace:*",
     "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/presets": "workspace:*",
@@ -1437,6 +1458,7 @@
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/docs": "workspace:*",
+    "@vite-hub/i18n": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
@@ -1521,6 +1543,9 @@
       "optional": true
     },
     "@vite-hub/docs": {
+      "optional": true
+    },
+    "@vite-hub/i18n": {
       "optional": true
     },
     "@vite-hub/presets": {
