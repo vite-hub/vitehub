@@ -55,7 +55,7 @@ import { useChannel } from 'vite-hub/channels/server'
 export default defineEventHandler(async () => {
   const [error, receipt] = await useChannel('alerts').send('Build finished.', {
     connector: 'telegram',
-    chatId: 'build-room',
+    chatId: '@build_room',
   })
   if (error) throw error
   return receipt

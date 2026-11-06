@@ -55,7 +55,7 @@ export function extractBlocks(markdown, languages = fenceLanguages) {
     }
     if (languages.has(language)) {
       // READMEs name the file in a first-line comment, such as `// server/workflows/onboard-user/index.ts`.
-      const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:m?ts|tsx))$/.exec(body[0] ?? "")?.[1]
+      const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:[cm]?ts|tsx))$/.exec(body[0] ?? "")?.[1]
       const meta = info.replace(/\[.+\]/, "").split(/\s+/).filter(Boolean)
       blocks.push({ code: body.join("\n"), end: end + 1, fragment: meta.includes(fragmentMarker), indent, label, language, line: index + 1 })
     }
@@ -77,7 +77,7 @@ const options = {
   skipLibCheck: true,
   strict: true,
   target: ts.ScriptTarget.ESNext,
-  types: ["node"],
+  types: ["node", "vite/client"],
 }
 
 /** The declarations that ViteHub writes for an app with no `server/env.ts`, and the Vue shim of a Vite app. */
@@ -170,8 +170,8 @@ export async function generatedDeclarations(pageSnippets) {
  * its folder. Elsewhere, `src/<name>.<kind>.ts` defines `<name>`.
  */
 function definitionName(directory, kind) {
-  const server = new RegExp(`^server/${directory}/(.+)\\.(?:m?ts|tsx)$`)
-  const suffix = new RegExp(`^(?:src/)?(.+)\\.${kind}\\.m?ts$`)
+  const server = new RegExp(`^server/${directory}/(.+)\\.(?:[cm]?ts|tsx)$`)
+  const suffix = new RegExp(`^(?:src/)?(.+)\\.${kind}\\.[cm]?ts$`)
   return (label) => {
     const serverPath = server.exec(label)?.[1]
     let name = serverPath?.replace(/\/index$/i, "") ?? suffix.exec(label)?.[1]
@@ -182,7 +182,7 @@ function definitionName(directory, kind) {
 
 /** Source names a Collection after its relative file path and imports the export matching the filename. */
 async function collectionNames(label, code) {
-  const name = /^server\/collections\/(.+)\.m?ts$/.exec(label)?.[1]
+  const name = /^server\/collections\/(.+)\.[cm]?ts$/.exec(label)?.[1]
   if (!name) return []
   const exportName = name.split("/").at(-1)
   const { inspectCollectionModule } = await import(pathToFileURL(join(packagesRoot, "source/dist/vite.js")).href)
@@ -193,10 +193,11 @@ async function channelNames(label, code, pageSnippets) {
   const names = definitionName("channels", "channel")(label)
   if (!names.length || !label.startsWith("server/channels/")) return names
   // Owner discovery reserves an indexed folder for one Channel before classifying its modules.
-  const indexFolder = /^server\/channels\/(.+)\/index\.(?:m?ts|tsx)$/i
-  if (!/\/index\.(?:m?ts|tsx)$/i.test(label) && pageSnippets.some((snippet) => {
-    const folder = !snippet.fragment && indexFolder.exec(snippet.label?.replace(/^\/+/, "") ?? "")?.[1]
-    return folder && label.startsWith(`server/channels/${folder}/`)
+  const indexFolder = /^server\/channels\/(.+)\/index\.(?:[cm]?ts|tsx)$/i
+  if (pageSnippets.some((snippet) => {
+    const indexLabel = snippet.label?.replace(/^\/+/, "") ?? ""
+    const folder = !snippet.fragment && indexFolder.exec(indexLabel)?.[1]
+    return folder && label !== indexLabel && label.startsWith(`server/channels/${folder}/`)
   })) return []
   const { isOutboundChannelSource } = await import(pathToFileURL(join(packagesRoot, "channels/dist/vite.js")).href)
   return isOutboundChannelSource(code, label) ? names : []
@@ -229,8 +230,8 @@ const registries = [
     // @vite-hub/database: src/internal/generated.ts. `server/databases/config.ts` and `src/database.ts` define the
     // `default` Database, and `server/databases/<name>/config.ts` a named one.
     definitions: (label) => {
-      if (/^(?:server\/databases\/config|src\/database)\.m?ts$/.test(label)) return ["default"]
-      const name = /^server\/databases\/(.+)\/config\.m?ts$/.exec(label)?.[1] ?? /^(?:src\/)?(.+)\.database\.m?ts$/.exec(label)?.[1]
+      if (/^(?:server\/databases\/config|src\/database)\.[cm]?ts$/.test(label)) return ["default"]
+      const name = /^server\/databases\/(.+)\/config\.[cm]?ts$/.exec(label)?.[1] ?? /^(?:src\/)?(.+)\.database\.[cm]?ts$/.exec(label)?.[1]
       return name ? [name] : []
     },
     render: entries => ["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap(module => [
@@ -257,7 +258,7 @@ async function registryDeclarations(pageSnippets) {
     if (!definitions.size) continue
     const file = join(pageSnippets[0].pageRoot, `.vitehub/${registry.type}.d.ts`)
     const entries = [...definitions].map(([name, handler]) => {
-      // Bundler resolution finds extensionless .ts/.tsx files, but .mts imports need their extension.
+      // Bundler resolution finds extensionless .ts/.tsx files, but .mts/.cts imports need their extension.
       const path = relative(dirname(file), handler).replace(/\.tsx?$/, "")
       return [JSON.stringify(name), JSON.stringify(path.startsWith(".") ? path : `./${path}`), name]
     })
