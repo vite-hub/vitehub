@@ -1,9 +1,9 @@
 import { ViteHubError } from "@vite-hub/runtime"
-import { isWorkspaceConflict } from "@vite-hub/workspace"
+import { isWorkspaceConflict } from "@vite-hub/workspace/files"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
-import type { WorkspaceRetainedHistory, WorkspaceRevision } from "@vite-hub/workspace"
+import type { WorkspaceRetainedHistory, WorkspaceRevision } from "@vite-hub/workspace/files"
 import type { ContentPublishedDocument, ContentPublishExpectation, ContentPublishResult } from "./collections-runtime.ts"
 
 import { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"

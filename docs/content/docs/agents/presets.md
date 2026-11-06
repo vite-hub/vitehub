@@ -54,7 +54,7 @@ Set workflow settings in `options` and provider settings in `driver`. For exampl
 
 For presets with an instruction slot, place `instructions.md` beside `agent.ts` to supply project guidance. This fills the slot while keeping the preset's workflow instructions. See [Instructions](/docs/agents/instructions) before replacing an entire instruction template.
 
-An extension gets a fresh runtime. Matching Capabilities, Channels, and hooks replace inherited entries by their keys. Other arrays replace inherited arrays, and option callbacks replace inherited callbacks. See [Agent presets and inheritance](/docs/agents/agent-presets#extend-an-agent) for the composition rules.
+An extension gets a fresh runtime. Matching Capabilities and Channels replace inherited entries by their keys. A hook with the same name runs after the inherited hook. Other arrays replace inherited arrays, and option callbacks replace inherited callbacks. See [Agent presets and inheritance](/docs/agents/agent-presets#extend-an-agent) for the composition rules.
 
 ## Share your own preset
 
