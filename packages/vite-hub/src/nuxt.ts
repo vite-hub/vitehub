@@ -827,9 +827,10 @@ function withoutDeploymentOutput(options: readonly unknown[]): unknown[] {
 
 /** Translate Nitro 3 package lists before Nuxt's Nitro 2 resolves its preset defaults. */
 function normalizeNuxtNitroExternals(config: Record<string, unknown>, incomingNoExternals: boolean | undefined, nitroMajorVersion: 2 | 3): void {
-  // Nitro 3 reads Nuxt's `build.transpile` list itself. An explicit application boolean outranks plugin lists.
+  // Nitro 3 reads Nuxt's `build.transpile` list itself. Keep required plugin inlining when other packages are external.
   if (nitroMajorVersion === 3) {
-    if (incomingNoExternals !== undefined) config.noExternals = incomingNoExternals
+    if (incomingNoExternals === true) config.noExternals = true
+    else if (incomingNoExternals === false && !Array.isArray(config.noExternals)) config.noExternals = false
     return
   }
   if (Array.isArray(config.noExternals)) {
@@ -1671,7 +1672,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     // read those aliases.
     const owned = ["vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot]
     if (nitroMajorVersion === 3) {
-      if (typeof config.noExternals !== "boolean") config.noExternals = [...new Set([...Array.isArray(config.noExternals) ? config.noExternals : [], ...owned])]
+      if (config.noExternals !== true) config.noExternals = [...new Set([...Array.isArray(config.noExternals) ? config.noExternals : [], ...owned])]
     }
     else {
       const externals = isRecord(config.externals) ? config.externals : {}

@@ -4803,7 +4803,12 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     else expect(nitroConfig.noExternals).toBe(noExternals)
   })
 
-  it.each([undefined, false, true])("keeps Nuxt's Nitro 3 externalization policy ($noExternals) and H3 2", async (incomingNoExternals) => {
+  it.each([
+    { incomingNoExternals: undefined, replayList: false },
+    { incomingNoExternals: false, replayList: false },
+    { incomingNoExternals: false, replayList: true },
+    { incomingNoExternals: true, replayList: true },
+  ])("keeps required Nitro 3 inlining with policy $incomingNoExternals (replayList: $replayList) and H3 2", async ({ incomingNoExternals, replayList }) => {
     const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-nitro3-externals-"))
     const writePackage = async (directory: string, manifest: object) => {
       await mkdir(directory, { recursive: true })
@@ -4815,9 +4820,9 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       await writePackage(nuxtRoot, { name: "nuxt", dependencies: { "@nuxt/nitro-server": "5.0.0" } })
       await writePackage(builderRoot, { name: "@nuxt/nitro-server", dependencies: { nitro: "3.0.261102-rc" } })
       await writePackage(resolve(builderRoot, "node_modules/nitro"), { name: "nitro", version: "3.0.261102-rc" })
-      mocks.vitehub.mockReturnValue(incomingNoExternals === undefined ? [] : [{
+      mocks.vitehub.mockReturnValue(!replayList ? [] : [{
         name: "consumer-nitro-inlining",
-        config: () => ({ nitro: { noExternals: ["plugin-package"] } }),
+        config: () => ({ nitro: { noExternals: ["effect", "@effect/platform-node"] } }),
       }])
       const { nuxt, runModulesDoneHook, runNitroConfigHook } = createNuxt()
       nuxt.options.rootDir = root
@@ -4834,8 +4839,14 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       runModulesDoneHook()
       await runNitroConfigHook(nitroConfig)
 
-      if (incomingNoExternals === undefined) expect(nitroConfig.noExternals).toEqual(expect.arrayContaining(["@nuxt/", transpiled, "vite-hub", "@vite-hub/"]))
-      else expect(nitroConfig.noExternals).toBe(incomingNoExternals)
+      const owned = ["vite-hub", "@vite-hub/", resolve(root, ".vitehub"), h3RuntimeRoot]
+      const inlined = incomingNoExternals === undefined ? ["@nuxt/", transpiled] : replayList ? ["effect", "@effect/platform-node"] : []
+      const expectedNoExternals = incomingNoExternals === true
+        ? true
+        : [...inlined, ...owned]
+      expect(nitroConfig.noExternals).toEqual(expectedNoExternals)
+      await runNitroConfigHook(nitroConfig)
+      expect(nitroConfig.noExternals).toEqual(expectedNoExternals)
       expect(nitroConfig).not.toHaveProperty("externals")
       expect(nitroConfig.alias).not.toHaveProperty("h3")
       expect(nitroConfig.alias).toHaveProperty("kept", "/app/kept.ts")
