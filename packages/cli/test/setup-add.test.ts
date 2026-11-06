@@ -534,6 +534,29 @@ describe("vitehub add", () => {
     expect(await snapshot(root)).toEqual(before)
   })
 
+  it.each([
+    ["vite", "", "server/databases/main/config.ts", "main"],
+    ["vite", "", "server/databases/team/main/config.cjs", "team/main"],
+    ["vite", "", "src/main.database.ts", "main"],
+    ["vite", "", "main.database.mts", "main"],
+    ["nuxt", 'rootDir: "app", serverDir: "backend",', "app/backend/databases/main/config.cts", "main"],
+    ["nuxt", 'rootDir: "app", serverDir: "backend",', "app/src/main.database.mjs", "main"],
+  ])("rejects a default Database beside a named Definition without writing: %s %s %s", async (framework, options, definition, name) => {
+    const root = await createProject({
+      [definition]: `export default { name: ${JSON.stringify(name)} }\n`,
+      "package.json": pnpmManifest,
+      ...(framework === "nuxt"
+        ? { "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options} vitehub: { preset: "node" } })` }
+        : { "vite.config.ts": viteConfig('{ preset: "node" }') }),
+    })
+    const before = await snapshot(root)
+    const { exitCode, json } = await add(["database", "--name", "default", "--no-install", "--yes"], root)
+
+    expect(exitCode).toBe(3)
+    expect(json.error).toMatchObject({ code: "SETUP_FILE_EXISTS", message: expect.stringContaining(`${definition} already defines a Database Definition`) })
+    expect(await snapshot(root)).toEqual(before)
+  })
+
   it("refuses a starter that would be a second Definition of the same name", async () => {
     const root = await copyFixture("cloudflare")
     await writeFile(join(root, "src/welcome-email.queue.ts"), "export default {}\n")
