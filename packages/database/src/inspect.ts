@@ -11,6 +11,8 @@ import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub
 import type { ResolvedDatabaseContribution, ResolvedDatabaseUse } from "./contributions.ts"
 
 export interface DatabaseInspectionOptions {
+  /** Whether the integration's `cloudflare.http` makes development queries remote. */
+  http?: boolean
   /** Without a Database Definition, list the implicit default Database that an enabled database uses. */
   implicitDefault?: boolean
   /** Vite plugins that can contribute tables through `vitehub.databases`. */
@@ -82,7 +84,7 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
         : [],
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },
       ...(dialects[definition.name] !== "postgresql" && isWebContainer() ? [{ label: "Local driver", value: webContainerDriver }] : []),
-      ...(dialects[definition.name] !== "postgresql" && readDatabaseDefinitionRemote(definition.handler))
+      ...(dialects[definition.name] !== "postgresql" && (readDatabaseDefinitionRemote(definition.handler) ?? options.http))
         ? [{ label: "Development", value: "Remote. `vite dev` queries the real D1 database over HTTP, so writes change real data." }]
         : [],
       ...(readDatabaseDefinitionReadReplication(definition.handler) ?? options.readReplication)

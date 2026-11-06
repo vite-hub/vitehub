@@ -189,6 +189,8 @@ export interface RuntimeDrizzleDatabaseConfig {
   cloudflare?: CloudflareD1BindingConfig
   connection?: DatabaseConnectionConfig
   drizzle: DatabaseDrizzleOptions
+  /** Set by the dev server when the build targets Cloudflare: local SQLite then checks the D1 limits. */
+  localLimits?: "d1"
   name: string
   /** Set only in `vite dev`: the database queries its real D1 database over HTTP, even when a local binding exists. */
   remote?: true

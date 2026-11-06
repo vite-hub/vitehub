@@ -439,10 +439,15 @@ async function installNitroLocalDatabaseRuntime(
   dev = false,
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
+  const defaultsFile = resolve(generatedRoot, "database/definition-defaults.mjs")
   const alias = isRecord(config.alias) ? config.alias : undefined
   const existingAlias = alias?.[databaseDrizzleImport]
   if (existingAlias && existingAlias !== file) {
     await rm(file, { force: true })
+    if (dev) {
+      await rm(defaultsFile, { force: true })
+      if (alias?.[databaseDefinitionDefaultsImport] === defaultsFile) delete alias[databaseDefinitionDefaultsImport]
+    }
     return
   }
 
@@ -450,6 +455,10 @@ async function installNitroLocalDatabaseRuntime(
   assertDistinctNuxtD1Bindings(runtime, d1, config)
   if (!runtime?.definitions.length) {
     await rm(file, { force: true })
+    if (dev) {
+      await rm(defaultsFile, { force: true })
+      if (alias?.[databaseDefinitionDefaultsImport] === defaultsFile) delete alias[databaseDefinitionDefaultsImport]
+    }
     if (alias && existingAlias === file) {
       delete alias[databaseDrizzleImport]
       if (!Object.keys(alias).length) delete config.alias
@@ -512,6 +521,8 @@ async function installNitroLocalDatabaseRuntime(
     `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
     "  },",
   ].join("\n"))
+  const definitionDefaults = serializeGeneratedRegistry(dev ? { ...runtime.definitionDefaults, dev: true } : runtime.definitionDefaults)
+  if (dev) await writeFileIfChanged(defaultsFile, `export default ${definitionDefaults}\n`)
   await writeFileIfChanged(file, renderDatabaseRuntimeModule({
     chunkParametersImport: pathToFileURL(resolve(databaseRuntimeDir, "chunk-parameters.js")).href,
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
@@ -521,12 +532,13 @@ async function installNitroLocalDatabaseRuntime(
       ...(usesPostgres(runtime) ? [`import { createPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "postgres.js")).href)}`] : []),
       ...imports,
       "",
-      `const definitionDefaults = ${serializeGeneratedRegistry(dev ? { ...runtime.definitionDefaults, dev: true } : runtime.definitionDefaults)}`,
+      `const definitionDefaults = ${definitionDefaults}`,
       ...schemas,
     ],
   }))
   if (alias) alias[databaseDrizzleImport] = file
   else config.alias = { [databaseDrizzleImport]: file }
+  if (dev) ensureRecord(config, "alias")[databaseDefinitionDefaultsImport] ??= defaultsFile
   return runtime
 }
 

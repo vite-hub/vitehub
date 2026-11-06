@@ -37,12 +37,27 @@ export default defineEventHandler(async () => {
 | Code | Thrown |
 | --- | --- |
 | `DATABASE_D1_INVALID_RESPONSE`, `DATABASE_D1_REQUEST_FAILED` | When a D1 HTTP query fails |
+| `DATABASE_D1_STATEMENT_TOO_LONG`, `DATABASE_D1_TOO_MANY_PARAMETERS`, `DATABASE_D1_VALUE_TOO_LARGE` | When a query to D1 is above a [D1 limit](#d1-limits), before D1 runs it |
 | `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NOT_FOUND` | When code first uses the database |
 | `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS` | Printed by `vitehub db migrate`, which then exits with code 1 |
 | `DATABASE_EXPORT_FAILED` | Printed by `vitehub db export`, which then exits with code 1 |
 | `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | With `migrateOnStart`, when the Node server starts. `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fails the build |
 | `DATABASE_INVALID_CASING`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
 | Every other code | During discovery, the build, or `vitehub provision run` |
+
+## D1 limits
+
+A query to Cloudflare D1, through the binding or through D1 HTTP, checks these [D1 limits](https://developers.cloudflare.com/d1/platform/limits/) before D1 runs it. The query rejects with a named code instead of the D1 error.
+
+| Limit | Cloudflare D1 | Code |
+| --- | --- | --- |
+| Bound parameters per query | 100 | `DATABASE_D1_TOO_MANY_PARAMETERS` |
+| SQL statement length, in UTF-8 bytes | 100,000 bytes | `DATABASE_D1_STATEMENT_TOO_LONG` |
+| One bound string or BLOB | 2,000,000 bytes | `DATABASE_D1_VALUE_TOO_LARGE` |
+
+`vite dev` for Cloudflare uses local SQLite when no D1 binding exists, and SQLite accepts more than D1. When the build targets Cloudflare, with `vitehub({ preset: 'cloudflare' })` or the Cloudflare Nitro preset, the dev server runs the same checks on local SQLite for each Database with D1 options. A query that D1 rejects then rejects in development with the same code. Other dev servers, and local SQLite in production, keep the SQLite limits.
+
+D1 also limits the size of a row to 2,000,000 bytes. ViteHub does not check it, because a row can be larger than its bound values. Migrations that `vitehub db migrate` runs are not checked.
 
 ## Runtime errors
 
@@ -53,6 +68,18 @@ Cloudflare D1 HTTP returned a different number of results than the number of que
 ### DATABASE_D1_REQUEST_FAILED
 
 A Cloudflare D1 HTTP request, or one query of a batch, failed. `error.why` has the HTTP status and the D1 message, for example `no such table: notes`. Check the SQL, the D1 API token permissions, and the D1 database id.
+
+### DATABASE_D1_STATEMENT_TOO_LONG
+
+The SQL text of one statement is longer than 100,000 bytes, the D1 limit. Bind values as parameters instead of writing them into the SQL, or split the statement into several queries.
+
+### DATABASE_D1_TOO_MANY_PARAMETERS
+
+The query binds more than 100 parameters, the D1 limit. A long `inArray()` or a multi-row `insert().values()` often does it. Split the values with [`chunkParameters()`](/docs/database/server-api#stay-under-the-bound-parameter-limit), and run one query for each chunk.
+
+### DATABASE_D1_VALUE_TOO_LARGE
+
+One bound string or BLOB is larger than 2,000,000 bytes, the D1 limit. Store large files in [Blob](/docs/blob), and keep the Blob pathname in the row.
 
 ## Configuration errors
 

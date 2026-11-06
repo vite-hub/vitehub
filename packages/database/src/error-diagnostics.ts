@@ -62,6 +62,18 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ detail, label, status }: { detail?: string, label: string, status: number }) => `Cloudflare D1 ${label} failed with HTTP ${status}${detail ? `: ${detail}` : "."}`,
       fix: "Read the D1 message in `why`. Check the SQL, the D1 API token permissions, and the D1 database id.",
     },
+    DATABASE_D1_STATEMENT_TOO_LONG: {
+      why: ({ bytes, limit }: { bytes: number, limit: number }) => `The SQL statement is ${bytes} bytes. Cloudflare D1 accepts statements of at most ${limit} bytes.`,
+      fix: "Bind values as parameters instead of writing them into the SQL, or split the statement into several queries.",
+    },
+    DATABASE_D1_TOO_MANY_PARAMETERS: {
+      why: ({ count, limit }: { count: number, limit: number }) => `The query binds ${count} parameters. Cloudflare D1 accepts at most ${limit} bound parameters per query.`,
+      fix: "Split the values with `chunkParameters()` from `@vite-hub/database/drizzle`, and run one query for each chunk.",
+    },
+    DATABASE_D1_VALUE_TOO_LARGE: {
+      why: ({ bytes, limit }: { bytes: number, limit: number }) => `A bound value is ${bytes} bytes. Cloudflare D1 accepts strings and BLOBs of at most ${limit} bytes.`,
+      fix: "Store large files in Blob, and keep the Blob pathname in the row.",
+    },
 
     // Config errors. ViteHub throws them when code first uses the database, because the code or the deployment must change.
     DATABASE_DISABLED: {

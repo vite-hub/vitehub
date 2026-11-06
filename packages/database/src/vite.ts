@@ -136,7 +136,7 @@ function renderSchemaModule(config: ResolvedDBViteConfig | undefined) {
 }
 
 /** `dev` is true only for `vite dev`, where a Definition's `remote` switch applies. */
-function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: boolean) {
+function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: boolean, localLimits?: "d1") {
   if (!config?.databaseNames.length) {
     return "export const databases = {}\nexport default databases\n"
   }
@@ -150,8 +150,8 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, dev: bo
     config.databases[definition.name]?.dialect === "postgresql"
       ? `    db: ${renderPostgresDatabaseExpression(definition.name, config, `definition_${index}`, `schema_${index}`)},`
       : dev
-        ? `    config: resolveDevRemoteConfig(${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`)}, definition_${index}.remote),`
-        : `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`)},`,
+        ? `    config: resolveDevRemoteConfig(${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`, localLimits)}, definition_${index}.remote),`
+        : `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`, localLimits)},`,
     `    schema: schema_${index},`,
     "  },",
   ].join("\n"))
@@ -191,6 +191,14 @@ function renderNitroRequestStatsMiddleware() {
     "export default (event, next) => typeof next === 'function' ? runWithDatabaseRequestStats(event, next) : undefined",
     "",
   ].join("\n")
+}
+
+// Under `vitehub()`, the dev server config names the deployment preset in `vitehub.preset`, and Nitro has none.
+function devServerTargetsCloudflare(config: ResolvedConfig | undefined): boolean {
+  if (config?.command !== "serve") return false
+  const vitehub: unknown = Reflect.get(config, "vitehub")
+  const hosting: unknown = vitehub && typeof vitehub === "object" ? Reflect.get(vitehub, "preset") : undefined
+  return resolveHost({ hosting, nitro: Reflect.get(config, "nitro") }) === "cloudflare"
 }
 
 function resolveHostedProvider(config: ResolvedConfig): DBProvider | undefined {
@@ -421,12 +429,14 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         return contributor ? { ...contributor, provision } : { namespaces: [], provision }
       },
       inspect: () => {
-        if (resolvedOptions() === false) return
+        const database = resolvedOptions()
+        if (database === false) return
         return {
           definitions: [{
             kind: "database",
             label: "Databases",
             list: () => inspectDatabaseDefinitions({
+              http: !!cloudflareOptions(database)?.http,
               implicitDefault: true,
               plugins: resolved?.plugins,
               projectRoot: resolveViteHubProjectRoot(resolved?.root ?? process.cwd()),
@@ -558,7 +568,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     load(id) {
       if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return renderSchemaModule(runtimeConfig)
-      if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig, resolved?.command === "serve")
+      if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig, resolved?.command === "serve", devServerTargetsCloudflare(resolved) ? "d1" : undefined)
       if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
         const options = resolvedOptions()
         return `export default ${serializeGeneratedRegistry({

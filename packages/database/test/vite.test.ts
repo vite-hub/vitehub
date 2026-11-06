@@ -461,6 +461,20 @@ describe("hubDb", () => {
     }
   }, 30_000)
 
+  it.each([true, { url: "https://d1.example.com" }] as const)("inspects inherited cloudflare.http as remote: %j", async (http) => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts")
+    const plugin = hubDb({ cloudflare: { http }, driver: "d1" })
+    await resolveConfigResolved(plugin)({ root: rootDir })
+    const inspect = plugin.vitehub?.inspect
+    const inspection = typeof inspect === "function" ? await inspect() : undefined
+    const [definition] = await inspection!.definitions![0]!.list()
+    expect(definition?.fields).toContainEqual({
+      label: "Development",
+      value: "Remote. `vite dev` queries the real D1 database over HTTP, so writes change real data.",
+    })
+  })
+
   it("ignores remote in builds", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "databaseId: 'real-database-id'," })

@@ -1204,7 +1204,13 @@ describe("Database Nuxt integration", () => {
 
       const nitroConfig: Record<string, unknown> = {}
       await callHook(hooks, "nitro:config", nitroConfig)
-      expect(nitroConfig.alias).toEqual({ "@vite-hub/database/drizzle": runtimeFile })
+      expect(nitroConfig.alias).toEqual({
+        "@vite-hub/database/drizzle": runtimeFile,
+        ...(dev ? { "#vitehub/database/definition-defaults": join(dirname(runtimeFile), "definition-defaults.mjs") } : {}),
+      })
+      if (dev) {
+        await expect(readFile(join(dirname(runtimeFile), "definition-defaults.mjs"), "utf8")).resolves.toContain('"dev":true')
+      }
       await expect(readFile(runtimeFile, "utf8")).resolves.toMatch(
         /databases\/analytics\/config\.ts[\s\S]+"connection":\{"authToken":"dev-token","url":"libsql:\/\/dev\.example\.com"\}[\s\S]+\["analytics"\]:[\s\S]+export const databases[\s\S]+export const db[\s\S]+export const schema/,
       )
@@ -1255,7 +1261,10 @@ describe("Database Nuxt integration", () => {
       await hubDb({ binding: "HOST_DB", databaseName: "host-db", driver: "d1", ...(location === "default" ? {} : { projectRoot }) })(undefined, nuxt)
       const nitroConfig: Record<string, unknown> = {}
       await callHook(hooks, "nitro:config", nitroConfig)
-      expect(nitroConfig.alias).toEqual({ "@vite-hub/database/drizzle": runtimeFile })
+      expect(nitroConfig.alias).toEqual({
+        "@vite-hub/database/drizzle": runtimeFile,
+        "#vitehub/database/definition-defaults": join(dirname(runtimeFile), "definition-defaults.mjs"),
+      })
       const inherited = { drizzle: {}, name: "default", schema: {} }
       const initial = runtimeConfig(inherited, await readDefaults()).cloudflare
       expect(initial?.binding).toBe("HOST_DB")
@@ -1286,7 +1295,10 @@ describe("Database Nuxt integration", () => {
       await mkdir(dirname(definition), { recursive: true })
       await writeInheritedDefinition()
       for (const callback of watchHooks) await callback("addDir", dirname(definition))
-      expect(nitroConfig.alias).toEqual({ "@vite-hub/database/drizzle": runtimeFile })
+      expect(nitroConfig.alias).toEqual({
+        "@vite-hub/database/drizzle": runtimeFile,
+        "#vitehub/database/definition-defaults": join(dirname(runtimeFile), "definition-defaults.mjs"),
+      })
       expect(runtimeConfig(inherited, await readDefaults()).cloudflare?.binding).toBe("HOST_DB")
 
       const customConfig = { alias: { "@vite-hub/database/drizzle": "#custom-database" } }
