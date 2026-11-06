@@ -95,11 +95,22 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
     installFakeWrangler()
     writeFileSync(join(dir, file), "CLOUDFLARE_API_TOKEN=project-token\n")
 
-    const result = await resolveHostCredentials("cloudflare", { cwd: dir, env: env() })
+    // Vite+ adds its dependencies to Node's global lookup paths. Use a fresh process
+    // so discovery uses only this test's Wrangler executable and empty HOME.
+    const script = `
+      import { resolveHostCredentials } from ${JSON.stringify(new URL("../src/host-credentials.ts", import.meta.url).href)}
+      const context = { cwd: process.cwd(), env: process.env }
+      const result = await resolveHostCredentials("cloudflare", context)
+      const fromEnv = await resolveHostCredentials("cloudflare", { ...context, env: { ...process.env, CLOUDFLARE_API_TOKEN: "env-token" } })
+      process.stdout.write(JSON.stringify({ result, fromEnv }))
+    `
+    const run = await runHostCli(process.execPath, ["--input-type=module", "--eval", script], { cwd: dir, env: env() })
+    expect(run.exitCode).toBe(0)
+    const { result, fromEnv } = JSON.parse(run.stdout)
 
     expect(result).toEqual({ ok: true, host: "cloudflare", source: "host-cli", token: "fake-oauth-token-from-wrangler", accountId: "fake-account-id" })
-    const fromEnv = await resolveHostCredentials("cloudflare", { cwd: dir, env: env({ CLOUDFLARE_API_TOKEN: "env-token" }) })
     expect(fromEnv).toEqual({ ok: true, host: "cloudflare", source: "env", token: "env-token" })
+    expect(calls()).toEqual([["auth", "token", "--json"], ["whoami", "--json"]])
   })
 
   it("does not treat a Global API Key as a bearer token", async () => {
