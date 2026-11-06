@@ -464,7 +464,7 @@ The streaming route accepts only a chat ID, the last saved revision, and one new
 
 The app calls `streamAgent` with `output: 'events'`. It forwards text through an AI SDK UI message stream, waits for the Agent to finish, then saves the completed pair before sending the final transport event. The UI can therefore reload saved history when it receives completion. If saving fails, the stream reports an error.
 
-`getRuntimeContext` adapts the Nuxt request and its background lifetime. The wrapper consumes the full event stream and drains remaining work before finishing. This Node route also aborts the Invocation on a premature response close or after 60 seconds. It removes its listener and active-chat lock in `finally`.
+`getRuntimeContext` adapts the Nuxt request and its background lifetime. The wrapper consumes the full event stream and drains remaining work before finishing. The route aborts the Invocation when the client leaves before the reply ends, through `runtime.request.signal`, or after 60 seconds. It releases the active-chat lock in `finally`.
 
 ```ts [server/api/chat.post.ts]
 import { createUIMessageStream, createUIMessageStreamResponse } from "ai";
@@ -506,11 +506,9 @@ export default defineEventHandler(async (event) => {
 
   const user = textMessage("user", text);
   const reply = textMessage("assistant", "");
-  const controller = new AbortController();
-  const abort = () => { if (!event.node.res.writableEnded) controller.abort(); };
-  event.node.res.once("close", abort);
-  const timeout = setTimeout(() => controller.abort(), 60_000);
   const runtime = getRuntimeContext(event);
+  // The request signal aborts when the client leaves before the reply ends.
+  const signal = AbortSignal.any([runtime.request.signal, AbortSignal.timeout(60_000)]);
   activeChats.add(id);
 
   const stream = createUIMessageStream({
@@ -518,7 +516,7 @@ export default defineEventHandler(async (event) => {
       try {
         const output = await streamAgent(mode === "model" ? assistant : offline, runtime, {
           messages: [...thread.messages, user].map(message => createMessage(message)),
-          abortSignal: controller.signal,
+          abortSignal: signal,
         }, { output: "events" });
         if (!output || typeof output !== "object" || !(Symbol.asyncIterator in output)) {
           throw new Error("Expected an Agent event stream.");
@@ -528,7 +526,7 @@ export default defineEventHandler(async (event) => {
         let answer = "";
         // The events output of streamAgent is a StreamEvent iterable.
         for await (const part of output as AsyncIterable<StreamEvent>) {
-          controller.signal.throwIfAborted();
+          signal.throwIfAborted();
           if (part.type === "error") throw new Error("Agent failed.");
           if (part.type !== "text-delta") continue;
           answer += part.text;
@@ -536,15 +534,13 @@ export default defineEventHandler(async (event) => {
           writer.write({ type: "text-delta", id: reply.id, delta: part.text });
         }
         await runtime.flushWaitUntil();
-        controller.signal.throwIfAborted();
+        signal.throwIfAborted();
         if (!answer.trim()) throw new Error("Agent returned no text.");
         reply.parts[0]!.text = answer;
         store.save(owner, id, revision, [...thread.messages, user, reply]);
         writer.write({ type: "text-end", id: reply.id });
         writer.write({ type: "finish", finishReason: "stop" });
       } finally {
-        clearTimeout(timeout);
-        event.node.res.off("close", abort);
         activeChats.delete(id);
         await runtime.flushWaitUntil();
       }
