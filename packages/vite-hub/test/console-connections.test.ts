@@ -23,7 +23,7 @@ import { ConsoleRequestError } from "../src/console/runtime/client/request.ts"
 import type { ConsoleSectionId } from "../src/console/runtime/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 import { vitehub } from "../src/index.ts"
-import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { productionConsole } from "./support/console-authorize.ts"
 
 const connection = {
   account: { email: "ada@example.com", id: "1" },
@@ -232,7 +232,7 @@ describe("Console session user", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-sections-"))
     try {
       const plugin = consoleVitePlugin({
-        console: command === "serve" ? { auth: false } : { auth: false, authorize: hostManagedAuthorize },
+        console: command === "serve" ? { auth: false } : productionConsole,
         connections,
         sections: ["env", "connections"],
       })

@@ -25,6 +25,9 @@ describe("Comments in a built Nitro 3 app", () => {
         "export default defineComments({ authorize: () => true })",
         "",
       ].join("\n"),
+      // A production build refuses `console.auth: false`. The test plugin below replaces the app Auth policy per request.
+      "server/auth.ts": "import { defineAuth } from 'vite-hub/auth'\nexport default defineAuth({ emailAndPassword: { enabled: true } })\n",
+      "server/console-authorize.ts": "export default () => true\n",
       // A server-rendered page, which Vite's index.html transform does not see.
       "server/routes/ssr.ts": "export default () => new Response('<html><body><h1>Rendered</h1></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } })\n",
       // Fixture-only sign-in lets the production build exercise writes as a verified Console user.
@@ -43,7 +46,7 @@ describe("Comments in a built Nitro 3 app", () => {
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
     // Production output must never invent a local identity, even with NODE_ENV=development.
-    const app = () => vitehub({ console: { auth: false }, preset: "node" })
+    const app = () => vitehub({ auth: true, console: { auth: "app", authorize: "./server/console-authorize.ts" }, preset: "node" })
 
     const generate = await runCli(root, app(), ["db", "generate"])
     expect(generate.stderr).toBe("")

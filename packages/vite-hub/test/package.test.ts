@@ -895,9 +895,10 @@ describe("framework package contract", () => {
         throw new TypeError("Expected the Console config hook.");
       const config = { root };
 
+      // Open access is for `vite dev`, which always serves the Console pages. A production build refuses it.
       await Reflect.apply(configHandler, plugin, [
         config,
-        { command: "build", mode: "production" },
+        { command: "serve", mode: "development" },
       ]);
 
       const nitro = Reflect.get(config, "nitro");

@@ -213,6 +213,7 @@ function renderConsoleNitroPlugin(
   development = false,
   applicationBase = "/",
   pageTools = true,
+  consoleTools = true,
 ): string {
   assertConsoleRetention(retention, journal)
   const accessCode = renderConsoleAccess(access)
@@ -294,8 +295,9 @@ function renderConsoleNitroPlugin(
         : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""}${journal && "databaseUrl" in journal ? `, databaseUrl: ${JSON.stringify(journal.databaseUrl)}` : ""}${journal && "d1Binding" in journal ? `, d1: { binding: ${JSON.stringify(journal.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }` : ""}${retention !== undefined ? `, retention: { maxAge: ${renderRetentionLimit(retention.maxAge)}, maxRecords: ${renderRetentionLimit(retention.maxRecords)}, maxSize: ${renderRetentionLimit(retention.maxSize)} }` : ""}${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`]
       : []),
     // The Console link lives in the shared page tools pill.
+    // Without the Console pages, the session route still answers, with no Console tools.
     pageTools
-      ? `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(applicationBase)} }) }`
+      ? `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(applicationBase)}${consoleTools ? "" : ", embed: false"} }) }`
       : "export default function viteHubConsolePlugin() {}",
     "",
   ].join("\n")
@@ -321,6 +323,7 @@ export async function writeConsoleNitroPlugin(
   development = false,
   applicationBase = "/",
   pageTools = true,
+  consoleTools = true,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(
@@ -330,7 +333,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports, development, applicationBase, pageTools)
+  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports, development, applicationBase, pageTools, consoleTools)
   // The build id is a hash of the rest of the output, so it changes only when an open Console would be outdated.
   const contents = `${rendered}installConsoleBuild(${JSON.stringify(projectRoot)}, ${JSON.stringify(consoleBuildId(rendered))})\n`
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {

@@ -46,7 +46,7 @@ import { consoleNuxtDevToolsTab, type ConsoleNuxtDevToolsTab } from "./console/d
 import { addConsolePageHandlers, addConsoleRpcHandler, mountPath } from "./console/nitro.ts"
 import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, writeConsoleConnectionsActor, type ConsoleAuthConfig } from "./console/auth-build.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
-import { assertConsoleAccess, assertConsoleProductionAccess, closeConsoleInvocationRootState, consoleAuthConfig, consoleOpenAccessBuildWarning, resolveConsoleOptions, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
+import { assertConsoleAccess, assertConsoleProductionAccess, assertConsoleProductionAuth, closeConsoleInvocationRootState, consoleAuthConfig, consoleEmbedsPages, resolveConsoleOptions, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 
 import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
@@ -176,6 +176,8 @@ type NuxtLike = {
   options: {
     _installedModules?: Array<{ meta: { name?: string } }>
     _layers?: NuxtServerDirOptions["_layers"]
+    /** `nuxi prepare` and `nuxi typecheck` load the modules without building. */
+    _prepare?: boolean
     alias?: Record<string, string>
     app?: {
       baseURL?: string
@@ -558,6 +560,7 @@ async function installConsole(
   retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
+  embed = true,
 ): Promise<string> {
   const plugin = resolveGeneratedConsolePlugin(projectRoot, fixture, invocationRootState)
   installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
@@ -592,10 +595,11 @@ async function installConsole(
   addConsoleRpcHandler(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, [...sections, ...entrySections], Boolean(access?.oauth));
   // The Console renders in its own document, as in a Vite app, so the host's styles, Nuxt UI theme, and layouts do not
   // reach it.
-  addConsolePageHandlers(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, independentAuth ? undefined : access?.signInPage)
+  addConsolePageHandlers(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, independentAuth ? undefined : access?.signInPage, embed)
   const clientHandler = join(consoleRuntimeRoot, "server/client.get.js")
   const clientRoute = mountPath(nuxt.options.app?.baseURL, "/api/_vitehub/console/client.js")
-  if (!nitro.handlers?.some(handler => handler.route === clientRoute)) {
+  // The Console page loads this client.
+  if (embed && !nitro.handlers?.some(handler => handler.route === clientRoute)) {
     (nitro.handlers ??= []).push({ handler: clientHandler, lazy: true, route: clientRoute })
   }
   const plugins = (nitro.plugins ??= []).filter(candidate => !generatedConsolePluginRegistration(candidate))
@@ -633,6 +637,8 @@ async function installConsole(
       runtimeCapabilityImports,
       nuxt.options.dev === true,
       nuxt.options.app?.baseURL,
+      true,
+      embed,
     )
     if (invocationRootState) {
       updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
@@ -1145,8 +1151,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         root: rootDir,
         sections: consoleSections,
       })
-      const openAccessWarning = nuxt.options.dev ? undefined : consoleOpenAccessBuildWarning(configuredConsole, plan.preset)
-      if (openAccessWarning) console.warn(openAccessWarning)
+      if (!nuxt.options.dev && !nuxt.options._prepare) assertConsoleProductionAuth(configuredConsole)
     }
     const fixture = nuxt.options.vitehubCliDiscovery
       ? undefined
@@ -1488,7 +1493,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         const kit = createNitroServerKit(config)
         if (authHandlers.signIn) kit.addHandler({ handler: authHandlers.signIn, lazy: true, route: mountPath(nuxt.options.app?.baseURL, "/_vitehub/sign-in"), method: "get" })
         if (authHandlers.route) kit.addHandler({ handler: authHandlers.route, lazy: true, route: mountPath(nuxt.options.app?.baseURL, "/api/_vitehub/console/auth/**") })
-        if (authHandlers.client) kit.addHandler({ handler: authHandlers.client, lazy: true, route: mountPath(nuxt.options.app?.baseURL, "/api/_vitehub/console/client.js"), method: "get" })
+        if (authHandlers.client && consoleEmbedsPages(consoleOptions, nuxt.options.dev === true)) kit.addHandler({ handler: authHandlers.client, lazy: true, route: mountPath(nuxt.options.app?.baseURL, "/api/_vitehub/console/client.js"), method: "get" })
         kit.addHandler({ handler: authHandlers.middleware, middleware: true, route: "/**" })
         Object.assign(config, kit.config)
       }
@@ -1728,6 +1733,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       consoleOptions.retention,
       consoleAccess,
       runtimeCapabilityImports,
+      consoleEmbedsPages(consoleOptions, nuxt.options.dev === true),
     )
   }
 }

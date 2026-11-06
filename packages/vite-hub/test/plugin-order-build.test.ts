@@ -55,7 +55,12 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
       await writeFile(join(root, "index.html"), "<main>ok</main>\n")
       const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
-      const hub = vitehub({ preset: "node", console: { auth: false, authorize: hostManagedAuthorize } })
+      // A production build serves no Console pages without console.embed, and Cloudflare Access guards the data routes.
+      const hub = vitehub({
+        comments: false,
+        console: { auth: { provider: "cloudflare-access", teamDomain: "acme.cloudflareaccess.com", audience: "plugin-order" }, authorize: hostManagedAuthorize },
+        preset: "node",
+      })
       const builder = await createBuilder({
         logLevel: "silent",
         plugins: nitroPosition === "before" ? [nitro() as never, hub] : [hub, nitro() as never],
@@ -64,16 +69,21 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await builder.buildApp()
 
       await withBuiltServer(root, async (fetchServer) => {
-        const page = await fetchServer("/_vitehub")
-        expect(page.status).toBe(200)
-        expect(await page.text()).toContain("<html")
+        // The ViteHub skill is a Console public asset.
+        const skills = await fetchServer("/_vitehub/.well-known/skills/index.json")
+        expect(skills.status, await skills.clone().text()).toBe(200)
+        // Without console.embed, the page tools session still answers, with no Console tools.
+        const session = await fetchServer("/_vitehub/page/session")
+        expect(session.status, await session.clone().text()).toBe(200)
+        // Cloudflare Access checks the Console paths before the short page that links the hosted Console.
+        expect((await fetchServer("/_vitehub")).status).toBe(401)
         const rpc = await fetchServer("/_vitehub/rpc/__call", {
           body: JSON.stringify({ operation: "sections.list", input: {} }),
           headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
           method: "POST",
         })
-        expect(rpc.status, await rpc.clone().text()).toBe(200)
-        expect(await rpc.json()).toMatchObject({ ok: true })
+        expect(rpc.status, await rpc.clone().text()).toBe(401)
+        expect(await rpc.text()).toBe("Cloudflare Access did not authenticate this request.")
       })
     }
     finally {

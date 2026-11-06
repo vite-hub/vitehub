@@ -26,7 +26,7 @@ import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleF
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { addConsolePageToolRoutes, addConsoleRpcHandler, ignoreConsolePrerender } from "./nitro.ts"
 import { transformConsoleOperationFeatures } from "./operation-features.ts"
-import { consoleOpenAccessWarning, isConsoleSignInPage } from "./runtime/server/access.ts"
+import { isConsoleSignInPage } from "./runtime/server/access.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveConsoleJournal, type ConsoleJournal } from "../storage-config.ts"
 
@@ -53,7 +53,7 @@ type ConsoleNitroConfig = {
 
 /**
  * The Console options. `auth` is required in every environment, so the Console is never open by accident.
- * - `auth: false`: no sign-in. A production build and a production server log a warning.
+ * - `auth: false`: no sign-in, for `vite dev` only. A production build fails.
  * - `auth: "app"`: the app Auth Session. The app Auth access routes or `authorize` decide who may use the Console.
  * - `auth: { ... }`: Console Auth, with a server file, inline GitHub, or `{ provider: "cloudflare-access" }`.
  */
@@ -65,6 +65,12 @@ export interface ConsoleOptions {
    */
   authorize?: string
   databaseUrl?: string
+  /**
+   * Serve the Console pages and their assets at `/_vitehub` in a production build. Off by default: a production build
+   * then keeps the Console data routes, MCP, and the ViteHub skill, and `/_vitehub` tells visitors to open the hosted
+   * Console at https://console.vitehub.dev. `vite dev` always serves the Console pages.
+   */
+  embed?: boolean
   /**
    * The MCP endpoint at `/_vitehub/mcp`. With `auth: "app"` or a Console Auth session, MCP clients sign in with OAuth: add
    * Better Auth's `jwt()` and `oauthProvider()` plugins to that Auth. A server never takes the issuer or the resource from
@@ -130,12 +136,21 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
       throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.signInPage must be a path on the app's origin, such as /sign-in." })
     }
   }
+  const embed: unknown = Reflect.get(value, "embed")
+  if (embed !== undefined && embed !== true && embed !== false) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.embed must be true or false." })
+  }
   const impersonation: unknown = Reflect.get(value, "impersonation")
   if (impersonation !== undefined && impersonation !== true && impersonation !== false) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.impersonation must be true or false." })
   }
-  // SAFETY: `auth`, `signInPage`, and `impersonation` are checked above. The other fields keep their documented types and are checked where they are read.
+  // SAFETY: `auth`, `signInPage`, `embed`, and `impersonation` are checked above. The other fields keep their documented types and are checked where they are read.
   return value as ConsoleOptions
+}
+
+/** Whether the app serves the Console pages and assets: always in development, and with `console.embed: true` in a production build. */
+export function consoleEmbedsPages(options: ConsoleOptions | undefined, development: boolean): boolean {
+  return development || options?.embed === true
 }
 
 /** App Auth supplies the Console login flow unless the application overrides its page. */
@@ -251,6 +266,7 @@ function configureConsoleNitroRoutes(
   rpcOnly = false,
   signInPage?: string,
   oauth = false,
+  embed = true,
 ): { kit: ReturnType<typeof createNitroServerKit>, publicAssets: NonNullable<ConsoleNitroConfig["publicAssets"]> } {
   // Nitro serves its routes below its own `baseURL`, so the routes get only the part of the Vite base that Nitro does not
   // add. Without a Nitro `baseURL`, this is the whole Vite base.
@@ -264,6 +280,7 @@ function configureConsoleNitroRoutes(
     join(consoleRuntimeRoot, "server/invocation-capabilities.get.js"),
     join(consoleRuntimeRoot, "server/invocations.get.js"),
     join(consoleRuntimeRoot, "server/logs.get.js"),
+    join(consoleRuntimeRoot, "server/not-embedded.js"),
     join(consoleRuntimeRoot, "server/page.get.js"),
     join(consoleRuntimeRoot, "server/page-session.js"),
     join(consoleRuntimeRoot, "server/search.get.js"),
@@ -292,9 +309,11 @@ function configureConsoleNitroRoutes(
   // Without a `console` option, `vite dev` serves only the RPC, so the CLI can call operations. No page, no assets.
   if (!rpcOnly) {
     ignoreConsolePrerender(kit.config, baseURL)
-    // Console Auth already redirects in its middleware, including its OAuth start request.
+    // Console Auth already redirects in its middleware, including its OAuth start request. Without the pages, only the
+    // built-in app Auth sign-in page stays, because MCP clients sign in there.
     if (signInPage && !consoleAuthHandlers) {
-      for (const route of ["/_vitehub", "/_vitehub/**"]) {
+      const routes = embed ? ["/_vitehub", "/_vitehub/**"] : signInPage === "/_vitehub/sign-in" ? [signInPage] : []
+      for (const route of routes) {
         kit.addHandler({ handler: join(consoleRuntimeRoot, "server/sign-in.js"), middleware: true, route: consoleMountPath(mount, route) }, "start")
       }
     }
@@ -304,15 +323,17 @@ function configureConsoleNitroRoutes(
       ...(sections.includes("logs") ? [{ handler: join(consoleRuntimeRoot, "server/logs.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/logs"), method: "get" }] : []),
       ...(sections.includes("agents") && sections.includes("usage") ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: consoleMountPath(mount, "/api/_vitehub/console/usage"), method: "get" }] : []),
       ...(consoleAuthHandlers?.signIn ? [{ handler: consoleAuthHandlers.signIn, route: consoleMountPath(mount, "/_vitehub/sign-in"), method: "get" }] : []),
-      { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(mount, "/_vitehub") },
-      { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(mount, "/_vitehub/**") },
+      ...["/_vitehub", "/_vitehub/**"].map(route => ({ handler: join(consoleRuntimeRoot, embed ? "server/page.get.js" : "server/not-embedded.js"), route: consoleMountPath(mount, route) })),
     ]) kit.addHandler({ ...handler, lazy: true })
-    kit.addHandler({
-      handler: consoleAuthHandlers?.client ?? join(consoleRuntimeRoot, "server/client.get.js"),
-      lazy: true,
-      route: consoleMountPath(mount, "/api/_vitehub/console/client.js"),
-      method: "get",
-    })
+    // The Console page loads the Console Auth client.
+    if (embed) {
+      kit.addHandler({
+        handler: consoleAuthHandlers?.client ?? join(consoleRuntimeRoot, "server/client.get.js"),
+        lazy: true,
+        route: consoleMountPath(mount, "/api/_vitehub/console/client.js"),
+        method: "get",
+      })
+    }
     if (consoleAuthHandlers?.route) kit.addHandler({ handler: consoleAuthHandlers.route, lazy: true, route: consoleMountPath(mount, "/api/_vitehub/console/auth/**") })
     if (consoleAuthHandlers) kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
   }
@@ -324,13 +345,15 @@ function configureConsoleNitroRoutes(
     .filter(asset => asset?.dir !== consolePublicRoot && asset?.dir !== consoleSkillsRoot)
   const publicAssets = [...rpcOnly
     ? []
-    : [{
-        baseURL: consoleAssetsBase,
-        dir: consolePublicRoot,
-        fallthrough: false,
-        // Every Console asset name contains a content hash.
-        maxAge: 60 * 60 * 24 * 365,
-      }, {
+    : [...embed
+        ? [{
+            baseURL: consoleAssetsBase,
+            dir: consolePublicRoot,
+            fallthrough: false,
+            // Every Console asset name contains a content hash.
+            maxAge: 60 * 60 * 24 * 365,
+          }]
+        : [], {
         // Static files, so the skills CLI reads them without a Console sign-in. They are the public ViteHub skill.
         baseURL: consoleMountPath(mount, "/_vitehub/.well-known/skills"),
         dir: consoleSkillsRoot,
@@ -353,14 +376,10 @@ function authRouteProtects(
   return targetBase === routeBase || (recursive && targetBase.startsWith(`${routeBase}/`))
 }
 
-/**
- * The warning that a production build logs for `auth: false`, or `undefined` when there is nothing to warn about.
- * Without `authorize`, anyone can use the Console. On Cloudflare, `authorize` alone does not verify the Cloudflare Access token.
- */
-export function consoleOpenAccessBuildWarning(configured: ConsoleOptions, preset: string | undefined): string | undefined {
+/** `auth: false` has no sign-in, so it works only in `vite dev`, where the Console accepts loopback requests only. */
+export function assertConsoleProductionAuth(configured: ConsoleOptions): void {
   if (configured.auth !== false) return
-  if (!configured.authorize) return consoleOpenAccessWarning
-  if (preset === "cloudflare") return '[vitehub] console: { auth: false } trusts console.authorize to check every request. On Cloudflare, use console: { auth: { provider: "cloudflare-access" } } so the Worker verifies the Cloudflare Access token.'
+  throw viteHubErrorDiagnostics.VITE_HUB_B0020({ message: '[vitehub] console.auth false is for development. Use auth: "token" and set VITEHUB_CONSOLE_TOKEN_SHA256 (create a token with `openssl rand -hex 32`, store `printf %s "$TOKEN" | sha256sum`), or auth: "app".' })
 }
 
 /** Resolve the `console.authorize` file. A configured path must exist. */
@@ -499,7 +518,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let resolvedAppAuth: ResolvedAuthViteConfig | undefined
   let refreshConsoleAuthClient: (() => Promise<void>) | undefined
   let inlineConsoleAuthConfig: ResolvedConsoleAuthConfig | undefined
-  let openAccessBuildWarning: string | undefined
+  let embed = false
   const consoleBuildCatalogs = new Map<string, Awaited<ReturnType<typeof discoverConsoleBuildCatalog>>>()
   let baseURL = "/"
   let applicationBase = "/"
@@ -537,7 +556,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ contentImportBase: options.contentImportBase, databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
     consoleBuildCatalogs.set(projectRoot, catalog)
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports, development, applicationBase, !options.rpcOnly)
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports, development, applicationBase, !options.rpcOnly, embed)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
@@ -647,7 +666,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         development: environment.command !== "build",
         sections,
       })
-      openAccessBuildWarning = environment.command === "build" && !cliDiscovery ? consoleOpenAccessBuildWarning(configured, options.preset) : undefined
+      if (environment.command === "build" && !cliDiscovery) assertConsoleProductionAuth(configured)
+      embed = !options.rpcOnly && consoleEmbedsPages(configured, environment.command !== "build")
       const configuredConsoleAuth = consoleAuthConfig(configured)
       const resolvedConsoleAuth = configuredConsoleAuth ? resolveConsoleAuthConfig(root, configuredConsoleAuth, options.preset) : undefined
       consoleAuthMode = registeredConsoleAuthMode(configuredConsoleAuth, environment.command !== "build")
@@ -721,6 +741,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
           development,
           applicationBase,
           !options.rpcOnly,
+          embed,
         )
       }
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
@@ -728,7 +749,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       const nitro: ConsoleNitroConfig = consoleConfig.nitro
         ? { ...consoleConfig.nitro }
         : {}
-      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, applicationBase, sections, consoleAuthHandlers, undefined, options.rpcOnly, consoleSignInPageOption(resolvedConsoleConfiguration), Boolean(consoleAccess()?.oauth))
+      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, applicationBase, sections, consoleAuthHandlers, undefined, options.rpcOnly, consoleSignInPageOption(resolvedConsoleConfiguration), Boolean(consoleAccess()?.oauth), embed)
       if (Array.isArray(kit.config.plugins)) {
         const plugins = kit.config.plugins.filter(candidate => !generatedConsolePluginRegistration(candidate))
         kit.config.plugins.splice(0, kit.config.plugins.length, ...plugins)
@@ -750,7 +771,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       return options.rpcOnly ? undefined : viteHubPageToolsIndexHtml(html, applicationBase)
     },
     async configResolved(config) {
-      if (openAccessBuildWarning) config.logger.warn(openAccessBuildWarning)
       if (journal && "d1Binding" in journal && sections.includes("agents")) config.logger.info(consoleD1JournalMessage(journal.d1Binding))
       root = config.root
       const resolvedConfigState: DeferredConsoleState | undefined = inlineConsoleAuthConfig && "provider" in inlineConsoleAuthConfig && inlineConsoleAuthConfig.provider === "github"
@@ -826,10 +846,11 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
                 callbackState.development,
                 viteHubPageToolsBase(callbackState.config).base || "/",
                 !options.rpcOnly,
+                embed,
               )
             }
             const nitro = (callbackState.config as typeof callbackState.config & { nitro?: ConsoleNitroConfig }).nitro ?? {}
-            const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, viteHubPageToolsBase(callbackState.config).base, callbackState.sections, resolvedHandlers, callbackState.handlers, options.rpcOnly, consoleSignInPageOption(callbackState.consoleConfiguration), Boolean(access?.oauth))
+            const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, viteHubPageToolsBase(callbackState.config).base, callbackState.sections, resolvedHandlers, callbackState.handlers, options.rpcOnly, consoleSignInPageOption(callbackState.consoleConfiguration), Boolean(access?.oauth), embed)
             const connectionsActor = callbackState.sections.includes("connections")
               ? await writeConsoleConnectionsActor(callbackState.root, resolvedHandlers.middleware)
               : undefined
@@ -896,7 +917,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       const scopedAccess = scopedConfiguration && scopedRoot
         ? resolveConsoleAccessBuild(scopedConfiguration, { appAuth: resolvedConfigState?.appAuth ?? resolvedAppAuth, base: scopedBaseURL, handlers: scopedAuthHandlers, root: scopedRoot, sections: scopedSections })
         : undefined
-      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, scopedBaseURL, scopedSections, scopedAuthHandlers, previousConsoleAuthHandlers, options.rpcOnly, consoleSignInPageOption(scopedConfiguration), Boolean(scopedAccess?.oauth))
+      const { kit, publicAssets } = configureConsoleNitroRoutes(nitro, scopedBaseURL, scopedSections, scopedAuthHandlers, previousConsoleAuthHandlers, options.rpcOnly, consoleSignInPageOption(scopedConfiguration), Boolean(scopedAccess?.oauth), embed)
       const connectionsActor = scopedRoot && scopedSections.includes("connections")
         ? await writeConsoleConnectionsActor(scopedRoot, scopedAuthHandlers?.middleware)
         : undefined

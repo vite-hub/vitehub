@@ -29,30 +29,37 @@ export function ignoreConsolePrerender(nitro: NitroPrerenderConfig, base?: strin
  * `/_vitehub/assets`, and the ViteHub skill at `/_vitehub/.well-known/skills`. The page loads its own Vue app, Nuxt UI
  * theme, and styles, so a host app that renders around it, such as Nuxt, cannot change how the Console looks. Nitro
  * adds the application base to these routes.
+ *
+ * With `embed: false`, a production build without `console.embed`, `/_vitehub/**` answers a short plain text that links
+ * the hosted Console, and the build has no Console assets. The skill and the built-in app Auth sign-in page stay.
  */
 export function addConsolePageHandlers(
   nitro: NitroPrerenderConfig & { handlers?: NitroHandler[], publicAssets?: NitroPublicAsset[] },
   consoleRuntimeRoot: string,
   base?: string,
   signInPage?: string,
+  embed = true,
 ): void {
   const page = join(consoleRuntimeRoot, "server/page.get.js")
+  const notEmbedded = join(consoleRuntimeRoot, "server/not-embedded.js")
   const signIn = join(consoleRuntimeRoot, "server/sign-in.js")
   const assets = join(consoleRuntimeRoot, "public/console")
   const skills = join(consoleRuntimeRoot, "public/skills")
-  const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== page && candidate.handler !== signIn)
+  const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== page && candidate.handler !== notEmbedded && candidate.handler !== signIn)
+  // MCP clients sign in on the built-in app Auth page, so it stays without the Console pages.
+  const signInRoutes = embed ? ["/_vitehub", "/_vitehub/**"] : signInPage === "/_vitehub/sign-in" ? [signInPage] : []
   if (signInPage) {
     // Run before primary app Auth can reject an HTML page visit, including after Nitro config replay.
-    for (const suffix of ["/_vitehub", "/_vitehub/**"]) {
+    for (const suffix of signInRoutes) {
       handlers.unshift({ handler: signIn, middleware: true, route: mountPath(base, suffix) })
     }
   }
-  for (const suffix of ["/_vitehub", "/_vitehub/**"]) handlers.push({ handler: page, lazy: true, route: mountPath(base, suffix) })
+  for (const suffix of ["/_vitehub", "/_vitehub/**"]) handlers.push({ handler: embed ? page : notEmbedded, lazy: true, route: mountPath(base, suffix) })
   nitro.handlers = handlers
   ignoreConsolePrerender(nitro, base)
   nitro.publicAssets = [
     // Every Console asset name contains a content hash.
-    { baseURL: mountPath(base, "/_vitehub/assets"), dir: assets, fallthrough: false, maxAge: 60 * 60 * 24 * 365 },
+    ...embed ? [{ baseURL: mountPath(base, "/_vitehub/assets"), dir: assets, fallthrough: false, maxAge: 60 * 60 * 24 * 365 }] : [],
     // The ViteHub skill for `npx skills add <app>/_vitehub`. Static files need no Console sign-in.
     { baseURL: mountPath(base, "/_vitehub/.well-known/skills"), dir: skills, fallthrough: false },
     ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== assets && asset.dir !== skills),
