@@ -50,6 +50,8 @@ Providers can retry failed delivery, so a handler must tolerate another run afte
 | Local | A successful handler removes the job. A failed handler runs again after 1, 2, and 4 seconds. After 4 attempts, or after a [Queue error that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler), the job stays as a dead job. | None. The local provider does not call `onError` or `callbackOptions.retry`. |
 | Vercel | Provider behavior. ViteHub acknowledges [Queue errors that a retry cannot fix](/docs/queue/limits-and-errors#errors-in-a-queue-handler) when the callback returns `undefined`; other `undefined` results keep Vercel's retry behavior. | Return a directive from `callbackOptions.retry`. Return `void` to keep the default. |
 
+In `vite dev`, a Cloudflare or Vercel app runs its jobs with the local provider and the retry rules of its provider. It does not call `onError` or `callbackOptions.retry`. See [Dev delivery](/docs/queue/limits-and-errors#dev-delivery).
+
 Throw `ViteHubError` when the Queue Definition needs a stable application failure code. Application error codes do not choose retry policy. Use `onError` or `callbackOptions.retry` for that.
 
 ```ts [server/queues/image-expiry.ts]
