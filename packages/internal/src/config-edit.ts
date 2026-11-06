@@ -210,6 +210,9 @@ function locateNuxt(code: string, program: File): Located | Failure {
 
 function locateNuxtOptions(code: string, program: File, root: ObjectExpression, names: Set<string>): Located | Failure {
   const modulesProperty = findMember(root, "modules")
+  const keyProperty = findMember(root, "vitehub")
+  const lastSpread = root.properties.findLast(member => member.type === "SpreadElement")
+  if (lastSpread && [modulesProperty, keyProperty].some(property => !property || start(property) < start(lastSpread))) return fail("spread", lastSpread)
   if (!modulesProperty) return fail("no-vitehub")
   const modules = unwrap(modulesProperty.value)
   if (modules.type !== "ArrayExpression") return fail("dynamic-options", modules)
@@ -221,7 +224,6 @@ function locateNuxtOptions(code: string, program: File, root: ObjectExpression, 
   const [entry, second] = entries
   if (!entry) return fail("no-vitehub")
   if (second) return fail("multiple-vitehub", second)
-  const keyProperty = findMember(root, "vitehub")
   const tupleOptions = entry.type === "ArrayExpression" ? entry.elements[1] : undefined
   if (tupleOptions && tupleOptions.type === "SpreadElement") return fail("dynamic-options", tupleOptions)
   if (keyProperty && !tupleOptions) return siteFor(code, "nuxt-config-key", keyProperty.value, { kind: "key" }, program)
