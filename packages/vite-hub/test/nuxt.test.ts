@@ -4800,6 +4800,44 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     else expect(nitroConfig.noExternals).toBe(noExternals)
   })
 
+  it("keeps Nuxt's Nitro 3 noExternals list and H3 2", async () => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-nitro3-externals-"))
+    const writePackage = async (directory: string, manifest: object) => {
+      await mkdir(directory, { recursive: true })
+      await writeFile(resolve(directory, "package.json"), JSON.stringify(manifest))
+    }
+    try {
+      const nuxtRoot = resolve(root, "node_modules/nuxt")
+      const builderRoot = resolve(nuxtRoot, "node_modules/@nuxt/nitro-server")
+      await writePackage(nuxtRoot, { name: "nuxt", dependencies: { "@nuxt/nitro-server": "5.0.0" } })
+      await writePackage(builderRoot, { name: "@nuxt/nitro-server", dependencies: { nitro: "3.0.261102-rc" } })
+      await writePackage(resolve(builderRoot, "node_modules/nitro"), { name: "nitro", version: "3.0.261102-rc" })
+      mocks.vitehub.mockReturnValue([])
+      const { nuxt, runModulesDoneHook, runNitroConfigHook } = createNuxt()
+      nuxt.options.rootDir = root
+      nuxt.options.buildDir = resolve(root, ".nuxt")
+      nuxt.options.serverDir = resolve(root, "server")
+      // A module that points `h3` at nitropack's H3 1, as @nuxtjs/mcp-toolkit does.
+      const h3One = resolve(root, "node_modules/nitropack/node_modules/h3")
+      await writePackage(h3One, { name: "h3", version: "1.15.11" })
+      await writeFile(resolve(h3One, "index.cjs"), "")
+      const transpiled = /^\/app\/node_modules\/docs(?!.*node_modules)/
+      const nitroConfig: Record<string, unknown> = { noExternals: ["@nuxt/", transpiled], alias: { h3: resolve(h3One, "index.cjs"), kept: "/app/kept.ts" } }
+
+      await viteHubNuxtModule({ console: false, preset: "node" }, nuxt)
+      runModulesDoneHook()
+      await runNitroConfigHook(nitroConfig)
+
+      expect(nitroConfig.noExternals).toEqual(expect.arrayContaining(["@nuxt/", transpiled, "vite-hub", "@vite-hub/"]))
+      expect(nitroConfig).not.toHaveProperty("externals")
+      expect(nitroConfig.alias).not.toHaveProperty("h3")
+      expect(nitroConfig.alias).toHaveProperty("kept", "/app/kept.ts")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("resolves generated Workspace plugins from the project rather than server directory", async () => {
     const fixture = createNuxt(false)
     await viteHubNuxtModule({ preset: "node" }, fixture.nuxt)

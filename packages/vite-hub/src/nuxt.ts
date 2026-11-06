@@ -801,7 +801,13 @@ function withoutDeploymentOutput(options: readonly unknown[]): unknown[] {
 }
 
 /** Translate Nitro 3 package lists before Nuxt's Nitro 2 resolves its preset defaults. */
-function normalizeNuxtNitroExternals(config: Record<string, unknown>, incomingNoExternals: boolean | undefined): void {
+function normalizeNuxtNitroExternals(config: Record<string, unknown>, incomingNoExternals: boolean | undefined, nitroMajorVersion: 2 | 3): void {
+  // Nitro 3 reads the list itself, and it holds Nuxt's `build.transpile` entries. Only `true`, which bundles every
+  // package, outranks a list that a Vite config hook returned.
+  if (nitroMajorVersion === 3) {
+    if (incomingNoExternals === true) config.noExternals = true
+    return
+  }
   if (Array.isArray(config.noExternals)) {
     const externals = isRecord(config.externals) ? config.externals : {}
     const inline = Array.isArray(externals.inline) ? externals.inline : []
@@ -941,7 +947,7 @@ async function applyNitroConfig(
   if (config.nitro) {
     installVitePluginNitroModules(config.nitro, plugins)
     Object.assign(nitroConfig, config.nitro)
-    normalizeNuxtNitroExternals(nitroConfig, incomingNoExternals)
+    normalizeNuxtNitroExternals(nitroConfig, incomingNoExternals, nitroMajorVersion)
     config.nitro = nitroConfig
   }
   return { config, hasReplayedDatabaseDiscoveryRoot, replayedDatabaseDiscoveryRoot }
@@ -1426,6 +1432,19 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       }])
     }
   }
+  if (nitroMajorVersion === 3) {
+    // Registered after every module's own hook. @nuxtjs/mcp-toolkit points `h3` at nitropack's H3 1 on every Nitro, and
+    // Nitro 3's runtime then cannot import `h3/rules`. Nuxt 5 gives Nitro 2 modules H3 1 through its compatibility layer.
+    nuxt.hook?.("modules:done", () => {
+      nuxt.hook?.("nitro:config", async (config) => {
+        const alias = isRecord(config.alias) ? config.alias : undefined
+        if (typeof alias?.h3 !== "string") return
+        const manifest = findPackageJSON(pathToFileURL(alias.h3), import.meta.url)
+        const pkg: unknown = manifest ? JSON.parse(readFileSync(manifest, "utf8")) : undefined
+        if (isRecord(pkg) && pkg.name === "h3" && typeof pkg.version === "string" && pkg.version.startsWith("1.")) delete alias.h3
+      })
+    })
+  }
   nuxt.hook?.("nitro:config", async (config) => {
     const {
       config: replayConfig,
@@ -1592,11 +1611,18 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       }
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
-    const externals = isRecord(config.externals) ? config.externals : {}
-    const inline = Array.isArray(externals.inline) ? externals.inline : []
     // Facade exports, owner runtimes, and generated `.vitehub` modules must resolve generated aliases and virtual modules
-    // inside Nitro. Nitro 2 development leaves every other absolute module to Node, which cannot read those aliases.
-    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot])] }
+    // inside Nitro. Nitro 2 development and Nitro 3 prerendering leave every other package module to Node, which cannot
+    // read those aliases.
+    const owned = ["vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot]
+    if (nitroMajorVersion === 3) {
+      if (config.noExternals !== true) config.noExternals = [...new Set([...Array.isArray(config.noExternals) ? config.noExternals : [], ...owned])]
+    }
+    else {
+      const externals = isRecord(config.externals) ? config.externals : {}
+      const inline = Array.isArray(externals.inline) ? externals.inline : []
+      config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, ...owned])] }
+    }
     installNitroRuntimeResolvers(config, replayPlugins)
     normalizeGeneratedNitroPlugins(config, projectRoot)
     installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.preset === "cloudflare", consoleSections)
