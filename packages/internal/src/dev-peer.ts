@@ -169,15 +169,16 @@ async function verify(request: Request, key: string, now: number): Promise<boole
 }
 
 /**
- * Whether a development request came from this machine. Headers can be forged, so only the socket decides.
+ * Whether a development request came from this machine. The socket or signed front-process evidence proves the peer.
  * - A dev server whose front process signs loopback requests gives its worker a key. The worker then trusts only
  *   that evidence, because its own peer is the proxy of the front process.
- * - Without a key, `remoteAddress`, the peer address that the host adapter reports, decides. An unknown peer is refused.
+ * - Without a key, require a loopback `remoteAddress` from the host adapter and no forwarding headers. An unknown
+ *   peer is refused. A signed request can carry forwarding headers that Nitro's own proxy added after signing.
  */
 export async function isViteHubLoopbackPeer(request: Request, remoteAddress: string | undefined): Promise<boolean> {
   if (remoteAddress && !isViteHubLoopbackAddress(remoteAddress)) return false
   const key = readViteHubDevPeerKey()
-  return key ? verifyViteHubDevPeer(request, key) : isViteHubLoopbackAddress(remoteAddress)
+  return key ? verifyViteHubDevPeer(request, key) : isViteHubLoopbackAddress(remoteAddress) && !isViteHubForwardedRequest(Object.fromEntries(request.headers))
 }
 
 /** The parts of an H3 1 (Nitro 2) or H3 2 (Nitro 3) event that the dev handler reads. */
@@ -242,7 +243,9 @@ function takeSignableRequest(node: DevPeerNodeRequest): { method: string, path: 
   delete node.headers[viteHubDevPeerHeader]
   if (!isViteHubLoopbackAddress(node.socket?.remoteAddress) || !node.method || !node.url?.startsWith("/")) return
   // An HTTP/2 request, such as one to `vite --https`, names its host in `:authority`.
-  const host = node.headers.host ?? node.headers[":authority"]
+  const authority = node.headers[":authority"]
+  if (authority !== undefined && node.headers.host !== undefined && node.headers.host !== authority) return
+  const host = authority ?? node.headers.host
   if (typeof host !== "string" || !isViteHubLoopbackHost(host) || isViteHubForwardedRequest(node.headers)) return
   return { method: node.method, path: node.url }
 }

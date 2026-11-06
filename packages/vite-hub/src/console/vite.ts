@@ -931,12 +931,10 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       publishDevServer(server)
       // Nitro's WebSocket upgrades skip its dev handlers. The listener signs only after the Nitro module made a key.
       if (server.httpServer) addViteHubDevPeerUpgradeSigner(server.httpServer)
-      const configured = resolvedConsoleConfiguration
-      if (configured && server.httpServer) {
+      if (resolvedConsoleConfiguration && server.httpServer) {
         const http = server.httpServer
-        const mode = "local" in configured && configured.local === true ? "local" : configured.auth === false || configured.auth === undefined ? "open" : "auth"
         http.once("listening", () => {
-          const notice = consoleDevAccessNotice(mode, http.address())
+          const notice = consoleDevAccessNotice(consoleAccess()?.mode, http.address())
           if (notice) server.config.logger[notice.level](notice.message)
         })
       }

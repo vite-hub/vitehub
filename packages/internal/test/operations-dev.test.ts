@@ -61,6 +61,14 @@ describe("local operation RPC", () => {
     expect(run).not.toHaveBeenCalled()
   })
 
+  it("refuses a forwarded request on the direct-peer path before running the operation", async () => {
+    const { handler, run, request } = fixture()
+    const body = { operation: "test.echo", input: { text: "local" } }
+    expect((await handler({ req: request(body) })).status).toBe(200)
+    expect((await handler({ req: request(body, { host: "localhost", "x-forwarded-for": "203.0.113.9" }) })).status).toBe(403)
+    expect(run).toHaveBeenCalledTimes(1)
+  })
+
   it("trusts only the front process's evidence when the worker has a key", async () => {
     const { handler, run, request } = fixture()
     useViteHubDevPeerKey()

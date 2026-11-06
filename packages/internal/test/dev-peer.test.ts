@@ -118,6 +118,18 @@ describe("dev peer evidence", () => {
     for (const address of ["127.0.0.1", "127.1.2.3", "::1", "::ffff:127.0.0.1", "::FFFF:127.0.0.1"]) expect(peer.isViteHubLoopbackAddress(address), address).toBe(true)
     for (const address of [undefined, "", "0.0.0.0", "::", "192.168.0.38", "100.88.128.32", "::ffff:192.168.0.38", "1127.0.0.1", "127.0.0.1.attacker.example", "127.0.0.1, 203.0.113.9", "localhost", "fe80::1"]) expect(peer.isViteHubLoopbackAddress(address), String(address)).toBe(false)
   })
+
+  it("rejects forwarding headers on a direct loopback peer without a signing key", async () => {
+    vi.stubEnv(peer.viteHubDevPeerKeyEnv, undefined)
+    const local = (headers: Record<string, string> = {}) => new Request(url, { headers: { ...localHost, ...headers } })
+    await expect(peer.isViteHubLoopbackPeer(local(), "127.0.0.1")).resolves.toBe(true)
+    for (const name of ["x-forwarded-for", "forwarded", "cf-ray", "tailscale-user-login"]) {
+      await expect(peer.isViteHubLoopbackPeer(local({ [name]: "203.0.113.9" }), "127.0.0.1"), name).resolves.toBe(false)
+    }
+    // Nitro's own proxy adds forwarding headers after the front process signs a local request.
+    const evidence = await peer.signViteHubDevPeer(peer.useViteHubDevPeerKey(), { method: "GET", path: new URL(url).pathname })
+    await expect(peer.isViteHubLoopbackPeer(local({ "x-forwarded-for": "127.0.0.1", [peer.viteHubDevPeerHeader]: evidence }), "127.0.0.1")).resolves.toBe(true)
+  })
 })
 
 describe("dev peer key", () => {
@@ -272,6 +284,22 @@ describe("dev peer dev handler", () => {
     const http2 = nodeEvent("127.0.0.1", { ":authority": "localhost:3000" })
     await peer.viteHubDevPeerDevHandler(http2)
     expect(http2.node.req.headers).toHaveProperty(peer.viteHubDevPeerHeader)
+  })
+
+  it("refuses conflicting HTTP/2 Host and authority headers", async () => {
+    peer.useViteHubDevPeerKey()
+    for (const headers of [
+      { host: "localhost:3000", ":authority": "attacker.example" },
+      { host: "attacker.example", ":authority": "localhost:3000" },
+      { host: "localhost:3000", ":authority": "other.localhost:3000" },
+    ]) {
+      const event = nodeEvent("127.0.0.1", headers)
+      await peer.viteHubDevPeerDevHandler(event)
+      expect(event.node.req.headers).not.toHaveProperty(peer.viteHubDevPeerHeader)
+    }
+    const matching = nodeEvent("127.0.0.1", { ...localHost, ":authority": localHost.host })
+    await peer.viteHubDevPeerDevHandler(matching)
+    expect(matching.node.req.headers).toHaveProperty(peer.viteHubDevPeerHeader)
   })
 
   it("goes first in Nitro dev handlers once, and creates the key", () => {
