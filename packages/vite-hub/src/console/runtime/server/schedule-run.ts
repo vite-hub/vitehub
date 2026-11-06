@@ -1,6 +1,5 @@
 import { hasViteHubDispatch, verifyViteHubDispatch } from "@vite-hub/internal/dispatch"
-import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { getConsoleSchedules } from "./definitions.ts"
@@ -115,9 +114,9 @@ export async function handleDispatchScheduleRunRequest(request: Request, env: Re
 
 /** Only a signed dispatch runs here. A person or a CLI runs a Schedule through the `schedule.run` operation. */
 const dispatchHandler = async (event: H3Event): Promise<Response> => {
-  const request = toEventRequest(event)
+  const { req: request, runtime } = getStandardContext(event)
   return hasViteHubDispatch(request.headers)
-    ? await handleDispatchScheduleRunRequest(request, getCloudflareEnv(event, { fallback: false }))
+    ? await handleDispatchScheduleRunRequest(request, runtime?.cloudflare?.env)
     : failure("This route takes signed dispatches only. Sign the request with VITEHUB_DISPATCH_KEY (`vitehub secret derive vitehub:dispatch` prints it), or run the Schedule through the Console RPC with Console credentials. `vitehub schedule run <name> --url <origin>` does either.", 401)
 }
 export default dispatchHandler

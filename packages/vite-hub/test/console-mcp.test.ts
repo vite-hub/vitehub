@@ -66,12 +66,15 @@ async function read<T>(response: Response): Promise<T> {
   return body as T
 }
 
-function post(message: unknown, headers: Record<string, string> = {}, url = `${origin}/_vitehub/mcp`) {
-  return defineHandler(consoleMcpHandler).fetch(new Request(url, {
+/** An MCP request. `clientAddress` is the peer address that a host adapter reports in `request.context`. */
+function post(message: unknown, headers: Record<string, string> = {}, url = `${origin}/_vitehub/mcp`, clientAddress?: string) {
+  const request = new Request(url, {
     body: JSON.stringify(message),
     headers: { "accept": "application/json, text/event-stream", "content-type": "application/json", ...headers },
     method: "POST",
-  }))
+  })
+  if (clientAddress) Object.assign(request, { context: { clientAddress } })
+  return defineHandler(consoleMcpHandler).fetch(request)
 }
 
 const rpc = (id: number, method: string, params?: unknown) => ({ id, jsonrpc: "2.0", method, ...(params === undefined ? {} : { params }) })
@@ -264,6 +267,9 @@ describe("MCP endpoint", () => {
       const lan = await post(rpc(1, "tools/list"), {}, "http://192.168.1.20:5173/_vitehub/mcp")
       expect(lan.status).toBe(403)
       await expect(lan.json()).resolves.toMatchObject({ code: "CONSOLE_LOOPBACK_ONLY", fix: expect.stringContaining("console.auth") })
+      // A remote client can send `Host: localhost`. The peer address that the host adapter reports decides.
+      expect((await post(rpc(1, "tools/list"), {}, "http://localhost:5173/_vitehub/mcp", "203.0.113.9")).status).toBe(403)
+      expect((await post(rpc(1, "tools/list"), {}, "http://localhost:5173/_vitehub/mcp", "::1")).status).toBe(200)
     }
     installConsoleAccess({ mode: "open" })
     vi.stubEnv("NODE_ENV", "production")

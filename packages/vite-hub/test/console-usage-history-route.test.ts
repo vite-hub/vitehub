@@ -5,6 +5,7 @@ import { installConsoleAgentDefinitions } from "../src/console/runtime/server/ag
 import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts";
 import { allowed } from "./support/console-access.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
+import { consoleEvent } from "./console-event.ts";
 
 const usageHandler = allowed(usageHandlerRoute);
 
@@ -43,10 +44,7 @@ it("validates session history filters and keeps filtered responses separate in t
     { projectRoot: process.cwd(), invoke: false },
   );
   const request = (query: string) =>
-    usageHandler({
-      method: "GET",
-      req: { url: `http://localhost/api/_vitehub/console/usage?${query}` },
-    });
+    usageHandler(consoleEvent({ url: `http://localhost/api/_vitehub/console/usage?${query}` }));
   expect(await request("status=failed")).toMatchObject({
     sessionCount: 1,
     sessions: [{ id: "failed" }],
@@ -96,10 +94,7 @@ it.each(["100%_", "%41", "雪% &+?#"])(
       fallbackName: filter,
     }], { projectRoot: process.cwd(), invoke: false });
     const query = { agent: filter, search: filter };
-    const request = (queryString: string) => usageHandler({
-      method: "GET",
-      req: { url: `http://localhost/api/_vitehub/console/usage?${queryString}` },
-    });
+    const request = (queryString: string) => usageHandler(consoleEvent({ url: `http://localhost/api/_vitehub/console/usage?${queryString}` }));
     const first = await request(new URLSearchParams(query).toString());
     expect(first.sessions).toHaveLength(50);
     expect(first.cursor).toEqual(expect.any(String));
