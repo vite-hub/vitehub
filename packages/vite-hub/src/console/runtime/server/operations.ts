@@ -57,7 +57,7 @@ function legacyEvent(route: string, method: "GET" | "POST", request: LegacyReque
     // The handlers of an operation read this request event as they read the one of an HTTP route.
     "~standard": {
       vendor: "vitehub-console",
-      req: new Request(url, { body, method, signal: context.request?.signal }),
+      req: new Request(url, { body, headers: context.request?.headers, method, signal: context.request?.signal }),
       res: context.response ?? {},
       runtime: context.env ? { cloudflare: { env: context.env } } : {},
       ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}),
