@@ -57,7 +57,10 @@ export function projectFetch(path: string, init: Omit<RequestInit, "credentials"
  * WebSockets of the app do not work then, so features that need them show a note instead.
  */
 export function isRemoteProject(): boolean {
-  return active.origin !== ""
+  // Read the page origin without depending on DOM types in the package's server build.
+  const location: unknown = Reflect.get(globalThis, "location")
+  const pageOrigin: unknown = location instanceof Object ? Reflect.get(location, "origin") : undefined
+  return active.origin !== "" && active.origin !== pageOrigin
 }
 
 /**

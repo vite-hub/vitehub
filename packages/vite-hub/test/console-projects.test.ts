@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { envActivitySchema, requestEnvManagement } from "../src/console/runtime/client/env-management.ts"
 import { consoleProject, projectConsoleUrl, isRemoteProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleProjectProblem, probeConsoleProject } from "../src/console/runtime/client/project-link.ts"
 import { consoleProjectHost, consoleProjectsStorageKey, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "../src/console/runtime/client/projects.ts"
@@ -243,6 +244,31 @@ describe("linking a project", () => {
 })
 
 describe("remote project links", () => {
+  it.each([
+    ["", false],
+    ["https://app.example.com", false],
+    ["https://other.example.com", true],
+    ["http://app.example.com", true],
+    ["https://app.example.com:8443", true],
+  ])("classifies project origin %j against the page origin", (origin, remote) => {
+    vi.stubGlobal("location", new URL("https://app.example.com/console/"))
+    setConsoleProject({ origin, base: "/portal" })
+    expect(isRemoteProject()).toBe(remote)
+  })
+
+  it("allows Env management for a same-origin project and blocks another origin", async () => {
+    vi.stubGlobal("location", new URL("https://app.example.com/console/"))
+    const fetch = vi.fn(json(200, { events: [] }))
+    vi.stubGlobal("fetch", fetch)
+    setConsoleProject({ origin: "https://app.example.com", base: "/portal" })
+    await expect(requestEnvManagement("/_vitehub/env/manage", "env.server.token", "activity", envActivitySchema)).resolves.toEqual({ events: [] })
+    expect(fetch).toHaveBeenCalledWith("https://app.example.com/portal/_vitehub/env/manage", expect.objectContaining({ credentials: "same-origin", method: "POST" }))
+
+    setConsoleProject({ origin: "https://other.example.com", base: "/portal" })
+    await expect(requestEnvManagement("/_vitehub/env/manage", "env.server.token", "activity", envActivitySchema)).rejects.toMatchObject({ status: 403 })
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
   it("links features that need the app origin to the app's own Console", () => {
     expect(isRemoteProject()).toBe(false)
     expect(projectConsoleUrl("/kv")).toBe("/_vitehub/kv")
