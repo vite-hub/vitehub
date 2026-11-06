@@ -84,6 +84,7 @@ const runtimeEntries = [
   "src/console/runtime/client/mcp-client.ts",
   "src/console/runtime/client/open-link.ts",
   "src/console/runtime/client/operation-view.ts",
+  "src/console/runtime/client/pending-links.ts",
   "src/console/runtime/client/problem.ts",
   "src/console/runtime/client/project.ts",
   "src/console/runtime/client/project-link.ts",
@@ -483,6 +484,7 @@ export default defineConfig({
           delete exports["./console/runtime/client/presence"];
           delete exports["./console/runtime/client/preview"];
           delete exports["./console/runtime/client/publish"];
+          delete exports["./console/runtime/client/pending-links"];
           delete exports["./console/runtime/client/problem"];
           delete exports["./console/runtime/client/project"];
           delete exports["./console/runtime/client/project-link"];

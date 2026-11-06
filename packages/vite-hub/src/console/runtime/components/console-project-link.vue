@@ -4,20 +4,16 @@ import { ref, shallowRef, watch } from "vue";
 import type { ConsoleProjectProblem } from "../client/project-link";
 import type { ConsoleProjectTarget } from "../client/projects";
 import { cancelConsoleOpen, finishConsoleOpen, useConsoleOpenRequest } from "../client/open-link";
-import { createConsolePendingLink, linkConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
+import { linkConsoleProject, switchConsoleProject } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import ConsoleProjectToken from "./console-project-token.vue";
 
 const open = defineModel<boolean>("open", { required: true });
-const projects = useConsoleProjects();
 
 // An `/open` link of a project that this browser did not link fills in its URL.
 const openRequest = useConsoleOpenRequest();
 const url = ref(openRequest.value?.target.url ?? "");
 const busy = ref(false);
-const newProject = ref(false);
-const command = ref("");
-const copied = ref(false);
 const problem = shallowRef<ConsoleProjectProblem>();
 // After the project asks for a token, the dialog shows the token step for that project.
 const tokenStep = shallowRef<{ target: ConsoleProjectTarget, rejected: boolean }>();
@@ -32,9 +28,6 @@ watch(open, (value) => {
   url.value = "";
   problem.value = undefined;
   tokenStep.value = undefined;
-  newProject.value = false;
-  command.value = "";
-  copied.value = false;
   busy.value = false;
 });
 
@@ -65,61 +58,19 @@ async function link(token?: string): Promise<void> {
 function back(): void {
   tokenStep.value = undefined;
   problem.value = undefined;
-  newProject.value = false;
-  command.value = "";
-  copied.value = false;
-}
-
-async function createLink(): Promise<void> {
-  if (busy.value) return;
-  busy.value = true;
-  newProject.value = true;
-  problem.value = undefined;
-  try {
-    const ticket = await createConsolePendingLink();
-    if (open.value) command.value = `vite-hub init --console ${ticket.pendingId}:sha256:${ticket.verifier}`;
-  }
-  catch {
-    problem.value = { title: "Could not make a link", message: "Allow this Console to use browser storage, then try again." };
-  }
-  busy.value = false;
-}
-
-async function copyCommand(): Promise<void> {
-  try {
-    await navigator.clipboard.writeText(command.value);
-    copied.value = true;
-  }
-  catch {
-    // The command stays visible to select and copy by hand.
-  }
 }
 </script>
 
 <template>
   <UModal
     v-model:open="open"
-    :title="newProject ? 'Link a new project' : tokenStep ? `Enter the Console token for ${consoleProjectHost(tokenStep.target)}` : 'Link project'"
-    :description="newProject ? 'Run this command in your terminal, then open the link it prints in this browser profile.' : tokenStep ? 'The project uses auth: &quot;token&quot;.' : 'Open a ViteHub app in this Console. The app must list this Console in console.origins.'"
+    :title="tokenStep ? `Enter the Console token for ${consoleProjectHost(tokenStep.target)}` : 'Link project'"
+    :description="tokenStep ? 'The project uses auth: &quot;token&quot;.' : 'Open a ViteHub app in this Console. The app must list this Console in console.origins.'"
     :dismissible="!busy"
     :ui="{ content: 'sm:max-w-[440px]' }"
   >
     <template #body>
-      <div v-if="newProject" class="grid gap-3">
-        <template v-if="command">
-          <pre class="overflow-x-auto rounded-md border border-default p-3 text-xs"><code>{{ command }}</code></pre>
-          <UButton color="neutral" variant="outline" :label="copied ? 'Copied' : 'Copy command'" @click="copyCommand" />
-          <p class="text-sm text-muted">This command works once, for 24 hours. Check the app's host before you confirm its link.</p>
-        </template>
-        <div v-if="problem" role="alert" class="grid gap-1 text-sm">
-          <p class="font-medium text-highlighted">{{ problem.title }}</p>
-          <p class="text-muted">{{ problem.message }}</p>
-          <UButton label="Try again" :loading="busy" @click="createLink" />
-        </div>
-        <p v-else-if="busy" role="status" class="text-sm text-muted">Making a link…</p>
-        <UButton color="neutral" variant="link" size="sm" class="justify-self-start px-0" label="Use a project URL" :disabled="busy" @click="back" />
-      </div>
-      <div v-else-if="tokenStep" class="grid gap-3">
+      <div v-if="tokenStep" class="grid gap-3">
         <ConsoleProjectToken
           :busy="busy"
           :error="problem?.message ?? (tokenStep.rejected ? `${consoleProjectHost(tokenStep.target)} refused this token. Copy the current value of VITEHUB_CONSOLE_TOKEN from the server and try again.` : undefined)"
@@ -155,7 +106,6 @@ async function copyCommand(): Promise<void> {
           </div>
         </div>
         <UButton type="submit" block :loading="busy" :label="busy ? 'Checking…' : 'Continue'" />
-        <UButton v-if="projects.mode === 'hosted'" type="button" color="neutral" variant="outline" block label="Link a new project" :disabled="busy" @click="createLink" />
       </form>
     </template>
   </UModal>
