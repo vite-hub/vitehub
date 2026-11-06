@@ -74,6 +74,17 @@ KV operations return `[error, value]`. `error.code` is one of the codes of the m
 
 Upstash also supports `kv.getAndDelete(key)` and `kv.increment(key, ttl)`. These operations are atomic in the provider. Deno KV, Cloudflare KV, and `fs-lite` return `KV_UNSUPPORTED_OPERATION` because they cannot provide the same contract without extra storage or non-atomic calls.
 
+## Read-only handles
+
+`kv.store(name, { mode: "read" })` returns a `ReadonlyKVStorage` handle with `get()`, `has()`, `keys()`, and `list()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`, and another value throws `KV_INVALID_STORE_MODE`.
+
+```ts
+const flags = kv.store("default", { mode: "read" })
+const [error, value] = await flags.get("flags")
+```
+
+The mode limits this API, not the host. The KV binding or provider token keeps full access, and code can still import the full `kv` export, so it is not a security boundary against code that reads the binding directly.
+
 ## Application teardown
 
 Call `disposeKVStores()` from `@vite-hub/kv` (or `vite-hub/kv`) after stopping new application work. It disposes every initialized default and named store, waits for pending store initialization and cleanup, and reports cleanup failures with an `AggregateError`. Concurrent teardown calls share one promise. Later operations create fresh stores; old process-local cursors cannot resume.
