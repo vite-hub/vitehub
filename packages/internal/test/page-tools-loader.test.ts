@@ -398,6 +398,46 @@ describe("loadViteHubPageTools", () => {
     expect(pill().element.getAttribute("edge")).toBe("right")
   })
 
+  it.each([false, true])("keeps a drag bound to its starting pointer (tools off: %s)", async (off) => {
+    page("/")
+    if (!off) localStorage.setItem("vitehub-tools-collapsed", "1")
+    if (off) localStorage.setItem("vitehub-tools-off", "1")
+    session({ tools: [consoleTool] })
+    await loadViteHubPageTools({ load: modules().load })
+    const element = off ? offMark().element : pill().element
+    const button = element.shadowRoot!.querySelector<HTMLButtonElement>(off ? "button" : "button.mark")!
+    const capture = vi.fn()
+    button.setPointerCapture = capture
+    vi.spyOn(button, "getBoundingClientRect").mockReturnValue(new DOMRect(592, 660, 16, 14))
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(1200)
+    vi.spyOn(document.documentElement, "clientHeight", "get").mockReturnValue(676)
+
+    button.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 600, clientY: 667, pointerId: 1 }))
+    button.dispatchEvent(new PointerEvent("pointermove", { clientX: 1196, clientY: 338, pointerId: 1 }))
+    button.dispatchEvent(new PointerEvent("pointerdown", { button: 0, clientX: 600, clientY: 667, pointerId: 2 }))
+    button.dispatchEvent(new PointerEvent("pointermove", { clientX: 4, clientY: 100, pointerId: 2 }))
+    expect([element.getAttribute("edge"), element.style.getPropertyValue("--at")]).toEqual(["right", "50"])
+    button.dispatchEvent(new PointerEvent("lostpointercapture", { pointerId: 2 }))
+    expect(element.hasAttribute("dragging")).toBe(true)
+    expect(localStorage.getItem("vitehub-tools-dock")).toBeNull()
+    button.click()
+    expect(element.isConnected).toBe(true)
+    expect(element.hasAttribute("collapsed")).toBe(true)
+
+    button.dispatchEvent(new PointerEvent("pointermove", { clientX: 1196, clientY: 338, pointerId: 1 }))
+    button.dispatchEvent(new PointerEvent("lostpointercapture", { pointerId: 1 }))
+    button.click()
+    expect(element.isConnected).toBe(true)
+    expect(element.hasAttribute("collapsed")).toBe(true)
+    expect(element.hasAttribute("dragging")).toBe(false)
+    expect(JSON.parse(localStorage.getItem("vitehub-tools-dock")!)).toEqual({ edge: "right", at: 50 })
+    expect(capture).toHaveBeenCalledExactlyOnceWith(1)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    button.click()
+    await vi.waitFor(() => expect(pill().element.hasAttribute("collapsed")).toBe(false))
+    expect(pill().element.getAttribute("edge")).toBe("right")
+  })
+
   it.each([
     [600, 20, "top"], [600, 656, "bottom"], [1190, 338, "right"], [10, 338, "left"], [40, 40, "top"], [40, 660, "bottom"],
   ] as const)("picks the closest edge for a point (%d, %d)", (x, y, edge) => {

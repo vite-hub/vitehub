@@ -398,15 +398,18 @@ export interface ViteHubPageDragOptions {
  */
 export function dragViteHubPageDock(options: ViteHubPageDragOptions): () => boolean {
   const { host, handle } = options
+  let pointerId: number | undefined
   let dragged = false
   handle.style.touchAction = "none"
   handle.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) return
+    if (event.button !== 0 || pointerId !== undefined) return
+    pointerId = event.pointerId
     dragged = false
     const box = handle.getBoundingClientRect()
     const grip = { x: event.clientX - box.left - box.width / 2, y: event.clientY - box.top - box.height / 2 }
     handle.setPointerCapture(event.pointerId)
     const move = (moved: PointerEvent) => {
+      if (moved.pointerId !== event.pointerId) return
       if (!dragged && Math.hypot(moved.clientX - event.clientX, moved.clientY - event.clientY) < 4) return
       dragged = true
       host.setAttribute("dragging", "")
@@ -426,14 +429,18 @@ export function dragViteHubPageDock(options: ViteHubPageDragOptions): () => bool
       options.place({ edge, at: placeAlong(center, part, start, end, side ? height : width) })
     }
     handle.addEventListener("pointermove", move)
-    handle.addEventListener("lostpointercapture", () => {
+    const finish = (lost: PointerEvent) => {
+      if (lost.pointerId !== event.pointerId) return
       handle.removeEventListener("pointermove", move)
+      handle.removeEventListener("lostpointercapture", finish)
+      pointerId = undefined
       if (!dragged) return
       host.removeAttribute("dragging")
       options.drop()
       // The click that ends the drag comes first, so a later key press on the handle still counts as a click.
       setTimeout(() => { dragged = false })
-    }, { once: true })
+    }
+    handle.addEventListener("lostpointercapture", finish)
   }, { signal: options.signal })
   return () => dragged
 }
