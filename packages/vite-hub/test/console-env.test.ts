@@ -44,7 +44,7 @@ describe("Console Env", () => {
     expect(runtimeImports).not.toContain('"#vitehub/env/server"')
     expect(generated).not.toContain('from "#vitehub/env/server"')
     // Status inspection can call providers, so the plugin imports it only on request.
-    expect(generated).toContain('async event => (await import("#vitehub/env/server")).inspectServerEnv(event)')
+    expect(generated).toContain('async () => (await import("#vitehub/env/server")).inspectServerEnv()')
   })
   it("retains distinct pathless statuses through reactive row filtering", () => {
     const descriptions = ref([
