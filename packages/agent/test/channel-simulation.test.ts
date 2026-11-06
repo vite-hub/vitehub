@@ -97,7 +97,12 @@ describe("simulated chat Channels", () => {
       expect(response.status, channel).toBe(200)
       expect(response.headers.get("content-type"), channel).toBe("text/html; charset=utf-8")
       const html = await response.text()
-      expect(html, channel).toContain(`Unofficial simulator · not affiliated with ${platform}`)
+      expect(html.match(/Unofficial simulator/g), channel).toHaveLength(1)
+      expect(html, channel).toContain(`<div class="sim-strip"><span class="sim-label">Unofficial simulator · not affiliated with ${platform}</span></div>`)
+      // The embed check runs in <head>, before the first paint, so an embedded page never shows its app chrome.
+      const head = html.slice(0, html.indexOf("</head>"))
+      expect(head, channel).toContain("<script>if(self!==top)document.documentElement.dataset.embed=\"\"</script>")
+      expect(html, channel).toContain("[data-embed]")
       expect(html, channel).toContain(`"route":"${route}"`)
       expect(html, channel).not.toMatch(/<link|<img|\bsrc=|@import|url\(\s*["']?https?:/)
       const script = /<script type="module">([\s\S]*)<\/script>/.exec(html)?.[1] ?? ""

@@ -5,24 +5,25 @@ import type { SimulatorConfig, SimulatorDocument, SimulatorSkin, SimulatorView }
 // Inspired by a Telegram Web chat with a bot. It follows the system theme. No Telegram logo, font, or asset is used.
 const css = `
 :root {
-  --side: #fff; --text: #000; --muted: #707579; --accent: #3390ec; --hover: #f4f4f5; --line: #dadce0;
-  --in: #fff; --out: #eeffde; --out-accent: #4fae4e; --in-meta: #a0acb6; --out-meta: #4fae4e;
+  --side: #fff; --text: #000; --muted: #707579; --accent: #1f74c9; --link: #1f74c9; --hover: #f4f4f5; --line: #dadce0;
+  --in: #fff; --out: #eeffde; --out-accent: #2f7d2e; --in-meta: #67737e; --out-meta: #2f7d2e;
   --service: rgba(70, 110, 70, .42);
   --wall: linear-gradient(135deg, #dbddbb 0%, #6ba587 35%, #d5d88d 70%, #88b884 100%);
   --dots: rgba(255, 255, 255, .22);
+  --sim-strip-bg: var(--side); --sim-strip-text: var(--muted); --sim-surface: var(--side); --sim-text: var(--text); --sim-line: var(--line);
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --side: #212121; --text: #fff; --muted: #aaa; --accent: #8774e1; --hover: #2c2c2c; --line: #0f0f0f;
-    --in: #212121; --out: #766ac8; --out-accent: #fff; --in-meta: #8a8a8a; --out-meta: rgba(255, 255, 255, .65);
+    --side: #212121; --text: #fff; --muted: #aaa; --accent: #6356bd; --link: #9d8cf0; --hover: #2c2c2c; --line: #0f0f0f;
+    --in: #212121; --out: #6356bd; --out-accent: #fff; --in-meta: #8a8a8a; --out-meta: rgba(255, 255, 255, .85);
     --service: rgba(0, 0, 0, .35);
     --wall: linear-gradient(135deg, #1c2a24 0%, #24352c 40%, #182520 70%, #2a3a2e 100%);
     --dots: rgba(255, 255, 255, .05);
   }
 }
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; }
-body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); background: var(--side); display: flex; overflow: hidden; -webkit-font-smoothing: antialiased; }
+body { font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); background: var(--side); -webkit-font-smoothing: antialiased; }
+.sim-root { display: flex; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .icon { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); flex: none; }
@@ -49,14 +50,13 @@ main::before { content: ""; position: absolute; inset: 0; pointer-events: none; 
 header { position: relative; z-index: 1; height: 56px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 8px 0 16px; background: var(--side); }
 header .avatar { width: 42px; height: 42px; font-size: 17px; }
 header .who { flex: 1; min-width: 0; }
-header .name { font-weight: 600; font-size: 16px; }
+header .name { min-width: 0; font-weight: 600; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 header .status { font-size: 14px; color: var(--muted); }
-header .status.typing { color: var(--accent); }
+header .status.typing { color: var(--link); }
 .typing i { display: inline-block; width: 3px; height: 3px; margin-left: 1px; border-radius: 50%; background: currentColor; animation: blink 1.2s infinite; }
 .typing i:nth-child(2) { animation-delay: .2s; } .typing i:nth-child(3) { animation-delay: .4s; }
 @keyframes blink { 0%, 60%, 100% { opacity: .2; } 30% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .typing i { animation: none; } }
-.unofficial { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 10px; padding: 2px 8px; white-space: nowrap; }
 #scroll { position: relative; flex: 1; overflow-y: auto; padding: 0 16px 8px; }
 .column { max-width: 728px; margin: 0 auto; display: flex; flex-direction: column; }
 .day { position: sticky; top: 8px; z-index: 1; align-self: center; margin: 8px 0; padding: 2px 9px; border-radius: 13px; font-size: 14px; font-weight: 500; color: #fff; background: var(--service); }
@@ -65,7 +65,7 @@ header .status.typing { color: var(--accent); }
 .msg { display: flex; margin-top: 2px; }
 .msg.first { margin-top: 8px; }
 .msg.user { justify-content: flex-end; }
-.bubble { position: relative; display: flow-root; max-width: min(480px, 85%); padding: 6px 9px 7px 10px; border-radius: 12px; background: var(--in); overflow-wrap: anywhere; filter: drop-shadow(0 1px 1px rgba(16, 35, 47, .14)); --a: var(--accent); }
+.bubble { position: relative; display: flow-root; max-width: min(480px, 85%); padding: 6px 9px 7px 10px; border-radius: 12px; background: var(--in); overflow-wrap: anywhere; filter: drop-shadow(0 1px 1px rgba(16, 35, 47, .14)); --a: var(--link); }
 .user .bubble { background: var(--out); --a: var(--out-accent); }
 .assistant:not(.first) .bubble { border-top-left-radius: 6px; }
 .assistant:not(.last) .bubble { border-bottom-left-radius: 6px; }
@@ -91,13 +91,16 @@ header .status.typing { color: var(--accent); }
 .checks { margin-left: 3px; letter-spacing: -5px; padding-right: 5px; font-size: 13px; }
 form { position: relative; z-index: 1; flex: none; display: flex; align-items: flex-end; gap: 8px; width: 100%; max-width: 760px; margin: 0 auto; padding: 0 16px 16px; }
 .box { position: relative; flex: 1; display: flex; align-items: flex-end; min-height: 54px; padding: 7px 4px; border-radius: 16px 16px 0 16px; background: var(--side); box-shadow: 0 1px 2px rgba(16, 35, 47, .15); }
+.box:focus-within { box-shadow: 0 0 0 2px var(--accent), 0 1px 2px rgba(16, 35, 47, .15); }
 .box::after { content: ""; position: absolute; right: -8.6px; bottom: 0; width: 9px; height: 17px; background: radial-gradient(ellipse 9px 17px at 100% 0, transparent 97%, var(--side) 100%); }
 textarea { flex: 1; min-width: 0; resize: none; border: 0; outline: none; background: none; color: var(--text); font: inherit; font-size: 16px; line-height: 22px; padding: 9px 4px; height: 40px; max-height: 160px; }
 textarea::placeholder { color: var(--muted); }
 .send { width: 54px; height: 54px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--side); color: var(--accent); box-shadow: 0 1px 2px rgba(16, 35, 47, .15); }
 .send svg { width: 26px; height: 26px; fill: currentColor; }
 .send:hover { background: var(--accent); color: #fff; }
-@media (max-width: 720px) { aside { display: none; } .unofficial { white-space: normal; } }
+.sim-error { width: min(728px, 100% - 32px); margin: 8px auto; }
+@media (max-width: 720px) { aside { display: none; } }
+[data-embed] aside { display: none; }
 `
 
 function body(config: SimulatorConfig): string {
@@ -123,7 +126,6 @@ function body(config: SimulatorConfig): string {
   <header>
     <div class="avatar" aria-hidden="true">${initial}</div>
     <div class="who"><div class="name">${agent}</div><div class="status" id="status">bot</div></div>
-    <span class="unofficial">Unofficial simulator · not affiliated with ${escapeHtml(config.platform)}</span>
     <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="5.5" r=".6"/><circle cx="12" cy="12" r=".6"/><circle cx="12" cy="18.5" r=".6"/></svg></span>
   </header>
   <div id="scroll">
@@ -150,7 +152,7 @@ function telegramMessage(view: SimulatorView, index: number): string {
   const next = index + 1 < view.messages.length ? view.messages[index + 1] : undefined
   const first = previous === undefined || previous.role !== message.role
   const last = next === undefined || next.role !== message.role
-  const read = view.busy || view.messages.slice(index + 1).some(later => later.role === "assistant")
+  const read = view.messages.slice(index + 1).some(later => later.role === "assistant")
   const checks = message.role === "user" ? `<span class="checks" aria-label="${read ? "Read" : "Sent"}">${read ? "✓✓" : "✓"}</span>` : ""
   const meta = `<span class="meta">${view.time(message.at)}${checks}</span>`
   const html = view.markdown(message.text)
