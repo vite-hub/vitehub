@@ -2,6 +2,7 @@ import { defineHandler, H3Event } from "h3"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineOperation } from "@vite-hub/internal/operations"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import { assertUniqueOperationNames } from "../src/console/build.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
@@ -9,6 +10,8 @@ import { installConsoleDevelopment } from "../src/console/runtime/server/develop
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleRuntime } from "../src/console/runtime/server/runtime.ts"
+import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
+import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 import { consoleOperationRegistry as installedRegistry, installConsoleOperations, installConsoleProjectRoot } from "../src/console/runtime/server/operation-contributions.ts"
 import consoleRpcHandler, { consoleOperationRegistry } from "../src/console/runtime/server/rpc.ts"
 import { callOperation, installedOperationRegistry, installOperationRegistryLoader, operationRootHeader, parseOperationInput, projectRootHash, runOperation } from "@vite-hub/internal/operations"
@@ -52,6 +55,19 @@ afterEach(() => {
 })
 
 describe("operations that run app code", () => {
+  it("keeps the request cookies when an operation calls an Env provider", async () => {
+    installConsoleSections("/work/app", ["env"])
+    const inspect = vi.fn(async (event: ConsoleRequestEvent) => {
+      expect(getStandardContext(event).req.headers.get("cookie")).toBe("sid=ada")
+      return { entries: [] }
+    })
+    installConsoleEnv("/work/app", { entries: [] }, undefined, inspect)
+    const response = await call("env.get", { status: true }, { cookie: "sid=ada" })
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ ok: true, value: { entries: [], status: [] } })
+    expect(inspect).toHaveBeenCalledOnce()
+  })
+
   const start = defineOperation({
     description: "Start a job.",
     input: v.strictObject({}),
