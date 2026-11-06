@@ -89,6 +89,8 @@ export default defineEventHandler(() => {
 
 Some code takes a Cloudflare D1 binding instead of a Drizzle client, such as the [D1 Agent Invocation store](/docs/agents/invocation-storage#store-invocations-in-cloudflare-d1). `useDatabaseBinding(name)` returns the D1 binding of a database, or the D1 session of the request when `cloudflare.readReplication` is on. Call it for each operation, inside the request or the task that uses it, because the binding belongs to the running Worker. It is the same value as `db.$client`, so its calls do not appear in the [request database stats](#see-database-work-on-each-request).
 
+The return type, `DatabaseD1Binding`, exposes `prepare()` and `batch()`, which both bindings and sessions support. It fits consumers of these operations, including the D1 Agent Invocation store. It is not the full Cloudflare `D1Database` type: sessions have no `exec()`, `withSession()`, or `dump()`.
+
 It throws `DATABASE_NO_D1_BINDING` when the database does not run on a D1 binding, such as local SQLite during `vite dev` or D1 over HTTP.
 
 ### Stay under the bound parameter limit

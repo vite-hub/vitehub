@@ -58,14 +58,13 @@ export function createAgentDatabase(databases: Record<string, AgentDatabaseEntry
 }
 
 /**
- * The Cloudflare D1 binding of a Database, or the request's D1 session with read replication. The methods match
- * Cloudflare's `D1Database`, so code that takes a D1 binding accepts it.
+ * The operations shared by a Cloudflare D1 binding and the request's D1 session with read replication.
+ * Consumers such as the D1 Agent Invocation store accept this contract; it is not the full `D1Database` API.
  */
 export interface DatabaseD1Binding {
   prepare(query: string): DatabaseD1Statement
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- Matches Cloudflare D1's batch contract; the SQL decides the row shape.
   batch<T = Record<string, unknown>>(statements: DatabaseD1Statement[]): Promise<DatabaseD1Result<T>[]>
-  exec(query: string): Promise<unknown>
 }
 
 export interface DatabaseD1Statement {
