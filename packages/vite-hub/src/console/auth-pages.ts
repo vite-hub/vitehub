@@ -25,7 +25,10 @@ export function consoleAuthSignInPage(provider: string, request: Request, mountB
   const label = provider.toLowerCase() === "github" ? "GitHub" : provider
   if (query.has("sig") && query.has("client_id")) return consoleAuthOAuthPage({ password: false, providers: [{ id: provider, label }] }, consoleAuthPath(mountBaseURL, consoleAuthBasePath), consoleAuthPath(mountBaseURL, "/_vitehub"))
   const buttonLabel = `Sign in with ${label}`
-  const startPath = consoleAuthPath(mountBaseURL, "/_vitehub?auth_start=1")
+  const start = new URL(consoleAuthPath(mountBaseURL, "/_vitehub?auth_start=1"), request.url)
+  const target = consoleAuthReturnPath(request, mountBaseURL)
+  if (target) start.searchParams.set("redirect", target)
+  const startPath = `${start.pathname}${start.search}`
   const search = new URL(request.url).searchParams
   const message = search.has("denied")
     ? "Your previous account cannot access this Console. Choose a different account with your sign-in provider before signing in again."
@@ -182,10 +185,34 @@ export function consoleImpersonationPage(input: {
   })
 }
 
+/**
+ * The Console page that a Console Auth sign-in returns to, or `undefined` for the Console home. A visit to the home
+ * names the page in its `redirect` query parameter, and a visit to any other Console page is that page.
+ */
+function consoleAuthReturnPath(request: Request, mountBaseURL: string): string | undefined {
+  const url = new URL(request.url)
+  const mount = consoleAuthPath(mountBaseURL, "")
+  const home = `${mount}/_vitehub`
+  const asked = url.pathname === home || url.pathname === `${home}/sign-in` ? url.searchParams.get("redirect") : `${url.pathname}${url.search}`
+  const target = consoleReturnPath(asked, url, mount)
+  return target === home ? undefined : target
+}
+
+/** Where Better Auth returns after a Console Auth sign-in that `/_vitehub?auth_start=1&redirect=<page>` starts. */
+export function consoleAuthSignInURLs(request: Request, mountBaseURL = "/"): { callbackURL: string, errorCallbackURL: string } | undefined {
+  const target = consoleAuthReturnPath(request, mountBaseURL)
+  if (!target) return undefined
+  const failed = new URL(consoleAuthPath(mountBaseURL, "/_vitehub?auth_error=signin"), request.url)
+  failed.searchParams.set("redirect", target)
+  return { callbackURL: target, errorCallbackURL: `${failed.pathname}${failed.search}` }
+}
+
 export function consoleAuthPageResponse(request: Request, response: Response | undefined, mountBaseURL = "/", authBasePath: string = consoleAuthBasePath): Response | undefined {
   if (response?.status === 401 && request.method === "GET" && request.headers.get("accept")?.includes("text/html")) {
     const signIn = new URL(consoleAuthPath(mountBaseURL, "/_vitehub/sign-in"), request.url)
     if (new URL(request.url).searchParams.has("auth_error")) signIn.searchParams.set("auth_error", "signin")
+    const target = consoleAuthReturnPath(request, mountBaseURL)
+    if (target) signIn.searchParams.set("redirect", target)
     return Response.redirect(signIn, 302)
   }
   if (

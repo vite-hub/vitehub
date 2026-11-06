@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto"
 import { array, defineCollection } from "@vite-hub/source"
 import { ViteHubError } from "@vite-hub/runtime"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isWorkspaceConflict, registerWorkspacePlugin, resolveWorkspaceStoreTarget, useWorkspace } from "@vite-hub/workspace"
+import { isWorkspaceConflict, registerWorkspacePlugin, resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace/files"
 
 import {
   comarkJsonSchema,
@@ -30,7 +30,7 @@ import { contentLeaseHeld, createContentSessions } from "./sessions.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 import type { ArrayCollectionQuery, Collection, CollectionFacets } from "@vite-hub/source"
-import type { WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceRevisionView, WorkspaceWriteInput } from "@vite-hub/workspace"
+import type { WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceRevisionView, WorkspaceWriteInput } from "@vite-hub/workspace/files"
 import type { JsonSchema, Source as ComarkContentSource } from "comark-content"
 import type {
   CompiledDocumentsPath,
@@ -723,7 +723,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   function history(): Promise<WorkspaceRetainedHistory> {
     historyPromise ??= (async () => {
       // SAFETY: Content accepts any Workspace name; the registry rejects unknown names when the facade resolves.
-      const workspace = useWorkspace(workspaceName as never, { mode: "write" })
+      const workspace = useWorkspaceFiles(workspaceName as never, { mode: "write" })
       const capabilities = await workspace.capabilities()
       if (!capabilities.retainedHistory) {
         throw contentErrorDiagnostics.CONTENT_R0007({
@@ -750,7 +750,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   /** Schedules are files on a `schedules` ref of the Workspace, which the GitHub Store does not keep. */
   async function supportsScheduling(): Promise<boolean> {
     // SAFETY: Content accepts any Workspace name; the registry rejects unknown names when the facade resolves.
-    const target = await resolveWorkspaceStoreTarget(useWorkspace(workspaceName as never, { mode: "write" }))
+    const target = await resolveWorkspaceStoreTarget(useWorkspaceFiles(workspaceName as never, { mode: "write" }))
     return target?.provider !== "github"
   }
 
