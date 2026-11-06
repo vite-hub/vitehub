@@ -444,9 +444,29 @@ function transformGeneratedAgentWorkflowRegistry(
           "",
         ]
       : []
-  if (!capabilityLoaders.imports.length && !stateImports.length) return code
-  const preamble = [...capabilityLoaders.imports, ...stateImports, "", ...capabilityLoaders.setup, ...stateSetup, ""].join("\n")
-  return code.startsWith(preamble) ? code : preamble + code
+  // Nuxt writes this registry from its Nitro config hook before Vite resolves the host preset,
+  // and the Vite transform runs again on that file. The latest call owns the setup block.
+  const registry = stripGeneratedAgentWorkflowRegistrySetup(code)
+  if (!capabilityLoaders.imports.length && !stateImports.length) return registry
+  return [
+    generatedAgentWorkflowRegistrySetupStart,
+    ...capabilityLoaders.imports,
+    ...stateImports,
+    "",
+    ...capabilityLoaders.setup,
+    ...stateSetup,
+    generatedAgentWorkflowRegistrySetupEnd,
+    registry,
+  ].join("\n")
+}
+
+const generatedAgentWorkflowRegistrySetupStart = "// @vite-hub/agent workflow registry setup start"
+const generatedAgentWorkflowRegistrySetupEnd = "// @vite-hub/agent workflow registry setup end"
+
+function stripGeneratedAgentWorkflowRegistrySetup(code: string): string {
+  if (!code.startsWith(`${generatedAgentWorkflowRegistrySetupStart}\n`)) return code
+  const end = code.indexOf(`\n${generatedAgentWorkflowRegistrySetupEnd}\n`)
+  return end === -1 ? code : code.slice(end + generatedAgentWorkflowRegistrySetupEnd.length + 2)
 }
 
 function isGeneratedAgentWorkflowRegistryId(id: string): boolean {

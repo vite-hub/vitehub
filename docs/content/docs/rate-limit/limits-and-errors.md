@@ -13,3 +13,14 @@ icon: i-lucide-circle-alert
 - Request identity defaults to the H3 event's client address; explicit user or tenant identities remain application policy.
 - Managed policies must be static so ViteHub can provision provider infrastructure.
 - The package exposes atomic consumption, not a non-consuming check that providers cannot implement consistently.
+
+## Cloudflare limits
+
+The [Cloudflare Rate Limiting binding](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/) accepts a `period` of 10 or 60 seconds, and it is best-effort. A Cloudflare build fails when a policy needs something else:
+
+| Policy | Code |
+| --- | --- |
+| `enforcement: 'strict'` | `RATE_LIMIT_R0015` |
+| `window` other than `10s` or `1m`, for example `30s` or `1h` | `RATE_LIMIT_R0016` |
+
+The dev server counts in memory, but it checks the same policies when the build targets Cloudflare: with `vitehub({ preset: 'cloudflare' })`, with `hubRateLimit({ provider: 'cloudflare' })`, or with the Cloudflare Nitro preset and no explicit provider. `vite dev` then fails to start with the same code, and a file that adds an unsupported policy logs the error when you save it. Without a Cloudflare target, the dev server accepts every valid policy, as before.

@@ -91,8 +91,9 @@ export default defineConfig(async () => {
       import("@vite-hub/workspace/vite"),
       import("@vite-hub/workflow/vite"),
     ])
-    const { createViteE2EComposer, resolveViteE2EOptions } = await import("./build/vite-e2e")
+    const { createViteE2EComposer, resolveViteE2EModuleOptions, resolveViteE2EOptions } = await import("./build/vite-e2e")
     const composerOptions = resolveViteE2EOptions(import.meta.dirname, hosting)
+    const moduleOptions = resolveViteE2EModuleOptions(hosting)
 
     return {
       ...baseConfig,
@@ -114,7 +115,7 @@ export default defineConfig(async () => {
       blob: composerOptions.hosting.includes("vercel")
         ? { access: "private", driver: "vercel-blob" }
         : {},
-      kv: {},
+      kv: moduleOptions.kv ?? {},
       plugins: [
         hubQueue(),
         hubSchedule(),
@@ -131,10 +132,10 @@ export default defineConfig(async () => {
           workspace: composerOptions.workspace,
         }),
       ],
-      queue: {},
+      queue: moduleOptions.queue,
       sandboxTask: composerOptions.sandbox,
       workspace: { store: { provider: "memory" } },
-      workflow: {},
+      workflow: moduleOptions.workflow,
     }
   }
 
