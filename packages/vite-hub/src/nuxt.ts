@@ -44,7 +44,7 @@ import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { consoleNuxtDevToolsTab, type ConsoleNuxtDevToolsTab } from "./console/devtools.ts"
-import { addConsolePageHandlers, addConsoleRpcHandler, mountPath } from "./console/nitro.ts"
+import { addConsolePageHandlers, addConsoleRpcHandler, ignoreConsolePrerender } from "./console/nitro.ts"
 import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, writeConsoleConnectionsActor, type ConsoleAuthConfig } from "./console/auth-build.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleAccess, assertConsoleProductionAccess, closeConsoleInvocationRootState, consoleAuthConfig, consoleOpenAccessBuildWarning, resolveConsoleOptions, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
@@ -571,8 +571,7 @@ async function installConsole(
   } } : undefined, retention)
   const routeRules = (nuxt.options.routeRules ??= {})
   for (const route of ["/_vitehub", "/_vitehub/**"]) {
-    const mountedRoute = mountPath(nuxt.options.app?.baseURL, route)
-    const rule = (routeRules[mountedRoute] ??= {})
+    const rule = (routeRules[route] ??= {})
     rule.headers = { ...rule.headers, "x-robots-tag": "noindex, nofollow" }
   }
   if (nuxt.options.dev && nuxt.hook) {
@@ -595,12 +594,14 @@ async function installConsole(
   const entrySections = (await discoverConsoleEntrySections({ discoveryRoot, projectRoot, serverDirs })).filter(section => !sections.includes(section))
   installConsoleSections(projectRoot, [...sections, ...entrySections, ...documentEditorSections], independentAuth)
   const nitro = (nuxt.options.nitro ??= {}) as Parameters<typeof addConsolePageHandlers>[0] & { plugins?: string[] }
-  addConsoleRpcHandler(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, [...sections, ...entrySections], Boolean(access?.oauth));
+  // Nitro adds its `baseURL`, which Nuxt sets to `app.baseURL`, to every route, asset, and route rule.
+  addConsoleRpcHandler(nitro, consoleRuntimeRoot, undefined, [...sections, ...entrySections], Boolean(access?.oauth));
   // The Console renders in its own document, as in a Vite app, so the host's styles, Nuxt UI theme, and layouts do not
   // reach it.
-  addConsolePageHandlers(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, independentAuth ? undefined : access?.signInPage)
+  addConsolePageHandlers(nitro, consoleRuntimeRoot, undefined, independentAuth ? undefined : access?.signInPage)
+  ignoreConsolePrerender(nitro, nuxt.options.app?.baseURL)
   const clientHandler = join(consoleRuntimeRoot, "server/client.get.js")
-  const clientRoute = mountPath(nuxt.options.app?.baseURL, "/api/_vitehub/console/client.js")
+  const clientRoute = "/api/_vitehub/console/client.js"
   if (!nitro.handlers?.some(handler => handler.route === clientRoute)) {
     (nitro.handlers ??= []).push({ handler: clientHandler, lazy: true, route: clientRoute })
   }
@@ -1492,9 +1493,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
           config.handlers = config.handlers.filter((handler: { handler?: string }) => handler.handler !== join(consoleRuntimeRoot, "server/client.get.js"))
         }
         const kit = createNitroServerKit(config)
-        if (authHandlers.signIn) kit.addHandler({ handler: authHandlers.signIn, lazy: true, route: mountPath(nuxt.options.app?.baseURL, "/_vitehub/sign-in"), method: "get" })
-        if (authHandlers.route) kit.addHandler({ handler: authHandlers.route, lazy: true, route: mountPath(nuxt.options.app?.baseURL, "/api/_vitehub/console/auth/**") })
-        if (authHandlers.client) kit.addHandler({ handler: authHandlers.client, lazy: true, route: mountPath(nuxt.options.app?.baseURL, "/api/_vitehub/console/client.js"), method: "get" })
+        if (authHandlers.signIn) kit.addHandler({ handler: authHandlers.signIn, lazy: true, route: "/_vitehub/sign-in", method: "get" })
+        if (authHandlers.route) kit.addHandler({ handler: authHandlers.route, lazy: true, route: "/api/_vitehub/console/auth/**" })
+        if (authHandlers.client) kit.addHandler({ handler: authHandlers.client, lazy: true, route: "/api/_vitehub/console/client.js", method: "get" })
         kit.addHandler({ handler: authHandlers.middleware, middleware: true, route: "/**" })
         Object.assign(config, kit.config)
       }
@@ -1547,8 +1548,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       )
       installConsoleSections(projectRoot, consoleSections, Boolean(consoleAuthConfig(consoleOptions)))
       installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
-      addConsoleRpcHandler(config, consoleRuntimeRoot, nuxt.options.app?.baseURL, consoleSections, Boolean(consoleAccess?.oauth));
-      addConsolePageHandlers(config, consoleRuntimeRoot, nuxt.options.app?.baseURL, configuredConsoleAuth ? undefined : consoleAccess?.signInPage)
+      addConsoleRpcHandler(config, consoleRuntimeRoot, undefined, consoleSections, Boolean(consoleAccess?.oauth));
+      addConsolePageHandlers(config, consoleRuntimeRoot, undefined, configuredConsoleAuth ? undefined : consoleAccess?.signInPage)
+      ignoreConsolePrerender(config, nuxt.options.app?.baseURL)
       if (consoleSections.includes("connections")) {
         // The Connections management handler records the signed-in Console user as the actor.
         // SAFETY: Nitro aliases map virtual module names to generated module paths.
