@@ -87,13 +87,16 @@ function edit(file: string, code: string, edits: readonly ConfigEdit[]): string 
 describe("config corpus", () => {
   const repository = repositoryConfigs()
   const docs = docsSnippets()
+  // Fix classification inputs so unrelated docs additions do not invalidate the expectations.
+  // The round-trip test below still covers every config in the current docs.
+  const docsSamples: CorpusEntry[] = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures/config-docs.json"), "utf8"))
 
   it("classifies every vite-hub config in the repository", () => {
     expect(classify(repository)).toEqual(expectedFor(key => !key.includes(".md#")))
   })
 
-  it("classifies every config snippet in the docs", () => {
-    expect(classify(docs)).toEqual(expectedFor(key => key.includes(".md#")))
+  it("classifies the docs config samples", () => {
+    expect(classify(docsSamples)).toEqual(expectedFor(key => key.includes(".md#")))
   })
 
   it("set then delete gives back the original bytes unless a spread prevents deletion", () => {
