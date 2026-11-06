@@ -9,6 +9,15 @@ function cssVariable(element: HTMLElement, name: string, fallback: string) {
   return getComputedStyle(element).getPropertyValue(name).trim() || fallback;
 }
 
+function terminalTheme(element: HTMLElement) {
+  return {
+    background: cssVariable(element, "--vh-ws-terminal-bg", "#ffffff"),
+    cursor: cssVariable(element, "--vh-ws-terminal-fg", "#525252"),
+    foreground: cssVariable(element, "--vh-ws-terminal-fg", "#525252"),
+    selectionBackground: cssVariable(element, "--vh-ws-code-selection", "#009fff2e"),
+  };
+}
+
 /** An xterm.js terminal that shows output chunks, such as `workspace.logs`. xterm loads when the terminal mounts. */
 export const WorkspaceTerminal = defineComponent({
   name: "WorkspaceTerminal",
@@ -27,6 +36,7 @@ export const WorkspaceTerminal = defineComponent({
     let written: WorkspaceTerminalOutput = [];
     let cursor: number | undefined;
     let observer: ResizeObserver | undefined;
+    let themeObserver: MutationObserver | undefined;
     let disposed = false;
 
     function write(output: WorkspaceTerminalOutput) {
@@ -70,12 +80,7 @@ export const WorkspaceTerminal = defineComponent({
         fontSize: 12,
         lineHeight: 1.4,
         scrollback: 5000,
-        theme: {
-          background: cssVariable(element, "--vh-ws-terminal-bg", "#f5f5f5"),
-          cursor: cssVariable(element, "--vh-ws-terminal-fg", "#525252"),
-          foreground: cssVariable(element, "--vh-ws-terminal-fg", "#525252"),
-          selectionBackground: cssVariable(element, "--vh-ws-code-selection", "#009fff2e"),
-        },
+        theme: terminalTheme(element),
       });
       terminal.loadAddon(fit);
       terminal.open(element);
@@ -86,12 +91,18 @@ export const WorkspaceTerminal = defineComponent({
         if (element.clientWidth > 0 && element.clientHeight > 0) fit.fit();
       });
       observer.observe(element);
+      // xterm paints with the colors it gets, so read them again when the color mode class of the page changes.
+      themeObserver = new MutationObserver(() => {
+        if (terminal) terminal.options.theme = terminalTheme(element);
+      });
+      themeObserver.observe(document.documentElement, { attributeFilter: ["class", "data-theme"] });
       write(props.output);
     });
     watch(() => props.output, write);
     onBeforeUnmount(() => {
       disposed = true;
       observer?.disconnect();
+      themeObserver?.disconnect();
       terminal?.dispose();
     });
     expose({ clear: () => { terminal?.reset(); written = []; cursor = undefined; } });
