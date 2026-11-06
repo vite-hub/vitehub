@@ -5,8 +5,8 @@
 // at that path, so the other blocks of the page can import it. A block that is an excerpt of a larger file
 // must say so with `fragment` in its fence meta: ```ts [server/agents/support.ts] fragment.
 import { createHash } from "node:crypto"
-import { existsSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs"
-import { dirname, join, relative, resolve } from "node:path"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import ts from "typescript"
 
@@ -39,7 +39,7 @@ export function snippetSources() {
   return [...docs, ...readmes]
 }
 
-export function extractBlocks(markdown) {
+export function extractBlocks(markdown, languages = fenceLanguages) {
   const lines = markdown.replaceAll("\r\n", "\n").split("\n")
   const blocks = []
   for (let index = 0; index < lines.length; index++) {
@@ -53,7 +53,7 @@ export function extractBlocks(markdown) {
       body.push(lines[end].startsWith(indent) ? lines[end].slice(indent.length) : lines[end].trimStart())
       end++
     }
-    if (fenceLanguages.has(language)) {
+    if (languages.has(language)) {
       // READMEs name the file in a first-line comment, such as `// server/workflows/onboard-user/index.ts`.
       const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:[cm]?ts|tsx))$/.exec(body[0] ?? "")?.[1]
       const meta = info.replace(/\[.+\]/, "").split(/\s+/).filter(Boolean)
@@ -127,13 +127,17 @@ export function collectSnippets(sources = snippetSources()) {
   for (const source of sources) {
     const page = relative(repoRoot, source.file)
     const used = new Set()
-    extractBlocks(readFileSync(source.file, "utf8")).forEach((block, index) => {
+    const markdown = readFileSync(source.file, "utf8")
+    const fixtures = extractBlocks(markdown, new Set(["dotenv"]))
+      .filter(block => block.label && !block.fragment)
+      .map(({ code, label }) => ({ code, label }))
+    extractBlocks(markdown).forEach((block, index) => {
       const extension = block.language === "tsx" ? ".tsx" : ".ts"
       let name = block.label && /\.(m?ts|tsx)$/.test(block.label) ? block.label.replace(/^\/+/, "") : `block-${index}${extension}`
       if (used.has(name)) name = `${index}/${name}`
       used.add(name)
       const pageRoot = join(source.root, ".snippets", page.replaceAll("/", "__"))
-      snippets.push({ ...block, file: join(pageRoot, name), page, pageRoot })
+      snippets.push({ ...block, file: join(pageRoot, name), fixtures, page, pageRoot })
     })
   }
   return snippets
@@ -154,7 +158,7 @@ export async function generatedDeclarations(pageSnippets) {
     definition.steps.push(snippet.file)
     workflows.set(match[1], definition)
   }
-  const declarations = await registryDeclarations(pageSnippets)
+  const declarations = [...await registryDeclarations(pageSnippets), ...await envDeclarations(pageSnippets)]
   if (!workflows.size) return declarations
   const { createWorkflowTypes } = await import(pathToFileURL(join(packagesRoot, "workflow/dist/vite.js")).href)
   const file = join(pageSnippets[0].pageRoot, ".vitehub/workflow.d.ts")
@@ -263,6 +267,65 @@ async function registryDeclarations(pageSnippets) {
   return declarations
 }
 
+const viteConfigFile = /(?:^|\/)vite\.config\.m?ts$/
+
+/**
+ * The Server Env and Public Env types of the `env` options that the page's `vite.config.ts` blocks set, from the
+ * generator of `@vite-hub/env/vite`. Node runs each config from `packages/vite-hub`, so it imports what an app installs.
+ */
+async function envDeclarations(pageSnippets) {
+  const configs = pageSnippets.filter(snippet => !snippet.fragment && viteConfigFile.test(snippet.label ?? "") && /\benv\s*:/.test(snippet.code))
+  if (!configs.length) return []
+  const env = { public: {}, server: {} }
+  const directory = mkdtempSync(join(packagesRoot, "vite-hub/.snippet-config-"))
+  try {
+    // Configs such as `envSchema(new URL('./.env.example', import.meta.url))` need the page's shown fixture.
+    for (const fixture of pageSnippets[0].fixtures ?? []) {
+      const file = resolve(directory, fixture.label)
+      if (!file.startsWith(`${directory}${sep}`)) continue
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, fixture.code)
+    }
+    for (const [index, snippet] of configs.entries()) {
+      const file = join(directory, `${index}.ts`)
+      writeFileSync(file, snippet.code)
+      let config
+      try {
+        config = await (await import(pathToFileURL(file).href)).default
+        if (typeof config === "function") config = await config({ command: "serve", mode: "development", isSsrBuild: false, isPreview: false })
+      }
+      catch {
+        // Only explicitly marked fragments may be skipped; a failed config must not leave a partial Env contract.
+        return []
+      }
+      Object.assign(env.public, config?.env?.public)
+      Object.assign(env.server, config?.env?.server)
+    }
+  }
+  finally {
+    rmSync(directory, { force: true, recursive: true })
+  }
+  const { createEnvTypes } = await import(pathToFileURL(join(packagesRoot, "env/dist/vite.js")).href)
+  const pageRoot = pageSnippets[0].pageRoot
+  // `vitehub()` registers Env, so the Auth integration types the `env` of `defineAuth()` as the Server Env.
+  const authEnv = [
+    `import type { ServerEnv } from "#vitehub/env/server"`,
+    "declare global {",
+    "  namespace ViteHub {",
+    "    interface AuthRuntimeEnv extends ServerEnv {}",
+    "  }",
+    "}",
+    "",
+  ].join("\n")
+  return [
+    { code: createEnvTypes(env), file: join(pageRoot, envTypesFile) },
+    { code: authEnv, file: join(pageRoot, ".vitehub/types/auth.d.ts") },
+  ]
+}
+
+/** The page's generated Env types replace the untyped `#vitehub/env` declarations of an app without Env options. */
+const envTypesFile = ".vitehub/types/env.d.ts"
+
 /**
  * The installed files that the programs read, parsed once. Each page with generated declarations gets its own
  * program, and TypeScript binds a shared file only once.
@@ -331,7 +394,8 @@ export function checkSnippets(snippets, declarations = [], oldProgram = undefine
     return resolved
   })
 
-  const program = ts.createProgram([...ambientFiles, ...virtualFiles.keys()], options, host, oldProgram)
+  const typedEnv = declarations.some(declaration => declaration.file.endsWith(`/${envTypesFile}`))
+  const program = ts.createProgram([...typedEnv ? [] : ambientFiles, ...virtualFiles.keys()], options, host, oldProgram)
   const failures = []
   for (const snippet of snippets) {
     if (snippet.fragment) continue

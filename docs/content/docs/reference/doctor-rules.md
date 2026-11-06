@@ -414,9 +414,8 @@ export default defineAuth({ baseURL: 'https://example.com', emailAndPassword: { 
 import { defineAuth } from 'vite-hub/auth'
 
 // Valid
-export default defineAuth(({ env, requestOrigin }) => ({
+export default defineAuth(({ requestOrigin }) => ({
   baseURL: requestOrigin,
-  secret: env.auth.secret.unseal(),
   emailAndPassword: { enabled: true },
 }))
 ```
@@ -880,7 +879,7 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `queue: { ... }` ignores its fields. The preset selects the Queue provider.
 - In Vite, `vitehub({ env: { server, public, define } })` ignores these sections. They belong to the top-level `env` key of the Vite config.
 
-```ts [vite.config.ts]
+```ts [vite.config.ts] fragment
 // Invalid
 export default defineConfig({
   plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],

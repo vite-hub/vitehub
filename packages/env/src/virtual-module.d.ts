@@ -30,5 +30,6 @@ declare module "#vitehub/env/server" {
   export function inspectServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ServerEnvInspection>
   export function loadServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ReadonlyServerEnv>
   export function useServerEnv(event?: unknown): ServerEnv
+  export function deriveSecret(purpose: string, event?: unknown): Promise<string>
   export function runWithServerEnv<T>(event: unknown, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<T>
 }

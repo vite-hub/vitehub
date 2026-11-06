@@ -79,7 +79,7 @@ export default defineConnection({
   scopes: ['https://www.googleapis.com/auth/gmail.readonly'],
   api: { gmail: ['users.labels.list'] },
   access: {
-    server: { read: true, write: false },
+    server: { read: true },
   },
 })
 ```
