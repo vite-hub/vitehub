@@ -1,10 +1,15 @@
 import { addCommand } from "./add.ts"
+import { parseArgs } from "node:util"
+
+import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { setupCatalog } from "./catalog.ts"
 import { readSetupArgs, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
+import { linkSetupProject, readSetupLinkStatus, SETUP_LINK_FILE, unlinkSetupProject } from "./link.ts"
 import { readSetupProject } from "./project.ts"
 import { setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
+import type { SetupLinkResult, SetupLinkStatus } from "./link.ts"
 import type { SetupFeatureStatus, SetupStatus } from "./status.ts"
 
 function table(rows: readonly (readonly string[])[]): string {
@@ -60,7 +65,18 @@ function configLabel(config: SetupStatus["config"]): string {
   return `${at}manual (${config.manual})`
 }
 
-function writeStatus(status: SetupStatus, context: ViteHubCliContext): void {
+function linkLabel(link: SetupLinkStatus["link"]): string {
+  if (!link) return "none (run `vitehub link`)"
+  const account = link.account ? ` in ${link.account.name ?? link.account.id}` : ""
+  return `${link.project.name} on ${link.host}${account}${link.verified ? "" : " (not verified)"}`
+}
+
+function credentialsLabel(credentials: SetupLinkStatus["credentials"]): string {
+  if (!credentials) return "not needed"
+  return credentials.ok ? `${credentials.host} (${credentials.source})` : `missing: ${credentials.fix}`
+}
+
+function writeStatus(status: SetupStatus & SetupLinkStatus, context: ViteHubCliContext): void {
   const shown = status.features.filter(feature => feature.enabled !== "off")
   const off = status.features.length - shown.length
   context.stdout.write(`${table([
@@ -69,6 +85,8 @@ function writeStatus(status: SetupStatus, context: ViteHubCliContext): void {
     ["config", configLabel(status.config)],
     ["host", `${status.host.name} (${status.host.source})`],
     ["packages", status.packageManager],
+    ["link", linkLabel(status.link)],
+    ["credentials", credentialsLabel(status.credentials)],
   ])}\n\n`)
   if (shown.length) {
     context.stdout.write(`${table([
@@ -83,7 +101,9 @@ const statusCommand: ViteHubCliCommand = {
   description: "Show the host, the enabled features, and what each one still needs. Reads the config without running it.",
   name: "status",
   run: (args, context) => runSetupCommand(statusCommand, args, context, async (json) => {
-    const status = setupStatus(await readSetupProject(context.rootDir, context.env), context.env)
+    const project = await readSetupProject(context.rootDir, context.env)
+    const features = setupStatus(project, context.env)
+    const status = { ...features, ...await readSetupLinkStatus(project, features.host.name, context) }
     if (json) writeSetupJson(context, status)
     else writeStatus(status, context)
     return setupExitCodes.done
@@ -91,5 +111,71 @@ const statusCommand: ViteHubCliCommand = {
   usage: "vitehub status [--json]",
 }
 
+const linkUsage = "vitehub link [--host <preset>] [--project <name>] [--account <id>] [--create] [--json]"
+
+function readLinkArgs(args: string[]) {
+  try {
+    return parseArgs({
+      args,
+      options: {
+        account: { type: "string" },
+        create: { type: "boolean", default: false },
+        help: { short: "h", type: "boolean", default: false },
+        host: { type: "string" },
+        json: { type: "boolean", default: false },
+        project: { type: "string" },
+      },
+      strict: true,
+    }).values
+  }
+  catch (error: unknown) {
+    throw cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${error instanceof Error ? error.message : String(error)} Usage: ${linkUsage}` })
+  }
+}
+
+function writeLinked(result: SetupLinkResult, context: ViteHubCliContext): void {
+  const { link } = result
+  const account = link.account ? ` in account ${link.account.name ?? link.account.id}` : ""
+  context.stdout.write(`${result.created ? "Created and linked" : "Linked"} ${link.project.name} on ${link.host}${account}.\n`)
+  if (!link.verified) context.stdout.write(`The ${link.host} API was not asked, so the project is not verified.\n`)
+  context.stdout.write(`Wrote ${result.file}. It holds no secret.\n`)
+  if (result.gitignore === "added") context.stdout.write("Added .vitehub to .gitignore.\n")
+  if (result.gitignore === "no-gitignore") context.stderr.write("[vitehub] The project has no .gitignore. Do not commit the .vitehub folder.\n")
+}
+
+const linkCommand: ViteHubCliCommand = {
+  description: "Link this project to a project on its host. Writes .vitehub/link.json, which holds no secret.",
+  name: "link",
+  run: async (args, context) => {
+    const json = args.includes("--json")
+    try {
+      const values = readLinkArgs(args)
+      if (values.help) return writeHelp(linkCommand, context)
+      const project = await readSetupProject(context.rootDir, context.env)
+      const result = await linkSetupProject(project, { account: values.account, create: values.create, host: values.host, project: values.project }, context)
+      if (json) writeSetupJson(context, result)
+      else writeLinked(result, context)
+      return setupExitCodes.done
+    }
+    catch (error: unknown) {
+      return writeSetupError(context, json, error)
+    }
+  },
+  usage: linkUsage,
+}
+
+const unlinkCommand: ViteHubCliCommand = {
+  description: "Remove the link to the host project. The project on the host does not change.",
+  name: "unlink",
+  run: (args, context) => runSetupCommand(unlinkCommand, args, context, async (json) => {
+    const project = await readSetupProject(context.rootDir, context.env)
+    const removed = await unlinkSetupProject(project.root)
+    if (json) writeSetupJson(context, { file: SETUP_LINK_FILE, removed })
+    else context.stdout.write(removed ? `Removed ${SETUP_LINK_FILE}.\n` : "The project is not linked.\n")
+    return setupExitCodes.done
+  }),
+  usage: "vitehub unlink [--json]",
+}
+
 /** The setup commands. They run before the CLI loads the project config. */
-export const setupCommands: readonly ViteHubCliCommand[] = [addCommand, catalogCommand, statusCommand]
+export const setupCommands: readonly ViteHubCliCommand[] = [addCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand]

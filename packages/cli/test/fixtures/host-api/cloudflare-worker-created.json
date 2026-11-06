@@ -1,0 +1,1 @@
+{"success":true,"errors":[],"messages":[],"result":{"id":"5b1a6c2e0d4f4c0aa7f3e9b2c1d0e8f7","name":"my-app","created_on":"2026-11-05T12:00:00.000Z","updated_on":"2026-11-05T12:00:00.000Z","logpush":false,"tags":[],"subdomain":{"enabled":true,"url":"https://my-app.my-subdomain.workers.dev"}}}

@@ -30,7 +30,7 @@ async function snapshot(root: string): Promise<Record<string, string>> {
 type AddResult = SetupAddPlan & { error?: SetupError, missing?: SetupMissing[], rerun?: string, snippet?: string }
 
 function add(args: string[], root: string, spawn?: ViteHubCliSpawn) {
-  return runSetup<AddResult>(["add", ...args, "--json"], root, {}, spawn)
+  return runSetup<AddResult>(["add", ...args, "--json"], root, {}, { spawn })
 }
 
 const fixtures: ReadonlyArray<readonly [string, DeploymentPreset, string]> = [

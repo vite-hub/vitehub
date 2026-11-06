@@ -1,4 +1,5 @@
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
+import { readHostCredentialsFromEnv } from "./host-credentials.ts"
 import { Diagnostic } from "nostics"
 export type ProvisionProvider = "cloudflare" | "vercel"
 
@@ -83,10 +84,9 @@ export interface CloudflareProvisionConfig {
 }
 
 export function resolveCloudflareProvisionConfig(env: Record<string, string | undefined>): CloudflareProvisionConfig | undefined {
-  const accountId = trimmedEnv(env.CLOUDFLARE_ACCOUNT_ID)
-  const token = trimmedEnv(env.CLOUDFLARE_API_TOKEN)
-  if (!accountId || !token) return
-  return { accountId, token }
+  const credentials = readHostCredentialsFromEnv("cloudflare", env)
+  if (!credentials?.accountId) return
+  return { accountId: credentials.accountId, token: credentials.token }
 }
 
 export interface VercelProvisionConfig {
@@ -95,9 +95,9 @@ export interface VercelProvisionConfig {
 }
 
 export function resolveVercelProvisionConfig(env: Record<string, string | undefined>): VercelProvisionConfig | undefined {
-  const token = trimmedEnv(env.VERCEL_TOKEN)
-  if (!token) return
-  return { token, teamId: trimmedEnv(env.VERCEL_TEAM_ID) ?? trimmedEnv(env.VERCEL_ORG_ID) }
+  const credentials = readHostCredentialsFromEnv("vercel", env)
+  if (!credentials) return
+  return { token: credentials.token, teamId: credentials.teamId }
 }
 
 export interface CloudflareEnvelope<T> {
@@ -189,11 +189,16 @@ export interface CloudflareProvisionRequest {
 
 // Keep provisioning HTTP local so the CLI does not grow a public CI abstraction.
 export function createCloudflareProvisionClient(config: CloudflareProvisionConfig, fetchImpl: typeof globalThis.fetch = globalThis.fetch): CloudflareProvisionRequest {
-  const client = createJsonClient(
-    `https://api.cloudflare.com/client/v4/accounts/${config.accountId}`,
-    { authorization: `Bearer ${config.token}` },
-    fetchImpl,
-  )
+  return createCloudflareClient(`https://api.cloudflare.com/client/v4/accounts/${config.accountId}`, config.token, fetchImpl)
+}
+
+/** A Cloudflare REST client for requests outside one account, such as `GET /accounts`. */
+export function createCloudflareApiClient(token: string, fetchImpl: typeof globalThis.fetch = globalThis.fetch): CloudflareProvisionRequest {
+  return createCloudflareClient("https://api.cloudflare.com/client/v4", token, fetchImpl)
+}
+
+function createCloudflareClient(baseURL: string, token: string, fetchImpl: typeof globalThis.fetch): CloudflareProvisionRequest {
+  const client = createJsonClient(baseURL, { authorization: `Bearer ${token}` }, fetchImpl)
   return async <T>(path: string, options: ProvisionRequestOptions | ParsedProvisionRequestOptions<T> = {}) => {
     // SAFETY: Without a parser, Cloudflare result data retains the request's unknown response contract.
     const parse = ownParser(options) ?? ((value: unknown) => value as T)
@@ -219,7 +224,7 @@ export function createVercelProvisionClient(config: VercelProvisionConfig, fetch
   )
 }
 
-function trimmedEnv(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  return trimmed ? trimmed : undefined
+/** A Netlify REST client for `https://api.netlify.com/api/v1`. */
+export function createNetlifyApiClient(token: string, fetchImpl: typeof globalThis.fetch = globalThis.fetch): ProvisionRequest {
+  return createJsonClient("https://api.netlify.com/api/v1", { authorization: `Bearer ${token}` }, fetchImpl)
 }

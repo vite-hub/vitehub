@@ -252,7 +252,7 @@ describe("vitehub status", () => {
 
     const human = await runSetup(["status"], dynamic)
     expect(human.exitCode).toBe(0)
-    expect(human.stdout).toContain("config     vite.config.ts:3: manual (dynamic-options)")
+    expect(human.stdout).toMatch(/^config +vite\.config\.ts:3: manual \(dynamic-options\)$/mu)
   })
 
   it("returns SETUP_NOT_A_PROJECT with exit 1 without package.json", async () => {

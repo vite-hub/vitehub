@@ -51,35 +51,60 @@ export function writeSetupJson(context: Pick<ViteHubCliContext, "stdout">, data:
   context.stdout.write(`${JSON.stringify({ schemaVersion: 1, ...data })}\n`)
 }
 
-/** One input that the command needs. `choices` lists the accepted values when there are few. */
+/** One accepted value of a missing input. Accounts carry an id and a name; plain values are strings. */
+export type SetupChoice = string | { id: string, name?: string }
+
+/** An input that a setup command needs, such as an account id, with the values it accepts when there are few. */
 export interface SetupMissing {
   field: string
-  choices?: readonly string[]
+  choices?: readonly SetupChoice[]
 }
 
-export interface SetupFailure {
-  exitCode: number
+export interface SetupFailureDetails {
   missing?: readonly SetupMissing[]
-  /** A command that succeeds as it is. */
+  /** A command that would succeed, with `<placeholders>` for values that the caller must choose. */
   rerun?: string
   /** More fields of the JSON document, such as the plan. */
   data?: object
 }
 
-/**
- * Reports `error` as one JSON document on stdout with `--json`, else on stderr, and returns `failure.exitCode`.
- * The document has `error`, and `missing` and `rerun` when the failure has them.
- */
-export function writeSetupError(context: Pick<ViteHubCliContext, "stderr" | "stdout">, json: boolean, error: unknown, failure: SetupFailure = { exitCode: setupExitCodes.error }): number {
-  const { data, exitCode, missing, rerun } = failure
-  if (json) {
-    writeSetupJson(context, { ...data, error: toSetupError(error), ...(missing ? { missing } : {}), ...(rerun ? { rerun } : {}) })
-    return exitCode
+/** A setup diagnostic with its exit code and the input that is missing. `writeSetupError` reports it. */
+export class SetupFailure extends Error {
+  override readonly cause: Error
+  readonly exitCode: number
+  readonly details: SetupFailureDetails
+
+  constructor(cause: Error, exitCode: number, details: SetupFailureDetails = {}) {
+    super(cause.message)
+    this.name = "SetupFailure"
+    this.cause = cause
+    this.exitCode = exitCode
+    this.details = details
   }
-  context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
-  if (missing?.length) context.stderr.write(`Missing: ${missing.map(item => item.choices ? `${item.field} (${item.choices.join(", ")})` : item.field).join(", ")}\n`)
-  if (rerun) context.stderr.write(`Run: ${rerun}\n`)
-  return exitCode
+}
+
+function formatMissing(missing: readonly SetupMissing[]): string {
+  return missing.map((item) => {
+    const choices = item.choices ?? []
+    if (choices.every(choice => typeof choice === "string")) return `Missing: ${item.field}${choices.length ? ` (${choices.join(", ")})` : ""}\n`
+    return `Missing: ${item.field}\n${choices.map(choice => typeof choice === "string" ? `  ${choice}\n` : `  ${choice.id}${choice.name ? `  ${choice.name}` : ""}\n`).join("")}`
+  }).join("")
+}
+
+/**
+ * Reports `error` as one JSON document on stdout with `--json`, else on stderr, and returns its exit code.
+ * A `SetupFailure` adds `missing`, `rerun`, and its `data` to the document. Any other error exits with 1.
+ */
+export function writeSetupError(context: Pick<ViteHubCliContext, "stderr" | "stdout">, json: boolean, error: unknown): number {
+  if (error instanceof SetupFailure) {
+    const { data, missing, rerun } = error.details
+    if (json) writeSetupJson(context, { ...data, error: toSetupError(error.cause), ...(missing ? { missing } : {}), ...(rerun ? { rerun } : {}) })
+    else context.stderr.write(`${formatRuntimeDiagnosticError(error.cause)}\n${formatMissing(missing ?? [])}${rerun ? `Run: ${rerun}\n` : ""}`)
+    return error.exitCode
+  }
+  if (json) writeSetupJson(context, { error: toSetupError(error) })
+  else context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+  return setupExitCodes.error
 }
 
 export interface SetupArgs {
