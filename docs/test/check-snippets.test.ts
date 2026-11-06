@@ -2,7 +2,7 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { baselineEntry, checkSnippets, compareBaseline, collectSnippets, extractBlocks, generatedDeclarations, repoRoot } from "../scripts/check-snippets.mjs"
+import { baselineEntry, checkBaseline, checkSnippets, compareBaseline, collectSnippets, extractBlocks, generatedDeclarations, repoRoot } from "../scripts/check-snippets.mjs"
 
 describe("documentation snippet check", () => {
   it("reads labels, fragments, and indented blocks", () => {
@@ -95,6 +95,24 @@ describe("documentation snippet check", () => {
     ])
   }, 60_000)
 
+  it("requires a block marked fails to fail with exactly the errors that it names", () => {
+    const [marked] = extractBlocks("```ts [server/auth.ts] fails=TS2322,TS2353\nexport const a = 1\n```")
+    expect(marked.fails).toEqual([2322, 2353])
+
+    const page = join(repoRoot, "docs/.snippets/fails-page")
+    const snippet = (name: string, code: string, fails: number[]) => ({ code, fails, file: join(page, name), fragment: false, line: 1, page: "fails-page.md" })
+    const { failures } = checkSnippets([
+      snippet("expected.ts", "export const count: number = 'one'", [2322]),
+      snippet("passes.ts", "export const count: number = 1", [2322]),
+      snippet("different.ts", "export const count: number = missing", [2322]),
+    ])
+
+    expect(failures.map(failure => [failure.snippet.file.slice(page.length + 1), failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["passes.ts", [0]],
+      ["different.ts", [0, 2304]],
+    ])
+  }, 60_000)
+
   it("imports the last full version of a file that the page shows above the importing block", () => {
     const pageRoot = join(repoRoot, "docs/.snippets/version-page")
     const snippet = (line: number, file: string, label: string, code: string, fragment = false) => ({ code, file: join(pageRoot, file), fragment, label, line, page: "version-page.md", pageRoot })
@@ -110,6 +128,24 @@ describe("documentation snippet check", () => {
     expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
       ["server/api/stale.ts", [2339]],
     ])
+  }, 60_000)
+
+  it("keeps marked mismatches out of regenerated baselines and rejects existing entries for them", () => {
+    const page = join(repoRoot, "docs/.snippets/baseline-page")
+    const snippet = (name: string, code: string, fails?: number[]) => ({ code, fails, file: join(page, name), fragment: false, line: 1, page: "baseline-page.md" })
+    const { failures } = checkSnippets([
+      snippet("passes.ts", "export const count: number = 1", [2322]),
+      snippet("different.ts", "export const count: number = missing", [2322]),
+      snippet("extra.ts", "export const count: number = 'one'\nexport const extra = missing", [2322]),
+      snippet("ordinary.ts", "export const count: number = 'one'"),
+    ])
+    const baseline = failures.map(baselineEntry)
+    const { entries, fresh, stale } = checkBaseline(failures, baseline)
+
+    expect(fresh.map(({ snippet }) => snippet.file.slice(page.length + 1))).toEqual(["passes.ts", "different.ts", "extra.ts"])
+    expect(stale).toEqual(baseline.slice(0, 3))
+    expect(entries.map(entry => entry.id)).toEqual([baseline[3].id])
+    expect(checkBaseline(failures, entries).fresh).toEqual(fresh)
   }, 60_000)
 
   it("imports the first full version when no full definition appears above the importer", () => {
