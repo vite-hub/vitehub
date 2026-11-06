@@ -213,7 +213,10 @@ function locateNuxt(code: string, program: File): Located | Failure {
   const container: Container = entry.type === "ArrayExpression"
     ? { kind: "tuple", node: entry, head: entry.elements[0] ?? entry }
     : { kind: "bare", node: entry }
-  return siteFor(code, "nuxt-module-tuple", tupleOptions ?? undefined, container, program)
+  const located = siteFor(code, "nuxt-module-tuple", tupleOptions ?? undefined, container, program)
+  // Nuxt merges root vitehub options before the tuple options, even from a leading spread.
+  if (!("ok" in located) && rootSpread) located.site.spread = true
+  return located
 }
 
 function parse(code: string): File | Failure {
@@ -342,6 +345,26 @@ function applyEdit(code: string, located: Located, edit: ConfigEdit): string | F
     if (!matches.length) return code
     if (!object) return code
     if (matches.length === members.length) {
+      const hasComments = located.program.comments?.some((comment) => {
+        const from = comment.start ?? -1
+        const to = comment.end ?? -1
+        return from > start(object) && to < end(object)
+          && !matches.some(member => from >= start(member) && to <= end(member))
+      })
+      if (hasComments) {
+        for (const member of matches) {
+          let from = start(member)
+          let to = end(member)
+          const comma = skipBlanks(code, to)
+          if (code[comma] === ",") {
+            to = comma + 1
+            // appendMember inserts this prefix before an empty object's existing comments.
+            if (code.slice(start(object) + 1, from) === " ") from = start(object) + 1
+          }
+          output.remove(from, to)
+        }
+        return output.toString()
+      }
       if (container.kind === "call") {
         const argument = container.node.arguments[0]
         const next = container.node.arguments[1]
