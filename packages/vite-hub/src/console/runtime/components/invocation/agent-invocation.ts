@@ -14,6 +14,7 @@ import {
   channelDeliverySummary,
   invocationActivities,
   invocationActivityTitle,
+  invocationTruncationNotice,
   invocationToolUsage,
   latestInvocationTokens,
   stringAttribute,
@@ -492,9 +493,7 @@ function renderMessage(
         class: "vh-invocation-message__content",
         "data-collapsed": collapsible && !isExpanded ? "true" : undefined,
       }, [markdown(body, "vh-invocation-message__body")]),
-      activity.truncated
-        ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
-        : null,
+      renderTruncationNotice(activity),
       collapsible
         ? h("button", {
             "aria-expanded": String(isExpanded),
@@ -783,9 +782,6 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler, open
         deliveryFailure
           ? h("p", { class: "vh-invocation-event__failure" }, deliveryFailure)
           : null,
-        activity.truncated
-          ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
-          : null,
         activity.patches.length
           ? openActivities.has(activity.id)
             ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(InvocationPatchDiff, { key: index, patch })))
@@ -813,6 +809,7 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler, open
           : activity.kind !== "delivery" && activity.body
             ? h("div", { class: "vh-invocation-event__body" }, [markdown(activity.body, "vh-invocation-event__markdown")])
             : null,
+        renderTruncationNotice(activity),
         inspectable
           ? h("button", {
               class: "vh-invocation-event__inspect",
@@ -826,6 +823,11 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler, open
       ? h("div", { class: "vh-invocation-delivery__body" }, [markdown(deliveryBody, "vh-invocation-event__markdown")])
       : null,
   ]);
+}
+
+function renderTruncationNotice(activity: InvocationActivity, tag: "p" | "span" = "p") {
+  const notice = invocationTruncationNotice(activity);
+  return notice ? h(tag, { class: "vh-invocation-event__notice" }, notice) : null;
 }
 
 function renderEventPayload(label: string, value: unknown) {
@@ -959,7 +961,7 @@ function renderPreparationStep(activity: InvocationActivity, url: string | undef
     renderPreparationDetail(activity, url),
     renderPreparationAction(activity, inspect),
     activity.body ? h("p", { class: "vh-invocation-preparation__body" }, activity.body) : null,
-    activity.truncated ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.") : null,
+    renderTruncationNotice(activity),
   ]);
 }
 
@@ -1023,7 +1025,7 @@ function renderAgentConfigurationGroup(activities: readonly InvocationActivity[]
       ]),
       h("ol", { class: "vh-invocation-capabilities__rows" }, activities.map(item => h("li", { key: item.id }, [
         item.body ? h("div", { class: "vh-invocation-event__body" }, [markdown(item.body, "vh-invocation-event__markdown")]) : null,
-        item.truncated ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.") : null,
+        renderTruncationNotice(item),
         h("button", { class: "vh-invocation-event__inspect", onClick: () => inspect("agent"), type: "button" }, "Inspect agent"),
       ]))),
     ]),
@@ -1106,9 +1108,7 @@ function renderActivityGroup(
         activity.status === "failed" && activity.body
           ? h("span", { class: "vh-invocation-lifecycle__failure" }, activity.body)
           : null,
-        activity.truncated
-          ? h("span", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
-          : null,
+        renderTruncationNotice(activity, "span"),
       ];
       return h("li", {
         "data-activity-id": activity.id,

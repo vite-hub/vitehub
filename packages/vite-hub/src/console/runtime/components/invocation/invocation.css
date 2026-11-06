@@ -1518,10 +1518,20 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   color: var(--vh-text);
 }
 
+/* Recording limits are information, not a failure: keep the note quiet and beside the value it describes. */
 .vh-invocation-event__notice {
-  color: var(--vh-warning, #d97706);
+  color: var(--vh-muted);
   font-size: 0.75rem;
   margin: 0.25rem 0 0.5rem 1.75rem;
+}
+
+.vh-invocation-message .vh-invocation-event__notice {
+  margin: 0.25rem 0 0;
+}
+
+.vh-invocation-lifecycle__rows .vh-invocation-event__notice {
+  margin: 0;
+  white-space: nowrap;
 }
 
 .vh-invocation-command__bar {
