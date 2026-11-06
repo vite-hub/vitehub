@@ -849,6 +849,12 @@ function collectionRouteEnabled(file: string, source: string, exportName: string
   return findRoute(exported?.init) ?? true
 }
 
+/** Inspects the named Collection export without running application code. */
+export function inspectCollectionModule(file: string, source: string, exportName: string): { exported: boolean, routeEnabled: boolean } {
+  const exported = findExportNames(source).includes(exportName)
+  return { exported, routeEnabled: exported && collectionRouteEnabled(file, source, exportName) }
+}
+
 async function discoverSourceCollections(options: SourceGenerationOptions): Promise<DiscoveredCollection[]> {
   const serverDirs = options.serverDirs === undefined
     ? [resolve(options.projectRoot, "server")]
@@ -863,10 +869,11 @@ async function discoverSourceCollections(options: SourceGenerationOptions): Prom
       }
       const name = relative(directory, file).slice(0, -extension.length).replaceAll("\\", "/")
       const source = await readFile(file, "utf8")
-      if (!findExportNames(source).includes(exportName)) {
+      const { exported, routeEnabled } = inspectCollectionModule(file, source, exportName)
+      if (!exported) {
         throw sourceErrorDiagnostics.SOURCE_B0004({ message: `[vitehub] Collection file ${JSON.stringify(relative(options.projectRoot, file))} must export a Collection named ${JSON.stringify(exportName)} to match its filename.` })
       }
-      return { exportName, file, name, routeEnabled: collectionRouteEnabled(file, source, exportName) }
+      return { exportName, file, name, routeEnabled }
     }))
   }))).flat().sort((left, right) => left.name.localeCompare(right.name))
 
