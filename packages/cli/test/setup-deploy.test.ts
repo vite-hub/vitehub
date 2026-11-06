@@ -267,6 +267,23 @@ function netlifyApi(): { fetch: typeof fetch, requests: NetlifyRequest[] } {
 }
 
 describe("vitehub deploy on Netlify", () => {
+  it("uses the deploy-preview context that receives the Console hash", async () => {
+    const root = await builtProject("netlify", consoleLink())
+    const hosts = await fakeHosts(netlifyEnv)
+    const api = netlifyApi()
+    const result = await deploy(["--no-build", "--yes", "--preview"], root, hosts.env, { fetch: api.fetch })
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    expect((await hosts.calls()).map(call => call.argv)).toEqual([
+      ["deploy", "--no-build", "--dir", "dist", "--json", "--context", "deploy-preview", "--site-name", "my-app"],
+      ["deploy", "--no-build", "--dir", "dist", "--json", "--context", "deploy-preview", "--site", "site-1"],
+    ])
+    expect(api.requests[2]!.body).toEqual([{ is_secret: true, key: "VITEHUB_CONSOLE_TOKEN_SHA256", scopes: ["functions"], values: [{ context: "production", value: HASH }, { context: "deploy-preview", value: HASH }] }])
+    for (const request of api.requests) expect(request.url).not.toContain(HASH)
+    expect(result.json).toMatchObject({ console: { linkUrl: linkUrl("https://deploy--my-app.netlify.app"), secret: "set" }, url: "https://deploy--my-app.netlify.app" })
+    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [HASH, ...tokens])
+  })
+
   it("deploys, sets the secret in a JSON request body, and deploys again to the site", async () => {
     const root = await builtProject("netlify", consoleLink())
     const hosts = await fakeHosts(netlifyEnv)
@@ -387,11 +404,11 @@ describe("vitehub deploy", () => {
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, tokens)
   })
 
-  it("uses the linked Cloudflare account and Worker for secrets, deploys and previews", async () => {
+  it.each([undefined, "other-account"])("uses the linked Cloudflare account and Worker when the credential account is %s", async (accountId) => {
     const root = await builtProject("cloudflare", {
       ".vitehub/link.json": JSON.stringify({ account: { id: "linked-account" }, console: { pendingId: PENDING_ID, tokenSha256: HASH }, host: "cloudflare", project: { name: "linked-worker" }, schemaVersion: 1, verified: true, linkedAt: "" }),
     })
-    const hosts = await fakeHosts({ CLOUDFLARE_API_TOKEN: cloudflareEnv.CLOUDFLARE_API_TOKEN })
+    const hosts = await fakeHosts({ CLOUDFLARE_API_TOKEN: cloudflareEnv.CLOUDFLARE_API_TOKEN, ...(accountId ? { CLOUDFLARE_ACCOUNT_ID: accountId } : {}) })
     for (const flags of [[], ["--preview"]]) {
       const result = await deploy(["--no-build", "--yes", ...flags], root, hosts.env)
       expect(result.exitCode, result.stdout + result.stderr).toBe(0)
