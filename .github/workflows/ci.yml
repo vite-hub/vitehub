@@ -397,6 +397,8 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup
 
+      # Snippet checker tests import the built framework and its discovery plugins.
+      - run: vp run --cache -t vite-hub#build
       - run: vp run --filter vitehub-docs test
       - run: vp run docs:build
       - run: vp run --filter vitehub-docs test:artifact
