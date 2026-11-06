@@ -56,7 +56,7 @@ The handler gets `(payload, context)`. Annotate `payload` to type it. `context` 
 
 A folder Workflow runs its numbered files as steps. `01.create-user.ts` becomes `steps.createUser`:
 
-```ts
+```ts [server/workflows/onboard-user/index.ts]
 // server/workflows/onboard-user/index.ts
 import { defineWorkflow } from "@vite-hub/workflow";
 
@@ -66,14 +66,14 @@ export default defineWorkflow("onboard-user", async (payload: { email: string },
 });
 ```
 
-```ts
+```ts [server/workflows/onboard-user/01.create-user.ts]
 // server/workflows/onboard-user/01.create-user.ts
 export default async function createUser(input: { email: string }) {
   return { id: `user:${input.email}`, email: input.email };
 }
 ```
 
-```ts
+```ts [server/workflows/onboard-user/02.send-welcome.ts]
 // server/workflows/onboard-user/02.send-welcome.ts
 export default async function sendWelcome(user: { id: string, email: string }) {
   return { userId: user.id, welcomeSent: true };

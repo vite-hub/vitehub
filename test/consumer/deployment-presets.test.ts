@@ -32,7 +32,8 @@ it("keeps implicit Workflow inert when Agent targets Netlify", async () => {
     expect(workflow).toBeDefined()
     await (workflow.configResolved as (config: unknown) => Promise<void>)({ plugins: [workflow], resolve: { alias: [] }, root })
     await expect(workflow.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
-  } finally {
+  }
+  finally {
     await rm(root, { force: true, recursive: true })
   }
 })

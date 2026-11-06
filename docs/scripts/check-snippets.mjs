@@ -170,10 +170,12 @@ export async function generatedDeclarations(pageSnippets) {
  * its folder. Elsewhere, `src/<name>.<kind>.ts` defines `<name>`.
  */
 function definitionName(directory, kind) {
-  const server = new RegExp(`^server/${directory}/(.+?)(?:/index)?(?:\\.${kind})?\\.(?:m?ts|tsx)$`)
-  const suffix = new RegExp(`^(?:src/)?(.+)\\.${kind}\\.(?:m?ts|tsx)$`)
+  const server = new RegExp(`^server/${directory}/(.+)\\.(?:m?ts|tsx)$`)
+  const suffix = new RegExp(`^(?:src/)?(.+)\\.${kind}\\.m?ts$`)
   return (label) => {
-    const name = server.exec(label)?.[1] ?? suffix.exec(label)?.[1]
+    const serverPath = server.exec(label)?.[1]
+    let name = serverPath?.replace(/\/index$/i, "") ?? suffix.exec(label)?.[1]
+    if (serverPath && (kind === "channel" || kind === "connection")) name = name.replace(new RegExp(`\\.${kind}$`, "i"), "")
     return name ? [name] : []
   }
 }
@@ -187,9 +189,15 @@ async function collectionNames(label, code) {
   return inspectCollectionModule(label, code, exportName).routeEnabled ? [name] : []
 }
 
-async function channelNames(label, code) {
+async function channelNames(label, code, pageSnippets) {
   const names = definitionName("channels", "channel")(label)
   if (!names.length || !label.startsWith("server/channels/")) return names
+  // Owner discovery reserves an indexed folder for one Channel before classifying its modules.
+  const indexFolder = /^server\/channels\/(.+)\/index\.(?:m?ts|tsx)$/i
+  if (!/\/index\.(?:m?ts|tsx)$/i.test(label) && pageSnippets.some((snippet) => {
+    const folder = !snippet.fragment && indexFolder.exec(snippet.label?.replace(/^\/+/, "") ?? "")?.[1]
+    return folder && label.startsWith(`server/channels/${folder}/`)
+  })) return []
   const { isOutboundChannelSource } = await import(pathToFileURL(join(packagesRoot, "channels/dist/vite.js")).href)
   return isOutboundChannelSource(code, label) ? names : []
 }
@@ -244,7 +252,7 @@ async function registryDeclarations(pageSnippets) {
     for (const snippet of pageSnippets) {
       if (snippet.fragment || !snippet.label) continue
       const label = snippet.label.replace(/^\/+/, "")
-      for (const name of await registry.definitions(label, snippet.code)) if (!definitions.has(name)) definitions.set(name, snippet.file)
+      for (const name of await registry.definitions(label, snippet.code, pageSnippets)) if (!definitions.has(name)) definitions.set(name, snippet.file)
     }
     if (!definitions.size) continue
     const file = join(pageSnippets[0].pageRoot, `.vitehub/${registry.type}.d.ts`)
@@ -268,7 +276,6 @@ async function envDeclarations(pageSnippets) {
   const configs = pageSnippets.filter(snippet => !snippet.fragment && viteConfigFile.test(snippet.label ?? "") && /\benv\s*:/.test(snippet.code))
   if (!configs.length) return []
   const env = { public: {}, server: {} }
-  let loaded = false
   const directory = mkdtempSync(join(packagesRoot, "vite-hub/.snippet-config-"))
   try {
     // Configs such as `envSchema(new URL('./.env.example', import.meta.url))` need the page's shown fixture.
@@ -283,22 +290,20 @@ async function envDeclarations(pageSnippets) {
       writeFileSync(file, snippet.code)
       let config
       try {
-        config = (await import(pathToFileURL(file).href)).default
+        config = await (await import(pathToFileURL(file).href)).default
+        if (typeof config === "function") config = await config({ command: "serve", mode: "development", isSsrBuild: false, isPreview: false })
       }
       catch {
-        // An illustrative config must not discard Env types derived from the page's executable examples.
-        continue
+        // Only explicitly marked fragments may be skipped; a failed config must not leave a partial Env contract.
+        return []
       }
       Object.assign(env.public, config?.env?.public)
       Object.assign(env.server, config?.env?.server)
-      loaded = true
     }
   }
   finally {
     rmSync(directory, { force: true, recursive: true })
   }
-  // If no config could execute, keep the generic Env fallback rather than emitting empty typed modules.
-  if (!loaded) return []
   const { createEnvTypes } = await import(pathToFileURL(join(packagesRoot, "env/dist/vite.js")).href)
   const pageRoot = pageSnippets[0].pageRoot
   // `vitehub()` registers Env, so the Auth integration types the `env` of `defineAuth()` as the Server Env.
