@@ -75,7 +75,7 @@ export default defineAgent({
 
 - The file name is the Agent name: `assistant`.
 - The key in `channels` is the webhook name: `telegram`.
-- `mode: 'webhook'` makes the adapter use webhooks only. Without it, the Chat SDK adapter selects webhook or polling mode at startup.
+- `mode: 'webhook'` makes the adapter use webhooks only. The Chat SDK adapter can select a mode automatically, but ViteHub keeps webhook routing when `mode` is omitted. To poll, explicitly set `mode: 'polling'` and mount and call `createTelegramPollingRouteHandler()` from `vite-hub/agent/server`.
 - `allowedUserIds` is a list of numeric Telegram user IDs. The bot ignores messages from all other users and sends no answer. Remove the option to let every Telegram user talk to the bot. When you omit it, the adapter reads a comma-separated list from `TELEGRAM_ALLOWED_USER_IDS`.
 - `telegram()` adds Telegram formatting rules to the Agent instructions, for example no Markdown tables.
 
@@ -103,8 +103,15 @@ Do not commit `.env`. Options that you pass to `telegram()`, such as `botToken`,
 
 Telegram must reach the webhook over public HTTPS on port 443, 80, 88, or 8443. To test the dev server, open a tunnel to it. This example uses a [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/):
 
-```bash [Terminal]
+Run the dev server in one terminal:
+
+```bash [Terminal 1]
 pnpm dev
+```
+
+Keep it running, then open the tunnel in a second terminal:
+
+```bash [Terminal 2]
 cloudflared tunnel --url http://localhost:3000
 ```
 

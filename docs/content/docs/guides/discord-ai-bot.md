@@ -20,7 +20,7 @@ In ViteHub, the bot is a [Channel](/docs/agents/channels) of an Agent. `discord(
 1. Open the [Discord Developer Portal](https://discord.com/developers/applications) and select **New Application**.
 2. On **General Information**, copy the **Application ID** (`DISCORD_APPLICATION_ID`) and the **Public Key** (`DISCORD_PUBLIC_KEY`).
 3. On **Bot**, select **Reset Token** and copy the token (`DISCORD_BOT_TOKEN`). Anyone with the token controls the bot, so keep it secret.
-4. On **Bot**, under **Privileged Gateway Intents**, turn on **Message Content Intent**. The Chat SDK adapter asks for this intent, and Discord closes the Gateway connection when the intent is off. A bot in 100 or more servers needs Discord's approval for this intent. Read [Message Content intent](https://discord.com/developers/docs/events/gateway#message-content-intent).
+4. On **Bot**, under **Privileged Gateway Intents**, turn on **Message Content Intent**. The Chat SDK adapter asks for this intent, and Discord closes the Gateway connection when the intent is off. An app with more than 10,000 unique users who can see it across its servers needs Discord's review for continued access to privileged intents. Read [Privileged Intent Access Review](https://docs.discord.com/developers/events/gateway#privileged-intent-access-review).
 5. On **OAuth2**, open **OAuth2 URL Generator**, select the `bot` scope, and select these bot permissions: **View Channels**, **Send Messages**, **Create Public Threads**, **Send Messages in Threads**, and **Read Message History**. Open the generated URL to add the bot to your server.
 
 The Chat SDK adapter asks the Gateway for the Guilds, Guild Messages, Message Content, Direct Messages, and reaction intents. Only Message Content is privileged, so it is the only intent that you turn on in the portal.
@@ -79,7 +79,7 @@ export default defineAgent({
 ```
 
 - `adapter: true` tells ViteHub to build the adapter from Server Env. Without an `adapter` option, `discord()` has no adapter, and ViteHub does not start a Gateway listener for it.
-- `messages.filter` is optional. Here it admits only the Discord user IDs in the set. Return `false` and the Agent does not start and posts nothing. To copy a user ID, turn on **Developer Mode** in Discord's advanced settings, then right-click the user.
+- `messages.filter` is optional. Here it admits only the Discord user IDs in the set. Return `false` and the Agent does not start or reply. The Discord adapter may already have created an empty thread for a server mention. To copy a user ID, turn on **Developer Mode** in Discord's advanced settings, then right-click the user.
 - To answer a role mention, pass `adapter: { mentionRoleIds: ['<role id>'] }` instead of `adapter: true`. Adapter options that you omit still come from Server Env.
 
 The model string runs through AI Gateway, so the server needs `AI_GATEWAY_API_KEY`. Read [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver) to use another model.

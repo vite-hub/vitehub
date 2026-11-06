@@ -151,8 +151,15 @@ Do not commit `.env`. ViteHub does not declare Slack values in [Server Env](/doc
 
 Slack must reach the Request URL over public HTTPS. To test the dev server, open a tunnel to it. This example uses a [Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/):
 
-```bash [Terminal]
+Run the dev server in one terminal:
+
+```bash [Terminal 1]
 pnpm dev
+```
+
+Keep it running, then open the tunnel in a second terminal:
+
+```bash [Terminal 2]
 cloudflared tunnel --url http://localhost:3000
 ```
 
