@@ -2065,6 +2065,41 @@ describe("Agent Invocations", () => {
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
   })
 
+  it("keeps long run IDs and names the shortened attributes", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("named-truncated-attributes"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const runId = JSON.stringify(["owner:chat:bot:teams:inline-steer:" + "t".repeat(400), "teams:" + "t".repeat(400), "message"])
+    await journal.context.traceLog?.append({ attributes: { "agent.run.id": runId, "message.content": "Done" }, name: "agent.message.delta", type: "run" })
+    await journal.context.traceLog?.append({ attributes: { "agent.run.id": runId, metadata: "x".repeat(10_000) }, name: "tool.finish", type: "run" })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("named-truncated-attributes"))?.observations
+    const message = observations?.find(entry => entry.name === "agent.message.delta")
+    expect(message?.attributes?.["agent.run.id"]).toBe(runId)
+    expect(message?.attributes).not.toHaveProperty("vitehub.observation.truncated")
+    const tool = observations?.find(entry => entry.name === "tool.finish")
+    expect(tool?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(tool?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["metadata"])
+  })
+
+  it("names hidden input parts apart from message text", async () => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("hidden-input-parts"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    let data: Record<string, unknown> = { leaf: true }
+    for (let depth = 0; depth < 40; depth++) data = { data }
+    const hidden = [{ id: "m1", parts: [{ data, type: "data-header" }, { text: "even more", type: "text" }], role: "user" }]
+    const cut = [{ id: "m2", parts: [{ text: "x".repeat(100_000), type: "text" }], role: "user" }]
+    await journal.context.traceLog?.append({ attributes: { "input.messages": hidden }, name: "agent.hidden", type: "run" })
+    await journal.context.traceLog?.append({ attributes: { "input.messages": cut }, name: "agent.cut", type: "run" })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("hidden-input-parts"))?.observations
+    expect(observations?.find(entry => entry.name === "agent.hidden")?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["input.messages.parts"])
+    expect(observations?.find(entry => entry.name === "agent.cut")?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["input.messages"])
+  })
+
   it("omits nested optional metadata without reporting content truncation", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("optional-observation-metadata"))

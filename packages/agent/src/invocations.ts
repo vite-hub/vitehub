@@ -6,7 +6,7 @@ import { consoleInvocationUrl, createTraceEventLog, isTraceContentAttributeKey, 
 import { registerAgentInvocationRecovery } from "./internal/invocation-recovery.ts"
 import { parentInvocationTrace } from "./internal/invocation-scope.ts"
 import { abortLocalAgentInvocation, createAgentInvocationCancellationError, registerAgentInvocationCancellation } from "./internal/invocation-cancellation.ts"
-import { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, createInvocationObservationStream } from "./internal/invocation-observation-stream.ts"
+import { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE, createInvocationObservationStream } from "./internal/invocation-observation-stream.ts"
 import { agentInvocationJournalContentTraceLogSymbol, agentInvocationJournalTraceLogSymbol } from "./trace.ts"
 import { failInterruptedAgentInvocations } from "./server/invocation-health.ts"
 
@@ -39,7 +39,7 @@ const MAX_AGENT_CONFIGURATION_DEPTH = 64
 const MAX_OBSERVATION_VALUE_ITEMS = 256
 const MAX_AGENT_CONFIGURATION_ITEMS = 32 * 1024
 const MAX_AGENT_CONFIGURATION_COLLECTION_ITEMS = 8 * 1024
-export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE } from "./internal/invocation-observation-stream.ts"
+export { AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE, AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE } from "./internal/invocation-observation-stream.ts"
 const AGENT_INVOCATION_INPUT_REDACTED_ATTRIBUTE = "vitehub.input.redacted"
 const AGENT_INVOCATION_OBSERVATION_ID_ATTRIBUTE = "vitehub.observation.id"
 const PROMPT_TRUNCATED_ATTRIBUTE = "input.prompt.truncated"
@@ -1271,6 +1271,24 @@ function boundedObservationAttributeValue(
   return configuration
 }
 
+/** The text and attachment URLs a reader sees in an input history, or `undefined` when it cannot be read. */
+function visibleMessageText(value: unknown): string | undefined {
+  try {
+    if (!Array.isArray(value)) return
+    return JSON.stringify(value.map((message: unknown) => {
+      if (!isRuntimeRecord(message)) return null
+      if (hasRuntimeType(message.content, "string")) return message.content
+      if (!Array.isArray(message.parts)) return null
+      return message.parts.map((part: unknown) => isRuntimeRecord(part)
+        ? [hasRuntimeType(part.text, "string") ? part.text : null, hasRuntimeType(part.url, "string") ? part.url : null]
+        : null)
+    }))
+  }
+  catch {
+    return undefined
+  }
+}
+
 function boundedObservation(
   observation: TraceEventLogEntry,
   builtIns?: ReadonlyMap<object, BoundedObservationBuiltIn>,
@@ -1317,44 +1335,63 @@ function boundedObservation(
     if (payload.visibility === "public") canonicalAttributes["vitehub.payload.value"] = payload.value
     if (payload.visibility === "summary") canonicalAttributes["vitehub.payload.summary"] = payload.summary
   }
+  const recordedTruncation = observation.attributes?.[AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE] === true
+  const recordedAttributes = observation.attributes?.[AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE]
+  // A flag without names stays unnamed: this pass cannot tell what an earlier pass cut.
+  const unnamedTruncation = recordedTruncation && !Array.isArray(recordedAttributes)
+  const truncatedAttributes = new Set<string>(Array.isArray(recordedAttributes)
+    ? recordedAttributes.filter(key => hasRuntimeType(key, "string")).map(key => boundedString(key)!)
+    : [])
   const ordinaryAttributes = Object.entries(observation.attributes || {})
-    .filter(([key]) => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key))
+    .filter(([key]) => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key)
+      && key !== AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE
+      && key !== AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE)
   const ordinaryAttributeLimit = MAX_OBSERVATION_ATTRIBUTES - Object.keys(canonicalAttributes).length
-  if (ordinaryAttributes.length > ordinaryAttributeLimit) {
-    budget.truncated = true
-  }
+  for (const [key] of ordinaryAttributes.slice(ordinaryAttributeLimit)) truncatedAttributes.add(boundedString(key)!)
   let attributes = observation.attributes || Object.keys(canonicalAttributes).length
     ? {
         ...Object.fromEntries(ordinaryAttributes
           .slice(0, ordinaryAttributeLimit)
         .flatMap(([key, value]) => {
-          if (key.length > MAX_METADATA_STRING_LENGTH) budget.truncated = true
-          return value === undefined ? [] : [[boundedString(key), boundedObservationAttributeValue(
+          const truncatedBefore = budget.truncated
+          budget.truncated = key.length > MAX_METADATA_STRING_LENGTH
+          const bounded = value === undefined ? undefined : boundedObservationAttributeValue(
             key,
             value,
             budget,
-            key === "vitehub.agent.configuration" || isTraceContentAttributeKey(key) ? limits.maxStringLength : MAX_METADATA_STRING_LENGTH,
+            // Run IDs compose channel thread IDs. Keep them whole so the flag reports content loss, not identity length.
+            key === "vitehub.agent.configuration" || key === "agent.run.id" || isTraceContentAttributeKey(key) ? limits.maxStringLength : MAX_METADATA_STRING_LENGTH,
             builtIns,
-          )]]
+          )
+          if (budget.truncated) {
+            // Input histories often lose only hidden part data. Name that apart from message text.
+            const hiddenPartsOnly = (key === "input.messages" || key === "input.prompt")
+              && visibleMessageText(value) !== undefined
+              && visibleMessageText(value) === visibleMessageText(bounded)
+            truncatedAttributes.add(hiddenPartsOnly ? `${key}.parts` : boundedString(key)!)
+          }
+          budget.truncated ||= truncatedBefore
+          return value === undefined ? [] : [[boundedString(key), bounded]]
         })),
         ...canonicalAttributes,
       }
     : undefined
-  if (payloadBudget.truncated) budget.truncated = true
+  if (payloadBudget.truncated) truncatedAttributes.add("vitehub.payload.value")
+  if (recordedTruncation || truncatedAttributes.size) budget.truncated = true
   if (budget.truncated) {
     attributes ||= {}
-    if (Object.keys(attributes).length >= MAX_OBSERVATION_ATTRIBUTES) {
+    const flag = observation.name === "vitehub.agent.configured" ? "vitehub.agent.configurationTruncated" : AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE
+    const markers = () => Number(!(flag in attributes!)) + Number(!unnamedTruncation)
+    while (Object.keys(attributes).length + markers() > MAX_OBSERVATION_ATTRIBUTES) {
       const lastOrdinaryAttribute = Object.keys(attributes)
-        .filter(key => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key))
+        .filter(key => !CANONICAL_TRACE_ATTRIBUTE_KEYS.has(key) && key !== flag)
         .at(-1)
-      if (lastOrdinaryAttribute) delete attributes[lastOrdinaryAttribute]
+      if (!lastOrdinaryAttribute) break
+      truncatedAttributes.add(lastOrdinaryAttribute)
+      delete attributes[lastOrdinaryAttribute]
     }
-    if (observation.name === "vitehub.agent.configured") {
-      attributes["vitehub.agent.configurationTruncated"] = true
-    }
-    else {
-      attributes[AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE] = true
-    }
+    attributes[flag] = true
+    if (!unnamedTruncation) attributes[AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE] = [...truncatedAttributes].slice(0, MAX_OBSERVATION_ATTRIBUTES)
   }
   if (observation.name === "agent.invocation.start" && observation.attributes?.["input.prompt"] !== undefined && attributes) {
     attributes[PROMPT_TRUNCATED_ATTRIBUTE] = attributes[PROMPT_TRUNCATED_ATTRIBUTE] === true
@@ -1666,11 +1703,14 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
       }
     }
     else if (bytes + size + (retained.length ? 1 : 0) > maxBytes && outcomes.has(observation)) {
+      const dropped = Object.keys(observation.attributes || {}).filter(key => isTraceContentAttributeKey(key) || key === "vitehub.payload.value")
+      const recorded = observation.attributes?.[AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE]
       candidate = {
         ...observation,
         attributes: {
-          ...Object.fromEntries(Object.entries(observation.attributes || {}).filter(([key]) => !isTraceContentAttributeKey(key) && key !== "vitehub.payload.value")),
+          ...Object.fromEntries(Object.entries(observation.attributes || {}).filter(([key]) => !dropped.includes(key))),
           [observation.name === "vitehub.agent.configured" ? "vitehub.agent.configurationTruncated" : AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
+          [AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE]: [...new Set([...(Array.isArray(recorded) ? recorded.filter(key => hasRuntimeType(key, "string")) : []), ...dropped])],
           ...(observation.payload?.visibility === "public" ? { "vitehub.payload.visibility": "redacted" } : {}),
         },
         ...(observation.payload?.visibility === "public" ? { payload: { visibility: "redacted" as const } } : {}),
