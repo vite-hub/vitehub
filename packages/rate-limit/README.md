@@ -105,7 +105,7 @@ An allowed request continues. An exhausted budget throws an H3 `HTTPError` with 
 
 Local Vite development uses the process-local memory driver. A Cloudflare Nitro preset selects Cloudflare Rate Limiting, and every deployed Worker and environment needs a unique namespace. ViteHub has no native Rate Limit driver for Vercel, Netlify, or Deno. Automatic provider selection fails for an unknown production host instead of falling back to unsafe per-instance memory. Select memory explicitly only for a known single-process deployment; otherwise supply a direct production driver. Check the [runtime and host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix) before choosing a deployment target.
 
-Cloudflare enforcement is best-effort, location-scoped, and limited to `10s` and `1m` windows. It does not report portable remaining, reset, or retry metadata. A policy that requests strict enforcement or another window fails before deployment. The [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare#rate-limiting-bindings) covers generated bindings and deployment verification.
+Cloudflare enforcement is best-effort, location-scoped, and limited to `10s` and `1m` windows. It does not report portable remaining, reset, or retry metadata. A policy that requests strict enforcement or another window fails before deployment, and `vite dev` fails the same way when the build targets Cloudflare, although the dev server counts in memory. The [Cloudflare host guide](https://vitehub.dev/docs/frameworks-hosts/cloudflare#rate-limiting-bindings) covers generated bindings and deployment verification.
 
 ## Supply a direct driver
 
