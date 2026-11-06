@@ -1224,7 +1224,10 @@ describe("Database Nuxt integration", () => {
 
       const customAlias = { alias: { "@vite-hub/database/drizzle": "#custom-database" } }
       await callHook(hooks, "nitro:config", customAlias)
-      expect(customAlias.alias).toEqual({ "@vite-hub/database/drizzle": "#custom-database" })
+      expect(customAlias.alias).toEqual({
+        "@vite-hub/database/drizzle": "#custom-database",
+        ...(dev ? { "#vitehub/database/definition-defaults": join(dirname(runtimeFile), "definition-defaults.mjs") } : {}),
+      })
       await expect(readFile(runtimeFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
 
       await callHook(hooks, "nitro:config", nitroConfig)
@@ -1304,7 +1307,10 @@ describe("Database Nuxt integration", () => {
       const customConfig = { alias: { "@vite-hub/database/drizzle": "#custom-database" } }
       await callHook(hooks, "nitro:config", customConfig)
       for (const callback of watchHooks) await callback("change", definition)
-      expect(customConfig.alias).toEqual({ "@vite-hub/database/drizzle": "#custom-database" })
+      expect(customConfig.alias).toEqual({
+        "@vite-hub/database/drizzle": "#custom-database",
+        "#vitehub/database/definition-defaults": join(dirname(runtimeFile), "definition-defaults.mjs"),
+      })
       await expect(readFile(runtimeFile, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     }
     finally {

@@ -238,7 +238,7 @@ export function readDatabaseDefinitionReadReplication(file: string): boolean | u
  * `cloudflare.http` and not `remote: false`. Undefined when the source does not show it with literals.
  */
 export function readDatabaseDefinitionRemote(file: string): boolean | undefined {
-  const expression = readObjectPropertyValue(readDefinitionObjectBody(file), "remote")
+  const expression = resolveModuleExpression(readObjectPropertyValue(readDefinitionObjectBody(file), "remote"), file)
   if (expression?.type === "Literal" && typeof expression.value === "boolean") return expression.value
   return isStaticD1HttpDefinition(file) || undefined
 }

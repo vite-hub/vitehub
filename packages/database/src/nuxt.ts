@@ -442,13 +442,10 @@ async function installNitroLocalDatabaseRuntime(
   const defaultsFile = resolve(generatedRoot, "database/definition-defaults.mjs")
   const alias = isRecord(config.alias) ? config.alias : undefined
   const existingAlias = alias?.[databaseDrizzleImport]
-  if (existingAlias && existingAlias !== file) {
+  const customRegistry = !!existingAlias && existingAlias !== file
+  if (customRegistry) {
     await rm(file, { force: true })
-    if (dev) {
-      await rm(defaultsFile, { force: true })
-      if (alias?.[databaseDefinitionDefaultsImport] === defaultsFile) delete alias[databaseDefinitionDefaultsImport]
-    }
-    return
+    if (!dev) return
   }
 
   const runtime = resolvedRuntime ?? resolveDBViteConfig(options, root, { contributions, provisionRoot, serverDirs })
@@ -465,6 +462,14 @@ async function installNitroLocalDatabaseRuntime(
     }
     return
   }
+
+  const definitionDefaults = serializeGeneratedRegistry(dev ? { ...runtime.definitionDefaults, dev: true } : runtime.definitionDefaults)
+  if (dev) {
+    // Direct Definition imports need these defaults even when the app supplies its own registry.
+    await writeFileIfChanged(defaultsFile, `export default ${definitionDefaults}\n`)
+    ensureRecord(config, "alias")[databaseDefinitionDefaultsImport] ??= defaultsFile
+  }
+  if (customRegistry) return runtime
 
   // Nitro dev keeps running when a Definition needs Nuxt auto-imports to load; collisions are then checked on literal keys.
   const tableNameOptions = {
@@ -521,8 +526,6 @@ async function installNitroLocalDatabaseRuntime(
     `    schema: ${merged(index) ? `schema_${index}` : `definition_${index}.schema`},`,
     "  },",
   ].join("\n"))
-  const definitionDefaults = serializeGeneratedRegistry(dev ? { ...runtime.definitionDefaults, dev: true } : runtime.definitionDefaults)
-  if (dev) await writeFileIfChanged(defaultsFile, `export default ${definitionDefaults}\n`)
   await writeFileIfChanged(file, renderDatabaseRuntimeModule({
     chunkParametersImport: pathToFileURL(resolve(databaseRuntimeDir, "chunk-parameters.js")).href,
     createAgentDatabaseImport: pathToFileURL(resolve(databaseRuntimeDir, "agent.js")).href,
@@ -536,9 +539,7 @@ async function installNitroLocalDatabaseRuntime(
       ...schemas,
     ],
   }))
-  if (alias) alias[databaseDrizzleImport] = file
-  else config.alias = { [databaseDrizzleImport]: file }
-  if (dev) ensureRecord(config, "alias")[databaseDefinitionDefaultsImport] ??= defaultsFile
+  ensureRecord(config, "alias")[databaseDrizzleImport] = file
   return runtime
 }
 

@@ -475,6 +475,22 @@ describe("hubDb", () => {
     })
   })
 
+  it.each([true, false])("inspects a constant remote switch: %s", async (remote) => {
+    const rootDir = await createTempProject()
+    const file = await writeDefinition(rootDir, "server/databases/config.ts")
+    await writeFile(file, [
+      `const useRemote = ${remote} as const`,
+      "const remote = useRemote",
+      (await readFile(file, "utf8")).replace("  schema:", "  remote,\n  schema:"),
+    ].join("\n"))
+    const plugin = hubDb()
+    await resolveConfigResolved(plugin)({ root: rootDir })
+    const inspect = plugin.vitehub?.inspect
+    const inspection = typeof inspect === "function" ? await inspect() : undefined
+    const [definition] = await inspection!.definitions![0]!.list()
+    expect(definition?.fields?.some(field => field.label === "Development")).toBe(remote)
+  })
+
   it("ignores remote in builds", async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "databaseId: 'real-database-id'," })
