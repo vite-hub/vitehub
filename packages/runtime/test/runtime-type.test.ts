@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 
 import { hasRuntimeType, isRuntimeResponse } from "../src/internal/runtime-type.ts"
 
@@ -21,5 +21,33 @@ describe("Runtime representation guards", () => {
     expect(isRuntimeResponse(Object.create(Response.prototype))).toBe(false)
     expect(isRuntimeResponse({ [Symbol.toStringTag]: "Response", status: 401 })).toBe(false)
     expect(isRuntimeResponse(null)).toBe(false)
+  })
+
+  describe("with a server Response class", () => {
+    const native = globalThis.Response
+    afterEach(() => {
+      globalThis.Response = native
+    })
+
+    it("accepts Responses of the class that the server installed as the global Response", () => {
+      // Like srvx's NodeResponse: its getters read private fields.
+      class ServerResponse {
+        #status: number
+        constructor(_body?: unknown, init?: { status?: number }) {
+          this.#status = init?.status ?? 200
+        }
+
+        get status(): number {
+          return this.#status
+        }
+      }
+      // SAFETY: The test replaces the global class as srvx does on Node.js.
+      globalThis.Response = ServerResponse as unknown as typeof Response
+      expect(isRuntimeResponse(new ServerResponse(null, { status: 401 }))).toBe(true)
+      expect(isRuntimeResponse(new native(null, { status: 401 }))).toBe(true)
+      expect(isRuntimeResponse(Object.create(ServerResponse.prototype))).toBe(false)
+      expect(isRuntimeResponse(new Proxy(new ServerResponse(), {}))).toBe(false)
+      expect(isRuntimeResponse({ status: 401 })).toBe(false)
+    })
   })
 })
