@@ -827,10 +827,9 @@ function withoutDeploymentOutput(options: readonly unknown[]): unknown[] {
 
 /** Translate Nitro 3 package lists before Nuxt's Nitro 2 resolves its preset defaults. */
 function normalizeNuxtNitroExternals(config: Record<string, unknown>, incomingNoExternals: boolean | undefined, nitroMajorVersion: 2 | 3): void {
-  // Nitro 3 reads Nuxt's `build.transpile` list itself. Keep required plugin inlining when other packages are external.
+  // Nitro 3 reads Nuxt's `build.transpile` list itself. Explicit booleans override replayed package lists.
   if (nitroMajorVersion === 3) {
-    if (incomingNoExternals === true) config.noExternals = true
-    else if (incomingNoExternals === false && !Array.isArray(config.noExternals)) config.noExternals = false
+    if (incomingNoExternals !== undefined) config.noExternals = incomingNoExternals
     return
   }
   if (Array.isArray(config.noExternals)) {
@@ -1501,7 +1500,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       })
     })
   }
+  const nitro3ExternalLists = new WeakMap<object, readonly unknown[]>()
   nuxt.hook?.("nitro:config", async (config) => {
+    // An explicit false becomes a selective list below; retain its policy when the same config is replayed.
+    const previousExternalList = nitro3ExternalLists.get(config)
+    if (previousExternalList && config.noExternals === previousExternalList) config.noExternals = false
+    const incomingNoExternals = config.noExternals
     const {
       config: replayConfig,
       hasReplayedDatabaseDiscoveryRoot,
@@ -1673,6 +1677,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const owned = ["vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot]
     if (nitroMajorVersion === 3) {
       if (config.noExternals !== true) config.noExternals = [...new Set([...Array.isArray(config.noExternals) ? config.noExternals : [], ...owned])]
+      if (incomingNoExternals === false && Array.isArray(config.noExternals)) nitro3ExternalLists.set(config, config.noExternals)
+      else nitro3ExternalLists.delete(config)
     }
     else {
       const externals = isRecord(config.externals) ? config.externals : {}

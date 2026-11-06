@@ -4840,7 +4840,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       await runNitroConfigHook(nitroConfig)
 
       const owned = ["vite-hub", "@vite-hub/", resolve(root, ".vitehub"), h3RuntimeRoot]
-      const inlined = incomingNoExternals === undefined ? ["@nuxt/", transpiled] : replayList ? ["effect", "@effect/platform-node"] : []
+      const inlined = incomingNoExternals === undefined ? ["@nuxt/", transpiled] : []
       const expectedNoExternals = incomingNoExternals === true
         ? true
         : [...inlined, ...owned]
@@ -4850,6 +4850,9 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       expect(nitroConfig).not.toHaveProperty("externals")
       expect(nitroConfig.alias).not.toHaveProperty("h3")
       expect(nitroConfig.alias).toHaveProperty("kept", "/app/kept.ts")
+      nitroConfig.noExternals = true
+      await runNitroConfigHook(nitroConfig)
+      expect(nitroConfig.noExternals).toBe(true)
     }
     finally {
       await rm(root, { recursive: true, force: true })
