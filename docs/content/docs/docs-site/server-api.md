@@ -33,6 +33,7 @@ Set them under `docs` in `nuxt.config.ts`. Every option is optional.
 | `site.badge` | `{ label, tooltip? }` | None | A short label after the name, such as `beta`. |
 | `categories` | `string[]` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `string[]` | `[]` | Categories that the catalog lists but the rail leaves out. |
+| `groups` | `DocsGroup[]` | `[]` | Rail items that hold several sections. A `DocsGroup` is `{ title, icon?, sections? }`: `sections` lists section ids, and a section can also join with `group` in its `.navigation.yml`. See [Groups](/docs/docs-site/configure#groups). |
 | `start` | `{ section, links? }` | None | The section that new readers open first, and site pages listed at its top. The header and the error page link to them. |
 | `socials` | `DocsLink[]` | `[]` | Links at the foot of the sidebar. A `DocsLink` is `{ label, to, icon? }`. |
 | `banner` | `string` | None | One line above every docs page. |
@@ -40,7 +41,7 @@ Set them under `docs` in `nuxt.config.ts`. Every option is optional.
 | `github` | `{ repo, branch?, dir? }` or `false` | `false` | The repository of the site. The shell links to `https://github.com/<repo>`. `branch` (default `main`) and `dir` (default the `dir` option) are in `useDocsConfig().github` for your own components. |
 | `icons` | `Partial<DocsIcons>` | Lucide fallbacks | Icons of the rail and the sidebar: `rail`, `sections`, `pages`, `aliases`, `family`, `page`, and `section`. See [Icons](/docs/docs-site/configure#icons). |
 | `mcp` | `{ name?, guide? }` or `false` | On, named after `site.name` | The MCP server at `/mcp`. `guide` is a page that explains how to connect it. |
-| `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. Set the app's own `linkChecker` options to change this. |
+| `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when such a rule goes to no docs page or hides one. Set the app's own `linkChecker` options to change this. |
 | `ogImage` | `false \| { component? }` | On | Share images, rendered with `nuxt-og-image` while the build prerenders. `component` names the app's own template in `components/OgImage/`, which gets `title`, `description`, `site`, `section`, `logo`, and `host`. `false` turns them off. |
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
 | `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to the `comments` option of `vite-hub/nuxt`. `false` sets `comments: false` there, which also keeps the Console from turning Comments on. |
@@ -81,6 +82,7 @@ Dotted keys, such as `navigation.order: 2`, are the same as nested keys. `naviga
 | `icon` | `string` | The icon of `index.md`, then `icons.section` | Section icon. |
 | `order` | `number` | The folder position | Position in the rail. Lower comes first. |
 | `category` | `string` | None | Rail group and catalog group. |
+| `group` | `string` | None | Title of the [group](/docs/docs-site/configure#groups) of the section. A `groups` entry that lists the section wins. |
 | `related` | `string[]` | `[]` | Section ids under Related in the sidebar. |
 
 ## Routes

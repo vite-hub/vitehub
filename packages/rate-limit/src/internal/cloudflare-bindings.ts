@@ -23,23 +23,31 @@ function namespaceId(namespace: string, rateLimitId: string): string {
   return String((hash >>> 0) || 1)
 }
 
+// Cloudflare documents `period` as 10 or 60 seconds: https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/
+function cloudflareSimpleLimit(declaration: RateLimitDeclaration): { limit: number, period: 10 | 60 } {
+  const policy = normalizeRateLimitPolicy(declaration.policy)
+  if (policy.enforcement === "strict") {
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0015({ message: `Rate Limit "${declaration.name}" requires strict enforcement, but Cloudflare's native Rate Limiting binding is best-effort.` })
+  }
+  const period = policy.windowMs / 1_000
+  if (period !== 10 && period !== 60) {
+    throw rateLimitErrorDiagnostics.RATE_LIMIT_R0016({ message: `Rate Limit "${declaration.name}" uses ${policy.window}, but Cloudflare Rate Limiting supports only 10s and 1m windows.` })
+  }
+  return { limit: policy.limit, period }
+}
+
+/** Throws the build error for the first policy that a Cloudflare Rate Limiting binding cannot run. */
+export function assertCloudflareRateLimitPolicies(declarations: RateLimitDeclaration[]): void {
+  for (const declaration of declarations) cloudflareSimpleLimit(declaration)
+}
+
 export function createCloudflareRateLimitBindings(
   declarations: RateLimitDeclaration[],
   namespace: string,
 ): CloudflareRateLimitBindingConfig[] {
-  return declarations.map((declaration) => {
-    const policy = normalizeRateLimitPolicy(declaration.policy)
-    if (policy.enforcement === "strict") {
-      throw rateLimitErrorDiagnostics.RATE_LIMIT_R0015({ message: `Rate Limit "${declaration.name}" requires strict enforcement, but Cloudflare's native Rate Limiting binding is best-effort.` })
-    }
-    const period = policy.windowMs / 1_000
-    if (period !== 10 && period !== 60) {
-      throw rateLimitErrorDiagnostics.RATE_LIMIT_R0016({ message: `Rate Limit "${declaration.name}" uses ${policy.window}, but Cloudflare Rate Limiting supports only 10s and 1m windows.` })
-    }
-    return {
-      name: getCloudflareRateLimitBindingName(declaration.name),
-      namespace_id: namespaceId(namespace, declaration.name),
-      simple: { limit: policy.limit, period },
-    }
-  })
+  return declarations.map(declaration => ({
+    name: getCloudflareRateLimitBindingName(declaration.name),
+    namespace_id: namespaceId(namespace, declaration.name),
+    simple: cloudflareSimpleLimit(declaration),
+  }))
 }

@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
+import { S3Client } from "@aws-sdk/client-s3"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeBlobOptions } from "../src/config.ts"
@@ -148,6 +149,41 @@ afterEach(async () => {
 })
 
 describe("Blob Nitro runtime module", () => {
+  it.each(["lazy", "eager"])("uses the R2 HTTP API for a remote development store with a local binding (%s)", async (kind) => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-remote-r2-")
+    const resolved = normalizeBlobOptions({
+      accountId: "account",
+      accessKeyId: "access-key",
+      bucketName: "assets",
+      driver: "cloudflare-r2",
+      publicBaseUrl: "https://assets.example.test",
+      remote: true,
+      secretAccessKey: "secret-key",
+    }, { dev: true })
+    if (!resolved) throw new Error("Blob config must resolve to a store.")
+    const list = vi.fn()
+    const put = vi.fn()
+    vi.stubGlobal("BLOB", { list, put })
+    const send = vi.spyOn(S3Client.prototype, "send").mockImplementation(async () => ({ Contents: [], ETag: '"etag"', IsTruncated: false }))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const file = join(rootDir, "runtime.mjs")
+      await writeFile(file, `${renderBlobRuntimeModule(file, resolved, "cloudflare")}\nexport { createGeneratedBlobStorage }\n`, "utf8")
+      const runtime = await import(pathToFileURL(file).href) as { blob: BlobStorage, createGeneratedBlobStorage: () => BlobStorage }
+      const storage = kind === "lazy" ? runtime.blob : runtime.createGeneratedBlobStorage()
+
+      expect(await storage.list()).toMatchObject([null, { blobs: [], hasMore: false }])
+      expect((await storage.put("remote.txt", "hello"))[0]).toBeNull()
+      expect(send).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ Bucket: "assets", Key: "remote.txt" }) }), undefined)
+      expect(list).not.toHaveBeenCalled()
+      expect(put).not.toHaveBeenCalled()
+    }
+    finally {
+      send.mockRestore()
+      warn.mockRestore()
+    }
+  })
+
   it.each([
     { objectAccess: "private" as const, storeAccess: "public" as const },
     { objectAccess: "public" as const, storeAccess: "private" as const },
@@ -355,8 +391,56 @@ describe("Blob Nitro runtime module", () => {
     expect(fetchMock).not.toHaveBeenCalled()
 
     const runtimeContents = await readFile(join(rootDir, ".vitehub", "blob", "vercel-runtime.mjs"), "utf8")
-    expect(runtimeContents).toContain("store: storeName => createGeneratedBlobStorage(storeName)")
+    expect(runtimeContents).toContain("store: (storeName, options) => selectGeneratedBlobStore(storeName, options, createGeneratedBlobStorage)")
     expect(runtimeContents).toContain("export const blob = createLazyGeneratedBlobStorage(\"default\")")
+  })
+
+  it.each(["lazy", "eager"] as const)("applies read mode to %s generated handles", { timeout: 30_000 }, async (kind) => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-read-mode-runtime-")
+    const resolved = normalizeBlobOptions({
+      serve: { route: "/reports", store: "reports" },
+      stores: {
+        default: { base: join(rootDir, "default"), driver: "fs" },
+        reports: { base: join(rootDir, "reports"), driver: "fs" },
+        signed: {
+          accountId: "account",
+          accessKeyId: "access-key",
+          binding: "BLOB",
+          bucketName: "reports",
+          driver: "cloudflare-r2",
+          secretAccessKey: "secret-key",
+        },
+      },
+    })
+    if (!resolved) throw new Error("Blob config must resolve to a store.")
+    const file = join(rootDir, "runtime.mjs")
+    // Expose the eager factory only in this fixture so both generated selectors run.
+    await writeFile(file, `${renderBlobRuntimeModule(file, resolved, "cloudflare")}\nexport { createGeneratedBlobStorage }\n`, "utf8")
+    const runtimeModule = await import(pathToFileURL(file).href) as { blob: BlobStorage, createGeneratedBlobStorage: () => BlobStorage }
+    const storage = kind === "lazy" ? runtimeModule.blob : runtimeModule.createGeneratedBlobStorage()
+
+    expect((await storage.store("reports").put("q1.txt", "revenue"))[0]).toBeNull()
+    expect((await storage.store("default", { mode: "write" }).put("q1.txt", "default"))[0]).toBeNull()
+    const reader = storage.store("reports", { mode: "read" })
+    expect(Object.keys(reader).sort()).toEqual(["get", "head", "list", "media", "serve", "sign"])
+    expect(Object.keys(reader.media).sort()).toEqual(["get", "list", "variants"])
+    const [getError, object] = await reader.get("q1.txt")
+    expect(getError).toBeNull()
+    expect(await object?.text()).toBe("revenue")
+    expect((await reader.head("q1.txt"))[1]).toMatchObject({ pathname: "q1.txt", size: 7, url: "/reports/q1.txt" })
+    expect((await reader.list())[1]?.blobs.map(item => item.pathname)).toEqual(["q1.txt"])
+    expect((await reader.media.get("q1.txt"))[1]).toMatchObject({ pathname: "q1.txt" })
+    const [, defaultObject] = await storage.store("default", { mode: "read" }).get("q1.txt")
+    expect(await defaultObject?.text()).toBe("default")
+
+    const signedReader = storage.store("signed", { mode: "read" })
+    const [signError, signed] = await signedReader.sign("q1.txt", { expiresIn: 60, method: "GET" })
+    expect(signError).toBeNull()
+    expect(signed).toMatchObject({ method: "GET", url: expect.stringContaining("X-Amz-Signature=") })
+    // JavaScript callers can bypass the public option types.
+    await expect(Reflect.apply(signedReader.sign, signedReader, ["q1.txt", { expiresIn: 60, method: "PUT" }])).rejects.toMatchObject({ code: "BLOB_R0037" })
+    expect(() => Reflect.apply(storage.store, storage, ["reports", { mode: "readonly" }])).toThrow(expect.objectContaining({ code: "BLOB_R0038" }))
+    expect(typeof storage.store("reports").put).toBe("function")
   })
 
   it("exposes media records on the generated default and named stores", { timeout: 30_000 }, async () => {

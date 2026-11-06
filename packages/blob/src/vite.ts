@@ -12,6 +12,7 @@ import { transform } from "esbuild"
 import { init as initCommonJS, parse as parseCommonJS } from "cjs-module-lexer"
 import { dirname, relative, resolve } from "pathe"
 
+import { vercelFunctionRequestBodyBytes } from "./internal/host-limits.ts"
 import { blobPackageName, cloudflareImagesBinding, createCloudflareR2Bindings, getBlobVercelRuntimePackages, renderBlobRuntimeModule } from "./internal/nitro-runtime.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
@@ -56,8 +57,8 @@ export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: B
 
 interface InternalBlobModuleOptions {
   importBase?: string
-  /** `vitehub()` picked the `driver` from the deployment preset. `vite dev` then keeps the store local without `remote: true`. */
-  presetDriver?: boolean
+  /** Whether the effective options still use a preset driver after application config hooks. */
+  presetDriver?: boolean | ((options: BlobModuleOptions | undefined) => boolean)
 }
 
 const mergeNoExternal = createNoExternalAddition(blobPackageName)
@@ -195,9 +196,9 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
  * `workersModule` is false in `vite dev`. The Nitro dev runner can be Node (`node-worker`), where `cloudflare:workers`
  * does not exist. The workerd runner gives each request its bindings, so dev code reads them from the event.
  */
-function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, workersModule = true, imageModule?: ImageModule): string {
+function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, workersModule = true, imageModule?: ImageModule, requestBodyLimit?: number): string {
   const cloudflareGlobals = cloudflare && workersModule
-  const setters = [cloudflareGlobals ? "setActiveCloudflareEnv" : undefined, "setBlobRuntimeConfig", imageModule === "sharp" ? "setBlobSharpModule" : imageModule === "photon" ? "setBlobPhotonLoader" : undefined]
+  const setters = [cloudflareGlobals ? "setActiveCloudflareEnv" : undefined, "setBlobRuntimeConfig", imageModule === "sharp" ? "setBlobSharpModule" : imageModule === "photon" ? "setBlobPhotonLoader" : undefined, requestBodyLimit === undefined ? undefined : "setBlobRequestBodyLimit"]
   return [
     cloudflareGlobals ? "import { env as vitehubEnv } from 'cloudflare:workers'" : undefined,
     cloudflare ? undefined : "import { blobConfig } from './runtime.mjs'",
@@ -213,12 +214,20 @@ function renderNitroBlobPlugin(blob: BlobViteRuntimeConfig["blob"], cloudflare: 
     // A literal dynamic import lets Nitro bundle Photon and its WebAssembly module in a chunk that loads on the first variant.
     imageModule === "photon" ? "  setBlobPhotonLoader(() => import('@cf-wasm/photon'))" : undefined,
     "  setBlobRuntimeConfig(blobConfig)",
+    requestBodyLimit === undefined ? undefined : `  setBlobRequestBodyLimit(${requestBodyLimit})`,
     "}",
     "",
   ].filter(line => typeof line === "string").join("\n")
 }
 
 type ImageModule = "photon" | "sharp"
+
+// Under `vitehub()`, the dev server config names the deployment preset in `vitehub.preset`, and Nitro has none.
+function devServerHost(config: ResolvedConfig) {
+  const vitehub: unknown = Reflect.get(config, "vitehub")
+  const hosting: unknown = vitehub && typeof vitehub === "object" ? Reflect.get(vitehub, "preset") : undefined
+  return getHostingProvider(resolveHost({ hosting, nitro: Reflect.get(config, "nitro") }))
+}
 
 // Keep sharp's existing node_modules-based auto detection independent of NODE_PATH, which pnpm scripts set.
 function isPackageInstalled(root: string, name: string): boolean {
@@ -422,12 +431,12 @@ function isAuthDefinitionPath(file: string, rootDir: string, serverDirs: string[
   })
 }
 
-async function refreshBlobGeneratedFiles(config: ResolvedConfig, root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel", authorizeModule?: string, development = false): Promise<void> {
+async function refreshBlobGeneratedFiles(config: ResolvedConfig, root: string, blob: BlobViteRuntimeConfig["blob"], cloudflare: boolean, importBase = blobPackageName, provider?: "cloudflare" | "vercel", authorizeModule?: string, development = false, requestBodyLimit?: number): Promise<void> {
   const runtimeFile = resolve(root, generatedNitroBlobRuntime)
   const imageModule = await resolveImageModule(config, root, blob, cloudflare, provider)
   await Promise.all([
     writeFileIfChanged(runtimeFile, renderBlobRuntimeModule(runtimeFile, blob, provider)),
-    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development, imageModule)),
+    writeFileIfChanged(resolve(root, generatedNitroBlobPlugin), renderNitroBlobPlugin(blob, cloudflare, importBase, !development, imageModule, requestBodyLimit)),
     writeFileIfChanged(resolve(root, generatedNitroBlobMiddleware), renderNitroBlobMiddleware(importBase, !development)),
   ])
   const serve = blob ? blob.serve : undefined
@@ -466,6 +475,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
   let resolved: ResolvedConfig | undefined
   let siblingRuntime: BlobRuntimeContribution | undefined
   let cloudflareHost = false
+  const presetDriver = () => typeof internalOptions.presetDriver === "function" ? internalOptions.presetDriver(blob) : internalOptions.presetDriver
   const siblingRuntimeGenerations = createProviderDeploymentOutputGenerationState()
   const getConfig = () => runtimeConfig ??= resolveBlobViteConfig(options)
 
@@ -487,7 +497,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
           kind: "blob",
           label: "Blob stores",
           list: () => inspectBlobStores(
-            resolveBlobViteConfig(blob, { dev: true, presetDriver: internalOptions.presetDriver, ...(cloudflareHost ? { hosting: "cloudflare" } : {}) }).blob,
+            resolveBlobViteConfig(blob, { dev: true, presetDriver: presetDriver(), ...(cloudflareHost ? { hosting: "cloudflare" } : {}) }).blob,
             resolved?.configFile ? relative(rootDir, resolved.configFile) : "vite.config",
           ),
         }],
@@ -521,7 +531,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       cloudflareHost = cloudflare
       const development = (config.command ?? command) === "serve"
       // In `vite dev`, a store stays local unless it sets `remote: true`.
-      const blobConfig = resolveBlobViteConfig(blob, { dev: development, presetDriver: internalOptions.presetDriver, ...(cloudflare ? { hosting: "cloudflare" } : {}) })
+      const blobConfig = resolveBlobViteConfig(blob, { dev: development, presetDriver: presetDriver(), ...(cloudflare ? { hosting: "cloudflare" } : {}) })
       const nitro = mergeNitroBlobConfig(
         configuredNitro,
         blobConfig.blob ? blobConfig.blob.serve : undefined,
@@ -548,6 +558,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         provider,
         await resolveBlobServeAuthorizeModule(config, rootDir, runtimeConfig.blob ? runtimeConfig.blob.serve : undefined),
         development,
+        development && devServerHost(config) === "vercel" ? vercelFunctionRequestBodyBytes : undefined,
       )
     },
     configureServer(server) {

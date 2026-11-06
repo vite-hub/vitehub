@@ -988,6 +988,8 @@ function hasExplicitBlobStore(options: boolean | BlobModuleOptions | undefined):
   return Boolean(options && typeof options === "object" && ("driver" in options || "stores" in options))
 }
 
+const presetBlobConfigs = new WeakSet<object>()
+
 function presetBlobOptions(
   plan: DeploymentPlan,
   options: boolean | BlobModuleOptions | undefined,
@@ -995,15 +997,19 @@ function presetBlobOptions(
 ): BlobModuleOptions {
   if (hasExplicitBlobStore(options)) return options as BlobModuleOptions
   const configured = options && typeof options === "object" ? options : {}
+  const fromPreset = (blob: Exclude<BlobModuleOptions, false>) => {
+    presetBlobConfigs.add(blob)
+    return blob
+  }
   switch (plan.services.blob.supported && plan.services.blob.adapter) {
-    case "cloudflare-r2": return {
+    case "cloudflare-r2": return fromPreset({
       bucketName: process.env.BLOB_BUCKET_NAME || process.env.CLOUDFLARE_R2_BUCKET_NAME || process.env.R2_BUCKET_NAME || deploymentName,
       ...configured,
       driver: "cloudflare-r2",
-    }
-    case "fs": return { ...configured, driver: "fs" }
-    case "netlify-blobs": return { name: "vitehub-blob", ...configured, driver: "netlify-blobs" }
-    case "vercel-blob": return { ...configured, driver: "vercel-blob" }
+    })
+    case "fs": return fromPreset({ ...configured, driver: "fs" })
+    case "netlify-blobs": return fromPreset({ name: "vitehub-blob", ...configured, driver: "netlify-blobs" })
+    case "vercel-blob": return fromPreset({ ...configured, driver: "vercel-blob" })
     default: throw viteHubErrorDiagnostics.VITE_HUB_R0084({ message: "[vitehub] Missing Blob adapter for deployment preset " + JSON.stringify(plan.preset) + "." })
   }
 }
@@ -1324,7 +1330,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else plugins.push(hubConnectionsTypesCleanup())
   if (options.database) plugins.push(requireOptionalOwner(ownerModules.databaseVite, "database").hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
-    plugins.push(afterApplicationConfig(hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob`, presetDriver: !hasExplicitBlobStore(options.blob) })))
+    plugins.push(afterApplicationConfig(hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob`, presetDriver: blob => Boolean(blob && presetBlobConfigs.has(blob)) })))
   }
   if (options.email) {
     const emailOptions = options.email === true
