@@ -269,9 +269,9 @@ export async function checkConsoleProjects(): Promise<void> {
 }
 
 /**
- * Make a one-time link for a new project in this browser. Give the app `pendingId` and `verifier` (the value of
- * `VITEHUB_CONSOLE_TOKEN_SHA256`), such as with `vite-hub init --console <pendingId>:sha256:<verifier>`. The secret stays
- * in this browser until the person confirms the app on `/link`.
+ * Make a one-time link for a new project in this browser. The future CLI integration will give the app `pendingId`
+ * and `verifier` (the value of `VITEHUB_CONSOLE_TOKEN_SHA256`). Ticket creation stays out of the UI until the CLI and
+ * host verifier support are available. The secret stays in this browser until the person confirms the app on `/link`.
  */
 export function createConsolePendingLink(): Promise<ConsolePendingLinkTicket> {
   return useState().pendingLinks.create()
