@@ -460,9 +460,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       if (coversDocsPages(pages, docsManifestPages(manifest).map(page => page.path))) return
       pages.push({ name: "docs-page", path: "/:slug(.*)*", file: join(runtime, "app/pages/docs-page.vue") })
     })
+    // Nuxt's own defaults, which an app without `app.vue` or `error.vue` gets. Compare paths, as Nuxt does: the package is
+    // `nuxt-nightly` on Nuxt 5 nightlies, so a `nuxt/dist` substring misses them.
+    const welcome = resolve(nuxt.options.appDir, "components/welcome.vue")
+    const nuxtErrorPage = resolve(nuxt.options.appDir, "components/nuxt-error-page.vue")
     nuxt.hook("app:resolve", (app) => {
-      if (!app.mainComponent || app.mainComponent.includes("@nuxt/ui-templates") || app.mainComponent.includes("nuxt/dist/app/components/welcome")) app.mainComponent = join(runtime, "app/app.vue")
-      if (!app.errorComponent || app.errorComponent.includes("nuxt/dist/app/components/nuxt-error-page")) app.errorComponent = join(runtime, "app/error.vue")
+      if (!app.mainComponent || app.mainComponent === welcome) app.mainComponent = join(runtime, "app/app.vue")
+      if (!app.errorComponent || app.errorComponent === nuxtErrorPage) app.errorComponent = join(runtime, "app/error.vue")
     })
 
     // Nitro mounts handlers, public assets, and prerender fetches below app.baseURL itself.

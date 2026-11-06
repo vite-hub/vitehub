@@ -62,7 +62,8 @@ async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false) {
   roots.push(buildDir)
   const options = {
     rootDir: resolve(import.meta.dirname, "fixtures"), buildDir, serverDir: "/missing-server",
-    srcDir: "/app", dev, build: { transpile: [] }, appConfig: {}, _layers: [],
+    // A Nuxt 5 nightly installs as `nuxt-nightly`.
+    srcDir: "/app", appDir: "/node_modules/nuxt-nightly/dist/app", dev, build: { transpile: [] }, appConfig: {}, _layers: [],
     app: { baseURL: appBase, head: {} }, runtimeConfig: { public: {} }, alias: {}, css: [],
     imports: { dirs: [] }, docs,
   }
@@ -85,6 +86,18 @@ describe("docs Nuxt setup", () => {
     expect(options.runtimeConfig.public.docs.base).toBe("/docs")
     expect(templates.get("docs/manifest.mjs")?.()).toContain('"base":"/docs"')
     expect(options.agentDiscovery.routes).toContain("/docs/**")
+  })
+
+  it("replaces Nuxt's own welcome and error pages, and keeps the app's", async () => {
+    await setupDocs({})
+    const resolveApp = hooks.get("app:resolve")![0] as (app: { mainComponent: string, errorComponent: string }) => void
+    const defaults = { mainComponent: "/node_modules/nuxt-nightly/dist/app/components/welcome.vue", errorComponent: "/node_modules/nuxt-nightly/dist/app/components/nuxt-error-page.vue" }
+    resolveApp(defaults)
+    expect(defaults.mainComponent).toMatch(/runtime\/app\/app\.vue$/)
+    expect(defaults.errorComponent).toMatch(/runtime\/app\/error\.vue$/)
+    const own = { mainComponent: "/app/app.vue", errorComponent: "/app/error.vue" }
+    resolveApp(own)
+    expect(own).toEqual({ mainComponent: "/app/app.vue", errorComponent: "/app/error.vue" })
   })
 
   it("starts development before the content directory exists", async () => {
