@@ -317,6 +317,23 @@ describe("drizzle runtime", () => {
     expect((databases.analytics.db as { $client?: unknown }).$client).toBe(binding)
   })
 
+  it("returns the active D1 binding of a Database from useDatabaseBinding()", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "vitehub-db-binding-"))
+    runtimeState.dbPath = `file:${join(tempDir, "db.sqlite")}`
+    const binding = createFakeD1Binding()
+    setActiveCloudflareEnv({ DB_ANALYTICS: binding })
+
+    const { useDatabaseBinding } = await import("../src/drizzle.ts")
+    const lookup = useDatabaseBinding as (name: string) => unknown
+
+    expect(lookup("analytics")).toBe(binding)
+    expect(() => lookup("default")).toThrow(expect.objectContaining({ code: "DATABASE_NO_D1_BINDING" }))
+    expect(() => lookup("missing")).toThrow(expect.objectContaining({ code: "DATABASE_NOT_FOUND" }))
+    expect(() => lookup("toString")).toThrow(expect.objectContaining({ code: "DATABASE_NOT_FOUND" }))
+    setActiveCloudflareEnv(undefined)
+    expect(() => lookup("analytics")).toThrow(expect.objectContaining({ code: "DATABASE_MISSING_CONNECTION" }))
+  })
+
   it("throws when a named database has neither an active binding nor a fallback URL", async () => {
     const { databases } = await import("../src/runtime/drizzle-runtime.ts")
 

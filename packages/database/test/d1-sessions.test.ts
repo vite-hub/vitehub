@@ -10,6 +10,7 @@ import { inspectDatabaseDefinitions } from "../src/inspect.ts"
 import { cloudflareOptions, mergeCloudflareConfig } from "../src/internal/cloudflare.ts"
 import { createDrizzleSqliteAdapter } from "../src/runtime/drizzle-adapter.ts"
 import { d1BookmarkCookieName, runWithDatabaseRequest } from "../src/runtime/d1-sessions.ts"
+import { createDatabaseBindingLookup } from "../src/runtime/agent.ts"
 
 const schema = {
   notes: sqliteTable("notes", {
@@ -119,6 +120,30 @@ describe("D1 read replication", () => {
     })
     expect(constraints).toEqual(["first-unconstrained"])
     expect(queries).toEqual(["session 1: select 1"])
+  })
+
+  it("returns the current request's session from the binding lookup", async () => {
+    const { binding, constraints, queries } = createReplicatedD1()
+    const lookup = createDatabaseBindingLookup({ default: { db: createDb(true) } })
+    const sessions: object[] = []
+
+    await runWithActiveCloudflareEnv({ DB: binding }, async () => {
+      expect(lookup("default")).toBe(binding)
+      for (let request = 0; request < 2; request++) {
+        await inRequest(binding, createEvent("GET"), async () => {
+          const session = lookup("default")
+          sessions.push(session)
+          expect(session).toBe(lookup("default"))
+          expect(session).not.toBe(binding)
+          expect(session).not.toHaveProperty("exec")
+          await session.prepare("select 1").bind().all()
+          await expect(session.batch([])).resolves.toEqual([])
+        })
+      }
+    })
+    expect(sessions[0]).not.toBe(sessions[1])
+    expect(constraints).toEqual(["first-unconstrained", "first-unconstrained"])
+    expect(queries).toEqual(["session 1: select 1", "session 2: select 1"])
   })
 
   it("leaves Secure off over plain HTTP", async () => {

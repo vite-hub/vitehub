@@ -25,11 +25,12 @@ it("keeps prototype-named databases addressable in hosted modules", async () => 
     for (const provider of ["cloudflare", "vercel"]) {
       const code = await readFile(join(output, `${provider}-runtime.mjs`), "utf8")
       const evaluable = code.replace(/^(?:import .+|export .+ from .+)$/gm, "").replace(/^export /gm, "") + "\nreturn { databases, useDatabase }"
-      const runtime = new Function("definition_0", "schema_0", "createHostedDrizzleDb", "createAgentDatabase", "defaultDatabaseNotConfiguredError", "resolveRuntimeCloudflareConfig", evaluable)(
+      const runtime = new Function("definition_0", "schema_0", "createHostedDrizzleDb", "createAgentDatabase", "createDatabaseBindingLookup", "defaultDatabaseNotConfiguredError", "resolveRuntimeCloudflareConfig", evaluable)(
         { name: "__proto__", drizzle: {}, schema: {} },
         { marker: "schema" },
         () => ({ marker: "database" }),
         () => ({}),
+        () => () => undefined,
         () => new Error("missing"),
         (value: unknown) => value,
       ) as { databases: Record<string, unknown>, useDatabase: (name: string) => unknown }
