@@ -2,7 +2,7 @@ import type { ConnectionApproval, ConnectionInspection } from "@vite-hub/connect
 import type { EnvActivity } from "@vite-hub/env/bridge"
 import * as v from "valibot"
 import { envActorSchema } from "./env-management"
-import { projectFetch, projectUrl } from "./project"
+import { isRemoteProject, projectConsoleUrl, projectFetch, projectUrl } from "./project"
 import { ConsoleNetworkError, consoleResponseError } from "./request"
 
 /** An approval as the Console shows it. The Console never reads call inputs. */
@@ -85,6 +85,8 @@ export function connectionActivityLabel(action: EnvActivity["action"]): string {
  * path such as the Console page, the result page of the flow returns there.
  */
 export function connectionConnectURL(endpoint: string, name: string, returnTo?: string): string {
+  // The flow runs on the app origin with the app session. A Console on another origin opens the app's own Console.
+  if (isRemoteProject()) return projectConsoleUrl("/connections")
   const url = projectUrl(`${endpoint.replace(/\/+$/, "")}/connect/${encodeURIComponent(name)}`)
   return returnTo ? `${url}?return=${encodeURIComponent(returnTo)}` : url
 }

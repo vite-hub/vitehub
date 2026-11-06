@@ -11,13 +11,15 @@ import type { ConsoleSectionId } from "../sections";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
 import { useConsoleUpdate, watchConsoleBuild } from "../client/build";
 import { clearConsoleDocumentCaches } from "../client/document-cache";
-import { projectFetch, projectUrl, resolveProjectUrl } from "../client/project";
+import { isRemoteProject, projectFetch, projectUrl, resolveProjectUrl } from "../client/project";
+import { signOutConsoleProject, useConsoleProjects } from "../client/project-session";
 import { isConsoleSignInRequired } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
 import { consoleSignInURL } from "../client/sign-in";
 import { decodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { consoleGoToKey, consoleOverviewShortcut, consoleSectionShortcut, groupConsoleSections } from "../sections";
 import ConsoleMark from "./console-mark.vue";
+import ConsoleProjectSwitcher from "./console-project-switcher.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
 
 const props = defineProps<{
@@ -44,7 +46,12 @@ const signInURL = projectUrl("/_vitehub/sign-in");
 let authClientRequest: Promise<ReturnType<typeof createAuthClient>> | undefined;
 let unsubscribe: (() => void) | undefined;
 
-const projectName = computed(() => navigation.value?.projectName || "ViteHub");
+const projects = useConsoleProjects();
+// The app session and the Console build belong to the app origin. A Console on another origin reads neither.
+const remote = isRemoteProject();
+// The embedded Console of an `auth: "token"` app keeps the token in this browser. Sign out removes it.
+const tokenSignedIn = computed(() => projects.mode === "embedded" && Boolean(projects.current.value?.token));
+const projectName = computed(() => navigation.value?.projectName || projects.info.value?.name || "ViteHub");
 const sections = computed(() =>
   (navigation.value?.sections ?? []).flatMap((section) => {
     const details = resolveConsoleSectionDetails(navigation.value, section);
@@ -81,6 +88,10 @@ const userMenuItems = computed<DropdownMenuItem[]>(() => {
   if (appearance) {
     if (items.length > 0) items.push({ type: "separator" });
     items.push(...appearanceItems.value);
+  }
+  if (tokenSignedIn.value) {
+    if (items.length > 0) items.push({ type: "separator" });
+    items.push({ icon: "i-lucide-log-out", label: "Sign out", onSelect: signOutConsoleProject });
   }
   if (signedIn.value) {
     items.push({ type: "separator" }, {
@@ -162,7 +173,7 @@ function showNavigation(result: ConsoleNavigation): void {
   navigation.value = result;
   navigationFailed.value = false;
   signedOut.value = false;
-  if (!first) return;
+  if (!first || remote) return;
   if (result.auth === "cloudflare-access") void loadAccessIdentity();
   else if (result.auth) void loadAuthSession();
 }
@@ -237,7 +248,7 @@ onMounted(() => {
   window.addEventListener("blur", invalidateGoToStart);
   unsubscribe = subscribeConsoleNavigation(props.sectionsBase, showNavigation);
   void loadNavigation();
-  watchConsoleBuild(props.sectionsBase);
+  if (!remote) watchConsoleBuild(props.sectionsBase);
 });
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", trackGoToStart, true);
@@ -261,6 +272,7 @@ onBeforeUnmount(() => {
           <ConsoleMark class="size-[1.125rem]" />
         </PrimitiveRailItem>
       </UTooltip>
+      <ConsoleProjectSwitcher v-if="projects.mode === 'hosted'" />
     </template>
 
     <template #default="{ expanded }">
@@ -327,7 +339,7 @@ onBeforeUnmount(() => {
         </UDashboardSearchButton>
       </UTooltip>
       <UDropdownMenu
-        v-if="appearance || signedIn"
+        v-if="appearance || signedIn || tokenSignedIn"
         :items="userMenuItems"
         :content="{ side: 'right', align: 'end', sideOffset: 8 }"
         :ui="{ content: 'min-w-52' }"

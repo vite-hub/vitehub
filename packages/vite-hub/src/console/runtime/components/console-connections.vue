@@ -19,6 +19,7 @@ import ConsoleConnectionsDetails from "./console-connections-details.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
+import { isRemoteProject } from "../client/project";
 import ConsoleState from "./console-state.vue";
 import ConsoleStatus from "./console-status.vue";
 
@@ -32,6 +33,9 @@ const props = defineProps<{
   searchBase: string;
   sectionsBase: string;
 }>();
+
+// The connect flow needs the app session, so a Console on another origin sends it to the app's own Console.
+const remote = isRemoteProject();
 const connections = ref<readonly ConnectionInspection[]>([]);
 const pending = ref(new Map<string, number>());
 // The search, open connection, and its tab live in the URL, so a reload or a shared link opens the same view.
@@ -245,8 +249,8 @@ export default defineConnection({
                   />
                   <UButton
                     v-else-if="connectionNextStep(row.original)?.kind === 'connect'"
-                    :label="connectionNextStep(row.original)?.label"
-                    :aria-label="`${connectionNextStep(row.original)?.label} ${row.original.name}`"
+                    :label="remote ? 'Connect in the app' : connectionNextStep(row.original)?.label"
+                    :aria-label="`${remote ? 'Connect in the app:' : connectionNextStep(row.original)?.label} ${row.original.name}`"
                     :to="connectionConnectURL(managementBase, row.original.name, returnTo)"
                     external
                     color="neutral"

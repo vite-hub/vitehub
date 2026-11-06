@@ -248,6 +248,64 @@ Every MCP request starts on the server. A person who has the `mcp-client` sectio
 
 Without the key, use the MCP client in development or on one Node server. Hosts that run many instances, such as Cloudflare Workers, keep one memory per instance. A sign-in can start on one instance and finish on another, where it fails.
 
+## Use one Console for many projects
+
+One Console build can open many ViteHub apps. Each app is a **project**. The Console that an app serves at `/_vitehub` opens that app. A Console that runs on its own origin, such as a copy on a static host, keeps a list of projects and switches between them.
+
+Each project must use [`auth: "token"`](#use-a-console-token) and list the origin of the Console in [`console.origins`](#call-the-console-from-another-origin):
+
+```ts [vite.config.ts]
+vitehub({
+  console: {
+    auth: 'token',
+    origins: ['https://console.example.com'],
+  },
+})
+```
+
+### Link a project
+
+1. Select **Link project**.
+2. Enter the app URL: its origin, with its base path if it has one, such as `https://app.example.com` or `https://app.example.com/portal`. A pasted Console URL such as `https://app.example.com/_vitehub/kv` also works.
+3. The Console reads [`project.get`](#read-the-project). When the project asks for a token, paste the value of `VITEHUB_CONSOLE_TOKEN` and select **Sign in**.
+
+The Console then opens the project and shows only the sections that the project lists for this token. When linking fails, the Console says why:
+
+| Message | Fix |
+| --- | --- |
+| `<console> is not in console.origins for <host>` | Add the Console origin to `console.origins`, then build and deploy again. The browser hides why a cross-origin request failed, so the project can also be offline. |
+| `<host> refused this token` | Copy the current value of `VITEHUB_CONSOLE_TOKEN` from the server. |
+| `This project runs vite-hub <version>. This Console needs protocol 1.` | Update `vite-hub` in the app. |
+| `This project signs in with OAuth` | OAuth sign-in for a Console on another origin is not ready. Use `auth: "token"`. |
+
+### Switch projects
+
+The top of the rail shows the name and the host of the open project. Select it, or press <kbd>⌘</kbd><kbd>K</kbd> and choose **Switch project**, to see the linked projects. A dot shows if each one is reachable, needs a new token, or is unreachable. The Console loads the project that you choose, and opens it again after a reload.
+
+### Where the tokens are
+
+The project list and the tokens stay in this browser, in `localStorage` of the Console origin, under the key `vitehub-console:projects`. No server keeps a copy. This has consequences:
+
+- Each token gives Console access to its project, as far as [`authorize`](#limit-a-user-to-some-sections) allows. Anyone who uses this browser profile can read it, and so can any script that runs on the Console origin. Use a browser profile that only you use, and serve the Console from an origin that serves nothing else.
+- Another browser or another Console origin has its own list. Link the projects again there.
+- To revoke access, set a new `VITEHUB_CONSOLE_TOKEN` on the server and restart or deploy it. Each Console then asks for the new token.
+
+To remove a project, open the project list, select the **×** next to the project, and confirm **Forget project**. The browser removes the URL and the token. The project does not change.
+
+The Console that an app serves also uses this storage. With `auth: "token"`, `/_vitehub` asks for the token, keeps it in `localStorage` of the app origin, and **Sign out** in the account menu removes it.
+
+### What needs the Console that the app serves
+
+Some features act on the app's own pages or set cookies of the app, so they work only in the Console at `/_vitehub` of the app. A Console on another origin hides or turns them off, and links to the app's Console where that helps:
+
+- Live editing of Content documents. The editor saves alone, and saves still refuse to overwrite a newer version.
+- The Content page preview.
+- Impersonation of Auth users.
+- The connect flow of Connections.
+- Env management: values, Access, and Activity. The Env bridge accepts calls only from the app origin.
+- Image previews from a Blob serve route that needs the app session. The Media library shows the file type instead.
+- The app session account menu, and the page tools of the app's pages.
+
 ## Develop against a fixture
 
 Use `vitehub console dev` when Console work needs the same Agent Invocations on every restart. The command validates a versioned JSON fixture, then starts the development command after `--` with an in-memory Console journal. It does not write `.vitehub/data/console.sqlite`.

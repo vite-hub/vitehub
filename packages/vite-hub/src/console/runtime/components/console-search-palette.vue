@@ -11,6 +11,8 @@ import type { AgentInvocationListItem } from "./invocation"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances, consoleDarkSchemeQuery } from "../client/appearance"
 import { consoleDocumentStateColor, consoleDocumentStateLabel, consoleErrorMessage, consolePublishMismatches, consoleSingularLabel, createConsoleDocumentsClient } from "../client/documents"
+import { switchConsoleProject, useConsoleProjects } from "../client/project-session"
+import { consoleProjectHost, consoleProjectName } from "../client/projects"
 import { publishConsoleDocumentChanges } from "../client/publish"
 import { loadConsoleKVPages, requestConsole } from "../client/request"
 import { loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections"
@@ -337,6 +339,29 @@ const themeActions = computed<CommandPaletteItem[]>(() => appearance
     ]
   : [])
 
+// A hosted Console switches between the projects that this browser linked.
+const projects = useConsoleProjects()
+const projectActions = computed<CommandPaletteItem[]>(() => projects.mode === "hosted"
+  ? [{
+      children: [
+        ...projects.projects.value.map(project => ({
+          active: project.id === projects.current.value?.id,
+          icon: project.id === projects.current.value?.id ? "i-lucide-check" : "i-lucide-box",
+          label: consoleProjectName(project),
+          suffix: consoleProjectHost(project),
+          onSelect: () => {
+            if (project.id !== projects.current.value?.id) switchConsoleProject(project.id)
+          },
+        })),
+        { icon: "i-lucide-plus", label: "Link project", onSelect: () => { projects.linkOpen.value = true } },
+      ],
+      icon: "i-lucide-arrow-left-right",
+      keywords: ["project", "projects", "app", "link", "change"],
+      label: "Switch project…",
+      placeholder: "Choose a project…",
+    }]
+  : [])
+
 /** Pages and collections of the document editor sections, after their section in the Go to group. */
 function documentSectionItems(section: ConsoleSectionId): CommandPaletteItem[] {
   const entry = documentSections.value.find(candidate => candidate.details.id === section)
@@ -384,8 +409,8 @@ const groups = computed<CommandPaletteGroup[]>(() => [
   ...(debouncedSearchTerm.value && documentSections.value.length
     ? [documentGroup.value]
     : []),
-  ...(props.actions?.length || contentActions.value.length || themeActions.value.length
-    ? [{ id: "actions", items: [...props.actions ?? [], ...contentActions.value, ...themeActions.value], label: "Actions" }]
+  ...(props.actions?.length || contentActions.value.length || projectActions.value.length || themeActions.value.length
+    ? [{ id: "actions", items: [...props.actions ?? [], ...contentActions.value, ...projectActions.value, ...themeActions.value], label: "Actions" }]
     : []),
   {
     id: "go-to",

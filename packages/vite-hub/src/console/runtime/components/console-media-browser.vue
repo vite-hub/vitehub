@@ -170,9 +170,13 @@ function open(path: string): void {
   folder.value = path;
 }
 
+// A serve route that needs the app session answers a Console on another origin with an error, so the tile shows the
+// file type instead of a broken image.
+const failedThumbnails = ref(new Set<string>());
+
 function thumbnail(file: ConsoleMediaFile, size = 256): string | undefined {
   const url = consoleMediaFileUrl(file, served.value);
-  if (!url || consoleMediaType(file.contentType) !== "image") return undefined;
+  if (!url || consoleMediaType(file.contentType) !== "image" || failedThumbnails.value.has(file.pathname)) return undefined;
   return consoleMediaTransformable(file.contentType) ? consoleMediaVariantUrl(url, {
     // Keep the source uncropped when a focal point is set; CSS then applies the same focal-aware crop as the serve route.
     fit: file.focal ? "inside" : "cover",
@@ -185,6 +189,10 @@ function thumbnail(file: ConsoleMediaFile, size = 256): string | undefined {
 /** Thumbnails fade in once decoded, over the dominant color, instead of painting line by line. */
 function loaded(event: Event): void {
   if (event.target instanceof HTMLImageElement) event.target.dataset.loaded = "";
+}
+
+function thumbnailFailed(file: ConsoleMediaFile): void {
+  failedThumbnails.value = new Set(failedThumbnails.value).add(file.pathname);
 }
 
 function meta(file: ConsoleMediaFile): string {
@@ -617,7 +625,7 @@ defineExpose({
               @keydown.enter.prevent="mode === 'picker' ? activate(file) : click(file, $event as unknown as MouseEvent)"
             >
               <span class="vitehub-media-tile__thumb" :style="{ background: file.color }">
-                <img v-if="thumbnail(file)" :src="thumbnail(file)" :alt="file.alt ?? ''" loading="lazy" decoding="async" class="vitehub-media-tile__image" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }" @load="loaded">
+                <img v-if="thumbnail(file)" :src="thumbnail(file)" :alt="file.alt ?? ''" loading="lazy" decoding="async" class="vitehub-media-tile__image" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }" @load="loaded" @error="thumbnailFailed(file)">
                 <span v-else class="flex size-full flex-col items-center justify-center gap-1 text-dimmed">
                   <UIcon :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-6" aria-hidden="true" />
                   <span class="text-[11px] font-medium">{{ consoleMediaFormat(file) }}</span>
@@ -664,7 +672,7 @@ defineExpose({
               <td>
                 <button type="button" class="flex min-w-0 items-center gap-2.5 text-start" :disabled="!pickable(file)" :aria-pressed="mode === 'picker' ? selectedSet.has(file.pathname) : undefined" :aria-current="mode === 'page' && active === file.pathname ? 'true' : undefined" @click.stop="click(file, $event)" @keydown.enter.prevent="mode === 'picker' ? activate(file) : click(file, $event as unknown as MouseEvent)">
                   <span class="vitehub-media-row-thumb" :style="{ background: file.color }">
-                    <img v-if="thumbnail(file, 64)" :src="thumbnail(file, 64)" alt="" loading="lazy" class="size-full object-cover" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }">
+                    <img v-if="thumbnail(file, 64)" :src="thumbnail(file, 64)" alt="" loading="lazy" class="size-full object-cover" :style="{ objectPosition: consoleFocalCropPosition(file.focal, file, 1) }" @error="thumbnailFailed(file)">
                     <UIcon v-else :name="consoleMediaTypeIcons[consoleMediaType(file.contentType)]" class="size-4 text-dimmed" aria-hidden="true" />
                   </span>
                   <span class="grid min-w-0">

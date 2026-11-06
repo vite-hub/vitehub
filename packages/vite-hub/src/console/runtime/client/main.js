@@ -32,17 +32,41 @@ import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSection
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { setConsoleProject } from "./project";
+import { consoleProjectReady, startConsoleProjects } from "./project-session";
+import { memoryProjectStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
-const hostBase = consoleMountBase(window.location.pathname);
-// The Console reads the app that serves it. The Console API paths below are app paths; `projectUrl()` adds the mount.
-setConsoleProject({ origin: "", base: hostBase });
+// The hosted build marks its static page. There the Console opens the projects that this browser linked. Otherwise the
+// app serves the page, and the Console reads that app. The Console API paths below are app paths; `projectUrl()` adds
+// the origin and the mount of the project.
+const hosted = document.querySelector('meta[name="vitehub-console-mode"]')?.getAttribute("content") === "hosted";
+const hostBase = hosted ? "" : consoleMountBase(window.location.pathname);
+const consoleBase = hosted ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
+
+function projectStorage() {
+  try {
+    const storage = window.localStorage;
+    storage.getItem("vitehub-console:projects");
+    return storage;
+  } catch {
+    // A browser that blocks storage keeps the projects for this tab only.
+    return memoryProjectStorage();
+  }
+}
+
+startConsoleProjects({
+  base: hostBase,
+  home: consoleBase,
+  mode: hosted ? "hosted" : "embedded",
+  navigate: (url) => window.location.assign(url),
+  pageOrigin: window.location.origin,
+  storage: projectStorage(),
+});
 const sectionsBase = "/api/_vitehub/console/sections";
 const capabilitiesBase = "/api/_vitehub/console/invocation-capabilities";
 
 const router = createRouter({
-  history: createWebHistory(consoleMountPath(hostBase, "/_vitehub/")),
+  history: createWebHistory(consoleBase),
   routes: [
     { component: ConsoleLogs, name: "vitehub-console-logs", path: "/logs", meta: { consoleSection: "logs", title: "Logs · ViteHub Console" }, props: { logsBase: "/api/_vitehub/console/logs", sectionsBase } },
     { component: ConsoleEnv, name: "vitehub-console-env", path: "/env", meta: { consoleSection: "env", title: "Env · ViteHub Console" }, props: { agentsBase: "/api/_vitehub/console/agents", definitionsBase: "/api/_vitehub/console/definitions", kvBase: "/api/_vitehub/console/kv", envBase: "/api/_vitehub/console/env", managementBase: "/_vitehub/env/manage", searchBase: "/api/_vitehub/console/search", sectionsBase } },
@@ -353,6 +377,8 @@ const appearance = startConsoleAppearance({
 
 router.beforeEach(async (to) => {
   if (window.parent !== window && to.query.embed !== "1") return { ...to, query: { ...to.query, embed: "1" } };
+  // The first page waits until the project opens, so its requests carry the token and go to the linked project.
+  await consoleProjectReady();
   if (to.matched.length === 0) {
     // Contributed section routes exist only after the navigation response arrives.
     const navigation = await loadConsoleNavigation(sectionsBase);
