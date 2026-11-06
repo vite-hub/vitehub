@@ -21,7 +21,7 @@ it("preserves folder steps in Vite e2e compatibility artifacts", async () => {
   await mkdir(join(root, "node_modules", "@vite-hub"), { recursive: true })
   await mkdir(workflowDirectory, { recursive: true })
   await symlink(workflowPackageRoot, join(root, "node_modules", "@vite-hub", "workflow"), "dir")
-  await writeFile(join(workflowDirectory, "index.mjs"), "export default { handler: async ({ payload, steps }) => await steps.add(payload) }\n", "utf8")
+  await writeFile(join(workflowDirectory, "index.mjs"), "export default { handler: async (payload, { steps }) => await steps.add(payload) }\n", "utf8")
   await writeFile(join(workflowDirectory, "01.add.mjs"), "export default async function add(value) { return value + 1 }\n", "utf8")
 
   const artifacts = await prepareFeatureArtifacts({
@@ -36,5 +36,5 @@ it("preserves folder steps in Vite e2e compatibility artifacts", async () => {
   expect(contents).toContain("createWorkflowSteps")
   const generated = await import(`${pathToFileURL(artifacts.workflowRegistryFile!).href}?test=vite-e2e-owner`)
   const definition = await generated.default.release()
-  await expect(definition.handler({ name: "release", payload: 1, provider: "cloudflare" })).resolves.toBe(2)
+  await expect(definition.handler(1, { name: "release", payload: 1, provider: "cloudflare" })).resolves.toBe(2)
 })
