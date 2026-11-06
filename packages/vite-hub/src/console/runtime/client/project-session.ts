@@ -4,6 +4,7 @@ import type { Ref, ShallowRef } from "vue"
 
 import {
   browserOAuthLock,
+  storageOAuthLock,
   consoleAuthorizationUrl,
   consoleCodeChallenge,
   consoleOAuthStateLifetime,
@@ -71,6 +72,8 @@ interface ConsoleProjectsState {
   pendingLinks: ConsolePendingLinkStore
   /** The OAuth sign-ins of this tab that wait for their callback, in `sessionStorage`. */
   oauthStates: ConsoleOAuthStateStore
+  /** Whether a sign-in survives the redirect to the app: both storages keep their writes across page loads. */
+  oauthStorage: boolean
   /** Refreshes the OAuth access tokens of the projects, one refresh at a time per project. */
   refresher: ConsoleOAuthRefresher
   /** The `fetch` of OAuth metadata, token, and revocation requests. */
@@ -174,6 +177,8 @@ export function startConsoleProjects(options: {
   storage: ConsoleProjectStorage
   /** Keeps the OAuth sign-ins of the tab until their callback. Defaults to memory. */
   sessionStorage?: ConsoleProjectStorage
+  /** Whether `storage` keeps its writes across page loads. Defaults to true. */
+  durableStorage?: boolean
   fetch?: ConsoleOAuthFetch
   lock?: ConsoleOAuthLock
   now?: () => number
@@ -192,19 +197,21 @@ export function startConsoleProjects(options: {
     if (current && !store.active()) store.select(current.id)
   }
   const request: ConsoleOAuthFetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init))
-  const lock = options.lock ?? browserOAuthLock()
+  // Without Web Locks, tabs take turns through a lease in the project storage.
+  const lock = options.lock ?? browserOAuthLock() ?? storageOAuthLock(options.storage)
   const started: ConsoleProjectsState = {
     current: shallowRef(current),
     fetch: request,
     now: options.now ?? Date.now,
     oauthStates: createConsoleOAuthStateStore(options.sessionStorage ?? memoryProjectStorage(), options.now ? { now: options.now } : {}),
+    oauthStorage: options.durableStorage !== false && options.sessionStorage !== undefined,
     refresher: createConsoleOAuthRefresher({
       fetch: request,
       read: url => store.find(url)?.oauth,
       write: (url, tokens) => {
         if (store.find(url)) store.save({ url, oauth: tokens })
       },
-      ...(lock ? { lock } : {}),
+      lock,
       ...(options.now ? { now: options.now } : {}),
     }),
     gate: shallowRef(options.mode === "hosted" && !current ? { kind: "empty" } : { kind: "opening" }),
@@ -482,6 +489,10 @@ export async function startConsoleOAuthSignIn(target: ConsoleProjectTarget, reso
   const projects = useState()
   const host = consoleProjectHost(target)
   if (projects.mode !== "hosted") return { title: "Sign in on the app", message: `Open the Console of ${host} at its own URL to sign in.` }
+  // The verifier and the tokens must survive the redirect to the app, so memory is not enough.
+  if (!projects.oauthStorage) {
+    return { title: "This browser blocks site data", message: `Allow site data for ${new URL(projects.pageOrigin).host} to sign in, or use auth: "token" in the project.` }
+  }
   let metadata = resourceMetadata
   if (!metadata) {
     const probe = await probeConsoleProject(target)

@@ -192,6 +192,28 @@ export function createConsoleProjectStore(storage: ConsoleProjectStorage): Conso
   }
 }
 
+/** A browser storage, such as `localStorage` or `sessionStorage`. */
+export interface ConsoleBrowserStorage extends ConsoleProjectStorage {
+  removeItem(key: string): void
+}
+
+/**
+ * Open a browser storage, and check that it keeps a write. When the browser blocks it or refuses writes, the Console
+ * keeps the values in memory instead, and `durable` is false: they end when the page loads again.
+ */
+export function openConsoleStorage(open: () => ConsoleBrowserStorage): { storage: ConsoleProjectStorage, durable: boolean } {
+  try {
+    const storage = open()
+    const probe = "vitehub-console:storage-check"
+    storage.setItem(probe, "1")
+    storage.removeItem(probe)
+    return { storage, durable: true }
+  }
+  catch {
+    return { storage: memoryProjectStorage(), durable: false }
+  }
+}
+
 /** A storage that keeps the list in memory, for a browser that blocks `localStorage`. The list then ends with the tab. */
 export function memoryProjectStorage(): ConsoleProjectStorage {
   const values = new Map<string, string>()

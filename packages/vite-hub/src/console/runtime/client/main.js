@@ -35,7 +35,7 @@ import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { takeConsoleOAuthCallback } from "./oauth";
 import { consoleProjectReady, finishConsoleOAuthSignIn, startConsoleLink, startConsoleProjects } from "./project-session";
 import { takeConsoleLinkHash } from "./pending-links";
-import { memoryProjectStorage } from "./projects";
+import { openConsoleStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
 // The hosted build marks its static page. There the Console opens the projects that this browser linked. Otherwise the
@@ -45,16 +45,9 @@ const hosted = document.querySelector('meta[name="vitehub-console-mode"]')?.getA
 const hostBase = hosted ? "" : consoleMountBase(window.location.pathname);
 const consoleBase = hosted ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
 
-function browserStorage(name) {
-  try {
-    const storage = window[name];
-    storage.getItem("vitehub-console:projects");
-    return storage;
-  } catch {
-    // A browser that blocks storage keeps the projects for this tab only.
-    return memoryProjectStorage();
-  }
-}
+// A browser that blocks storage keeps the projects in memory, for this page only.
+const local = openConsoleStorage(() => window.localStorage);
+const session = openConsoleStorage(() => window.sessionStorage);
 
 // A one-time link of a new project: /link#p=<pendingId>&url=<appOrigin>. Only the hosted Console links new projects.
 const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
@@ -67,9 +60,10 @@ startConsoleProjects({
   mode: hosted ? "hosted" : "embedded",
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
-  storage: browserStorage("localStorage"),
-  // The PKCE verifier and the state of a sign-in stay with the tab that started it.
-  sessionStorage: browserStorage("sessionStorage"),
+  storage: local.storage,
+  // The PKCE verifier and the state of a sign-in stay with the tab that started it. They must survive the redirect.
+  sessionStorage: session.durable ? session.storage : undefined,
+  durableStorage: local.durable,
   pendingLinkLocks: navigator.locks,
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);

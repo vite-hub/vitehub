@@ -9,13 +9,14 @@ import {
   createConsoleCodeVerifier,
   createConsoleOAuthRefresher,
   createConsoleOAuthStateStore,
+  storageOAuthLock,
   discoverConsoleOAuth,
   loadConsoleOAuthClient,
   parseConsoleOAuthCallback,
   takeConsoleOAuthCallback,
 } from "../src/console/runtime/client/oauth.ts"
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
-import { consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage } from "../src/console/runtime/client/projects.ts"
+import { consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage, openConsoleStorage } from "../src/console/runtime/client/projects.ts"
 
 import type { ConsoleOAuthPendingSignIn, ConsoleOAuthTokens } from "../src/console/runtime/client/oauth.ts"
 
@@ -369,6 +370,60 @@ describe("refresh", () => {
   })
 })
 
+describe("refresh across tabs without Web Locks", () => {
+  const tick = (milliseconds: number) => new Promise<void>((resolve) => { setTimeout(resolve, Math.min(milliseconds, 2)) })
+
+  it("runs one tab at a time through a lease in storage", async () => {
+    const storage = memoryProjectStorage()
+    const events: string[] = []
+    const tab = (id: string) => storageOAuthLock(storage, { sleep: tick })("vitehub-console:oauth:x", async () => {
+      events.push(`${id} start`)
+      await tick(5)
+      events.push(`${id} end`)
+      return id
+    })
+    expect(await Promise.all([tab("a"), tab("b"), tab("c")])).toEqual(["a", "b", "c"])
+    for (let index = 0; index < events.length; index += 2) expect(events[index]!.split(" ")[0]).toBe(events[index + 1]!.split(" ")[0])
+    expect(storage.getItem("vitehub-console:oauth:x:lease")).toBe("")
+  })
+
+  it("takes over a lease that its tab left behind", async () => {
+    const storage = memoryProjectStorage()
+    storage.setItem("vitehub-console:oauth:x:lease", JSON.stringify({ owner: "closed-tab", until: 1_000 }))
+    let now = 0
+    const sleep = async (milliseconds: number) => { now += milliseconds }
+    expect(await storageOAuthLock(storage, { now: () => now, sleep })("vitehub-console:oauth:x", async () => "ran")).toBe("ran")
+    expect(now).toBeGreaterThanOrEqual(1_000)
+  })
+
+  it("lets two tabs share one refresh", async () => {
+    const server = fakeApp({ refreshTokens: ["refresh-0"] })
+    const storage = memoryProjectStorage()
+    storage.setItem("tokens", JSON.stringify(tokens({ accessToken: "access-0", expiresAt: 0, refreshToken: "refresh-0" })))
+    const tab = () => createConsoleOAuthRefresher({
+      fetch: server.fetch,
+      lock: storageOAuthLock(storage, { sleep: tick }),
+      now: () => 0,
+      read: () => JSON.parse(storage.getItem("tokens") ?? "null") ?? undefined,
+      write: (_url, next) => storage.setItem("tokens", JSON.stringify(next)),
+    })
+    expect(await Promise.all([tab().accessToken(app.url), tab().accessToken(app.url)])).toEqual(["access-1", "access-1"])
+    expect(server.calls.filter(call => call.url.endsWith("/oauth2/token"))).toHaveLength(1)
+  })
+
+  it("keeps the tokens of another tab when its own refresh token was already rotated", async () => {
+    let release!: () => void
+    const server = fakeApp({ refreshTokens: ["refresh-0"], tokenDelay: new Promise<void>((resolve) => { release = resolve }) })
+    let stored: ConsoleOAuthTokens | undefined = tokens({ accessToken: "access-0", expiresAt: 0, refreshToken: "refresh-0" })
+    // Two tabs with no lock at all: both send refresh-0, and the server accepts only the first.
+    const tab = () => createConsoleOAuthRefresher({ fetch: server.fetch, now: () => 0, read: () => stored, write: (_url, next) => { stored = next ?? undefined } })
+    const answers = Promise.all([tab().accessToken(app.url), tab().accessToken(app.url)])
+    release()
+    expect(await answers).toEqual(["access-1", "access-1"])
+    expect(stored).toMatchObject({ accessToken: "access-1", refreshToken: "refresh-1" })
+  })
+})
+
 describe("OAuth sign-in of a hosted Console", () => {
   async function hosted(server: ReturnType<typeof fakeApp>, storage = memoryProjectStorage()) {
     vi.stubGlobal("fetch", server.fetch)
@@ -377,7 +432,7 @@ describe("OAuth sign-in of a hosted Console", () => {
     const { projectFetch } = await import("../src/console/runtime/client/project.ts")
     const navigate = vi.fn()
     const tab = memoryProjectStorage()
-    const state = session.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate, pageOrigin: consoleOrigin, storage, sessionStorage: tab })
+    const state = session.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate, pageOrigin: consoleOrigin, storage, sessionStorage: tab, durableStorage: true })
     return { navigate, projectFetch, session, state, storage, tab }
   }
 
@@ -391,6 +446,23 @@ describe("OAuth sign-in of a hosted Console", () => {
     const state = new URL(authorizationUrl).searchParams.get("state")!
     return { ...context, authorizationUrl, code, state }
   }
+
+  it("does not start a sign-in when the browser storage would not survive the redirect", async () => {
+    const server = fakeApp()
+    vi.stubGlobal("fetch", server.fetch)
+    const session = await import("../src/console/runtime/client/project-session.ts")
+    const navigate = vi.fn()
+    const options = { base: "", home: "/", mode: "hosted" as const, navigate, pageOrigin: consoleOrigin, storage: memoryProjectStorage() }
+    for (const blocked of [{ durableStorage: false, sessionStorage: memoryProjectStorage() }, {}]) {
+      session.startConsoleProjects({ ...options, ...blocked })
+      expect(await session.startConsoleOAuthSignIn(app, resourceMetadata)).toEqual({
+        title: "This browser blocks site data",
+        message: "Allow site data for console.example.com to sign in, or use auth: \"token\" in the project.",
+      })
+    }
+    expect(navigate).not.toHaveBeenCalled()
+    expect(server.fetch).not.toHaveBeenCalled()
+  })
 
   it("sends the browser to the authorization endpoint with PKCE S256 and the Console resource", async () => {
     const server = fakeApp()
@@ -564,5 +636,20 @@ describe("project snapshot of a request", () => {
     expect(sent).toEqual([["https://a.example.com/_vitehub/rpc/__call", "Bearer a-1"], ["https://a.example.com/_vitehub/rpc/__call", "Bearer a-2"]])
     expect(renewed).toHaveBeenCalledOnce()
     expect(await upload).toEqual({ url: "https://a.example.com/_vitehub/rpc/__upload", headers: { "x-vitehub-console": "1", authorization: "Bearer a-1" } })
+  })
+})
+
+describe("browser storage", () => {
+  it("falls back to memory when the browser refuses writes", () => {
+    const refusing = { getItem: () => null, removeItem: () => {}, setItem: () => { throw new DOMException("Quota", "QuotaExceededError") } }
+    const opened = openConsoleStorage(() => refusing)
+    expect(opened.durable).toBe(false)
+    opened.storage.setItem("a", "1")
+    expect(opened.storage.getItem("a")).toBe("1")
+    expect(openConsoleStorage(() => { throw new DOMException("Blocked", "SecurityError") }).durable).toBe(false)
+    const values = new Map<string, string>()
+    const working = { getItem: (key: string) => values.get(key) ?? null, removeItem: (key: string) => void values.delete(key), setItem: (key: string, value: string) => void values.set(key, value) }
+    expect(openConsoleStorage(() => working)).toEqual({ storage: working, durable: true })
+    expect(values.size).toBe(0)
   })
 })

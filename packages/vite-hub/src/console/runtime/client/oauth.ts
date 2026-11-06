@@ -455,6 +455,50 @@ export function browserOAuthLock(): ConsoleOAuthLock | undefined {
   return <T>(name: string, run: () => Promise<T>): Promise<T> => Reflect.apply(request, locks, [name, run])
 }
 
+/**
+ * A lock across tabs for browsers without Web Locks: a lease in `localStorage`. A tab writes the lease, waits a moment,
+ * and runs only when the lease is still its own. Other tabs wait until the lease ends, then run and read the tokens
+ * that the first tab saved. A lease ends after `ttl` milliseconds, so a closed tab does not block the others.
+ */
+export function storageOAuthLock(
+  storage: ConsoleProjectStorage,
+  options: { now?: () => number, sleep?: (milliseconds: number) => Promise<void>, ttl?: number } = {},
+): ConsoleOAuthLock {
+  const now = options.now ?? Date.now
+  const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>((resolve) => { setTimeout(resolve, milliseconds) }))
+  const ttl = options.ttl ?? 10_000
+  const read = (key: string): { owner?: string, until: number } => {
+    try {
+      const value: unknown = JSON.parse(storage.getItem(key) || "null")
+      const owner = text(field(value, "owner"))
+      const until: unknown = field(value, "until")
+      return { ...(owner ? { owner } : {}), until: Number.isFinite(until) ? Number(until) : 0 }
+    }
+    catch {
+      return { until: 0 }
+    }
+  }
+  return async <T>(name: string, run: () => Promise<T>): Promise<T> => {
+    const key = `${name}:lease`
+    const owner = createConsoleOAuthState()
+    for (;;) {
+      if (read(key).until <= now()) {
+        storage.setItem(key, JSON.stringify({ owner, until: now() + ttl }))
+        // Two tabs can write at the same time. The last write wins, and only its tab runs.
+        await sleep(50)
+        if (read(key).owner === owner) break
+      }
+      await sleep(100)
+    }
+    try {
+      return await run()
+    }
+    finally {
+      if (read(key).owner === owner) storage.setItem(key, "")
+    }
+  }
+}
+
 /** Gives each request a fresh access token, and refreshes at most once at a time per project. */
 export interface ConsoleOAuthRefresher {
   /**
@@ -489,6 +533,9 @@ export function createConsoleOAuthRefresher(options: {
       return result.tokens.accessToken
     }
     if (result.kind === "rejected") {
+      // Another tab can have rotated the refresh token meanwhile. Its tokens stay, and this tab uses them.
+      const current = options.read(projectUrl)
+      if (current && current.refreshToken !== latest.refreshToken) return current.accessToken === rejected ? undefined : current.accessToken
       options.write(projectUrl, null)
       return undefined
     }
