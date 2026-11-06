@@ -1271,21 +1271,31 @@ function boundedObservationAttributeValue(
   return configuration
 }
 
-/** The text and attachment URLs a reader sees in an input history, or `undefined` when it cannot be read. */
-function visibleMessageText(value: unknown): string | undefined {
+/** Compare visible history fields without serializing the unbounded input. */
+function sameVisibleMessageText(value: unknown, bounded: unknown): boolean {
   try {
-    if (!Array.isArray(value)) return
-    return JSON.stringify(value.map((message: unknown) => {
-      if (!isRuntimeRecord(message)) return null
-      if (hasRuntimeType(message.content, "string")) return message.content
-      if (!Array.isArray(message.parts)) return null
-      return message.parts.map((part: unknown) => isRuntimeRecord(part)
-        ? [hasRuntimeType(part.text, "string") ? part.text : null, hasRuntimeType(part.url, "string") ? part.url : null]
-        : null)
-    }))
+    if (!Array.isArray(value) || !Array.isArray(bounded) || value.length !== bounded.length) return false
+    const stringField = (record: unknown, key: string) => isRuntimeRecord(record) && hasRuntimeType(record[key], "string") ? record[key] : undefined
+    // Matching lengths limit traversal to the history retained by the value budget.
+    return bounded.every((message: unknown, index) => {
+      const original: unknown = value[index]
+      const content = stringField(original, "content")
+      const boundedContent = stringField(message, "content")
+      if (content !== undefined || boundedContent !== undefined) return content === boundedContent
+      const parts = isRuntimeRecord(original) && Array.isArray(original.parts) ? original.parts : undefined
+      const boundedParts = isRuntimeRecord(message) && Array.isArray(message.parts) ? message.parts : undefined
+      if (!parts || !boundedParts) return parts === boundedParts
+      if (parts.length !== boundedParts.length) return false
+      return boundedParts.every((part: unknown, partIndex) => {
+        const originalPart: unknown = parts[partIndex]
+        if (!isRuntimeRecord(originalPart) || !isRuntimeRecord(part)) return isRuntimeRecord(originalPart) === isRuntimeRecord(part)
+        return stringField(originalPart, "text") === stringField(part, "text")
+          && stringField(originalPart, "url") === stringField(part, "url")
+      })
+    })
   }
   catch {
-    return undefined
+    return false
   }
 }
 
@@ -1366,8 +1376,7 @@ function boundedObservation(
           if (budget.truncated) {
             // Input histories often lose only hidden part data. Name that apart from message text.
             const hiddenPartsOnly = (key === "input.messages" || key === "input.prompt")
-              && visibleMessageText(value) !== undefined
-              && visibleMessageText(value) === visibleMessageText(bounded)
+              && sameVisibleMessageText(value, bounded)
             truncatedAttributes.add(hiddenPartsOnly ? `${key}.parts` : boundedString(key)!)
           }
           budget.truncated ||= truncatedBefore
@@ -1653,6 +1662,18 @@ function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
   if (unref) unref.call(timer)
 }
 
+function namedTruncationAttributes(attributes: TraceEventLogEntry["attributes"], dropped: readonly string[]) {
+  const recorded = attributes?.[AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE]
+  // Preserve unknown earlier losses rather than presenting a partial list as complete.
+  if (attributes?.[AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE] === true && !Array.isArray(recorded)) return {}
+  return {
+    [AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE]: [...new Set([
+      ...(Array.isArray(recorded) ? recorded.filter(key => hasRuntimeType(key, "string")) : []),
+      ...dropped,
+    ])],
+  }
+}
+
 // Bound encoded storage size after privacy filtering and value normalization.
 export function byteBoundedObservations(values: readonly TraceEventLogEntry[], limits: Required<AgentInvocationObservationOptions>): { observations: readonly TraceEventLogEntry[], truncated: boolean } {
   const maxBytes = limits.maxBytes
@@ -1686,11 +1707,13 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
       throw agentDiagnostics.AGENT_R0908({ message: "[vitehub] Agent Invocation observation byte capacity reached; appended evidence was not changed." })
     }
     if (bytes + size + (retained.length ? 1 : 0) > maxBytes && observation.name === "vitehub.agent.configured") {
+      const dropped = Object.keys(observation.attributes || {}).filter(key => isTraceContentAttributeKey(key) || key === "vitehub.agent.configuration")
       candidate = {
         ...observation,
         attributes: {
-          ...Object.fromEntries(Object.entries(observation.attributes || {}).filter(([key]) => !isTraceContentAttributeKey(key) && key !== "vitehub.agent.configuration")),
+          ...Object.fromEntries(Object.entries(observation.attributes || {}).filter(([key]) => !dropped.includes(key))),
           "vitehub.agent.configurationTruncated": true,
+          ...namedTruncationAttributes(observation.attributes, dropped),
         },
       }
       size = encoder.encode(JSON.stringify(candidate)).byteLength
@@ -1704,13 +1727,12 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
     }
     else if (bytes + size + (retained.length ? 1 : 0) > maxBytes && outcomes.has(observation)) {
       const dropped = Object.keys(observation.attributes || {}).filter(key => isTraceContentAttributeKey(key) || key === "vitehub.payload.value")
-      const recorded = observation.attributes?.[AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE]
       candidate = {
         ...observation,
         attributes: {
           ...Object.fromEntries(Object.entries(observation.attributes || {}).filter(([key]) => !dropped.includes(key))),
           [observation.name === "vitehub.agent.configured" ? "vitehub.agent.configurationTruncated" : AGENT_INVOCATION_OBSERVATION_TRUNCATED_ATTRIBUTE]: true,
-          [AGENT_INVOCATION_TRUNCATED_ATTRIBUTES_ATTRIBUTE]: [...new Set([...(Array.isArray(recorded) ? recorded.filter(key => hasRuntimeType(key, "string")) : []), ...dropped])],
+          ...namedTruncationAttributes(observation.attributes, dropped),
           ...(observation.payload?.visibility === "public" ? { "vitehub.payload.visibility": "redacted" } : {}),
         },
         ...(observation.payload?.visibility === "public" ? { payload: { visibility: "redacted" as const } } : {}),
@@ -1720,7 +1742,11 @@ export function byteBoundedObservations(values: readonly TraceEventLogEntry[], l
       if (bytes + size + (retained.length ? 1 : 0) > maxBytes && isRuntimeRecord(usageRecord)) {
         // Keep canonical totals before dropping bulky per-call and raw evidence.
         const { calls: _calls, raw: _raw, ...summary } = usageRecord
-        candidate = { ...candidate, attributes: { ...candidate.attributes, "usage.record": summary } }
+        candidate = { ...candidate, attributes: {
+          ...candidate.attributes,
+          ...namedTruncationAttributes(candidate.attributes, ["usage.record"]),
+          "usage.record": summary,
+        } }
         size = encoder.encode(JSON.stringify(candidate)).byteLength
         if (bytes + size + (retained.length ? 1 : 0) > maxBytes) {
           // Arbitrary details and response metadata must not displace measured totals.
