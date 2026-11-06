@@ -1,14 +1,14 @@
-import { installOperationSectionResolver, operationAccessAllows } from "@vite-hub/internal/operations"
+import { installOperationSectionResolver, operationAccessAllows, operationListed } from "@vite-hub/internal/operations"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
 import { consoleMountBase } from "../console-route.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection, type ConsoleDiagnosticCode } from "../diagnostics.ts"
-import { markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
+import { consoleMcpReadScope, consoleMcpWriteScope, markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 
-import type { OperationContext } from "@vite-hub/internal/operations"
+import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth-types.ts"
 import type { AgentActor } from "@vite-hub/agent"
 import type { ConsoleSectionId } from "../sections.ts"
@@ -415,6 +415,24 @@ export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSecti
 export function consoleAccessWrites(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
   if (!consoleAccessGrant.isValid(access)) return false
   return operationAccessAllows(access, section, { kind: "write" })
+}
+
+/** The OAuth scope that an operation call needs: `vitehub:read` to read, `vitehub:write` to change state. */
+export function consoleOperationScope(operation: Pick<AnyOperation, "kind">): string {
+  return operation.kind === "read" ? consoleMcpReadScope : consoleMcpWriteScope
+}
+
+/**
+ * Whether the section grants of the access allow the kind of the operation, for a list of what it may call. An operation
+ * with `readOnlyWhen` shows with a read-only grant, because some of its calls only read. Each call checks again.
+ */
+export function consoleOperationGranted(access: ConsoleAccess, operation: AnyOperation): boolean {
+  return operationListed(access, operation, operation.readOnlyWhen ? undefined : operation)
+}
+
+/** Whether the access may call the operation: its section grants allow it, and an access token holds its scope. */
+export function consoleOperationOffered(access: ConsoleAccess, operation: AnyOperation): boolean {
+  return consoleOperationGranted(access, operation) && (!access.scopes || access.scopes.includes(consoleOperationScope(operation)))
 }
 
 export function allowedConsoleSections(access: ConsoleAccess, available: readonly ConsoleSectionId[]): ConsoleSectionId[] {

@@ -15,7 +15,7 @@ function fixtureOperation(name: string, section: string) {
   return defineOperation({ description: "Fixture.", input: v.strictObject({}), kind: "read", name, run: () => null, section })
 }
 
-const kvOperations = [fixtureOperation("kv.list", "kv"), fixtureOperation("kv.get", "kv")]
+const kvOperations = [fixtureOperation("kv.list", "kv"), fixtureOperation("kv.get", "kv"), defineOperation({ description: "Fixture.", input: v.strictObject({}), kind: "write", name: "kv.set", run: () => null, section: "kv" })]
 const contentOperations = [fixtureOperation("content.list", "content")]
 
 async function project(): Promise<{ status: number, value?: ConsoleProject }> {
@@ -60,6 +60,19 @@ describe("project.get", () => {
     expect(value?.operations).toEqual(expect.arrayContaining(["content.list", "project.get"]))
     expect(value?.operations).not.toContain("kv.list")
     expect(value?.operations).not.toContain("kv.get")
+    expect(value?.operations).not.toContain("kv.set")
+  })
+
+  it("leaves out the write operations of a read-only section grant", async () => {
+    installConsoleSections("/work/app", ["kv"])
+    installConsoleOperations([{ operations: kvOperations, plugin: "@vite-hub/kv" }])
+    expect((await project()).value?.operations).toContain("kv.set")
+
+    installConsoleAccess({ authorize: () => ({ sections: ["kv:read"] }), mode: "open" })
+    const { value } = await project()
+    expect(value?.sections).toEqual(["kv"])
+    expect(value?.operations).toEqual(expect.arrayContaining(["kv.get", "kv.list"]))
+    expect(value?.operations).not.toContain("kv.set")
   })
 
   it("is refused to a caller that the Console refuses", async () => {

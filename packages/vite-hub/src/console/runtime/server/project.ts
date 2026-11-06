@@ -1,6 +1,4 @@
-import { operationListed } from "@vite-hub/internal/operations"
-
-import { allowedConsoleSections } from "./access.ts"
+import { allowedConsoleSections, consoleOperationOffered } from "./access.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
 import { getConsoleProjectName, getConsoleSections } from "./sections.ts"
 import { version } from "../../../version.ts"
@@ -27,7 +25,7 @@ export function readConsoleProject(access: ConsoleAccess): ConsoleProject {
   const sections = allowedConsoleSections(access, installed)
   const operations = consoleOperationRegistry().list()
     // An operation of a section that the app does not install is registered but cannot run.
-    .filter(operation => (typeof operation.section !== "string" || installed.includes(operation.section)) && operationListed(access, operation))
+    .filter(operation => (typeof operation.section !== "string" || installed.includes(operation.section)) && consoleOperationOffered(access, operation))
     .map(operation => operation.name)
   const name = getConsoleProjectName()
   return { protocol: 1, ...(name ? { name } : {}), vitehub: version, sections, operations }

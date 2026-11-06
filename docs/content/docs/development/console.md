@@ -162,7 +162,7 @@ If `console` is omitted or set to `false`, ViteHub does not register a Console p
 
 ## Read the project
 
-The `project.get` operation tells a client what the project runs and what the caller may use. Each section and each operation is one that the app installs and that [`authorize`](#limit-a-user-to-some-sections) allows for the caller. It does not need Agents or a section grant, so every caller that passes Console access can read it.
+The `project.get` operation tells a client what the project runs and what the caller may use. Each section and each operation is one that the app installs and that [`authorize`](#limit-a-user-to-some-sections) allows for the caller. A read-only grant, such as `"kv:read"`, and an MCP access token without `vitehub:write` leave out the operations that change state. It does not need Agents or a section grant, so every caller that passes Console access can read it.
 
 ```bash [Terminal]
 pnpm vitehub project info
