@@ -351,8 +351,8 @@ export function parseConsoleOAuthCallback(search: string): ConsoleOAuthCallback 
 /** The answer of a token request. */
 export type ConsoleOAuthTokenResult =
   | { kind: "tokens", tokens: ConsoleOAuthTokens }
-  /** The server refused the grant, such as a used code or a revoked refresh token. */
-  | { kind: "rejected", error?: string, description?: string }
+  /** The server did not issue tokens. A temporary failure does not invalidate the stored refresh token. */
+  | { kind: "rejected", error?: string, description?: string, retryable?: boolean }
   /** The request failed before an answer, from CORS, the network, or a server that is offline. */
   | { kind: "unreachable" }
 
@@ -380,7 +380,8 @@ async function requestTokens(
   if (!response.ok || !accessToken || tokenType?.toLowerCase() !== "bearer") {
     const error = text(field(answer, "error"))
     const description = text(field(answer, "error_description"))
-    return { kind: "rejected", ...(error ? { error } : {}), ...(description ? { description: description.slice(0, 300) } : {}) }
+    const retryable = response.status === 408 || response.status === 429 || response.status >= 500 || error === "server_error" || error === "temporarily_unavailable"
+    return { kind: "rejected", ...(error ? { error } : {}), ...(description ? { description: description.slice(0, 300) } : {}), ...(retryable ? { retryable: true } : {}) }
   }
   const expiresIn: unknown = field(answer, "expires_in")
   // Without `expires_in`, the Console assumes 5 minutes and refreshes early rather than late.
@@ -458,7 +459,8 @@ export function browserOAuthLock(): ConsoleOAuthLock | undefined {
 /**
  * A lock across tabs for browsers without Web Locks: a lease in `localStorage`. A tab writes the lease, waits a moment,
  * and runs only when the lease is still its own. Other tabs wait until the lease ends, then run and read the tokens
- * that the first tab saved. A lease ends after `ttl` milliseconds, so a closed tab does not block the others.
+ * that the first tab saved. The owner renews its lease while the callback runs. Without renewal, the lease ends after
+ * `ttl` milliseconds, so a closed tab does not block the others.
  */
 export function storageOAuthLock(
   storage: ConsoleProjectStorage,
@@ -490,10 +492,14 @@ export function storageOAuthLock(
       }
       await sleep(100)
     }
+    const renew = setInterval(() => {
+      if (read(key).owner === owner) storage.setItem(key, JSON.stringify({ owner, until: now() + ttl }))
+    }, ttl / 3)
     try {
       return await run()
     }
     finally {
+      clearInterval(renew)
       if (read(key).owner === owner) storage.setItem(key, "")
     }
   }
@@ -532,14 +538,14 @@ export function createConsoleOAuthRefresher(options: {
       options.write(projectUrl, result.tokens)
       return result.tokens.accessToken
     }
-    if (result.kind === "rejected") {
+    if (result.kind === "rejected" && !result.retryable) {
       // Another tab can have rotated the refresh token meanwhile. Its tokens stay, and this tab uses them.
       const current = options.read(projectUrl)
       if (current && current.refreshToken !== latest.refreshToken) return current.accessToken === rejected ? undefined : current.accessToken
       options.write(projectUrl, null)
       return undefined
     }
-    // Offline: keep the tokens, so the Console works again when the project answers.
+    // Temporary request failure: keep the tokens, so the Console works again when the project answers.
     return latest.accessToken === rejected ? undefined : latest.accessToken
   }
   return {

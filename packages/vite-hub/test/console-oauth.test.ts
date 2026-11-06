@@ -18,11 +18,12 @@ import {
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage, openConsoleStorage } from "../src/console/runtime/client/projects.ts"
 
-import type { ConsoleOAuthPendingSignIn, ConsoleOAuthTokens } from "../src/console/runtime/client/oauth.ts"
+import type { ConsoleOAuthFetch, ConsoleOAuthPendingSignIn, ConsoleOAuthTokens } from "../src/console/runtime/client/oauth.ts"
 
 const pageProject = consoleProject()
 afterEach(() => {
   setConsoleProject(pageProject)
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.resetModules()
 })
@@ -275,7 +276,7 @@ describe("discovery", () => {
 })
 
 describe("refresh", () => {
-  function refresher(app: ReturnType<typeof fakeApp>, initial: ConsoleOAuthTokens | undefined, now = () => 0) {
+  function refresher(app: { fetch: ConsoleOAuthFetch }, initial: ConsoleOAuthTokens | undefined, now = () => 0) {
     let stored = initial
     const writes: (ConsoleOAuthTokens | null)[] = []
     const instance = createConsoleOAuthRefresher({
@@ -350,6 +351,29 @@ describe("refresh", () => {
     expect(stored()).toEqual(tokens({ expiresAt: 0 }))
   })
 
+  it.each([
+    { status: 408, error: undefined },
+    { status: 429, error: undefined },
+    { status: 500, error: undefined },
+    { status: 503, error: undefined },
+    { status: 400, error: "server_error" },
+    { status: 400, error: "temporarily_unavailable" },
+  ])("keeps tokens after a temporary refresh failure ($status, $error) and retries later", async ({ status, error }) => {
+    const temporary = async () => error ? Response.json({ error }, { status }) : new Response("Try later", { status })
+    const fetch = vi.fn<ConsoleOAuthFetch>()
+      .mockImplementationOnce(temporary)
+      .mockImplementationOnce(temporary)
+      .mockResolvedValueOnce(Response.json({ access_token: "recovered", refresh_token: "rotated", token_type: "Bearer", expires_in: 900 }))
+    const initial = tokens({ expiresAt: 30_000 })
+    const { instance, stored, writes } = refresher({ fetch }, initial)
+    expect(await instance.accessToken(app.url)).toBe("access-1")
+    expect(await instance.accessToken(app.url, { rejected: "access-1" })).toBeUndefined()
+    expect(stored()).toEqual(initial)
+    expect(writes).toEqual([])
+    expect(await instance.accessToken(app.url)).toBe("recovered")
+    expect(stored()).toMatchObject({ accessToken: "recovered", refreshToken: "rotated" })
+  })
+
   it("waits for the lock of other tabs and uses the tokens that another tab refreshed", async () => {
     const server = fakeApp()
     let stored: ConsoleOAuthTokens | undefined = tokens({ expiresAt: 0 })
@@ -394,6 +418,30 @@ describe("refresh across tabs without Web Locks", () => {
     const sleep = async (milliseconds: number) => { now += milliseconds }
     expect(await storageOAuthLock(storage, { now: () => now, sleep })("vitehub-console:oauth:x", async () => "ran")).toBe("ran")
     expect(now).toBeGreaterThanOrEqual(1_000)
+  })
+
+  it("keeps a slow callback exclusive beyond the lease TTL and stops renewing after release", async () => {
+    vi.useFakeTimers()
+    const storage = memoryProjectStorage()
+    const ttl = 300
+    const name = "vitehub-console:oauth:x"
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    const firstRun = vi.fn(async () => { await pending; return "first" })
+    const secondRun = vi.fn(async () => "second")
+    const first = storageOAuthLock(storage, { ttl })(name, firstRun)
+    await vi.advanceTimersByTimeAsync(50)
+    expect(firstRun).toHaveBeenCalledOnce()
+    const second = storageOAuthLock(storage, { ttl })(name, secondRun)
+    await vi.advanceTimersByTimeAsync(ttl * 3)
+    const overlapped = secondRun.mock.calls.length > 0
+    release()
+    expect(await first).toBe("first")
+    await vi.advanceTimersByTimeAsync(150)
+    expect(await second).toBe("second")
+    expect(overlapped).toBe(false)
+    expect(storage.getItem(`${name}:lease`)).toBe("")
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it("lets two tabs share one refresh", async () => {
