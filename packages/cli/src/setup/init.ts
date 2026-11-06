@@ -11,7 +11,7 @@ import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { confirmSetupChange, flattenOptions, mergeValue, planSetupAdd, readAddArgs, setupDiff, shellQuote } from "./add.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { consolePendingIdPattern, formatSetupLinkFile, gitignoreWithViteHub, readSetupConsoleLink, readSetupLink, SETUP_LINK_FILE } from "./link.ts"
-import { readSetupProject } from "./project.ts"
+import { detectPackageManager, readSetupProject } from "./project.ts"
 import { installArgs, installCommand } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -317,10 +317,15 @@ function manualConfig(file: string, reason: string, host: InitHost, framework: I
 }
 
 /** The config of an existing app with ViteHub registered on `host`. */
-function adoptConfig(project: SetupProject, host: InitHost, framework: InitFramework): { file: string, before: string, after: string } {
-  const file = project.configFile
+function adoptConfig(project: SetupProject, host: InitHost, framework: InitFramework): { file: string, before?: string, after: string } {
+  const file = project.configFile ?? (framework === "nuxt" ? "nuxt.config.ts" : "vite.config.ts")
+  if (!project.configFile) {
+    const name = packageNameOf(project.root)
+    const files = framework === "nuxt" ? nuxtAppFiles(name, host) : viteAppFiles(name, host)
+    return { after: files[file]!, file }
+  }
   const before = project.configSource
-  if (!file || before === undefined) throw manualConfig(framework === "nuxt" ? "nuxt.config.ts" : "vite.config.ts", "no-vitehub", host, framework)
+  if (before === undefined) throw manualConfig(file, "no-vitehub", host, framework)
   const config = project.config
   if (!config?.ok) {
     if (config?.reason !== "no-vitehub") throw manualConfig(file, config?.reason ?? "no-vitehub", host, framework)
@@ -341,9 +346,9 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   const found = state.kind === "adopt" ? state.project.framework : undefined
   const framework: InitFramework = args.framework ?? (found === "nuxt" ? "nuxt" : "vite")
   if (found && found !== framework) throw new SetupFailure(cliErrorDiagnostics.SETUP_INIT_FRAMEWORK_MISMATCH({ dir: root, found, framework }), setupExitCodes.conflict)
-  // A new app has no lockfile, so the default is pnpm, as `pnpm dlx vite-hub init` runs it, and not npm.
-  const detected = state.kind === "adopt" && state.project.packageManagerSource !== "default" ? state.project.packageManager : undefined
-  const packageManager = args.pm ?? detected ?? packageManagers.find(pm => context.env.npm_config_user_agent?.startsWith(`${pm}/`)) ?? "pnpm"
+  // A new app can inherit a parent lockfile. With no package-manager evidence, init defaults to pnpm.
+  const detected = state.kind === "adopt" ? state.project : detectPackageManager(root, undefined, context.env)
+  const packageManager = args.pm ?? (detected.packageManagerSource === "default" ? "pnpm" : detected.packageManager)
 
   // The base files: a new app, or the existing app with ViteHub registered.
   const base = new Map<string, { before?: string, after: string }>()
@@ -382,7 +387,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     framework,
     installed: state.kind === "adopt" ? state.project.installed : () => false,
     packageManager,
-    packageManagerSource: args.pm ? "manifest" : state.kind === "adopt" ? state.project.packageManagerSource : "default",
+    packageManagerSource: args.pm ? "manifest" : detected.packageManagerSource,
     root,
     serverDirs: state.kind === "adopt" ? state.project.serverDirs : [join(root, "server")],
   }
@@ -476,7 +481,7 @@ async function applyInit(planned: InitPlanned, install: boolean, context: ViteHu
       // The package manager logs to stderr, so `--json` keeps one document on stdout.
       const result = await context.spawn(plan.packageManager, commandArgs, { cwd: plan.root, env: context.env, stdout: "stderr" })
       if (result.exitCode !== 0) {
-        throw new SetupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [plan.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
+        throw new SetupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [plan.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal, filesWritten: plan.mode === "create" }), setupExitCodes.error)
       }
     }
   }

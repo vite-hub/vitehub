@@ -72,7 +72,7 @@ function packageManagerName(value: string | undefined): SetupPackageManager | un
 }
 
 /** `packageManager` in package.json, then a lockfile in `root` or a parent folder, then the user agent, then npm. */
-function detectPackageManager(root: string, manifest: PackageManifest | undefined, env: NodeJS.ProcessEnv): Pick<SetupProject, "packageManager" | "packageManagerSource"> {
+export function detectPackageManager(root: string, manifest: PackageManifest | undefined, env: NodeJS.ProcessEnv): Pick<SetupProject, "packageManager" | "packageManagerSource"> {
   const declared = packageManagerName(manifest?.packageManager)
   if (declared) return { packageManager: declared, packageManagerSource: "manifest" }
   for (const folder of parentFolders(root)) {
