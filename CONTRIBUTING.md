@@ -143,13 +143,14 @@ Every primitive follows one error contract. `@vite-hub/runtime` owns it: `Result
 
 ### Code blocks
 
-CI type-checks every `ts` block in `docs/content/docs/` and in the package READMEs against the built packages. Run the check after `corepack pnpm exec vp run --cache -t vite-hub#build`:
+CI type-checks every `ts` block in `docs/content/docs/` and in the package READMEs against the built packages. Run the same package build and check as CI:
 
 ```sh
+corepack pnpm exec vp run build
 corepack pnpm exec vp run --filter vitehub-docs test:snippets
 ```
 
-Write a block as a file that works when an Agent copies it: include its imports. The blocks of one page form one project, so a block labeled `[server/db/schema.ts]` can be imported by the other blocks of that page. When a page shows a file several times, an import gets the last full version of it above the importing block. If no full version appears above the importer, it uses the first full version on the page so the blocks can still be copied together as one project. The check also writes the `.vitehub` types that ViteHub generates for the Definitions that a page shows, such as `[server/queues/welcome-email.ts]` or `[server/databases/config.ts]`. A page that calls a Definition by name, such as `runQueue('welcome-email')` or `useDatabase('default')`, must show that Definition. Mark a block that is an excerpt of a larger file with `fragment` after its label, for example ```` ```ts [server/agents/support.ts] fragment ````. The site does not show the marker. `docs/scripts/check-snippets.baseline.json` lists the blocks that failed when the check started. Fix a listed block and remove its entry; the check fails when a listed block passes or changes.
+Write a block as a file that works when an Agent copies it: include its imports. The blocks of one page form one project, so a block labeled `[server/db/schema.ts]` can be imported by the other blocks of that page. When a page shows a file several times, an import gets the last full version of it above the importing block. If no full version appears above the importer, it uses the first full version on the page so the blocks can still be copied together as one project. The check also writes the `.vitehub` types that ViteHub generates for the Definitions that a page shows, such as `[server/queues/welcome-email.ts]` or `[server/databases/config.ts]`. A page that calls a Definition by name, such as `runQueue('welcome-email')` or `useDatabase('default')`, must show that Definition. Mark a block that is an excerpt of a larger file with `fragment` after its label, for example ```` ```ts [server/agents/support.ts] fragment ````. The site does not show the marker. `docs/scripts/check-snippets.baseline.json` lists the blocks that failed when the check started. Fix a listed block and remove its entry; the check fails when a listed block passes, its code or label changes, or its diagnostics change.
 
 ### Content for agents
 

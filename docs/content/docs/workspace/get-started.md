@@ -84,7 +84,7 @@ import { useWorkspace } from '@vite-hub/workspace'
 
 export default defineEventHandler(async (event) => {
   const workspace = useWorkspace('docs', { mode: 'write' })
-  const body = await readValidatedBody(event, v.object({ text: v.string() }))
+  const body = await readValidatedBody(event, body => v.parse(v.object({ text: v.string() }), body))
 
   await workspace.fs.writeFile('drafts/summary.md', body.text, {
     mediaType: 'text/markdown',

@@ -33,14 +33,14 @@ export function createWorkflowTypes(file: string, definitions: DiscoveredWorkflo
 }
 
 /**
- * Writes `.vitehub/workflow.d.ts` when its contents change. An app without folder Workflow steps gets no
- * file, and an existing file is still updated when the last step file goes away.
+ * Writes `.vitehub/workflow.d.ts` when its contents change. Keep an empty declaration before the first
+ * folder step so ViteHub's types entry can reference it throughout a development session.
  */
 export async function writeWorkflowTypes(root: string, definitions: DiscoveredWorkflowDefinition[], importBase = "@vite-hub/workflow"): Promise<void> {
   const file = resolve(root, workflowTypesFile)
   const contents = createWorkflowTypes(file, definitions, importBase)
   const current = await readFile(file, "utf8").catch(() => undefined)
-  if (current === contents || (current === undefined && !definitions.some(definition => definition.steps?.length))) return
+  if (current === contents) return
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, contents, "utf8")
 }

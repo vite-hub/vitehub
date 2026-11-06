@@ -21,7 +21,7 @@ import support from '../agents/support'
 import { getRuntimeContext } from 'vite-hub/runtime/h3'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readValidatedBody(event, v.object({ prompt: v.string() }))
+  const { prompt } = await readValidatedBody(event, v.parser(v.object({ prompt: v.string() })))
   const runtime = getRuntimeContext(event)
   try {
     return await runAgent(support, runtime, { prompt })

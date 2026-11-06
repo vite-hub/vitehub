@@ -113,6 +113,8 @@ export default defineConfig({
     server: {
       portal: {
         login: env({ secret: true, source: env.source('PORTAL_LOGIN') }),
+        acme: env({ secret: true, source: env.source('PORTAL_ACME_LOGIN') }),
+        globex: env({ secret: true, source: env.source('PORTAL_GLOBEX_LOGIN') }),
       },
       github: {
         token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
@@ -124,7 +126,13 @@ export default defineConfig({
 
 ```ts [server/connections/portal.ts]
 import { useServerEnv } from '#vitehub/env/server'
-import { defineConnection, oauthLogin } from 'vite-hub/connections'
+import { type ConnectionLoginContext, defineConnection, oauthLogin } from 'vite-hub/connections'
+
+async function login({ url, credentials, fetch }: ConnectionLoginContext) {
+  const [email, password] = credentials.split(':')
+  await fetch('/api/sign-in', { method: 'POST', body: JSON.stringify({ email, password }) })
+  return (await fetch(url)).headers.get('location')!
+}
 
 export default defineConnection({
   provider: oauthLogin({
@@ -132,11 +140,7 @@ export default defineConnection({
     mcp: 'https://portal.example.com/mcp',
     clientName: 'Support Agent',
     credentials: () => useServerEnv().portal.login,
-    async login({ url, redirectUri, credentials, fetch }) {
-      const [email, password] = credentials.split(':')
-      await fetch('/api/sign-in', { method: 'POST', body: JSON.stringify({ email, password }) })
-      return (await fetch(url)).headers.get('location')!
-    },
+    login,
   }),
   scopes: ['openid', 'email'],
   access: { 'agent:support': { read: true, write: ['fetch'], approve: false } },
@@ -164,7 +168,7 @@ Tokens and the client registration stay in memory, so each process signs in agai
 
 ## Keyed Connections
 
-A keyed definition defines one Connection per instance, for example one per tenant. Each instance is a Connection named `<name>:<instance>`. This example reuses the `login` function from above:
+A keyed definition defines one Connection per instance, for example one per tenant. Each instance is a Connection named `<name>:<instance>`. Keep the imports and `login` function above, and replace the default export with this definition. It reads the per-tenant credentials declared in Server Env above:
 
 ```ts [server/connections/portal.ts] fragment
 export default defineConnection({

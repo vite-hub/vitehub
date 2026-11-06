@@ -1,12 +1,12 @@
 // Type-checks every TypeScript code block in the docs and in the package READMEs against the built
-// workspace packages. Build them first: `vp run --cache -t vite-hub#build`.
+// workspace packages. Build them first: `corepack pnpm exec vp run build`.
 //
 // Each page is a small project: a block with a file label, such as ```ts [server/db/schema.ts], is written
 // at that path, so the other blocks of the page can import it. A block that is an excerpt of a larger file
 // must say so with `fragment` in its fence meta: ```ts [server/agents/support.ts] fragment.
 import { createHash } from "node:crypto"
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
-import { dirname, join, relative, resolve } from "node:path"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import ts from "typescript"
 
@@ -39,7 +39,7 @@ export function snippetSources() {
   return [...docs, ...readmes]
 }
 
-export function extractBlocks(markdown) {
+export function extractBlocks(markdown, languages = fenceLanguages) {
   const lines = markdown.replaceAll("\r\n", "\n").split("\n")
   const blocks = []
   for (let index = 0; index < lines.length; index++) {
@@ -53,7 +53,7 @@ export function extractBlocks(markdown) {
       body.push(lines[end].startsWith(indent) ? lines[end].slice(indent.length) : lines[end].trimStart())
       end++
     }
-    if (fenceLanguages.has(language)) {
+    if (languages.has(language)) {
       // READMEs name the file in a first-line comment, such as `// server/workflows/onboard-user/index.ts`.
       const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:m?ts|tsx))$/.exec(body[0] ?? "")?.[1]
       const meta = info.replace(/\[.+\]/, "").split(/\s+/).filter(Boolean)
@@ -127,13 +127,17 @@ export function collectSnippets(sources = snippetSources()) {
   for (const source of sources) {
     const page = relative(repoRoot, source.file)
     const used = new Set()
-    extractBlocks(readFileSync(source.file, "utf8")).forEach((block, index) => {
+    const markdown = readFileSync(source.file, "utf8")
+    const fixtures = extractBlocks(markdown, new Set(["dotenv"]))
+      .filter(block => block.label && !block.fragment)
+      .map(({ code, label }) => ({ code, label }))
+    extractBlocks(markdown).forEach((block, index) => {
       const extension = block.language === "tsx" ? ".tsx" : ".ts"
       let name = block.label && /\.(m?ts|tsx)$/.test(block.label) ? block.label.replace(/^\/+/, "") : `block-${index}${extension}`
       if (used.has(name)) name = `${index}/${name}`
       used.add(name)
       const pageRoot = join(source.root, ".snippets", page.replaceAll("/", "__"))
-      snippets.push({ ...block, file: join(pageRoot, name), page, pageRoot })
+      snippets.push({ ...block, file: join(pageRoot, name), fixtures, page, pageRoot })
     })
   }
   return snippets
@@ -166,12 +170,33 @@ export async function generatedDeclarations(pageSnippets) {
  * its folder. Elsewhere, `src/<name>.<kind>.ts` defines `<name>`.
  */
 function definitionName(directory, kind) {
-  const server = new RegExp(`^server/${directory}/(.+?)(?:/index)?(?:\\.${kind})?\\.m?ts$`)
-  const suffix = new RegExp(`^(?:src/)?(.+)\\.${kind}\\.m?ts$`)
+  const server = new RegExp(`^server/${directory}/(.+?)(?:/index)?(?:\\.${kind})?\\.(?:m?ts|tsx)$`)
+  const suffix = new RegExp(`^(?:src/)?(.+)\\.${kind}\\.(?:m?ts|tsx)$`)
   return (label) => {
     const name = server.exec(label)?.[1] ?? suffix.exec(label)?.[1]
     return name ? [name] : []
   }
+}
+
+/** Source names a Collection after its relative file path and imports the export matching the filename. */
+function collectionNames(label, code) {
+  const name = /^server\/collections\/(.+)\.m?ts$/.exec(label)?.[1]
+  if (!name) return []
+  const exportName = name.split("/").at(-1)
+  const source = ts.createSourceFile(label, code, ts.ScriptTarget.Latest, true)
+  const definition = source.statements
+    .filter(statement => ts.isVariableStatement(statement) && statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword))
+    .flatMap(statement => statement.declarationList.declarations)
+    .find(declaration => ts.isIdentifier(declaration.name) && declaration.name.text === exportName)
+  if (!definition) return []
+  const call = definition.initializer
+  if (call && ts.isCallExpression(call) && ts.isIdentifier(call.expression) && call.expression.text === "defineCollection") {
+    const options = call.arguments[1] ?? call.arguments[0]
+    const route = options && ts.isObjectLiteralExpression(options) && options.properties.find(property =>
+      ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name)) && property.name.text === "route")
+    if (route && route.initializer.kind === ts.SyntaxKind.FalseKeyword) return []
+  }
+  return [name]
 }
 
 const globalModules = name => entries => ["declare global {", `  interface ${name} {`, ...entries.map(([key, path]) => `    ${key}: typeof import(${path})`), "  }", "}", "export {}"]
@@ -192,12 +217,9 @@ const registries = [
   { definitions: definitionName("connections", "connection"), render: globalModules("ViteHubConnectionDefinitionModules"), type: "connections" },
   { definitions: definitionName("browsers", "browser"), render: globalModules("ViteHubBrowserDefinitionModules"), type: "browser" },
   {
-    // @vite-hub/source: `writeCollectionArtifacts()` in src/vite.ts. Each `defineCollection()` export of a module in
-    // `server/collections/` is one Collection named after its export.
-    definitions: (label, code) => /^server\/collections\/.+\.m?ts$/.test(label)
-      ? [...code.matchAll(/^export const (\w+) = defineCollection\b/gm)].map(match => match[1])
-      : [],
-    render: entries => ["declare global {", "  interface ViteHubCollectionMap {", ...entries.map(([key, path, name]) => `    ${key}: typeof import(${path})[${JSON.stringify(name)}]`), "  }", "}", "export {}"],
+    // @vite-hub/source: `writeCollectionArtifacts()` in src/vite.ts only registers route-enabled Collections.
+    definitions: collectionNames,
+    render: entries => ["declare global {", "  interface ViteHubCollectionMap {", ...entries.map(([key, path, name]) => `    ${key}: typeof import(${path})[${JSON.stringify(name.split("/").at(-1))}]`), "  }", "}", "export {}"],
     type: "collections",
   },
   {
@@ -232,7 +254,8 @@ function registryDeclarations(pageSnippets) {
     if (!definitions.size) continue
     const file = join(pageSnippets[0].pageRoot, `.vitehub/${registry.type}.d.ts`)
     const entries = [...definitions].map(([name, handler]) => {
-      const path = relative(dirname(file), handler).replace(/\.m?ts$/, "")
+      // Bundler resolution finds extensionless .ts/.tsx files, but .mts imports need their extension.
+      const path = relative(dirname(file), handler).replace(/\.tsx?$/, "")
       return [JSON.stringify(name), JSON.stringify(path.startsWith(".") ? path : `./${path}`), name]
     })
     declarations.push({ code: `${registry.render(entries).join("\n")}\n`, file })
@@ -252,11 +275,24 @@ async function envDeclarations(pageSnippets) {
   const env = { public: {}, server: {} }
   const directory = mkdtempSync(join(packagesRoot, "vite-hub/.snippet-config-"))
   try {
+    // Configs such as `envSchema(new URL('./.env.example', import.meta.url))` need the page's shown fixture.
+    for (const fixture of pageSnippets[0].fixtures ?? []) {
+      const file = resolve(directory, fixture.label)
+      if (!file.startsWith(`${directory}${sep}`)) continue
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, fixture.code)
+    }
     for (const [index, snippet] of configs.entries()) {
       const file = join(directory, `${index}.ts`)
       writeFileSync(file, snippet.code)
-      // A config that throws gets no Env types. The type check reports what is wrong with it.
-      const config = await import(pathToFileURL(file).href).then(module => module.default, () => undefined)
+      let config
+      try {
+        config = (await import(pathToFileURL(file).href)).default
+      }
+      catch {
+        // Keep the page's fallback declarations rather than deriving Env types from an incomplete config.
+        return []
+      }
       Object.assign(env.public, config?.env?.public)
       Object.assign(env.server, config?.env?.server)
     }
@@ -411,6 +447,25 @@ export function snippetId(snippet) {
  */
 export const baselinePath = join(docsRoot, "scripts/check-snippets.baseline.json")
 
+/** Records every diagnostic, independent of checkout path, page line numbers, and diagnostic order. */
+export function baselineEntry({ snippet, diagnostics }) {
+  const checkout = `${repoRoot.replaceAll("\\", "/")}/`
+  const error = diagnostics.map(diagnostic => `TS${diagnostic.code} ${diagnostic.message.replaceAll("\\", "/").replaceAll(checkout, "")}`).sort().join("\n")
+  return { id: snippetId(snippet), label: snippet.label ?? null, error }
+}
+
+export function compareBaseline(failures, baseline) {
+  const known = new Map(baseline.map(entry => [entry.id, entry]))
+  const failed = new Set(failures.map(failure => snippetId(failure.snippet)))
+  const fresh = failures.filter((failure) => {
+    const current = baselineEntry(failure)
+    const expected = known.get(current.id)
+    return !expected || expected.label !== current.label || expected.error !== current.error
+  })
+  const stale = baseline.filter(entry => !failed.has(entry.id))
+  return { fresh, stale }
+}
+
 function readBaseline() {
   return existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8")) : []
 }
@@ -433,24 +488,18 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   ]
   const baseline = readBaseline()
   if (process.argv.includes("--update-baseline")) {
-    const entries = failures.map(({ snippet, diagnostics }) => {
-      const diagnostic = diagnostics.find(entry => entry.code !== 2304 && entry.code !== 2307) ?? diagnostics[0]
-      return { id: snippetId(snippet), label: snippet.label ?? null, error: `TS${diagnostic.code} ${diagnostic.message.split("\n")[0]}` }
-    })
+    const entries = failures.map(baselineEntry)
     writeFileSync(baselinePath, `${JSON.stringify(entries, null, 2)}\n`)
     console.log(`Wrote ${entries.length} known failures to ${relative(repoRoot, baselinePath)}.`)
     process.exit(0)
   }
-  const known = new Set(baseline.map(entry => entry.id))
-  const failed = new Set(failures.map(failure => snippetId(failure.snippet)))
-  const fresh = failures.filter(failure => !known.has(snippetId(failure.snippet)))
+  const { fresh, stale } = compareBaseline(failures, baseline)
   for (const { snippet, diagnostics } of fresh) {
     for (const diagnostic of diagnostics) console.error(`${snippet.page}:${diagnostic.line} TS${diagnostic.code} ${diagnostic.message.split("\n")[0]}`)
   }
-  const stale = baseline.filter(entry => !failed.has(entry.id))
   for (const entry of stale) console.error(`${entry.id} passes now or changed. Remove it from ${relative(repoRoot, baselinePath)}.`)
   const fragments = snippets.filter(snippet => snippet.fragment).length
   console.log(`${snippets.length - fragments} TypeScript blocks type-checked, ${fragments} marked \`${fragmentMarker}\`, ${failures.length} failed, ${failures.length - fresh.length} of them listed as known failures.`)
-  if (fresh.length) console.log(`Fix each block, or add \`${fragmentMarker}\` to the fence meta of a block that is an excerpt of a larger file.`)
+  if (fresh.length) console.log(`Fix each new or changed failure, or add \`${fragmentMarker}\` to the fence meta of a block that is an excerpt of a larger file.`)
   if (fresh.length || stale.length) process.exitCode = 1
 }

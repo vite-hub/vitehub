@@ -133,7 +133,7 @@ export interface WorkflowStepRegistry {}
 
 /** A step runs one input through its step file, inside a durable provider step. */
 export type WorkflowStep<TStep> = TStep extends (...args: infer TArguments) => infer TResult
-  ? (...input: TArguments extends [] ? [] : [input: TArguments[0]]) => Promise<Awaited<TResult>>
+  ? (...input: TArguments extends [] ? [] : TArguments extends [unknown, ...unknown[]] ? [input: TArguments[0]] : [input?: TArguments[0]]) => Promise<Awaited<TResult>>
   : never
 
 /** The step functions of the Workflow `TName`. Empty for a Workflow without step files. */

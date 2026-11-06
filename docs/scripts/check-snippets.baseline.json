@@ -2,37 +2,37 @@
   {
     "id": "docs/content/docs/agents/agent-definitions.md#d6828f9cd407",
     "label": "server/lib/sync.ts",
-    "error": "TS2304 Cannot find name 'email'."
+    "error": "TS2304 Cannot find name 'email'.\nTS2304 Cannot find name 'email'.\nTS2304 Cannot find name 'email'.\nTS2304 Cannot find name 'email'."
   },
   {
     "id": "docs/content/docs/agents/agent-drivers.md#7b95e16bdad4",
     "label": "server/agents/review/agent.ts",
-    "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'."
+    "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'.\n  Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type '(context: AgentProviderCredentialContext<AgentRuntimeConfig>) => MaybePromise<AgentProviderCredentialValue>'.\n    Type 'Promise<unknown>' is not assignable to type 'MaybePromise<AgentProviderCredentialValue>'.\n      Type 'Promise<unknown>' is not assignable to type 'Promise<AgentProviderCredentialValue>'.\n        Type 'unknown' is not assignable to type 'AgentProviderCredentialValue'."
   },
   {
     "id": "docs/content/docs/agents/agent-drivers.md#b020c6949bc2",
     "label": null,
-    "error": "TS2304 Cannot find name 'runAgent'."
+    "error": "TS2304 Cannot find name 'labeller'.\nTS2304 Cannot find name 'runAgent'."
   },
   {
     "id": "docs/content/docs/agents/agent-drivers.md#6943e3700cbc",
     "label": "server/agents/labeller.ts",
-    "error": "TS2571 Object is of type 'unknown'."
+    "error": "TS2571 Object is of type 'unknown'.\nTS7006 Parameter 'label' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/agents/build-a-chat-app.md#04d5b39f0192",
     "label": "server/api/chat.post.ts",
-    "error": "TS18048 'event.node' is possibly 'undefined'."
+    "error": "TS18048 'event.node' is possibly 'undefined'.\nTS18048 'event.node' is possibly 'undefined'.\nTS18048 'event.node' is possibly 'undefined'.\nTS18048 'event.node.res' is possibly 'undefined'.\nTS18048 'event.node.res' is possibly 'undefined'.\nTS18048 'event.node.res' is possibly 'undefined'."
   },
   {
     "id": "docs/content/docs/agents/capabilities/budget.md#338de8c4dfe8",
     "label": null,
-    "error": "TS1005 ';' expected."
+    "error": "TS1005 ';' expected.\nTS1128 Declaration or statement expected.\nTS18048 'event' is possibly 'undefined'.\nTS2339 Property 'extensions' does not exist on type 'Event'.\nTS2349 This expression is not callable.\n  Type 'String' has no call signatures."
   },
   {
     "id": "docs/content/docs/agents/capabilities/diagnostics.md#780265cb0b82",
     "label": null,
-    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'diagnostics'.\nTS2304 Cannot find name 'nodeRuntimeResources'.\nTS2304 Cannot find name 'operations'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/agents/capabilities/input-commands.md#748af2836fda",
@@ -42,17 +42,17 @@
   {
     "id": "docs/content/docs/agents/capabilities/mcp.md#4a5c462e1230",
     "label": "server/agents/support.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer."
+    "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer.\nTS2339 Property 'unseal' does not exist on type '{}'."
   },
   {
     "id": "docs/content/docs/agents/capabilities/openapi.md#7159a9110e24",
     "label": "server/agents/support.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer."
+    "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer.\nTS18048 'invoker' is possibly 'undefined'."
   },
   {
     "id": "docs/content/docs/agents/capabilities/transcribe.md#c01f4d271b5b",
     "label": "server/agents/voice.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer."
+    "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'env'."
   },
   {
     "id": "docs/content/docs/agents/channels.md#862ca09365cf",
@@ -62,12 +62,12 @@
   {
     "id": "docs/content/docs/agents/channels.md#95eb70e7d232",
     "label": "server/agents/support.ts",
-    "error": "TS2304 Cannot find name 'defineAgent'."
+    "error": "TS2304 Cannot find name 'defineAgent'.\nTS2304 Cannot find name 'telegram'.\nTS2304 Cannot find name 'telegram'."
   },
   {
     "id": "docs/content/docs/agents/channels.md#ad4e6fcc3ebb",
     "label": "server/agents/labeller.ts",
-    "error": "TS18046 'message' is of type 'unknown'."
+    "error": "TS18046 'message' is of type 'unknown'.\nTS18046 'message' is of type 'unknown'.\nTS2307 Cannot find module '../lib/mailbox' or its corresponding type declarations."
   },
   {
     "id": "docs/content/docs/agents/gmail.md#52ea1118141f",
@@ -77,7 +77,7 @@
   {
     "id": "docs/content/docs/agents/invocation-storage.md#608dc9c6c61f",
     "label": "server/agents/support.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'store'. Either declare one or provide an initializer."
+    "error": "TS18004 No value exists in scope for the shorthand property 'store'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'defineAgentInvocations'.\nTS7006 Parameter 'error' implicitly has an 'any' type.\nTS7006 Parameter 'observation' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/agents/invocation-storage.md#1bfd2292966b",
@@ -85,49 +85,54 @@
     "error": "TS2307 Cannot find module 'cloudflare:workers' or its corresponding type declarations."
   },
   {
+    "id": "docs/content/docs/agents/invocations.md#405e1c1deea1",
+    "label": "server/api/support.post.ts",
+    "error": "TS2307 Cannot find module '../utils/auth' or its corresponding type declarations."
+  },
+  {
     "id": "docs/content/docs/agents/process-hosts.md#e5d266f81857",
     "label": "server/agents/reviewer.ts",
-    "error": "TS2769 No overload matches this call."
+    "error": "TS2769 No overload matches this call.\n  The last overload gave the following error.\n    Type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' is not assignable to type 'AgentDriver<AgentRuntimeConfig, unknown, AgentInvocationContextValues, unknown>'.\n      Type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' is not assignable to type 'CodexDriver<unknown, unknown> | ClaudeCodeDriver<unknown, unknown>'.\n        Type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' is not assignable to type 'ClaudeCodeDriver<unknown, unknown>'.\n          Property '[providerAgentRuntime]' is missing in type '{ model: string; capacity: AgentDriverCapacityOptions; sessionStorePath: string; }' but required in type 'ProviderAgentRuntimeCarrier'."
   },
   {
     "id": "docs/content/docs/agents/sandboxes.md#a900a524eaf8",
     "label": "server/agents/review/agent.ts",
-    "error": "TS2571 Object is of type 'unknown'."
+    "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
     "id": "docs/content/docs/auth/configure.md#e343728ee49a",
     "label": "server/auth.ts",
-    "error": "TS7031 Binding element 'env' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'defineAuth'.\nTS7031 Binding element 'env' implicitly has an 'any' type.\nTS7031 Binding element 'requestOrigin' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/auth/configure.md#a5b1c0c3735d",
     "label": "server/routes/mcp.ts",
-    "error": "TS18048 'event' is possibly 'undefined'."
+    "error": "TS1108 A 'return' statement can only be used within a function body.\nTS18048 'event' is possibly 'undefined'.\nTS2339 Property 'req' does not exist on type 'Event'."
   },
   {
     "id": "docs/content/docs/blob/media.md#9c910d73996e",
     "label": null,
-    "error": "TS2304 Cannot find name 'blob'."
+    "error": "TS2304 Cannot find name 'blob'.\nTS2304 Cannot find name 'file'."
   },
   {
     "id": "docs/content/docs/channels/agent-capability.md#40109740a7a8",
     "label": "server/schedules/weekly-report.ts",
-    "error": "TS2769 No overload matches this call."
+    "error": "TS2307 Cannot find module '../agents/bot/agent' or its corresponding type declarations.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never): ChannelClient<ChannelConnectorMap, never>', gave the following error.\n    Argument of type '\"teams\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never): ChannelClient<ChannelConnectorMap, never>', gave the following error.\n    Argument of type '\"teams\"' is not assignable to parameter of type 'never'.\nTS2769 No overload matches this call.\n  Overload 1 of 9, '(agent: AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>, input: AgentRunInput<unknown, AgentRunInputContextValues, unknown>, options: RunAgentOptions<...> & { ...; }): Promise<...>', gave the following error.\n    Argument of type 'ConfiguredAgentDefinition<any, any, any>' is not assignable to parameter of type 'AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>'.\n      Property 'resolve' is missing in type 'ConfiguredAgentDefinition<any, any, any>' but required in type 'AgentDefinition<AgentRuntimeConfig, any, any, any, unknown, unknown, unknown, unknown, unknown>'.\n  Overload 2 of 9, '(agent: AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>, input: AgentRunInput<unknown, AgentRunInputContextValues, unknown>, options: RunAgentOptions<...> & { ...; }): Promise<...>', gave the following error.\n    Argument of type 'ConfiguredAgentDefinition<any, any, any>' is not assignable to parameter of type 'AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>'.\n      Property 'resolve' is missing in type 'ConfiguredAgentDefinition<any, any, any>' but required in type 'AgentDefinition<AgentRuntimeConfig, any, any, any, unknown, unknown, unknown, unknown, unknown>'.\n  Overload 3 of 9, '(agent: AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>, context: AgentRuntimeContextInput<AgentRuntimeConfig>, input: AgentRunInput<...>, options?: (Omit<...> & { ...; }) | undefined): Promise<...>', gave the following error.\n    Argument of type 'ConfiguredAgentDefinition<any, any, any>' is not assignable to parameter of type 'AgentInput<AgentRuntimeContext<AgentRuntimeConfig>, unknown> & AgentDataCarrier<unknown>'.\n      Property 'resolve' is missing in type 'ConfiguredAgentDefinition<any, any, any>' but required in type 'AgentDefinition<AgentRuntimeConfig, any, any, any, unknown, unknown, unknown, unknown, unknown>'."
   },
   {
     "id": "docs/content/docs/channels/agent-capability.md#0876e6e71790",
     "label": null,
-    "error": "TS7006 Parameter 'context' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'channelDelivery'.\nTS2304 Cannot find name 'useChannel'.\nTS7006 Parameter 'context' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/channels/agent-capability.md#8ede65de0174",
     "label": null,
-    "error": "TS7006 Parameter 'message' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'channelDelivery'.\nTS2304 Cannot find name 'useChannel'.\nTS7006 Parameter 'message' implicitly has an 'any' type.\nTS7006 Parameter 'receipt' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/channels/agent-capability.md#d71a3be85bbb",
     "label": null,
-    "error": "TS2304 Cannot find name 'channelDelivery'."
+    "error": "TS2304 Cannot find name 'channelDelivery'.\nTS2304 Cannot find name 'useChannel'."
   },
   {
     "id": "docs/content/docs/channels/index.md#7f237ef8efd9",
@@ -137,7 +142,12 @@
   {
     "id": "docs/content/docs/cms/access.md#2b019396a64c",
     "label": "server/routes/api/roles.post.ts",
-    "error": "TS2339 Property 'userId' does not exist on type '{}'."
+    "error": "TS2339 Property 'role' does not exist on type '{}'.\nTS2339 Property 'setRole' does not exist on type 'InferAPI<Prettify<{ readonly ok: StrictEndpoint<\"/ok\", { method: \"GET\"; metadata: { openapi: { description: string; responses: { \"200\": { description: string; content: { \"application/json\": { schema: { type: \"object\"; properties: { ok: { type: string; description: string; }; }; required: string[]; }; }; }; }; }; }; ...'.\nTS2339 Property 'userId' does not exist on type '{}'."
+  },
+  {
+    "id": "docs/content/docs/comments/configure.md#9415c5d5ee1d",
+    "label": "server/api/docs/[id]/comments.post.ts",
+    "error": "TS2307 Cannot find module '../../../utils/docs' or its corresponding type declarations."
   },
   {
     "id": "docs/content/docs/comments/index.md#daebbc2b469e",
@@ -147,12 +157,12 @@
   {
     "id": "docs/content/docs/comments/operations/configure.md#f4056f9a0e14",
     "label": "server/comments.ts",
-    "error": "TS7031 Binding element 'user' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'defineComments'.\nTS7031 Binding element 'action' implicitly has an 'any' type.\nTS7031 Binding element 'actor' implicitly has an 'any' type.\nTS7031 Binding element 'subject' implicitly has an 'any' type.\nTS7031 Binding element 'thread' implicitly has an 'any' type.\nTS7031 Binding element 'user' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/connections/index.md#b5254d8a047e",
     "label": "server/connections/google.ts",
-    "error": "TS2571 Object is of type 'unknown'."
+    "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
     "id": "docs/content/docs/database/configure.md#b8b90fb4cd95",
@@ -162,17 +172,17 @@
   {
     "id": "docs/content/docs/database/index.md#5e51d6f3417a",
     "label": "server/api/notes.post.ts",
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+    "error": "TS18048 'body' is possibly 'undefined'."
   },
   {
     "id": "docs/content/docs/database/server-api.md#f322346ac6f0",
     "label": "server/utils/files.ts",
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
+    "error": "TS2339 Property 'files' does not exist on type '{ notes: SQLiteTableWithColumns<{ name: \"notes\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"notes\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; hasDefault: true; ... 6 more ...; generated: undefined; }, {}, {}>; title: SQLiteColumn<...'.\nTS2339 Property 'files' does not exist on type '{ notes: SQLiteTableWithColumns<{ name: \"notes\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"notes\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; hasDefault: true; ... 6 more ...; generated: undefined; }, {}, {}>; title: SQLiteColumn<...'.\nTS2339 Property 'files' does not exist on type '{ notes: SQLiteTableWithColumns<{ name: \"notes\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"notes\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; hasDefault: true; ... 6 more ...; generated: undefined; }, {}, {}>; title: SQLiteColumn<...'.\nTS2339 Property 'files' does not exist on type '{ notes: SQLiteTableWithColumns<{ name: \"notes\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"notes\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; hasDefault: true; ... 6 more ...; generated: undefined; }, {}, {}>; title: SQLiteColumn<...'.\nTS2339 Property 'files' does not exist on type '{ notes: SQLiteTableWithColumns<{ name: \"notes\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"notes\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; hasDefault: true; ... 6 more ...; generated: undefined; }, {}, {}>; title: SQLiteColumn<...'.\nTS2339 Property 'files' does not exist on type '{ notes: SQLiteTableWithColumns<{ name: \"notes\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"notes\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; hasDefault: true; ... 6 more ...; generated: undefined; }, {}, {}>; title: SQLiteColumn<...'."
   },
   {
     "id": "docs/content/docs/development/console.md#44aafb4e0c8f",
     "label": "nuxt.config.ts",
-    "error": "TS2353 Object literal may only specify known properties, and 'robots' does not exist in type '{ prerender?: boolean | undefined; ssr?: boolean | undefined; noScripts?: boolean | undefined; payload?: boolean | undefined; redirect?: string | false | { to?: string | undefined; status?: number | undefined; } | undefined; isr?: number | ... 2 more ... | undefined; cache?: false | ... 1 more ... | undefined; }'."
+    "error": "TS2353 Object literal may only specify known properties, and 'robots' does not exist in type '{ prerender?: boolean | undefined; ssr?: boolean | undefined; noScripts?: boolean | undefined; payload?: boolean | undefined; redirect?: string | false | { to?: string | undefined; status?: number | undefined; } | undefined; isr?: number | ... 2 more ... | undefined; cache?: false | ... 1 more ... | undefined; }'.\nTS2353 Object literal may only specify known properties, and 'robots' does not exist in type '{ prerender?: boolean | undefined; ssr?: boolean | undefined; noScripts?: boolean | undefined; payload?: boolean | undefined; redirect?: string | false | { to?: string | undefined; status?: number | undefined; } | undefined; isr?: number | ... 2 more ... | undefined; cache?: false | ... 1 more ... | undefined; }'."
   },
   {
     "id": "docs/content/docs/development/operations.md#5d5bf17d544a",
@@ -202,82 +212,82 @@
   {
     "id": "docs/content/docs/rate-limit/index.md#cb8cae0e5e63",
     "label": "server/api/messages.post.ts",
-    "error": "TS2345 Argument of type 'AuthRequestInput' is not assignable to parameter of type 'RateLimitRequestEvent'."
+    "error": "TS2345 Argument of type 'AuthRequestInput' is not assignable to parameter of type 'RateLimitRequestEvent'.\n  Type 'AuthRequest' is not assignable to type 'RateLimitRequestEvent'."
   },
   {
     "id": "docs/content/docs/rate-limit/server-api.md#1bc63bfa9b4b",
     "label": null,
-    "error": "TS1108 A 'return' statement can only be used within a function body."
+    "error": "TS1108 A 'return' statement can only be used within a function body.\nTS2304 Cannot find name 'checkRateLimit'."
   },
   {
     "id": "docs/content/docs/realtime/server-api.md#63e5b270fc82",
     "label": "server/realtime/pages.ts",
-    "error": "TS18048 'fields' is possibly 'undefined'."
+    "error": "TS18048 'fields' is possibly 'undefined'.\nTS18048 'fields' is possibly 'undefined'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#e3f6e4dc09d2",
     "label": "server/api/issues.get.ts",
-    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS18046 'github' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#ff43a766764d",
     "label": "server/api/issues.get.ts",
-    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS18046 'github' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#159fe97daf2e",
     "label": "vite.config.ts",
-    "error": "TS2769 No overload matches this call."
+    "error": "TS2769 No overload matches this call.\n  The last overload gave the following error.\n    Type 'string | undefined' is not assignable to type 'EnvRuntimeConfigValue'.\n      Type 'undefined' is not assignable to type 'EnvRuntimeConfigValue'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#e2b27a0e912b",
     "label": "server/api/crm.get.ts",
-    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS18046 'crm' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#1522ebb07cd8",
     "label": "server/api/crm.get.ts",
-    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS18046 'crm' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#f5c9bb564ea8",
     "label": "server/auth.ts",
-    "error": "TS2769 No overload matches this call."
+    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(options: AuthDefinitionResolver<AuthResolvedDefinitionOptions>): AuthDefinition<AuthDefinitionResolver<AuthResolvedDefinitionOptions>>', gave the following error.\n    Object literal may only specify known properties, and 'baseURL' does not exist in type 'AuthDefinitionResolver<AuthResolvedDefinitionOptions>'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#9e3479e36459",
     "label": "server/api/labels.get.ts",
-    "error": "TS2769 No overload matches this call."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<object, object, false>', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#a1f6494d54b7",
     "label": "server/api/labels.get.ts",
-    "error": "TS2769 No overload matches this call."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<object, object, false>', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#b42814f33aee",
     "label": "server/schemas.ts",
-    "error": "TS2322 Type 'BlobReferenceSchema' is not assignable to type 'BaseSchema<unknown, unknown, BaseIssue<unknown>> | SchemaWithFallback<BaseSchema<unknown, unknown, BaseIssue<unknown>>, unknown> | OptionalEntrySchema'."
+    "error": "TS2322 Type 'BlobReferenceSchema' is not assignable to type 'BaseSchema<unknown, unknown, BaseIssue<unknown>> | SchemaWithFallback<BaseSchema<unknown, unknown, BaseIssue<unknown>>, unknown> | OptionalEntrySchema'.\n  Type 'BlobReferenceSchema' is missing the following properties from type 'OptionalSchema<BaseSchema<unknown, unknown, BaseIssue<unknown>>, unknown>': type, reference, expects, wrapped, and 4 more."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#0a11b2f3e675",
     "label": "server/api/signup.post.ts",
-    "error": "TS2345 Argument of type '\"welcom-email\"' is not assignable to parameter of type 'never'."
+    "error": "TS18004 No value exists in scope for the shorthand property 'email'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'email'. Either declare one or provide an initializer.\nTS2345 Argument of type '\"welcom-email\"' is not assignable to parameter of type 'QueueName'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#04dd22dff12a",
     "label": "server/api/signup.post.ts",
-    "error": "TS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'."
+    "error": "TS18004 No value exists in scope for the shorthand property 'email'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'email'. Either declare one or provide an initializer."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#a7f75e406bf5",
     "label": "server/plugins/warmup.ts",
-    "error": "TS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'never'."
+    "error": "TS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'QueueName'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#6e7ca644e272",
     "label": "server/api/warmup.post.ts",
-    "error": "TS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'never'."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2345 Argument of type '\"warmup\"' is not assignable to parameter of type 'QueueName'."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#19125e85e0ab",
@@ -287,57 +297,57 @@
   {
     "id": "docs/content/docs/reference/doctor-rules.md#68b8557fab5e",
     "label": "vite.config.ts",
-    "error": "TS2528 A module cannot have multiple default exports."
+    "error": "TS2304 Cannot find name 'defineConfig'.\nTS2304 Cannot find name 'defineConfig'.\nTS2304 Cannot find name 'env'.\nTS2304 Cannot find name 'env'.\nTS2304 Cannot find name 'vitehub'.\nTS2304 Cannot find name 'vitehub'.\nTS2528 A module cannot have multiple default exports.\nTS2528 A module cannot have multiple default exports."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#f55e15ba2697",
     "label": "nuxt.config.ts",
-    "error": "TS2528 A module cannot have multiple default exports."
+    "error": "TS2353 Object literal may only specify known properties, and 'hub' does not exist in type 'NuxtConfigInput<NuxtConfig>'.\nTS2528 A module cannot have multiple default exports.\nTS2528 A module cannot have multiple default exports."
   },
   {
     "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
     "label": "server/collections/articles.ts",
-    "error": "TS18046 'article' is of type 'unknown'."
+    "error": "TS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS2304 Cannot find name 'db'."
   },
   {
     "id": "docs/content/docs/source/server-api.md#71326cceafb1",
     "label": "server/collections/meals.ts",
-    "error": "TS7031 Binding element 'user' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'defineCollection'.\nTS2304 Cannot find name 'table'.\nTS7006 Parameter 'meal' implicitly has an 'any' type.\nTS7031 Binding element 'user' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/source/server-api.md#004ed78eccb1",
     "label": null,
-    "error": "TS2304 Cannot find name 'useCollection'."
+    "error": "TS2304 Cannot find name 'computed'.\nTS2552 Cannot find name 'useCollection'. Did you mean 'Selection'?"
   },
   {
     "id": "docs/content/docs/ui/comments.md#288c9cbbdae6",
     "label": null,
-    "error": "TS2304 Cannot find name 'files'."
+    "error": "TS2304 Cannot find name 'files'.\nTS2304 Cannot find name 'files'."
   },
   {
     "id": "docs/content/docs/workspace/configure.md#c197ab50d2c5",
     "label": null,
-    "error": "TS2717 Subsequent property declarations must have the same type.  Property 'channel' must be of type 'AgentChannelContext<Record<string, unknown>, Record<string, unknown>, Record<string, unknown>>', but here has type '{ meta?: { customer?: string | undefined; } | undefined; }'."
+    "error": "TS2304 Cannot find name 'github'.\nTS2347 Untyped function calls may not accept type arguments.\nTS7031 Binding element 'channel' implicitly has an 'any' type.\nTS7031 Binding element 'invocation' implicitly has an 'any' type."
   },
   {
     "id": "packages/agent/README.md#e0e7838a305c",
-    "label": null,
-    "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'."
+    "label": "server/agents/codex/agent.ts",
+    "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'.\n  Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type '(context: AgentProviderCredentialContext<AgentRuntimeConfig>) => MaybePromise<AgentProviderCredentialValue>'.\n    Type 'Promise<unknown>' is not assignable to type 'MaybePromise<AgentProviderCredentialValue>'.\n      Type 'Promise<unknown>' is not assignable to type 'Promise<AgentProviderCredentialValue>'.\n        Type 'unknown' is not assignable to type 'AgentProviderCredentialValue'."
   },
   {
     "id": "packages/agent/README.md#866f0b9e1b4d",
     "label": null,
-    "error": "TS2344 Type '{ tenantId: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'."
+    "error": "TS2339 Property 'tenantId' does not exist on type '{}'.\nTS2339 Property 'token' does not exist on type '{}'.\nTS2344 Type '{ tenantId: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'.\nTS2344 Type '{ token: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'."
   },
   {
     "id": "packages/agent/README.md#f017c18ce15f",
     "label": null,
-    "error": "TS7006 Parameter 'repository' implicitly has an 'any' type."
+    "error": "TS18004 No value exists in scope for the shorthand property 'checkRuns'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'headSha'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'statuses'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'createGitHubRequiredCheckPolicyReader'.\nTS2304 Cannot find name 'evaluateGitHubRequiredChecks'.\nTS2304 Cannot find name 'github'.\nTS7006 Parameter 'branch' implicitly has an 'any' type.\nTS7006 Parameter 'repository' implicitly has an 'any' type."
   },
   {
     "id": "packages/blob/README.md#0f443e92375d",
     "label": null,
-    "error": "TS2304 Cannot find name 'file'."
+    "error": "TS2304 Cannot find name 'file'.\nTS2304 Cannot find name 'file'."
   },
   {
     "id": "packages/blob/README.md#f9b91514e273",
@@ -347,32 +357,32 @@
   {
     "id": "packages/blob/README.md#49ae73a1f27e",
     "label": null,
-    "error": "TS2304 Cannot find name 'blob'."
+    "error": "TS2304 Cannot find name 'blob'.\nTS2304 Cannot find name 'blob'.\nTS2304 Cannot find name 'file'."
   },
   {
     "id": "packages/comments/README.md#8e8bbe0cee0c",
     "label": null,
-    "error": "TS18048 'event' is possibly 'undefined'."
+    "error": "TS18048 'event' is possibly 'undefined'.\nTS18048 'event' is possibly 'undefined'.\nTS2339 Property 'clientX' does not exist on type 'Event'.\nTS2339 Property 'clientY' does not exist on type 'Event'."
   },
   {
     "id": "packages/comments/README.md#0871d13332c2",
     "label": null,
-    "error": "TS18004 No value exists in scope for the shorthand property 'transport'. Either declare one or provide an initializer."
+    "error": "TS18004 No value exists in scope for the shorthand property 'anchor'. Either declare one or provide an initializer.\nTS18004 No value exists in scope for the shorthand property 'transport'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'render'."
   },
   {
     "id": "packages/database/README.md#4de5ceb072d1",
     "label": null,
-    "error": "TS2304 Cannot find name 'db'."
+    "error": "TS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'db'.\nTS2304 Cannot find name 'schema'.\nTS2304 Cannot find name 'schema'."
   },
   {
     "id": "packages/docs/README.md#d1050de4115a",
-    "label": null,
+    "label": "docs.parser.ts",
     "error": "TS2307 Cannot find module 'comark-tabs' or its corresponding type declarations."
   },
   {
     "id": "packages/queue/README.md#47047c3584ed",
     "label": null,
-    "error": "TS2304 Cannot find name 'runQueue'."
+    "error": "TS2304 Cannot find name 'getQueue'.\nTS2304 Cannot find name 'runQueue'."
   },
   {
     "id": "packages/runtime/README.md#d203a0063da4",
@@ -382,40 +392,30 @@
   {
     "id": "packages/sandbox/README.md#6aa0cf0c4ae6",
     "label": null,
-    "error": "TS2571 Object is of type 'unknown'."
+    "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
     "id": "packages/sandbox/README.md#e04cc9d558f8",
     "label": null,
-    "error": "TS2304 Cannot find name 'resolveSandbox'."
+    "error": "TS2304 Cannot find name 'env'.\nTS2304 Cannot find name 'resolveSandbox'.\nTS2304 Cannot find name 'resolveSandbox'."
   },
   {
     "id": "packages/source/README.md#af264e7ce752",
-    "label": null,
-    "error": "TS18046 'article' is of type 'unknown'."
+    "label": "server/collections/articles.ts",
+    "error": "TS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS2304 Cannot find name 'db'."
   },
   {
     "id": "packages/vite-hub/README.md#2f4ad0597fb7",
     "label": null,
-    "error": "TS2769 No overload matches this call."
+    "error": "TS2769 No overload matches this call.\n  The last overload gave the following error.\n    Argument of type '{ invocations: \"database\"; }' is not assignable to parameter of type 'AgentSharedSettings<AgentRuntimeConfig, unknown, AgentInvokerProfile, AgentInvocationContextValues, AgentCapabilitiesOption<AgentRuntimeConfig, string, unknown, readonly AgentCapabilityDefinition<...>[] | undefined>, unknown, unknown, never, unknown> & { ...; } & { ...; }'.\n      Property 'driver' is missing in type '{ invocations: \"database\"; }' but required in type '{ driver: AgentDriver<AgentRuntimeConfig, unknown, AgentInvocationContextValues, unknown>; }'."
   },
   {
     "id": "packages/workspace/README.md#3f540cceb6dc",
-    "label": null,
-    "error": "TS2769 No overload matches this call."
+    "label": "server/workspaces/docs/config.ts",
+    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(input: string): WorkspaceSource', gave the following error.\n    Argument of type '{ workspacePath: string; content: string; instructions: string; }' is not assignable to parameter of type 'string'.\n  Overload 2 of 2, '(input: ExactOptions$1<{ readonly workspacePath: \"guide.md\"; readonly content: \"# Guide/n\"; readonly instructions: \"Use this source for local guide notes.\"; }, FileSourceOptions<string>>): WorkspaceSource', gave the following error.\n    Type 'string' is not assignable to type 'never'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(options: ExactOptions$1<{ readonly repo: \"vite-hub/vitehub\"; readonly root: \"docs/content/docs\"; readonly instructions: \"Use this source for public ViteHub documentation.\"; }, GitHubSourceOptions>): WorkspaceSource', gave the following error.\n    Type 'string' is not assignable to type 'never'.\n  Overload 2 of 2, '(resolve: GitHubSourceResolver): WorkspaceSource', gave the following error.\n    Object literal may only specify known properties, and 'repo' does not exist in type 'GitHubSourceResolver'."
   },
   {
-    "id": "docs/content/docs/agents/invocations.md#32fb1e808fb5",
-    "label": "server/api/support.post.ts",
-    "error": "TS2307 Cannot find module '../utils/auth' or its corresponding type declarations."
-  },
-  {
-    "id": "docs/content/docs/comments/configure.md#f787a47ce35d",
-    "label": "server/api/docs/[id]/comments.post.ts",
-    "error": "TS2307 Cannot find module '../../../utils/docs' or its corresponding type declarations."
-  },
-  {
-    "id": "docs/content/docs/reference/runtime-context.md#3588c0430aa3",
+    "id": "docs/content/docs/reference/runtime-context.md#7e0075c0b82d",
     "label": "server/api/support.post.ts",
     "error": "TS2307 Cannot find module '../agents/support' or its corresponding type declarations."
   }
