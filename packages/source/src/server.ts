@@ -4,7 +4,7 @@ import { createError, defineEventHandler } from "h3"
 import { CollectionCursorError } from "./core/collection.ts"
 
 import type { H3Event } from "h3"
-import type { AccessAuthorizeOption } from "@vite-hub/runtime"
+import type { AccessAuthorizeOption, ViteHubContext } from "@vite-hub/runtime"
 import type { Collection, CollectionRequestQuery } from "./core/collection.ts"
 import { sourceErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -21,7 +21,7 @@ export interface CollectionHandlerEvent {
 }
 
 /** Wraps a Collection handler so it runs only after the request is authorized. Return a `Response` to reject the request. */
-export type CollectionAuthorizationGuard = <TEvent extends { req: Request }, TResult>(
+export type CollectionAuthorizationGuard = <TEvent extends ViteHubContext, TResult>(
   authorize: AccessAuthorizeOption,
   handler: (event: TEvent) => Promise<TResult>,
 ) => (event: TEvent) => Promise<TResult | Response>

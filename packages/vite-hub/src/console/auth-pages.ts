@@ -1,6 +1,7 @@
 // The Console sign-in pages and the app Auth access check. The Console plugin imports this module when the server starts,
 // so it must not import Better Auth. Auth instances come from the resolver that the caller passes.
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
 import { consoleDocumentMetadata } from "./document-metadata.ts"
@@ -12,6 +13,7 @@ import { isConsoleDevelopmentBuild } from "./runtime/server/development.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection } from "./runtime/diagnostics.ts"
 
 import type { ConsoleUser } from "./auth-types.ts"
+import type { ViteHubContext } from "@vite-hub/runtime"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
 
@@ -279,7 +281,7 @@ export interface ConsoleAppAuthInstance extends ConsoleSessionReader {
 export type ConsoleAppAuthResolver = (
   request: Pick<Request, "headers" | "url">,
   runtimeOptions?: { baseURL?: string },
-  event?: unknown,
+  event?: ViteHubContext,
 ) => ConsoleAppAuthInstance | Promise<ConsoleAppAuthInstance>
 
 /** Use the app's configured social providers and session without a second Auth Definition or client. */
@@ -288,6 +290,7 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
   authBasePath: (event: object) => Promise<string>
 } {
   async function requestAuth(event: object) {
+    installStandardContext(event)
     const request = toEventRequest(event)
     const url = consoleRequestURL({ req: request })
     const authRequest = { headers: request.headers, url: url.href }

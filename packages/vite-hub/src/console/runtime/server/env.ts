@@ -1,9 +1,11 @@
 import { consoleDiagnosticBody } from "../diagnostics.ts"
 import { isBlockingServerEnvEntry } from "@vite-hub/env"
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import { installConsoleEnvScope, resolveConsoleEnv } from "../../internal.ts"
 import type { ServerEnvDescription, ServerEnvInspection, ServerEnvInspectionEntry } from "@vite-hub/env"
 import type { ConsoleEnvInspection } from "../../internal.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
+import type { ViteHubContext } from "@vite-hub/runtime"
 import { getConsoleSections } from "./sections.ts"
 
 export type ConsoleEnvStatusEntry = Pick<ServerEnvInspectionEntry, "path" | "status"> & {
@@ -20,7 +22,7 @@ export function installConsoleEnv(
   projectRoot: string,
   description: ServerEnvDescription,
   manage?: (request: Request) => Promise<Response>,
-  inspect?: (event: ConsoleRequestEvent) => Promise<ServerEnvInspection>,
+  inspect?: (event: ConsoleRequestEvent & ViteHubContext) => Promise<ServerEnvInspection>,
 ): ConsoleEnvInspection {
   const scope: ConsoleEnvInspection = { ...description }
   if (inspect) scope.inspect = inspect
@@ -36,6 +38,7 @@ export function getConsoleEnv(): ServerEnvDescription {
 export async function getConsoleEnvStatus(event: ConsoleRequestEvent): Promise<ConsoleEnvResponse | undefined> {
   const inspection = resolveConsoleEnv()
   if (!inspection?.inspect) return undefined
+  installStandardContext(event)
   const { entries } = await inspection.inspect(event)
   const status = entries.map((entry) => {
     const statusEntry: ConsoleEnvStatusEntry = {
