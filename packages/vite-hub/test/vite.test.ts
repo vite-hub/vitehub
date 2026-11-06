@@ -980,6 +980,30 @@ describe("vitehub", () => {
     expect(vi.mocked(assertFeaturePackages).mock.lastCall?.[0]).toContain("console mcp-client")
   })
 
+  it.each([
+    [{ blob: true }, ["blob"]],
+    [{ preset: "cloudflare", browser: true }, ["browser"]],
+    [{ channels: true }, ["channels"]],
+    [{ email: { driver: "resend" } }, ["email"]],
+    [{ kv: true }, ["kv"]],
+    [{ cache: { driver: "kv" } }, ["kv"]],
+    [{ queue: true }, ["queue"]],
+    [{ rateLimit: true }, ["rateLimit"]],
+    [{ preset: "cloudflare", sandboxTask: true }, ["sandboxTask"]],
+    [{ workflow: true }, ["workflow"]],
+    // Agents run on Workflow.
+    [{ agent: true }, ["agent", "workflow"]],
+    [{ agent: true, workflow: false }, ["agent"]],
+  ] as const)("checks the owner packages of %j", (options, features) => {
+    vitehub({ preset: "node", ...options } as ViteHubOptions)
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith(features)
+  })
+
+  it("checks no owner package without features", () => {
+    vitehub({ preset: "node" })
+    expect(assertFeaturePackages).toHaveBeenLastCalledWith([])
+  })
+
   it("requires the Agent package for observability without Agents", () => {
     vitehub({ preset: "node", observability: { service: "support" } })
     expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"])
