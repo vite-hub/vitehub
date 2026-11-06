@@ -27,7 +27,7 @@ it("types the portable Rate Limit contract", async () => {
 
   // @ts-expect-error a managed Rate Limit requires a window.
   requireRateLimit(event, "uploads", { limit: 10 })
-  // @ts-expect-error the guard requires an H3 event.
+  // @ts-expect-error the guard requires an event with Standard Context properties.
   requireRateLimit({}, "uploads", { limit: 10, window: "1m" })
   // @ts-expect-error check is not a portable atomic operation.
   limiter.check({ key: "user" })

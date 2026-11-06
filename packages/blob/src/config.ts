@@ -83,11 +83,13 @@ function resolveVercelStore(
   config: Partial<VercelBlobStoreConfig> = {},
   env: Record<string, string | undefined> = process.env,
 ): ResolvedVercelBlobStoreConfig {
+  const token = resolveBuildRuntimeValue(config.token, env, "BLOB_READ_WRITE_TOKEN") ?? MASKED_BLOB_RUNTIME_VALUE
   return {
     ...config,
     access: config.access ?? "public",
     driver: "vercel-blob",
-    token: resolveBuildRuntimeValue(config.token, env, "BLOB_READ_WRITE_TOKEN") ?? MASKED_BLOB_RUNTIME_VALUE,
+    token,
+    ...(token === MASKED_BLOB_RUNTIME_VALUE && trimmed(config.token) ? { tokenFromConfig: true } : {}),
   }
 }
 
@@ -268,8 +270,9 @@ function hasStoresConfig(options: BlobModuleOptions | undefined): options is Blo
   return isPlainObject((options as { stores?: unknown }).stores)
 }
 
+// `BLOB_STORE_ID` marks a project connected to a store through Vercel OIDC.
 export function hasVercelBlobEnv(env: Record<string, string | undefined>): boolean {
-  return Boolean(readEnv(env, "BLOB_READ_WRITE_TOKEN"))
+  return Boolean(readEnv(env, "BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"))
 }
 
 export function normalizeBlobOptions(
@@ -338,29 +341,35 @@ export function warnVercelBlobFallback(
   if (!config || !normalizeHosting(hosting).includes("vercel")) return
   const stores = Object.values(config.stores || { default: config.store })
   if (!stores.some(store => store.driver === "fs")) return
-  target.logger?.error?.("Vercel hosting requires Vercel Blob-backed storage. Set `BLOB_READ_WRITE_TOKEN`.")
+  target.logger?.error?.("Vercel hosting requires Vercel Blob-backed storage. Connect a Blob store to the project (`BLOB_STORE_ID`) or set `BLOB_READ_WRITE_TOKEN`.")
 }
 
 export function isMaskedBlobRuntimeValue(value: string | undefined): boolean {
   return !value || value === MASKED_BLOB_RUNTIME_VALUE
 }
 
+/**
+ * Resolves Vercel Blob credentials at runtime, in the order that Vercel documents:
+ * a configured token, then OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN`.
+ * For OIDC the store has no token, so `@vercel/blob` reads the OIDC token itself and
+ * falls back to `BLOB_READ_WRITE_TOKEN` when no OIDC token exists, for example off Vercel.
+ */
 export function resolveRuntimeVercelBlobStore(
   config: ResolvedVercelBlobStoreConfig,
   env: Record<string, string | undefined>,
 ): ResolvedVercelBlobStoreConfig {
-  const token = isMaskedBlobRuntimeValue(config.token)
-    ? readEnv(env, "BLOB_READ_WRITE_TOKEN") || config.token
-    : config.token
+  const { token: configuredToken, tokenFromConfig, ...store } = config
+  if (!isMaskedBlobRuntimeValue(configuredToken)) return config
+  if (!tokenFromConfig && readEnv(env, "BLOB_STORE_ID")) return store
 
-  if (isMaskedBlobRuntimeValue(token)) {
-    throw blobErrorDiagnostics.BLOB_C0009({ message: "Missing runtime environment variable `BLOB_READ_WRITE_TOKEN` for Vercel Blob." })
+  const token = readEnv(env, "BLOB_READ_WRITE_TOKEN")
+  if (!token) {
+    if (tokenFromConfig) {
+      throw blobErrorDiagnostics.BLOB_C0009({ message: "Missing runtime environment variable `BLOB_READ_WRITE_TOKEN` for the configured Vercel Blob token." })
+    }
+    throw blobErrorDiagnostics.BLOB_C0009({ message: "Missing Vercel Blob credentials. Connect a Blob store to the Vercel project so it gets `BLOB_STORE_ID`, or set `BLOB_READ_WRITE_TOKEN` off Vercel." })
   }
-
-  return {
-    ...config,
-    token,
-  }
+  return { ...store, token }
 }
 
 export function resolveRuntimeMinioBlobStore(

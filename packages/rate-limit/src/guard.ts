@@ -1,6 +1,5 @@
-import { createError, getRequestIP } from "h3"
-import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { isH3V1Event, toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { getStandardContext } from "@vite-hub/runtime/h3"
+import { createError } from "h3"
 
 import { cloudflareRateLimitDriver } from "./drivers/cloudflare.ts"
 import { getCloudflareRateLimitBindingName } from "./integrations/cloudflare.ts"
@@ -11,30 +10,28 @@ import {
   getRateLimitRuntimeConfig,
 } from "./runtime/state.ts"
 
-import type { HTTPEvent } from "h3"
+import type { ViteHubStandardProps } from "@vite-hub/runtime"
 import type { CloudflareRateLimitBinding } from "./drivers/cloudflare.ts"
 import type { RateLimitDecision, RateLimiter, RateLimitPolicy, RateLimitRequestEvent, RequireRateLimitOptions } from "./types.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 const guardOptionKeys = new Set([...rateLimitPolicyKeys, "key"])
 
-function getCloudflareEventEnv(event: RateLimitRequestEvent): Record<string, unknown> | undefined {
-  return getCloudflareEnv(event, { fallback: false })
-}
-
 function isCloudflareBinding(value: unknown): value is CloudflareRateLimitBinding {
   return Boolean(value) && typeof value === "object" && typeof (value as CloudflareRateLimitBinding).limit === "function"
 }
 
-function getRequestKey(event: RateLimitRequestEvent, provider: "cloudflare" | "memory"): string | undefined {
+function getRequestKey(standard: ViteHubStandardProps, provider: "cloudflare" | "memory"): string | undefined {
+  const clientAddress = standard.runtime?.clientAddress
   return provider === "cloudflare"
-    ? toEventRequest(event).headers.get("cf-connecting-ip") || getRequestIP(event as HTTPEvent)
-    : getRequestIP(event as HTTPEvent)
+    ? standard.req.headers.get("cf-connecting-ip") || clientAddress
+    : clientAddress
 }
 
-function getCloudflareRateLimiter(event: RateLimitRequestEvent, name: string, policy: RateLimitPolicy): RateLimiter {
+function getCloudflareRateLimiter(standard: ViteHubStandardProps, name: string, policy: RateLimitPolicy): RateLimiter {
   const bindingName = getCloudflareRateLimitBindingName(name)
-  const binding = getCloudflareEventEnv(event)?.[bindingName]
+  const env = standard.runtime?.cloudflare?.env
+  const binding = env && Object.hasOwn(env, bindingName) ? env[bindingName] : undefined
   if (!isCloudflareBinding(binding)) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0009({ message: `[vitehub] Cloudflare Rate Limit binding "${bindingName}" was not found on the request event.` })
   }
@@ -67,12 +64,13 @@ async function consumeRateLimit(
 
   const policy = declaredRateLimitPolicy(normalizeRateLimitPolicy(options))
   const { provider } = getRateLimitRuntimeConfig()
-  const key = options.key ?? getRequestKey(event, provider)
+  const standard = getStandardContext(event)
+  const key = options.key ?? getRequestKey(standard, provider)
   if (!key) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0013({ message: `[vitehub] \`${guard}()\` could not determine a request key. Pass key when limiting by user or tenant or when the request has no client address.` })
   }
   const limiter = provider === "cloudflare"
-    ? getCloudflareRateLimiter(event, id, policy)
+    ? getCloudflareRateLimiter(standard, id, policy)
     : getMemoryRateLimiter(id, policy)
   return await limiter.consume({ key })
 }
@@ -111,11 +109,13 @@ export async function requireRateLimit(event: RateLimitRequestEvent, name: strin
 
 /**
  * Nuxt 4 bundles every `h3` import as its own h3 1, which has `createError()` but no `HTTPError`. h3 2's
- * `createError()` returns an `HTTPError`. h3 1 errors carry no headers, so an H3 1 event gets them on its response.
+ * `createError()` returns an `HTTPError` with headers. An h3 1 error carries no headers, so they go on the response.
  */
 function rateLimitHTTPError(event: RateLimitRequestEvent, details: { cause?: unknown, headers?: Record<string, string>, message: string, status: number, statusText: string }): Error {
-  if (details.headers && isH3V1Event(event)) {
-    for (const [name, value] of Object.entries(details.headers)) event.node.res?.setHeader(name, value)
+  const error = createError(details)
+  if (details.headers && !(Reflect.get(error, "headers") instanceof Headers)) {
+    const headers = getStandardContext(event).res.headers
+    for (const [name, value] of Object.entries(details.headers)) headers?.set(name, value)
   }
-  return createError(details)
+  return error
 }

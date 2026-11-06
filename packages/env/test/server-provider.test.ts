@@ -6,6 +6,7 @@ import { createRuntimeRegistry } from "../src/core/resolve.ts"
 import { defineEnvProvider } from "../src/provider.ts"
 import { inspectServerEnv, loadServerEnv, resolveServerEnv } from "../src/server.ts"
 import type { EnvProviderValues } from "../src/types.ts"
+import { cloudflareRequest } from "./cloudflare-request.ts"
 
 function providerRegistry() {
   return createRuntimeRegistry({
@@ -24,10 +25,10 @@ describe("Server Env providers", () => {
       unchanged: env({ source: env.source(["PRIMARY_TOKEN", "FALLBACK_TOKEN"]) }),
     })
 
-    const event = { env: { PRIMARY_TOKEN: "", FALLBACK_TOKEN: "fallback" } }
+    const event = cloudflareRequest({ PRIMARY_TOKEN: "", FALLBACK_TOKEN: "fallback" })
     expect(resolveServerEnv(registry, event)).toEqual({ token: "fallback", unchanged: "" })
     await expect(loadServerEnv(registry, event)).resolves.toEqual({ token: "fallback", unchanged: "" })
-    expect(() => resolveServerEnv(registry, { env: { PRIMARY_TOKEN: "", FALLBACK_TOKEN: "" } }).token).toThrow(expect.objectContaining({
+    expect(() => resolveServerEnv(registry, cloudflareRequest({ PRIMARY_TOKEN: "", FALLBACK_TOKEN: "" })).token).toThrow(expect.objectContaining({
       code: "ENV_REQUIRED_MISSING",
       details: { path: "env.server.token", source: "env" },
     }))
@@ -38,7 +39,7 @@ describe("Server Env providers", () => {
       ["__proto__"]: { nested: env({ source: env.source("NESTED") }) },
       provided: { ["__proto__"]: env({ source: env.provider("secrets", "token") }) },
     })
-    const event = { env: { NESTED: "local" } }
+    const event = cloudflareRequest({ NESTED: "local" })
 
     const local = resolveServerEnv(registry, event)
     expect(Object.hasOwn(local, "__proto__")).toBe(true)
@@ -68,7 +69,7 @@ describe("Server Env providers", () => {
       return providerValues
     })
     const registry = providerRegistry()
-    const event = { env: { GATEWAY_KEY: "gateway-secret", undeclaredRawSecret: "must-not-cross-provider-boundary" } }
+    const event = cloudflareRequest({ GATEWAY_KEY: "gateway-secret", undeclaredRawSecret: "must-not-cross-provider-boundary" })
 
     const local = resolveServerEnv<{
       gatewayKey: { unseal(): string }
