@@ -7,6 +7,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { taskOperations } from "../src/task/operations.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 import type { ConsoleProject } from "../src/console/runtime/server/project.ts"
@@ -73,6 +74,38 @@ describe("project.get", () => {
     expect(value?.sections).toEqual(["kv"])
     expect(value?.operations).toEqual(expect.arrayContaining(["kv.get", "kv.list"]))
     expect(value?.operations).not.toContain("kv.set")
+  })
+
+  it.each([
+    { grant: "tasks", invoke: true, runnable: true },
+    { grant: "tasks", invoke: false, runnable: false },
+    { grant: "tasks:read", invoke: true, runnable: false },
+  ])("lists tasks without a navigation page ($grant, invoke: $invoke)", async ({ grant, invoke, runnable }) => {
+    installConsoleSections("/work/app", ["kv"])
+    installConsoleOperations([{ operations: taskOperations, plugin: "vite-hub/task" }], { invoke })
+    installConsoleAccess({ authorize: () => ({ sections: [grant] }), mode: "open" })
+
+    const { status, value } = await project()
+    expect(status).toBe(200)
+    expect(value?.sections).toEqual([])
+    expect(value?.operations).toContain("task.list")
+    expect(value?.operations.includes("task.run")).toBe(runnable)
+
+    installConsoleAccess({ authorize: () => ({ sections: ["kv"] }), mode: "open" })
+    const denied = await project()
+    expect(denied.value?.operations).not.toContain("task.list")
+    expect(denied.value?.operations).not.toContain("task.run")
+  })
+
+  it("lists contributed operations with no navigation sections in development RPC", async () => {
+    installConsoleSections("/work/app", [])
+    installConsoleOperations([{ operations: kvOperations, plugin: "@vite-hub/kv" }])
+
+    const { status, value } = await project()
+    expect(status).toBe(200)
+    expect(value?.sections).toEqual([])
+    expect(value?.operations).toEqual(expect.arrayContaining(["kv.list", "kv.get", "kv.set"]))
+    expect(value?.operations).not.toContain("agents.list")
   })
 
   it("is refused to a caller that the Console refuses", async () => {

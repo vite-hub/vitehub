@@ -179,7 +179,7 @@ pnpm vitehub project info --url https://app.example.com
 }
 ```
 
-`protocol` is the version of this answer. A client stops when the protocol is one that it does not know. `vitehub` is the version of the `vite-hub` package that the app runs. An operation that reads its section from the input, such as `documents.action`, is in the list, and each call checks its section again.
+`protocol` is the version of this answer. A client stops when the protocol is one that it does not know. `vitehub` is the version of the `vite-hub` package that the app runs. Registered operations can appear even when their section has no Console page, such as `task.list`. An operation that reads its section from the input, such as `documents.action`, is in the list, and each call checks its section again.
 
 ## Inspect environment declarations
 

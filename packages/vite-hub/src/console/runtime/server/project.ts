@@ -1,9 +1,16 @@
 import { allowedConsoleSections, consoleOperationOffered } from "./access.ts"
 import { consoleOperationRegistry } from "./operation-contributions.ts"
+import { consoleOperations } from "./operations.ts"
 import { getConsoleProjectName, getConsoleSections } from "./sections.ts"
 import { version } from "../../../version.ts"
 
 import type { ConsoleAccess } from "./access.ts"
+
+declare global {
+  interface ImportMeta {
+    viteHubConsoleOperationSections?: readonly string[]
+  }
+}
 
 /** The answer of `project.get`: what this project runs, and what this caller may use in it. */
 export interface ConsoleProject {
@@ -23,9 +30,11 @@ export interface ConsoleProject {
 export function readConsoleProject(access: ConsoleAccess): ConsoleProject {
   const installed = getConsoleSections()
   const sections = allowedConsoleSections(access, installed)
+  const operationSections = import.meta.viteHubConsoleOperationSections ?? installed
   const operations = consoleOperationRegistry().list()
-    // An operation of a section that the app does not install is registered but cannot run.
-    .filter(operation => (typeof operation.section !== "string" || installed.includes(operation.section)) && consoleOperationOffered(access, operation))
+    // Contributions are installed by registration, including sections without a page. Built-ins need their feature.
+    .filter(operation => !consoleOperations.includes(operation) || typeof operation.section !== "string" || operationSections.includes(operation.section))
+    .filter(operation => consoleOperationOffered(access, operation))
     .map(operation => operation.name)
   const name = getConsoleProjectName()
   return { protocol: 1, ...(name ? { name } : {}), vitehub: version, sections, operations }
