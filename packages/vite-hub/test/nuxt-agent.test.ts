@@ -99,11 +99,21 @@ it.each([false, true].flatMap(dev => [undefined, false, true].map(noExternals =>
     ].map(handler => expect.objectContaining(handler))),
   })
 
-  const expectedExternals = structuredClone(nitroConfig.externals)
-  const { inline } = nitroConfig.externals as { inline: string[] }
+  const { inline } = nitroConfig.externals as { inline: (string | ((id: string) => boolean))[] }
   expect(inline).toEqual([...new Set(inline)])
+  if (dev) {
+    const matchers = inline.filter(entry => typeof entry === "function")
+    expect(matchers).toHaveLength(1)
+    const matcher = matchers[0]!
+    expect(matcher.name).toBe("vite-hub/nitro-dev-inline")
+    expect(matcher("vite-hub/agent")).toBe(true)
+    expect(matcher("@vite-hub/agent")).toBe(true)
+    expect(matcher("@vite-hub/runtime")).toBe(false)
+    expect(matcher("consumer-package")).toBe(false)
+  }
   // Development hooks reject an already registered invocation route on the same config.
   if (!dev) {
+    const expectedExternals = structuredClone(nitroConfig.externals)
     await nitroConfigHook(nitroConfig)
     if (noExternals === undefined) expect(nitroConfig).not.toHaveProperty("noExternals")
     else expect(nitroConfig.noExternals).toBe(noExternals)
