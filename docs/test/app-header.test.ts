@@ -37,6 +37,7 @@ describe("docs header", () => {
       ["Playground", "/playground"],
       ["Projects", "/projects"],
       ["Templates", "/templates"],
+      ["Console", "https://console.vitehub.dev"],
     ]);
   });
 });

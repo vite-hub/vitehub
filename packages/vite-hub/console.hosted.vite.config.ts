@@ -19,6 +19,8 @@ const plugins: PluginOption[] = (base.plugins ?? []).flat().filter(plugin =>
 export default defineConfig({
   ...base,
   base: "/",
+  // `_headers` sets the Content Security Policy and the cache rules on hosts that read it, such as Cloudflare.
+  publicDir: resolve(import.meta.dirname, "src/console/hosted/public"),
   plugins: [
     ...plugins,
     {

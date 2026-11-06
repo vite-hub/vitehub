@@ -6,7 +6,7 @@ navigation.group: Local tools
 icon: i-lucide-monitor-dot
 ---
 
-The ViteHub Console inspects the primitives enabled in the same ViteHub configuration. It is off by default. Enable it, start the app, then open `/_vitehub` to choose a section.
+The ViteHub Console inspects the primitives enabled in the same ViteHub configuration. It is off by default. Enable it, start the app, then open `/_vitehub` to choose a section. To open deployed apps from one place, use the [hosted Console](#hosted-console) at [console.vitehub.dev](https://console.vitehub.dev).
 
 ViteHub renders the Console UI and serves its static assets. Agents reach the same operations through the [MCP endpoint](/docs/development/mcp) at `/_vitehub/mcp`.
 
@@ -263,6 +263,28 @@ vitehub({
 })
 ```
 
+### Hosted Console
+
+[console.vitehub.dev](https://console.vitehub.dev) is the same Console build as a static site. It has no server and keeps no state. The project list and the tokens stay in your browser, and the browser calls each project directly. ViteHub never receives your tokens or your project data.
+
+To open a deployed app there:
+
+1. Set `console: { auth: "token" }`. `console.origins` defaults to `["https://console.vitehub.dev"]`, so the hosted Console needs no other option. When you set `console.origins` yourself, keep `https://console.vitehub.dev` in the list.
+2. Set `VITEHUB_CONSOLE_TOKEN` to a long random value on the server, for example the output of `openssl rand -base64 32`, then deploy.
+3. Open [console.vitehub.dev](https://console.vitehub.dev), select **Link project**, enter the app URL, and paste the token. See [Link a project](#link-a-project).
+
+```ts [vite.config.ts]
+vitehub({
+  console: { auth: 'token' },
+})
+```
+
+The hosted Console can also link a development server on `localhost` that uses `auth: "token"`. Chrome then asks for permission to reach the local network. During development, the Console at `/_vitehub` of the app is simpler.
+
+The page sends a strict Content Security Policy. It loads scripts only from its own origin and cannot be shown in a frame. The browser lets it call `https:` origins, and `http://localhost` and `http://127.0.0.1` on any port.
+
+Some features need the app origin, so they work only in the Console that the app serves. See [What needs the Console that the app serves](#what-needs-the-console-that-the-app-serves).
+
 ### Link a project
 
 1. Select **Link project**.
@@ -305,6 +327,25 @@ Some features act on the app's own pages or set cookies of the app, so they work
 - Env management: values, Access, and Activity. The Env bridge accepts calls only from the app origin.
 - Image previews from a Blob serve route that needs the app session. The Media library shows the file type instead.
 - The app session account menu, and the page tools of the app's pages.
+
+### Self-host the Console
+
+The hosted build is a static site, so any static host can serve it. Build it in a clone of the [ViteHub repository](https://github.com/vite-hub/vitehub):
+
+```sh
+corepack pnpm install --frozen-lockfile
+corepack pnpm exec vp run -t vite-hub#build
+corepack pnpm --dir packages/vite-hub run build:console-hosted
+```
+
+The last command writes `index.html`, `404.html`, `_headers`, and `assets/` to `packages/vite-hub/.vitehub/console-hosted`. When you serve that folder:
+
+- Serve it from an origin that serves nothing else, because every script on that origin can read the tokens.
+- Answer unknown paths with `index.html`, so Console routes such as `/kv` load the app.
+- Send the headers in `_headers`. Cloudflare and Netlify read that file. On other hosts, set the same headers. When a project uses `http:` on a host other than `localhost` or `127.0.0.1`, add it to `connect-src`.
+- Add the Console origin to `console.origins` of each project.
+
+On Cloudflare, `packages/vite-hub/console.hosted.wrangler.jsonc` is the configuration of console.vitehub.dev: a Worker with static assets and no Worker script. Copy it into the same folder, because `assets.directory` is relative to the file. Change `name` and `routes`, build, and run `wrangler deploy --config <file>`.
 
 ## Develop against a fixture
 

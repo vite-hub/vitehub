@@ -31,6 +31,9 @@ resources.
 The [development tools](/docs/development) help you inspect discovered
 Definitions and generated output. Use the [CLI](/docs/development/cli) from
 a terminal, or the [Console](/docs/development/console) to inspect local runs.
+To inspect deployed apps from one place, link them in the
+[hosted Console](/docs/development/console#hosted-console) at
+[console.vitehub.dev](https://console.vitehub.dev).
 Read [Troubleshooting](/docs/development/troubleshooting) when an integration
 or provider fails.
 

@@ -1,0 +1,17 @@
+# Headers of the hosted Console, in the _headers format that Cloudflare and Netlify read.
+# The Console keeps project tokens in localStorage, so only this origin may run scripts, and no page may frame it.
+# connect-src: a project can be any https origin, or a development server on localhost.
+# font-src data: the build inlines its fonts. img-src and media-src: project images and Blob previews.
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http://localhost:* http://127.0.0.1:*; media-src 'self' data: blob: https: http://localhost:* http://127.0.0.1:*; font-src 'self' data:; connect-src 'self' https: http://localhost:* http://127.0.0.1:*; frame-src 'none'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  Cross-Origin-Opener-Policy: same-origin
+  Referrer-Policy: no-referrer
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()
+  Cache-Control: no-cache
+
+# File names in assets/ carry a content hash, so they never change.
+/assets/*
+  ! Cache-Control
+  Cache-Control: public, max-age=31536000, immutable

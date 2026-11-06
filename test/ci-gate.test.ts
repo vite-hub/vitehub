@@ -124,17 +124,28 @@ describe("CI merge gate", () => {
     expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs test")).toBe(true)
   })
 
-  it("requires successful docs verification and deployment on pushes", () => {
-    expect(workflow.jobs["docs-deploy"]?.["continue-on-error"]).not.toBe(true)
-    expect(workflow.jobs["docs-deploy"]?.needs?.toSorted()).toEqual(jobNames.filter(name => !["docs-deploy", "prepublish-contracts", "package-tests", "consumer-contracts"].includes(name)).toSorted())
-    for (const name of ["docs", "docs-deploy"]) {
+  // Each site deploys after every verification job and its own build, and not after the other site.
+  const sites = { docs: "docs-deploy", console: "console-deploy" }
+
+  it.each(Object.entries(sites))("requires successful %s verification and deployment on pushes", (build, deploy) => {
+    const otherSites = Object.entries(sites).filter(([name]) => name !== build).flat()
+    expect(workflow.jobs[deploy]?.["continue-on-error"]).not.toBe(true)
+    expect(workflow.jobs[deploy]?.if).toBe("${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}")
+    expect(workflow.jobs[deploy]?.needs?.toSorted()).toEqual(jobNames.filter(name => ![deploy, ...otherSites, "prepublish-contracts", "package-tests", "consumer-contracts"].includes(name)).toSorted())
+    for (const name of [build, deploy]) {
       for (const result of ["failure", "cancelled", "skipped"]) {
         const run = runGate({ ...successfulJobs, [name]: { result } }, "push")
         expect(run.status, `${name}: ${result}`).not.toBe(0)
         expect(run.stderr).toContain(`${name}: ${result}`)
       }
     }
-    expect(runGate({ ...successfulJobs, "docs-deploy": { result: "skipped" } }).status).toBe(0)
+    expect(runGate({ ...successfulJobs, [deploy]: { result: "skipped" } }).status).toBe(0)
+  })
+
+  it("checks that the hosted Console builds on pull requests", () => {
+    const hosted = workflow.jobs.console
+    expect(hosted?.if).toBeUndefined()
+    expect(hosted?.steps.some(step => step.run === "vp run --filter vite-hub build:console-hosted")).toBe(true)
   })
 
   it.each(["push", "workflow_dispatch"])("rejects a partial package test rerun with failed shards on %s", (event) => {
@@ -169,11 +180,12 @@ describe("CI merge gate", () => {
     "package-tests-success",
     "node-22",
     "docs",
+    "console",
   ]
 
   it("accepts the checks intentionally skipped on pull requests", () => {
     const results = Object.fromEntries(jobNames.map(name => [name, {
-      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "node-22", "docs", "prepublish-contracts"].includes(name) ? "success" : "skipped",
+      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "node-22", "docs", "console", "prepublish-contracts"].includes(name) ? "success" : "skipped",
     }]))
     expect(runGate(results).status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)
