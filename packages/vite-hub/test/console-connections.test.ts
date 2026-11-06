@@ -11,14 +11,17 @@ import { readConsoleSessionUser } from "../src/console/auth.ts"
 import { consoleConnectionsActorId, writeConsoleConnectionsActor } from "../src/console/auth-build.ts"
 import {
   canSendConnectionKey,
+  canSendConnectionKeyTo,
   connectionApprovalsSchema,
   connectionApprovalCountsSchema,
   connectionConnectURL,
   connectionListSchema,
   connectionNextStep,
+  connectionResultSchema,
   loadConnectionApprovals,
   requestConnectionsManagement,
 } from "../src/console/runtime/client/connections-management.ts"
+import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { ConsoleRequestError } from "../src/console/runtime/client/request.ts"
 import type { ConsoleSectionId } from "../src/console/runtime/sections.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
@@ -165,6 +168,36 @@ describe("Connections management client", () => {
     [{ hostname: "10.0.0.5", protocol: "http:" }, false],
   ])("sends API keys only over HTTPS or to a loopback host (%o)", (location, expected) => {
     expect(canSendConnectionKey(location)).toBe(expected)
+  })
+
+  it.each([
+    ["", "http://localhost:5173/_vitehub/connections", true],
+    ["", "http://console.example.com/_vitehub/connections", false],
+    ["https://agents.example.com", "http://localhost:5173/", true],
+    ["http://127.0.0.1:3000", "http://localhost:5173/", true],
+    ["http://agents.example.com", "http://localhost:5173/", false],
+    ["http://agents.example.com", "https://console.vitehub.dev/", false],
+  ])("checks where the API key goes for project %j from page %s", (origin, page, expected) => {
+    const pageProject = consoleProject()
+    setConsoleProject({ origin, base: "" })
+    try {
+      expect(canSendConnectionKeyTo("/_vitehub/connections", page)).toBe(expected)
+    }
+    finally { setConsoleProject(pageProject) }
+  })
+
+  it("refuses to send an API key to a project on plain HTTP", async () => {
+    const pageProject = consoleProject()
+    const fetch = vi.fn()
+    vi.stubGlobal("fetch", fetch)
+    vi.stubGlobal("location", { href: "http://localhost:5173/_vitehub/connections" })
+    setConsoleProject({ origin: "http://agents.example.com", base: "" })
+    try {
+      await expect(requestConnectionsManagement("/_vitehub/connections", "set-key", connectionResultSchema, { key: "secret", name: "posthog" }))
+        .rejects.toMatchObject({ name: "ConsoleRequestError", status: 400 })
+      expect(fetch).not.toHaveBeenCalled()
+    }
+    finally { setConsoleProject(pageProject) }
   })
 
   it("builds the connect URL under the management base", () => {
