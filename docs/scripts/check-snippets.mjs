@@ -166,10 +166,12 @@ export async function generatedDeclarations(pageSnippets) {
  * its folder. Elsewhere, `src/<name>.<kind>.ts` defines `<name>`.
  */
 function definitionName(directory, kind) {
-  const server = new RegExp(`^server/${directory}/(.+?)(?:/index)?(?:\\.${kind})?\\.(?:m?ts|tsx)$`)
-  const suffix = new RegExp(`^(?:src/)?(.+)\\.${kind}\\.(?:m?ts|tsx)$`)
+  const server = new RegExp(`^server/${directory}/(.+)\\.(?:m?ts|tsx)$`)
+  const suffix = new RegExp(`^(?:src/)?(.+)\\.${kind}\\.m?ts$`)
   return (label) => {
-    const name = server.exec(label)?.[1] ?? suffix.exec(label)?.[1]
+    const serverPath = server.exec(label)?.[1]
+    let name = serverPath?.replace(/\/index$/i, "") ?? suffix.exec(label)?.[1]
+    if (serverPath && (kind === "channel" || kind === "connection")) name = name.replace(new RegExp(`\\.${kind}$`, "i"), "")
     return name ? [name] : []
   }
 }
@@ -183,9 +185,15 @@ async function collectionNames(label, code) {
   return inspectCollectionModule(label, code, exportName).routeEnabled ? [name] : []
 }
 
-async function channelNames(label, code) {
+async function channelNames(label, code, pageSnippets) {
   const names = definitionName("channels", "channel")(label)
   if (!names.length || !label.startsWith("server/channels/")) return names
+  // Owner discovery reserves an indexed folder for one Channel before classifying its modules.
+  const indexFolder = /^server\/channels\/(.+)\/index\.(?:m?ts|tsx)$/i
+  if (!/\/index\.(?:m?ts|tsx)$/i.test(label) && pageSnippets.some((snippet) => {
+    const folder = !snippet.fragment && indexFolder.exec(snippet.label?.replace(/^\/+/, "") ?? "")?.[1]
+    return folder && label.startsWith(`server/channels/${folder}/`)
+  })) return []
   const { isOutboundChannelSource } = await import(pathToFileURL(join(packagesRoot, "channels/dist/vite.js")).href)
   return isOutboundChannelSource(code, label) ? names : []
 }
@@ -240,7 +248,7 @@ async function registryDeclarations(pageSnippets) {
     for (const snippet of pageSnippets) {
       if (snippet.fragment || !snippet.label) continue
       const label = snippet.label.replace(/^\/+/, "")
-      for (const name of await registry.definitions(label, snippet.code)) if (!definitions.has(name)) definitions.set(name, snippet.file)
+      for (const name of await registry.definitions(label, snippet.code, pageSnippets)) if (!definitions.has(name)) definitions.set(name, snippet.file)
     }
     if (!definitions.size) continue
     const file = join(pageSnippets[0].pageRoot, `.vitehub/${registry.type}.d.ts`)
