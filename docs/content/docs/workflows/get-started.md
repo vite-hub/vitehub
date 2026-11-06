@@ -68,7 +68,7 @@ export default async function sendWelcome(user: { id: string, email: string }) {
 }
 ```
 
-Make each side effect safe to repeat. For example, create or update a user by email instead of inserting another user on every retry. A durable provider can replay a failed step while keeping earlier completed steps. The local inline provider used here does not retain that step history.
+Make each side effect safe to repeat. For example, create or update a user by email instead of inserting another user on every retry. A durable provider can replay a failed step while keeping earlier completed steps. The local inline provider used here does not retain that step history. [Durable execution](/docs/guides/durable-execution) walks through a three-step job that fails at step 2 on each provider.
 
 ::
 
