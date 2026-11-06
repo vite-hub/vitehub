@@ -190,7 +190,7 @@ The runtime binding takes precedence. HTTP credentials are used when no active b
 | `downloadTimeoutMs` | `number` | Provider default | Sets the download timeout in milliseconds. |
 | `token` | `string` | OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN` | Supplies a Vercel Blob read-write token. Without it, ViteHub uses Vercel OIDC when `BLOB_STORE_ID` is set, and `BLOB_READ_WRITE_TOKEN` otherwise. |
 
-Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and resolved again at runtime, so OIDC takes precedence over them. Other configured tokens stay unchanged and take precedence over OIDC. Read [Vercel Blob credentials](/docs/guides/vercel-blob#create-the-store-and-connect-it).
+Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Configured tokens always take precedence over OIDC. Read [Vercel Blob credentials](/docs/guides/vercel-blob#create-the-store-and-connect-it).
 
 ### Netlify Blobs
 

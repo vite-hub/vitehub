@@ -176,7 +176,7 @@ describe("blob config", () => {
       env: { BLOB_READ_WRITE_TOKEN: "build-token" },
     })
 
-    expect(config?.store).toEqual({ access: "public", driver: "vercel-blob", token: "********" })
+    expect(config?.store).toEqual({ access: "public", driver: "vercel-blob", token: "********", tokenFromConfig: true })
     if (config?.store.driver !== "vercel-blob") throw new Error("Expected a Vercel Blob store.")
     expect(resolveRuntimeVercelBlobStore(config.store, {
       BLOB_READ_WRITE_TOKEN: "runtime-token",
@@ -187,6 +187,24 @@ describe("blob config", () => {
     expect(normalizeBlobOptions({ driver: "vercel-blob", token: "store-token" }, {
       env: { BLOB_READ_WRITE_TOKEN: "default-token" },
     })?.store).toEqual({ access: "public", driver: "vercel-blob", token: "store-token" })
+  })
+
+  it.each(["single", "named"] as const)("keeps a masked configured token ahead of OIDC in a %s Vercel Blob store", (form) => {
+    const store = { driver: "vercel-blob", token: "build-token" } as const
+    const config = normalizeBlobOptions(form === "named" ? { stores: { default: store } } : store, {
+      env: { BLOB_READ_WRITE_TOKEN: "build-token", BLOB_STORE_ID: "oidc-store" },
+    })
+    if (config?.store.driver !== "vercel-blob") throw new Error("Expected a Vercel Blob store.")
+    const serialized = JSON.stringify(config.store)
+    expect(serialized).not.toContain("build-token")
+    const runtimeStore: typeof config.store = JSON.parse(serialized)
+
+    expect(resolveRuntimeVercelBlobStore(runtimeStore, {
+      BLOB_READ_WRITE_TOKEN: "runtime-token",
+      BLOB_STORE_ID: "oidc-store",
+    })).toEqual({ access: "public", driver: "vercel-blob", token: "runtime-token" })
+    expect(() => resolveRuntimeVercelBlobStore(runtimeStore, { BLOB_STORE_ID: "oidc-store" }))
+      .toThrow(expect.objectContaining({ code: "BLOB_C0009", message: expect.stringContaining("`BLOB_READ_WRITE_TOKEN`") }))
   })
 
   it("defaults Netlify hosting to Netlify Blobs", () => {
@@ -515,7 +533,11 @@ describe("blob config", () => {
   })
 
   it("uses Vercel OIDC when the project has BLOB_STORE_ID", () => {
-    const store = { access: "private", driver: "vercel-blob", token: "********" } as const
+    const config = normalizeBlobOptions({ access: "private", driver: "vercel-blob" }, {
+      env: { BLOB_READ_WRITE_TOKEN: "secret-token", BLOB_STORE_ID: "store_1" },
+    })
+    if (config?.store.driver !== "vercel-blob") throw new Error("Expected a Vercel Blob store.")
+    const store = config.store
 
     expect(resolveRuntimeVercelBlobStore(store, { BLOB_STORE_ID: "store_1" })).toEqual({ access: "private", driver: "vercel-blob" })
     expect(resolveRuntimeVercelBlobStore(store, { BLOB_READ_WRITE_TOKEN: "secret-token", BLOB_STORE_ID: "store_1" }))

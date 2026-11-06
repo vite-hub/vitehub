@@ -517,6 +517,8 @@ export interface ResolvedVercelBlobStoreConfig extends VercelBlobStoreConfig {
   access: "private" | "public"
   /** Absent at runtime when the store uses Vercel OIDC with `BLOB_STORE_ID`. */
   token?: string
+  /** Preserves explicit token precedence when build-time masking hides its value. */
+  tokenFromConfig?: boolean
 }
 
 export interface ResolvedMinioBlobStoreConfig extends MinioBlobStoreConfig {
