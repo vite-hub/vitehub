@@ -50,7 +50,7 @@ describe("Console RPC", () => {
     const binding = "request-only-secret"
     installConsoleEnv("/console-rpc-env", { entries: [] }, undefined, async event => {
       expect(getCloudflareEnv(event, { fallback: false })).toEqual({ RPC_TOKEN: binding })
-      return inspectServerEnv({ token: { required: true, schema: { kind: "string" }, secret: true, source: { kind: "env", label: "env:RPC_TOKEN", name: "RPC_TOKEN", serializable: true } } }, event)
+      return inspectServerEnv({ token: { required: true, schema: { kind: "string" }, secret: true, source: { kind: "env", label: "env:RPC_TOKEN", name: "RPC_TOKEN", serializable: true } } })
     })
     const request = Object.assign(new Request(callURL, {
       body: JSON.stringify({ input: { status: true }, operation: "env.get" }),
