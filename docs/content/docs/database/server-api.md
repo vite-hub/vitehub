@@ -54,6 +54,8 @@ The ViteHub Vite Integration resolves `@vite-hub/database/drizzle` for server co
 
 Use Named Databases when the app needs more than one independent database. Name a database for a real data or deployment split, not for a source-code folder.
 
+The following Named Database example is an alternative to the Default Database above. Remove `src/database.ts` and `server/api/notes.get.ts` before using it. An app cannot combine Default and Named Database Definitions.
+
 ```ts [src/analytics.database.ts]
 import { defineDatabase } from '@vite-hub/database'
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'

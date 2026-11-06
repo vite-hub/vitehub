@@ -18,7 +18,7 @@ You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands 
 Install Shell and Workspace. Only Workspace needs a discovery plugin in this example; the route creates Shell directly.
 
 ```bash [commands/install]
-pnpm add @vite-hub/shell @vite-hub/workspace nitro h3
+pnpm add @vite-hub/shell @vite-hub/workspace nitro h3 valibot
 pnpm add -D vite
 ```
 
