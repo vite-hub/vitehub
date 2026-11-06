@@ -56,6 +56,7 @@ interface ConsoleProjectsState {
 }
 
 let state: ConsoleProjectsState | undefined
+let probeVersion = 0
 let resolveReady: (() => void) | undefined
 const ready = new Promise<void>((resolve) => {
   resolveReady = resolve
@@ -166,9 +167,12 @@ export async function openConsoleProject(): Promise<void> {
     projects.gate.value = { kind: "empty" }
     return
   }
+  const version = ++probeVersion
   projects.gate.value = { kind: "opening" }
   const target = projects.mode === "embedded" ? { ...consoleProjectTarget(current), origin: "" } : consoleProjectTarget(current)
   const probe = await probeConsoleProject(target, current.token)
+  // A switch or a newer attempt can finish first. Only the current attempt may open the gate or update the project.
+  if (projects !== state || version !== probeVersion || projects.current.value !== current) return
   const gate = gateOf(probe, consoleProjectTarget(current))
   if (gate) {
     projects.gate.value = gate
@@ -190,8 +194,10 @@ export async function signInConsoleProject(token: string): Promise<ConsoleProjec
   const projects = useState()
   const current = projects.current.value
   if (!current) return projects.gate.value
+  const version = ++probeVersion
   const target = consoleProjectTarget(current)
   const probe = await probeConsoleProject(projects.mode === "embedded" ? { ...target, origin: "" } : target, token)
+  if (projects !== state || version !== probeVersion || projects.current.value !== current) return projects.gate.value
   if (probe.kind !== "ready") return gateOf(probe, target) ?? { kind: "problem", problem: consoleProjectProblem(probe, problemContext(target)) }
   projects.current.value = projects.store.save({ url: current.url, label: probe.info.name, token })
   projects.projects.value = projects.store.list()

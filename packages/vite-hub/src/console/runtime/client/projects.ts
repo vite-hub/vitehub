@@ -123,7 +123,8 @@ function parseStoredProjects(raw: string | null): StoredProjects {
 }
 
 function newProjectId(): string {
-  return globalThis.crypto.randomUUID().slice(0, 8)
+  // Unlike randomUUID(), getRandomValues() is available on an HTTP app's embedded Console.
+  return Array.from(globalThis.crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, "0")).join("")
 }
 
 /** The project list of one Console origin. Every method reads the storage again, so two tabs see each other's changes. */

@@ -20,6 +20,12 @@ const json = (status: number, body: unknown, headers: Record<string, string> = {
 const projectGet = { ok: true, value: { protocol: 1, name: "Shop", vitehub: "0.1.0", sections: ["kv", "logs"], operations: ["kv.list"] } }
 const tokenRejection = { code: "CONSOLE_TOKEN_INVALID", message: "This request has no Console token.", ok: false, status: 401 }
 
+function pendingResponse() {
+  let resolve!: (response: Response) => void
+  const promise = new Promise<Response>((done) => { resolve = done })
+  return { promise, resolve }
+}
+
 describe("project URLs", () => {
   it.each([
     ["https://app.example.com", "https://app.example.com", ""],
@@ -57,6 +63,17 @@ describe("project URLs", () => {
 })
 
 describe("project store", () => {
+  it("saves and selects a project when randomUUID is unavailable on HTTP", () => {
+    vi.stubGlobal("crypto", { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) })
+    const store = createConsoleProjectStore(memoryProjectStorage())
+    const project = store.save({ url: "http://app.example.com", token: "token" })
+    store.select(project.id)
+    expect(project.id).toBeTruthy()
+    expect(store.active()).toEqual(project)
+    expect(store.save({ url: project.url, label: "Shop" }).id).toBe(project.id)
+    expect(store.save({ url: "http://other.example.com" }).id).not.toBe(project.id)
+  })
+
   it("links, updates, selects, and forgets projects in one storage key", () => {
     const storage = memoryProjectStorage()
     const store = createConsoleProjectStore(storage)
@@ -218,11 +235,10 @@ describe("project.get probe", () => {
 })
 
 describe("linking a project", () => {
-  async function session(fetch: (url: string, init: RequestInit) => Promise<Response>, pageOrigin = "https://console.example.com") {
+  async function session(fetch: (url: string, init: RequestInit) => Promise<Response>, pageOrigin = "https://console.example.com", storage = memoryProjectStorage()) {
     vi.stubGlobal("fetch", fetch)
     const module = await import("../src/console/runtime/client/project-session.ts")
     const navigate = vi.fn()
-    const storage = memoryProjectStorage()
     const state = module.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate, pageOrigin, storage })
     return { module, navigate, state, storage }
   }
@@ -288,13 +304,14 @@ describe("linking a project", () => {
     expect(active().authorization?.()).toBe("Bearer token-b")
   })
 
-  it("shows the token form in embedded mode, and stores the token for the page origin", async () => {
+  it.each(["https:", "http:"])("signs in to an embedded token app over %s", async (protocol) => {
+    if (protocol === "http:") vi.stubGlobal("crypto", { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) })
     const fetch = vi.fn(async (_url: string, init: RequestInit) =>
       new Headers(init.headers).get("authorization") === "Bearer right" ? Response.json(projectGet) : Response.json(tokenRejection, { status: 401 }))
     vi.stubGlobal("fetch", fetch)
     const module = await import("../src/console/runtime/client/project-session.ts")
     const storage = memoryProjectStorage()
-    const state = module.startConsoleProjects({ base: "/portal", home: "/portal/_vitehub/", mode: "embedded", navigate: () => {}, pageOrigin: "https://app.example.com", storage })
+    const state = module.startConsoleProjects({ base: "/portal", home: "/portal/_vitehub/", mode: "embedded", navigate: () => {}, pageOrigin: `${protocol}//app.example.com`, storage })
 
     await module.openConsoleProject()
     expect(state.gate.value).toEqual({ kind: "token", rejected: false })
@@ -302,7 +319,58 @@ describe("linking a project", () => {
     expect(fetch.mock.calls[0]![0]).toBe("/portal/_vitehub/rpc/__call")
     expect(await module.signInConsoleProject("wrong")).toEqual({ kind: "token", rejected: true })
     expect(await module.signInConsoleProject("right")).toEqual({ kind: "ready" })
-    expect(createConsoleProjectStore(storage).find("https://app.example.com/portal")?.token).toBe("right")
+    expect(createConsoleProjectStore(storage).find(`${protocol}//app.example.com/portal`)?.token).toBe("right")
+  })
+
+  it.each(["before", "after"])("ignores a stale boot probe that finishes %s the selected project's probe", async (order) => {
+    const responseA = pendingResponse()
+    const responseB = pendingResponse()
+    const storage = memoryProjectStorage()
+    const store = createConsoleProjectStore(storage)
+    const a = store.save({ url: "https://a.example.com", label: "A", token: "token-a" })
+    const b = store.save({ url: "https://b.example.com", label: "B", token: "token-b" })
+    store.select(a.id)
+    const { module, state } = await session(url => url.startsWith("https://a.example.com") ? responseA.promise : responseB.promise, undefined, storage)
+    const openingA = module.openConsoleProject()
+    module.switchConsoleProject(b.id)
+
+    if (order === "after") {
+      responseB.resolve(Response.json(tokenRejection, { status: 401 }))
+      await vi.waitFor(() => expect(state.gate.value).toEqual({ kind: "token", rejected: true }))
+    }
+    responseA.resolve(Response.json(projectGet))
+    await openingA
+    expect(state.gate.value).toEqual(order === "before" ? { kind: "opening" } : { kind: "token", rejected: true })
+    expect(state.info.value).toBeUndefined()
+    expect(state.current.value).toEqual(b)
+    expect(state.store.get(b.id)).toEqual(b)
+    expect(state.store.active()?.id).toBe(b.id)
+    const { consoleProject: active } = await import("../src/console/runtime/client/project.ts")
+    expect(active().origin).toBe("https://b.example.com")
+    expect(active().authorization?.()).toBe("Bearer token-b")
+
+    responseB.resolve(Response.json(tokenRejection, { status: 401 }))
+    await vi.waitFor(() => expect(state.gate.value).toEqual({ kind: "token", rejected: true }))
+  })
+
+  it("ignores a token sign-in result after switching projects", async () => {
+    const responseA = pendingResponse()
+    const { module, state } = await session((_url, init) => new Headers(init.headers).get("authorization") === "Bearer token-a" ? responseA.promise : json(401, tokenRejection)())
+    const a = state.store.save({ url: "https://a.example.com", label: "A" })
+    const b = state.store.save({ url: "https://b.example.com", label: "B" })
+    module.switchConsoleProject(a.id)
+    await vi.waitFor(() => expect(state.gate.value).toEqual({ kind: "token", rejected: false }))
+    const signInA = module.signInConsoleProject("token-a")
+    module.switchConsoleProject(b.id)
+    await vi.waitFor(() => expect(state.gate.value).toEqual({ kind: "token", rejected: false }))
+
+    responseA.resolve(Response.json(projectGet))
+    await signInA
+    expect(state.gate.value).toEqual({ kind: "token", rejected: false })
+    expect(state.info.value).toBeUndefined()
+    expect(state.current.value).toEqual(b)
+    expect(state.store.get(a.id)?.token).toBeUndefined()
+    expect(state.store.get(b.id)).toEqual(b)
   })
 
   it("opens an embedded app that needs an app session, so its own pages show sign-in", async () => {
