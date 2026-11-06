@@ -216,6 +216,24 @@ describe("editViteHubConfig", () => {
     expect(deleted).not.toContain("preset")
   })
 
+  it.each([
+    'modules: ["vite-hub/nuxt"], vitehub: { kv: true }, ...shared',
+    'modules: ["vite-hub/nuxt"], ...shared, vitehub: { kv: true }',
+    'vitehub: { kv: true }, ...shared, modules: ["vite-hub/nuxt"]',
+    '...shared, modules: ["vite-hub/nuxt"]',
+    '...shared, vitehub: { kv: true }',
+  ])("leaves Nuxt root spreads manual when they can supply or override options: %s", (properties) => {
+    const code = `import viteHubNuxt from "vite-hub/nuxt"\nexport default defineNuxtConfig({ ${properties} })`
+    expect(locateViteHubConfig("nuxt.config.ts", code)).toMatchObject({ ok: false, reason: "spread" })
+    expect(editViteHubConfig("nuxt.config.ts", code, [{ op: "set", key: "kv", value: false }]))
+      .toMatchObject({ ok: false, reason: "spread" })
+  })
+
+  it("reads Nuxt options that override a root spread", () => {
+    const code = 'export default defineNuxtConfig({ ...shared, modules: ["vite-hub/nuxt"], vitehub: { kv: true } })'
+    expect(locateViteHubConfig("nuxt.config.ts", code)).toMatchObject({ ok: true, site: { keys: { kv: { kind: "literal", value: true } } } })
+  })
+
   it("does not evaluate code", () => {
     const sentinel: { __evaluated?: boolean } = globalThis
     const code = "import { vitehub } from \"vite-hub\"\nglobalThis.__evaluated = true\nexport default { plugins: [vitehub({ kv: (globalThis.__evaluated = true) })] }\n"
