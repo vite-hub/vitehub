@@ -64,3 +64,19 @@ The operation needs a database adapter or plugin API. Configure them in the prim
 ## AUTH_CONSOLE_PROVIDER_FAILED
 
 Better Auth or a computed column reader failed. Inspect the error cause in server code. Do not send that cause to clients.
+
+## AUTH_MCP_OAUTH_MISSING
+
+`serveMcpOAuthDiscovery()`, `verifyMcpRequest()`, or `deleteUnusedMcpClients()` got an Auth without MCP OAuth: its plugins have no `oauthProvider()` with `resources`. Add `...mcpOAuth({ resource, loginPage })` from `vite-hub/auth/mcp` to the `plugins` of `defineAuth()`. See [Sign MCP clients in](/docs/auth/configure#sign-mcp-clients-in).
+
+## AUTH_MCP_TOKEN_MISSING
+
+`verifyMcpRequest()` got a request without an `Authorization: Bearer` header. Answer `401` with `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`, so the MCP client starts the OAuth flow.
+
+## AUTH_MCP_TOKEN_INVALID
+
+The access token fails a check: its signature, its issuer, its audience (the resource), or its expiry, or its user no longer exists or is banned. A token also fails on a path that is not a resource of `mcpOAuth()`, unless `verifyMcpRequest()` gets `resource`. Answer `401` with `error="invalid_token"`, so the client signs in again.
+
+## AUTH_MCP_CLEANUP_FAILED
+
+`deleteUnusedMcpClients()` could not list or delete OAuth clients. Read `error.cause` for the database error, then run the cleanup again.

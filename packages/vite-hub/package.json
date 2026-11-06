@@ -428,6 +428,11 @@
       "import": "./dist/auth/database.js",
       "default": "./dist/auth/database.js"
     },
+    "./auth/mcp": {
+      "types": "./dist/auth/mcp.d.ts",
+      "import": "./dist/auth/mcp.js",
+      "default": "./dist/auth/mcp.js"
+    },
     "./auth/presets": {
       "types": "./dist/auth/presets.d.ts",
       "import": "./dist/auth/presets.js",
@@ -888,6 +893,11 @@
       "import": "./dist/task.js",
       "default": "./dist/task.js"
     },
+    "./skills": {
+      "types": "./dist/skills.d.ts",
+      "import": "./dist/skills.js",
+      "default": "./dist/skills.js"
+    },
     "./source": {
       "types": "./dist/source.d.ts",
       "import": "./dist/source.js",
@@ -1308,6 +1318,7 @@
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "jose": "catalog:auth",
+    "nanotar": "^0.3.0",
     "nitro": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",

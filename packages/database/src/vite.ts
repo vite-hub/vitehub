@@ -135,7 +135,7 @@ function renderSchemaModule(config: ResolvedDBViteConfig | undefined) {
   ].join("\n")
 }
 
-function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
+function renderDatabasesModule(config: ResolvedDBViteConfig | undefined, localLimits?: "d1") {
   if (!config?.databaseNames.length) {
     return "export const databases = {}\nexport default databases\n"
   }
@@ -148,7 +148,7 @@ function renderDatabasesModule(config: ResolvedDBViteConfig | undefined) {
     `  [${JSON.stringify(definition.name)}]: {`,
     config.databases[definition.name]?.dialect === "postgresql"
       ? `    db: ${renderPostgresDatabaseExpression(definition.name, config, `definition_${index}`, `schema_${index}`)},`
-      : `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`)},`,
+      : `    config: ${renderDatabaseConfigExpression(definition.name, config, `definition_${index}`, localLimits)},`,
     `    schema: schema_${index},`,
     "  },",
   ].join("\n"))
@@ -188,6 +188,14 @@ function renderNitroRequestStatsMiddleware() {
     "export default (event, next) => typeof next === 'function' ? runWithDatabaseRequestStats(event, next) : undefined",
     "",
   ].join("\n")
+}
+
+// Under `vitehub()`, the dev server config names the deployment preset in `vitehub.preset`, and Nitro has none.
+function devServerTargetsCloudflare(config: ResolvedConfig | undefined): boolean {
+  if (config?.command !== "serve") return false
+  const vitehub: unknown = Reflect.get(config, "vitehub")
+  const hosting: unknown = vitehub && typeof vitehub === "object" ? Reflect.get(vitehub, "preset") : undefined
+  return resolveHost({ hosting, nitro: Reflect.get(config, "nitro") }) === "cloudflare"
 }
 
 function resolveHostedProvider(config: ResolvedConfig): DBProvider | undefined {
@@ -512,7 +520,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     // to this hosted runtime module, so Database calls in those functions use the same Definitions.
     async buildEnd(error) {
       const resetRuntimeContribution = () => {
-        providerOutput?.resetRuntimeContribution("database", siblingRuntimeGenerations.get(this))
+        providerOutput?.resetRuntimeContributions(siblingRuntimeGenerations.get(this), "database")
       }
       // Only a failed build resets the environment's generation: other plugins' Provider Output shares it.
       if (error) {
@@ -555,7 +563,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     },
     load(id) {
       if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return renderSchemaModule(runtimeConfig)
-      if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig)
+      if (id === RESOLVED_DB_VIRTUAL_DATABASES_ID) return renderDatabasesModule(runtimeConfig, devServerTargetsCloudflare(resolved) ? "d1" : undefined)
       if (id === RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID) {
         const options = resolvedOptions()
         return `export default ${serializeGeneratedRegistry(runtimeConfig?.definitionDefaults ?? {

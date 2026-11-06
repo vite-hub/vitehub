@@ -2,6 +2,7 @@
 import { AgentCapabilityInspector, AgentInvocationInspector, invocationActivities, type AgentInvocationView } from "./invocation";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
 import { TabsList, TabsRoot, TabsTrigger } from "reka-ui";
+import { useElementSize } from "@vueuse/core";
 import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
@@ -86,6 +87,8 @@ const diffs = computed(() => invocationActivities(props.invocation)
   .filter(activity => activity.patches.length)
   .map(activity => ({ id: activity.id, patches: activity.patches, sequence: activity.sequence })));
 const selectedDiffs = ref<number[]>([]);
+const diffPanel = ref<HTMLElement | null>(null);
+const { width: diffWidth } = useElementSize(diffPanel);
 const activeDiffTurn = ref<number | "all">("all");
 const allDiffsSelected = computed(() => diffs.value.length > 0 && selectedDiffs.value.length === diffs.value.length);
 function toggleAllDiffs() { selectedDiffs.value = allDiffsSelected.value ? [] : diffs.value.map((_, index) => index); }
@@ -633,7 +636,7 @@ function message(error: unknown) {
       @focus-activity="emit('focusActivity', $event)"
     />
 
-    <div v-else-if="tab === 'diff'" class="session-inspector__diff">
+    <div v-else-if="tab === 'diff'" ref="diffPanel" class="session-inspector__diff">
       <div class="session-inspector__diff-toolbar">
         <div>
           <strong>Code changes</strong>
@@ -654,7 +657,7 @@ function message(error: unknown) {
             <input v-model="selectedDiffs" type="checkbox" :value="index" />
             <span>Turn {{ index + 1 }}</span>
           </label>
-          <ConsolePatchDiff v-for="(patch, patchIndex) in diff.patches" :key="patchIndex" :patch="patch" class="session-inspector__patch" />
+          <ConsolePatchDiff v-for="(patch, patchIndex) in diff.patches" :key="patchIndex" :patch="patch" :options="{ diffStyle: diffWidth < 768 ? 'unified' : 'split', overflow: 'wrap' }" class="session-inspector__patch" />
         </section>
       </div>
     </div>
