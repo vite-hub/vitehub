@@ -29,10 +29,10 @@ const handler: EventHandler<EventHandlerRequest, Promise<DocsPageResponse>> = de
   }
   const found = findDocsPage(manifest, path)
   if (!found) throw createError({ statusCode: 404, statusMessage: "Page not found" })
-  const source = await useStorage("assets:docs").getItem<string>(found.page.file)
+  const source = await useStorage(`assets:${found.page.source ?? "docs"}`).getItem<string>(found.page.file)
   if (source === null) throw createError({ statusCode: 404, statusMessage: "Page not found" })
   // A page parses once per server process. In development the content can change, so it always parses.
-  const document = import.meta.dev ? parse(String(source)) : parsed.get(found.page.file) ?? parsed.set(found.page.file, parse(String(source))).get(found.page.file)!
+  const document = import.meta.dev ? parse(String(source)) : parsed.get(found.page.path) ?? parsed.set(found.page.path, parse(String(source))).get(found.page.path)!
   const credits = found.page.credits ? await parse(found.page.credits) : null
   return docsPageResponse(manifest, found, await document, credits)
 })

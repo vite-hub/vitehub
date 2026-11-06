@@ -1,0 +1,94 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+
+import { describe, expect, it } from "vitest";
+
+import { checkDocsLinks } from "../src/check-links.ts";
+
+function output(files: Record<string, string>, run: (dir: string) => void) {
+  const dir = mkdtempSync(join(tmpdir(), "docs-links-"));
+  try {
+    for (const [file, contents] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, file)), { recursive: true });
+      writeFileSync(join(dir, file), contents);
+    }
+    run(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+describe("built docs links", () => {
+  it("validates fragments on other pages, including encoded ids and flat HTML output", () => {
+    output(
+      {
+        "index.html": '<a href="/guide#caf%C3%A9">Guide</a>',
+        "guide.html": '<h2 id="café">Café</h2>',
+      },
+      (dir) => {
+        expect(checkDocsLinks({ dir, siteUrl: "https://docs.test" })).toEqual({ pages: 2 });
+        writeFileSync(join(dir, "guide.html"), '<h2 id="intro">Introduction</h2>');
+        expect(() => checkDocsLinks({ dir, siteUrl: "https://docs.test" })).toThrow(
+          'no element with id "café"',
+        );
+      },
+    );
+  });
+
+  it("resolves relative links, directory indexes, base URLs, assets and app prefixes", () => {
+    output(
+      {
+        "guide/index.html":
+          '<base href="/portal/guide/"><a href="../next/#yes">Next</a><img src="/portal/image.svg">',
+        "next/index.html": '<h2 id="yes">Yes</h2>',
+        "image.svg": "<svg/>",
+      },
+      (dir) => {
+        expect(
+          checkDocsLinks({ dir, siteUrl: "https://docs.test", appBase: "/portal/" }).pages,
+        ).toBe(2);
+      },
+    );
+  });
+
+  it("allows dynamic endpoints and state fragments, skips embeds and ignores inert custom src attributes", () => {
+    output(
+      {
+        "index.html":
+          '<include src="partial.md"></include><a href="/play#state">Play</a><img src="/badge.svg">',
+        "play.html": "<p>Play</p>",
+        "embed/frame.html": '<a href="/missing">Broken example</a>',
+      },
+      (dir) => {
+        expect(
+          checkDocsLinks({
+            dir,
+            siteUrl: "https://docs.test",
+            excludeLinks: ["/badge.svg"],
+            excludePages: [/^\/embed\//],
+            ignoreFragments: ["/play"],
+          }).pages,
+        ).toBe(2);
+      },
+    );
+  });
+
+  it("reports missing files, malformed fragments and app redirects instead of following obsolete links", () => {
+    output(
+      { "index.html": '<a href="/old">Old</a><img src="/missing.png"><a href="/#%ZZ">Invalid</a>' },
+      (dir) => {
+        expect(() =>
+          checkDocsLinks({
+            dir,
+            siteUrl: "https://docs.test",
+            redirect: (url) => (url.pathname === "/old" ? "/new" : undefined),
+          }),
+        ).toThrow(/redirects to \/new/);
+        expect(() => checkDocsLinks({ dir, siteUrl: "https://docs.test" })).toThrow(
+          /no page or file/,
+        );
+      },
+    );
+  });
+});

@@ -10,6 +10,8 @@ export interface DocsPage {
   path: string
   /** File path relative to the content directory, such as `docs/kv/get-started.md`. */
   file: string
+  /** Server asset namespace of a mapped content source. Omitted for the default content directory. */
+  source?: string
   /** Label in navigation: `navigation.title`, else `title`. */
   title: string
   /** The `title` field, for the page heading. */

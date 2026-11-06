@@ -81,6 +81,43 @@ async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false) {
 }
 
 describe("docs Nuxt setup", () => {
+  it("registers source assets, writes raw copies from the right directory and loads configured components", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "docs-sources-"));
+    roots.push(dir);
+    for (const name of ["a", "b"]) {
+      mkdirSync(join(dir, name));
+      writeFileSync(join(dir, name, "index.md"), `---\ntitle: ${name}\n---\nSource ${name}`);
+    }
+    const options = await setupDocs(
+      {
+        base: "/",
+        sources: [
+          { dir: join(dir, "a"), mount: "/a" },
+          { dir: join(dir, "b"), mount: "/b" },
+        ],
+        components: "./markdown-components.ts",
+      },
+      "/",
+      true,
+    );
+    const nitro: { serverAssets?: unknown[] } = {};
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never);
+    expect(nitro.serverAssets).toEqual(
+      expect.arrayContaining([
+        { baseName: "docs-0", dir: join(dir, "a"), pattern: "**/*.md" },
+        { baseName: "docs-1", dir: join(dir, "b"), pattern: "**/*.md" },
+      ]),
+    );
+    for (const hook of hooks.get("build:before") ?? []) await hook();
+    expect(readFileSync(join(options.buildDir, "docs/raw/a.md"), "utf8")).toContain("Source a");
+    expect(readFileSync(join(options.buildDir, "docs/raw/b.md"), "utf8")).toContain("Source b");
+    expect(templates.get("docs/custom-components.mjs")?.()).toContain("markdown-components.ts");
+    expect(watchContent.mock.calls.map((call) => call[0])).toEqual([
+      join(dir, "a"),
+      join(dir, "b"),
+    ]);
+  });
+
   it.each(["docs", "/docs/", "/docs"])("shares the normalized base %s with the manifest and discovery", async (base) => {
     const options = await setupDocs({ base, mcp: false })
     expect(options.runtimeConfig.public.docs.base).toBe("/docs")
@@ -124,34 +161,63 @@ describe("docs Nuxt setup", () => {
     expect(readFileSync(join(options.buildDir, "docs/raw/docs.md"), "utf8")).toContain("First page")
   })
 
-  it("serializes raw transformations across edits", async () => {
-    vi.useFakeTimers()
-    const content = mkdtempSync(join(tmpdir(), "docs-edits-"))
-    roots.push(content)
-    mkdirSync(join(content, "docs"))
-    const page = join(content, "docs/index.md")
-    writeFileSync(page, "---\ntitle: Page\n---\n# Original")
-    let release!: () => void
-    const blocked = new Promise<void>((resolve) => { release = resolve })
-    const transform = vi.fn(async (source: string) => {
-      if (source.includes("Older")) await blocked
-      return source
-    })
-    const options = await setupDocs({ dir: content, rawMarkdown: transform }, "/", true)
-    const changed = watchContent.mock.calls.at(-1)![2]!
-    writeFileSync(page, "---\ntitle: Page\n---\n# Older")
-    changed("change", "docs/index.md")
-    await vi.advanceTimersByTimeAsync(100)
-    expect(transform).toHaveBeenCalledTimes(1)
-    writeFileSync(page, "---\ntitle: Page\n---\n# Newer")
-    changed("change", "docs/index.md")
-    await vi.advanceTimersByTimeAsync(100)
-    const concurrent = transform.mock.calls.length
-    release()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(concurrent).toBe(1)
-    expect(readFileSync(join(options.buildDir, "docs/raw/docs.md"), "utf8")).toContain("Newer")
-  })
+  it.each([false, true])(
+    "serializes raw transformations across edits, multiple sources: %s",
+    async (multiple) => {
+      vi.useFakeTimers();
+      const content = mkdtempSync(join(tmpdir(), "docs-edits-"));
+      roots.push(content);
+      mkdirSync(join(content, "docs"));
+      const page = join(content, "docs/index.md");
+      writeFileSync(page, "---\ntitle: Page\n---\n# Original");
+      let release!: () => void;
+      const blocked = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const transform = vi.fn(async (source: string) => {
+        if (source.includes("Older")) await blocked;
+        return source;
+      });
+      const second = join(content, "other");
+      mkdirSync(second);
+      writeFileSync(join(second, "index.md"), "---\ntitle: Other\n---\n# Original");
+      const options = await setupDocs(
+        {
+          dir: content,
+          ...(multiple
+            ? {
+                sources: [
+                  { dir: join(content, "docs"), mount: "/docs" },
+                  { dir: second, mount: "/other" },
+                ],
+              }
+            : {}),
+          rawMarkdown: transform,
+        },
+        "/",
+        true,
+      );
+      const changed = watchContent.mock.calls[0]![2]!;
+      const changedSecond = multiple ? watchContent.mock.calls[1]![2]! : changed;
+      writeFileSync(page, "---\ntitle: Page\n---\n# Older");
+      changed("change", multiple ? "index.md" : "docs/index.md");
+      await vi.advanceTimersByTimeAsync(100);
+      expect(transform).toHaveBeenCalledTimes(1);
+      writeFileSync(multiple ? join(second, "index.md") : page, "---\ntitle: Page\n---\n# Newer");
+      changedSecond("change", multiple ? "index.md" : "docs/index.md");
+      await vi.advanceTimersByTimeAsync(100);
+      const concurrent = transform.mock.calls.length;
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(concurrent).toBe(1);
+      expect(
+        readFileSync(
+          join(options.buildDir, multiple ? "docs/raw/other.md" : "docs/raw/docs.md"),
+          "utf8",
+        ),
+      ).toContain("Newer");
+    },
+  );
 
   it("gives the page route and search the app's parser module", async () => {
     const options = await setupDocs({ parser: "./docs.parser.ts" })

@@ -12,10 +12,9 @@ const parse = createDocsParser(parser)
 
 /** Every page split by heading, for the search dialog. The build prerenders it. */
 const handler: EventHandler<EventHandlerRequest, Promise<DocsSearchSection[]>> = defineEventHandler(async (): Promise<DocsSearchSection[]> => {
-  const storage = useStorage("assets:docs")
   const sections: DocsSearchSection[] = []
   for (const page of docsManifestPages(manifest)) {
-    const source = await storage.getItem<string>(page.file)
+    const source = await useStorage(`assets:${page.source ?? "docs"}`).getItem<string>(page.file)
     if (source === null) continue
     const { nodes } = await parse(String(source))
     const [entry, ...headings] = docsSearchSections(page.path, page.sourceTitle, nodes)
