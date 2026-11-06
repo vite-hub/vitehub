@@ -5,6 +5,7 @@ import { env, resolveServerEnv } from "../src/index.ts"
 import { envSourceFailed } from "../src/core/errors.ts"
 import { createRuntimeRegistry, createSourceContext, resolveEnvEntries, validateEnvConfigShape } from "../src/core/resolve.ts"
 import { parseSchema } from "../src/schema.ts"
+import { cloudflareRequest } from "./cloudflare-request.ts"
 
 describe("Env errors", () => {
   it("publishes a closed code, message, and details contract", () => {
@@ -40,7 +41,7 @@ describe("Env errors", () => {
         secret: true,
         source: { kind: "env", label: "env:TOKEN", name: "TOKEN", names: ["TOKEN"], serializable: true },
       },
-    }, { env: {} }))
+    }, cloudflareRequest({})))
     expect(missingError).toMatchObject({
       code: "ENV_REQUIRED_MISSING",
       details: { source: "env" },
@@ -53,7 +54,7 @@ describe("Env errors", () => {
         secret: true,
         source: { kind: "env", label: "env:TOKEN", name: "TOKEN", names: ["TOKEN"], serializable: true },
       },
-    }, { env: { TOKEN: {} } }))
+    }, cloudflareRequest({ TOKEN: {} })))
     expect(invalidError).toMatchObject({
       code: "ENV_RUNTIME_VALUE_INVALID",
       details: { source: "env" },
@@ -67,7 +68,7 @@ describe("Env errors", () => {
         secret: false,
         source: { kind: "env", label: "env:TOKEN", name: "TOKEN", names: ["TOKEN", "TOKEN_FALLBACK"], serializable: true },
       },
-    }, { env: { TOKEN: undefined, TOKEN_FALLBACK: "fallback" } })).toEqual({ token: "fallback" })
+    }, cloudflareRequest({ TOKEN: undefined, TOKEN_FALLBACK: "fallback" }))).toEqual({ token: "fallback" })
   })
 
   it("explains that a missing required value fails reads of its siblings", () => {
@@ -78,7 +79,7 @@ describe("Env errors", () => {
       },
     })
 
-    const error = capture(() => resolveServerEnv<{ google: { clientId: string } }>(registry, { env: {} }).google.clientId)
+    const error = capture(() => resolveServerEnv<{ google: { clientId: string } }>(registry, cloudflareRequest({})).google.clientId)
     expect(error).toMatchObject({
       code: "ENV_REQUIRED_MISSING",
       details: { path: "env.server.google.clientSecret", source: "env" },
@@ -91,7 +92,7 @@ describe("Env errors", () => {
   it("suggests a default only for a value that is not secret", () => {
     const registry = createRuntimeRegistry({ region: env() })
 
-    const error = capture(() => resolveServerEnv(registry, { env: {} }))
+    const error = capture(() => resolveServerEnv(registry, cloudflareRequest({})))
     expect(String(error.cause)).toContain("Set VITEHUB_REGION or REGION, give it a default, or declare it with optional: true.")
   })
 
