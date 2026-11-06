@@ -64,8 +64,11 @@ export interface BlobPutOptions {
 export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob
 
 export type BlobOperation = "del" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
-/** `BLOB_CONFLICT` reports a media move onto an existing object or the removal of a non-empty folder. */
-export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED"
+/**
+ * `BLOB_CONFLICT` reports a media move onto an existing object or the removal of a non-empty folder.
+ * `BLOB_PATHNAME_TOO_LONG` reports a pathname above the host limit, such as 1024 bytes on Cloudflare R2.
+ */
+export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG"
 export type BlobErrorDetails = ViteHubErrorDetails & {
   operation: BlobOperation
   store: string
@@ -310,7 +313,34 @@ export interface BlobStorage {
   sign(pathname: string, options: BlobSignOptions): Promise<BlobResult<BlobSignedRequest>>
   /** Returns null for a conditional 304 response. */
   serve(event: BlobServeEvent | (H3V1Event & { node: { res: H3V1NodeResponse } }), pathname: string, options?: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>>
-  store(name: BlobStoreName): BlobStorage
+  /** Selects a named Blob Store. `{ mode: "read" }` returns a handle without write methods. */
+  store(name: BlobStoreName, options?: { mode?: "write" }): BlobStorage
+  store(name: BlobStoreName, options: { mode: "read" }): ReadonlyBlobStorage
+  store(name: BlobStoreName, options?: BlobStoreOptions): BlobStorage | ReadonlyBlobStorage
+}
+
+/** Options of `blob.store()`. */
+export interface BlobStoreOptions {
+  /** `"read"` returns a handle without write methods. Defaults to `"write"`. */
+  mode?: "read" | "write"
+}
+
+/**
+ * Blob handle from `blob.store(name, { mode: "read" })`. It has only read methods, and `sign()` signs `GET` requests only.
+ * It limits this API, not the host: the R2 binding or provider token keeps full access, so it is not a security boundary
+ * against code that reads the binding directly. `media.get()` and `serve()` with a transform or variant can still store
+ * derived records and variants under the reserved `_vitehub/` prefix. They never change your objects.
+ */
+export interface ReadonlyBlobStorage {
+  /** Media records and image variants, without write methods. */
+  readonly media: Pick<BlobMedia, "get" | "list" | "variants">
+  get: BlobStorage["get"]
+  head: BlobStorage["head"]
+  list: BlobStorage["list"]
+  /** Returns null for a conditional 304 response. */
+  serve: BlobStorage["serve"]
+  /** Signs a short-lived `GET` request. */
+  sign(pathname: string, options: Extract<BlobSignOptions, { method: "GET" }>): Promise<BlobResult<BlobSignedRequest>>
 }
 
 /**
