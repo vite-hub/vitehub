@@ -79,7 +79,7 @@ function record(value: unknown): value is Record<string, unknown> {
 
 // These maps contain definitions and callbacks, not configuration to merge recursively.
 const opaqueOptions = new Set(["data", "messages.meta", "messages.state", "invocations", "runtime", "github", "driver.output", "driver.model", "driver.launch", "driver.gateway"])
-const definitionMaps = new Set(["channels", "workspace.sources", "workspace.skills", "hooks"])
+const definitionMaps = new Set(["channels", "workspace.sources", "workspace.skills"])
 
 type RequirementsExtension = (inherited: readonly string[]) => unknown
 
@@ -134,6 +134,32 @@ function extendCapability(inherited: unknown, capability: ExtensibleCapability):
   return extended
 }
 
+// A hook that both layers define runs the parent's hook first, then the child's.
+function composeHooks(parent: Record<string, unknown>, child: Record<string, unknown>): Record<string, unknown> {
+  const hooks = { ...parent }
+  for (const [name, hook] of Object.entries(child)) {
+    if (name === "__proto__" || name === "constructor" || name === "prototype") continue
+    const inherited = hooks[name]
+    hooks[name] = inherited === undefined || inherited === hook ? hook : composeHook(name, inherited, hook)
+  }
+  return hooks
+}
+
+function composeHook(name: string, parent: unknown, child: unknown): unknown {
+  if (name === "hook:observe") return [...hookList(parent), ...hookList(child)]
+  if (!hasRuntimeType(parent, "function") || !hasRuntimeType(child, "function")) return child
+  return async (...args: unknown[]) => {
+    const inherited: unknown = await Reflect.apply(parent, undefined, args)
+    const own: unknown = await Reflect.apply(child, undefined, args)
+    // Outcome hooks can return delivery effects. Keep the effects of both hooks.
+    return inherited && own ? [inherited, own] : inherited || own
+  }
+}
+
+function hookList(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : value === undefined ? [] : [value]
+}
+
 function merge(parent: unknown, child: unknown, path: string): unknown {
   if (child === undefined) return parent
   if (path === "driver.instructions") {
@@ -186,6 +212,7 @@ function merge(parent: unknown, child: unknown, path: string): unknown {
     return [...capabilities.values()]
   }
   if (!record(parent) || !record(child)) return child
+  if (path === "hooks") return composeHooks(parent, child)
   if (definitionMaps.has(path)) return { ...parent, ...child }
   if (path === "driver" && child.kind !== undefined && child.kind !== parent.kind) {
     return {
