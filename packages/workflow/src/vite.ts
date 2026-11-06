@@ -22,7 +22,7 @@ import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "
 import type { Plugin as EsbuildPlugin } from "esbuild"
 import type { ProviderOutputEnvironmentOwner, ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { Plugin, ResolvedConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { discoverWorkflowDefinitions } from "./discovery.ts"
@@ -280,6 +280,32 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     })
   }
 
+  /**
+   * A Vite build with Nitro deploys Nitro's Worker, so its Wrangler config needs the Workflow bindings and its entry
+   * the Workflow classes. The Nuxt module does the same through `vitehub.workflow.createNitroConfig`.
+   */
+  let cloudflareInNitro = false
+  async function addCloudflareWorkflowsToNitro(config: UserConfig, nitro: Record<string, unknown>, rootDir: string): Promise<Record<string, unknown>> {
+    if (Reflect.get(config, VITEHUB_NITRO_CONFIG_CONTEXT) === true || !normalizeHosting(internalOptions.hosting).includes("cloudflare")) return nitro
+    const input = { ...nitro, preset: nitro.preset ?? internalOptions.hosting }
+    const configured = await createCloudflareWorkflowNitroConfig({
+      agentImportBase: internalOptions.agentImportBase,
+      includeUserAppEntry: internalOptions.includeUserAppEntry,
+      nitro: input,
+      rootDir,
+      serverDirs,
+      workflow,
+      workflowImportBase: internalOptions.importBase,
+      workspaceDependencyRuntimeImports: internalOptions.workspaceDependencyRuntimeImports,
+      workspaceImportBase: internalOptions.workspaceImportBase,
+    })
+    // No Workflow Definition: keep Nitro's config as it was.
+    if (configured === input) return nitro
+    if (nitro.preset === undefined) delete configured.preset
+    cloudflareInNitro = true
+    return configured
+  }
+
   return {
     name: "@vite-hub/workflow/vite",
     // Nuxt replays plugins by enforcement order; reserve this before its runtime bootstraps too.
@@ -305,7 +331,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         devStartupPlugin = plugin
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addPlugin(plugin, "start")
-        Reflect.set(config, "nitro", kit.config)
+        Reflect.set(config, "nitro", startupBuild ? await addCloudflareWorkflowsToNitro(config, kit.config, devRootDir) : kit.config)
       },
     },
     configureServer(server) {
@@ -565,6 +591,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
               artifacts,
               clientOutDir: resolve(config.root, config.build.outDir),
               bundleDefines: resolveViteHubBundleDefines(config),
+              cloudflareInNitro,
               hosting: internalOptions?.hosting,
               importBase: internalOptions?.importBase,
               providerImportAliases: retainedImportAliases,
