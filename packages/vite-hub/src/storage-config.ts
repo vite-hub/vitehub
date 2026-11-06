@@ -98,17 +98,15 @@ export function resolveConsoleJournal(databaseUrl: string | undefined, d1Binding
 }
 
 /**
- * Comments is on with the Console, unless `comments: false`. It keeps threads in the Database, so it enables `database`
- * when it is unset. `database: false` with Comments on fails.
+ * The `comments` option turns Comments on. It keeps threads in the Database, so it enables `database` when it is unset.
+ * `database: false` with Comments on fails. The Console does not turn Comments on.
  */
 export function withComments(options: ViteHubOptions): ViteHubOptions {
-  const comments = options.comments ?? (options.console ? true : undefined)
-  if (!comments) return options
+  if (!options.comments) return options
   if (options.database === false) {
-    const why = options.comments ? "the `comments` option turns Comments on" : "the Console turns Comments on"
-    throw viteHubErrorDiagnostics.VITE_HUB_B0018({ message: `[vitehub] Comments keeps its threads in the Database, and ${why}, but \`database\` is false. Remove \`database: false\`, or set \`comments: false\`.` })
+    throw viteHubErrorDiagnostics.VITE_HUB_B0018({ message: "[vitehub] Comments keeps its threads in the Database, and the `comments` option turns Comments on, but `database` is false. Remove `database: false`, or set `comments: false`." })
   }
-  return { ...options, comments, database: options.database ?? true }
+  return { ...options, database: options.database ?? true }
 }
 
 /**

@@ -405,8 +405,8 @@ export interface ViteHubOptions {
   /**
    * Comments on the app's pages. `true`, or an object with the Database, the SQL dialect, or `overlay: false` (no page
    * tool), turns it on, with `server/comments.ts` or else the default `defineComments()`, and turns the Database on
-   * when `database` is unset. Default: on with the Console, else on when the app has `server/comments.ts`. `false`
-   * turns it off.
+   * when `database` is unset. Default: on when the app has `server/comments.ts`. The Console does not turn it on.
+   * `false` turns it off.
    */
   comments?: boolean | Pick<HubCommentsOptions, "database" | "dialect" | "overlay">
   rateLimit?: boolean | RateLimitModuleOptions

@@ -408,14 +408,14 @@ export default defineNuxtConfig({
 })
 ```
 
-The docs module turns on the `comments` option of `vite-hub/nuxt`, which turns on the Database. The Console turns Comments on too. Apply the tables once with `vitehub db generate` and `vitehub db migrate`. You need no `server/comments.ts`. Add one to set `authorize`, `people`, or `onMention`. See [Configure Comments](/docs/comments/configure).
+The docs module turns on the `comments` option of `vite-hub/nuxt`, which turns on the Database. Apply the tables once with `vitehub db generate` and `vitehub db migrate`. You need no `server/comments.ts`. Add one to set `authorize`, `people`, or `onMention`. See [Configure Comments](/docs/comments/configure).
 
 - **Each page has its own threads.** A thread belongs to the page path, such as `/docs/kv`. A new deploy keeps the threads on their page. A renamed page starts with none.
 - **Readers see nothing.** The page loads the overlay only with `?vitehub` or the `vitehub-tools` cookie, and only for people that `authorize` lets read. Without `authorize`, a production build lets in the people that the Console admits to Comments, and people signed in with GitHub who can push to the repository. A reader who is not signed in gets no toolbar. When the app has no Console and no Auth, and GitHub sign-in is set up, `?vitehub` shows **Sign in with GitHub**. The development server lets everyone comment.
 - **`@` lists your people.** With [Auth](/docs/auth), it suggests the users of Auth that may read the thread. Without Auth, it suggests the people who wrote in threads that you can read.
 - **The Console lists the threads.** Open `/_vitehub` and select **Comments** to see every thread with its page, and open one.
 
-Turn Comments off with `comments: false`. It sets `comments: false` on `vite-hub/nuxt`, so the Console does not turn Comments on either. Pass the `comments` options of `vite-hub/nuxt` to change the Database or to leave the overlay out of the pages:
+Turn Comments off with `comments: false`. It sets `comments: false` on `vite-hub/nuxt`. Pass the `comments` options of `vite-hub/nuxt` to change the Database or to leave the overlay out of the pages:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({

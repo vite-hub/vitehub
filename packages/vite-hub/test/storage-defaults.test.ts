@@ -238,15 +238,38 @@ describe("Connections database default", () => {
     expect(withConnectionsDatabase({ preset: "node" }).database).toBeUndefined()
   })
 
-  it("turns Comments and the Database on with the Console, unless comments: false", () => {
-    expect(withComments({ preset: "node", console: { auth: false } })).toMatchObject({ comments: true, database: true })
+  it("turns Comments and the Database on only with the comments option", () => {
+    expect(withComments({ preset: "node", console: { auth: false } })).toEqual({ preset: "node", console: { auth: false } })
+    expect(withComments({ preset: "node", comments: true })).toEqual({ preset: "node", comments: true, database: true })
     expect(withComments({ preset: "node", console: { auth: false }, comments: { overlay: false } })).toMatchObject({ comments: { overlay: false }, database: true })
     expect(withComments({ preset: "node", console: { auth: false }, comments: false })).toEqual({ preset: "node", console: { auth: false }, comments: false })
     expect(withComments({ preset: "node", console: { auth: false }, comments: false, database: false })).toMatchObject({ comments: false, database: false })
     expect(withComments({ preset: "node" })).toEqual({ preset: "node" })
   })
 
-  it("installs Comments with the Console, and leaves it out with comments: false", () => {
+  it("keeps Comments off with the Console alone, and on with server/comments.ts", async () => {
+    const operations = async (root: string) => {
+      const plugins = vitehub({ preset: "node", console: { auth: false, authorize: hostManagedAuthorize } }).flat(3)
+      const comments = plugins.find((option): option is Plugin & { vitehub: { operations: () => Promise<unknown[]> } } => option !== null && typeof option === "object" && "name" in option && option.name === "@vite-hub/comments/vite")
+      if (!comments) throw new TypeError("Expected the Comments plugin.")
+      const config = comments.config
+      if (!config) throw new TypeError("Expected the Comments config hook.")
+      await Reflect.apply("handler" in config ? config.handler : config, {}, [{ root, [VITEHUB_SERVER_DIRS]: [join(root, "server")] }, { command: "build", mode: "production" }])
+      return await comments.vitehub.operations()
+    }
+    const root = await mkdtemp(join(tmpdir(), "vitehub-comments-console-"))
+    try {
+      await mkdir(join(root, "server"))
+      await expect(operations(root)).resolves.toEqual([])
+      await writeFile(join(root, "server/comments.ts"), "export default {}\n")
+      await expect(operations(root)).resolves.toEqual([expect.objectContaining({ export: "commentsOperations" })])
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("leaves the Comments plugin out with comments: false", () => {
     const names = (options: ViteHubOptions) => vitehub(options).flat(3).flatMap(plugin => plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [])
     const console = { auth: false, authorize: hostManagedAuthorize } as const
     expect(names({ preset: "node", console })).toContain("@vite-hub/comments/vite")
@@ -271,9 +294,8 @@ describe("Connections database default", () => {
   })
 
   it("fails when Comments is on and database is false", () => {
-    expect(() => vitehub({ console: { auth: false, authorize: hostManagedAuthorize }, database: false, preset: "node" })).toThrow(expect.objectContaining({ code: "VITE_HUB_B0018" }))
     expect(() => vitehub({ comments: true, database: false, preset: "node" })).toThrow(expect.objectContaining({ code: "VITE_HUB_B0018" }))
-    expect(() => vitehub({ console: { auth: false, authorize: hostManagedAuthorize }, comments: false, database: false, preset: "node" })).not.toThrow()
+    expect(() => vitehub({ console: { auth: false, authorize: hostManagedAuthorize }, database: false, preset: "node" })).not.toThrow()
   })
 
   it("fails when connections is set and database is false", () => {
