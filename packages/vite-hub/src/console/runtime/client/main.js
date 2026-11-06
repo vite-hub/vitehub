@@ -32,7 +32,7 @@ import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSection
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { consoleProjectReady, startConsoleLink, startConsoleProjects } from "./project-session";
+import { consoleProjectReady, isConsoleNewProjectPath, startConsoleLink, startConsoleNewProject, startConsoleProjects } from "./project-session";
 import { takeConsoleLinkHash } from "./pending-links";
 import { memoryProjectStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
@@ -68,6 +68,8 @@ startConsoleProjects({
   pendingLinkLocks: navigator.locks,
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);
+// The /new page builds the command for a new project. It opens no project, so it works before the first link.
+else if (hosted && isConsoleNewProjectPath(window.location.pathname, consoleBase)) startConsoleNewProject();
 const sectionsBase = "/api/_vitehub/console/sections";
 const capabilitiesBase = "/api/_vitehub/console/invocation-capabilities";
 

@@ -300,9 +300,26 @@ The Console then opens the project and shows only the sections that the project 
 | `This project runs vite-hub <version>. This Console needs protocol 1.` | Update `vite-hub` in the app. |
 | `This project signs in with OAuth` | OAuth sign-in for a Console on another origin is not ready. Use `auth: "token"`. |
 
+### Start a new project
+
+The hosted Console can start a new app for you. It needs a `vite-hub` release with `vite-hub init` ([#3523](https://github.com/vite-hub/vitehub/pull/3523)), which is not released yet.
+
+1. Select **New project** on the empty Console, in the project menu, or in <kbd>⌘</kbd><kbd>K</kbd>. The page is at `/new`.
+2. Enter the folder name and pick the host. Features that the host cannot run are greyed out and say why.
+3. Pick the features. The page adds the features that they turn on, such as Database for Comments, and marks them **Added by**. When the host needs an option for a feature, such as `email.driver` on Vercel, the page asks for it.
+4. Select **Create command**, copy the command, and run it in your terminal:
+
+```bash [Terminal]
+pnpm dlx vite-hub init my-app --host cloudflare --features kv,queue --console <id>:sha256:<verifier> --yes
+```
+
+5. Deploy the app, then open the link that the CLI prints in the same browser. See [Link a new project](#link-a-new-project).
+
+The address of the page holds the stack: the folder, the host, the features, and the options, such as `/new?host=vercel&features=email&option=email.driver%3Dresend`. Share it, or reload it, and the page shows the same stack. The `--console` value is not in the address, because its link works only in the browser that made it. When you change the stack after **Create command**, the command changes and keeps the same link.
+
 ### Link a new project
 
-A one-time link lets a new project link itself, so you do not copy a token by hand. The setup command that makes these links, `vite-hub init --console`, is not released yet, and the server does not read `VITEHUB_CONSOLE_TOKEN_SHA256` yet. Until then, use [Link a project](#link-a-project) with the app URL and its token.
+A one-time link lets a new project link itself, so you do not copy a token by hand. [Start a new project](#start-a-new-project) makes the link and prints it in the `vite-hub init --console` command. That command is not released yet, and the server does not read `VITEHUB_CONSOLE_TOKEN_SHA256` yet. Until then, use [Link a project](#link-a-project) with the app URL and its token.
 
 The hosted Console makes a random key and keeps it in this browser, in `localStorage` under `vitehub-console:pending-links`. It gives out only an id and the SHA-256 of the key. The setup command stores that hash in the app as `VITEHUB_CONSOLE_TOKEN_SHA256` and prints a link such as `https://console.vitehub.dev/link#p=<id>&url=<app origin>`. The link holds no secret.
 

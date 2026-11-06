@@ -29,6 +29,8 @@ export type ConsoleProjectGate =
   | { kind: "problem", problem: ConsoleProjectProblem }
   /** The `/link` page of a hosted Console: confirm the app of a one-time link, or why the link cannot be used. */
   | { kind: "link", request: ConsoleLinkRequest }
+  /** The `/new` page of a hosted Console: build the `vite-hub init` command for a new project. */
+  | { kind: "new" }
   | { kind: "ready" }
 
 /** What linking found: the saved project, the token step, or why it failed. */
@@ -271,12 +273,28 @@ export async function checkConsoleProjects(): Promise<void> {
 }
 
 /**
- * Make a one-time link for a new project in this browser. The future CLI integration will give the app `pendingId`
- * and `verifier` (the value of `VITEHUB_CONSOLE_TOKEN_SHA256`). Ticket creation stays out of the UI until the CLI and
- * host verifier support are available. The secret stays in this browser until the person confirms the app on `/link`.
+ * Make a one-time link for a new project in this browser. The `/new` page gives the app `pendingId` and `verifier` (the
+ * value of `VITEHUB_CONSOLE_TOKEN_SHA256`) with `vite-hub init --console <pendingId>:sha256:<verifier>`. The secret stays
+ * in this browser until the person confirms the app on `/link`.
  */
 export function createConsolePendingLink(): Promise<ConsolePendingLinkTicket> {
   return useState().pendingLinks.create()
+}
+
+/** Whether `pathname` is the `/new` page of the Console below `home`. */
+export function isConsoleNewProjectPath(pathname: string, home: string): boolean {
+  return pathname.replace(/\/+$/, "") === `${home.replace(/\/+$/, "")}/new`
+}
+
+/** Show the `/new` page. It sends no request to a project. */
+export function startConsoleNewProject(): void {
+  useState().gate.value = { kind: "new" }
+}
+
+/** Load the `/new` page of a hosted Console. */
+export function openConsoleNewProject(): void {
+  const projects = useState()
+  projects.navigate(`${projects.home.replace(/\/+$/, "")}/new`)
 }
 
 /** Why a pending link cannot link a project. */

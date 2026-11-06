@@ -11,7 +11,7 @@ import type { AgentInvocationListItem } from "./invocation"
 import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances, consoleDarkSchemeQuery } from "../client/appearance"
 import { consoleDocumentStateColor, consoleDocumentStateLabel, consoleErrorMessage, consolePublishMismatches, consoleSingularLabel, createConsoleDocumentsClient } from "../client/documents"
-import { switchConsoleProject, useConsoleProjects } from "../client/project-session"
+import { openConsoleNewProject, switchConsoleProject, useConsoleProjects } from "../client/project-session"
 import { consoleProjectHost, consoleProjectName } from "../client/projects"
 import { publishConsoleDocumentChanges } from "../client/publish"
 import { loadConsoleKVPages, requestConsole } from "../client/request"
@@ -353,12 +353,18 @@ const projectActions = computed<CommandPaletteItem[]>(() => projects.mode === "h
             if (project.id !== projects.current.value?.id) switchConsoleProject(project.id)
           },
         })),
-        { icon: "i-lucide-plus", label: "Link project", onSelect: () => { projects.linkOpen.value = true } },
+        { icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject },
+        { icon: "i-lucide-link", label: "Link project", onSelect: () => { projects.linkOpen.value = true } },
       ],
       icon: "i-lucide-arrow-left-right",
       keywords: ["project", "projects", "app", "link", "change"],
       label: "Switch project…",
       placeholder: "Choose a project…",
+    }, {
+      icon: "i-lucide-plus",
+      keywords: ["create", "init", "start", "stack", "app"],
+      label: "New project",
+      onSelect: openConsoleNewProject,
     }]
   : [])
 
