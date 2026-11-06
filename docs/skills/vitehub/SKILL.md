@@ -9,7 +9,7 @@ Use one proof loop: orient, route, inspect the contract, build, and prove. Exact
 
 ## 1. Orient
 
-- Run `pnpm vitehub status --json` first. It parses the config without running it, so it works on a broken config and in an empty folder. It names the framework, the host, each feature as `on`, `off`, or `unknown`, the missing packages with their fix, and the host link. Where `vite-hub` is not installed yet, run `pnpm dlx vite-hub status --json`. No npm package is named `vitehub`, so `npx vitehub` fails. Use the package name `vite-hub`.
+- Run `pnpm vitehub status --json` first from a project containing `package.json` or a Vite/Nuxt config. It parses the config without running it, so it works on a broken config. A bare folder returns `SETUP_NOT_A_PROJECT` with exit code `1`; initialize the application first. It names the framework, the host, each feature as `on`, `off`, or `unknown`, and the missing packages with their fix. Where `vite-hub` is not installed yet, run `pnpm dlx vite-hub status --json`. No npm package is named `vitehub`, so `npx vitehub` fails. Use the package name `vite-hub`.
 - Run `pnpm vitehub catalog --json` before you choose a feature or a host. It lists each feature key, its packages, and how each host supports it (`native`, `explicit`, or `unsupported`), from the same catalog that the build checks. See [Read a project without loading it](https://vitehub.dev/raw/docs/development/cli.md#read-a-project-without-loading-it).
 - Then read only what the two commands do not answer: the lockfile, the server entry, nearby project instructions, and config parts that `status` reports as `unknown` or `manual`.
 - Identify installed ViteHub packages and versions, package manager, framework, host target, and requested outcome.
@@ -79,7 +79,7 @@ Before editing, map every requested behavior to:
 
 Then implement the smallest coherent set: manifest and lockfile, framework integration, discovered Definition where needed, application or orchestration entrypoint, and proof surface. Keep application authority in application code; grant an Agent access only through visible Capabilities, Workspace rules, Sources, or Channels.
 
-Turn features on with `vitehub add <feature>`, not by editing `vitehub({...})` by hand. It checks the host against the catalog, installs the owner packages, creates the starter file, and edits the config last, so the manifest, lockfile, and config stay in step. See [Add a feature](https://vitehub.dev/raw/docs/development/cli.md#add-a-feature).
+Turn features on with `vitehub add <feature>`, not by editing `vitehub({...})` by hand. It checks the host against the catalog, installs the owner packages, creates requested starter files, and edits the config last. Package installs are not rolled back: a failed install can leave the manifest and lockfile changed without enabling the feature. See [Add a feature](https://vitehub.dev/raw/docs/development/cli.md#add-a-feature).
 
 - Run `--dry-run` first and read the diff, then apply with `--yes`. Without a terminal, `add` writes nothing until it gets `--yes`.
 - Pass `--name <name>` for a starter Definition, such as `server/queues/<name>.ts`. It never overwrites a file.
