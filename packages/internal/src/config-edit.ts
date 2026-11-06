@@ -335,10 +335,8 @@ function applyEdit(code: string, located: Located, edit: ConfigEdit): string | F
   const matches = members.filter((member): member is ObjectProperty | ObjectMethod => member.type !== "SpreadElement" && keyName(member.key, member.computed) === edit.key)
 
   if (edit.op === "delete") {
-    if (!matches.length) {
-      if (site.spread) return fail("spread", object)
-      return code
-    }
+    if (site.spread) return fail("spread", object)
+    if (!matches.length) return code
     if (!object) return code
     if (matches.length === members.length) {
       if (container.kind === "call") {

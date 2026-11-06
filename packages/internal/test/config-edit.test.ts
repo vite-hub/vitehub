@@ -96,7 +96,7 @@ describe("config corpus", () => {
     expect(classify(docs)).toEqual(expectedFor(key => key.includes(".md#")))
   })
 
-  it("set then delete gives back the original bytes", () => {
+  it("set then delete gives back the original bytes unless a spread prevents deletion", () => {
     const failures: string[] = []
     for (const { key, file, code } of [...repository, ...docs]) {
       const located = locateViteHubConfig(file, code)
@@ -104,6 +104,10 @@ describe("config corpus", () => {
       const probe = "kv" in located.site.keys ? "__probe" : "kv"
       const set = editViteHubConfig(file, code, [{ op: "set", key: probe, value: true }])
       const restored = set.ok ? editViteHubConfig(file, set.code, [{ op: "delete", key: probe }]) : set
+      if (located.site.spread && set.ok) {
+        expect(restored, key).toMatchObject({ ok: false, reason: "spread" })
+        continue
+      }
       if (!restored.ok || restored.code !== code) failures.push(key)
     }
     expect(failures).toEqual([])
@@ -178,9 +182,20 @@ describe("editViteHubConfig", () => {
   it("deletes nothing when a spread can supply the key", () => {
     const code = vite("{ ...shared, preset: \"node\" }")
     expect(editViteHubConfig("vite.config.ts", code, [{ op: "delete", key: "kv" }])).toMatchObject({ ok: false, reason: "spread" })
-    expect(edit("vite.config.ts", code, [{ op: "delete", key: "preset" }])).toBe(vite("{ ...shared }"))
+    expect(editViteHubConfig("vite.config.ts", code, [{ op: "delete", key: "preset" }])).toMatchObject({ ok: false, reason: "spread" })
     expect(locateViteHubConfig("vite.config.ts", code)).toMatchObject({ ok: true, site: { spread: true } })
     expect(edit("vite.config.ts", vite("{ kv: false, ...shared }"), [{ op: "set", key: "kv", value: true }])).toBe(vite("{ ...shared, kv: true }"))
+  })
+
+  it.each([
+    ["vite.config.ts", vite("OPTIONS")],
+    ["nuxt.config.ts", "export default defineNuxtConfig({ modules: [[\"vite-hub/nuxt\", OPTIONS]] })\n"],
+    ["nuxt.config.ts", "export default defineNuxtConfig({ modules: [\"vite-hub/nuxt\"], vitehub: OPTIONS })\n"],
+  ])("refuses deleting an explicit key supplied by a spread in %s (%#)", (file, template) => {
+    for (const options of ["{ ...shared, kv: false }", "{ kv: false, ...shared }"]) {
+      const code = template.replace("OPTIONS", options).replace("export default", "const shared = { kv: true }\nexport default")
+      expect(editViteHubConfig(file, code, [{ op: "delete", key: "kv" }])).toMatchObject({ ok: false, reason: "spread" })
+    }
   })
 
   it("edits the Nuxt tuple and the vitehub key forms", () => {
