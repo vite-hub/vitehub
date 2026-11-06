@@ -59,6 +59,21 @@ describe("documentation snippet check", () => {
     ])
   }, 60_000)
 
+  it("imports the first full version when no full definition appears above the importer", () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/forward-page")
+    const snippet = (line: number, file: string, label: string, code: string, fragment = false) => ({ code, file: join(pageRoot, file), fragment, label, line, page: "forward-page.md", pageRoot })
+    const { failures } = checkSnippets([
+      snippet(1, "server/api/before.ts", "server/api/before.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+      snippet(5, "server/content.ts", "server/content.ts", "export const content = { excerpt: true }", true),
+      snippet(9, "server/api/after-fragment.ts", "server/api/after-fragment.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+      snippet(13, "2/server/content.ts", "server/content.ts", "export const content = { posts: 1 }"),
+      snippet(17, "server/api/after.ts", "server/api/after.ts", "import { content } from '../content'\nexport const posts: number = content.posts"),
+      snippet(21, "3/server/content.ts", "server/content.ts", "export const content = { settings: 'site' }"),
+    ])
+
+    expect(failures).toEqual([])
+  }, 60_000)
+
   it("types the Definition names of a page with the registries that ViteHub generates", async () => {
     const pageRoot = join(repoRoot, "docs/.snippets/registry-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "registry-page.md", pageRoot })
