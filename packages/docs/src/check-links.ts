@@ -92,7 +92,8 @@ export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number }
     if (matches(options.excludePages, path)) continue;
     pages++;
     const page = document(file);
-    const base = new URL(page.base ?? path, origin);
+    const pageUrl = new URL(path, origin);
+    const base = page.base ? new URL(page.base, pageUrl) : pageUrl;
     for (const link of page.links) {
       let url: URL;
       try {

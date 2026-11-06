@@ -52,6 +52,23 @@ describe("built docs links", () => {
     );
   });
 
+  it.each(["/", "/portal/"])("resolves relative base URLs from the page URL under %s", (appBase) => {
+    output(
+      {
+        "guide/index.html": '<base href="./assets/"><a href="next/#yes">Next</a><img src="image.svg">',
+        "guide/assets/next/index.html": '<h2 id="yes">Yes</h2>',
+        "guide/assets/image.svg": "<svg/>",
+      },
+      (dir) => {
+        expect(checkDocsLinks({ dir, siteUrl: "https://docs.test", appBase }).pages).toBe(2);
+        writeFileSync(join(dir, "guide/assets/next/index.html"), '<h2 id="other">Other</h2>');
+        expect(() => checkDocsLinks({ dir, siteUrl: "https://docs.test", appBase })).toThrow(
+          'no element with id "yes"',
+        );
+      },
+    );
+  });
+
   it("allows dynamic endpoints and state fragments, skips embeds and ignores inert custom src attributes", () => {
     output(
       {

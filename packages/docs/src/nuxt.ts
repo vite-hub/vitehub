@@ -523,7 +523,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           if (!nitro.options.output) return
           const redirects = docsRedirects(nitro.options.routeRules ?? {})
           const settings = options.linkChecker || {}
-          const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, excludeLinks: [...moduleOptions.linkChecker?.excludeLinks ?? [], ...redirects.map(redirect => redirect.from)] })
+          const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, excludeLinks: [...moduleOptions.linkChecker?.excludeLinks ?? [], ...redirects.map(redirect => docsAppPath(redirect.from, config.appBase))] })
           useLogger("@vite-hub/docs").info?.(`Checked links and fragments of ${result.pages} pages`)
         })
       }

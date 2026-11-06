@@ -81,6 +81,27 @@ async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false) {
 }
 
 describe("docs Nuxt setup", () => {
+  it.each(["/", "/portal/"])("accepts validated redirect links in the compiled output under %s", async (appBase) => {
+    const options = await setupDocs({}, appBase)
+    Object.assign(options, { linkChecker: { excludeLinks: ["/badge.svg"] } })
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(publicDir)
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}docs/old">Old</a><img src="/badge.svg">`)
+    const compiled: Array<() => void> = []
+    const nitro = {
+      options: {
+        routeRules: { "/docs/old": { redirect: "/docs/start" } },
+        output: { publicDir },
+      },
+      hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) },
+    }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    expect(compiled).toHaveLength(1)
+    expect(() => compiled[0]!()).not.toThrow()
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}docs/missing">Missing</a>`)
+    expect(() => compiled[0]!()).toThrow(/no page or file/)
+  })
+
   it("registers source assets, writes raw copies from the right directory and loads configured components", async () => {
     const dir = mkdtempSync(join(tmpdir(), "docs-sources-"));
     roots.push(dir);
