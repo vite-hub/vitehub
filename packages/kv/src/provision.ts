@@ -1,5 +1,6 @@
 import {
   createCloudflareProvisionClient,
+  listCloudflarePages,
   ProvisionRequestError,
   resolveCloudflareProvisionConfig,
 } from "@vite-hub/internal/provision"
@@ -47,28 +48,14 @@ function parseCreatedNamespace(value: unknown): { id: string } {
 
 async function listNamespaceIds(request: CloudflareProvisionRequest): Promise<Map<string, string>> {
   const ids = new Map<string, string>()
-  for (let page = 1; ; page++) {
-    const listed = await request("/storage/kv/namespaces", {
-      parse: parseNamespaces,
-      query: { page: String(page), per_page: String(CLOUDFLARE_KV_NAMESPACE_LIST_PER_PAGE) },
-    })
-    const namespaces = listed.result ?? []
-    for (const namespace of namespaces) {
-      if (namespace.id && namespace.title && !ids.has(namespace.title)) ids.set(namespace.title, namespace.id)
-    }
-    const resultInfo = listed.result_info
-    if (resultInfo?.total_pages !== undefined) {
-      if (page >= resultInfo.total_pages) return ids
-      continue
-    }
-    if (resultInfo?.total_count !== undefined) {
-      const currentPage = resultInfo.page ?? page
-      const pageSize = resultInfo.per_page ?? CLOUDFLARE_KV_NAMESPACE_LIST_PER_PAGE
-      if (currentPage * pageSize < resultInfo.total_count) continue
-      return ids
-    }
-    if (namespaces.length < CLOUDFLARE_KV_NAMESPACE_LIST_PER_PAGE) return ids
+  const namespaces = await listCloudflarePages(request, "/storage/kv/namespaces", {
+    parse: parseNamespaces,
+    perPage: CLOUDFLARE_KV_NAMESPACE_LIST_PER_PAGE,
+  })
+  for (const namespace of namespaces) {
+    if (namespace.id && namespace.title && !ids.has(namespace.title)) ids.set(namespace.title, namespace.id)
   }
+  return ids
 }
 
 async function createNamespace(request: CloudflareProvisionRequest, title: string): Promise<string | undefined> {
@@ -112,6 +99,7 @@ export function createKVCloudflareProvisionStep(resolveOptions: () => KVModuleOp
       const config = resolveCloudflareProvisionConfig(context.env)
       if (!config) {
         context.logger.warn("kv: skipping Cloudflare KV, missing CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN.")
+        context.markPlanUnchecked?.()
         return []
       }
 

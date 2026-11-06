@@ -141,12 +141,14 @@ describe("KV Cloudflare provision step", () => {
     await expect(actions[0]!.apply()).rejects.toMatchObject({ name: "ProvisionRequestError", status: 400 })
   })
 
-  it("skips without credentials and never calls the API", async () => {
+  it("skips without credentials, marks the plan unchecked, and never calls the API", async () => {
     const handler = vi.fn(() => jsonResponse({ success: true, result: [] }))
+    const markPlanUnchecked = vi.fn()
     const { context, warn } = createContext(handler, {})
 
-    await expect(createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan(context)).resolves.toEqual([])
+    await expect(createKVCloudflareProvisionStep(() => namedStore("app-cache")).plan({ ...context, markPlanUnchecked })).resolves.toEqual([])
     expect(warn).toHaveBeenCalledWith("kv: skipping Cloudflare KV, missing CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN.")
+    expect(markPlanUnchecked).toHaveBeenCalledExactlyOnceWith()
     expect(handler).not.toHaveBeenCalled()
   })
 
