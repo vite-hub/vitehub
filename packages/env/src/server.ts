@@ -9,7 +9,7 @@ import {
   invalidRuntimeEnvValue,
   missingRequiredEnv,
 } from "./core/errors.ts"
-import { createEnvBridgeHandler } from "./http.ts"
+import { createEnvBridgeHandler, type EnvBridgeRequestOptions } from "./http.ts"
 import type { EnvManagement } from "./http.ts"
 import { SecretEnv } from "./secret.ts"
 import { isRecord, isRuntimeEnvEntry, isRuntimeLiteralEntry, isRuntimeProviderEntry, runtimeRegistryEntries } from "./core/registry.ts"
@@ -541,7 +541,7 @@ export async function inspectServerEnv(
 }
 
 /** Limit management to safe, declared provider paths. Host variables stay read-only. */
-export function createServerEnvManagement(registry: EnvRuntimeRegistry, providers: EnvProviders): (request: Request) => Promise<Response> {
+export function createServerEnvManagement(registry: EnvRuntimeRegistry, providers: EnvProviders): (request: Request, options?: EnvBridgeRequestOptions) => Promise<Response> {
   const targets = new Map<string, { key: string; management: EnvManagement }>()
   for (const { entry, path } of runtimeRegistryEntries(registry)) {
     if (!isRuntimeProviderEntry(entry)) continue
