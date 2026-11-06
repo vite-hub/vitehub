@@ -10,7 +10,7 @@ export default defineConfig({
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
-    entry: ["src/index.ts", "src/cli.ts", "src/runtime.ts", "src/server.ts", "src/vite.ts", "src/vue.ts"],
+    entry: ["src/index.ts", "src/cli.ts", "src/nuxt.ts", "src/runtime.ts", "src/server.ts", "src/vite.ts", "src/vue.ts"],
     exports: {
       customExports: normalizePackageExports,
       inlinedDependencies: false,

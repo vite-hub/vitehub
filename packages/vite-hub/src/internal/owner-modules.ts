@@ -20,6 +20,7 @@ export const ownerModules = {
   contentVite: await importOptionalOwner("@vite-hub/content", () => import("@vite-hub/content/vite")),
   databaseConfig: await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/config")),
   databaseVite: await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/vite")),
+  i18nNuxt: await importOptionalOwner("@vite-hub/i18n", () => import("@vite-hub/i18n/nuxt")),
   i18nVite: await importOptionalOwner("@vite-hub/i18n", () => import("@vite-hub/i18n/vite")),
   realtimeVite: await importOptionalOwner("@vite-hub/realtime", () => import("@vite-hub/realtime/vite")),
   scheduleVite: await importOptionalOwner("@vite-hub/schedule", () => import("@vite-hub/schedule/vite")),

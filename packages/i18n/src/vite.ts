@@ -136,7 +136,17 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
           label: "Locales",
           list: async () => {
             const { inspectI18n } = await import("./inspect.ts")
-            return inspectI18n(resolveLingui(inspectionRoot()))
+            const statuses = await inspectI18n(resolveLingui(inspectionRoot()))
+            return statuses.map(status => ({
+              fields: [
+                { label: "Messages", value: String(status.messages) },
+                { label: "Translated", value: String(status.translated) },
+                { label: "Missing", value: String(status.missing) },
+              ],
+              file: status.catalog,
+              name: status.source ? `${status.locale} (source)` : status.locale,
+              source: "locales",
+            }))
           },
         }],
         providerOutput: [{

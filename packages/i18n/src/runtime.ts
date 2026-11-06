@@ -87,9 +87,20 @@ export async function activateLocale(target: I18n, locale: string): Promise<void
   target.loadAndActivate({ locale, messages })
 }
 
+/** The parts of `document` that the runtime uses. Server code has no `document`. */
+interface BrowserDocument {
+  cookie: string
+  documentElement: { lang: string }
+}
+
+function browserDocument(): BrowserDocument | undefined {
+  return (globalThis as { document?: BrowserDocument }).document
+}
+
 /** The locale that the browser should start with: the saved cookie, then the browser languages, then the source locale. */
 export function resolveBrowserLocale(config: I18nLocaleConfig): string {
-  const cookie = typeof document === "undefined" ? undefined : readCookie(document.cookie, config.cookie)
+  const page = browserDocument()
+  const cookie = page ? readCookie(page.cookie, config.cookie) : undefined
   const languages = typeof navigator === "undefined" ? [] : navigator.languages ?? [navigator.language]
   return (cookie && matchLocale([cookie], config.locales))
     || matchLocale(languages, config.locales)
@@ -114,9 +125,10 @@ export async function setLocale(locale: string): Promise<Result<string, "I18N_UN
   const match = locales.find(entry => entry.toLowerCase() === locale.toLowerCase())
   if (!config || !match) return [i18nErrorDiagnostics.I18N_UNKNOWN_LOCALE({ locale, locales }), undefined]
   await activateLocale(getI18n(), match)
-  if (typeof document !== "undefined") {
-    document.cookie = `${config.cookie}=${encodeURIComponent(match)}; Path=/; Max-Age=31536000; SameSite=Lax`
-    document.documentElement.lang = match
+  const page = browserDocument()
+  if (page) {
+    page.cookie = `${config.cookie}=${encodeURIComponent(match)}; Path=/; Max-Age=31536000; SameSite=Lax`
+    page.documentElement.lang = match
   }
   return [undefined, match]
 }

@@ -3,7 +3,7 @@ import linguiMacroPlugin from "@lingui/babel-plugin-lingui-macro"
 
 import { macroNames } from "./lingui.ts"
 
-import type { PluginObj, types as BabelTypes } from "@babel/core"
+import type { BabelFileResult, PluginObj, types as BabelTypes } from "@babel/core"
 import type { LinguiConfigNormalized } from "@lingui/conf"
 
 export type DescriptorFields = "all" | "id-only"
@@ -45,7 +45,7 @@ export async function transformMacros(
   config: LinguiConfigNormalized,
   importBase: string,
   descriptorFields: DescriptorFields,
-): Promise<{ code: string, map: unknown } | undefined> {
+): Promise<{ code: string, map: NonNullable<BabelFileResult["map"]> | null } | undefined> {
   const packages = config.macro.corePackage
   if (!packages.some(name => code.includes(`"${name}"`) || code.includes(`'${name}'`))) return undefined
   const result = await transformAsync(code, {

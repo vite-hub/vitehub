@@ -10,7 +10,6 @@ async function translationsFor(config: LinguiConfigNormalized, locale: string): 
   const { messages } = await catalog.getTranslations(locale, {
     fallbackLocales: config.fallbackLocales,
     sourceLocale: config.sourceLocale,
-    missingBehavior: "source",
   })
   return messages
 }
@@ -40,7 +39,6 @@ export async function compileCatalogModule(config: LinguiConfigNormalized, relat
   const { messages } = await file.catalog.getTranslations(file.locale, {
     fallbackLocales: config.fallbackLocales,
     sourceLocale: config.sourceLocale,
-    missingBehavior: "source",
   })
   const { source } = createCompiledCatalog(file.locale, messages, { namespace: "es" })
   return { code: source, dependencies: await getCatalogDependentFiles(file.catalog, file.locale) }

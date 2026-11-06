@@ -82,7 +82,8 @@ describe("i18n in a built Nitro 3 app", () => {
 
     const server = await startBuiltServer(root, {})
     try {
-      const greet = async (headers: Record<string, string>, count = 1) => (await server.fetch(`/greeting?count=${count}`, { headers })).json()
+      type Greeting = { locale: string, message: string, items: string }
+      const greet = async (headers: Record<string, string>, count = 1) => await (await server.fetch(`/greeting?count=${count}`, { headers })).json() as Greeting
       expect(await greet({ "accept-language": "es-MX,es;q=0.9,en;q=0.5" }, 2)).toEqual({ locale: "es", message: "Pago recibido", items: "2 items" })
       expect(await greet({ "accept-language": "fr, en;q=0.8" })).toEqual({ locale: "en", message: "Payment received", items: "1 item" })
       // A cookie that `setLocale()` wrote wins over the browser languages.

@@ -1,3 +1,4 @@
+/// <reference path="./virtual.d.ts" />
 import "virtual:vite-hub/i18n/client"
 import { createLingui, Trans } from "@lingui/vue"
 import { inject, readonly, shallowRef } from "vue"
@@ -6,7 +7,7 @@ import { activateLocale, getI18n, getI18nConfig, getLocales, resolveBrowserLocal
 
 import type { I18n, MessageDescriptor } from "@lingui/core"
 import type { Result } from "@vite-hub/runtime"
-import type { App, InjectionKey, Plugin, Ref } from "vue"
+import type { App, ComponentCustomProperties, InjectionKey, Plugin, Ref } from "vue"
 
 export interface LocaleState {
   /** The active locale. Templates that read it re-render when it changes. */
@@ -34,10 +35,11 @@ export function i18nPlugin(options: { i18n?: I18n } = {}): Plugin {
       app.use(createLingui({ i18n }))
       app.component("Trans", Trans)
       // Reading `locale` makes each template that calls `t` re-render after a locale change.
-      app.config.globalProperties.t = (descriptor: MessageDescriptor) => {
+      // SAFETY: the build compiles each ``t`...` `` call in a template to `t(descriptor)`, so the runtime receives a descriptor.
+      app.config.globalProperties.t = ((descriptor: MessageDescriptor) => {
         void locale.value
         return i18n._(descriptor)
-      }
+      }) as unknown as ComponentCustomProperties["t"]
       app.provide(localeKey, { locale: readonly(locale), locales: getLocales(), setLocale })
     },
   }
