@@ -1,5 +1,6 @@
 import { parseArgs } from "node:util"
 
+import { abortable } from "@vite-hub/internal/abort"
 import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
@@ -61,12 +62,15 @@ export interface SetupLiveStatus {
 }
 
 /** A fetch that gives up after `ms`, so a slow host cannot hold the command. */
-function fetchWithTimeout(fetchImpl: typeof fetch, ms: number): typeof fetch {
-  return async (input, init) => await fetchImpl(input, { ...init, signal: AbortSignal.timeout(ms) })
+function fetchWithTimeout(fetchImpl: typeof fetch, ms: number, signal?: AbortSignal): typeof fetch {
+  return async (input, init) => {
+    signal?.throwIfAborted()
+    return await fetchImpl(input, { ...init, signal: signal ?? AbortSignal.timeout(ms) })
+  }
 }
 
-function deploymentsContext(root: string, link: SetupLink, credentials: Extract<HostCredentials, { ok: true }>, context: ViteHubCliContext, run: DeployRun, timeoutMs: number): DeploymentsContext {
-  return { credentials, env: context.env, fetch: fetchWithTimeout(context.fetch ?? globalThis.fetch, timeoutMs), link, root, run, timeoutMs }
+function deploymentsContext(root: string, link: SetupLink, credentials: Extract<HostCredentials, { ok: true }>, context: ViteHubCliContext, run: DeployRun, timeoutMs: number, signal?: AbortSignal): DeploymentsContext {
+  return { credentials, env: context.env, fetch: fetchWithTimeout(context.fetch ?? globalThis.fetch, timeoutMs, signal), link, root, run: signal ? (command, args, options) => run(command, args, { ...options, signal }) : run, timeoutMs }
 }
 
 function readLimit(value: string | undefined): number {
@@ -178,23 +182,18 @@ function isTimeout(error: unknown): boolean {
 
 /**
  * The deployment that receives production traffic, for `vitehub status`. It asks the host only when the project is
- * linked and the credentials resolved, and gives up after `STATUS_HOST_TIMEOUT_MS`. It never throws: a failure is a
- * `liveReason`.
+ * linked and the credentials resolved. The signal shares status's deadline with credential discovery; standalone
+ * callers get `STATUS_HOST_TIMEOUT_MS`. It never throws: a failure is a `liveReason`.
  */
-export async function readSetupLive(root: string, link: SetupLink | undefined, credentials: HostCredentials | undefined, context: ViteHubCliContext, options: { offline: boolean }): Promise<SetupLiveStatus> {
+export async function readSetupLive(root: string, link: SetupLink | undefined, credentials: HostCredentials | undefined, context: ViteHubCliContext, options: { offline: boolean, signal?: AbortSignal }): Promise<SetupLiveStatus> {
   if (options.offline) return { live: null, liveReason: "offline" }
   if (!link) return { live: null, liveReason: "not-linked" }
+  const signal = options.signal ?? AbortSignal.timeout(STATUS_HOST_TIMEOUT_MS)
+  if (signal.aborted) return { live: null, liveReason: "timeout" }
   if (!credentials?.ok || credentials.host !== link.host) return { live: null, liveReason: "no-credentials" }
   const run = createDeployRun(context.stderr, [])
-  let timer: NodeJS.Timeout | undefined
-  const deadline = new Promise<"timeout">((resolve) => {
-    timer = setTimeout(resolve, STATUS_HOST_TIMEOUT_MS + 1_000, "timeout")
-    timer.unref()
-  })
   try {
-    // Ten deployments, so a live deployment behind a few newer previews is still found.
-    const listed = await Promise.race([listers[link.host](deploymentsContext(root, link, credentials, context, run, STATUS_HOST_TIMEOUT_MS), { limit: 10 }), deadline])
-    if (listed === "timeout") return { live: null, liveReason: "timeout" }
+    const listed = await abortable(signal, "Host deployment lookup timed out", () => listers[link.host](deploymentsContext(root, link, credentials, context, run, STATUS_HOST_TIMEOUT_MS, signal), { includeLive: true, limit: 10 }))
     const deployment = listed.find(item => item.live)
     if (!deployment) return { live: null, liveReason: "no-live-deployment" }
     const base = { deploymentId: deployment.id, ...(deployment.url ? { url: deployment.url } : {}) }
@@ -204,9 +203,6 @@ export async function readSetupLive(root: string, link: SetupLink | undefined, c
   }
   catch (error: unknown) {
     return { live: null, liveReason: isTimeout(error) ? "timeout" : "host-error" }
-  }
-  finally {
-    clearTimeout(timer)
   }
 }
 

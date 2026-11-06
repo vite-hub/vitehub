@@ -139,7 +139,7 @@ function parseVercelDeployments(value: unknown, production: string | undefined):
  * - `GET /v9/projects/{idOrName}`: `targets.production` is the deployment that serves production, which the Vercel CLI
  *   also reads. https://vercel.com/docs/rest-api/reference/endpoints/projects/find-a-project-by-id-or-name
  */
-export const listVercelDeployments: ListDeployments = async (context, { limit }) => {
+export const listVercelDeployments: ListDeployments = async (context, { limit, includeLive }) => {
   const linked = context.link.account?.id
   // `vitehub link` stores the project owner, which is a user id on a personal account. Only a team id goes in `teamId`.
   const teamId = context.credentials.teamId ?? (linked?.startsWith("team_") ? linked : undefined)
@@ -151,5 +151,10 @@ export const listVercelDeployments: ListDeployments = async (context, { limit })
   ])
   const targets = isRecord(details) && isRecord(details.targets) ? details.targets : undefined
   const production = targets && isRecord(targets.production) ? optionalString(targets.production.id) : undefined
-  return parseVercelDeployments(list, production).slice(0, limit)
+  const recent = parseVercelDeployments(list, production).slice(0, limit)
+  if (includeLive && production && !recent.some(item => item.live)) {
+    const live = await client(`/v13/deployments/${encodeURIComponent(production)}`)
+    recent.push(...parseVercelDeployments({ deployments: [live] }, production))
+  }
+  return recent
 }

@@ -229,7 +229,7 @@ async function optional<T>(request: Promise<T>): Promise<T | undefined> {
  *   deployment is a preview (`wrangler versions upload`). https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/
  * - `GET /accounts/{account_id}/workers/subdomain`: the `workers.dev` URL. https://developers.cloudflare.com/api/resources/workers/subresources/subdomains/methods/get/
  */
-export const listCloudflareDeployments: ListDeployments = async (context, { limit }) => {
+export const listCloudflareDeployments: ListDeployments = async (context, { limit, includeLive }) => {
   const accountId = context.credentials.accountId ?? context.link.account?.id
   if (!accountId) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_ACCOUNT_REQUIRED({ host: "cloudflare" }), setupExitCodes.inputNeeded, { missing: [{ field: "CLOUDFLARE_ACCOUNT_ID" }], rerun: "vitehub link --host cloudflare --account <id>" })
   const client = createCloudflareProvisionClient({ accountId, token: context.credentials.token }, context.fetch)
@@ -281,5 +281,8 @@ export const listCloudflareDeployments: ListDeployments = async (context, { limi
       ...(version.commit ? { commit: { ...version.commit, from: "vitehub" } } : {}),
     })
   }
-  return result.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit)
+  const recent = result.toSorted((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit)
+  const live = result.find(item => item.live)
+  if (includeLive && live && !recent.includes(live)) recent.push(live)
+  return recent
 }

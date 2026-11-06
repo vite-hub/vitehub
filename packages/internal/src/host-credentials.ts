@@ -21,7 +21,7 @@ export interface HostCliRunResult {
 }
 
 /** Runs a host CLI with an argument array and no shell, and returns its stdout. */
-export type HostCliRun = (command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv }) => Promise<HostCliRunResult>
+export type HostCliRun = (command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv, signal?: AbortSignal }) => Promise<HostCliRunResult>
 
 export interface HostCredentialsContext {
   cwd?: string
@@ -149,6 +149,7 @@ export const runHostCli: HostCliRun = (command, args, options) => new Promise((r
     shell: process.platform === "win32",
     stdio: ["ignore", "pipe", "ignore"],
     timeout: HOST_CLI_TIMEOUT_MS,
+    ...(options.signal ? { signal: options.signal } : {}),
   })
   const chunks: Buffer[] = []
   child.stdout.on("data", (chunk: Buffer) => chunks.push(chunk))

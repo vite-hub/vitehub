@@ -34,6 +34,8 @@ export interface DeployRunOptions {
   show?: boolean
   /** Stops the child after this many milliseconds. Its result then has a `null` exit code. */
   timeoutMs?: number
+  /** Cancels the child with the rest of a bounded host lookup. */
+  signal?: AbortSignal
 }
 
 /** Runs a host CLI with an argument array and no shell. */
@@ -116,8 +118,8 @@ export interface DeploymentsContext {
   timeoutMs?: number
 }
 
-/** Lists the newest `limit` deployments of the linked project, newest first, from the host. */
-export type ListDeployments = (context: DeploymentsContext, options: { limit: number }) => Promise<HostDeployment[]>
+/** Lists the newest `limit` deployments. Status can also request the live record outside that history window. */
+export type ListDeployments = (context: DeploymentsContext, options: { limit: number, includeLive?: boolean }) => Promise<HostDeployment[]>
 
 /** Replaces every value in `secrets` with `<redacted>`. */
 export function redact(text: string, secrets: readonly string[]): string {
@@ -130,7 +132,7 @@ export function redact(text: string, secrets: readonly string[]): string {
  */
 export function createDeployRun(stderr: { write: (chunk: string) => unknown }, secrets: readonly string[]): DeployRun {
   return (command, args, options) => new Promise((resolve, reject) => {
-    const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: ["pipe", "pipe", "pipe"], ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}) })
+    const child = spawn(command, [...args], { cwd: options.cwd, env: options.env, shell: false, stdio: ["pipe", "pipe", "pipe"], ...(options.timeoutMs ? { timeout: options.timeoutMs } : {}), ...(options.signal ? { signal: options.signal } : {}) })
     const output = { stderr: "", stdout: "" }
     let pending = ""
     const show = (chunk: string, flush = false) => {

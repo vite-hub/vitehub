@@ -6,7 +6,7 @@ import { parseArgs } from "node:util"
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { setupCatalog } from "./catalog.ts"
 import { readSetupArgs, setupExitCodes, table, writeSetupError, writeSetupJson } from "./envelope.ts"
-import { deploymentsCommand, liveLabel, readSetupLive } from "./deployments.ts"
+import { deploymentsCommand, liveLabel, readSetupLive, STATUS_HOST_TIMEOUT_MS } from "./deployments.ts"
 import { linkSetupProject, readSetupLinkState, SETUP_LINK_FILE, unlinkSetupProject } from "./link.ts"
 import { readSetupProject } from "./project.ts"
 import { setupStatus } from "./status.ts"
@@ -109,11 +109,12 @@ const statusCommand: ViteHubCliCommand = {
     return runSetupCommand(statusCommand, args.filter(arg => arg !== "--offline"), context, async (json) => {
       const project = await readSetupProject(context.rootDir, context.env)
       const features = setupStatus(project, context.env)
-      const state = await readSetupLinkState(project, features.host.name, context)
+      const signal = offline ? undefined : AbortSignal.timeout(STATUS_HOST_TIMEOUT_MS)
+      const state = await readSetupLinkState(project, features.host.name, context, { offline, signal })
       const status = {
         ...features,
         ...state.status,
-        ...await readSetupLive(project.root, state.link, state.credentials, context, { offline }),
+        ...await readSetupLive(project.root, state.link, state.credentials, context, { offline, signal }),
         stack: await readSetupStack(project.root),
       }
       if (json) writeSetupJson(context, status)
