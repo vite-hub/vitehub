@@ -7,7 +7,7 @@ import { consoleAuthPath } from "./auth-path.ts"
 
 export { consoleMcpNativeClients, consoleMcpOAuth } from "./auth-oauth.ts"
 export type { ConsoleMcpOAuthOptions } from "./auth-oauth.ts"
-export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
+export { consoleAuthBasePath, consoleAuthPageResponse, consoleAuthSignInPage, consoleAuthSignInURLs, consoleImpersonationPage, createConsoleAppAuthAccess, createConsoleAppAuthPages, readConsoleSessionUser } from "./auth-pages.ts"
 export type { ConsoleAppAuthAccessOptions, ConsoleAppAuthInstance, ConsoleAppAuthResolver, ConsoleSessionReader } from "./auth-pages.ts"
 export type { ConsoleAuthorize, ConsoleAuthorizeContext, ConsoleAuthorizeResult, ConsoleUser } from "./auth-types.ts"
 

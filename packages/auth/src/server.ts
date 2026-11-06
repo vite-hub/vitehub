@@ -209,6 +209,9 @@ function isAbortSignalLike(value: unknown): value is AbortSignal {
 
 type HeadersInput = ConstructorParameters<typeof Headers>[0]
 
+/** Where Better Auth returns after one sign-in that a guard starts. */
+type AuthSignInURLs = Pick<AuthSignInConfiguration, "callbackURL" | "errorCallbackURL">
+
 /**
  * The Headers init of a host request. A Headers-like object without `Symbol.iterator`, from another
  * Fetch implementation, gives its fields through `entries()`, not through its own properties.
@@ -676,6 +679,7 @@ async function checkAuthRequest(
   requiredAuthorizeRouteIndexes: number[] = [],
   redirectToSignIn = true,
   resolveIdentity?: AuthAccessIdentityResolver,
+  signInURLs?: AuthSignInURLs,
 ): Promise<AuthCheck> {
   const { auth, options, request, session } = await readRequestSession(input, definition)
   const identity = await resolveIdentity?.(toRequest(request), input, Boolean(session))
@@ -719,7 +723,7 @@ async function checkAuthRequest(
 
   const signIn = (options as { access?: AuthAccessConfiguration }).access?.signIn
   return reject(signIn
-    ? await createSignInResponse(auth, options, signIn)
+    ? await createSignInResponse(auth, options, { ...signIn, ...signInURLs })
     : Response.json({ error: "Unauthorized." }, { status: 401 }))
 }
 
@@ -863,14 +867,14 @@ async function checkAuthAccessRequest(
   definition: AuthDefinition,
   routeIndexes: number[],
   requiredAuthorizeRouteIndexes: number[],
-  options: { redirectToSignIn?: boolean, reuse?: boolean, remember?: boolean } = {},
+  options: { redirectToSignIn?: boolean, reuse?: boolean, remember?: boolean, signIn?: AuthSignInURLs } = {},
 ): Promise<Response | undefined> {
   const key = JSON.stringify([routeIndexes, requiredAuthorizeRouteIndexes])
   let definitions = reusableAccessChecks.get(input)
   let accepted = definitions?.get(definition)
   const reusable = accepted?.get(key)
   if (reusable === true || (options.reuse && reusable === false)) return
-  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false, getAuthRuntimeState().accessIdentityResolvers?.get(new URL(unwrapAuthRequest(input).url).pathname))
+  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false, getAuthRuntimeState().accessIdentityResolvers?.get(new URL(unwrapAuthRequest(input).url).pathname), options.signIn)
   if (!response && (options.reuse || options.remember)) {
     if (!definitions) reusableAccessChecks.set(input, definitions = new WeakMap())
     if (!accepted) definitions.set(definition, accepted = new Map())
@@ -907,6 +911,8 @@ export async function requireAuthAccessRoutes(
   requiredAuthorizeRouteIndexes: number[] = [],
   options: {
     redirectToSignIn?: boolean
+    /** Where Better Auth returns after this sign-in, replacing `access.signIn.callbackURL` and `errorCallbackURL`. */
+    signIn?: AuthSignInURLs
     /** Reuse successful checks of these exact rules and Definition on this request, including in app Auth middleware. */
     reuse?: boolean
   } = {},
