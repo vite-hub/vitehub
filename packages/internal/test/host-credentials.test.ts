@@ -47,6 +47,14 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
     expect(calls()).toEqual([])
   })
 
+  it("leaves account discovery to the env token when no account is set", async () => {
+    installFakeWrangler()
+    const result = await resolveHostCredentials("cloudflare", { env: env({ CLOUDFLARE_API_TOKEN: "env-token" }) })
+
+    expect(result).toEqual({ ok: true, host: "cloudflare", source: "env", token: "env-token" })
+    expect(calls()).toEqual([])
+  })
+
   it("uses the wrangler login when the token env var is missing", async () => {
     installFakeWrangler()
     const result = await resolveHostCredentials("cloudflare", { env: env() })
@@ -71,7 +79,7 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
 
     expect(result).toEqual({ ok: true, host: "cloudflare", source: "host-cli", token: "fake-oauth-token-from-wrangler", accountId: "fake-account-id" })
     const fromEnv = await resolveHostCredentials("cloudflare", { cwd: dir, env: env({ CLOUDFLARE_API_TOKEN: "env-token" }) })
-    expect(fromEnv).toEqual({ ok: true, host: "cloudflare", source: "env", token: "env-token", accountId: "fake-account-id" })
+    expect(fromEnv).toEqual({ ok: true, host: "cloudflare", source: "env", token: "env-token" })
   })
 
   it("does not treat a Global API Key as a bearer token", async () => {

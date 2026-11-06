@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
-import { delimiter } from "node:path"
+import { delimiter, sep } from "node:path"
 import process from "node:process"
 
 import { locateViteHubConfig } from "@vite-hub/internal/config-edit"
@@ -137,7 +137,7 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
       for (const specifier of [`${name}/package.json`, name]) {
         try {
           const file = realpathSync(require.resolve(specifier))
-          if (!globalCopies.some(dir => file.startsWith(`${dir}/`))) return true
+          if (!globalCopies.some(dir => file.startsWith(`${dir}${sep}`))) return true
         }
         catch {}
       }

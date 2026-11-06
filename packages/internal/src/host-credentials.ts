@@ -73,13 +73,7 @@ export function readHostCredentialsFromEnv(host: CredentialHost, env: Record<str
  */
 export async function resolveHostCredentials(host: CredentialHost, context: HostCredentialsContext): Promise<HostCredentials> {
   const fromEnv = readHostCredentialsFromEnv(host, context.env)
-  if (fromEnv) {
-    if (host === "cloudflare" && !fromEnv.accountId) {
-      const accountId = await readWranglerAccountId(context)
-      return { ok: true, host, source: "env", ...fromEnv, ...(accountId && { accountId }) }
-    }
-    return { ok: true, host, source: "env", ...fromEnv }
-  }
+  if (fromEnv) return { ok: true, host, source: "env", ...fromEnv }
   if (host === "cloudflare") {
     const token = await readWranglerToken(context)
     if (token) {

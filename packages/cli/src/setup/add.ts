@@ -6,7 +6,7 @@ import { createInterface } from "node:readline/promises"
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
 import { featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
-import { basename, dirname, join } from "pathe"
+import { basename, dirname, join, relative } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
@@ -15,7 +15,8 @@ import { installArgs, installCommand, setsOption, setupStatus } from "./status.t
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ConfigEdit, JsonValue } from "@vite-hub/internal/config-edit"
-import type { FeatureHost, FeatureId, HostSupport } from "@vite-hub/internal/features"
+import type { DeploymentPreset } from "@vite-hub/internal/deployment"
+import type { FeatureId, HostSupport } from "@vite-hub/internal/features"
 import type { SetupMissing } from "./envelope.ts"
 import type { SetupProject } from "./project.ts"
 import type { SetupStatus } from "./status.ts"
@@ -83,7 +84,7 @@ function selectsProvider(value: JsonValue | undefined): boolean {
 }
 
 /** How `host` supports `id`, with the override that `env` selects, such as BLOB_READ_WRITE_TOKEN for the Vercel Workspace. */
-function hostSupport(id: FeatureId, host: FeatureHost, env: NodeJS.ProcessEnv): HostSupport {
+function hostSupport(id: FeatureId, host: DeploymentPreset, env: NodeJS.ProcessEnv): HostSupport {
   const support = featureSupport(id, host)
   if (support.level !== "native") return support
   return support.envOverrides?.find(override => env[override.env]?.trim())?.support ?? support
@@ -278,7 +279,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   let rerunnable = true
   const keep = status.features.filter(item => item.enabled === "off" && item.reason === "config" && !args.features.includes(item.id)).map(item => item.id)
   // Implications and provider prerequisites need their inputs before any file can be written.
-  const inputFeatures = [...args.features, ...impliedFeatures(args.features, host, keep)]
+  // Database is mandatory for Comments and Connections, including Console's implied Comments.
+  const inputFeatures = [...args.features, ...impliedFeatures(args.features, host, keep.filter(id => id !== "database"))]
+  if (inputFeatures.includes("database") && keep.includes("database")) requires.push("database")
   for (const id of inputFeatures) {
     const support = featureSupport(id, host)
     const options = args.options[id]
@@ -306,7 +309,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
         missing.push({ choices: ["auto"], field: "schedule.providerOutput" })
         setPath(defaults.schedule ??= {}, ["providerOutput"], "auto")
       }
-      if (!isRecord(value) || value.runtime === undefined) {
+      if (!isRecord(value) || !isRecord(value.runtime) || value.runtime.driver !== "process") {
         missing.push({ choices: ["process"], field: "schedule.runtime.driver" })
         setPath(defaults.schedule ??= {}, ["runtime", "driver"], "process")
       }
@@ -341,6 +344,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const changes: SetupChange[] = []
   const files: Planned["files"] = []
   let configFile: Planned["configFile"]
+  const serverDir = relative(project.root, project.serverDirs?.[0] ?? join(project.root, "server"))
 
   // Starter Definition files.
   if (args.name !== undefined) {
@@ -348,7 +352,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (!withStarter.length) throw invalid(`${args.features.join(", ")} has no Definition files, so --name has no effect. Features with Definitions: ${featureIds.filter(id => features[id].definition).join(", ")}.`)
     for (const id of withStarter) {
       const starter = features[id].definition!
-      const path = starter.file(args.name)
+      const path = join(serverDir, relative("server", starter.file(args.name)))
       const content = starter.template(args.name)
       const file = join(project.root, path)
       if (existsSync(file)) {
@@ -411,9 +415,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (support.level === "native" && support.guarantee === "process-local") nextSteps.push(`${features[id].title} on ${host} uses ${support.display} by default. ${support.detail}`)
   }
   if (args.name !== undefined && args.features.includes("workflow") && host === "vercel" && !selectsProvider(configured("workflow"))) {
-    nextSteps.push(`server/workflows/${args.name}.ts has no \`native\` entry, so Vercel runs it inline. Add one for durable runs: https://vitehub.dev/docs/workflows/configure#add-a-durable-vercel-entry`)
+    nextSteps.push(`${join(serverDir, "workflows", `${args.name}.ts`)} has no \`native\` entry, so Vercel runs it inline. Add one for durable runs: https://vitehub.dev/docs/workflows/configure#add-a-durable-vercel-entry`)
   }
-  if (args.name !== undefined && args.features.includes("realtime")) nextSteps.push(`server/realtime/${args.name}.ts stores documents in the Workspace "${args.name}". Add a Workspace Definition in server/workspaces/${args.name}.ts.`)
+  if (args.name !== undefined && args.features.includes("realtime")) nextSteps.push(`${join(serverDir, "realtime", `${args.name}.ts`)} stores documents in the Workspace "${args.name}". Add a Workspace Definition in ${join(serverDir, "workspaces", `${args.name}.ts`)}.`)
   for (const id of args.features) nextSteps.push(`${features[id].title}: https://vitehub.dev${features[id].docs}`)
   nextSteps.push("Run `vitehub status` to check the result.")
 
@@ -442,6 +446,9 @@ async function applyPlan(project: SetupProject, planned: Planned, args: SetupAdd
         throw new SetupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [project.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
       }
     }
+  }
+  if (planned.configFile && await readFile(join(project.root, planned.configFile.path), "utf8") !== planned.configFile.before) {
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: planned.configFile.path }), setupExitCodes.stalePlan)
   }
   for (const file of planned.files) {
     await mkdir(dirname(join(project.root, file.path)), { recursive: true })

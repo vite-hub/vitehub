@@ -189,10 +189,10 @@ pnpm vitehub add email --option email.driver=resend --yes --json
 - `--dry-run` prints the diff, or the plan with `--json`, and writes nothing.
 - `--yes` applies the plan. In a terminal without `--yes`, the command shows the diff and asks. Without a terminal, or with `--json`, it prints the plan and exits with `2` and a `rerun` command that includes `--yes`.
 - `--no-install` skips the install. The plan still lists the packages and the install command.
-- `--name <name>` creates a starter Definition, such as `server/queues/<name>.ts`, for each feature that has Definitions: Agent, Database, Queue, Realtime, Schedule, and Workflow. It never overwrites a file.
+- `--name <name>` creates a starter Definition, such as `server/queues/<name>.ts`, for each feature that has Definitions: Agent, Database, Queue, Realtime, Schedule, and Workflow. In Nuxt, it uses the application server directory when literal `rootDir` and `serverDir` options make that directory known. It never overwrites a file.
 - `--option key=value` sets an option of the feature, such as `--option email.driver=resend`. With one feature, the feature name is optional. Dotted keys make nested objects.
 
-The command sets `<feature>: true`, or the object from `--option`. A feature that is already on gives no change, so a second run prints `"status": "unchanged"`. Features that an added feature turns on, such as Workflow for Agent, are listed in `implied`; the config names them only when you supply their provider options. For example, on Netlify or Deno, `add comments` requires `--option database.connection.url=libsql://your-host` before writing the config.
+The command sets `<feature>: true`, or the object from `--option`. A feature that is already on gives no change, so a second run prints `"status": "unchanged"`. Features that an added feature turns on, such as Workflow for Agent, are listed in `implied`; the config names them when you supply their provider options. When an added feature requires Database, the command explicitly enables it if it was disabled. For example, on Netlify or Deno, `add comments` requires `--option database.connection.url=libsql://your-host` before writing the config.
 
 The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`. When ViteHub can choose the values, `rerun` is a command that succeeds as it is, including any provider prerequisites. Node Schedules require `--option schedule.runtime.driver=process`, or `--option schedule.providerOutput=false` when you will wake them yourself.
 
@@ -354,16 +354,10 @@ The Env integration contributes commands that report the status of declared Serv
 
 ```bash [Terminal]
 pnpm vitehub env inspect [--stage <name>] [--json]
-pnpm vitehub env check [--stage <name>] [--json] [--allow-missing-secrets]
+pnpm vitehub env check [--stage <name>] [--json]
 ```
 
 Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with its status, source, required, and secret flags. `env check` exits with status `1` when loading Server Env would fail, so it can gate CI or deployment steps.
-
-Some hosts add secrets at runtime, so the build environment does not have them. Cloudflare Worker secrets are an example. To check such a build, add `--allow-missing-secrets`. A missing secret from the host environment then passes. A missing value that is not secret, an invalid value, or a missing provider value still fails the check:
-
-```bash [Terminal]
-pnpm vitehub env check --stage production --allow-missing-secrets
-```
 
 ## Generate and derive secrets
 
