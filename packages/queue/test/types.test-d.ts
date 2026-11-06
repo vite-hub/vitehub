@@ -4,8 +4,13 @@ import type { Plugin } from "vite"
 import { deferQueue, dynamicQueue, getQueue, runQueue } from "../src/runtime/client.ts"
 import { defineQueue } from "../src/definition.ts"
 import type { Result } from "@vite-hub/runtime"
-import type { CloudflareQueueClient, CloudflareQueueErrorCode, QueueErrorCode, QueueSendResult, VercelQueueClient, VercelQueueErrorCode } from "../src/index.ts"
+import type { CloudflareQueueClient, CloudflareQueueErrorCode, LocalQueueProviderOptions, QueueErrorCode, QueueSendResult, ResolvedLocalQueueOptions, VercelQueueClient, VercelQueueErrorCode } from "../src/index.ts"
 import { hubQueue } from "../src/vite.ts"
+
+it("keeps development disclosure out of public local provider options", () => {
+  expectTypeOf<LocalQueueProviderOptions>().not.toHaveProperty("development")
+  expectTypeOf<ResolvedLocalQueueOptions>().not.toHaveProperty("development")
+})
 
 it("returns a vite plugin", () => {
   expectTypeOf(hubQueue()).toMatchTypeOf<Plugin>()

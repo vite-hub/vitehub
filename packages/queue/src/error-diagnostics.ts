@@ -53,6 +53,10 @@ export const queueErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "A direct local queue client needs a `queue` name.",
       fix: "Pass the name of a Queue Definition as `queue` to `createQueueClient()`, or use `getQueue()`.",
     },
+    QUEUE_LOCAL_MODE_MISMATCH: {
+      why: "The local Queue directory already has an engine with a different development error disclosure mode.",
+      fix: "Use `getQueue()` in the generated server runtime, or give the direct client a separate directory.",
+    },
     QUEUE_MISSING_TOPIC: {
       why: "A direct Vercel queue client needs a `topic`.",
       fix: "Pass `topic` to `createQueueClient()`, or use `getQueue()` for a discovered Queue Definition.",

@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeQueueOptions } from "../src/config.ts"
 import { queueErrorDiagnostics } from "../src/error-diagnostics.ts"
-import { closeLocalQueues, startLocalQueue } from "../src/internal/runtime/local-client.ts"
+import { closeLocalQueues, startLocalQueue, useLocalQueueEngine } from "../src/internal/runtime/local-client.ts"
 import { missingQueueDefinitionError, setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
 import { createLocalQueueClient, createLocalQueueEngine, localQueueDeadLimit, localQueueDeliveryRules, localQueueMaxAttempts } from "../src/providers/local.ts"
 import { dynamicQueue } from "../src/runtime/client.ts"
@@ -60,6 +60,27 @@ function install(definitions: Record<string, QueueDefinition>) {
 }
 
 describe("local queue provider config", () => {
+  it.each([true, false])("rejects a different disclosure mode for a cached directory (development: %s)", async (development) => {
+    const config = { base, development, provider: "local" } as const
+    const engine = useLocalQueueEngine(config)
+    expect(useLocalQueueEngine({ ...config, development: development ? true : undefined })).toBe(engine)
+    await expect(createLocalQueueRuntimeClient({ ...config, base: join(base, "."), development: !development, queue: "welcome" })).rejects.toMatchObject({ code: "QUEUE_LOCAL_MODE_MISMATCH" })
+    expect(() => startLocalQueue({ ...config, development: !development })).toThrow(expect.objectContaining({ code: "QUEUE_LOCAL_MODE_MISMATCH" }))
+  })
+
+  it("ignores a development flag passed to the public client", async () => {
+    const options = { base, development: true, provider: "local", queue: "welcome", rules: "vercel" } as const
+    setQueueRuntimeRegistry({ welcome: async () => ({ handler: async () => { throw new Error("SMTP down") } }) })
+    const client = await createQueueClient(options)
+    const engine = useLocalQueueEngine({ base, provider: "local", rules: "vercel" })!
+
+    await client.send({}, { id: "job-1" })
+
+    await vi.waitFor(async () => expect((await engine.jobs())[0]?.error).toEqual({ message: "[vitehub] Queue Delivery failed.", name: "Error" }))
+    await vi.waitFor(async () => expect((await engine.status()).queues.welcome?.running).toBe(0))
+    expect(console.error).toHaveBeenCalledWith("[vitehub:queue] Queue Delivery failed.", expect.objectContaining({ error: { message: "[vitehub] Queue Delivery failed.", name: "Error" } }))
+  })
+
   it("is the default provider for a Node server", () => {
     expect(normalizeQueueOptions(undefined, { hosting: "node-server" })).toEqual({ base: ".vitehub/data/queue", provider: "local" })
     expect(normalizeQueueOptions({ provider: "local", base: " data/jobs " })).toEqual({ base: "data/jobs", provider: "local" })
@@ -117,7 +138,7 @@ describe("local queue delivery", () => {
     await vi.waitFor(async () => expect((await engine.status()).queues.welcome).toEqual({ dead: 1, pending: 0, running: 0 }))
     expect(handler).toHaveBeenCalledTimes(localQueueMaxAttempts)
     expect(handler.mock.calls.map(([job]) => job.attempts)).toEqual([1, 2, 3, 4])
-    expect(await storedJobs()).toEqual([expect.objectContaining({ attempts: 4, state: "dead" })])
+    await vi.waitFor(async () => expect(await storedJobs()).toEqual([expect.objectContaining({ attempts: 4, state: "dead" })]))
   })
 
   it("does not retry a Queue error that a retry cannot fix", async () => {

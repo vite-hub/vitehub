@@ -481,6 +481,19 @@ describe("hubQueue", () => {
     expect(nitroPlugin).not.toContain("cloudflare:")
   })
 
+  it.each(["node-server", "cloudflare", "vercel"])("keeps development disclosure disabled for %s in `vite preview`", async (preset) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-preview-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const plugin = hubQueue()
+    const config = { nitro: { preset }, root }
+    ;(plugin.config as unknown as (config: Record<string, unknown>, env: { command: string, isPreview: boolean }) => void)(config, { command: "serve", isPreview: true })
+    await (plugin.configResolved as (config: unknown) => Promise<void>)({ ...config, command: "serve" } as never)
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
+    expect(nitroPlugin).not.toContain('"development"')
+    expect(nitroPlugin).toContain(`"provider": "${preset === "node-server" ? "local" : preset}"`)
+  })
+
   it("marks the local provider of a Node app as development in `vite dev`", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-node-dev-"))
     roots.push(root)

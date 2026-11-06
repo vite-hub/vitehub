@@ -5,23 +5,27 @@ import { createLocalQueueClient, createLocalQueueEngine, localQueueDeliveryRules
 import { loadQueueDefinition, missingQueueDefinitionError } from "./state.ts"
 
 import type { LocalQueueEngine, LocalQueueStatus } from "../../providers/local.ts"
-import type { LocalQueueRules, QueueClient, QueueProviderOptions, ResolvedQueueOptions } from "../../types.ts"
+import type { LocalQueueRules, QueueClient } from "../../types.ts"
+import type { QueueRuntimeOptions, QueueRuntimeProviderOptions } from "./types.ts"
 import { queueErrorDiagnostics } from "../../error-diagnostics.ts"
 
 // One engine per directory, so every client of this process shares the delivery of its jobs.
-const engines = new Map<string, LocalQueueEngine>()
+const engines = new Map<string, { development: boolean, engine: LocalQueueEngine }>()
 
 function getLocalQueueEngine({ base = defaultLocalQueueBase, development, rules = "local" }: { base?: string, development?: boolean, rules?: LocalQueueRules }): LocalQueueEngine {
   const directory = resolve(base)
-  let engine = engines.get(directory)
-  if (!engine) {
-    engine = createLocalQueueEngine({ base: directory, development, load: loadQueueDefinition, missing: missingQueueDefinitionError, rules: localQueueDeliveryRules[rules] })
-    engines.set(directory, engine)
+  const cached = engines.get(directory)
+  const discloseErrors = development === true
+  if (cached) {
+    if (cached.development !== discloseErrors) throw queueErrorDiagnostics.QUEUE_LOCAL_MODE_MISMATCH()
+    return cached.engine
   }
+  const engine = createLocalQueueEngine({ base: directory, development: discloseErrors, load: loadQueueDefinition, missing: missingQueueDefinitionError, rules: localQueueDeliveryRules[rules] })
+  engines.set(directory, { development: discloseErrors, engine })
   return engine
 }
 
-export async function createLocalQueueRuntimeClient(options: QueueProviderOptions): Promise<QueueClient> {
+export async function createLocalQueueRuntimeClient(options: QueueRuntimeProviderOptions): Promise<QueueClient> {
   if (options.provider !== "local") {
     throw queueErrorDiagnostics.QUEUE_PROVIDER_MISMATCH({ expected: "local", provider: options.provider })
   }
@@ -35,7 +39,7 @@ const providerNames: Readonly<Record<LocalQueueRules, string>> = { cloudflare: "
  * Starts delivery of the stored jobs when the server starts, so jobs from before a restart run without a new send.
  * Logs once where the jobs are and what survives.
  */
-export function startLocalQueue(config: false | ResolvedQueueOptions): void {
+export function startLocalQueue(config: false | QueueRuntimeOptions): void {
   if (config === false || config.provider !== "local") return
   const engine = getLocalQueueEngine(config)
   if (config.rules && config.rules !== "local") {
@@ -50,18 +54,18 @@ export function startLocalQueue(config: false | ResolvedQueueOptions): void {
 }
 
 /** The engine of the stored jobs, for `vitehub queue list`, `vitehub queue jobs`, and the Console. */
-export function useLocalQueueEngine(config: ResolvedQueueOptions): LocalQueueEngine | undefined {
+export function useLocalQueueEngine(config: QueueRuntimeOptions): LocalQueueEngine | undefined {
   if (config.provider !== "local") return
   return getLocalQueueEngine(config)
 }
 
 /** Status of the stored jobs, for `vitehub queue list` and the Console. */
-export async function getLocalQueueStatus(config: ResolvedQueueOptions): Promise<LocalQueueStatus | undefined> {
+export async function getLocalQueueStatus(config: QueueRuntimeOptions): Promise<LocalQueueStatus | undefined> {
   return await useLocalQueueEngine(config)?.status()
 }
 
 /** Stops the timers of every local engine. The stored jobs stay. */
 export function closeLocalQueues(): void {
-  for (const engine of engines.values()) engine.close()
+  for (const { engine } of engines.values()) engine.close()
   engines.clear()
 }

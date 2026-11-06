@@ -13,6 +13,7 @@ import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 import { getCloudflareQueueName } from "./cloudflare-resource-name.ts"
 
 import type { DiscoveredQueueDefinition, QueueModuleOptions } from "../types.ts"
+import type { QueueRuntimeOptions } from "./runtime/types.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
 export const queuePackageName = "@vite-hub/queue"
@@ -56,7 +57,7 @@ function resolveOutputQueueConfig(queue: QueueModuleOptions | undefined, hosting
  * cannot deliver jobs, so it runs them with the local provider and the delivery rules of the provider of the build.
  * A build keeps the configured provider.
  */
-function resolveRuntimeQueueConfig(queueConfig: NormalizedQueueOptions, development: boolean, rootDir: string): NormalizedQueueOptions {
+function resolveRuntimeQueueConfig(queueConfig: NormalizedQueueOptions, development: boolean, rootDir: string): false | QueueRuntimeOptions {
   if (!development || queueConfig === false) return queueConfig
   if (queueConfig.provider === "local") return { ...queueConfig, development }
   return {
