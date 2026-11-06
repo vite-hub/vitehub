@@ -112,7 +112,12 @@ describe("simulated chat Channels", () => {
       expect(response.status, channel).toBe(200)
       expect(response.headers.get("content-type"), channel).toBe("text/html; charset=utf-8")
       const html = await response.text()
-      expect(html, channel).toContain(`Unofficial simulator · not affiliated with ${platform}`)
+      expect(html.match(/<span class="sim-label">/g), channel).toHaveLength(1)
+      expect(html, channel).toContain(`<div class="sim-strip"><span class="sim-label">Unofficial <span class="sim-optional">simulator </span>· not affiliated with ${platform}</span>`)
+      // The embed check runs in <head>, before the first paint, so an embedded page never shows its app chrome.
+      const head = html.slice(0, html.indexOf("</head>"))
+      expect(head, channel).toContain("<script>if(self!==top)document.documentElement.dataset.embed=\"\"</script>")
+      expect(html, channel).toContain("[data-embed]")
       expect(html, channel).toContain(`"route":"${route}"`)
       expect(html, channel).not.toMatch(/<link|<img|\bsrc=|@import|url\(\s*["']?https?:/)
       const script = /<script type="module">([\s\S]*)<\/script>/.exec(html)?.[1] ?? ""
@@ -127,16 +132,24 @@ describe("simulated chat Channels", () => {
     })
     const handler = createChannelWebhookRouteHandler(agent)
     const html = await (await handler(new Request("https://example.com/hooks/support/helpdesk/in"), "helpdesk", { agentName: "support" })).text()
-    const switcher = /<nav class="switch" aria-label="Simulated Channels">(.*?)<\/nav>/.exec(html)?.[1]
-    expect(switcher).toBe([
+    // The switcher is in the strip with the unofficial label. A narrow screen shows the select instead of the links.
+    const strip = /<div class="sim-strip">(.*?)<\/div>/.exec(html)?.[1]
+    const links = /<nav class="sim-switch" aria-label="Simulated Channels"><span class="sim-links">(.*?)<\/span>/.exec(strip ?? "")?.[1]
+    expect(links).toBe([
       "<a href=\"/hooks/support/discord/in\">Discord</a>",
       "<a aria-current=\"page\">Slack (helpdesk)</a>",
       "<a href=\"/hooks/support/telegram/in\">Telegram</a>",
     ].join(""))
+    expect(/<select aria-label="Simulated Channel"[^>]*>(.*?)<\/select>/.exec(strip ?? "")?.[1]).toBe([
+      "<option value=\"/hooks/support/discord/in\">Discord</option>",
+      "<option value=\"/hooks/support/helpdesk/in\" selected>Slack (helpdesk)</option>",
+      "<option value=\"/hooks/support/telegram/in\">Telegram</option>",
+    ].join(""))
+    expect(html).toContain("[data-embed] .sim-switch { display: none; }")
 
     const single = defineAgent({ channels: { slack: slack() }, driver: { run: () => "ok" } })
     const alone = await (await createChannelWebhookRouteHandler(single)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/slack"), "slack", { agentName: "support" })).text()
-    expect(alone).not.toContain("<nav class=\"switch\"")
+    expect(alone).not.toContain("<nav class=\"sim-switch\"")
   })
 
   it("marks simulated Channels in the Channel list, with the path of their chat page", async () => {

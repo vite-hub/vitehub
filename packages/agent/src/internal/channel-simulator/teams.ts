@@ -4,16 +4,16 @@ import type { SimulatorConfig, SimulatorDocument, SimulatorSkin, SimulatorView }
 
 // Inspired by a Microsoft Teams chat with a bot. It follows the system theme. No Microsoft logo, font, or asset is used.
 const css = `
-:root{--brand:#5b5fc7;--bar:#ebebeb;--list:#f5f5f5;--main:#fff;--line:#e0e0e0;--text:#242424;--muted:#616161;--soft:#8a8a8a;--in:#f5f5f5;--out:#e8ebfa;--sel:#fff;--hover:#e0e0e0;--code:#fafafa;--link:#4f52b2;--input:#fff;color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--brand:#7f85f5;--bar:#0a0a0a;--list:#1f1f1f;--main:#292929;--line:#3d3d3d;--text:#fff;--muted:#adadad;--soft:#858585;--in:#333;--out:#3a3b66;--sel:#333;--hover:#2e2e2e;--code:#1f1f1f;--link:#a7abff;--input:#1f1f1f;color-scheme:dark}}
+:root{--brand:#5b5fc7;--bar:#ebebeb;--list:#f5f5f5;--main:#fff;--line:#e0e0e0;--text:#242424;--muted:#616161;--soft:#707070;--in:#f5f5f5;--out:#e8ebfa;--sel:#fff;--hover:#e0e0e0;--code:#fafafa;--link:#4f52b2;--input:#fff;color-scheme:light;--sim-strip-bg:var(--bar);--sim-strip-text:var(--muted);--sim-surface:var(--main);--sim-text:var(--text);--sim-line:var(--line)}
+@media (prefers-color-scheme:dark){:root{--brand:#7f85f5;--bar:#0a0a0a;--list:#1f1f1f;--main:#292929;--line:#3d3d3d;--text:#fff;--muted:#adadad;--soft:#8f8f8f;--in:#333;--out:#3a3b66;--sel:#333;--hover:#2e2e2e;--code:#1f1f1f;--link:#a7abff;--input:#1f1f1f;color-scheme:dark}}
 *{box-sizing:border-box;margin:0}
-body{height:100vh;height:100dvh;display:grid;grid-template-rows:48px minmax(0,1fr);font:14px/20px system-ui,"Segoe UI",sans-serif;color:var(--text);background:var(--bar);-webkit-font-smoothing:antialiased}
+body{font:14px/20px system-ui,"Segoe UI",sans-serif;color:var(--text);background:var(--bar);-webkit-font-smoothing:antialiased}
+.sim-root{display:grid;grid-template-rows:48px minmax(0,1fr)}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:none}
 .top{display:grid;grid-template-columns:minmax(max-content,1fr) minmax(0,480px) 1fr;align-items:center;gap:16px;padding:0 12px}
 .top .l,.top .r{display:flex;align-items:center;gap:8px;min-width:0}
 .top .r{justify-content:flex-end}
-.unofficial{white-space:nowrap;font-size:11px;line-height:13px;color:var(--muted);border:1px dashed var(--soft);border-radius:4px;padding:1px 6px}
 .search{height:32px;border-radius:4px;background:var(--main);display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--soft);border:1px solid var(--line)}
 .search svg{width:16px;height:16px}
 .app{display:grid;grid-template-columns:68px 320px minmax(0,1fr);min-height:0}
@@ -92,20 +92,23 @@ textarea::placeholder{color:var(--soft)}
 .send{color:var(--brand)}
 .compose:has(textarea:placeholder-shown) .send{color:var(--soft)}
 .sep{width:1px;height:20px;background:var(--line);margin:6px 4px}
-@media (pointer:coarse){textarea{font-size:16px}}
+@media (pointer:coarse){textarea{font-size:16px}.compose .send{width:44px;height:44px}}
 @media (prefers-reduced-motion:reduce){.dots i{animation:none}}
-@media (max-width:760px){.app{grid-template-columns:minmax(0,1fr)}.rail,.chats,.search,.tabs{display:none}.top{grid-template-columns:1fr auto}}
+@media (max-width:760px){.sim-root{grid-template-rows:minmax(0,1fr)}.app{grid-template-columns:minmax(0,1fr)}.top,.rail,.chats,.tabs{display:none}}
+[data-embed] .sim-root{grid-template-rows:minmax(0,1fr)}
+[data-embed] .app{grid-template-columns:minmax(0,1fr)}
+[data-embed] .top,[data-embed] .rail,[data-embed] .chats{display:none}
 `
 
 const icon = (path: string): string => `<svg viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`
 const dots = icon("<path d=\"M6 12h.01M12 12h.01M18 12h.01\" stroke-width=\"2.5\"/>")
 
-function body(config: SimulatorConfig, switcher: string): string {
+function body(config: SimulatorConfig): string {
   const agent = escapeHtml(config.agent)
   const user = escapeHtml(config.user)
   const agentInitial = initialHtml(config.agent)
   return `<header class="top">
-  <div class="l"><span class="unofficial">Unofficial simulator · not affiliated with ${escapeHtml(config.platform)}</span>${switcher}</div>
+  <div class="l"></div>
   <div class="search" aria-hidden="true">${icon("<circle cx=\"10\" cy=\"10\" r=\"6\"/><path d=\"M15 15l5 5\"/>")}Search</div>
   <div class="r"><span class="ib" aria-hidden="true">${dots}</span><span class="av sm" aria-hidden="true">${initialHtml(config.user)}</span></div>
 </header>
@@ -161,8 +164,8 @@ function teamsMessage(view: SimulatorView, index: number): string {
     const avatar = grouped ? "<span class=\"gap\"></span>" : `<span class="av bot" aria-hidden="true">${view.escape((view.config.agent.trim().charAt(0) || "?").toUpperCase())}</span>`
     return `<div class="msg${grouped ? " g" : ""}">${avatar}${content}</div>`
   }
-  const lastMine = !view.messages.slice(index + 1).some(next => next.role === "user")
-  const seen = lastMine ? "<span class=\"seen\" title=\"Seen\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M8 12.5l2.5 2.5L16 9.5\"/></svg></span>" : ""
+  const later = view.messages.slice(index + 1)
+  const seen = later.some(next => next.role === "assistant") && !later.some(next => next.role === "user") ? "<span class=\"seen\" title=\"Seen\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"12\" r=\"9\"/><path d=\"M8 12.5l2.5 2.5L16 9.5\"/></svg></span>" : ""
   return `<div class="msg me${grouped ? " g" : ""}">${content}${seen}</div>`
 }
 

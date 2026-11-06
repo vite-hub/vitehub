@@ -45,8 +45,10 @@ export interface SimulatorElement {
   readonly style: { height: string }
   textContent: string | null
   addEventListener: (type: string, listener: (event: SimulatorEvent) => void) => void
+  after: (node: SimulatorElement) => void
   append: (node: SimulatorElement) => void
   focus: () => void
+  remove: () => void
   setAttribute: (name: string, value: string) => void
 }
 
@@ -59,9 +61,17 @@ export interface SimulatorForm extends SimulatorElement {
 }
 
 export interface SimulatorDocument {
+  /** The page script in `<head>` sets `data-embed` on `<html>` when the page is in an iframe. */
+  readonly documentElement: { readonly dataset: { readonly embed?: string } }
   title: string
   createElement: (tag: string) => SimulatorElement
   getElementById: (id: string) => SimulatorElement | null
+}
+
+/** The part of `window` that an embedded page uses to tell its parent about a reply. */
+export interface SimulatorWindow {
+  readonly location: { readonly origin: string }
+  readonly parent: { postMessage: (message: unknown, targetOrigin: string) => void }
 }
 
 /** Returns the HTML of one message. It runs in the browser, so it must not use anything outside its own body. */
@@ -74,10 +84,12 @@ export type SimulatorUpdate = (view: SimulatorView, document: SimulatorDocument)
  * One platform look. `body` runs on the server. `message` and `update` run in the browser.
  *
  * `body` must contain `#scroll` (the scroll container), `#list` (the message list), `#form`, and the `#input` textarea.
- * It puts `switcher`, the links to the other simulated Channels, in its top bar. `switcher` is empty for one Channel.
+ * The page renders it in `.sim-root`, below the strip with the unofficial label, and adds the failure notice after
+ * `#list`. The skin CSS sets `--sim-strip-bg`, `--sim-strip-text`, `--sim-surface`, `--sim-text`, and `--sim-line`, and
+ * hides its app chrome under `[data-embed]`. The send button has the `send` class.
  */
 export interface SimulatorSkin {
-  body: (config: SimulatorConfig, switcher: string) => string
+  body: (config: SimulatorConfig) => string
   css: string
   message: SimulatorMessageRenderer
   platform: string
