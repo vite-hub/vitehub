@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs"
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 
+import { abortable } from "@vite-hub/internal/abort"
 import { deploymentPresetFromNitro } from "@vite-hub/internal/deployment"
-import { resolveHostCredentials } from "@vite-hub/internal/host-credentials"
+import { resolveHostCredentials, runHostCli } from "@vite-hub/internal/host-credentials"
 import {
   createCloudflareApiClient,
   createCloudflareProvisionClient,
@@ -425,13 +426,11 @@ export interface SetupLinkState {
   credentials: HostCredentials | undefined
 }
 
-/** Reads the link and resolves the credentials once, for the status fields and for a host request. */
-export async function readSetupLinkState(project: SetupProject, host: string, context: ViteHubCliContext): Promise<SetupLinkState> {
+/** Reads the link and credentials, skipping CLI discovery offline and sharing the online host deadline. */
+export async function readSetupLinkState(project: SetupProject, host: string, context: ViteHubCliContext, options: { offline?: boolean, signal?: AbortSignal } = {}): Promise<SetupLinkState> {
   const [link, pending] = await Promise.all([readSetupLink(project.root), readSetupConsoleLink(project.root)])
   const credentialHost = link?.host ?? (isLinkHost(host) ? host : undefined)
-  const credentials = credentialHost
-    ? await resolveHostCredentials(credentialHost, { cwd: project.root, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
-    : undefined
+  const credentials = credentialHost ? await readStatusCredentials(credentialHost, project.root, context, options) : undefined
   return {
     credentials,
     link,
@@ -440,6 +439,27 @@ export async function readSetupLinkState(project: SetupProject, host: string, co
       credentials: credentials ? describeCredentials(credentials) : null,
       link: link ? { host: link.host, ...(link.account ? { account: link.account } : {}), project: link.project, verified: link.verified } : null,
     },
+  }
+}
+
+async function readStatusCredentials(host: CredentialHost, cwd: string, context: ViteHubCliContext, options: { offline?: boolean, signal?: AbortSignal }): Promise<HostCredentials> {
+  const envOnly = () => resolveHostCredentials(host, { cwd, env: context.env, run: async () => ({ exitCode: 1, stdout: "" }) })
+  if (options.offline) return await envOnly()
+  const signal = options.signal
+  try {
+    return await abortable(signal, "Host credential discovery timed out", () => resolveHostCredentials(host, {
+      cwd,
+      env: context.env,
+      run: (command, args, runOptions) => {
+        signal?.throwIfAborted()
+        return (context.runHostCli ?? runHostCli)(command, args, { ...runOptions, ...(signal ? { signal } : {}) })
+      },
+    }))
+  }
+  catch (error: unknown) {
+    if (!signal?.aborted) throw error
+    // Preserve the credential output contract using only local environment data after a timeout.
+    return await envOnly()
   }
 }
 

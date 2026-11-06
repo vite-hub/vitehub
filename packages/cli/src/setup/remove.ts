@@ -4,11 +4,11 @@ import process from "node:process"
 
 import { editViteHubConfig, locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { listMatchingFiles } from "@vite-hub/internal/definition-catalog"
-import { featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { dirname, join, relative } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
-import { confirmSetupChange, featurePackages, readFeatureId, setupDiff } from "./add.ts"
+import { confirmSetupChange, readFeatureId, setupDiff } from "./add.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { readSetupProject } from "./project.ts"
 import { setupStatus, uninstallArgs } from "./status.ts"
@@ -205,8 +205,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     return key?.kind === "literal" ? key.value : undefined
   }
   const packagesOf = (id: FeatureId, value: JsonValue | undefined, preset: DeploymentPreset) => {
-    const packages = featurePackages(id, value, preset)
-    return [...packages.prod, ...packages.dev]
+    return [...featurePackages(id, value, preset), ...features[id].devPackages]
   }
   const stillNeeded = new Set(remaining.flatMap(id => packagesOf(id, valueOf(afterKeys, id), host)))
 
@@ -264,8 +263,8 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   for (const id of turnedOff) {
     const packages = featurePackages(id, valueOf(project.config, id), host)
     const removable = (name: string) => !stillNeeded.has(name) && !imported.has(name) && !prod.includes(name) && !dev.includes(name)
-    for (const name of packages.prod) if (removable(name) && project.declared(name, false)) prod.push(name)
-    for (const name of packages.dev) if (removable(name) && project.declared(name, true)) dev.push(name)
+    for (const name of packages) if (removable(name) && project.declared(name, false)) prod.push(name)
+    for (const name of features[id].devPackages) if (removable(name) && project.declared(name, true)) dev.push(name)
   }
   const uninstall = [...prod, ...dev]
   const command = uninstall.length ? [project.packageManager, ...uninstallArgs(project.packageManager, uninstall)].join(" ") : undefined

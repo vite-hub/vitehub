@@ -266,6 +266,22 @@ describe("insertViteHubConfig", () => {
     expect(result.ok && locateViteHubConfig("nuxt.config.ts", result.code)).toMatchObject({ ok: true, site: { form: "nuxt-module-tuple", keys: { preset: { kind: "literal", value: "vercel" } } } })
   })
 
+  it.each([
+    ["vite.config.ts", "plugins"],
+    ["nuxt.config.ts", "modules"],
+  ])("refuses a %s registration that a later member can override", (file, key) => {
+    for (const member of ["...shared", `${key}() { return [] }`, `get ${key}() { return [] }`, "[key]: []"]) {
+      const code = `export default { ${key}: [], ${member} }\n`
+      expect(insertViteHubConfig(file, code, { preset: "node" })).toMatchObject({ ok: false })
+    }
+  })
+
+  it("keeps a Vite plugins array that overrides an earlier spread", () => {
+    const code = "export default { ...shared, plugins: [] }\n"
+    const result = insertViteHubConfig("vite.config.ts", code, { preset: "node" })
+    expect(result.ok && result.code).toContain('...shared, plugins: [vitehub({ preset: "node" })]')
+  })
+
   it("keeps a config that registers ViteHub, and leaves a function config manual", () => {
     const registered = "import { vitehub } from \"vite-hub\"\nexport default { plugins: [vitehub({ preset: \"node\" })] }\n"
     expect(insertViteHubConfig("vite.config.ts", registered, { preset: "deno" })).toEqual({ code: registered, ok: true })

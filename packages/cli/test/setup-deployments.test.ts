@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { delimiter, dirname, join } from "node:path"
 import process from "node:process"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { fakeHosts } from "./setup-deploy-helpers.ts"
 import { createProject, runSetup } from "./setup-helpers.ts"
@@ -181,6 +181,30 @@ describe("vitehub deployments", () => {
     expect(api.requests.find(request => request.url.includes("/versions?"))?.url).toContain("deployable=true")
   })
 
+  it("honors a Cloudflare limit larger than the default deployment page", async () => {
+    const root = await createProject(projectFiles("cloudflare"))
+    const api = hostApi(cloudflareRoutes())
+    const deployments = Array.from({ length: 25 }, (_, index) => ({
+      created_on: new Date(Date.UTC(2026, 10, 7, 0, 0, 25 - index)).toISOString(),
+      id: `deployment-${index}`,
+      source: "wrangler",
+      versions: [{ percentage: 100, version_id: "bcf48806-b317-4351-9ee7-36e7d557d4de" }],
+    }))
+    const pagedFetch: typeof fetch = async (input, init) => {
+      const url = new URL(String(input))
+      if (url.href.startsWith(`${cloudflareScript}/deployments`)) {
+        const pageSize = Number(url.searchParams.get("per_page") ?? "20")
+        return Response.json({ result: { deployments: deployments.slice(0, pageSize) }, success: true })
+      }
+      return api.fetch(input, init)
+    }
+
+    const { exitCode, json } = await runSetup<SetupDeploymentsOutput>(["deployments", "--limit", "25", "--json"], root, credentials.cloudflare, { fetch: pagedFetch })
+
+    expect(exitCode).toBe(0)
+    expect(json.deployments.map(item => item.id)).toEqual(deployments.map(item => item.id))
+  })
+
   it("lists Vercel deployments and marks the production target as live", async () => {
     const root = await createProject(projectFiles("vercel"))
     const api = hostApi(vercelRoutes)
@@ -296,6 +320,123 @@ describe("vitehub deployments", () => {
 })
 
 describe("vitehub status live", () => {
+  it.each(["cloudflare", "vercel", "netlify"] as const)("finds %s production outside the recent history page", async (host) => {
+    const root = await createProject(projectFiles(host))
+    const previews = (text: string) => {
+      const value = JSON.parse(text)
+      if (host === "cloudflare") {
+        const preview = value.result.items[0]
+        value.result.items = Array.from({ length: 10 }, (_, index) => ({ ...preview, id: `preview-${index}` }))
+        return JSON.stringify(value)
+      }
+      const items = host === "vercel" ? value.deployments : value
+      const recent = Array.from({ length: 10 }, (_, index) => ({ ...items[0], id: `preview-${index}`, uid: `preview-${index}` }))
+      return JSON.stringify(host === "vercel" ? { ...value, deployments: recent } : recent)
+    }
+    const routes: Record<string, Route> = host === "cloudflare" ? {
+      ...cloudflareRoutes(previews),
+      [`GET ${cloudflareScript}/versions/bcf48806-b317-4351-9ee7-36e7d557d4de`]: { edit: text => JSON.stringify({ result: JSON.parse(text).result.items[1], success: true }), fixture: "cloudflare-versions.json" },
+    } : host === "vercel" ? {
+      ...vercelRoutes,
+      "GET https://api.vercel.com/v6/deployments": { edit: previews, fixture: "vercel-deployments.json" },
+      "GET https://api.vercel.com/v13/deployments/dpl_2euZBFqxYdDMDG1jTrHFnNZ2eUVa": { edit: text => JSON.stringify(JSON.parse(text).deployments[1]), fixture: "vercel-deployments.json" },
+    } : {
+      ...netlifyRoutes,
+      [`GET https://api.netlify.com/api/v1/sites/${SITE}/deploys`]: { edit: previews, fixture: "netlify-deploys.json" },
+      "GET https://api.netlify.com/api/v1/deploys/6543210fedcba9876543210f": { edit: text => JSON.stringify(JSON.parse(text)[1]), fixture: "netlify-deploys.json" },
+    }
+    const { exitCode, json } = await runSetup<SetupLiveStatus>(["status", "--json"], root, credentials[host], { fetch: hostApi(routes).fetch })
+
+    expect(exitCode).toBe(0)
+    expect(json.liveReason).toBeNull()
+    expect(json.live).toMatchObject({ commit: { sha: LIVE_SHA }, deploymentId: host === "cloudflare" ? "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e" : host === "vercel" ? "dpl_2euZBFqxYdDMDG1jTrHFnNZ2eUVa" : "6543210fedcba9876543210f" })
+  })
+
+  it("finds Deno production outside the recent history page", async () => {
+    const root = await createProject(projectFiles("deno"))
+    const hosts = await fakeHosts({
+      ...credentials.deno,
+      FAKE_DENO_APP: JSON.stringify({ productionRevisionId: "rev-live", productionUrl: "https://my-app.acme.deno.net" }),
+      FAKE_DENO_DEPLOYMENTS: JSON.stringify({ items: Array.from({ length: 10 }, (_, index) => ({ id: `preview-${index}`, prod: false, status: "succeeded" })), nextCursor: "older" }),
+    })
+    const { exitCode, json } = await runSetup<SetupLiveStatus>(["status", "--json"], root, hosts.env)
+
+    expect(exitCode).toBe(0)
+    expect(json.liveReason).toBeNull()
+    expect(json.live).toEqual({ deploymentId: "rev-live", unknownReason: "no-marker", url: "https://my-app.acme.deno.net" })
+  })
+
+  it.each([{ CLOUDFLARE_ACCOUNT_ID: ACCOUNT }, { CLOUDFLARE_API_TOKEN: TOKEN }])("skips credential CLI discovery with --offline (%j)", async (env) => {
+    const root = await createProject(projectFiles("cloudflare"))
+    const runHostCli = vi.fn(async () => ({ exitCode: 0, stdout: JSON.stringify({ token: TOKEN, type: "oauth" }) }))
+    const { json } = await runSetup<SetupLiveStatus>(["status", "--offline", "--json"], root, env, { runHostCli })
+
+    expect(json).toMatchObject({ live: null, liveReason: "offline" })
+    expect(runHostCli).not.toHaveBeenCalled()
+  })
+
+  it.each(["cloudflare", "vercel", "netlify"] as const)("reports no live deployment only when %s has no production pointer", async (host) => {
+    const root = await createProject(projectFiles(host))
+    const routes: Record<string, Route> = host === "cloudflare" ? {
+      ...cloudflareRoutes(),
+      [`GET ${cloudflareScript}/deployments`]: { edit: () => JSON.stringify({ result: { deployments: [] }, success: true }), fixture: "cloudflare-deployments.json" },
+    } : host === "vercel" ? {
+      ...vercelRoutes,
+      [`GET https://api.vercel.com/v9/projects/${PROJECT}`]: { edit: () => JSON.stringify({ targets: {} }), fixture: "vercel-project-targets.json" },
+    } : {
+      ...netlifyRoutes,
+      [`GET https://api.netlify.com/api/v1/sites/${SITE}`]: { edit: () => JSON.stringify({ published_deploy: null }), fixture: "netlify-site.json" },
+    }
+    const { json } = await runSetup<SetupLiveStatus>(["status", "--json"], root, credentials[host], { fetch: hostApi(routes).fetch })
+
+    expect(json).toMatchObject({ live: null, liveReason: "no-live-deployment" })
+  })
+
+  it("reports no live Deno deployment when the app has no production revision", async () => {
+    const root = await createProject(projectFiles("deno"))
+    const hosts = await fakeHosts({ ...credentials.deno, FAKE_DENO_APP: JSON.stringify({ productionRevisionId: null }) })
+    const { json } = await runSetup<SetupLiveStatus>(["status", "--json"], root, hosts.env)
+
+    expect(json).toMatchObject({ live: null, liveReason: "no-live-deployment" })
+  })
+
+  it("bounds credential discovery even when its runner never returns", async () => {
+    const root = await createProject(projectFiles("cloudflare"))
+    let release!: (result: { exitCode: number, stdout: string }) => void
+    const pending = new Promise<{ exitCode: number, stdout: string }>((resolve) => { release = resolve })
+    const started = Date.now()
+    try {
+      const result = await Promise.race([
+        runSetup<SetupLiveStatus>(["status", "--json"], root, {}, { runHostCli: async () => await pending }),
+        new Promise<never>((_resolve, reject) => { setTimeout(() => reject(new Error("status exceeded its host budget")), 7_000).unref() }),
+      ])
+      expect(result.exitCode).toBe(0)
+      expect(result.json).toMatchObject({ live: null, liveReason: "timeout" })
+      expect(Date.now() - started).toBeLessThan(6_000)
+    }
+    finally {
+      release({ exitCode: 1, stdout: "" })
+    }
+  }, 10_000)
+
+  it("shares the host budget between credential discovery and deployment requests", async () => {
+    const root = await createProject(projectFiles("cloudflare"))
+    const started = Date.now()
+    const result = await runSetup<SetupLiveStatus>(["status", "--json"], root, { CLOUDFLARE_ACCOUNT_ID: ACCOUNT }, {
+      fetch: async (_input, init) => await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal!.reason), { once: true })
+      }),
+      runHostCli: async () => {
+        await new Promise(resolve => setTimeout(resolve, 1_500))
+        return { exitCode: 0, stdout: JSON.stringify({ token: TOKEN, type: "oauth" }) }
+      },
+    })
+
+    expect(result.exitCode).toBe(0)
+    expect(result.json).toMatchObject({ live: null, liveReason: "timeout" })
+    expect(Date.now() - started).toBeLessThan(6_000)
+  }, 10_000)
+
   it("reports the live commit as 2 commits behind HEAD", async () => {
     const { root, shas } = await gitProject("cloudflare", 3)
     const api = hostApi(cloudflareRoutes(liveCommit(shas[0]!)))

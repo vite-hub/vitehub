@@ -41,7 +41,7 @@ export async function denoAdapter(context: DeployContext, organization: string):
     },
     async setSecret(name, value) {
       if (process.platform === "win32") throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_SECRET_UNSUPPORTED({ host: "deno", reason: "Windows has no /dev/stdin for `deno deploy env load`." }), setupExitCodes.conflict)
-      const result = await runDeno(["env", "load", "/dev/stdin", "--replace"], `${name}=${value}\n`)
+      const result = await runDeno(["env", "load", "/dev/stdin"], `${name}=${value}\n`)
       if (result.exitCode !== 0) throw hostCliFailed(`deno deploy env load (${name})`, result, context.secrets)
     },
     async hasSecret(name) {
@@ -87,7 +87,7 @@ function denoState(value: unknown): HostDeployment["state"] {
  * Deno Deploy keeps no deploy message, so a Deno deployment has no commit.
  * https://docs.deno.com/runtime/reference/cli/deploy/#agent--ci-usage
  */
-export const listDenoDeployments: ListDeployments = async (context, { limit }) => {
+export const listDenoDeployments: ListDeployments = async (context, { limit, includeLive }) => {
   const organization = denoOrganization(context.link, context.env)
   const deno = hostCli("deno", "deno", context.root, context.env)
   const app = ["--json", "--non-interactive", "--org", organization, "--app", context.link.project.name]
@@ -103,7 +103,7 @@ export const listDenoDeployments: ListDeployments = async (context, { limit }) =
   const production = optionalString(details?.productionRevisionId)
   const productionUrl = optionalString(details?.productionUrl)
   const items = Array.isArray(list?.items) ? list.items : []
-  return items.flatMap((item: unknown) => {
+  const recent = items.flatMap((item: unknown) => {
     const id = isRecord(item) ? optionalString(item.id) : undefined
     if (!id || !isRecord(item)) return []
     const live = id === production
@@ -117,4 +117,9 @@ export const listDenoDeployments: ListDeployments = async (context, { limit }) =
       ...(live && productionUrl ? { url: productionUrl } : {}),
     } satisfies HostDeployment]
   }).slice(0, limit)
+  // The app's authoritative pointer suffices for status; Deno has no commit marker to fetch.
+  if (includeLive && production && !recent.some(item => item.live)) {
+    recent.push({ createdAt: "", id: production, live: true, source: "unknown", state: "ready", target: "production", ...(productionUrl ? { url: productionUrl } : {}) })
+  }
+  return recent
 }

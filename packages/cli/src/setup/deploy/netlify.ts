@@ -127,12 +127,17 @@ function parseNetlifyDeploys(value: unknown, published: string | undefined): Hos
  * - `GET /api/v1/sites/{site_id}/deploys?per_page=`, newest first (`listSiteDeploys`).
  * - `GET /api/v1/sites/{site_id}`: `published_deploy.id` is the deploy that serves production (`getSite`).
  */
-export const listNetlifyDeployments: ListDeployments = async (context, { limit }) => {
+export const listNetlifyDeployments: ListDeployments = async (context, { limit, includeLive }) => {
   const siteId = context.link.project.id
   if (!siteId) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_PROJECT_ID_REQUIRED({ host: "netlify" }), setupExitCodes.inputNeeded, { missing: [{ field: "project.id" }], rerun: "vitehub link --host netlify" })
   const client = createNetlifyApiClient(context.credentials.token, context.fetch)
   const path = `/sites/${encodeURIComponent(siteId)}`
   const [site, deploys] = await Promise.all([client(path), client(`${path}/deploys`, { query: { page: "1", per_page: String(limit) } })])
   const published = isRecord(site) && isRecord(site.published_deploy) ? optionalString(site.published_deploy.id) : undefined
-  return parseNetlifyDeploys(deploys, published).slice(0, limit)
+  const recent = parseNetlifyDeploys(deploys, published).slice(0, limit)
+  if (includeLive && published && !recent.some(item => item.live)) {
+    const live = await client(`/deploys/${encodeURIComponent(published)}`)
+    recent.push(...parseNetlifyDeploys([live], published))
+  }
+  return recent
 }

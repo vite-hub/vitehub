@@ -16,6 +16,8 @@ export interface FakeCall {
   argv: string[]
   stdin: string
   cwd: string
+  generated?: Record<string, unknown>
+  accountId?: string
 }
 
 export interface FakeHosts {
