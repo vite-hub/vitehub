@@ -15,7 +15,7 @@ You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands 
 ## Turn on Comments
 
 ```bash [commands/install]
-pnpm add @vite-hub/comments
+pnpm add @vite-hub/comments valibot
 ```
 
 Add the `comments()` plugin:

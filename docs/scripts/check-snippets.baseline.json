@@ -660,12 +660,12 @@
     "error": "TS2769 No overload matches this call."
   },
   {
-    "id": "docs/content/docs/agents/invocations.md#32fb1e808fb5",
+    "id": "docs/content/docs/agents/invocations.md#405e1c1deea1",
     "label": "server/api/support.post.ts",
     "error": "TS2307 Cannot find module '../utils/auth' or its corresponding type declarations."
   },
   {
-    "id": "docs/content/docs/comments/configure.md#f787a47ce35d",
+    "id": "docs/content/docs/comments/configure.md#9415c5d5ee1d",
     "label": "server/api/docs/[id]/comments.post.ts",
     "error": "TS2307 Cannot find module '../../../utils/docs' or its corresponding type declarations."
   }
