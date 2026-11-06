@@ -221,10 +221,10 @@ describe("public package export contracts", () => {
     expect(source).toMatch(/fetch\(input: Request \| URL \| string\): Promise<Response>/)
   })
 
-  it("keeps Sandbox Task's public request contract limited to readable payloads", () => {
+  it("reads Sandbox Task payloads through Standard Context", () => {
     const source = readFileSync(join(packageDir("sandbox"), "src/task/internal/shared/request-payload.ts"), "utf8")
-    expect(source).toMatch(/json: \(\) => Promise<unknown>/)
-    expect(source).not.toMatch(/json\?:/)
+    expect(source).toMatch(/event: ViteHubContext/)
+    expect(source).toContain("getStandardContext(event).req.json()")
   })
 
   it("points every contract at a built artifact", () => {

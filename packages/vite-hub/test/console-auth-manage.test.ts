@@ -17,6 +17,7 @@ afterEach(() => {
 
 function event(body: unknown, headers: Record<string, string> = {}) {
   return {
+    res: { headers: new Headers() },
     req: new Request("http://localhost:3000/_vitehub/auth/manage", {
       method: "POST",
       body: JSON.stringify(body),

@@ -1,6 +1,7 @@
 import { Readable } from "node:stream"
 
 import { H3 } from "h3"
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defaultPolicy, defineComments } from "../src/index.ts"
@@ -159,11 +160,15 @@ describe("createCommentsGitHubLogin", () => {
   function event(path: string, runtime: "web" | "node" = "web"): H3Event {
     if (runtime === "node") {
       const req = Object.assign(Readable.from([]), { method: "GET", url: path, headers: { host: "site.test" } })
-      // SAFETY: This is the Node request shape of a Nuxt 4 H3 1 event.
-      return { node: { req }, context: {} } as unknown as H3Event
+      const event = { node: { req, res: {} }, context: {} }
+      installStandardContext(event)
+      // SAFETY: This is the Node request shape of a Nuxt 4 H3 1 event with Standard Context installed.
+      return event as unknown as H3Event
     }
-    // SAFETY: The sign-in reads only the request of the event.
-    return { req: new Request(`${origin}${path}`) } as H3Event
+    const event = { req: new Request(`${origin}${path}`), res: { headers: new Headers() } }
+    installStandardContext(event)
+    // SAFETY: This fixture includes the H3 request and Standard Context read by sign-in.
+    return event as H3Event
   }
 
   it("is off without an OAuth client, and says which variables turn it on", async () => {
