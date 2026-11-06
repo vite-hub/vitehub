@@ -1,4 +1,7 @@
 import { spawn } from "node:child_process"
+import { mkdtemp, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 export type CredentialHost = "cloudflare" | "vercel" | "netlify" | "deno"
 export type CredentialSource = "env" | "host-cli"
@@ -115,11 +118,18 @@ async function readWranglerAccountId(context: HostCredentialsContext): Promise<s
 async function runJson(context: HostCredentialsContext, command: string, args: readonly string[]): Promise<unknown> {
   const run = context.run ?? runHostCli
   let result: HostCliRunResult
+  let cwd: string | undefined
   try {
-    result = await run(command, args, { cwd: context.cwd, env: context.env })
+    // Wrangler loads dotenv files from its working directory even for auth commands.
+    // Keep the supplied environment (including the login's HOME), but isolate project files.
+    cwd = await mkdtemp(join(tmpdir(), "vitehub-host-login-"))
+    result = await run(command, args, { cwd, env: context.env })
   }
   catch {
     return
+  }
+  finally {
+    if (cwd) await rm(cwd, { force: true, recursive: true })
   }
   if (result.exitCode !== 0) return
   try {

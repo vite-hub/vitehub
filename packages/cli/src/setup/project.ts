@@ -23,7 +23,7 @@ export interface SetupProject {
   installed: (name: string) => boolean
 }
 
-const nuxtConfigFiles = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.js", "nuxt.config.mjs"]
+const nuxtConfigFiles = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cts", "nuxt.config.cjs"]
 const viteConfigFiles = ["vite.config.ts", "vite.config.mts", "vite.config.js", "vite.config.mjs", "vite.config.cts", "vite.config.cjs"]
 
 const lockfiles: ReadonlyArray<readonly [string, SetupPackageManager]> = [

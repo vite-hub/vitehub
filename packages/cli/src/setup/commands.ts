@@ -8,16 +8,16 @@ import { readSetupProject } from "./project.ts"
 import { setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
-import type { HostSupport } from "@vite-hub/internal/features"
 import type { SetupLinkResult, SetupLinkStatus } from "./link.ts"
-import type { SetupStatus } from "./status.ts"
+import type { SetupFeatureStatus, SetupStatus } from "./status.ts"
 
 function table(rows: readonly (readonly string[])[]): string {
   const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
   return rows.map(row => row.map((cell, column) => cell.padEnd(widths[column]!)).join("  ").trimEnd()).join("\n")
 }
 
-function supportLabel(support: HostSupport): string {
+function supportLabel(support: SetupFeatureStatus["support"]): string {
+  if (support.level === "unknown") return "unknown"
   if (support.level === "unsupported") return "-"
   return support.level === "explicit" ? `${support.display} (set ${support.option})` : support.display
 }

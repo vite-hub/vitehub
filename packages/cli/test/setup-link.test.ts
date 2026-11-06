@@ -187,7 +187,7 @@ describe("vitehub link", () => {
 
     expect(exitCode).toBe(0)
     expect(json.link).toMatchObject({ account: { id: "5f8a9b0c1d2e3f4a5b6c7d8e", name: "Demo Team" }, host: "netlify", project: { id: "3b2a1c0d-9e8f-4a7b-b6c5-d4e3f2a1b0c9", name: "my-app" }, verified: true })
-    expect(api.requests[0]!.url).toBe("https://api.netlify.com/api/v1/sites?name=my-app&per_page=100&filter=all")
+    expect(api.requests[0]!.url).toBe("https://api.netlify.com/api/v1/sites?name=my-app&per_page=100&filter=all&page=1")
 
     const create = hostApi({
       "GET https://api.netlify.com/api/v1/demo-team/sites": { fixture: "netlify-sites.json" },
@@ -197,6 +197,45 @@ describe("vitehub link", () => {
     expect(created.exitCode).toBe(0)
     expect(create.requests.map(request => request.method)).toEqual(["GET", "POST"])
     expect(create.requests[1]!.body).toEqual({ name: "my-new-app" })
+  })
+
+  it.each([undefined, "demo-team"])("finds an exact Netlify match on a later page (account: %s)", async (account) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "netlify", name: "my-app" }`) })
+    const requests: URL[] = []
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = new URL(String(input))
+      requests.push(url)
+      expect(init?.method ?? "GET").toBe("GET")
+      expect(url.pathname).toBe(account ? `/api/v1/${account}/sites` : "/api/v1/sites")
+      const sites = url.searchParams.get("page") === "2"
+        ? [{ id: "exact-site", name: "my-app" }]
+        : Array.from({ length: 100 }, (_, index) => ({ id: `site-${index}`, name: `my-app-${index}` }))
+      return Response.json(sites)
+    }
+
+    const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--create", "--json", ...(account ? ["--account", account] : [])], root, { NETLIFY_AUTH_TOKEN: TOKEN }, { fetch: fetchImpl })
+
+    expect(exitCode).toBe(0)
+    expect(json).toMatchObject({ created: false, link: { project: { id: "exact-site", name: "my-app" } } })
+    expect(requests.map(url => url.searchParams.get("page"))).toEqual(["1", "2"])
+  })
+
+  it("exhausts Netlify pages before creating a missing site", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "netlify", name: "my-new-app" }`) })
+    const requests: string[] = []
+    const fetchImpl: typeof fetch = async (input, init) => {
+      const url = new URL(String(input))
+      const method = init?.method ?? "GET"
+      requests.push(`${method} ${url.searchParams.get("page") ?? ""}`)
+      if (method === "POST") return new Response(await fixture("netlify-site-created.json"))
+      return Response.json(url.searchParams.get("page") === "2" ? [] : Array.from({ length: 100 }, (_, index) => ({ id: `site-${index}`, name: `my-new-app-${index}` })))
+    }
+
+    const { exitCode, json } = await runSetup<SetupLinkResult>(["link", "--create", "--json"], root, { NETLIFY_AUTH_TOKEN: TOKEN }, { fetch: fetchImpl })
+
+    expect(exitCode).toBe(0)
+    expect(json.created).toBe(true)
+    expect(requests).toEqual(["GET 1", "GET 2", "POST "])
   })
 
   it("stores an unverified Deno link without calling an API", async () => {

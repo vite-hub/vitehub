@@ -249,8 +249,12 @@ function parseNetlifySites(value: unknown): NetlifySite[] {
 async function linkNetlify(name: string, options: SetupLinkOptions, token: string, fetchImpl: typeof fetch): Promise<HostProject> {
   const client = createNetlifyApiClient(token, fetchImpl)
   const path = options.account ? `/${encodeURIComponent(options.account)}/sites` : "/sites"
-  const sites = await client(path, { parse: parseNetlifySites, query: { name, per_page: "100", ...(options.account ? {} : { filter: "all" }) } })
-  let site = sites.find(item => item.name === name)
+  let site: NetlifySite | undefined
+  for (let page = 1; ; page++) {
+    const sites = await client(path, { parse: parseNetlifySites, query: { name, per_page: "100", ...(options.account ? {} : { filter: "all" }), page: String(page) } })
+    site = sites.find(item => item.name === name)
+    if (site || sites.length < 100) break
+  }
   let created = false
   if (!site) {
     if (!options.create) throw notFound("netlify", name, options, options.account)

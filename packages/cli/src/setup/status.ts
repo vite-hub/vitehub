@@ -1,7 +1,10 @@
-import { deploymentPresetFromNitro, detectPreset } from "@vite-hub/internal/deployment"
-import { featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { existsSync } from "node:fs"
 
-import type { ConfigForm, ConfigValue, ManualReason } from "@vite-hub/internal/config-edit"
+import { deploymentPresetFromNitro, detectPreset } from "@vite-hub/internal/deployment"
+import { featureHosts, featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { join } from "pathe"
+
+import type { ConfigForm, ManualReason } from "@vite-hub/internal/config-edit"
 import type { DeploymentPreset } from "@vite-hub/internal/deployment"
 import type { FeatureId, HostSupport } from "@vite-hub/internal/features"
 import type { SetupPackageManager, SetupProject } from "./project.ts"
@@ -11,7 +14,7 @@ export interface SetupFeatureStatus {
   enabled: "on" | "off" | "unknown"
   /** `config` when the config sets the key, `default` when it does not, `implied` when another feature turns it on. */
   reason: "config" | "default" | "implied"
-  support: HostSupport
+  support: HostSupport | { level: "unknown", detail: string }
   /** Packages and development packages of an enabled feature that are not installed. */
   missingPackages: readonly string[]
   /** The next step, such as the install command of `missingPackages`. */
@@ -23,7 +26,7 @@ export interface SetupStatus {
   root: string
   framework: SetupProject["framework"]
   config: { file: string, form: ConfigForm } | { file?: string, manual: ManualReason, line?: number }
-  host: { name: DeploymentPreset, source: "config" | "env" | "default" }
+  host: { name: DeploymentPreset | "unknown", source: "config" | "env" | "default" }
   packageManager: SetupPackageManager
   features: readonly SetupFeatureStatus[]
 }
@@ -37,10 +40,14 @@ const addCommands: Record<SetupPackageManager, { dev: string, prod: string }> = 
   yarn: { dev: "yarn add -D", prod: "yarn add" },
 }
 
-function readHost(keys: Readonly<Record<string, ConfigValue>> | undefined, env: NodeJS.ProcessEnv): SetupStatus["host"] {
-  const preset = keys?.preset
+function readHost(project: SetupProject, env: NodeJS.ProcessEnv): SetupStatus["host"] {
+  const config = project.config
+  if (config && !config.ok && config.reason !== "no-vitehub") return { name: "unknown", source: "config" }
+  const site = config?.ok ? config.site : undefined
+  const preset = site?.keys.preset
   const fromConfig = preset?.kind === "literal" && typeof preset.value === "string" ? deploymentPresetFromNitro(preset.value) : undefined
   if (fromConfig) return { name: fromConfig, source: "config" }
+  if (preset || site?.spread) return { name: "unknown", source: "config" }
   const fromEnv = detectPreset(env)
   return fromEnv ? { name: fromEnv, source: "env" } : { name: "node", source: "default" }
 }
@@ -53,7 +60,8 @@ function readEnabled(project: SetupProject, id: FeatureId): Enabled {
   if (value?.kind === "expression") return { enabled: "unknown", reason: "config" }
   if (value) return { enabled: value.value === false ? "off" : "on", reason: "config" }
   if (config.site.spread) return { enabled: "unknown", reason: "config" }
-  return { enabled: features[id].enabledByDefault ? "on" : "off", reason: "default" }
+  const discovered = features[id].enabledByDiscovery?.some(file => existsSync(join(project.root, "server", file)))
+  return { enabled: features[id].enabledByDefault || discovered ? "on" : "off", reason: "default" }
 }
 
 /** True when the config sets `option`, such as `blob.driver`, as a literal key of the feature object. */
@@ -67,7 +75,7 @@ function setsOption(project: SetupProject, option: string): boolean {
   return !!options && typeof options === "object" && !Array.isArray(options) && key in options
 }
 
-function featureFix(project: SetupProject, id: FeatureId, support: HostSupport, host: DeploymentPreset, missing: { dev: string[], prod: string[] }): string | undefined {
+function featureFix(project: SetupProject, id: FeatureId, support: SetupFeatureStatus["support"], host: SetupStatus["host"]["name"], missing: { dev: string[], prod: string[] }): string | undefined {
   const commands = addCommands[project.packageManager]
   const installs = [
     ...(missing.prod.length ? [`${commands.prod} ${missing.prod.join(" ")}`] : []),
@@ -80,13 +88,22 @@ function featureFix(project: SetupProject, id: FeatureId, support: HostSupport, 
 
 /** What the project enables, on which host, and what each enabled feature still needs. Reads the config without running it. */
 export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv): SetupStatus {
-  const site = project.config?.ok ? project.config.site : undefined
-  const host = readHost(site?.keys, env)
+  const host = readHost(project, env)
   const enabled = new Map(featureIds.map(id => [id, readEnabled(project, id)]))
   const on = featureIds.filter(id => enabled.get(id)!.enabled === "on")
   // An implication never overrides a key that the config sets to `false` or to an expression.
   const keep = featureIds.filter(id => enabled.get(id)!.enabled !== "on" && enabled.get(id)!.reason === "config")
-  for (const id of impliedFeatures(on, host.name, keep)) enabled.set(id, { enabled: "on", reason: "implied" })
+  const maybeOn = featureIds.filter(id => enabled.get(id)!.enabled !== "off")
+  const disabled = keep.filter(id => enabled.get(id)!.enabled === "off")
+  const hosts = host.name === "unknown" ? featureHosts.filter(name => name !== "dev") : [host.name]
+  const definite = hosts.map(name => impliedFeatures(on, name, keep))
+  const possible = new Set(hosts.flatMap(name => impliedFeatures(maybeOn, name, disabled)))
+  for (const id of possible) {
+    const state = enabled.get(id)!
+    if (state.enabled === "off" && state.reason === "default") {
+      enabled.set(id, { enabled: definite.every(ids => ids.includes(id)) ? "on" : "unknown", reason: "implied" })
+    }
+  }
 
   const config: SetupStatus["config"] = !project.config
     ? { manual: "no-vitehub" }
@@ -98,7 +115,9 @@ export function setupStatus(project: SetupProject, env: NodeJS.ProcessEnv): Setu
     config,
     features: featureIds.map((id) => {
       const state = enabled.get(id)!
-      const support = featureSupport(id, host.name)
+      const support: SetupFeatureStatus["support"] = host.name === "unknown"
+        ? { level: "unknown", detail: "The config does not statically identify the deployment host." }
+        : featureSupport(id, host.name)
       const definition = features[id]
       const missing = state.enabled === "on"
         ? { dev: definition.devPackages.filter(name => !project.installed(name)), prod: definition.packages.filter(name => !project.installed(name)) }

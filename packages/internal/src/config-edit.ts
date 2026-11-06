@@ -36,6 +36,8 @@ interface Located {
   object?: ObjectExpression
   container: Container
   program: File
+  /** Nuxt's top-level defaults, below the module tuple's options. */
+  defaults?: Located
 }
 
 const viteModule = "vite-hub"
@@ -126,12 +128,13 @@ function literalOf(node: Node): { value: JsonValue } | undefined {
   }
 }
 
-function readKeys(code: string, object: ObjectExpression): { keys: Record<string, ConfigValue>, spread: boolean } | Failure {
+function readKeys(code: string, object: Pick<ObjectExpression, "properties">): { keys: Record<string, ConfigValue>, spread: boolean } | Failure {
   const keys: Record<string, ConfigValue> = {}
   let spread = false
   for (const member of object.properties) {
     if (member.type === "SpreadElement") {
       spread = true
+      for (const key of Object.keys(keys)) keys[key] = { kind: "expression", source: code.slice(start(member), end(member)), line: line(member) }
       continue
     }
     const key = keyName(member.key, member.computed)
@@ -163,7 +166,14 @@ function locateVite(code: string, program: File): Located | Failure {
     if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name)) calls.push(node)
   })
   const [call, second] = calls
-  if (!call) return fail("no-vitehub")
+  if (!call) {
+    // A call outside the export may reach it through a binding. Do not claim it is absent.
+    let factored: CallExpression | undefined
+    walk(program, (node) => {
+      if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name)) factored = node
+    })
+    return factored ? fail("dynamic-options", factored) : fail("no-vitehub")
+  }
   if (second) return fail("multiple-vitehub", second)
   const argument = call.arguments[0]
   if (argument && (argument.type === "SpreadElement" || argument.type === "ArgumentPlaceholder")) return fail("dynamic-options", argument)
@@ -204,13 +214,19 @@ function locateNuxt(code: string, program: File): Located | Failure {
   if (second) return fail("multiple-vitehub", second)
   const keyProperty = findMember(root, "vitehub")
   const tupleOptions = entry.type === "ArrayExpression" ? entry.elements[1] : undefined
-  if (tupleOptions && keyProperty) return fail("multiple-vitehub", keyProperty)
   if (tupleOptions && tupleOptions.type === "SpreadElement") return fail("dynamic-options", tupleOptions)
-  if (keyProperty) return siteFor(code, "nuxt-config-key", keyProperty.value, { kind: "key" }, program)
+  if (keyProperty && !tupleOptions) return siteFor(code, "nuxt-config-key", keyProperty.value, { kind: "key" }, program)
   const container: Container = entry.type === "ArrayExpression"
     ? { kind: "tuple", node: entry, head: entry.elements[0] ?? entry }
     : { kind: "bare", node: entry }
-  return siteFor(code, "nuxt-module-tuple", tupleOptions ?? undefined, container, program)
+  const located = siteFor(code, "nuxt-module-tuple", tupleOptions ?? undefined, container, program)
+  if ("ok" in located || !keyProperty) return located
+  const defaults = siteFor(code, "nuxt-config-key", keyProperty.value, { kind: "key" }, program)
+  if ("ok" in defaults) return defaults
+  // The runtime shallowly merges top-level options first, then the tuple options.
+  const merged = readKeys(code, { properties: [...(defaults.object?.properties ?? []), ...(located.object?.properties ?? [])] })
+  if ("ok" in merged) return merged
+  return { ...located, defaults, site: { ...located.site, ...merged } }
 }
 
 function parse(code: string): File | Failure {
@@ -335,6 +351,8 @@ function applyEdit(code: string, located: Located, edit: ConfigEdit): string | F
   const matches = members.filter((member): member is ObjectProperty | ObjectMethod => member.type !== "SpreadElement" && keyName(member.key, member.computed) === edit.key)
 
   if (edit.op === "delete") {
+    const lastMatch = matches.at(-1)
+    if (lastMatch && members.slice(members.indexOf(lastMatch) + 1).some(member => member.type === "SpreadElement")) return fail("spread", object)
     if (!matches.length) {
       if (site.spread) return fail("spread", object)
       return code
@@ -382,11 +400,18 @@ function applyEdit(code: string, located: Located, edit: ConfigEdit): string | F
 export function editViteHubConfig(file: string, code: string, edits: readonly ConfigEdit[]): EditResult {
   let current = code
   for (const edit of edits) {
-    const located = locate(file, current)
+    let located = locate(file, current)
     if ("ok" in located) return located
     const expected: Record<string, ConfigValue> = { ...located.site.keys }
     if (edit.op === "set") expected[edit.key] = { kind: "literal", value: edit.value }
     else delete expected[edit.key]
+    if (edit.op === "delete" && located.defaults) {
+      const next = applyEdit(current, located.defaults, edit)
+      if (typeof next !== "string") return next
+      current = next
+      located = locate(file, current)
+      if ("ok" in located) return located
+    }
     const next = applyEdit(current, located, edit)
     if (typeof next !== "string") return next
     const after = locate(file, next)

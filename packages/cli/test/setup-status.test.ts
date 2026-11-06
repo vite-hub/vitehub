@@ -51,6 +51,66 @@ describe("vitehub status", () => {
     expect((await runSetup<SetupStatus>(["status", "--json"], root)).json.host).toEqual({ name: "node", source: "default" })
   })
 
+  it.each([`{ preset: process.env.DEPLOY_TARGET, agent: true }`, `{ preset: "vercel", ...shared, agent: true }`])("keeps a dynamic host unknown: %s", async (options) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(options) })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root, { NETLIFY: "true" })
+    expect(json.host).toEqual({ name: "unknown", source: "config" })
+    expect(feature(json, "agent").support).toMatchObject({ level: "unknown" })
+    expect(feature(json, "workflow")).toMatchObject({ enabled: "unknown" })
+    const human = await runSetup(["status"], root)
+    expect(human.stdout).toContain("unknown (config)")
+  })
+
+  it.each(["cts", "cjs"])("reads merged Nuxt options in nuxt.config.%s", async (extension) => {
+    const root = await createProject({
+      [`nuxt.config.${extension}`]: `export default defineNuxtConfig({ modules: [["vite-hub/nuxt", { preset: "vercel", kv: false }]], vitehub: { preset: "node", kv: true, queue: true } })`,
+      "package.json": pnpmManifest,
+    })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(json).toMatchObject({ config: { file: `nuxt.config.${extension}`, form: "nuxt-module-tuple" }, framework: "nuxt", host: { name: "vercel", source: "config" } })
+    expect(feature(json, "kv")).toMatchObject({ enabled: "off", reason: "config" })
+    expect(feature(json, "queue")).toMatchObject({ enabled: "on", reason: "config" })
+  })
+
+  it("discovers Comments and its Database unless explicitly disabled", async () => {
+    for (const disabled of [false, true]) {
+      const root = await createProject({
+        "package.json": pnpmManifest,
+        "server/comments.ts": `throw new Error("must not load discovery files")`,
+        "vite.config.ts": viteConfig(disabled ? "{ comments: false }" : "{}"),
+      })
+      const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+      expect(feature(json, "comments")).toMatchObject({ enabled: disabled ? "off" : "on", reason: disabled ? "config" : "default" })
+      expect(feature(json, "database").enabled).toBe(disabled ? "off" : "on")
+      if (!disabled) expect(feature(json, "database").missingPackages).toContain("@vite-hub/database")
+    }
+  })
+
+  it.each([
+    ["{ agent: process.env.AGENT === '1' }", "workflow", "unknown"],
+    ["{ agent: process.env.AGENT === '1', preset: 'netlify' }", "workflow", "off"],
+    ["{ console: process.env.CONSOLE === '1' }", "comments", "unknown"],
+    ["{ console: process.env.CONSOLE === '1' }", "database", "unknown"],
+    ["{ console: process.env.CONSOLE === '1', comments: false }", "database", "off"],
+    ["{ console: process.env.CONSOLE === '1', database: false }", "database", "off"],
+    ["{ kv: true, ...shared }", "kv", "unknown"],
+    ["{ ...shared, kv: true }", "kv", "on"],
+  ] as const)("propagates only possible implications: %s / %s", async (options, id, enabled) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(options) })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(feature(json, id).enabled).toBe(enabled)
+  })
+
+  it("reports factored plugin calls as manual instead of absent", async () => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "vite.config.ts": `import { vitehub } from "vite-hub"\nconst plugin = vitehub({ kv: true }); export default { plugins: [plugin] }`,
+    })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(json.config).toMatchObject({ manual: "dynamic-options" })
+    expect(feature(json, "kv").enabled).toBe("unknown")
+  })
+
   it("lists the install command for a missing owner package", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ schedule: true, database: true }") })
 
