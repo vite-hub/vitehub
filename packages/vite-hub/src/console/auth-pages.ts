@@ -2,6 +2,7 @@
 // so it must not import Better Auth. Auth instances come from the resolver that the caller passes.
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import { installStandardContext } from "@vite-hub/runtime/h3"
+import { H3Event } from "h3"
 import * as v from "valibot"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
 import { consoleDocumentMetadata } from "./document-metadata.ts"
@@ -290,15 +291,17 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
   authBasePath: (event: object) => Promise<string>
 } {
   async function requestAuth(event: object) {
-    installStandardContext(event)
     const request = toEventRequest(event)
+    // Request-only callers need a response target before Auth can read Standard Context.
+    const authEvent = "~standard" in event || "res" in event || "node" in event ? event : new H3Event(request)
+    installStandardContext(authEvent)
     const url = consoleRequestURL({ req: request })
     const authRequest = { headers: request.headers, url: url.href }
-    let auth = await resolveAuth(authRequest, undefined, event)
+    let auth = await resolveAuth(authRequest, undefined, authEvent)
     let context = await auth.$context
     // A static provider has no origin until its first HTTP request. Resolve it before reading its URLs.
     if (!context.baseURL) {
-      auth = await resolveAuth(authRequest, { baseURL: url.origin }, event)
+      auth = await resolveAuth(authRequest, { baseURL: url.origin }, authEvent)
       context = await auth.$context
     }
     if (new URL(context.baseURL).origin !== url.origin) {
