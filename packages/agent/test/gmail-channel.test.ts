@@ -336,6 +336,7 @@ describe("gmail() Channel", () => {
     await push(createHandler(), restarted, 105)
     expect(driver).toHaveBeenCalledTimes(1)
     expect(google.calls.filter(call => call.path === "history").map(call => call.query.get("startHistoryId"))).toContain("100")
+    expect(google.calls.filter(call => call.path === "history").every(call => call.query.getAll("historyTypes").join() === "messageAdded")).toBe(true)
   })
 
   it.each(["initialize", "advance", "pending"] as const)("atomically fences %s after lease takeover between renewal and mutation", async (phase) => {
@@ -567,6 +568,7 @@ describe("gmail() Channel", () => {
       expect(dispatch).toHaveBeenCalledTimes(1)
       expect(await state.get("mail:history-id")).toBe("200")
       expect(client.mock.calls.filter(([request]) => request.path === "history").map(([request]) => request.query?.startHistoryId)).toEqual(["100", "200"])
+      expect(client.mock.calls.filter(([request]) => request.path === "history").map(([request]) => request.query?.historyTypes)).toEqual([["messageAdded"], ["messageAdded"]])
     } finally { await state.disconnect() }
   })
 
@@ -800,7 +802,7 @@ describe("gmail() Channel", () => {
       const mailbox = [apiMessage("m1", "First"), apiMessage("m2", "Second"), apiMessage("m3", "Third"), apiMessage("sent", "Sent")]
       mailbox[3]!.labelIds = ["SENT"]
       const delivered: string[] = []
-      const listings: Array<{ query: string, includeSpamTrash?: string | number | readonly string[], labelId?: string | number | readonly string[] }> = []
+      const listings: Array<{ query: string, includeSpamTrash?: boolean | number | readonly string[] | string, labelId?: boolean | number | readonly string[] | string }> = []
       const client: GmailClient = async request => {
         if (request.path === "history" && mode === "recovery") throw Object.assign(new Error("History expired"), { status: 404 })
         if (request.path === "profile") return { emailAddress: "max@example.com", historyId: "300" }
@@ -809,7 +811,7 @@ describe("gmail() Channel", () => {
           listings.push({ query, includeSpamTrash: request.query?.includeSpamTrash, labelId: request.query?.labelId })
           const eligible = mailbox.filter(message => (!query.includes("in:inbox") || message.labelIds.includes("INBOX"))
             && (!request.query?.labelId || message.labelIds.includes(String(request.query.labelId)))
-            && (request.path === "history" || request.query?.includeSpamTrash === "true" || !message.labelIds.includes("TRASH")))
+            && (request.path === "history" || request.query?.includeSpamTrash === true || !message.labelIds.includes("TRASH")))
           const offset = Number(request.query?.pageToken || 0)
           if (offset === 1) expect(delivered).toEqual(["m1"])
           const messages = eligible.slice(offset, offset + 1).map(message => ({ id: message.id }))
@@ -835,7 +837,7 @@ describe("gmail() Channel", () => {
       expect(listings).toHaveLength(4)
       if (mode === "recovery") {
         expect(listings[0]?.query).toMatch(/^after:\d+$/)
-        expect(listings.every(listing => listing.query === listings[0]?.query && listing.includeSpamTrash === "true")).toBe(true)
+        expect(listings.every(listing => listing.query === listings[0]?.query && listing.includeSpamTrash === true)).toBe(true)
       }
       expect(listings.every(listing => listing.labelId === undefined)).toBe(true)
     }
@@ -862,6 +864,7 @@ describe("gmail() Channel", () => {
       const fetch: typeof globalThis.fetch = async (input, init) => {
         const url = new URL(input instanceof Request ? input.url : String(input))
         if (url.pathname.endsWith("/messages") && mode === "recovery") {
+          expect(url.searchParams.get("includeSpamTrash")).toBe("true")
           return Response.json({ messages: ids.map(id => ({ id })) })
         }
         const id = /\/messages\/(m\d+)$/.exec(url.pathname)?.[1]
@@ -2292,7 +2295,7 @@ describe("gmail() Channel", () => {
         requests.push(`${request.method} ${request.path}`)
         if (request.path === "messages") {
           queries.push(request.query)
-          return { messages: [{ id: "m1" }, { id: "gone" }, ...(request.query?.includeSpamTrash === "true" ? [{ id: "spam" }] : [])] }
+          return { messages: [{ id: "m1" }, { id: "gone" }, ...(request.query?.includeSpamTrash === true ? [{ id: "spam" }] : [])] }
         }
         if (request.path === "messages/gone/trash") throw Object.assign(new Error("Not Found"), { status: 404 })
         return {}
@@ -2306,7 +2309,7 @@ describe("gmail() Channel", () => {
       rules: [{ messageIds: ["m1", "gone", "spam"], query, rule: "promotions" }],
     })
     expect(requests).toEqual(["GET messages"])
-    expect(queries).toEqual([{ includeSpamTrash: "true", labelIds: undefined, maxResults: 500, pageToken: undefined, q: query }])
+    expect(queries).toEqual([{ includeSpamTrash: true, labelIds: undefined, maxResults: 500, pageToken: undefined, q: query }])
 
     requests.length = 0
     await expect(cleanupGmailChannel(channel, { apply: true, rules })).resolves.toMatchObject({ applied: true })

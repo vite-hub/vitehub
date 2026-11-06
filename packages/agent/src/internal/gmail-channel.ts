@@ -31,12 +31,15 @@ const gmailWatchLabelIds: readonly string[] = ["INBOX"]
 
 // Gmail API: https://developers.google.com/workspace/gmail/api/reference/rest
 
-/** One Gmail REST request. `path` is relative to `https://gmail.googleapis.com/gmail/v1/users/me/`. */
+/**
+ * One Gmail REST request. `path` is relative to `https://gmail.googleapis.com/gmail/v1/users/me/`.
+ * Query values have the Gmail API types: a repeated parameter is an array and a flag is a boolean.
+ */
 export interface GmailRequest {
   body?: Record<string, unknown>
   method: "GET" | "PATCH" | "POST"
   path: string
-  query?: Record<string, number | readonly string[] | string | undefined>
+  query?: Record<string, boolean | number | readonly string[] | string | undefined>
 }
 
 /**
@@ -338,7 +341,7 @@ function requestUrl(request: GmailRequest): string {
   const url = new URL(request.path.replace(/^\/+/, ""), gmailApiBaseUrl)
   for (const [name, value] of Object.entries(request.query || {})) {
     if (value === undefined) continue
-    if (hasRuntimeType(value, "string") || hasRuntimeType(value, "number")) url.searchParams.append(name, String(value))
+    if (hasRuntimeType(value, "string") || hasRuntimeType(value, "number") || hasRuntimeType(value, "boolean")) url.searchParams.append(name, String(value))
     else for (const item of value) url.searchParams.append(name, item)
   }
   return url.toString()
@@ -910,7 +913,7 @@ async function listGmailMessageIds(
   const page = await gmailRequest(client, messageListSchema, {
     method: "GET",
     path: "messages",
-    query: { includeSpamTrash: options.includeSpamTrash ? "true" : undefined, labelIds: options.labelIds, maxResults: options.limit, pageToken: options.pageToken, q: options.query },
+    query: { includeSpamTrash: options.includeSpamTrash || undefined, labelIds: options.labelIds, maxResults: options.limit, pageToken: options.pageToken, q: options.query },
   })
   return { ids: (page.messages || []).map(message => message.id), ...(page.nextPageToken ? { nextPageToken: page.nextPageToken } : {}) }
 }
@@ -1157,7 +1160,7 @@ async function syncMailboxOnce(sync: GmailMailboxSync, cursorKey: string, renew:
         // Only an expired history request triggers recovery, not a dispatch failure.
         const page = await gmailRequest(client, historyListSchema, {
           method: "GET", path: "history",
-          query: { historyTypes: "messageAdded", pageToken: progress.pageToken, startHistoryId: cursor },
+          query: { historyTypes: ["messageAdded"], pageToken: progress.pageToken, startHistoryId: cursor },
         }).catch(async (error: unknown) => {
           if (await restartExpiredPageToken(error)) return null
           if (gmailErrorStatus(error) !== 404) throw error

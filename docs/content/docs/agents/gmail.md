@@ -214,7 +214,7 @@ The push route returns HTTP 503 until `pubsubAudience`, `pubsubServiceAccount`, 
 
 The Channel caches access tokens in process memory. It does not write them to the State Adapter.
 
-To call Gmail through another credential owner, pass `client`. It receives `{ method, path, query, body }`, with `path` relative to `https://gmail.googleapis.com/gmail/v1/users/me/`, and returns the JSON response body. Throw an error with a numeric `status` for an HTTP error.
+To call Gmail through another credential owner, pass `client`. It receives `{ method, path, query, body }`, with `path` relative to `https://gmail.googleapis.com/gmail/v1/users/me/`, and returns the JSON response body. Query values have the Gmail API types: a repeated parameter, such as `historyTypes` or `labelIds`, is an array, and a flag, such as `includeSpamTrash`, is a boolean. Throw an error with a numeric `status` for an HTTP error.
 
 ```ts
 gmail({
