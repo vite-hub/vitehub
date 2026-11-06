@@ -58,4 +58,10 @@ describe("chat project tutorial", () => {
     expect(manifest.scripts["test:journey"]).toBe("node --test test/journey.test.mjs");
     expect(await readFile(resolve(fixture, "test/journey.test.mjs"), "utf8")).toContain('CHAT_MODE: "offline"');
   });
+
+  it("pins the zod version of the runtime catalog, so the server output traces one zod", async () => {
+    const manifest = JSON.parse(await readFile(resolve(fixture, "package.json"), "utf8"));
+    const lockfile = parse(await readFile(resolve(root, "pnpm-lock.yaml"), "utf8"));
+    expect(manifest.dependencies.zod).toBe(lockfile.catalogs.runtime.zod.version);
+  });
 });
