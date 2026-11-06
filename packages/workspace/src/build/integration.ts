@@ -4,7 +4,6 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 
 import {
   syncDiscoveredWorkspaceAssetBundles,
-  type WorkspaceAssetBundle,
   writeWorkspaceAssetsRegistry,
 } from "./assets.ts"
 import {
@@ -40,25 +39,7 @@ export async function syncWorkspaceBuildAssets(
   assetsRegistryFile: string,
 ): Promise<void> {
   const syncedBundles = await syncDiscoveredWorkspaceAssetBundles(definitions, rootDir, options)
-  await writeWorkspaceAssetsRegistry(assetsRegistryFile, mergeWorkspaceAssetBundles(syncedBundles))
-}
-
-function mergeWorkspaceAssetBundles(bundles: WorkspaceAssetBundle[]): WorkspaceAssetBundle[] {
-  const merged = new Map<string, WorkspaceAssetBundle>()
-  for (const bundle of bundles) {
-    const existing = merged.get(bundle.name)
-    if (!existing) {
-      merged.set(bundle.name, { files: [...bundle.files], name: bundle.name })
-      continue
-    }
-
-    const files = new Map(existing.files.map(file => [file.path, file]))
-    for (const file of bundle.files) {
-      files.set(file.path, file)
-    }
-    existing.files = [...files.values()].sort((a, b) => a.path.localeCompare(b.path))
-  }
-  return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name))
+  await writeWorkspaceAssetsRegistry(assetsRegistryFile, syncedBundles.sort((a, b) => a.name.localeCompare(b.name)))
 }
 
 function createWorkspaceTypeAugmentation(definitions: Array<{ name: string, path: string }>): string {

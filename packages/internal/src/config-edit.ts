@@ -474,6 +474,13 @@ export function insertViteHubConfig(file: string, code: string, options: { reado
 
   const property = findMember(root, key)
   if (property) {
+    // Later members can replace the array at runtime, even if the inserted call is still in the syntax tree.
+    for (const member of root.properties.slice(root.properties.indexOf(property) + 1)) {
+      if (member.type === "SpreadElement") return fail("spread", member)
+      const name = keyName(member.key, member.computed)
+      if (name === undefined) return fail("computed-key", member)
+      if (name === key) return fail("dynamic-options", member)
+    }
     const list = unwrap(property.value)
     if (list.type !== "ArrayExpression") return fail("dynamic-options", list)
     appendItem(output, code, list, list.elements.findLast(element => element !== null) ?? undefined, item, style, "")
