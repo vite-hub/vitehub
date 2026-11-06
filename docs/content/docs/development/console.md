@@ -288,6 +288,7 @@ The project list and the tokens stay in this browser, in `localStorage` of the C
 
 - Each token gives Console access to its project, as far as [`authorize`](#limit-a-user-to-some-sections) allows. Anyone who uses this browser profile can read it, and so can any script that runs on the Console origin. Use a browser profile that only you use, and serve the Console from an origin that serves nothing else.
 - Another browser or another Console origin has its own list. Link the projects again there.
+- When the browser does not let the Console store data, such as when storage is full or blocked, the list stays in memory until the page reloads. The Console says so.
 - To revoke access, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or deploy the server. Each Console then asks for the new token.
 
 To remove a project, open the project list, select the **×** next to the project, and confirm **Forget project**. The browser removes the URL and the token. The project does not change.

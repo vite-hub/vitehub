@@ -3,7 +3,7 @@ import { computed, onMounted, ref, shallowRef } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
 import { consoleTokenRefused } from "../client/project-link";
-import { forgetConsoleProject, openConsoleProject, signInConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
+import { consoleProjectsVolatileNote, forgetConsoleProject, openConsoleProject, signInConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleProjectLink from "./console-project-link.vue";
@@ -98,6 +98,11 @@ onMounted(() => {
         <UButton icon="i-lucide-refresh-cw" label="Try again" class="justify-self-start" :loading="busy" @click="retry" />
       </template>
 
+      <p v-if="!projects.persistent.value" class="vitehub-project-gate__note">
+        <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+        {{ consoleProjectsVolatileNote }}
+      </p>
+
       <div v-if="projects.mode === 'hosted' && current && gate.kind !== 'empty'" class="vitehub-project-gate__host">
         <span class="min-w-0 truncate font-mono">{{ current.url }}</span>
         <UDropdownMenu :items="switchItems" :content="{ align: 'end' }" :ui="{ content: 'min-w-60' }">
@@ -137,6 +142,15 @@ onMounted(() => {
   font-size: 0.875rem;
   line-height: 1.25rem;
   overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.vitehub-project-gate__note {
+  color: var(--ui-text-muted);
+  display: flex;
+  font-size: 0.75rem;
+  gap: 0.375rem;
+  line-height: 1rem;
   text-wrap: pretty;
 }
 

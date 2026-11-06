@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { envActivitySchema, requestEnvManagement } from "../src/console/runtime/client/env-management.ts"
 import { consoleProject, projectConsoleUrl, isRemoteProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleProjectProblem, probeConsoleProject } from "../src/console/runtime/client/project-link.ts"
-import { consoleProjectHost, consoleProjectsStorageKey, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "../src/console/runtime/client/projects.ts"
+import { browserProjectStorage, consoleProjectHost, consoleProjectsStorageKey, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "../src/console/runtime/client/projects.ts"
+import type { ConsoleBrowserStorage } from "../src/console/runtime/client/projects.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 
 const pageProject = consoleProject()
@@ -29,6 +30,10 @@ describe("project URLs", () => {
     ["127.0.0.1:4100/", "http://127.0.0.1:4100", ""],
     ["https://app.example.com/portal/_vitehub/kv?store=default#top", "https://app.example.com", "/portal"],
     ["  https://APP.example.com:443/_vitehub  ", "https://app.example.com", ""],
+    // Only a whole `/_vitehub` segment starts the Console, so these mounts stay.
+    ["https://app.example.com/_vitehub-app", "https://app.example.com", "/_vitehub-app"],
+    ["https://app.example.com/portal/_vitehub-assets/", "https://app.example.com", "/portal/_vitehub-assets"],
+    ["https://app.example.com/_vitehub-app/_vitehub/kv", "https://app.example.com", "/_vitehub-app"],
   ])("reads %s as origin and base", (input, origin, base) => {
     expect(normalizeProjectUrl(input)).toEqual({ target: { origin, base, url: `${origin}${base}` } })
   })
@@ -96,6 +101,61 @@ describe("project store", () => {
 
     storage.setItem(consoleProjectsStorageKey, "{not json")
     expect(store.list()).toEqual([])
+  })
+})
+
+/** A `localStorage` that reads, and refuses writes from the `failFrom`th write, like a full or restricted storage. */
+function refusingStorage(failFrom = 1): ConsoleBrowserStorage & { values: Map<string, string> } {
+  const values = new Map<string, string>()
+  let writes = 0
+  return {
+    getItem: key => values.get(key) ?? null,
+    removeItem: key => void values.delete(key),
+    setItem: (key, value) => {
+      if (++writes >= failFrom) throw new DOMException("The quota has been exceeded.", "QuotaExceededError")
+      values.set(key, value)
+    },
+    values,
+  }
+}
+
+describe("browser storage", () => {
+  it("keeps localStorage when it accepts writes", () => {
+    const local = refusingStorage(Number.POSITIVE_INFINITY)
+    const storage = browserProjectStorage(() => local)
+    createConsoleProjectStore(storage).save({ url: "https://a.example.com" })
+    expect(storage.persistent).toBe(true)
+    expect(local.values.has(consoleProjectsStorageKey)).toBe(true)
+    expect([...local.values.keys()]).toEqual([consoleProjectsStorageKey])
+  })
+
+  it("moves to memory when storage refuses the first write, or blocks access", () => {
+    const fallback = vi.fn()
+    const storage = browserProjectStorage(() => refusingStorage(), fallback)
+    expect(storage.persistent).toBe(false)
+    const store = createConsoleProjectStore(storage)
+    store.select(store.save({ url: "https://a.example.com", token: "t" }).id)
+    expect(store.active()).toMatchObject({ url: "https://a.example.com", token: "t" })
+    // It was not persistent from the start, so there was no change to report.
+    expect(fallback).not.toHaveBeenCalled()
+
+    const blocked = browserProjectStorage(() => { throw new DOMException("Blocked", "SecurityError") })
+    expect(blocked.persistent).toBe(false)
+    expect(createConsoleProjectStore(blocked).save({ url: "https://b.example.com" }).url).toBe("https://b.example.com")
+  })
+
+  it("keeps the list in memory when a later write fails", () => {
+    const fallback = vi.fn()
+    // The probe write passes, and the third write (the second save) fails.
+    const local = refusingStorage(3)
+    const storage = browserProjectStorage(() => local, fallback)
+    const store = createConsoleProjectStore(storage)
+    store.save({ url: "https://a.example.com" })
+    expect(storage.persistent).toBe(true)
+    store.save({ url: "https://b.example.com" })
+    expect(storage.persistent).toBe(false)
+    expect(fallback).toHaveBeenCalledOnce()
+    expect(store.list().map(project => project.url)).toEqual(["https://a.example.com", "https://b.example.com"])
   })
 })
 
@@ -184,8 +244,18 @@ describe("linking a project", () => {
     expect(state.store.active()?.url).toBe("https://app.example.com/portal")
 
     if (linked.kind !== "linked") throw new Error("Expected a linked project")
+    // Nothing has loaded yet, so the first project opens in place.
     module.switchConsoleProject(linked.project.id)
+    await module.consoleProjectReady()
+    expect(navigate).not.toHaveBeenCalled()
+    expect(state.gate.value).toEqual({ kind: "ready" })
+
+    // Once the Console shows a project, a switch loads the Console again, so no page keeps data of the last project.
+    const other = await module.linkConsoleProject("https://other.example.com", "right")
+    if (other.kind !== "linked") throw new Error("Expected a linked project")
+    module.switchConsoleProject(other.project.id)
     expect(navigate).toHaveBeenCalledWith("/")
+    expect(state.store.active()?.url).toBe("https://other.example.com")
   })
 
   it("explains CORS, mixed content, and a bad URL without saving", async () => {
@@ -243,6 +313,43 @@ describe("linking a project", () => {
     })()
     await module.openConsoleProject()
     expect(state.gate.value).toEqual({ kind: "ready" })
+  })
+})
+
+describe("projects in a browser that refuses writes", () => {
+  it("links the first project and opens it in place, so the list in memory stays", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json(projectGet)))
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const navigate = vi.fn()
+    const storage = browserProjectStorage(() => refusingStorage())
+    const state = module.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate, pageOrigin: "https://console.example.com", storage })
+    expect(state.persistent.value).toBe(false)
+
+    const linked = await module.linkConsoleProject("https://app.example.com", "token")
+    if (linked.kind !== "linked") throw new Error("Expected a linked project")
+    module.switchConsoleProject(linked.project.id)
+    await module.consoleProjectReady()
+    expect(navigate).not.toHaveBeenCalled()
+    expect(state.gate.value).toEqual({ kind: "ready" })
+    expect(state.current.value).toMatchObject({ url: "https://app.example.com", token: "token" })
+    const { useConsoleToast } = await import("../src/console/runtime/client/toast.ts")
+    expect(useConsoleToast().toasts.value.map(toast => toast.title)).toEqual([module.consoleProjectsVolatileNote])
+  })
+
+  it("signs in to an embedded token app when the first write fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) =>
+      new Headers(init.headers).get("authorization") === "Bearer right" ? Response.json(projectGet) : Response.json(tokenRejection, { status: 401 })))
+    const module = await import("../src/console/runtime/client/project-session.ts")
+    const fallback = vi.fn(() => module.noteConsoleProjectsVolatile())
+    // The probe passes, so storage looks fine until the token is saved.
+    const storage = browserProjectStorage(() => refusingStorage(2), fallback)
+    const state = module.startConsoleProjects({ base: "", home: "/_vitehub/", mode: "embedded", navigate: () => {}, pageOrigin: "https://app.example.com", storage })
+    await module.openConsoleProject()
+    expect(state.gate.value).toEqual({ kind: "token", rejected: false })
+    expect(await module.signInConsoleProject("right")).toEqual({ kind: "ready" })
+    expect(fallback).toHaveBeenCalledOnce()
+    expect(state.persistent.value).toBe(false)
+    expect(state.current.value?.token).toBe("right")
   })
 })
 

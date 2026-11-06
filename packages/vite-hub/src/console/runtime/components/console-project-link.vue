@@ -4,11 +4,12 @@ import { ref, shallowRef, watch } from "vue";
 import type { ConsoleProjectProblem } from "../client/project-link";
 import { consoleTokenRefused } from "../client/project-link";
 import type { ConsoleProjectTarget } from "../client/projects";
-import { linkConsoleProject, switchConsoleProject } from "../client/project-session";
+import { consoleProjectsVolatileNote, linkConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import ConsoleProjectToken from "./console-project-token.vue";
 
 const open = defineModel<boolean>("open", { required: true });
+const persistent = useConsoleProjects().persistent;
 
 const url = ref("");
 const busy = ref(false);
@@ -36,6 +37,8 @@ async function link(token?: string): Promise<void> {
   try {
     const result = await linkConsoleProject(tokenStep.value?.target.url ?? url.value, token);
     if (result.kind === "linked") {
+      // The first project opens in place, so the dialog closes first.
+      open.value = false;
       switchConsoleProject(result.project.id);
       return;
     }
@@ -100,6 +103,7 @@ function back(): void {
           </div>
         </div>
         <UButton type="submit" block :loading="busy" :label="busy ? 'Checking…' : 'Continue'" />
+        <p v-if="!persistent" class="text-xs text-pretty text-muted">{{ consoleProjectsVolatileNote }}</p>
       </form>
     </template>
   </UModal>

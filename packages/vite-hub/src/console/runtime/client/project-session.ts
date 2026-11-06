@@ -4,6 +4,7 @@ import type { Ref, ShallowRef } from "vue"
 
 import { setConsoleProject } from "./project"
 import { consoleProjectProblem, probeConsoleProject } from "./project-link"
+import { useConsoleToast } from "./toast"
 import { consoleProjectHost, consoleProjectTarget, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "./projects"
 
 import type { ConsoleProjectInfo, ConsoleProjectProbe, ConsoleProjectProblem } from "./project-link"
@@ -50,6 +51,8 @@ interface ConsoleProjectsState {
   statuses: ShallowRef<Readonly<Record<string, ConsoleProjectStatus>>>
   /** The Link project dialog is open. The rail and the search palette open it. */
   linkOpen: Ref<boolean>
+  /** `false` when the browser does not keep the project list, so it ends with the page. */
+  persistent: Ref<boolean>
 }
 
 let state: ConsoleProjectsState | undefined
@@ -117,6 +120,7 @@ export function startConsoleProjects(options: {
     mode: options.mode,
     navigate: options.navigate,
     pageOrigin: options.pageOrigin,
+    persistent: ref(options.storage.persistent !== false),
     projects: shallowRef(projects),
     statuses: shallowRef({}),
     store,
@@ -144,6 +148,7 @@ function open(info: ConsoleProjectInfo): void {
   if (current?.id) projects.statuses.value = { ...projects.statuses.value, [current.id]: "ready" }
   projects.gate.value = { kind: "ready" }
   resolveReady?.()
+  announceVolatile()
 }
 
 /** Embedded mode opens the app unless it asks for a Console token. The app's own pages show the other sign-in states. */
@@ -216,11 +221,42 @@ export async function linkConsoleProject(input: string, token?: string): Promise
   return { kind: "linked", project }
 }
 
-/** Make a linked project active and load the Console for it. */
+/** What the Console says, once, when the browser does not keep the project list. */
+export const consoleProjectsVolatileNote = "This browser does not let the Console keep data, so linked projects and tokens last until the page reloads."
+let volatileAnnounced = false
+
+/** Say once, in a toast of the open Console, that the list ends with the page. Before that, the gate shows the note. */
+function announceVolatile(): void {
+  if (volatileAnnounced || state?.persistent.value !== false || state.gate.value.kind !== "ready") return
+  // An embedded app without a token stores nothing, so the note would only be noise there.
+  if (state.mode === "embedded" && !state.current.value?.token) return
+  volatileAnnounced = true
+  useConsoleToast().show({ duration: 8_000, title: consoleProjectsVolatileNote })
+}
+
+/** The project storage stopped keeping the list, such as after a write to full storage failed. */
+export function noteConsoleProjectsVolatile(): void {
+  if (!state) return
+  state.persistent.value = false
+  announceVolatile()
+}
+
+/**
+ * Make a linked project active and load the Console for it. Before the Console shows a project, such as after the first
+ * link, it opens the project in place: nothing has loaded yet, and a list that lives only in memory stays.
+ */
 export function switchConsoleProject(id: string): void {
   const projects = useState()
   projects.store.select(id)
-  projects.navigate(projects.home)
+  const project = projects.store.get(id)
+  if (projects.gate.value.kind === "ready" || !project) {
+    projects.navigate(projects.home)
+    return
+  }
+  projects.current.value = project
+  projects.projects.value = projects.store.list()
+  applyTransport(consoleProjectTarget(project))
+  void openConsoleProject()
 }
 
 /**

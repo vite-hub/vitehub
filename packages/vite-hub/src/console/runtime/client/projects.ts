@@ -30,6 +30,8 @@ export interface ConsoleProjectTarget {
 export interface ConsoleProjectStorage {
   getItem(key: string): string | null
   setItem(key: string, value: string): void
+  /** `false` when the list lives only in memory and ends with the page. */
+  readonly persistent?: boolean
 }
 
 interface StoredProjects {
@@ -58,7 +60,8 @@ export function normalizeProjectUrl(input: string): { target: ConsoleProjectTarg
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return { error: "Use an https:// URL, such as https://app.example.com." }
   if (url.username || url.password) return { error: "Remove the user name and password from the URL." }
-  const mount = url.pathname.indexOf("/_vitehub")
+  // Only a whole `/_vitehub` segment starts the Console, so a mount such as `/_vitehub-app` stays.
+  const mount = url.pathname.search(/\/_vitehub(?=\/|$)/)
   const path = mount === -1 ? url.pathname : url.pathname.slice(0, mount)
   const base = path.replace(/\/+$/, "")
   return { target: { origin: url.origin, base, url: `${url.origin}${base}` } }
@@ -184,11 +187,75 @@ export function createConsoleProjectStore(storage: ConsoleProjectStorage): Conso
   }
 }
 
-/** A storage that keeps the list in memory, for a browser that blocks `localStorage`. The list then ends with the tab. */
+/** A storage that keeps the list in memory, for a browser that blocks `localStorage`. The list then ends with the page. */
 export function memoryProjectStorage(): ConsoleProjectStorage {
   const values = new Map<string, string>()
   return {
     getItem: key => values.get(key) ?? null,
+    persistent: false,
     setItem: (key, value) => void values.set(key, value),
+  }
+}
+
+/** The members of `localStorage` that `browserProjectStorage()` uses. */
+export interface ConsoleBrowserStorage extends ConsoleProjectStorage {
+  removeItem(key: string): void
+}
+
+/**
+ * `localStorage` with a fallback to memory. A browser can block storage, or let the Console read it and refuse writes
+ * when it is full or restricted. The first write that fails moves the list to memory and calls `onFallback`, so the
+ * Console can say that the list ends with the page.
+ */
+export function browserProjectStorage(open: () => ConsoleBrowserStorage, onFallback: () => void = () => {}): ConsoleProjectStorage {
+  const memory = memoryProjectStorage()
+  let primary: ConsoleBrowserStorage | undefined
+  try {
+    const storage = open()
+    const probe = `${consoleProjectsStorageKey}:probe`
+    storage.setItem(probe, "1")
+    storage.removeItem(probe)
+    primary = storage
+  }
+  catch {}
+  const fallback = (key: string, value?: string): void => {
+    let current: string | null = null
+    try {
+      current = primary?.getItem(key) ?? null
+    }
+    catch {}
+    primary = undefined
+    const next = value ?? current
+    if (next !== null) memory.setItem(key, next)
+    onFallback()
+  }
+  return {
+    get persistent() {
+      return primary !== undefined
+    },
+    getItem: (key) => {
+      if (primary) {
+        try {
+          return primary.getItem(key)
+        }
+        catch {
+          fallback(key)
+        }
+      }
+      return memory.getItem(key)
+    },
+    setItem: (key, value) => {
+      if (primary) {
+        try {
+          primary.setItem(key, value)
+          return
+        }
+        catch {
+          fallback(key, value)
+          return
+        }
+      }
+      memory.setItem(key, value)
+    },
   }
 }
