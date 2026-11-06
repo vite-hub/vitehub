@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { Script } from "node:vm"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
@@ -83,6 +84,35 @@ describe("simulated chat Channels", () => {
     }
   })
 
+  it("opens a chat page in the look of the platform on a browser GET of the webhook route", async () => {
+    const agent = defineAgent({
+      channels: { discord: discord(), slack: slack(), teams: teams(), telegram: telegram() },
+      driver: { run: () => "ok" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent)
+    const platforms = { discord: "Discord", slack: "Slack", teams: "Microsoft Teams", telegram: "Telegram" }
+    for (const [channel, platform] of Object.entries(platforms)) {
+      const route = `/api/_vitehub/agents/support/webhooks/${channel}`
+      const response = await handler(new Request(`https://example.com${route}`), channel, { agentName: "support" })
+      expect(response.status, channel).toBe(200)
+      expect(response.headers.get("content-type"), channel).toBe("text/html; charset=utf-8")
+      const html = await response.text()
+      expect(html, channel).toContain(`Unofficial simulator · not affiliated with ${platform}`)
+      expect(html, channel).toContain(`"route":"${route}"`)
+      expect(html, channel).not.toMatch(/<link|<img|\bsrc=|@import|url\(\s*["']?https?:/)
+      const script = /<script type="module">([\s\S]*)<\/script>/.exec(html)?.[1] ?? ""
+      expect(() => new Script(script), channel).not.toThrow()
+    }
+  })
+
+  it("escapes the Agent name in the chat page", async () => {
+    const agent = defineAgent({ channels: { slack: slack() }, driver: { run: () => "ok" } })
+    const response = await createChannelWebhookRouteHandler(agent)(new Request("https://example.com/api/_vitehub/agents/x/webhooks/slack"), "slack", { agentName: "</script><img>" })
+    const html = await response.text()
+    expect(html).not.toContain("</script><img>")
+    expect(html).toContain("&lt;/script&gt;&lt;img&gt;")
+  })
+
   it("keeps the Channel instructions and turns off provider listeners and webhook verification", () => {
     const polling = telegram({ mode: "polling" })
     expect(inspectMessageChannelInstructions({ telegram: polling }).join("\n")).toContain("Telegram")
@@ -100,5 +130,12 @@ describe("simulated chat Channels", () => {
   it("leaves Channels alone when simulation is off", () => {
     delete process.env[channelSimulationEnv]
     expect(telegram({ mode: "polling" }).listener).toEqual({ kind: "telegram-polling" })
+  })
+
+  it("answers a GET with 405 when simulation is off", async () => {
+    delete process.env[channelSimulationEnv]
+    const agent = defineAgent({ channels: { discord: discord() }, driver: { run: () => "ok" } })
+    const response = await createChannelWebhookRouteHandler(agent)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/discord"), "discord", { agentName: "support" })
+    expect(response.status).toBe(405)
   })
 })

@@ -1,5 +1,5 @@
 import { formatChannelCitationMessage, formatChannelCitationStream, formatChannelCitationText, transformChannelTextStream } from "../internal/channel-citations.ts"
-import { isSimulatedChatAdapter } from "../internal/channel-simulation.ts"
+import { isChannelSimulated, isSimulatedChatAdapter } from "../internal/channel-simulation.ts"
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { createExecutionContext, getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
@@ -9471,6 +9471,22 @@ function createQueuedChannelDispatch(
   }
 }
 
+/**
+ * A browser GET on the webhook route of a simulated chat Channel opens a chat page in the look of its platform. The page
+ * POSTs to the same route, so opening the webhook URL is the way to chat with the Agent as that Channel.
+ */
+async function simulatedChannelPageResponse(agent: unknown, request: Request, webhook: string | undefined, agentName: string | undefined): Promise<Response | undefined> {
+  const webhookId = webhook ?? fallbackWebhookFromRequest(request)
+  if (!webhookId || !isRecord(agent) || !isRecord(agent.channels)) return undefined
+  const channel = agent.channels[webhookId]
+  if (!isRuntimeRecord(channel) || !hasRuntimeType(channel.kind, "string") || !isChannelSimulated(channel.kind)) return undefined
+  const { renderChannelSimulatorPage } = await import("../internal/channel-simulator/page.ts")
+  const page = renderChannelSimulatorPage(channel.kind, { agent: agentName || "agent", route: new URL(request.url).pathname })
+  return page === undefined
+    ? undefined
+    : new Response(page, { headers: { "cache-control": "no-store", "content-type": "text/html; charset=utf-8" } })
+}
+
 export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRouteRuntimeContext>): AgentChannelWebhookRouteHandler {
   const activeInvocationScope: WebhookActiveInvocationScope = { owner: "webhook" }
   const webhookQueue = createAgentWebhookQueue<AgentChannelWebhookRouteOptions>({
@@ -9489,6 +9505,10 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     const webhookStartedAt = Date.now()
     // A replayed inbox request keeps its first arrival time for signature timestamps and retention.
     const webhookReceivedAt = (handlerOptions as AgentChannelWebhookRouteOptions & { [webhookInboxReceivedAt]?: number })[webhookInboxReceivedAt] ?? webhookStartedAt
+    if (request.method === "GET") {
+      const page = await simulatedChannelPageResponse(agent, request, webhook, routeAgentIdentity(handlerOptions)?.name)
+      if (page) return page
+    }
     if (request.method !== "HEAD" && request.method !== "POST") {
       return createJsonErrorResponse(405, "Agent webhook route only accepts HEAD and POST requests.")
     }
