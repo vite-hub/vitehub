@@ -1,12 +1,17 @@
 /** The Node request fields that ViteHub reads from an H3 1 event, such as a Nuxt 4 server event. */
 export interface H3V1NodeRequest extends AsyncIterable<unknown> {
+  aborted?: boolean
   body?: unknown
+  complete?: boolean
   connection?: { encrypted?: boolean, remoteAddress?: string }
+  destroyed?: boolean
+  errored?: Error | null
   headers: Record<string, string | string[] | undefined>
   method?: string
+  once?: (event: "close", listener: () => void) => unknown
   originalUrl?: string
   rawBody?: unknown
-  socket?: { encrypted?: boolean, remoteAddress?: string }
+  socket?: { destroyed?: boolean, encrypted?: boolean, remoteAddress?: string }
   url?: string
   [key: symbol]: unknown
 }
@@ -14,11 +19,14 @@ export interface H3V1NodeRequest extends AsyncIterable<unknown> {
 /** The Node response fields that ViteHub writes through an H3 1 event. */
 export interface H3V1NodeResponse {
   appendHeader?: (name: string, value: string | readonly string[]) => unknown
+  destroyed?: boolean
   getHeader(name: string): number | string | string[] | undefined
   getHeaders(): Record<string, number | string | string[] | undefined>
   removeHeader(name: string): void
+  once?: (event: "close", listener: () => void) => unknown
   setHeader(name: string, value: number | string | readonly string[]): unknown
   statusCode: number
+  writableEnded?: boolean
 }
 
 /** An H3 1 event. ViteHub builds a Web Request from `node.req`. */
@@ -213,14 +221,34 @@ function readNodeRequestBody(event: H3V1Event): ReadableStream<Uint8Array> {
   }, { highWaterMark: 0 })
 }
 
-/** Return one Web Request per H3 1 event. The body is read only when a caller reads the Request body. */
+/**
+ * Return a signal that aborts when the client leaves before the response ends, like the Request of H3 2 on Node.
+ * Node closes the response when the connection closes. A response that ended before `close` does not abort.
+ */
+function readNodeRequestSignal(event: H3V1Event): AbortSignal {
+  const controller = new AbortController()
+  const { req, res } = event.node
+  const target = res ?? req
+  const onClose = () => {
+    if (req.errored) controller.abort(req.errored)
+    else if (res ? !res.writableEnded : !req.complete || req.aborted) controller.abort()
+  }
+  target.once?.("close", onClose)
+  if (target.destroyed || req.socket?.destroyed) onClose()
+  return controller.signal
+}
+
+/**
+ * Return one Web Request per H3 1 event. The body is read only when a caller reads the Request body. Its `signal`
+ * aborts when the client disconnects before the response ends.
+ */
 export function toH3V1Request(event: H3V1Event): Request {
   const cached = nodeEventRequests.get(event)
   if (cached) return cached
   if (isWebRequest(event.web?.request)) return event.web.request
   const request = event.node.req
   const method = (request.method || "GET").toUpperCase()
-  const init: RequestInitWithDuplex = { headers: readNodeRequestHeaders(request), method }
+  const init: RequestInitWithDuplex = { headers: readNodeRequestHeaders(request), method, signal: readNodeRequestSignal(event) }
   if (payloadMethods.has(method)) {
     init.body = readNodeRequestBody(event)
     init.duplex = "half"

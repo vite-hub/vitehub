@@ -1,8 +1,28 @@
+import { once } from "node:events"
+import { createServer, request as sendRequest } from "node:http"
 import { H3Event } from "h3"
 import { describe, expect, it, vi } from "vitest"
 import { toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 
 import { getRuntimeContext, getStandardContext, installStandardContext } from "../src/h3.ts"
+import type { IncomingMessage, ServerResponse } from "node:http"
+import type { AddressInfo } from "node:net"
+
+/** Serve each request as an H3 1 event, as H3 1 and Nitro 2 do on Node, and return the Request signal it reads. */
+async function serveH3V1(handle: (signal: AbortSignal, res: ServerResponse) => void) {
+  const signals: AbortSignal[] = []
+  const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+    const event = { node: { req, res } }
+    installStandardContext(event)
+    const signal = event["~standard"].req.signal
+    signals.push(signal)
+    handle(signal, res)
+  })
+  server.listen(0, "127.0.0.1")
+  await once(server, "listening")
+  const { port } = server.address() as AddressInfo
+  return { port, server, signals }
+}
 
 describe("@vite-hub/runtime/h3", () => {
   it("reads the Cloudflare env and lifetime from an H3 event", () => {
@@ -242,5 +262,58 @@ describe("@vite-hub/runtime/h3", () => {
       async *[Symbol.asyncIterator]() {},
     }
     await expect(toH3V1Request({ node: { req: nodeRequest } }).text()).resolves.toBe("")
+  })
+
+  it("aborts the H3 1 Request signal when the client disconnects mid-stream", async () => {
+    let onAbort: (reason: unknown) => void = () => {}
+    const aborted = new Promise<unknown>((resolve) => { onAbort = resolve })
+    const { port, server, signals } = await serveH3V1((signal, res) => {
+      signal.addEventListener("abort", () => onAbort(signal.reason))
+      res.writeHead(200, { "content-type": "text/event-stream" })
+      res.write("data: first\n\n")
+    })
+    try {
+      const client = sendRequest({ host: "127.0.0.1", port, path: "/stream" })
+      client.on("error", () => {})
+      client.on("response", (response) => {
+        response.once("data", () => client.destroy())
+      })
+      client.end()
+      const reason = await aborted
+      expect(signals).toHaveLength(1)
+      expect(signals[0]!.aborted).toBe(true)
+      // Like srvx on H3 2, the reason is the Node request error when Node reports one.
+      expect(reason).toMatchObject({ code: "ECONNRESET" })
+    }
+    finally {
+      server.closeAllConnections()
+      server.close()
+    }
+  })
+
+  it("does not abort the H3 1 Request signal after the response ends", async () => {
+    let onClose: () => void = () => {}
+    const closed = new Promise<void>((resolve) => { onClose = resolve })
+    const { port, server, signals } = await serveH3V1((_signal, res) => {
+      res.once("close", () => onClose())
+      res.end("done")
+    })
+    try {
+      const body = await new Promise<string>((resolve, reject) => {
+        sendRequest({ host: "127.0.0.1", port, path: "/" }, (response) => {
+          let text = ""
+          response.setEncoding("utf8")
+          response.on("data", (chunk: string) => { text += chunk })
+          response.on("end", () => resolve(text))
+        }).on("error", reject).end()
+      })
+      await closed
+      expect(body).toBe("done")
+      expect(signals[0]!.aborted).toBe(false)
+    }
+    finally {
+      server.closeAllConnections()
+      server.close()
+    }
   })
 })
