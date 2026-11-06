@@ -35,6 +35,8 @@ export function configureCloudflareKV(
     const existing = namespaces.find(entry => entry.binding === binding)
     if (existing) {
       if (store.remote) existing.remote = true
+      // localBase marks local development; builds preserve the project's binding mode.
+      else if (store.localBase) delete existing.remote
     }
     else {
       namespaces.push({ binding, ...(namespaceId ? { id: namespaceId } : {}), ...(store.remote ? { remote: true } : {}) })

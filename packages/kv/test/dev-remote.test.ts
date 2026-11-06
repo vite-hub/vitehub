@@ -186,6 +186,19 @@ describe("KV in vite dev", () => {
       manual,
     ])
   })
+
+  it.each([undefined, false])("resets an existing remote Wrangler binding for a local store with remote %s", async (remote) => {
+    const namespace = { binding: "KV", id: "namespace-id", preview_id: "preview-id", remote: true }
+    const manual = { binding: "MANUAL", id: "manual-id", remote: true }
+    const { kv: config, nitro } = await resolvePlugin("serve", { remote }, "cloudflare-module", {
+      cloudflare: { wrangler: { kv_namespaces: [namespace, manual] } },
+    })
+    expect(config).toEqual({ store: { binding: "KV", driver: "cloudflare-kv-binding", localBase: ".vitehub/data/kv-cloudflare/KV" } })
+    expect(nitro.cloudflare?.wrangler?.kv_namespaces).toEqual([
+      { binding: "KV", id: "namespace-id", preview_id: "preview-id" },
+      manual,
+    ])
+  })
 })
 
 describe("KV in a Vite dev server", () => {
@@ -228,6 +241,14 @@ describe("KV in a Vite dev server", () => {
 })
 
 describe("KV in a build", () => {
+  it.each([undefined, true, false])("preserves an existing Wrangler remote flag when the store has remote %s", async (remote) => {
+    const namespace = { binding: "KV", id: "namespace-id", preview_id: "preview-id", remote: true }
+    const { nitro } = await resolvePlugin("build", { remote }, "cloudflare-module", {
+      cloudflare: { wrangler: { kv_namespaces: [namespace] } },
+    })
+    expect(nitro.cloudflare?.wrangler?.kv_namespaces).toEqual([{ binding: "KV", id: "namespace-id", preview_id: "preview-id", remote: true }])
+  })
+
   it.each(["fs-lite", "deno-kv", "upstash", "cloudflare-kv-binding"] as const)("ignores boolean remote flags for explicit %s stores", (driver) => {
     const baseline = normalizeKVOptions({ driver }, { env: {} })
     const namedBaseline = normalizeKVOptions({ stores: { default: { driver } } }, { env: {} })
