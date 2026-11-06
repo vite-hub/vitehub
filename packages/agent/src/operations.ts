@@ -131,18 +131,20 @@ export interface ChannelRetentionView {
   mode: "durable-transcripts" | "provider-window"
   transcripts: boolean
   ttlMs: number
-  /** Present when older messages may be missing. */
+  /** Present when older messages may be missing. A simulated Channel has none. */
   warning?: string
 }
 
-function retentionOf(retention: AgentChannelRetention): ChannelRetentionView {
+// A simulated Channel has no provider history to lose: its chat page keeps the messages in browser memory, and a
+// reload starts a new thread. So it gets no warning about the provider window.
+function retentionOf(retention: AgentChannelRetention, simulated: boolean): ChannelRetentionView {
   return {
     durable: retention.durable,
     maxMessages: retention.maxMessages,
     mode: retention.durable ? "durable-transcripts" : "provider-window",
     transcripts: retention.transcripts,
     ttlMs: retention.ttlMs,
-    ...(retention.durable
+    ...(retention.durable || simulated
       ? {}
       : { warning: `Transcripts are not durable. The provider keeps ${retention.maxMessages} messages for ${Math.max(1, Math.round(retention.ttlMs / 86_400_000))} days, so older messages may be missing.` }),
   }
@@ -197,7 +199,7 @@ const channelsList = defineOperation({
           channel: channel.id,
           conversations: channel.conversations,
           provider: channel.provider,
-          retention: retentionOf(channel.retention),
+          retention: retentionOf(channel.retention, channel.simulated),
           simulated: channel.simulated,
           ...(channel.simulator ? { simulator: channel.simulator } : {}),
         })
@@ -256,7 +258,7 @@ const channelsThreads = defineOperation({
       channel: input.channel,
       ...(rest.length > size && selected.length ? { nextCursor: encodeChannelCursor(key(selected.at(-1)!)) } : {}),
       provider: channel.provider,
-      retention: retentionOf(channel.retention),
+      retention: retentionOf(channel.retention, channel.simulated),
       threads: selected.map(thread => ({
         invocationCount: thread.invocationCount,
         lastMessageAt: thread.lastActivity,
@@ -354,7 +356,7 @@ const channelsConversation = defineOperation({
       messages: selected.map(messageView),
       ...(rest.length > size && selected.length ? { nextCursor: encodeChannelCursor(channelMessageCursor(selected.at(-1)!)) } : {}),
       provider: conversation.provider,
-      retention: retentionOf(conversation.retention),
+      retention: retentionOf(conversation.retention, conversation.simulated),
       thread: conversation.threadId,
       ...(conversation.truncated ? { truncated: true } : {}),
     }
@@ -400,7 +402,7 @@ const conversationsExport = defineOperation({
     const conversation = await readConversation(context, { ...input, attachmentBytes: input.media ? maximumMediaBytes : 0 })
     const archive = channelConversationArchive(conversation)
     const { archive: files, media } = materializeChannelArchive({ ...archive, messages: conversation.messages as readonly Record<string, unknown>[] })
-    const retention = retentionOf(conversation.retention)
+    const retention = retentionOf(conversation.retention, conversation.simulated)
     const exported: Omit<ConversationExport, "text"> = input.format === "json"
       ? { filename: "history.json", format: "json", media, messageCount: conversation.messages.length, mimeType: "application/json", retention }
       : { filename: `${slug(conversation.threadId)}.md`, format: "markdown", media, messageCount: conversation.messages.length, mimeType: "text/markdown", retention }
@@ -412,7 +414,7 @@ const conversationsExport = defineOperation({
           exportedAt: new Date().toISOString(),
           messages: files.messages,
           provider: conversation.provider,
-          retention: conversation.retention,
+          ...(conversation.simulated ? {} : { retention: conversation.retention }),
           threadId: conversation.threadId,
           truncated: conversation.truncated,
         })
