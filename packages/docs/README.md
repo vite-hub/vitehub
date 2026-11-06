@@ -80,6 +80,7 @@ The `components` module exports a default map of Comark tags to Vue components. 
 | `title` | Required | Page heading and browser title. |
 | `description` | None | Text under the heading, the meta description, and the llms.txt entry. |
 | `tagline` | `description` | Text under the heading, when it must differ from the meta description. |
+| `eyebrow` | none | A short label above the title, such as the package that the page documents. |
 | `credits` | None | Inline Markdown at the end of the page, such as `Icons from [Lucide](https://lucide.dev).` |
 | `keywords` | None | Words that find the page in search besides its own text: a list, or one string with commas. They rank below the page title and with headings. |
 | `icon` | `i-lucide-file-text` | Sidebar icon, as an Iconify name. |
@@ -164,7 +165,7 @@ The shell is a set of Nuxt components. Create a component with the same name in 
 | --- | --- |
 | `AppHeader` | Site header on narrow screens and on pages outside the docs. |
 | `AppSearch` | The search dialog. |
-| `DocsRail`, `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody`, `DocsAsideFooter` | The section rail, the page sidebar, and its footer. |
+| `DocsRail`, `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody` | The section rail, the page sidebar, and its title. |
 | `DocsPage`, `DocsArticle`, `DocsLanding`, `DocsMarkdown` | The page and its layouts. |
 | `DocsHeaderActions` | Empty. Replace it to add items to the site header, before search. |
 | `DocsPageHeaderLinks` | Copy page, View as Markdown, Open in ChatGPT or Claude, and the MCP links. |
@@ -189,12 +190,12 @@ export default { plugins: [tabs()] } satisfies DocsParserOptions
 
 Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console drafts use these plugins after the built-in ones. A plugin with a built-in name, such as `alert`, replaces it. A plugin that adds a tag needs a component for it in `app/components/content/`.
 
-### Theme
+### Design
 
-The theme is black, white, and zinc, with Geist, square corners, hairline borders, and GitHub code colors. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
+The design follows the comark-ui site: Geist, neutral grays, hairline rings, small radii, a faint grain on the page, and GitHub code colors. A header holds the brand, search, and the links, and the sidebar holds a rail of sections or groups next to the page list. Text, code, and focus rings pass WCAG AA in light and dark mode. Change it in two places:
 
-- `app.config.ts` `ui` keys. Your values win over the theme. The theme wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
-- CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--font-sans`, and the Nuxt UI `--ui-*` colors.
+- `app.config.ts` `ui` keys. Your values win over the design. The design wins over the Nuxt UI defaults, also when `@nuxt/ui` comes first in `modules`.
+- CSS variables in your stylesheet, such as `--vh-content-width` (prose width), `--vh-toc-width`, `--vh-panel-width`, `--vh-grain` (`none` turns the grain off), `--font-sans`, and the Nuxt UI `--ui-*` colors.
 
 The build also checks cross-page fragments in the final HTML output. `docs.linkChecker` accepts `excludePages` for embedded documents, `ignoreFragments` for pages that use the hash as application state, and `redirect(url)` for application redirects. Lists accept exact public paths or regular expressions. The app's `linkChecker.excludeLinks` applies to this check too; use it for intentionally broken examples and dynamic endpoints. `linkChecker: false` disables both checks. For a standalone output check, use `checkDocsLinks({ dir, siteUrl, appBase?, excludeLinks?, excludePages?, ignoreFragments?, redirect? })` from `@vite-hub/docs/server`.
 

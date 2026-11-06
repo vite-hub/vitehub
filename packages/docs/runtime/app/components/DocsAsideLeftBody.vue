@@ -6,7 +6,6 @@ import { docsCatalog, docsHasRail, docsRelatedSections, docsSectionHome, docsSid
 const route = useRoute()
 const manifest = useDocsManifest()
 const { categories, groups, icons: iconOptions, railExclude, start } = useDocsConfig()
-const icons = useDocsIcons()
 const currentPath = computed(() => normalizeDocsPath(route.path))
 const section = useDocsSection()
 // The start section is the home of the docs, so it also lists the site pages that the header shows on the landing page.
@@ -48,7 +47,6 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         :class="['vh-docs-sidebar-link', { 'is-active': isActive(link.to) }]"
         :aria-current="isActive(link.to) ? 'page' : undefined"
       >
-        <UIcon :name="link.icon ?? icons.page({ path: link.to, icon: null })" class="size-4 shrink-0" />
         <span class="min-w-0">{{ link.label }}</span>
       </NuxtLink>
     </section>
@@ -67,11 +65,9 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           :class="['vh-docs-sidebar-link', { 'is-active': isActive(entry.home.path) }]"
           :aria-current="isActive(entry.home.path) ? 'page' : undefined"
         >
-          <UIcon :name="icons.section(entry.section)" class="size-4 shrink-0" />
           <span class="min-w-0">{{ entry.section.title }}</span>
         </NuxtLink>
         <h3 v-else class="vh-docs-sidebar-section-title">
-          <UIcon :name="icons.section(entry.section)" class="size-4 shrink-0" />
           <span class="min-w-0">{{ entry.section.title }}</span>
         </h3>
         <template v-for="pageGroup in entry.groups" :key="pageGroup.label || 'pages'">
@@ -119,7 +115,6 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         :to="docsSectionHome(relatedSection)"
         class="vh-docs-sidebar-link"
       >
-        <UIcon :name="icons.section(relatedSection)" class="size-4 shrink-0" />
         <span class="min-w-0">{{ relatedSection.title }}</span>
       </NuxtLink>
     </section>
@@ -134,7 +129,6 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         :class="['vh-docs-sidebar-link', { 'is-active': isActive(link.to) }]"
         :aria-current="isActive(link.to) ? 'page' : undefined"
       >
-        <UIcon :name="link.icon ?? icons.page({ path: link.to, icon: null })" class="size-4 shrink-0" />
         <span class="min-w-0">{{ link.label }}</span>
       </NuxtLink>
     </section>
@@ -157,7 +151,6 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
-          <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
           <span class="min-w-0">{{ page.title }}</span>
         </NuxtLink>
       </details>
@@ -171,7 +164,6 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
-          <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
           <span class="min-w-0">{{ page.title }}</span>
         </NuxtLink>
       </section>
@@ -184,7 +176,6 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
-          <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
           <span class="min-w-0">{{ page.title }}</span>
         </NuxtLink>
       </template>
@@ -198,7 +189,6 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         :to="docsSectionHome(relatedSection)"
         class="vh-docs-sidebar-link"
       >
-        <UIcon :name="icons.section(relatedSection)" class="size-4 shrink-0" />
         <span class="min-w-0">{{ relatedSection.title }}</span>
       </NuxtLink>
     </section>
@@ -214,7 +204,6 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         :to="docsSectionHome(catalogSection)"
         class="vh-docs-sidebar-link"
       >
-        <UIcon :name="icons.section(catalogSection)" class="size-4 shrink-0" />
         <span class="min-w-0">{{ catalogSection.title }}</span>
       </NuxtLink>
     </section>
@@ -222,6 +211,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
 </template>
 
 <style scoped>
+/* The page list of the old comark-ui site: text rows, small category headings, and a hairline that ties pages to their section. */
 .vh-docs-sidebar-nav {
   display: flex;
   flex-direction: column;
@@ -229,67 +219,50 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: 0.5rem 0 1rem;
+  padding: 0.25rem 1rem 2rem;
+  font-size: 0.8125rem;
 }
 
 .vh-docs-sidebar-page-group,
-.vh-docs-sidebar-category {
-  border-top: 1px solid color-mix(in srgb, var(--ui-border) 65%, transparent);
+.vh-docs-sidebar-category,
+.vh-docs-sidebar-site-areas {
+  display: flex;
+  flex-direction: column;
 }
 
-.vh-docs-sidebar-page-group:first-child,
-.vh-docs-sidebar-category:first-child {
-  border-top: 0;
-}
-
-/* The site areas lead Get started, or the whole list without a rail. A rule separates them from the section pages. */
 .vh-docs-sidebar-site-areas {
   margin-bottom: 0.5rem;
-  border-bottom: 1px solid color-mix(in srgb, var(--ui-border) 65%, transparent);
-  padding-bottom: 0.5rem;
-}
-
-.vh-docs-sidebar-site-areas + .vh-docs-sidebar-page-group,
-.vh-docs-sidebar-site-areas + .vh-docs-sidebar-category {
-  border-top: 0;
-}
-
-.vh-docs-sidebar-category {
-  padding-bottom: 0.25rem;
 }
 
 .vh-docs-sidebar-page-group-heading,
 .vh-docs-sidebar-heading {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-  padding: 0.5rem 1.25rem 0.375rem;
-  color: var(--ui-text-dimmed);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  gap: 0.375rem;
+  margin: 1rem 0 0.25rem;
+  color: var(--ui-text-highlighted);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.5;
 }
 
-/* A long title wraps instead of being cut off. The icon stays on its first line. */
+:is(.vh-docs-sidebar-category, .vh-docs-sidebar-page-group):first-child > :is(.vh-docs-sidebar-heading, .vh-docs-sidebar-page-group-heading):first-child {
+  margin-top: 0.25rem;
+}
+
+/* A long title wraps instead of being cut off. */
 .vh-docs-sidebar-link {
   display: flex;
   align-items: flex-start;
-  gap: 0.625rem;
-  border-left: 2px solid transparent;
-  padding: 0.25rem 1.25rem;
+  margin: 0 -0.5rem;
+  border-radius: 0.375rem;
+  padding: 0.3rem 0.5rem;
   color: var(--ui-text-muted);
-  font-size: 0.875rem;
   line-height: 1.25rem;
   transition:
-    border-color 150ms ease,
     background-color 150ms ease,
+    box-shadow 150ms ease,
     color 150ms ease;
-}
-
-.vh-docs-sidebar-link > .iconify {
-  margin-top: 0.125rem;
 }
 
 /* Touch devices keep 44px tap targets at every viewport width. */
@@ -297,28 +270,23 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
   .vh-docs-sidebar-link,
   .vh-docs-sidebar-fold > summary {
     min-height: 2.75rem;
-  }
-}
-
-/* Center menu rows below the same 64rem handoff as the desktop sidebar. */
-@media (width < 64rem) {
-  .vh-docs-sidebar-link {
     align-items: center;
   }
-
-  .vh-docs-sidebar-link > .iconify {
-    margin-top: 0;
-  }
 }
 
-.vh-docs-sidebar-link.is-grouped {
-  padding-left: 2rem;
-}
-
-/* In a list of sections, the pages of a section line up with its title: the row padding, the icon, and the gap. */
+/* A section's other pages hang from a hairline under its title. The current page darkens its piece of the line. */
 .vh-docs-sidebar-link.is-nested,
+.vh-docs-sidebar-link.is-grouped {
+  margin-left: 0.25rem;
+  border-radius: 0 0.375rem 0.375rem 0;
+  padding-left: 0.875rem;
+  box-shadow: inset 1px 0 0 var(--ui-border);
+}
+
 .vh-docs-sidebar-page-group-heading.is-nested {
-  padding-left: 2.875rem;
+  margin-top: 0.5rem;
+  padding-left: 0.75rem;
+  color: var(--ui-text-muted);
 }
 
 /* A folded group: the summary is its heading, and its chevron points right while the group is shut. */
@@ -332,6 +300,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
 }
 
 .vh-docs-sidebar-fold-icon {
+  color: var(--ui-text-dimmed);
   transition: transform 150ms ease;
 }
 
@@ -339,15 +308,13 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
   transform: rotate(-90deg);
 }
 
-/* A shut group's heading is muted like the links. An open or hovered one takes the text color. */
-.vh-docs-sidebar-fold[open] > summary,
-.vh-docs-sidebar-fold > summary:focus-visible {
-  color: var(--ui-text);
+.vh-docs-sidebar-fold:not([open]) > summary {
+  color: var(--ui-text-muted);
 }
 
 @media (hover: hover) {
   .vh-docs-sidebar-fold > summary:hover {
-    color: var(--ui-text);
+    color: var(--ui-text-highlighted);
   }
 }
 
@@ -359,42 +326,37 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
 
 /* A section without a listed home page has a title row that opens nothing. */
 .vh-docs-sidebar-section-title {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.625rem;
   margin: 0;
-  padding: 0.25rem 1.25rem;
-  color: var(--ui-text);
-  font-size: 0.875rem;
+  padding: 0.3rem 0;
+  color: var(--ui-text-highlighted);
+  font-size: 0.8125rem;
   font-weight: 500;
   line-height: 1.25rem;
 }
 
-.vh-docs-sidebar-section-title > .iconify {
-  margin-top: 0.125rem;
-}
-
-/* Hover and focus only tint the row. The left rule marks the current page, so a hovered row never looks current. */
 .vh-docs-sidebar-link:focus-visible {
-  background: color-mix(in srgb, var(--ui-text-highlighted) 4%, transparent);
-  color: var(--ui-text);
+  color: var(--ui-text-highlighted);
 }
 
 @media (hover: hover) {
   .vh-docs-sidebar-link:hover {
-    background: color-mix(in srgb, var(--ui-text-highlighted) 4%, transparent);
-    color: var(--ui-text);
+    color: var(--ui-text-highlighted);
   }
 }
 
 .vh-docs-sidebar-link.is-active {
-  border-left-color: var(--ui-text-highlighted);
-  background: color-mix(in srgb, var(--ui-text-highlighted) 7%, transparent);
+  background: var(--ui-bg-elevated);
   color: var(--ui-text-highlighted);
 }
 
-/* Related sits at the foot of the list, just above the panel footer, which draws the only rule. */
+.vh-docs-sidebar-link.is-active:is(.is-nested, .is-grouped) {
+  box-shadow: inset 1px 0 0 var(--ui-text-highlighted);
+}
+
+/* Related sits at the foot of the list. */
 .vh-docs-sidebar-related {
+  display: flex;
+  flex-direction: column;
   margin-top: auto;
   padding-top: 0.75rem;
 }

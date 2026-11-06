@@ -27,6 +27,8 @@ export interface DocsPageFrontmatter {
   description?: string
   /** Text under the heading, when it differs from `description`, which stays the meta description and the llms.txt entry. */
   tagline?: string
+  /** A short label above the title, such as the package that the page documents. */
+  eyebrow?: string
   /** Inline Markdown at the end of the page, such as the projects that a package builds on. */
   credits?: string
   /** More words that find the page in search: a list, or one string with commas between them. */
@@ -97,6 +99,7 @@ const pageFields: Fields<DocsPageFrontmatter> = {
   title: z.string(),
   description: z.string().optional(),
   tagline: z.string().optional(),
+  eyebrow: z.string().optional(),
   credits: z.string().optional(),
   keywords: z.union([z.string(), z.array(z.string())]).optional(),
   icon: z.string().optional(),

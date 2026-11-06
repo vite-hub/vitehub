@@ -78,7 +78,7 @@ it("shows one rail item per group and lists every section of the group in its si
     const rail = /<nav[^>]*aria-label="Lumen navigation"[\s\S]*?<\/nav>/.exec(charts)?.[0] ?? ""
     const railLabels = [...rail.matchAll(/<a [^>]*aria-label="([^"]+)"/g)].map(match => match[1])
     // Components stands for annotate, charts, and table. It opens annotate, its first section.
-    expect(railLabels).toEqual(["Lumen", "Start", "Components", "Linter", "Migrate"])
+    expect(railLabels).toEqual(["Start", "Components", "Linter", "Migrate"])
     expect(/<a [^>]*href="\/docs\/annotate"[^>]*>/.exec(rail)?.[0]).toContain('aria-current="true"')
     // Excluded members with a visible group mark that group alone, without the start fallback.
     expect.soft(currentRailLabels(charts)).toEqual(["Components"])

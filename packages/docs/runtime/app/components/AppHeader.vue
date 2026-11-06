@@ -2,16 +2,17 @@
 import { docsHomePath, isDocsPath } from "#docs/navigation"
 
 const route = useRoute()
-const { base, github, site, start } = useDocsConfig()
+const { base, github, site, socials, start } = useDocsConfig()
 const docsHome = docsHomePath(useDocsManifest())
 // Docs routes and the start links use the docs shell. There the brand opens the docs home, like a docs site logo,
 // and the menu shows the docs sidebar. Elsewhere the brand opens the home page.
-// On wide screens the docs sidebar carries the brand, the links, and the controls, so the header hides.
-// The error page has no docs sidebar, so it keeps the header and its way home.
+// The header is the same on every page: the brand, search in the middle, and the site's links and controls.
 const shell = useDocsShell()
 const error = useError()
 const isDocsRoute = computed(() => shell.value && !error.value)
 const menuOpen = ref(false)
+// Nuxt turns a `null` in runtime config into "", so only a number counts.
+const stars = github && typeof github.stars === "number" ? new Intl.NumberFormat("en", { notation: "compact" }).format(github.stars) : null
 
 // A site without docs pages has no "Docs" link.
 const navLinks = [
@@ -36,13 +37,12 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 </script>
 
 <template>
-  <div class="sticky top-0 z-50" :class="{ 'lg:hidden': isDocsRoute }">
+  <div class="sticky top-0 z-50">
     <UHeader
       v-model:open="menuOpen"
       :ui="{
         // Docs pages pin the rail to the left edge, so the header spans the full width.
         container: isDocsRoute ? 'max-w-none' : undefined,
-        left: 'gap-6',
         right: 'pointer-coarse:gap-0.5',
         toggle: touchIconButton,
       }"
@@ -80,17 +80,19 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
         </nav>
       </template>
 
+      <UContentSearchButton
+        :collapsed="false"
+        label="Search docs"
+        :kbds="['meta', 'K']"
+        :ui="{
+          base: 'vh-header-search hidden w-full lg:inline-flex',
+          trailing: 'ms-auto flex items-center gap-0.5',
+        }"
+      />
+
       <template #right>
-        <!-- Empty here: an app adds its own items with a `DocsHeaderActions` component, such as the package a playground shows. -->
+        <!-- Empty here: an app adds its own items with a `DocsHeaderActions` component, such as the package a page documents. -->
         <DocsHeaderActions />
-        <UContentSearchButton
-          :collapsed="false"
-          :kbds="['meta', 'K']"
-          :ui="{
-            base: 'hidden h-8 !w-56 rounded-md border-0 bg-elevated/60 px-2.5 text-sm text-muted hover:bg-elevated hover:text-highlighted lg:inline-flex',
-            trailing: 'ms-auto flex items-center gap-0.5',
-          }"
-        />
         <UContentSearchButton
           collapsed
           :kbds="[]"
@@ -100,14 +102,30 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
             trailing: 'hidden',
           }"
         />
-        <UButton
+        <a
           v-if="github"
-          :to="github.url"
+          :href="github.url"
           target="_blank"
-          icon="i-simple-icons-github"
-          variant="ghost"
+          rel="noopener"
+          class="vh-header-github"
+          :aria-label="stars ? `${site.name} on GitHub, ${stars} stars` : `${site.name} on GitHub`"
+        >
+          <UIcon name="i-simple-icons-github" class="size-4 shrink-0" />
+          <span class="vh-header-github-label">GitHub</span>
+          <span v-if="stars" class="vh-header-github-stars">
+            <UIcon name="i-lucide-star" class="size-3.5 shrink-0" />
+            {{ stars }}
+          </span>
+        </a>
+        <UButton
+          v-for="link in socials"
+          :key="link.to"
+          :to="link.to"
+          target="_blank"
+          :icon="link.icon"
           color="neutral"
-          :aria-label="`${site.name} on GitHub`"
+          variant="ghost"
+          :aria-label="link.label"
           :class="touchIconButton"
         />
         <ClientOnly>
@@ -178,12 +196,6 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
   }
 }
 
-/* The header already shows the brand above the menu. */
-.vh-docs-menu-sidebars :deep(.vh-docs-rail-brand),
-.vh-docs-menu-sidebars :deep(.vh-docs-panel-brand) {
-  display: none;
-}
-
 .vh-docs-menu-sidebars :deep(.vh-docs-panel) {
   flex: 1 1 auto;
   width: auto;
@@ -197,8 +209,9 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
   gap: 0.5rem;
   color: var(--ui-text-highlighted);
   font-size: 0.875rem;
-  font-weight: 650;
+  font-weight: 500;
   letter-spacing: 0;
+  white-space: nowrap;
 }
 
 /* On touch screens the brand text is about 20px tall. An invisible area makes the tap target 44px without moving the header. */
@@ -217,8 +230,8 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 /* Like the docs rail, the mark is a mask filled with the text color, so it follows light and dark mode without a frame. */
 .vh-brand-mark {
   display: block;
-  width: 1.125rem;
-  height: 1rem;
+  width: 1.5rem;
+  height: 1.5rem;
   background-color: var(--ui-text-highlighted);
   mask: var(--vh-docs-logo) center / contain no-repeat;
 }
@@ -242,5 +255,86 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 
 .vh-brand:hover .vh-brand-alpha {
   color: var(--ui-text-highlighted);
+}
+
+/* The search button of the old comark-ui header: a soft field in the middle column, with its shortcut at the end. */
+:deep(.vh-header-search) {
+  height: 2.25rem;
+  gap: 0.5rem;
+  border-radius: 0.375rem;
+  background: var(--ui-bg-muted);
+  box-shadow: inset 0 0 0 1px var(--ui-border);
+  padding: 0 0.375rem 0 0.75rem;
+  color: var(--ui-text-dimmed);
+  font-size: 0.875rem;
+  font-weight: 400;
+  transition: box-shadow 150ms ease, color 150ms ease;
+}
+
+:deep(.vh-header-search kbd) {
+  text-transform: none;
+}
+
+@media (hover: hover) {
+  :deep(.vh-header-search:hover) {
+    box-shadow: inset 0 0 0 1px var(--ui-text-dimmed);
+    color: var(--ui-text-muted);
+  }
+}
+
+/* A pill with the star count after a hairline, as on the old comark-ui site. */
+.vh-header-github {
+  display: inline-flex;
+  height: 2rem;
+  flex: none;
+  align-items: center;
+  gap: 0.375rem;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px var(--ui-border);
+  padding: 0 0.75rem;
+  color: var(--ui-text-highlighted);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  transition: box-shadow 150ms ease;
+}
+
+.vh-header-github-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: 0.125rem;
+  border-left: 1px solid var(--ui-border);
+  padding-left: 0.625rem;
+  color: var(--ui-text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (hover: hover) {
+  .vh-header-github:hover {
+    box-shadow: inset 0 0 0 1px var(--ui-text-dimmed);
+  }
+}
+
+/* Narrow screens keep the mark alone, a 44px target on touch. */
+@media (width < 60rem) {
+  .vh-header-github {
+    width: 2.5rem;
+    justify-content: center;
+    box-shadow: none;
+    padding: 0;
+  }
+
+  .vh-header-github-label,
+  .vh-header-github-stars {
+    display: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .vh-header-github {
+    height: 2.75rem;
+  }
 }
 </style>
