@@ -667,7 +667,11 @@ export function invocationActivityTitle(activity: InvocationActivity): string {
   if (activity.kind === "action") return String(activity.attributes["channel.effect.kind"] ?? activity.attributes["vitehub.action.name"] ?? "Product action");
   if (activity.kind === "plan") return "Updated plan";
   if (activity.kind === "change") return normalizedTitle(String(activity.attributes["tool.name"] ?? "Changed files"));
-  if (activity.kind === "tool") return normalizedTitle(String(activity.attributes["tool.title"] ?? activity.toolDisplay?.label ?? activity.attributes["tool.name"] ?? "Used a tool"));
+  if (activity.kind === "tool") {
+    // Codex records the script as tool.title; the command preview already shows it.
+    if (activity.attributes["tool.name"] === "command_execution") return normalizedTitle("command_execution");
+    return normalizedTitle(String(activity.attributes["tool.title"] ?? activity.toolDisplay?.label ?? activity.attributes["tool.name"] ?? "Used a tool"));
+  }
   if (activity.kind === "approval") {
     if (activity.attributes["approval.approved"] === true) return "Approval granted";
     if (activity.attributes["approval.approved"] === false) return "Approval denied";

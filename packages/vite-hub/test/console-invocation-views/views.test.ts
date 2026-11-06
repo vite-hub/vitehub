@@ -3441,7 +3441,7 @@ describe("Agent Invocation UI", () => {
       id: "codex-steps",
       observations: [
         { attributes: { "input.messages": [{ id: "prompt", role: "user", parts: [{ type: "text", text: "Check the thread" }] }] }, name: "agent.input", sequence: 1, timestamp, type: "run" },
-        { attributes: { "tool.id": "cat", "tool.input": { command: "/bin/sh -lc 'cat AGENTS.md; echo '\\''done'\\'''", toolName: "command_execution" }, "tool.name": "command_execution" }, name: "agent.tool.start", sequence: 2, timestamp, type: "run" },
+        { attributes: { "tool.id": "cat", "tool.input": { command: "/bin/sh -lc 'cat AGENTS.md; echo '\\''done'\\'''", toolName: "command_execution" }, "tool.name": "command_execution", "tool.title": "cat AGENTS.md; echo 'done'" }, name: "agent.tool.start", sequence: 2, timestamp, type: "run" },
         usage(3),
         { attributes: { "message.content": "I’ll check the earlier conversation.", "message.id": "progress", "message.phase": "final", "message.role": "assistant" }, name: "agent.message.delta", sequence: 4, timestamp, type: "run" },
         { attributes: { "tool.id": "threads", "tool.name": "t3-code.mcp_productlane_threads_get" }, name: "agent.tool.start", sequence: 5, timestamp, type: "run" },
@@ -3482,7 +3482,7 @@ describe("Agent Invocation UI", () => {
       id: "codex-live",
       observations: [
         { attributes: { "input.messages": [{ id: "prompt", role: "user", parts: [{ type: "text", text: "Check the thread" }] }] }, name: "agent.input", sequence: 1, timestamp, type: "run" },
-        { attributes: { "tool.id": "cat", "tool.input": { command: "ls" }, "tool.name": "command_execution" }, name: "agent.tool.start", sequence: 2, timestamp, type: "run" },
+        { attributes: { "tool.id": "cat", "tool.input": { command: "ls", toolName: "command_execution" }, "tool.name": "command_execution", "tool.title": "ls" }, name: "agent.tool.start", sequence: 2, timestamp, type: "run" },
         { attributes: { "usage.provider": "codex" }, name: "agent.usage.recorded", sequence: 3, timestamp, type: "run" },
       ],
       startedAt: timestamp,
