@@ -335,7 +335,9 @@ When the sign-in does not finish, the Console says why:
 
 ### Link a new project
 
-A new project can link itself with a one-time link, so you do not copy a token by hand. In the hosted Console, open **Link project** and choose **Link a new project**. Copy the generated `vite-hub init --console <id>:sha256:<verifier>` command and run it in your terminal. The hosted Console makes a random key and keeps it in this browser, in `localStorage` under `vitehub-console:pending-links`. It gives out only an id and the SHA-256 of the key. `vite-hub init` stores that hash in the app as `VITEHUB_CONSOLE_TOKEN_SHA256` and prints a link such as `https://console.vitehub.dev/link#p=<id>&url=<app origin>`. The link holds no secret.
+A one-time link lets a new project link itself, so you do not copy a token by hand. The setup command that makes these links, `vite-hub init --console`, is not released yet, and the server does not read `VITEHUB_CONSOLE_TOKEN_SHA256` yet. Until then, use [Link a project](#link-a-project) with the app URL and its token.
+
+The hosted Console makes a random key and keeps it in this browser, in `localStorage` under `vitehub-console:pending-links`. It gives out only an id and the SHA-256 of the key. The setup command stores that hash in the app as `VITEHUB_CONSOLE_TOKEN_SHA256` and prints a link such as `https://console.vitehub.dev/link#p=<id>&url=<app origin>`. The link holds no secret.
 
 When you open the link, the Console removes it from the address bar and asks **Link `<host>`?**. It sends nothing before you confirm. Select **Link project** only when the host is the app that you just started, because a changed link can name another host. The Console then sends the key to that app, saves the project with the key as its Console token, and deletes the one-time entry.
 
@@ -344,7 +346,8 @@ The link has limits:
 - It works only in the browser profile that made it. Teammates use [`auth: "app"`](#use-the-app-auth), or link the project with their own token.
 - It works once, and for 24 hours. A used or unknown link says `This link was made in another browser or already used`. Make a new link and run the command again.
 - When the app refuses the key, its `VITEHUB_CONSOLE_TOKEN_SHA256` is not the hash of this link. Run the command again, or relink.
-- The first confirmation binds the link to that app URL, even if the request fails. You can fix the app and retry the same URL; a different project needs a new command. Confirmations use Web Locks to coordinate tabs; use a browser with Web Locks support.
+- The first confirmation binds the link to that app URL, also when the request fails. You can fix the app and confirm the same URL again. Another app needs a new link.
+- Tabs take turns with [Web Locks](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API), so only one tab can use a link. A browser without Web Locks, or a Console on plain `http:` outside `localhost`, cannot confirm a link.
 
 ### Switch projects
 
