@@ -3,9 +3,14 @@ import { Window } from "happy-dom"
 import { createApp, defineComponent, h, ref, type Component } from "vue"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-const mocks = vi.hoisted(() => ({ getSession: vi.fn(), signOut: vi.fn(), requestConsole: vi.fn() }))
+const mocks = vi.hoisted(() => ({ authClient: vi.fn(), getSession: vi.fn(), signOut: vi.fn(), requestConsole: vi.fn() }))
 vi.mock("@nuxt/ui/composables", () => ({ defineShortcuts: vi.fn() }))
-vi.mock("@vite-hub/auth/vue", () => ({ createAuthClient: () => ({ getSession: mocks.getSession, signOut: mocks.signOut }) }))
+vi.mock("@vite-hub/auth/vue", () => ({
+  createAuthClient: (options: unknown) => {
+    mocks.authClient(options)
+    return { getSession: mocks.getSession, signOut: mocks.signOut }
+  },
+}))
 vi.mock("vite-hub/source/client", () => ({
   useCollection: () => ({ error: ref(), items: ref([]), pending: ref(false), refresh: vi.fn() }),
 }))
@@ -23,6 +28,7 @@ vi.mock("../src/console/runtime/components/console-frame.vue", () => ({
 }))
 vi.mock("../src/console/runtime/components/console-search.vue", () => ({ default: defineComponent({ render: () => null }) }))
 
+import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project"
 import { ConsoleRequestError } from "../src/console/runtime/client/request"
 import { loadConsoleNavigation } from "../src/console/runtime/client/sections"
 import { consoleSignInURL } from "../src/console/runtime/client/sign-in"
@@ -83,7 +89,10 @@ function stubDocument(signInPage?: string) {
   }
 }
 
+const pageProject = consoleProject()
+
 afterEach(() => {
+  setConsoleProject(pageProject)
   vi.clearAllMocks()
   vi.unstubAllGlobals()
 })
@@ -203,6 +212,27 @@ describe("signed-out Console", () => {
       await vi.waitFor(() => expect(buttons()).toContain("KV"))
       await vi.waitFor(() => expect(buttons()).toContain("Ada Lovelace"))
       expect(mocks.getSession).toHaveBeenCalledTimes(1)
+    }
+    finally { app.unmount() }
+  })
+
+  it.each([
+    ["the mounted Auth base of the page", "/portal/api/auth", "/portal/api/auth"],
+    ["the Console Auth route of the project", undefined, "/portal/auth-base-fallback/auth"],
+  ])("creates the fallback Auth client with %s", async (_name, authBase, basePath) => {
+    setConsoleProject({ origin: "", base: "/portal" })
+    const meta = { getAttribute: (name: string) => (name === "content" ? authBase ?? null : null) }
+    vi.stubGlobal("document", Object.assign(new EventTarget(), {
+      querySelector: (selector: string) => (authBase && selector === 'meta[name="vitehub-console-auth-base"]' ? meta : null),
+      visibilityState: "visible",
+    }))
+    mocks.requestConsole.mockResolvedValue({ auth: true, sections: ["kv"] })
+    mocks.getSession.mockResolvedValue({ data: { session: { id: "session" }, user: { name: "Ada" } } })
+    // The generated client script does not load in the test, so the rail creates its own client.
+    const { app } = mount(ConsoleRail, { sectionsBase: `/auth-base-${authBase ? "meta" : "fallback"}/sections` })
+    try {
+      await vi.waitFor(() => expect(mocks.authClient).toHaveBeenCalledOnce())
+      expect(mocks.authClient).toHaveBeenCalledWith({ basePath })
     }
     finally { app.unmount() }
   })

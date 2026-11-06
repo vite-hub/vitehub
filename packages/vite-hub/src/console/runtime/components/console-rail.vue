@@ -190,7 +190,11 @@ async function consoleAuthClient(): Promise<ReturnType<typeof createAuthClient>>
       return Reflect.get(globalThis, Symbol.for("vitehub.console.auth.client")) as ReturnType<typeof createAuthClient> | undefined;
     })
     .catch(() => undefined)
-    .then((configured) => configured ?? createAuthClient({ basePath: document.querySelector('meta[name="vitehub-console-auth-base"]')?.getAttribute("content") || projectUrl(authBase) }));
+    .then((configured) => {
+      // The page's Auth base already holds the app mount, such as `/portal/api/auth`. Only the Console route gets the project mount.
+      const pageAuthBase = document.querySelector('meta[name="vitehub-console-auth-base"]')?.getAttribute("content");
+      return configured ?? createAuthClient({ basePath: pageAuthBase || projectUrl(authBase) });
+    });
   return await authClientRequest;
 }
 
