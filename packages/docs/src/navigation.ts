@@ -43,6 +43,40 @@ export interface DocsSidebarGroup {
   pages: DocsPage[]
 }
 
+/**
+ * A rail entry that holds several sections, such as every component package of a library. The rail shows one item
+ * for the group, and its sidebar lists every section of the group.
+ */
+export interface DocsGroup {
+  /** Rail label, and the value of `group` in the `.navigation.yml` of a member section. */
+  title: string
+  /** Rail icon. Without it, the rail shows the icon of the first section of the group. */
+  icon?: string
+  /** Ids of member sections. A section also joins with `group: <title>` in its `.navigation.yml`. */
+  sections?: string[]
+}
+
+/** One rail item: a section alone, or the sections of a group, in rail order. */
+export interface DocsRailEntry {
+  title: string
+  /** Icon of the group. `null` shows the rail icon of the first section. */
+  icon: string | null
+  sections: DocsSection[]
+}
+
+/** A section in a sidebar that lists several sections: its home page, then its other listed pages by group. */
+export interface DocsSidebarSection {
+  section: DocsSection
+  home: DocsPage | null
+  groups: DocsSidebarGroup[]
+}
+
+/** One block of a sidebar that lists several sections. `category` is `null` when all the sections share one category. */
+export interface DocsSidebarSectionBlock {
+  category: string | null
+  sections: DocsSidebarSection[]
+}
+
 /** Every page of the manifest, root first. */
 export function docsManifestPages(manifest: DocsManifest): DocsPage[] {
   return [...(manifest.root ? [manifest.root] : []), ...manifest.sections.flatMap(section => section.pages), ...manifest.pages]
@@ -101,12 +135,22 @@ export function docsHomePath(manifest: DocsManifest): string | null {
 }
 
 /**
- * Whether the site shows the section rail. A rail of three or fewer sections, or of sections without their own icons,
+ * Whether the site shows the section rail. A rail of three or fewer items, or of sections without their own icons,
  * shows the same fallback icon several times and carries no information, so the sidebar lists every section instead.
+ * The sections of one group count as one item. Only items placed in the rail count.
  */
-export function docsHasRail(manifest: DocsManifest, icons: Pick<DocsIcons, "rail" | "sections">): boolean {
-  if (manifest.sections.length <= 3) return false
-  return manifest.sections.some(section => Boolean(section.icon || icons.rail[section.id] || icons.sections[section.id]))
+export function docsHasRail(manifest: DocsManifest, icons: Pick<DocsIcons, "rail" | "sections">, groups: readonly DocsGroup[] = [], options: { categories: readonly string[], railExclude: readonly string[] } = { categories: [], railExclude: [] }): boolean {
+  const entries = docsRailEntries(manifest, { ...options, groups }).flat()
+  // Each item shows its group's icon, else the icon of its first section, as the rail draws it.
+  return entries.length > 3 && entries.some((entry) => {
+    const section = entry.sections[0]!
+    return Boolean(entry.icon || section.icon || icons.rail[section.id] || icons.sections[section.id])
+  })
+}
+
+/** Title of the group of a section: the `groups` entry that lists it, else the `group` of its `.navigation.yml`. */
+export function docsSectionGroup(section: Pick<DocsSection, "id" | "group">, groups: readonly DocsGroup[]): string | null {
+  return groups.find(group => group.sections?.includes(section.id))?.title ?? section.group ?? null
 }
 
 /** Sections grouped by category, in the order of `categories`. Sections of other categories are left out. */
@@ -126,6 +170,54 @@ export function docsRailGroups(manifest: DocsManifest, categories: readonly stri
     ...docsCatalog(manifest, categories).filter(group => !railExclude.includes(group.category)).map(group => group.sections),
     manifest.sections.filter(section => !section.category || !known.has(section.category)),
   ].filter(sections => sections.length > 0)
+}
+
+/**
+ * Rail items in rail groups: `docsRailGroups()`, with the sections of one group in one item. The item takes the place
+ * of the first section of its group that the rail shows. It holds every section of the group in manifest order, also
+ * one whose category `railExclude` leaves out of the rail.
+ */
+export function docsRailEntries(manifest: DocsManifest, options: { categories: readonly string[], railExclude: readonly string[], groups: readonly DocsGroup[] }): DocsRailEntry[][] {
+  const railGroups = docsRailGroups(manifest, options.categories, options.railExclude)
+  const members = new Map<string, DocsSection[]>()
+  for (const section of manifest.sections) {
+    const title = docsSectionGroup(section, options.groups)
+    if (title !== null) members.set(title, [...members.get(title) ?? [], section])
+  }
+  const placed = new Set<string>()
+  return railGroups.map(sections => sections.flatMap((section): DocsRailEntry[] => {
+    const title = docsSectionGroup(section, options.groups)
+    if (title === null) return [{ title: section.title, icon: null, sections: [section] }]
+    if (placed.has(title)) return []
+    placed.add(title)
+    return [{ title, icon: options.groups.find(group => group.title === title)?.icon ?? null, sections: members.get(title)! }]
+  })).filter(entries => entries.length > 0)
+}
+
+/** The rail item of a section, or `null` for a section outside every group that the rail leaves out. */
+export function docsRailEntry(manifest: DocsManifest, options: { categories: readonly string[], railExclude: readonly string[], groups: readonly DocsGroup[] }, section: DocsSection): DocsRailEntry | null {
+  return docsRailEntries(manifest, options).flat().find(entry => entry.sections.some(candidate => candidate.id === section.id)) ?? null
+}
+
+/**
+ * Blocks of a sidebar that lists several sections, such as a group or a site without a rail. Each section shows its
+ * home page, then its other listed pages. When the sections span several categories, each run of one category is a
+ * block with that category as its heading.
+ */
+export function docsSidebarSections(sections: readonly DocsSection[]): DocsSidebarSectionBlock[] {
+  const headed = new Set(sections.map(section => section.category)).size > 1
+  const blocks: DocsSidebarSectionBlock[] = []
+  for (const section of sections) {
+    const homePath = docsSectionHome(section)
+    const home = section.pages.find(page => page.path === homePath && page.navigation) ?? null
+    const groups = docsSidebarGroups({ ...section, pages: section.pages.filter(page => page !== home) })
+    const entry = { section, home, groups }
+    const category = headed ? section.category : null
+    const last = blocks.at(-1)
+    if (last && last.category === category) last.sections.push(entry)
+    else blocks.push({ category, sections: [entry] })
+  }
+  return blocks
 }
 
 /** Sidebar rows of a section: listed pages in order, grouped by `navigation.group` in order of first appearance. */
