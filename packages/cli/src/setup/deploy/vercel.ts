@@ -34,7 +34,7 @@ async function readClaim(root: string): Promise<DeployResult["claim"]> {
 // test/fixtures/host-cli-help/. The CLI reads VERCEL_TOKEN from the environment, so no token goes in argv.
 export function vercelAdapter(context: DeployContext): DeployAdapter {
   const vercel = hostCli("vercel", "vercel", context.root, context.env)
-  const team = context.credentials.ok ? context.credentials.teamId ?? (context.link?.host === "vercel" ? context.link.account?.id : undefined) : undefined
+  const team = (context.link?.host === "vercel" ? context.link.account?.id : undefined) ?? (context.credentials.ok ? context.credentials.teamId : undefined)
   const project = context.link?.host === "vercel" ? context.link.project.id ?? context.projectName : context.projectName
   const target = context.temporary ? [] : ["--project", project, ...(team ? ["--scope", team] : [])]
   const environment = context.preview ? "preview" : "production"

@@ -157,7 +157,7 @@ async function readBuildOutput(root: string, host: DeployHost): Promise<BuildOut
 }
 
 function denoOrganization(link: SetupLink | undefined, env: NodeJS.ProcessEnv): string {
-  const organization = env.DENO_DEPLOY_ORG?.trim() || (link?.host === "deno" ? link.account?.id : undefined)
+  const organization = (link?.host === "deno" ? link.account?.id : undefined) ?? env.DENO_DEPLOY_ORG?.trim()
   if (!organization) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ORG_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "DENO_DEPLOY_ORG" }] })
   return organization
 }
