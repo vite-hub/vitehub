@@ -55,7 +55,7 @@ export function extractBlocks(markdown) {
     }
     if (fenceLanguages.has(language)) {
       // READMEs name the file in a first-line comment, such as `// server/workflows/onboard-user/index.ts`.
-      const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:m?ts|tsx))$/.exec(body[0] ?? "")?.[1]
+      const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:[cm]?ts|tsx))$/.exec(body[0] ?? "")?.[1]
       const meta = info.replace(/\[.+\]/, "").split(/\s+/).filter(Boolean)
       blocks.push({ code: body.join("\n"), end: end + 1, fragment: meta.includes(fragmentMarker), indent, label, language, line: index + 1 })
     }
@@ -166,8 +166,8 @@ export async function generatedDeclarations(pageSnippets) {
  * its folder. Elsewhere, `src/<name>.<kind>.ts` defines `<name>`.
  */
 function definitionName(directory, kind) {
-  const server = new RegExp(`^server/${directory}/(.+)\\.(?:m?ts|tsx)$`)
-  const suffix = new RegExp(`^(?:src/)?(.+)\\.${kind}\\.m?ts$`)
+  const server = new RegExp(`^server/${directory}/(.+)\\.(?:[cm]?ts|tsx)$`)
+  const suffix = new RegExp(`^(?:src/)?(.+)\\.${kind}\\.[cm]?ts$`)
   return (label) => {
     const serverPath = server.exec(label)?.[1]
     let name = serverPath?.replace(/\/index$/i, "") ?? suffix.exec(label)?.[1]
@@ -189,10 +189,11 @@ async function channelNames(label, code, pageSnippets) {
   const names = definitionName("channels", "channel")(label)
   if (!names.length || !label.startsWith("server/channels/")) return names
   // Owner discovery reserves an indexed folder for one Channel before classifying its modules.
-  const indexFolder = /^server\/channels\/(.+)\/index\.(?:m?ts|tsx)$/i
-  if (!/\/index\.(?:m?ts|tsx)$/i.test(label) && pageSnippets.some((snippet) => {
-    const folder = !snippet.fragment && indexFolder.exec(snippet.label?.replace(/^\/+/, "") ?? "")?.[1]
-    return folder && label.startsWith(`server/channels/${folder}/`)
+  const indexFolder = /^server\/channels\/(.+)\/index\.(?:[cm]?ts|tsx)$/i
+  if (pageSnippets.some((snippet) => {
+    const indexLabel = snippet.label?.replace(/^\/+/, "") ?? ""
+    const folder = !snippet.fragment && indexFolder.exec(indexLabel)?.[1]
+    return folder && label !== indexLabel && label.startsWith(`server/channels/${folder}/`)
   })) return []
   const { isOutboundChannelSource } = await import(pathToFileURL(join(packagesRoot, "channels/dist/vite.js")).href)
   return isOutboundChannelSource(code, label) ? names : []
@@ -253,7 +254,7 @@ async function registryDeclarations(pageSnippets) {
     if (!definitions.size) continue
     const file = join(pageSnippets[0].pageRoot, `.vitehub/${registry.type}.d.ts`)
     const entries = [...definitions].map(([name, handler]) => {
-      // Bundler resolution finds extensionless .ts/.tsx files, but .mts imports need their extension.
+      // Bundler resolution finds extensionless .ts/.tsx files, but .mts/.cts imports need their extension.
       const path = relative(dirname(file), handler).replace(/\.tsx?$/, "")
       return [JSON.stringify(name), JSON.stringify(path.startsWith(".") ? path : `./${path}`), name]
     })
