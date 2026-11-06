@@ -46,27 +46,28 @@ export async function createSimulatedChatAdapter(kind: string): Promise<Adapter>
 
   // The web adapter keeps the request of a reply in an AsyncLocalStorage. A StackBlitz WebContainer loses that store
   // after the first `await`, so `postMessage()` and `stream()` would not find the request. Take a snapshot of the
-  // request context when the adapter gives the message to Chat, and enter it again for each reply in that thread.
-  const requests = new Map<string, <T>(run: () => T) => T>()
-  const inRequest = <T>(threadId: string, run: () => T): T => {
-    const enter = requests.get(threadId)
-    return enter ? enter(run) : run()
-  }
+  // request context when the adapter gives the message to Chat. Bind it to that message's adapter, so overlapping
+  // requests for the same conversation cannot overwrite each other's context. The Invocation owns its lifetime.
   const initialize = adapter.initialize.bind(adapter)
   adapter.initialize = chat => initialize(new Proxy(chat, {
     get: (target, key) => key !== "processMessage" ? Reflect.get(target, key) : (...args: Parameters<ChatInstance["processMessage"]>) => {
-      const threadId = args[1]
       const enter = AsyncLocalStorage.snapshot()
-      requests.set(threadId, enter)
-      return target.processMessage(...args).finally(() => {
-        if (requests.get(threadId) === enter) requests.delete(threadId)
+      const requestAdapter = new Proxy(args[0], {
+        get(target, key) {
+          if (key === "postMessage") return (...args: Parameters<Adapter["postMessage"]>) => enter(() => target.postMessage(...args))
+          if (key === "stream" && target.stream) {
+            const stream = target.stream.bind(target)
+            return (...args: Parameters<typeof stream>) => enter(() => stream(...args))
+          }
+          const value = Reflect.get(target, key)
+          return typeof value === "function" ? value.bind(target) : value
+        },
       })
+      simulatedAdapters.add(requestAdapter)
+      args[0] = requestAdapter
+      return target.processMessage(...args)
     },
   }))
-  const postMessage = adapter.postMessage.bind(adapter)
-  const stream = adapter.stream.bind(adapter)
-  adapter.postMessage = (threadId, message) => inRequest(threadId, () => postMessage(threadId, message))
-  adapter.stream = (threadId, iterable, options) => inRequest(threadId, () => stream(threadId, iterable, options))
   simulatedAdapters.add(adapter)
   return adapter
 }

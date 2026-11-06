@@ -68,7 +68,9 @@ const answers: Record<string, unknown> = {
 }
 
 // SAFETY: This test runs in happy-dom, whose window is the global scope.
-const page = () => globalThis as unknown as Pick<Window, "document">
+const page = () => globalThis as unknown as Pick<Window, "document" | "history">
+
+const unmounts: Array<() => void> = []
 
 const passthrough = defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.default?.(), slots.right?.(), slots.body?.()]) })
 const button = defineComponent({
@@ -88,22 +90,27 @@ async function mountPage(query: Record<string, string> = { agent: "support", cha
   document.body.append(host)
   const app = createApp(() => h(ConsoleChannels, { agentsBase: "/api/a", channelsBase: "/api/c/channels", definitionsBase: "/api/d", kvBase: "/api/k", searchBase: "/api/s", sectionsBase: "/api/sec" }))
   app.use(router)
-  for (const name of ["ConsoleFrame", "ConsoleSearch", "ConsolePageHeader", "UDashboardPanel", "UAlert", "UEmpty", "USkeleton", "UTooltip", "UIcon"]) app.component(name, passthrough)
+  for (const name of ["ConsoleFrame", "ConsoleSearch", "ConsolePageHeader", "UDashboardPanel", "UAlert", "UEmpty", "USkeleton", "UTooltip", "UIcon", "UInput"]) app.component(name, passthrough)
   app.component("UButton", button)
   app.component("UBadge", badge)
   app.mount(host)
+  unmounts.push(() => app.unmount())
   await vi.waitFor(() => expect(host.querySelector(ready)).not.toBeNull())
   return { host, router }
 }
 
 afterEach(() => {
+  for (const unmount of unmounts.splice(0)) unmount()
   page().document.body.innerHTML = ""
+  page().history.replaceState({}, "", "/")
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   mocks.request.mockReset()
 })
 
 describe("Channels page", () => {
-  it("marks a simulated Channel and opens the Agent's chat page of the selected one", async () => {
+  it.each(["", "/portal"])("marks a simulated Channel and opens the Agent's chat page under mount '%s'", async mount => {
+    page().history.replaceState({}, "", `${mount}/_vitehub/channels`)
     const route = "/api/_vitehub/agents/support/webhooks/slack"
     const channels = [
       { agent: "support", channel: "slack", conversations: true, provider: "slack", retention, simulated: true, simulator: route },
@@ -113,12 +120,21 @@ describe("Channels page", () => {
     ]
     mocks.request.mockImplementation(async (path: string) => path === "/api/c/channels" ? { channels } : { threads: [] })
     const { host, router } = await mountPage({ agent: "support", channel: "slack" }, "iframe")
-    const rows = [...host.querySelectorAll("nav[aria-label='Channels and threads'] > button")]
+    const nav = host.querySelector("nav[aria-label='Channels and threads']")!
+    const rows = [...nav.querySelectorAll(":scope > div > button")]
     expect(rows.map(row => row.querySelector("[data-badge]")?.textContent ?? null)).toEqual(["Simulated", null, "Simulated"])
+    expect(nav.textContent).toContain("telegram · provider window")
+    expect(nav.textContent).not.toContain("slack · provider window")
+    expect(nav.textContent).not.toContain("discord · provider window")
+    const link = nav.querySelector("a")!
+    expect(link.getAttribute("href")).toBe(`${mount}${route}`)
+    expect(link.textContent).toContain("Chat page")
+    expect(link.closest("button")).toBeNull()
+    expect(nav.querySelectorAll("a")).toHaveLength(1)
     const open = host.querySelector("[data-button='Open chat']")
-    expect(open?.getAttribute("data-href")).toBe(route)
+    expect(open?.getAttribute("data-href")).toBe(`${mount}${route}`)
     expect(open?.getAttribute("data-target")).toBe("_blank")
-    expect(host.querySelector("iframe")?.getAttribute("src")).toBe(route)
+    expect(host.querySelector("iframe")?.getAttribute("src")).toBe(`${mount}${route}`)
 
     await router.push({ path: "/channels", query: { agent: "support", channel: "discord" } })
     await vi.waitFor(() => expect(host.querySelector("iframe")).toBeNull())
@@ -135,7 +151,7 @@ describe("Channels page", () => {
     const threads = vi.fn(async () => ({ threads: [{ invocationCount: 1, participants: ["learner"], thread: "slack:learner:1" }] }))
     mocks.request.mockImplementation(async (path: string) => path === "/api/c/channels" ? { channels } : path === "/api/c/channels/threads" ? await threads() : answers[path])
     const { host, router } = await mountPage({ agent: "support", channel: "slack" }, "iframe")
-    const row = host.querySelector("nav[aria-label='Channels and threads'] > button")
+    const row = host.querySelector("nav[aria-label='Channels and threads'] > div > button")
     expect(row?.textContent).toContain("slack · simulated")
     // The retention warning is about a transcript. Nothing is between the header and the chat page.
     const pane = host.querySelector("section[aria-label='Conversation']")!

@@ -8,6 +8,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import { requestConsole } from "../client/request";
 import { queryText, useConsoleQuery } from "../client/route-query";
+import { consoleMountBase, consoleMountPath } from "../console-route";
 import { rememberConsoleSection } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
@@ -145,7 +146,8 @@ async function loadChannels(): Promise<void> {
   try {
     const value = record(await requestConsole(props.channelsBase, { signal: controller.signal }));
     channels.value = list(value.channels).map(entry => {
-      const simulator = entry.simulated === true ? localPath(entry.simulator) : undefined;
+      const path = entry.simulated === true ? localPath(entry.simulator) : undefined;
+      const simulator = path ? consoleMountPath(consoleMountBase(window.location.pathname), path) : undefined;
       return {
         agent: text(entry.agent) ?? "",
         channel: text(entry.channel) ?? "",
@@ -356,20 +358,25 @@ onBeforeUnmount(() => {
           </template>
           <p v-else-if="!channels.length" class="px-2 py-1.5 text-xs text-muted">No Agent has a Channel yet.</p>
           <template v-else>
-            <button
+            <div
               v-for="entry in channels"
               :key="`${entry.agent}/${entry.channel}`"
-              type="button"
-              class="vitehub-console__section-link shrink-0 text-start"
-              :aria-current="entry === selected && !selectedThread ? 'true' : undefined"
-              @click="select({ agent: entry.agent, channel: entry.channel })"
+              class="flex shrink-0 items-center"
             >
-              <span class="min-w-0 flex-1">
-                <span class="block truncate text-sm">{{ entry.agent }} · {{ entry.channel }}</span>
-                <span class="block truncate text-xs text-muted">{{ entry.provider }}{{ entry.simulated ? " · simulated" : entry.retention.durable ? " · durable" : " · provider window" }}</span>
-              </span>
-              <UBadge v-if="entry.simulated" class="shrink-0" color="neutral" variant="subtle" size="sm" label="Simulated" />
-            </button>
+              <button
+                type="button"
+                class="vitehub-console__section-link min-w-0 flex-1 text-start"
+                :aria-current="entry === selected && !selectedThread ? 'true' : undefined"
+                @click="select({ agent: entry.agent, channel: entry.channel })"
+              >
+                <span class="min-w-0 flex-1">
+                  <span class="block truncate text-sm">{{ entry.agent }} · {{ entry.channel }}</span>
+                  <span class="block truncate text-xs text-muted">{{ entry.provider }}{{ entry.simulated ? " · simulated" : entry.retention.durable ? " · durable" : " · provider window" }}</span>
+                </span>
+                <UBadge v-if="entry.simulated" class="shrink-0" color="neutral" variant="subtle" size="sm" label="Simulated" />
+              </button>
+              <a v-if="entry.simulator" :href="entry.simulator" :aria-label="`Open ${entry.agent} · ${entry.channel} chat page`" class="shrink-0 px-2 text-xs text-muted hover:text-default">Chat page</a>
+            </div>
           </template>
 
           <template v-if="selected">
