@@ -4,6 +4,7 @@ import { createKVStorage } from "./create-storage.ts"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createCursorHistory, recordCursor } from "./cursor-history.ts"
+import { assertCloudflareKVKey, assertCloudflareKVWrite } from "./cloudflare-kv-limits.ts"
 
 import type { KVListOptions, KVListPage } from "../types.ts"
 import type { KVRuntimeDriver } from "./driver.ts"
@@ -60,6 +61,12 @@ function createCloudflareDriver(options: Record<string, unknown>): KVRuntimeDriv
     : options
   // SAFETY: The unstorage Cloudflare driver exposes getInstance and this adapter installs listKeys before returning.
   const driver = createDriver(driverOptions) as KVRuntimeDriver & { getInstance: () => CloudflareKVNamespace }
+  // Reject what the binding rejects before the call, so dev and production return the same named code.
+  const { getItem, hasItem, removeItem, setItem } = driver
+  driver.getItem = (key, options) => { assertCloudflareKVKey(key); return getItem.call(driver, key, options) }
+  driver.hasItem = (key, options) => { assertCloudflareKVKey(key); return hasItem.call(driver, key, options) }
+  if (removeItem) driver.removeItem = (key, options) => { assertCloudflareKVKey(key); return removeItem.call(driver, key, options) }
+  if (setItem) driver.setItem = (key, value, options) => { assertCloudflareKVWrite(key, value, options); return setItem.call(driver, key, value, options) }
   // Continuation state is keyed by the cursor that carries it. Consuming the
   // state before awaiting the provider keeps concurrent traversals independent.
   const cursorNamespace = cloudflareBindingNamespace(bindingName, namespaceId)
