@@ -16,7 +16,7 @@ describe("feature catalog", () => {
   it("lists support for every host of every feature", () => {
     for (const id of featureIds) {
       expect(Object.keys(features[id].hosts).sort(), id).toEqual([...featureHosts].sort())
-      for (const host of featureHosts) expect(featureSupport(id, host).detail, `${id} on ${host}`).not.toBe("")
+      for (const host of featureHosts) expect(featureSupport(id, host, "node").detail, `${id} on ${host}`).not.toBe("")
     }
   })
 
@@ -50,7 +50,7 @@ describe("feature catalog", () => {
   it("names an option of the same feature in explicit support", () => {
     for (const id of featureIds) {
       for (const host of featureHosts) {
-        const support = featureSupport(id, host)
+        const support = featureSupport(id, host, "node")
         if (support.level === "explicit") expect(support.option.startsWith(`${id}.`), `${id} on ${host}`).toBe(true)
       }
     }
@@ -75,5 +75,23 @@ describe("feature catalog", () => {
 
   it("turns on only Env by default", () => {
     expect(featureIds.filter(id => features[id].enabledByDefault)).toEqual(["env"])
+  })
+
+  it("requires the configured preset for development lookups", () => {
+    // @ts-expect-error Development needs a preset, including when JavaScript calls this API.
+    expect(() => featureSupport("workflow", "dev")).toThrow(/deployment preset/)
+  })
+
+  it("uses process-local Rate Limit memory during Cloudflare development", () => {
+    expect(featureSupport("rateLimit", "dev", "cloudflare")).toMatchObject({
+      adapter: "memory",
+      guarantee: "process-local",
+      level: "native",
+    })
+    expect(featureSupport("rateLimit", "cloudflare")).toMatchObject({
+      adapter: "cloudflare",
+      guarantee: "native",
+      level: "native",
+    })
   })
 })

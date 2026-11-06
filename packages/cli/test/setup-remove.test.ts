@@ -104,16 +104,40 @@ describe("vitehub remove", () => {
     expect(forced.json.nextSteps.join("\n")).toContain("server/queues/welcome.ts stayed because it differs from the starter")
   })
 
-  it("keeps every starter with --keep-files", async () => {
+  it("keeps an edited starter's imported packages with --force", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
-    expect((await add(["workflow", "--name", "onboard", "--no-install"], root)).exitCode).toBe(0)
+    const pm = fakePackageManager(root)
+    expect((await add(["database", "--name", "default"], root, pm.spawn)).exitCode).toBe(0)
+    const path = "server/databases/config.ts"
+    const edited = `${await readFile(join(root, path), "utf8")}// app schema\n`
+    await writeFile(join(root, path), edited)
 
-    const { exitCode, json } = await remove(["workflow", "--yes", "--keep-files", "--no-uninstall"], root)
+    const { exitCode, json } = await remove(["database", "--yes", "--force"], root, pm.spawn)
 
     expect(exitCode, JSON.stringify(json.error)).toBe(0)
-    expect(json.kept).toEqual([{ path: "server/workflows/onboard.ts", reason: "keep-files" }])
+    expect(json.kept).toEqual([{ path, reason: "edited" }])
+    expect(json.references).toEqual([{ feature: "database", file: path }])
+    expect(json.uninstall).toEqual({ command: "pnpm remove drizzle-kit", devPackages: ["drizzle-kit"], packages: [] })
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8"))).toMatchObject({ dependencies: { "@vite-hub/database": "1.0.0", "drizzle-orm": "1.0.0" } })
+    expect(await readFile(join(root, path), "utf8")).toBe(edited)
+  })
+
+  it("keeps every starter and its facade's owner package with --keep-files", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
+    const pm = fakePackageManager(root)
+    expect((await add(["schedule", "--name", "nightly"], root, pm.spawn)).exitCode).toBe(0)
+    const path = "server/schedules/nightly.ts"
+    const starter = await readFile(join(root, path), "utf8")
+
+    const { exitCode, json } = await remove(["schedule", "--yes", "--keep-files"], root, pm.spawn)
+
+    expect(exitCode, JSON.stringify(json.error)).toBe(0)
+    expect(json.kept).toEqual([{ path, reason: "keep-files" }])
     expect(json.changes.map(change => change.kind)).toEqual(["patch"])
-    expect(existsSync(join(root, "server/workflows/onboard.ts"))).toBe(true)
+    expect(json.uninstall).toEqual({ devPackages: [], packages: [] })
+    expect(pm.calls).toHaveLength(1)
+    expect(JSON.parse(await readFile(join(root, "package.json"), "utf8"))).toMatchObject({ dependencies: { "@vite-hub/schedule": "1.0.0" } })
+    expect(await readFile(join(root, path), "utf8")).toBe(starter)
   })
 
   it("refuses a feature that another enabled feature implies, and writes false with --force", async () => {

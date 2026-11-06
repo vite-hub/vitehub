@@ -2,7 +2,7 @@ import { registerHooks } from "node:module"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createProject, pnpmManifest, runSetup, viteConfig } from "./setup-helpers.ts"
 
@@ -13,6 +13,17 @@ function feature(status: SetupStatus, id: SetupFeatureStatus["id"]): SetupFeatur
 }
 
 describe("vitehub status", () => {
+  it.each([
+    ["workflow", '{ provider: "openworkflow" }', ["openworkflow"]],
+    ["workflow", '{ sqlite: { path: ".data/workflows.db" } }', ["openworkflow"]],
+    ["blob", '{ driver: "s3", bucket: "assets" }', ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"]],
+  ] as const)("reports missing provider packages for %s: %s", async (id, options, packages) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node", ${id}: ${options} }`) })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(feature(json, id).missingPackages).toEqual(expect.arrayContaining([...packages]))
+    for (const name of packages) expect(feature(json, id).fix).toContain(name)
+  })
+
   it("reads the host from config without loading it", async () => {
     const root = await createProject({
       "package.json": pnpmManifest,
@@ -184,6 +195,32 @@ describe("vitehub status", () => {
     }
     finally {
       hooks.deregister()
+    }
+  })
+
+  it("excludes packages resolved only through NODE_PATH", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ schedule: true }") })
+    const global = await createProject({
+      "node_modules/@vite-hub/schedule/package.json": JSON.stringify({ name: "@vite-hub/schedule", main: "index.cjs" }),
+      "node_modules/@vite-hub/schedule/index.cjs": `throw new Error("must not load global packages")`,
+    })
+    vi.stubEnv("NODE_PATH", join(global, "node_modules"))
+    const hooks = registerHooks({
+      resolve(specifier, context, nextResolve) {
+        if (context.parentURL === pathToFileURL(join(root, "package.json")).href && (specifier === "@vite-hub/schedule" || specifier === "@vite-hub/schedule/package.json")) {
+          const file = specifier.endsWith("/package.json") ? "package.json" : "index.cjs"
+          return { shortCircuit: true, url: pathToFileURL(join(global, "node_modules/@vite-hub/schedule", file)).href }
+        }
+        return nextResolve(specifier, context)
+      },
+    })
+    try {
+      const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+      expect(feature(json, "schedule").missingPackages).toEqual(["@vite-hub/schedule"])
+    }
+    finally {
+      hooks.deregister()
+      vi.unstubAllEnvs()
     }
   })
 

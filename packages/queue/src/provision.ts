@@ -1,4 +1,4 @@
-import { createCloudflareProvisionClient, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
+import { createCloudflareProvisionClient, listCloudflarePages, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
 
 import { discoverQueueDefinitions } from "./discovery.ts"
 import { getCloudflareQueueName } from "./internal/cloudflare-resource-name.ts"
@@ -39,8 +39,9 @@ export function createQueueProvisionStep(resolveRootDir: () => string, resolveNa
       const names = discoverQueueDefinitions({ rootDir: resolveRootDir() }).map(definition => getCloudflareQueueName(definition.name, namePrefix))
       if (!names.length) return []
 
-      const listed = await request("/queues", { parse: parseQueues })
-      const existing = new Set((listed.result ?? []).map(queue => queue.queue_name).filter((name): name is string => Boolean(name)))
+      // The Queues list accepts `page` but documents no page size, so result_info decides when to stop.
+      const listed = await listCloudflarePages(request, "/queues", { parse: parseQueues })
+      const existing = new Set(listed.map(queue => queue.queue_name).filter((name): name is string => Boolean(name)))
 
       return names.map((name): ProvisionAction => ({
         kind: "cloudflare-queue",

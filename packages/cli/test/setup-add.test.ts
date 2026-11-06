@@ -43,6 +43,38 @@ const fixtures: ReadonlyArray<readonly [string, DeploymentPreset, string]> = [
 ]
 
 describe("vitehub add", () => {
+  it("requires an explicit Console access choice before writing", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ preset: "node" }') })
+    const before = await snapshot(root)
+    const first = await add(["console", "--no-install", "--yes"], root)
+    expect(first.exitCode).toBe(2)
+    expect(first.json.missing).toEqual([{ field: "console.auth" }])
+    expect(first.json.rerun).toBeUndefined()
+    expect(await snapshot(root)).toEqual(before)
+
+    const second = await add(["console", "--option", "console.auth=false", "--no-install", "--yes"], root)
+    expect(second.exitCode, second.stdout).toBe(0)
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("console: { auth: false }")
+    expect((await add(["console", "--no-install", "--yes"], root)).json.status).toBe("unchanged")
+  })
+
+  it.each([
+    'serverDir: process.env.SERVER_DIR || "backend"',
+    'rootDir: process.env.APP_ROOT || "app"',
+    'extends: ["./base"]',
+  ])("rejects Nuxt starters when the application server directory is unresolved: %s", async (options) => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options}, vitehub: { preset: "node" } })`,
+    })
+    const before = await snapshot(root)
+    const result = await add(["queue", "--name", "jobs", "--yes"], root)
+    expect(result.exitCode).toBe(3)
+    expect(result.json.error?.code).toBe("SETUP_SERVER_DIR_MANUAL")
+    expect(await snapshot(root)).toEqual(before)
+    expect((await add(["queue", "--no-install", "--yes"], root)).exitCode).toBe(0)
+  })
+
   it.each(fixtures)("adds each native feature to a copy of docs-hosts/%s once", async (fixture, host, configFile) => {
     // `observability` has no default `service`, so it always needs input.
     const native = featureIds.filter(id => id !== "observability" && featureSupport(id, host).level === "native")
@@ -52,11 +84,11 @@ describe("vitehub add", () => {
       // Only the config files, so the loop stays fast on a slow temp disk.
       const root = await createProject(Object.fromEntries(Object.entries(files).filter((entry): entry is [string, string] => entry[1] !== undefined)))
       const before = await readFile(join(root, configFile), "utf8")
-      const options = host === "node" && id === "schedule"
-        ? ["--option", "schedule.runtime.driver=process"]
-        : (host === "netlify" || host === "deno") && ["comments", "connections", "console"].includes(id)
-            ? ["--option", "database.connection.url=libsql://example.com"]
-            : []
+      const options = [
+        ...(id === "console" ? ["--option", "console.auth=false"] : []),
+        ...(host === "node" && id === "schedule" ? ["--option", "schedule.runtime.driver=process"] : []),
+        ...(featureSupport("database", host).level === "explicit" && ["comments", "connections", "console"].includes(id) ? ["--option", "database.connection.url=libsql://example.com"] : []),
+      ]
 
       const first = await add([id, ...options, "--no-install", "--yes"], root)
       expect(first.exitCode, `${id}: ${first.stdout}`).toBe(0)
@@ -90,6 +122,73 @@ describe("vitehub add", () => {
     expect(json.install).toMatchObject({ command: "npm install @vite-hub/agent", packages: ["@vite-hub/agent"] })
     const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
     expect(config.ok && Object.keys(config.site.keys)).toEqual(["preset", "kv", "agent"])
+  })
+
+  it.each([
+    ['rootDir: "app"', "app/server"],
+    ['serverDir: "backend"', "backend"],
+    ['rootDir: "app", serverDir: "backend"', "app/backend"],
+  ])("writes Nuxt starters into the application server directory: %s", async (options, serverDir) => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options}, vitehub: { preset: "node" } })`,
+    })
+    const args = ["queue", "database", "--name", "jobs", "--no-install", "--yes"]
+    const result = await add(args, root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    const files = Object.keys(await snapshot(root))
+    expect(files).toContain(`${serverDir}/queues/jobs.ts`)
+    expect(files).toContain(`${serverDir}/databases/jobs/config.ts`)
+    expect(files.some(file => file.startsWith("server/"))).toBe(false)
+    expect((await add(args, root)).json.status).toBe("unchanged")
+  })
+
+  it.each(["schedule.runtime.intervalMs=1000", "schedule.runtime.driver=other", "schedule.runtime=false"])("requires a valid Node Schedule runtime driver for %s", async (option) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+    const before = await snapshot(root)
+    const result = await add(["schedule", "--option", option, "--no-install", "--yes"], root)
+    expect(result.exitCode).toBe(2)
+    expect(result.json.missing).toEqual([{ choices: ["process"], field: "schedule.runtime.driver" }])
+    expect(await snapshot(root)).toEqual(before)
+    const rerun = await runSetup<AddResult>(result.json.rerun!.split(" ").slice(1), root)
+    expect(rerun.exitCode, rerun.stdout).toBe(0)
+    const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
+    expect(config.ok && config.site.keys.schedule).toMatchObject({ value: { runtime: { driver: "process", ...(option.includes("intervalMs") ? { intervalMs: 1000 } : {}) } } })
+  })
+
+  it.each(["node", "netlify"])("enables a disabled Database prerequisite on %s", async (host) => {
+    for (const feature of ["comments", "connections", "console"]) {
+      const access = feature === "console" ? ["--option", "console.auth=false"] : []
+      const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}", database: false }`) })
+      if (host === "netlify") {
+        const before = await snapshot(root)
+        const first = await add([feature, ...access, "--no-install", "--yes"], root)
+        expect(first.exitCode).toBe(2)
+        expect(first.json.missing).toEqual([{ field: "database.connection" }])
+        expect(await snapshot(root)).toEqual(before)
+      }
+      const options = host === "netlify" ? ["--option", "database.connection.url=libsql://example.com"] : []
+      const result = await add([feature, ...access, ...options, "--no-install", "--yes"], root)
+      expect(result.exitCode, result.stdout).toBe(0)
+      expect(result.json.features).toContain("database")
+      expect(result.json.install.packages).toContain("@vite-hub/database")
+      const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
+      expect(config.ok && config.site.keys.database).toMatchObject({ value: host === "node" ? true : { connection: { url: "libsql://example.com" } } })
+      expect((await add([feature, ...access, ...options, "--no-install", "--yes"], root)).json.status).toBe("unchanged")
+    }
+  })
+
+  it("rejects a config changed during installation before writing starters", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node" }`) })
+    const changed = viteConfig(`{ preset: "node", kv: true }`)
+    const spawn: ViteHubCliSpawn = async () => {
+      await writeFile(join(root, "vite.config.ts"), changed)
+      return { exitCode: 0 }
+    }
+    const result = await add(["schedule", "--option", "runtime.driver=process", "--name", "jobs", "--yes"], root, spawn)
+    expect(result.exitCode).toBe(4)
+    expect(result.json.error?.code).toBe("SETUP_STALE_PLAN")
+    expect(await snapshot(root)).toEqual({ "package.json": pnpmManifest, "vite.config.ts": changed })
   })
 
   it("exits 3 for a feature that the host does not support and writes nothing", async () => {
@@ -193,21 +292,22 @@ describe("vitehub add", () => {
 
   it.each(["netlify", "deno"])("collects provider inputs for implied Database features on %s", async (host) => {
     for (const feature of ["comments", "connections", "console"]) {
+      const access = feature === "console" ? ["--option", "console.auth=false"] : []
       const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}" }`) })
       const before = await snapshot(root)
 
-      const first = await add([feature, "--no-install", "--yes"], root)
+      const first = await add([feature, ...access, "--no-install", "--yes"], root)
       expect(first.exitCode, feature).toBe(2)
       expect(first.json.missing).toEqual([{ field: "database.connection" }])
       expect(first.json.rerun).toBeUndefined()
       expect(await snapshot(root)).toEqual(before)
 
-      const second = await add([feature, "--option", "database.connection.url=libsql://example.com", "--no-install", "--yes"], root)
+      const second = await add([feature, ...access, "--option", "database.connection.url=libsql://example.com", "--no-install", "--yes"], root)
       expect(second.exitCode, second.stdout).toBe(0)
       expect(second.json.implied).toContain("database")
       expect(second.json.nextSteps.some(step => step.includes("Set `database.connection`"))).toBe(false)
       expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain('database: { connection: { url: "libsql://example.com" } }')
-      expect((await add([feature, "--no-install", "--yes"], root)).json.status).toBe("unchanged")
+      expect((await add([feature, ...access, "--no-install", "--yes"], root)).json.status).toBe("unchanged")
     }
   })
 
@@ -435,6 +535,60 @@ describe("vitehub add", () => {
     const { json } = await add(["blob", "--option", "blob.driver=s3", "--option", "blob.bucket=app-assets", "--dry-run"], root)
 
     expect(json.install.packages).toEqual(["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"])
+  })
+
+  it.each([
+    ["", "server", "queues/jobs.cts"],
+    ["", "server", "queues/jobs.cjs"],
+    ['serverDir: "backend",', "backend", "queues/jobs.mjs"],
+    ['rootDir: "app",', "app/server", "queues/jobs.cts"],
+    ['rootDir: "app", serverDir: "backend",', "app/backend", "queues/jobs.cjs"],
+    ['rootDir: "app", serverDir: "backend",', "app", "src/jobs.queue.mjs"],
+  ])("rejects equivalent Nuxt Definitions without writing: %s %s/%s", async (options, serverDir, definition) => {
+    const root = await createProject({
+      [`${serverDir}/${definition}`]: "export default {}\n",
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options} vitehub: { preset: "node" } })`,
+      "package.json": pnpmManifest,
+    })
+    const before = await snapshot(root)
+    const { exitCode, json } = await add(["queue", "--name", "jobs", "--no-install", "--yes"], root)
+    expect(exitCode).toBe(3)
+    expect(json.error?.code).toBe("SETUP_FILE_EXISTS")
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each(["cts", "cjs"])("rejects Vite suffix Definitions with .%s extensions", async (extension) => {
+    const root = await createProject({
+      [`src/jobs.queue.${extension}`]: "export default {}\n",
+      "package.json": pnpmManifest,
+      "vite.config.ts": viteConfig('{ preset: "node" }'),
+    })
+    const before = await snapshot(root)
+    expect((await add(["queue", "--name", "jobs", "--no-install", "--yes"], root)).exitCode).toBe(3)
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each([
+    ["vite", "", "server/databases/main/config.ts", "main"],
+    ["vite", "", "server/databases/team/main/config.cjs", "team/main"],
+    ["vite", "", "src/main.database.ts", "main"],
+    ["vite", "", "main.database.mts", "main"],
+    ["nuxt", 'rootDir: "app", serverDir: "backend",', "app/backend/databases/main/config.cts", "main"],
+    ["nuxt", 'rootDir: "app", serverDir: "backend",', "app/src/main.database.mjs", "main"],
+  ])("rejects a default Database beside a named Definition without writing: %s %s %s", async (framework, options, definition, name) => {
+    const root = await createProject({
+      [definition]: `export default { name: ${JSON.stringify(name)} }\n`,
+      "package.json": pnpmManifest,
+      ...(framework === "nuxt"
+        ? { "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options} vitehub: { preset: "node" } })` }
+        : { "vite.config.ts": viteConfig('{ preset: "node" }') }),
+    })
+    const before = await snapshot(root)
+    const { exitCode, json } = await add(["database", "--name", "default", "--no-install", "--yes"], root)
+
+    expect(exitCode).toBe(3)
+    expect(json.error).toMatchObject({ code: "SETUP_FILE_EXISTS", message: expect.stringContaining(`${definition} already defines a Database Definition`) })
+    expect(await snapshot(root)).toEqual(before)
   })
 
   it("refuses a starter that would be a second Definition of the same name", async () => {

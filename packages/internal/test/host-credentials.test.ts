@@ -1,7 +1,8 @@
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
@@ -47,6 +48,14 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
     expect(calls()).toEqual([])
   })
 
+  it("leaves account discovery to the env token when no account is set", async () => {
+    installFakeWrangler()
+    const result = await resolveHostCredentials("cloudflare", { env: env({ CLOUDFLARE_API_TOKEN: "env-token" }) })
+
+    expect(result).toEqual({ ok: true, host: "cloudflare", source: "env", token: "env-token" })
+    expect(calls()).toEqual([])
+  })
+
   it("uses the wrangler login when the token env var is missing", async () => {
     installFakeWrangler()
     const result = await resolveHostCredentials("cloudflare", { env: env() })
@@ -63,6 +72,35 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
     expect(calls()).toEqual([["auth", "token", "--json"]])
   })
 
+  it.each([".env", ".env.local"])("uses project-local Wrangler without a global executable and ignores %s", async (file) => {
+    const pkg = join(dir, "node_modules", "wrangler")
+    mkdirSync(pkg, { recursive: true })
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "wrangler", bin: { wrangler: "cli.mjs" } }))
+    writeFileSync(join(pkg, "cli.mjs"), `import ${JSON.stringify(pathToFileURL(fakeWrangler).href)}\n`)
+    writeFileSync(join(dir, file), "CLOUDFLARE_API_TOKEN=project-token\n")
+
+    const result = await resolveHostCredentials("cloudflare", { cwd: dir, env: env() })
+
+    expect(result).toEqual({ ok: true, host: "cloudflare", source: "host-cli", token: "fake-oauth-token-from-wrangler", accountId: "fake-account-id" })
+    expect(calls()).toEqual([["auth", "token", "--json"], ["whoami", "--json"]])
+  })
+
+  it("uses a hoisted, symlinked project Wrangler", async () => {
+    const pkg = join(dir, "store", "wrangler")
+    const app = join(dir, "packages", "app")
+    mkdirSync(pkg, { recursive: true })
+    mkdirSync(app, { recursive: true })
+    mkdirSync(join(dir, "node_modules"))
+    writeFileSync(join(pkg, "package.json"), JSON.stringify({ name: "wrangler", bin: "cli.mjs" }))
+    writeFileSync(join(pkg, "cli.mjs"), `import ${JSON.stringify(pathToFileURL(fakeWrangler).href)}\n`)
+    symlinkSync(pkg, join(dir, "node_modules", "wrangler"), "dir")
+
+    const result = await resolveHostCredentials("cloudflare", { cwd: app, env: env() })
+
+    expect(result).toEqual({ ok: true, host: "cloudflare", source: "host-cli", token: "fake-oauth-token-from-wrangler", accountId: "fake-account-id" })
+    expect(calls()).toEqual([["auth", "token", "--json"], ["whoami", "--json"]])
+  })
+
   it.each([".env", ".env.local"])("ignores project %s credentials during login discovery", async (file) => {
     installFakeWrangler()
     writeFileSync(join(dir, file), "CLOUDFLARE_API_TOKEN=project-token\n")
@@ -71,7 +109,23 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
 
     expect(result).toEqual({ ok: true, host: "cloudflare", source: "host-cli", token: "fake-oauth-token-from-wrangler", accountId: "fake-account-id" })
     const fromEnv = await resolveHostCredentials("cloudflare", { cwd: dir, env: env({ CLOUDFLARE_API_TOKEN: "env-token" }) })
-    expect(fromEnv).toEqual({ ok: true, host: "cloudflare", source: "env", token: "env-token", accountId: "fake-account-id" })
+    expect(fromEnv).toEqual({ ok: true, host: "cloudflare", source: "env", token: "env-token" })
+  })
+
+  it("uses PATH instead of Wrangler available only through NODE_PATH", () => {
+    installFakeWrangler()
+    const external = join(dir, "global_modules", "wrangler")
+    mkdirSync(external, { recursive: true })
+    writeFileSync(join(external, "package.json"), JSON.stringify({ name: "wrangler", bin: "cli.mjs" }))
+    writeFileSync(join(external, "cli.mjs"), "process.exit(1)\n")
+    const source = new URL("../src/host-credentials.ts", import.meta.url).href
+    const output = execFileSync(process.execPath, ["--input-type=module", "--eval", `
+      import { resolveHostCredentials } from ${JSON.stringify(source)}
+      console.log(JSON.stringify(await resolveHostCredentials("cloudflare", { cwd: ${JSON.stringify(dir)}, env: process.env })))
+    `], { env: env({ NODE_PATH: join(dir, "global_modules") }), encoding: "utf8" })
+
+    expect(JSON.parse(output)).toEqual({ ok: true, host: "cloudflare", source: "host-cli", token: "fake-oauth-token-from-wrangler", accountId: "fake-account-id" })
+    expect(calls()).toEqual([["auth", "token", "--json"], ["whoami", "--json"]])
   })
 
   it("does not treat a Global API Key as a bearer token", async () => {
@@ -89,7 +143,7 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
       ok: false,
       host: "cloudflare",
       missing: ["CLOUDFLARE_API_TOKEN"],
-      fix: "Run `wrangler login`, or set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.",
+      fix: "Install Wrangler in the project and run `npx wrangler login`, or set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.",
     })
   })
 
