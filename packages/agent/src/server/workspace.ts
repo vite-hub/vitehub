@@ -1,4 +1,4 @@
-import { registerWorkspace } from "@vite-hub/workspace/runtime"
+import { registerWorkspace, setWorkspaceRuntimeDefinitions } from "@vite-hub/workspace/runtime"
 
 import {
   markWorkspaceAgentDefinitionRegistered,
@@ -9,9 +9,13 @@ import {
 
 import type { AgentCapabilitiesInput, AgentInvocationContextValues, AgentInvokerProfile, AgentRuntimeConfig } from "../types.ts"
 import type { WorkspaceAgentDefinition } from "../workspace-agent.ts"
-import type { WorkspaceName } from "@vite-hub/workspace"
+import type { WorkspaceDefinitionInput, WorkspaceName } from "@vite-hub/workspace"
 
 export { registerWorkspace, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"
+
+export function setAgentWorkspaceDefinitions(definitions: Record<string, WorkspaceDefinitionInput>): void {
+  setWorkspaceRuntimeDefinitions("vitehub.agent", definitions)
+}
 
 export interface RegisterWorkspaceAgentOptions<Name extends WorkspaceName = WorkspaceName> {
   name?: string

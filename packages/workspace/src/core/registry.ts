@@ -24,6 +24,7 @@ interface WorkspaceRegistryState {
   loadedDefinitions: Map<string, WorkspaceDefinition>
   loaders: WorkspaceRegistry
   registeredDefinitions: Map<string, WorkspaceDefinition>
+  scopedDefinitions: Map<string, Map<string, WorkspaceDefinition>>
 }
 
 type WorkspaceRegistryGlobal = typeof globalThis & Record<symbol, WorkspaceRegistryState | undefined>
@@ -37,9 +38,11 @@ function workspaceRegistryState(): WorkspaceRegistryState {
     loadedDefinitions: new Map<string, WorkspaceDefinition>(),
     loaders: runtimeRegistry,
     registeredDefinitions: new Map<string, WorkspaceDefinition>(),
+    scopedDefinitions: new Map(),
   }
   scope[workspaceRegistryStateKey].loadingDefinitions ??= new Map()
   scope[workspaceRegistryStateKey].loadGenerations ??= new Map<string, number>()
+  scope[workspaceRegistryStateKey].scopedDefinitions ??= new Map()
   return scope[workspaceRegistryStateKey]
 }
 
@@ -103,6 +106,14 @@ export function registerWorkspace(name: string, definition: WorkspaceDefinitionI
   return registered
 }
 
+/** Replace one generated catalog's definitions without replacing application registrations. */
+export function setWorkspaceRuntimeDefinitions(scope: string, definitions: Record<string, WorkspaceDefinitionInput>): void {
+  const normalized = new Map(Object.entries(definitions).map(([name, definition]) => [name, normalizeWorkspaceDefinition(name, definition)]))
+  const state = workspaceRegistryState()
+  if (normalized.size) state.scopedDefinitions.set(scope, normalized)
+  else state.scopedDefinitions.delete(scope)
+}
+
 export function setWorkspaceRegistry(registry: WorkspaceRegistry): void {
   const state = workspaceRegistryState()
   invalidateWorkspaceLoads(state)
@@ -128,7 +139,13 @@ function invalidateWorkspaceLoads(state: WorkspaceRegistryState): void {
 
 async function resolveWorkspaceDefinition(name: string, abortSignal?: AbortSignal): Promise<WorkspaceDefinition> {
   const state = workspaceRegistryState()
-  const existing = state.registeredDefinitions.get(name) || state.loadedDefinitions.get(name)
+  const registered = state.registeredDefinitions.get(name)
+  if (registered) return registered
+  for (const definitions of state.scopedDefinitions.values()) {
+    const definition = definitions.get(name)
+    if (definition) return definition
+  }
+  const existing = state.loadedDefinitions.get(name)
   if (existing) return existing
 
   const load = state.loaders[name]

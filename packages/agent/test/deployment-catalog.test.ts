@@ -80,6 +80,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       "export const createChannelChatRouteHandler = agent => async (_request, options) => handle('chat', agent, undefined, options)",
       "export const createChannelWebhookRouteHandler = agent => async (request, webhook, options) => { capture().webhookRequest = { body: await request.text(), signature: request.headers.get('x-hub-signature-256') }; return handle('webhook', agent, webhook, options) }",
       "export const createDiscordGatewayRouteHandler = agent => async (_request, options) => handle('discord', agent, undefined, options)",
+      "export function setAgentWorkspaceDefinitions(definitions) { capture().workspaceDefinitions = definitions }",
       "export function markDiscoveredWorkspaceAgentDefinitionRegistered(agent, defaults) {",
       "  const name = agent.__vitehubWorkspaceAgentOptions?.name || defaults.workspace || defaults.name",
       "  capture().registeredAgent = agent",

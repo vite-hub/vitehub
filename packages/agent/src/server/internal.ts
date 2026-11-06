@@ -32,6 +32,7 @@ export type { AgentWebhookReadiness, AgentWebhookWarmup, AgentWebhookWarmupAgent
 export { markDiscoveredAgentName, resetPublicUrlAgentNames } from "../internal/discovered-agent-name.ts"
 export { resolvePublicUrl } from "@vite-hub/runtime"
 export { markDiscoveredWorkspaceAgentDefinitionRegistered } from "../workspace-agent.ts"
+export { setAgentWorkspaceDefinitions } from "./workspace.ts"
 export type { AgentWebhookRequestInput } from "../internal/webhook-request.ts"
 export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 export { setAgentHostCapabilities } from "../internal/host-capabilities.ts"

@@ -1889,7 +1889,6 @@ async function generateAgentDeploymentCatalog(
     inspection?: false | string
     typescript?: boolean
     workspaceImportBase: string
-    workspaceRuntimeImport?: string
     workspaceRegistry?: false
     resetPublicUrlAgentNames?: boolean
     /** Channels from `server/channels` that own their webhook routes. Each one gets a host Agent for its webhook handler. */
@@ -1912,15 +1911,12 @@ async function generateAgentDeploymentCatalog(
       agentEntry: `[${JSON.stringify(definition.name)}]: ${agentExpression}`,
       import: `import * as ${moduleName} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`,
       workspaceEntry: options.workspaceRegistry !== false && definition.workspace
-        ? `registerAgentWorkspace(${JSON.stringify(definition.workspace)}, ${moduleName}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)})`
+        ? `agentWorkspaceEntry(${JSON.stringify(definition.workspace)}, ${moduleName}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)})`
         : undefined,
     }
   }))
   const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, options.workspaceImportBase, typescript)
-  const workspaceEntries = entries.flatMap(entry => entry.workspaceEntry ? [entry.workspaceEntry] : []).join("\n")
-  if (workspaceEntries && !options.workspaceRuntimeImport) {
-    throw agentDiagnostics.AGENT_B0017({ message: "[vitehub] Agent deployment catalog requires a Workspace runtime import for Workspace Agents." })
-  }
+  const workspaceEntries = entries.flatMap(entry => entry.workspaceEntry ? [entry.workspaceEntry] : []).join(",\n  ")
   const agentEntries = entries.map(entry => entry.agentEntry).join(",\n  ")
   const registeredAgentWorkspaceEntries = definitions.flatMap(definition => options.workspaceRegistry !== false && definition.workspace
     ? [`markDiscoveredWorkspaceAgentDefinitionRegistered(agents[${JSON.stringify(definition.name)}], ${JSON.stringify({ name: definition.name, workspace: definition.workspace })})`]
@@ -1931,6 +1927,7 @@ async function generateAgentDeploymentCatalog(
     "inheritAgentLayerOptions",
     "markDiscoveredAgentName",
     "resetPublicUrlAgentNames",
+    ...(options.workspaceRegistry !== false ? ["setAgentWorkspaceDefinitions"] : []),
     channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
     ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute", "resolvePublicUrl"] : []),
     ...(workspaceEntries ? ["markDiscoveredWorkspaceAgentDefinitionRegistered"] : []),
@@ -1943,7 +1940,6 @@ async function generateAgentDeploymentCatalog(
         ? [`import { resolveAgentInspectionMetadata${typescript ? ", type ResolvedAgentRuntimeContext" : ""} } from ${JSON.stringify(options.agentImportBase)}`]
         : []),
       `import { ${serverInternalImports} } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`,
-      ...(workspaceEntries ? [`import { registerWorkspace } from ${JSON.stringify(options.workspaceRuntimeImport)}`] : []),
       ...hostedWorkspaceRuntime.imports,
       ...entries.map(entry => entry.import),
       ...standaloneChannels.map((channel, index) => `import standaloneChannel${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, channel.handler))}`),
@@ -1969,18 +1965,23 @@ async function generateAgentDeploymentCatalog(
       "",
       ...(workspaceEntries
         ? [
-            `function registerAgentWorkspace(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}) {`,
+            `function agentWorkspaceEntry(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}) {`,
             "  const agent = withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(module), colocatedInstructions), sourceRootDir, colocatedInstructions, colocatedSkills)",
             "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
             "  const workspaceName = markDiscoveredWorkspaceAgentDefinitionRegistered(agent, { name, workspace: name }) || name",
             `  const workspaceDefinition = workspaceDefinitionFromOptions(${typescript ? "(agent as WorkspaceAgentDefinition).__vitehubWorkspaceAgentOptions" : "agent.__vitehubWorkspaceAgentOptions"})`,
-            "  registerWorkspace(workspaceName, workspaceDefinition)",
+            `  return [workspaceName, workspaceDefinition]${typescript ? " as const" : ""}`,
             "}",
             "",
           ]
         : []),
       ...hostedWorkspaceRuntime.setup,
-      ...(workspaceEntries ? [workspaceEntries, ""] : []),
+      ...(options.workspaceRegistry !== false
+        ? [
+            `setAgentWorkspaceDefinitions(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].flatMap(entry => entry ? [entry] : [])))`,
+            "",
+          ]
+        : []),
       `const agents${typescript ? ": Record<string, AgentInput>" : ""} = {${agentEntries ? `\n  ${agentEntries}\n` : ""}}`,
       ...(options.resetPublicUrlAgentNames === false ? [] : ["resetPublicUrlAgentNames()"]),
       ...definitions.map(definition => `markDiscoveredAgentName(agents[${JSON.stringify(definition.name)}], ${JSON.stringify(definition.name)})`),
@@ -2042,7 +2043,6 @@ async function generateAgentWebhookRouteHandler(
     standaloneChannels: options.standaloneChannels,
     typescript: true,
     workspaceImportBase,
-    workspaceRuntimeImport: subpath(workspaceImportBase, "runtime"),
   })
   const webhookRoute = typeof options.webhookRoute === "string" ? options.webhookRoute : ""
   const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
@@ -2249,7 +2249,6 @@ async function generateAgentNetlifyFunctionRouteHandler(
     agentImportBase,
     inspection: options.inspectionRoute,
     workspaceImportBase,
-    workspaceRuntimeImport: subpath(agentImportBase, "server/workspace"),
   })
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
   const webhookStateOption = options.libsqlState ? "state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, " : ""
@@ -2554,9 +2553,6 @@ async function generateAgentDiscordGatewayRouteHandler(
     channelHandlers: false,
     typescript: true,
     workspaceImportBase,
-    workspaceRuntimeImport: definitions.some(definition => definition.workspace)
-      ? subpath(workspaceImportBase, "runtime")
-      : undefined,
   })
 
   return [
@@ -2645,9 +2641,6 @@ async function generateAgentDenoServer(
     inspection: options.inspectionRoute,
     typescript: true,
     workspaceImportBase,
-    workspaceRuntimeImport: definitions.some(definition => definition.workspace)
-      ? subpath(workspaceImportBase, "runtime")
-      : undefined,
   })
 
   return [
