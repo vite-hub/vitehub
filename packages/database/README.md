@@ -173,7 +173,7 @@ export default defineDatabase({
 
 `cloudflare.http` also makes `vite dev` remote, so in development it is an alias of `remote: true`. `true` uses Cloudflare's API; an object selects an authenticated D1-compatible proxy. Unlike `remote`, it also selects D1 over HTTP in hosted output without a binding, such as Vercel. `remote: false` with `cloudflare.http` fails with `DATABASE_REMOTE_CONFLICT`. `remote` is not a Postgres option.
 
-Set `cloudflare.readReplication: true` (or `readReplication: true` on a D1 integration) to read from D1 read replicas. Each request gets one D1 session. A request with a method other than GET, HEAD, or OPTIONS starts on the primary database and returns a `vitehub-d1-bookmark-<binding>` cookie, so the same client reads its own writes next. Work outside a request uses the primary database. `vitehub provision run` turns on replication for the database. D1 over HTTP and SQLite ignore the option.
+Set `cloudflare.readReplication: true` (or `readReplication: true` on a D1 integration) to read from D1 read replicas. Each request gets one D1 session. A request with a method other than GET, HEAD, or OPTIONS starts on the primary database and returns a `vitehub-d1-bookmark-<binding>` cookie, so the same client reads its own writes next. Work outside a request uses the primary database. `vitehub provision run` turns on replication for the database. Its plan shows an `update` action when an existing database does not replicate yet. D1 over HTTP and SQLite ignore the option.
 
 Remote access is explicit. Local development uses SQLite unless the Definition sets `remote: true`, or the Definition or its integration configures `cloudflare.http`. Cloudflare output prefers a matching D1 binding.
 
