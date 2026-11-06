@@ -11,7 +11,7 @@ import { build, copyPublicAssets, createNitro, prepare, prerender } from "nitrop
 import { nitro } from "nitro/vite"
 import { createBuilder, resolveConfig, type Plugin, type PluginOption } from "vite"
 import { vitehub } from "vite-hub"
-import { expect, it } from "vitest"
+import { expect, it, onTestFinished } from "vitest"
 
 import { createCloudflareRateLimitBindings } from "../../packages/rate-limit/src/internal/cloudflare-bindings.ts"
 
@@ -22,20 +22,16 @@ function flattenPlugins(options: PluginOption[]): Plugin[] {
 }
 
 it("keeps implicit Workflow inert when Agent targets Netlify", async () => {
-  const root = await mkdtemp(join(tmpdir(), "vitehub-netlify-workflow-"))
-  try {
-    const workflow = flattenPlugins(vitehub({ agent: true, preset: "netlify" }))
-      .find(plugin => plugin.name === "@vite-hub/workflow/vite") as Plugin & {
-        vitehub?: { workflow?: { prepareScheduleRuntime?: () => Promise<unknown> } }
-      }
+  const workflow = flattenPlugins(vitehub({ agent: true, preset: "netlify" }))
+    .find(plugin => plugin.name === "@vite-hub/workflow/vite") as Plugin & {
+      vitehub?: { workflow?: { prepareScheduleRuntime?: () => Promise<unknown> } }
+    }
 
-    expect(workflow).toBeDefined()
-    await (workflow.configResolved as (config: unknown) => Promise<void>)({ plugins: [workflow], resolve: { alias: [] }, root })
-    await expect(workflow.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
-  }
-  finally {
-    await rm(root, { force: true, recursive: true })
-  }
+  expect(workflow).toBeDefined()
+  const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-netlify-"))
+  onTestFinished(() => rm(root, { force: true, recursive: true }))
+  await (workflow.configResolved as (config: unknown) => Promise<void>)({ plugins: [workflow], resolve: { alias: [] }, root })
+  await expect(workflow.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
 })
 
 it("disables Workflow in the Netlify consumer fixture", async () => {

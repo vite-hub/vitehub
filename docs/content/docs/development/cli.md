@@ -218,16 +218,10 @@ The Env integration contributes commands that report the status of declared Serv
 
 ```bash [Terminal]
 pnpm vitehub env inspect [--stage <name>] [--json]
-pnpm vitehub env check [--stage <name>] [--json] [--allow-missing-secrets]
+pnpm vitehub env check [--stage <name>] [--json]
 ```
 
 Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with its status, source, required, and secret flags. `env check` exits with status `1` when loading Server Env would fail, so it can gate CI or deployment steps.
-
-Some hosts add secrets at runtime, so the build environment does not have them. Cloudflare Worker secrets are an example. To check such a build, add `--allow-missing-secrets`. A missing secret from the host environment then passes. A missing value that is not secret, an invalid value, or a missing provider value still fails the check:
-
-```bash [Terminal]
-pnpm vitehub env check --stage production --allow-missing-secrets
-```
 
 ## Generate and derive secrets
 

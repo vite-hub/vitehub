@@ -77,7 +77,7 @@ const options = {
   skipLibCheck: true,
   strict: true,
   target: ts.ScriptTarget.ESNext,
-  types: ["node"],
+  types: ["node", "vite/client"],
 }
 
 /** The declarations that ViteHub writes for an app with no `server/env.ts`, and the Vue shim of a Vite app. */
@@ -178,7 +178,7 @@ function definitionName(directory, kind) {
 
 /** Source names a Collection after its relative file path and imports the export matching the filename. */
 async function collectionNames(label, code) {
-  const name = /^server\/collections\/(.+)\.m?ts$/.exec(label)?.[1]
+  const name = /^server\/collections\/(.+)\.[cm]?ts$/.exec(label)?.[1]
   if (!name) return []
   const exportName = name.split("/").at(-1)
   const { inspectCollectionModule } = await import(pathToFileURL(join(packagesRoot, "source/dist/vite.js")).href)
@@ -226,8 +226,8 @@ const registries = [
     // @vite-hub/database: src/internal/generated.ts. `server/databases/config.ts` and `src/database.ts` define the
     // `default` Database, and `server/databases/<name>/config.ts` a named one.
     definitions: (label) => {
-      if (/^(?:server\/databases\/config|src\/database)\.m?ts$/.test(label)) return ["default"]
-      const name = /^server\/databases\/(.+)\/config\.m?ts$/.exec(label)?.[1] ?? /^(?:src\/)?(.+)\.database\.m?ts$/.exec(label)?.[1]
+      if (/^(?:server\/databases\/config|src\/database)\.[cm]?ts$/.test(label)) return ["default"]
+      const name = /^server\/databases\/(.+)\/config\.[cm]?ts$/.exec(label)?.[1] ?? /^(?:src\/)?(.+)\.database\.[cm]?ts$/.exec(label)?.[1]
       return name ? [name] : []
     },
     render: entries => ["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap(module => [
