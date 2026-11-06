@@ -47,6 +47,18 @@ function normalizeConnectionsBasePath(value: string | undefined): string {
   return normalized;
 }
 
+/** Fetch hosts can supply a Request whose constructor differs from this realm's. */
+function isWebRequest(input: Request | ViteHubContext): input is Request {
+  if (input instanceof Request) return true;
+  if ("~standard" in input) return false;
+  const headers: unknown = Reflect.get(input, "headers");
+  return typeof Reflect.get(input, "url") === "string"
+    && typeof Reflect.get(input, "method") === "string"
+    && headers !== null && typeof headers === "object"
+    && typeof Reflect.get(headers, "get") === "function"
+    && typeof Reflect.get(input, "json") === "function";
+}
+
 /**
  * Management API for Connections. Every route runs the `actor` policy first. A route body reads
  * the Connections runtime only through the access that the policy grants for this request.
@@ -64,8 +76,9 @@ export function createConnectionsHandler(
   const base = normalizeConnectionsBasePath(options.basePath);
   return async (input) => {
     // A request event, such as an H3 1 or H3 2 event in a ViteHub app, gives its Web Request through Standard Context.
-    const request = input instanceof Request ? input : getStandardContext(input).req;
-    const event = input instanceof Request ? undefined : input;
+    const requestInput = isWebRequest(input);
+    const request = requestInput ? input : getStandardContext(input).req;
+    const event = requestInput ? undefined : input;
     const path = new URL(request.url).pathname.replace(/\/+$/, "");
     try {
       const check = await checkConnectionsAccess(options.actor, request, event, runtime, options.agentName);
