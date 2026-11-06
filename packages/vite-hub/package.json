@@ -893,6 +893,11 @@
       "import": "./dist/task.js",
       "default": "./dist/task.js"
     },
+    "./skills": {
+      "types": "./dist/skills.d.ts",
+      "import": "./dist/skills.js",
+      "default": "./dist/skills.js"
+    },
     "./source": {
       "types": "./dist/source.d.ts",
       "import": "./dist/source.js",
@@ -1313,6 +1318,7 @@
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "jose": "catalog:auth",
+    "nanotar": "^0.3.0",
     "nitro": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",

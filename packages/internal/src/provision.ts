@@ -213,6 +213,40 @@ export function createCloudflareProvisionClient(config: CloudflareProvisionConfi
   }
 }
 
+export interface CloudflarePagedListOptions<T> {
+  parse: (value: unknown) => T[]
+  /** Sent as `per_page`. Omit it when the endpoint does not accept a page size. */
+  perPage?: number
+  query?: Record<string, string>
+}
+
+/**
+ * Reads every page of a Cloudflare list that pages with `page` and `result_info`.
+ * R2 bucket lists page with a cursor instead and do not use this helper.
+ */
+export async function listCloudflarePages<T>(request: CloudflareProvisionRequest, path: string, options: CloudflarePagedListOptions<T>): Promise<T[]> {
+  const items: T[] = []
+  for (let page = 1; ; page++) {
+    const query: Record<string, string> = { ...options.query, page: String(page) }
+    if (options.perPage !== undefined) query.per_page = String(options.perPage)
+    const listed = await request(path, { parse: options.parse, query })
+    const pageItems = listed.result ?? []
+    items.push(...pageItems)
+    const info = listed.result_info
+    if (info?.page !== undefined && info.page !== page) {
+      throw internalErrorDiagnostics.INTERNAL_R0010({ message: `Cloudflare provisioning returned page ${info.page} of ${path} for page ${page}.` })
+    }
+    if (!pageItems.length) return items
+    if (info?.total_pages !== undefined) {
+      if (page >= info.total_pages) return items
+    }
+    else if (info?.total_count !== undefined) {
+      if (page * (info.per_page ?? options.perPage ?? pageItems.length) >= info.total_count) return items
+    }
+    else if (options.perPage === undefined || pageItems.length < options.perPage) return items
+  }
+}
+
 // Minimal Vercel REST client for provisioning. teamId is applied to every request as a query param.
 export function createVercelProvisionClient(config: VercelProvisionConfig, fetchImpl: typeof globalThis.fetch = globalThis.fetch): ProvisionRequest {
   return createJsonClient(

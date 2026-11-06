@@ -1,5 +1,6 @@
 import { drizzle as drizzleProxy } from "drizzle-orm/sqlite-proxy"
 
+import { assertD1Statement } from "./d1-limits.ts"
 import { trackDatabaseCall } from "./request-stats.ts"
 
 import { resolveConfigValue } from "../config-value.ts"
@@ -107,6 +108,7 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
   request: typeof fetch,
 ) {
   async function execute(queries: D1HttpExecutionQuery[]) {
+    for (const { params, sql } of queries) assertD1Statement(sql, params)
     const requestQueries = queries.map(({ params, sql }) => ({ params, sql }))
     // One HTTP request per call, so a batch is one call.
     const response = await trackDatabaseCall(() => request(config.url, {
