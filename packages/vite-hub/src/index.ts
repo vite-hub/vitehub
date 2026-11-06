@@ -47,7 +47,6 @@ import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
-import { nitroStartupChunks } from "./internal/nitro-startup-chunks.ts"
 import { cloudflareExportConditions, detectPreset } from "./deployment.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
@@ -1464,8 +1463,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
   plugins.push(nitroCacheBypass())
-  // Keeps packages that load on demand, such as Chat adapters, out of the chunks that the server loads at startup.
-  plugins.push(nitroStartupChunks())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
     prepareSources: sourcePlugin.api.prepareSources,

@@ -15,6 +15,7 @@ import type {
 } from "@vite-hub/auth/console";
 
 import { consoleDateTime } from "./time";
+import { projectFetch } from "./project";
 import { ConsoleRequestError } from "./request";
 
 type AuthResults = {
@@ -29,7 +30,7 @@ type AuthResults = {
   agents: AuthConsoleList<AuthConsoleAgent>;
 };
 async function request(base: string, body: unknown, signal?: AbortSignal): Promise<unknown> {
-  const response = await fetch(base, {
+  const response = await projectFetch(base, {
     method: "POST",
     headers: { "content-type": "application/json", "x-vitehub-console": "1" },
     body: JSON.stringify(body),
