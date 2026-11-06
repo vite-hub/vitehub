@@ -415,11 +415,6 @@
     "error": "TS2353 Object literal may only specify known properties, and 'url' does not exist in type 'ChannelConnector<never, object>'."
   },
   {
-    "id": "docs/content/docs/reference/doctor-rules.md#68b8557fab5e",
-    "label": "vite.config.ts",
-    "error": "TS2304 Cannot find name 'defineConfig'.\nTS2304 Cannot find name 'defineConfig'.\nTS2304 Cannot find name 'env'.\nTS2304 Cannot find name 'env'.\nTS2304 Cannot find name 'vitehub'.\nTS2304 Cannot find name 'vitehub'.\nTS2528 A module cannot have multiple default exports.\nTS2528 A module cannot have multiple default exports."
-  },
-  {
     "id": "docs/content/docs/reference/doctor-rules.md#f55e15ba2697",
     "label": "nuxt.config.ts",
     "error": "TS2353 Object literal may only specify known properties, and 'hub' does not exist in type 'NuxtConfigInput<NuxtConfig>'.\nTS2528 A module cannot have multiple default exports.\nTS2528 A module cannot have multiple default exports."
