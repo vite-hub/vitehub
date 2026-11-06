@@ -11,7 +11,7 @@ import { build, copyPublicAssets, createNitro, prepare, prerender } from "nitrop
 import { nitro } from "nitro/vite"
 import { createBuilder, resolveConfig, type Plugin, type PluginOption } from "vite"
 import { vitehub } from "vite-hub"
-import { expect, it } from "vitest"
+import { expect, it, onTestFinished } from "vitest"
 
 import { createCloudflareRateLimitBindings } from "../../packages/rate-limit/src/internal/cloudflare-bindings.ts"
 
@@ -28,7 +28,9 @@ it("keeps implicit Workflow inert when Agent targets Netlify", async () => {
     }
 
   expect(workflow).toBeDefined()
-  ;(workflow.configResolved as (config: unknown) => void)({ plugins: [workflow], resolve: { alias: [] }, root: "/unused" })
+  const root = await mkdtemp(join(tmpdir(), "vitehub-workflow-netlify-"))
+  onTestFinished(() => rm(root, { force: true, recursive: true }))
+  await (workflow.configResolved as (config: unknown) => Promise<void>)({ plugins: [workflow], resolve: { alias: [] }, root })
   await expect(workflow.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
 })
 
