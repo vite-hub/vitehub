@@ -100,11 +100,6 @@
     "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/agents/triggers.md#856b11e9e183",
-    "label": "server/api/support.post.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
     "id": "docs/content/docs/auth/configure.md#e343728ee49a",
     "label": "server/auth.ts",
     "error": "TS2304 Cannot find name 'defineAuth'.\nTS7031 Binding element 'env' implicitly has an 'any' type.\nTS7031 Binding element 'requestOrigin' implicitly has an 'any' type."
@@ -118,11 +113,6 @@
     "id": "docs/content/docs/blob/media.md#9c910d73996e",
     "label": null,
     "error": "TS2304 Cannot find name 'blob'.\nTS2304 Cannot find name 'file'."
-  },
-  {
-    "id": "docs/content/docs/blob/server-api.md#e7fc7fbe72c5",
-    "label": "server/api/files.post.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/channels/agent-capability.md#40109740a7a8",
@@ -275,26 +265,6 @@
     "error": "TS18048 'body' is possibly 'undefined'."
   },
   {
-    "id": "docs/content/docs/database/server-api.md#6d9cea2fe68f",
-    "label": "server/api/notes.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'notes' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type '\"analytics\"'."
-  },
-  {
-    "id": "docs/content/docs/database/server-api.md#e4a3b26c7769",
-    "label": "server/api/events.get.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'."
-  },
-  {
-    "id": "docs/content/docs/database/server-api.md#f322346ac6f0",
-    "label": "server/utils/files.ts",
-    "error": "TS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2339 Property 'files' does not exist on type '{ events: SQLiteTableWithColumns<{ name: \"events\"; schema: undefined; columns: { id: SQLiteColumn<{ name: \"id\"; tableName: \"events\"; dataType: \"number\"; columnType: \"SQLiteInteger\"; data: number; driverParam: number; notNull: true; ... 7 more ...; generated: undefined; }, {}, {}>; name: SQLiteColumn<...>; }; dialect...'.\nTS2345 Argument of type '\"default\"' is not assignable to parameter of type '\"analytics\"'."
-  },
-  {
-    "id": "docs/content/docs/decisions/index.md#d3a4290d45e6",
-    "label": "server/api/choices.post.ts",
-    "error": "TS2304 Cannot find name 'createError'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
-  },
-  {
     "id": "docs/content/docs/development/console.md#44aafb4e0c8f",
     "label": "nuxt.config.ts",
     "error": "TS2353 Object literal may only specify known properties, and 'robots' does not exist in type '{ prerender?: boolean | undefined; ssr?: boolean | undefined; noScripts?: boolean | undefined; payload?: boolean | undefined; redirect?: string | false | { to?: string | undefined; status?: number | undefined; } | undefined; isr?: number | ... 2 more ... | undefined; cache?: false | ... 1 more ... | undefined; }'.\nTS2353 Object literal may only specify known properties, and 'robots' does not exist in type '{ prerender?: boolean | undefined; ssr?: boolean | undefined; noScripts?: boolean | undefined; payload?: boolean | undefined; redirect?: string | false | { to?: string | undefined; status?: number | undefined; } | undefined; isr?: number | ... 2 more ... | undefined; cache?: false | ... 1 more ... | undefined; }'."
@@ -318,11 +288,6 @@
     "id": "docs/content/docs/logs/get-started.md#b7725026293a",
     "label": "vite.config.ts",
     "error": "TS2353 Object literal may only specify known properties, and 'local' does not exist in type 'ConsoleOptions'."
-  },
-  {
-    "id": "docs/content/docs/queue/limits-and-errors.md#bb22fa79f67f",
-    "label": "server/api/signup.post.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS2345 Argument of type '\"welcome-email\"' is not assignable to parameter of type 'never'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/rate-limit/agent-capability.md#db72be2c6b21",
@@ -423,11 +388,6 @@
     "id": "docs/content/docs/reference/doctor-rules.md#f55e15ba2697",
     "label": "nuxt.config.ts",
     "error": "TS2353 Object literal may only specify known properties, and 'hub' does not exist in type 'NuxtConfigInput<NuxtConfig>'.\nTS2528 A module cannot have multiple default exports.\nTS2528 A module cannot have multiple default exports."
-  },
-  {
-    "id": "docs/content/docs/reference/runtime-context.md#e2744450c63d",
-    "label": "server/api/support.post.ts",
-    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS2304 Cannot find name 'useRuntimeConfig'.\nTS2307 Cannot find module '../agents/support' or its corresponding type declarations.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
@@ -548,5 +508,10 @@
     "id": "packages/workspace/README.md#3f540cceb6dc",
     "label": "server/workspaces/docs/config.ts",
     "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(input: string): WorkspaceSource', gave the following error.\n    Argument of type '{ workspacePath: string; content: string; instructions: string; }' is not assignable to parameter of type 'string'.\n  Overload 2 of 2, '(input: ExactOptions$1<{ readonly workspacePath: \"guide.md\"; readonly content: \"# Guide/n\"; readonly instructions: \"Use this source for local guide notes.\"; }, FileSourceOptions<string>>): WorkspaceSource', gave the following error.\n    Type 'string' is not assignable to type 'never'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(options: ExactOptions$1<{ readonly repo: \"vite-hub/vitehub\"; readonly root: \"docs/content/docs\"; readonly instructions: \"Use this source for public ViteHub documentation.\"; }, GitHubSourceOptions>): WorkspaceSource', gave the following error.\n    Type 'string' is not assignable to type 'never'.\n  Overload 2 of 2, '(resolve: GitHubSourceResolver): WorkspaceSource', gave the following error.\n    Object literal may only specify known properties, and 'repo' does not exist in type 'GitHubSourceResolver'."
+  },
+  {
+    "id": "docs/content/docs/reference/runtime-context.md#7e0075c0b82d",
+    "label": "server/api/support.post.ts",
+    "error": "TS2307 Cannot find module '../agents/support' or its corresponding type declarations."
   }
 ]

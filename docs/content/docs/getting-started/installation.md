@@ -61,8 +61,9 @@ set `"type": "module"`, and add the scripts you need.
 }
 ```
 
-Install the framework distribution and its server dependencies. These Nitro
-and H3 versions match the server integration used by ViteHub.
+Install the framework distribution and its server dependencies, plus Valibot
+for request validation in the route examples. These Nitro and H3 versions match
+the server integration used by ViteHub.
 
 ```bash [commands/install-vite]
 pnpm add vite-hub nitro@3.0.261102-rc h3@2.0.8 valibot
@@ -122,7 +123,8 @@ inherited list. Include `.vitehub/types.d.ts` in that list.
 ## Install in Nuxt
 
 Run these steps in your existing Nuxt 4 app. Add ViteHub and H3 1 for the
-explicit server imports used in the tutorials. Nuxt supplies Nitro.
+explicit server imports used in the tutorials, plus Valibot for request
+validation. Nuxt supplies Nitro.
 
 ```bash [commands/install-nuxt]
 pnpm add vite-hub h3@^1.15.11 valibot

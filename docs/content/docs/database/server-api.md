@@ -22,9 +22,28 @@ All Database Definition, integration, connection, Cloudflare D1, Drizzle, and ru
 
 ## Use it at runtime
 
-Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. For a name that has no Database Definition it returns `undefined`, so destructuring the result fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`.
+Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. For a name that has no Database Definition it returns `undefined`, so destructuring the result fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`. This route reads the `notes` table of the default Database:
+
+```ts [src/database.ts]
+import { defineDatabase } from '@vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    notes: sqliteTable('notes', {
+      id: integer('id').primaryKey({ autoIncrement: true }),
+      title: text('title').notNull(),
+    }),
+    files: sqliteTable('files', {
+      id: text('id').primaryKey(),
+      ownerId: text('owner_id').notNull(),
+    }),
+  },
+})
+```
 
 ```ts [server/api/notes.get.ts]
+import { defineEventHandler } from 'h3'
 import { useDatabase } from '@vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
@@ -38,6 +57,8 @@ The ViteHub Vite Integration resolves `@vite-hub/database/drizzle` for server co
 ### Use Named Databases
 
 Use Named Databases when the app needs more than one independent database. Name a database for a real data or deployment split, not for a source-code folder.
+
+The following Named Database example is an alternative to the Default Database above. Remove `src/database.ts`, `server/api/notes.get.ts`, and `server/utils/files.ts` (shown below) before using it. An app cannot combine Default and Named Database Definitions.
 
 ```ts [src/analytics.database.ts]
 import { defineDatabase } from '@vite-hub/database'
@@ -55,6 +76,7 @@ export default defineDatabase({
 ```
 
 ```ts [server/api/events.get.ts]
+import { defineEventHandler } from 'h3'
 import { useDatabase } from '@vite-hub/database/drizzle'
 
 export default defineEventHandler(() => {
@@ -65,7 +87,7 @@ export default defineEventHandler(() => {
 
 ### Stay under the bound parameter limit
 
-Cloudflare D1 binds at most 100 parameters in one statement. A longer `inArray()` list or a multi-row insert fails on D1, even when it works on local SQLite. `chunkParameters(values, options)` splits the values into arrays that fit one statement each:
+Cloudflare D1 binds at most 100 parameters in one statement. A longer `inArray()` list or a multi-row insert fails on D1, even when it works on local SQLite. `chunkParameters(values, options)` splits the values into arrays that fit one statement each. This example uses the `files` table of the Default Database above:
 
 ```ts [server/utils/files.ts]
 import { and, eq, inArray } from 'drizzle-orm'
