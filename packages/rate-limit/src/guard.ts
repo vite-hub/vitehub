@@ -1,3 +1,4 @@
+import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getStandardContext } from "@vite-hub/runtime/h3"
 import { createError } from "h3"
 
@@ -10,9 +11,9 @@ import {
   getRateLimitRuntimeConfig,
 } from "./runtime/state.ts"
 
-import type { ViteHubStandardProps } from "@vite-hub/runtime"
+import type { ViteHubContext, ViteHubStandardProps } from "@vite-hub/runtime"
 import type { CloudflareRateLimitBinding } from "./drivers/cloudflare.ts"
-import type { RateLimitDecision, RateLimiter, RateLimitPolicy, RateLimitRequestEvent, RequireRateLimitOptions } from "./types.ts"
+import type { RateLimitDecision, RateLimiter, RateLimitPolicy, RateLimitRequest, RateLimitRequestEvent, RequireRateLimitOptions } from "./types.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 const guardOptionKeys = new Set([...rateLimitPolicyKeys, "key"])
@@ -21,16 +22,41 @@ function isCloudflareBinding(value: unknown): value is CloudflareRateLimitBindin
   return Boolean(value) && typeof value === "object" && typeof (value as CloudflareRateLimitBinding).limit === "function"
 }
 
-function getRequestKey(standard: ViteHubStandardProps, provider: "cloudflare" | "memory"): string | undefined {
-  const clientAddress = standard.runtime?.clientAddress
-  return provider === "cloudflare"
-    ? standard.req.headers.get("cf-connecting-ip") || clientAddress
-    : clientAddress
+/** What a guard reads from the request that it limits. */
+interface RateLimitRequestScope {
+  clientAddress?: string
+  cloudflareEnv?: Record<string, unknown>
+  headers: RateLimitRequest["headers"]
+  /** Present for a request event. A `Request` has no response to carry headers. */
+  standard?: ViteHubStandardProps
 }
 
-function getCloudflareRateLimiter(standard: ViteHubStandardProps, name: string, policy: RateLimitPolicy): RateLimiter {
+/** A request event carries `~standard`, an H3 2 `req`, or an H3 1 `node`. A Web `Request` has none of them. */
+function isRequestEvent(input: RateLimitRequestEvent): input is ViteHubContext {
+  return "~standard" in input || "req" in input || "node" in input
+}
+
+function getRequestScope(input: RateLimitRequestEvent): RateLimitRequestScope {
+  // A Request has no client address. On Cloudflare, the bindings are those of the request that runs.
+  if (!isRequestEvent(input)) return { cloudflareEnv: getActiveCloudflareEnv(), headers: input.headers }
+  const standard = getStandardContext(input)
+  return {
+    clientAddress: standard.runtime?.clientAddress,
+    cloudflareEnv: standard.runtime?.cloudflare?.env,
+    headers: standard.req.headers,
+    standard,
+  }
+}
+
+function getRequestKey(scope: RateLimitRequestScope, provider: "cloudflare" | "memory"): string | undefined {
+  return provider === "cloudflare"
+    ? scope.headers.get("cf-connecting-ip") || scope.clientAddress
+    : scope.clientAddress
+}
+
+function getCloudflareRateLimiter(scope: RateLimitRequestScope, name: string, policy: RateLimitPolicy): RateLimiter {
   const bindingName = getCloudflareRateLimitBindingName(name)
-  const env = standard.runtime?.cloudflare?.env
+  const env = scope.cloudflareEnv
   const binding = env && Object.hasOwn(env, bindingName) ? env[bindingName] : undefined
   if (!isCloudflareBinding(binding)) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0009({ message: `[vitehub] Cloudflare Rate Limit binding "${bindingName}" was not found on the request event.` })
@@ -64,13 +90,13 @@ async function consumeRateLimit(
 
   const policy = declaredRateLimitPolicy(normalizeRateLimitPolicy(options))
   const { provider } = getRateLimitRuntimeConfig()
-  const standard = getStandardContext(event)
-  const key = options.key ?? getRequestKey(standard, provider)
+  const scope = getRequestScope(event)
+  const key = options.key ?? getRequestKey(scope, provider)
   if (!key) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0013({ message: `[vitehub] \`${guard}()\` could not determine a request key. Pass key when limiting by user or tenant or when the request has no client address.` })
   }
   const limiter = provider === "cloudflare"
-    ? getCloudflareRateLimiter(standard, id, policy)
+    ? getCloudflareRateLimiter(scope, id, policy)
     : getMemoryRateLimiter(id, policy)
   return await limiter.consume({ key })
 }
@@ -109,11 +135,12 @@ export async function requireRateLimit(event: RateLimitRequestEvent, name: strin
 
 /**
  * Nuxt 4 bundles every `h3` import as its own h3 1, which has `createError()` but no `HTTPError`. h3 2's
- * `createError()` returns an `HTTPError` with headers. An h3 1 error carries no headers, so they go on the response.
+ * `createError()` returns an `HTTPError` with headers. An h3 1 error carries no headers, so they go on the response
+ * of a request event.
  */
 function rateLimitHTTPError(event: RateLimitRequestEvent, details: { cause?: unknown, headers?: Record<string, string>, message: string, status: number, statusText: string }): Error {
   const error = createError(details)
-  if (details.headers && !(Reflect.get(error, "headers") instanceof Headers)) {
+  if (details.headers && !(Reflect.get(error, "headers") instanceof Headers) && isRequestEvent(event)) {
     const headers = getStandardContext(event).res.headers
     for (const [name, value] of Object.entries(details.headers)) headers?.set(name, value)
   }

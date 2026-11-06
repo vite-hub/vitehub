@@ -1,3 +1,4 @@
+import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { installStandardContext } from "@vite-hub/runtime/h3"
 import { HTTPError, mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -212,6 +213,31 @@ describe("managed Rate Limit guard", () => {
     await requireRateLimit(event, "standard-uploads", { limit: 1, window: "1m" })
 
     expect(limit).toHaveBeenCalledWith({ key: "203.0.113.7" })
+  })
+
+  it("limits a Web Request by its key", async () => {
+    const request = new Request("https://example.com/upload")
+
+    vi.spyOn(Date, "now").mockReturnValue(30_000)
+    await requireRateLimit(request, "request-uploads", { key: "user", limit: 1, window: "1m" })
+    const limited: unknown = await requireRateLimit(request, "request-uploads", { key: "user", limit: 1, window: "1m" }).catch((error: unknown) => error)
+
+    if (!(limited instanceof HTTPError)) throw new Error("Expected the request to be limited")
+    expect(limited).toMatchObject({ status: 429 })
+    expect(limited.headers?.get("Retry-After")).toBe("30")
+    await expect(checkRateLimit(request, "request-checks", { limit: 1, window: "1m" }))
+      .rejects.toThrow("`checkRateLimit()` could not determine a request key")
+  })
+
+  it("reads the Cloudflare address header and the active bindings for a Web Request", async () => {
+    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    const limit = vi.fn(async () => ({ success: true }))
+    const request = new Request("https://example.com/upload", { headers: { "cf-connecting-ip": "203.0.113.9" } })
+
+    await runWithActiveCloudflareEnv({ [getCloudflareRateLimitBindingName("request-cloudflare")]: { limit } }, () =>
+      requireRateLimit(request, "request-cloudflare", { limit: 1, window: "1m" }))
+
+    expect(limit).toHaveBeenCalledWith({ key: "203.0.113.9" })
   })
 
   it("counts by the Standard Context client address", async () => {

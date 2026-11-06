@@ -25,6 +25,7 @@ export type {
   RateLimitPolicy,
   RateLimitProvider,
   RateLimitRejectedAttemptBehavior,
+  RateLimitRequest,
   RateLimitRequestEvent,
   RateLimitResetResult,
   RateLimitRuntimeConfig,
