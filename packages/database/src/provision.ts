@@ -1,4 +1,4 @@
-import { createCloudflareProvisionClient, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
+import { createCloudflareProvisionClient, listCloudflarePages, resolveCloudflareProvisionConfig } from "@vite-hub/internal/provision"
 
 import { resolveConfigValue } from "./config-value.ts"
 import { resolveDBViteConfig } from "./config.ts"
@@ -15,6 +15,8 @@ interface CloudflareD1Database {
   name?: string
   read_replication?: { mode?: unknown }
 }
+
+const CLOUDFLARE_D1_LIST_PER_PAGE = 100
 
 interface PlannedDatabase {
   databaseName: string
@@ -97,8 +99,8 @@ export function createDatabaseProvisionStep(
       if (!planned.length) return []
 
       const request = createCloudflareProvisionClient(config, context.fetch)
-      const listed = await request("/d1/database", { parse: parseDatabases })
-      const idByName = new Map((listed.result ?? [])
+      const listed = await listCloudflarePages(request, "/d1/database", { parse: parseDatabases, perPage: CLOUDFLARE_D1_LIST_PER_PAGE })
+      const idByName = new Map(listed
         .filter((database): database is { name: string, uuid: string } => Boolean(database.name && database.uuid))
         .map(database => [database.name, database.uuid]))
 

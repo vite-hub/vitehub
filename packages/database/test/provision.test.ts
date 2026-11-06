@@ -66,6 +66,25 @@ describe("database provision step", () => {
     expect((fetchImpl as unknown as ReturnType<typeof vi.fn>).mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === "POST")).toBe(false)
   })
 
+  it("finds an existing D1 database on the second page of the database list", async () => {
+    const rootDir = await createApp()
+    const requested: Array<{ page: string | null, perPage: string | null }> = []
+    const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      if (init?.method === "POST") throw new Error("must not create existing database")
+      const { searchParams } = new URL(String(input))
+      requested.push({ page: searchParams.get("page"), perPage: searchParams.get("per_page") })
+      return searchParams.get("page") === "2"
+        ? jsonResponse({ success: true, result: [{ name: "vitehub-playground-db", uuid: "uuid-late" }], result_info: { count: 1, page: 2, per_page: 100, total_count: 101 } })
+        : jsonResponse({ success: true, result: Array.from({ length: 100 }, (_, index) => ({ name: `other-${index}`, uuid: `uuid-${index}` })), result_info: { count: 100, page: 1, per_page: 100, total_count: 101 } })
+    }) as unknown as typeof globalThis.fetch
+
+    const actions = await createDatabaseProvisionStep(() => rootDir).plan(provisionContext(fetchImpl))
+
+    expect(requested).toEqual([{ page: "1", perPage: "100" }, { page: "2", perPage: "100" }])
+    expect(actions[0]!.exists).toBe(true)
+    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { d1: { primary: "uuid-late" } } } })
+  })
+
   async function writeReplicatedDefinition(rootDir: string) {
     await writeFile(join(rootDir, "server", "databases", "primary", "config.ts"), [
       "import { defineDatabase } from '@vite-hub/database'",
