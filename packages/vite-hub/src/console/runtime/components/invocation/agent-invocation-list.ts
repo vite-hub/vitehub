@@ -103,6 +103,14 @@ function renderItem(
 ) {
   const timestamp = item.status === "running" ? item.startedAt ?? item.updatedAt : item.updatedAt;
   const time = relativeTime(timestamp, now);
+  const state = h("span", { class: "vh-invocation-list__state", title: item.description }, [
+    item.status === "completed"
+      ? h("span", { class: "vh-visually-hidden" }, invocationStatusLabel(item.status))
+      : h("span", { class: "vh-invocation-list__state-icon" }, [statusIcon(item.status)]),
+    item.status === "completed" ? null : h("span", invocationStatusLabel(item.status)),
+    time ? h("time", { "aria-label": time.label, datetime: timestamp, title: time.label }, time.short) : null,
+  ]);
+  const title = h("strong", { class: "vh-invocation-list__title", title: item.title }, item.title);
   return h("li", { key: item.id }, [
     h("button", {
       "aria-current": selectedId === item.id ? "true" : undefined,
@@ -114,19 +122,16 @@ function renderItem(
       onClick: () => select(item),
       type: "button",
     }, [
-      // Line 1: where the session comes from, and its state. Line 2: the title. Line 3: branch, harness, and channel.
-      h("span", { class: "vh-invocation-list__context" }, [
-        projectIconSlot ? h("span", { class: "vh-invocation-list__project-icon" }, projectIconSlot({ item })) : null,
-        item.project ? h("span", { class: "vh-invocation-list__project", title: item.project }, item.project) : null,
-        h("span", { class: "vh-invocation-list__state", title: item.description }, [
-          item.status === "completed"
-            ? h("span", { class: "vh-visually-hidden" }, invocationStatusLabel(item.status))
-            : h("span", { class: "vh-invocation-list__state-icon" }, [statusIcon(item.status)]),
-          item.status === "completed" ? null : h("span", invocationStatusLabel(item.status)),
-          time ? h("time", { "aria-label": time.label, datetime: timestamp, title: time.label }, time.short) : null,
-        ]),
-      ]),
-      h("strong", { class: "vh-invocation-list__title", title: item.title }, item.title),
+      ...(item.project || projectIconSlot
+        ? [
+            h("span", { class: "vh-invocation-list__context" }, [
+              projectIconSlot ? h("span", { class: "vh-invocation-list__project-icon" }, projectIconSlot({ item })) : null,
+              item.project ? h("span", { class: "vh-invocation-list__project", title: item.project }, item.project) : null,
+              state,
+            ]),
+            title,
+          ]
+        : [h("span", { class: "vh-invocation-list__headline" }, [title, state])]),
       item.context || harnessSlot || item.channel
         ? h("span", { class: "vh-invocation-list__meta" }, [
             item.context ? h("span", { class: "vh-invocation-list__branch", title: item.context }, item.context) : null,

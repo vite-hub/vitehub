@@ -386,8 +386,9 @@ onBeforeUnmount(() => {
                           rel="noreferrer"
                           target="_blank"
                           :aria-label="`${section.label} documentation`"
+                          :title="`${section.label} documentation`"
                         >
-                          Docs
+                          <UIcon name="i-lucide-book-open" class="size-3.5" aria-hidden="true" />
                         </a>
                       </span>
                     </li>
@@ -605,13 +606,18 @@ onBeforeUnmount(() => {
 
 /* The Docs link sits above the row button, so a pointer on it opens the docs and not the section. */
 .vitehub-console__overview-docs {
+  align-items: center;
   border-radius: 0.25rem;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 1.5rem;
+  min-width: 1.5rem;
   margin: -0.25rem -0.375rem;
   outline: none;
   padding: 0.25rem 0.375rem;
   position: relative;
   text-underline-offset: 3px;
-  transition: color 150ms ease;
+  transition: color 150ms ease, opacity 150ms ease;
   z-index: 1;
 }
 
@@ -635,6 +641,22 @@ onBeforeUnmount(() => {
 @media (max-width: 40rem) {
   .vitehub-console__overview-name + .vitehub-console__overview-description {
     display: none;
+  }
+}
+@media (hover: hover) and (pointer: fine) {
+  .vitehub-console__overview-docs {
+    opacity: 0;
+  }
+  .vitehub-console__overview-row:hover .vitehub-console__overview-docs,
+  .vitehub-console__overview-row:focus-within .vitehub-console__overview-docs {
+    opacity: 1;
+  }
+}
+@media (any-pointer: coarse) {
+  .vitehub-console__overview-docs {
+    min-height: 2.75rem;
+    min-width: 2.75rem;
+    opacity: 1;
   }
 }
 </style>

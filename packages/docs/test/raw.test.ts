@@ -8,6 +8,80 @@ function convert(source: string, options: RawMarkdownOptions = {}): string {
 }
 
 describe("toRawMarkdown", () => {
+  it.each([
+    { mode: "builtin", label: "Built-in channels" },
+    { mode: "custom", label: "Example connectors" },
+  ])("keeps the hero channel information in $mode mode", ({ mode, label }) => {
+    const raw = convert(`::product-hero{tagline="Reach your Agent." channels="Web chat, Slack" channel-mode="${mode}"}\n::`)
+    expect(raw).toContain(`${label}: Web chat, Slack.`)
+    expect(raw.includes("You write each connector. Use Agent Channels for built-in chat integrations.")).toBe(mode === "custom")
+  })
+
+  it("renders product landings as text and preserves component syntax in code examples", () => {
+    const example = ':::product-feature-item{title="Example" to="/docs/example"}\nExample description.\n:::'
+    const raw = convert([
+      '---',
+      'title: Storage',
+      '---',
+      '::product-hero{tagline="Save values by key." hosts="Node, Cloudflare"}',
+      '  :::product-files',
+      '  ```ts [server/api/value.ts]',
+      '  const value = "::literal"',
+      '  ```',
+      '  :::',
+      '::',
+      '',
+      '::product-features',
+      '  :::product-feature-item{title="Read a value" icon="i-lucide-key" to="/docs/storage/read"}',
+      '  Read with `get()`.',
+      '  :::',
+      "  :::product-feature-item{title='Write a value' to='./write'}",
+      '  Save with `set()`.',
+      '  :::',
+      '::',
+      '',
+      '````md',
+      example,
+      '````',
+      '',
+      '~~~md',
+      example,
+      '~~~',
+      '',
+      '    :::product-feature-item{title="Indented example"}',
+    ].join('\n'), { pagePath: '/docs/storage/overview' })
+
+    expect(raw).toBe([
+      '# Storage',
+      '',
+      'Save values by key.',
+      '',
+      'Hosts: Node, Cloudflare.',
+      '',
+      '```ts [server/api/value.ts]',
+      'const value = "::literal"',
+      '```',
+      '',
+      '### [Read a value](https://vitehub.dev/docs/storage/read)',
+      '',
+      'Read with `get()`.',
+      '### [Write a value](https://vitehub.dev/docs/storage/write)',
+      '',
+      'Save with `set()`.',
+      '',
+      '````md',
+      example,
+      '````',
+      '',
+      '~~~md',
+      example,
+      '~~~',
+      '',
+      '    :::product-feature-item{title="Indented example"}',
+      '',
+    ].join('\n'))
+  })
+
   it("keeps site-relative links relative without a site URL", () => {
     expect(toRawMarkdown("[Get started](/docs/kv/get-started)")).toBe("[Get started](/docs/kv/get-started)\n")
     expect(toRawMarkdown("[Get started](/docs/kv/get-started)", { siteUrl: "https://example.com/" })).toBe("[Get started](https://example.com/docs/kv/get-started)\n")

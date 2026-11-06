@@ -10,10 +10,10 @@
 
 ## File access without Agent tools
 
-Use `useWorkspaceFiles()` for file, history, and Content operations that do not need Agent tools. It accepts the same name, mode, and definition options as `useWorkspace()`, and returns the same facade without `tools`. It skips constructing and bundling Agent tools.
+Use `useWorkspaceFiles()` from `@vite-hub/workspace/files` for file, history, and Content operations that do not need Agent tools. It accepts the same name, mode, and definition options as `useWorkspace()`, and returns the same facade without `tools`. This entry skips constructing and loading Agent tools, including when Workspace is external to a consumer bundle.
 
 ```ts
-import { useWorkspaceFiles } from "@vite-hub/workspace"
+import { useWorkspaceFiles } from "@vite-hub/workspace/files"
 
 const workspace = useWorkspaceFiles("docs", { mode: "write" })
 await workspace.fs.writeFile("guide.md", "# Guide\n")

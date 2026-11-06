@@ -40,7 +40,7 @@ Set them under `docs` in `nuxt.config.ts`. Every option is optional.
 | `github` | `{ repo, branch?, dir? }` or `false` | `false` | The repository of the site. The shell links to `https://github.com/<repo>`. `branch` (default `main`) and `dir` (default the `dir` option) are in `useDocsConfig().github` for your own components. |
 | `icons` | `Partial<DocsIcons>` | Lucide fallbacks | Icons of the rail and the sidebar: `rail`, `sections`, `pages`, `aliases`, `family`, `page`, and `section`. See [Icons](/docs/docs-site/configure#icons). |
 | `mcp` | `{ name?, guide? }` or `false` | On, named after `site.name` | The MCP server at `/mcp`. `guide` is a page that explains how to connect it. |
-| `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. Set the app's own `linkChecker` options to change this. |
+| `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when such a rule goes to no docs page or hides one. Set the app's own `linkChecker` options to change this. |
 | `ogImage` | `false \| { component? }` | On | Share images, rendered with `nuxt-og-image` while the build prerenders. `component` names the app's own template in `components/OgImage/`, which gets `title`, `description`, `site`, `section`, `logo`, and `host`. `false` turns them off. |
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
 | `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to the `comments` option of `vite-hub/nuxt`. `false` sets `comments: false` there, which also keeps the Console from turning Comments on. |
@@ -55,6 +55,9 @@ The module also sets the options of the modules that it installs: `llms` from `s
 | --- | --- | --- | --- |
 | `title` | `string` | Required | Page heading, browser title, and search title. |
 | `description` | `string` | None | Text under the heading, the meta description, and the llms.txt entry. |
+| `tagline` | `string` | `description` | Text under the heading, when it must differ from the meta description. `description` keeps its other uses. |
+| `credits` | `string` | None | Inline Markdown at the end of the page, such as the projects that the page builds on. The page route returns it parsed as `credits`. |
+| `keywords` | `string` or `string[]` | None | Words that find the page in search besides its own text. One string splits at commas. Search matches them like headings, below the page title. |
 | `icon` | `string` | `icons.page` | Sidebar icon, as an Iconify name. |
 | `layout` | `'article'`, `'tutorial'`, `'landing'`, or `'home'` | `'article'` | See [Layouts](/docs/docs-site/configure#layouts). |
 | `tutorial` | `'project'` or `'quickstart'` | None | Stored in the manifest for your own tutorials catalog. |

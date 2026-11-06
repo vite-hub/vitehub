@@ -20,6 +20,7 @@ composition and explicit feature subpaths for application APIs.
 | --- | --- |
 | `vite-hub` | Register the framework Vite Integration with `vitehub()`. |
 | `vite-hub/deployment` | `detectPreset()`: the preset that `vitehub()` detects when `preset` is omitted, for host-specific config. |
+| `vite-hub/skills` | Define and serve [Agent Skills](/docs/development/skills) through HTTP discovery and MCP. |
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Actor APIs. |
 | `vite-hub/agent/capabilities` | Official Capability factories. |
@@ -70,6 +71,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/docs` | The page frontmatter schema, the manifest types, and the navigation helpers of a docs site. Re-exports `@vite-hub/docs`. |
 | `vite-hub/docs/assistant` | `docsAssistant`, the Agent preset that answers reader questions from the docs pages, and `docsRateLimit()`. Re-exports `@vite-hub/docs/assistant`. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
+| `vite-hub/auth/mcp` | OAuth sign-in, discovery, request verification, and unused-client cleanup for an app's MCP server. Requires `@better-auth/oauth-provider`. |
 | `vite-hub/auth/database` | `authDatabase()` connects Better Auth to an app Database and contributes its tables for migration generation. |
 | `vite-hub/auth/schema` | `authSqliteSchema` and `authPostgresSchema`, the Better Auth tables for SQLite and Postgres. |
 | `vite-hub/auth/runtime/server` | Lightweight Auth resolver registration and lazy access middleware, without loading Better Auth. |
@@ -148,6 +150,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
 | `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, history contracts, runtime facades, registry APIs, and the `workspaceFile()` Collection source. |
+| `vite-hub/workspace/files` | `useWorkspaceFiles()` for file and history access without constructing Agent tools. |
 | `vite-hub/workspace/cloudflare` | Cloudflare Workspace runtime setup. |
 | `vite-hub/workspace/blob-database` | Content-addressed Workspace history Store and Database schema. Requires `drizzle-orm`. |
 | `vite-hub/workspace/loader` and `vite-hub/workspace/server` | Workspace loader and manual server extension APIs. |
@@ -182,6 +185,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/agent/vue` | Agent Package | Vue Agent client handle and AI SDK chat composable. |
 | `@vite-hub/auth` | Auth Package | Auth Definition helpers. |
 | `@vite-hub/auth/server` | Auth Package | Better Auth runtime creation, request handlers, and session access for manual host integration. |
+| `@vite-hub/auth/mcp` | Auth Package | MCP OAuth helpers for manual hosts, with the optional `@better-auth/oauth-provider` peer. |
 | `@vite-hub/auth/runtime/server` | Auth Package | Lightweight Auth resolver registration and lazy access middleware for framework integrations. |
 | `@vite-hub/blob` | Blob Package | Blob Runtime Helpers, Blob Store access, and Blob reference schemas. |
 | `@vite-hub/blob/client` | Blob Package | Framework-neutral browser upload helpers. |
@@ -253,6 +257,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/source` | Source Package | Source Definitions, loaders, and registry APIs. |
 | `@vite-hub/workflow/runtime/openworkflow-worker` | Workflow Package | OpenWorkflow-specific worker lifecycle helpers; install `openworkflow` explicitly. |
 | `@vite-hub/workspace` | Workspace Package | Workspace Definition, Source helpers, history contracts, Workspace facade access, and authoring types. |
+| `@vite-hub/workspace/files` | Workspace Package | `useWorkspaceFiles()` for file and history access without constructing Agent tools. |
 | `@vite-hub/workspace/runtime` | Workspace Package | Workspace runtime registry, `useWorkspace()`, and source resolution/request helpers for integrations. |
 
 ## Integration imports

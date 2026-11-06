@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto"
 import { array, defineCollection } from "@vite-hub/source"
 import { ViteHubError } from "@vite-hub/runtime"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isWorkspaceConflict, registerWorkspacePlugin, resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace"
+import { isWorkspaceConflict, registerWorkspacePlugin, resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace/files"
 
 import {
   comarkJsonSchema,
@@ -30,7 +30,7 @@ import { contentLeaseHeld, createContentSessions } from "./sessions.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 import type { ArrayCollectionQuery, Collection, CollectionFacets } from "@vite-hub/source"
-import type { WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceRevisionView, WorkspaceWriteInput } from "@vite-hub/workspace"
+import type { WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceRevisionView, WorkspaceWriteInput } from "@vite-hub/workspace/files"
 import type { JsonSchema, Source as ComarkContentSource } from "comark-content"
 import type {
   CompiledDocumentsPath,

@@ -3,7 +3,7 @@ const mocks = vi.hoisted(() => ({ inspector: vi.fn(), get: vi.fn(), definition: 
 vi.mock("@vite-hub/agent/server", () => ({ agentHostWorkspaceRoute: "/api/_vitehub/console/invocations/:id/workspace", getAgentHostWorkspaceInspector: mocks.inspector }))
 vi.mock("../src/console/runtime/server/invocations.ts", () => ({ getConsoleInvocations: () => ({ get: mocks.get }) }))
 vi.mock("../src/console/runtime/server/agents.ts", () => ({ getConsoleAgentDefinition: mocks.definition }))
-vi.mock("@vite-hub/workspace/runtime", () => ({ useWorkspaceFiles: mocks.useWorkspaceFiles }))
+vi.mock("@vite-hub/workspace/files", () => ({ useWorkspaceFiles: mocks.useWorkspaceFiles }))
 import handlerRoute from "../src/console/runtime/server/invocation-workspace.get.ts"
 import { allowed } from "./support/console-access.ts"
 const handler = allowed(handlerRoute)

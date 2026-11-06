@@ -16,7 +16,8 @@ async function buildIndex(): Promise<DocsSearchSection[]> {
     const document = await loadDocsDocument(page.file, false)
     if (document === null) continue
     const { nodes } = document
-    sections.push(...docsSearchSections(page.path, page.sourceTitle, nodes))
+    const [entry, ...headings] = docsSearchSections(page.path, page.sourceTitle, nodes)
+    sections.push(page.keywords.length ? { ...entry!, keywords: page.keywords } : entry!, ...headings)
   }
   return sections
 }

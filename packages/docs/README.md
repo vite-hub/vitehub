@@ -54,6 +54,9 @@ The module reads the folder at build time. In development it watches the folder:
 | --- | --- | --- |
 | `title` | Required | Page heading and browser title. |
 | `description` | None | Text under the heading, the meta description, and the llms.txt entry. |
+| `tagline` | `description` | Text under the heading, when it must differ from the meta description. |
+| `credits` | None | Inline Markdown at the end of the page, such as `Icons from [Lucide](https://lucide.dev).` |
+| `keywords` | None | Words that find the page in search besides its own text: a list, or one string with commas. They rank below the page title and with headings. |
 | `icon` | `i-lucide-file-text` | Sidebar icon, as an Iconify name. |
 | `layout` | `article` | `article`, `tutorial`, `landing`, or `home`. |
 | `sidebar` | `true` | `false` hides the left navigation on this page. |
@@ -118,7 +121,7 @@ Most changes are options in `nuxt.config.ts`:
 | `icons` | Lucide fallbacks | Icon maps of the rail and the sidebar. |
 | `sitemap` | `[]` | More paths for `/sitemap.xml`. Every docs page is listed already. |
 | `mcp` | On | `{ name, guide }`, or `false` to turn off the MCP server. |
-| `linkChecker` | On | `false` turns off `nuxt-link-checker`, which fails the build on detected link errors in prerendered pages. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. Set the app's own `linkChecker` options to change it. |
+| `linkChecker` | On | `false` turns off `nuxt-link-checker`, which fails the build on detected link errors in prerendered pages. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build checks that the rule leads to a docs page instead. Set the app's own `linkChecker` options to change it. |
 | `ogImage` | On | Share images. `{ component }` renders the app's own template from `components/OgImage/`, or `false` turns them off. See [Search and share](#search-and-share). |
 | `assistant` | `false` | `true`, or `{ agent }`. See [Docs assistant](#docs-assistant). |
 | `comments` | On with `vite-hub/nuxt` | `false` turns Comments off, or `{ database, dialect, overlay }`. See [Comments](#comments). |
@@ -176,6 +179,8 @@ Every page has a Markdown copy for coding agents. You get these routes with no s
 | `/sitemap.md`, `/sitemap.xml` | Every page, for agents and for search engines. |
 | `/mcp` | An MCP server with the `list-pages` and `get-page` tools. |
 | `/.well-known/skills/<name>/SKILL.md` | Agent Skills from the `skills/` folder of the app, when it has one. |
+
+Product landing components become plain Markdown, with the hero tagline, hosts, channels, linked feature titles, and descriptions. Component syntax inside code examples stays literal.
 
 `::agent-only` content shows only to agents. The site renders nothing for it, and search skips it. Use `rawMarkdown` to expand your own components into plain Markdown in the agent copy. Each page header links to its Markdown copy and opens it in ChatGPT or Claude.
 
@@ -286,6 +291,7 @@ export const content = defineContent({
 | Error | When | Fix |
 | --- | --- | --- |
 | `DocsContentError` | A page frontmatter or a `.navigation.yml` file does not match the schema. The message names the file and the field. | Fix the field. The schema is `docsPageSchema` and `docsSectionSchema` from `@vite-hub/docs`. |
+| `DocsRedirectError` | A production build with the link checker on finds a redirect route rule into the docs that no page answers, or one that hides a docs page. | Point the rule to a page, or remove it. |
 | `DocsAssistantSetupError` | `assistant` is on, and `vite-hub/nuxt` with `agent: true` is missing. | Add `vite-hub/nuxt` with `agent: true` and `connections: true`, or turn `assistant` off. |
 
 ## Inspect

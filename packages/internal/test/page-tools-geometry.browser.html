@@ -17,7 +17,8 @@
   const originalFetch = window.fetch
   const dockKey = "vitehub-tools-dock"
   const collapsedKey = "vitehub-tools-collapsed"
-  const saved = [localStorage.getItem(dockKey), localStorage.getItem(collapsedKey)]
+  const offKey = "vitehub-tools-off"
+  const saved = [dockKey, collapsedKey, offKey].map(key => localStorage.getItem(key))
   const insets = [
     { top: 60, right: 20, bottom: 30, left: 100 },
     { top: 0, right: 0, bottom: 0, left: 0 },
@@ -29,9 +30,71 @@
   let exit
   let toolWindow
   let cases = 0
+  const stop = () => {
+    exit?.()
+    document.querySelector("vitehub-tools-off")?.remove()
+    localStorage.removeItem(offKey)
+  }
   try {
+    localStorage.removeItem(offKey)
     // Only the session request is mocked: the actual loader, pill, window and styles render together.
     window.fetch = async () => Response.json({ tools: [{ id: "content", label: "Content", script: "/content.js" }] })
+    // A tab can be wider or taller than its toolbar. Its controls must stay reachable at both ends of every edge,
+    // including when its content needs to scroll in a small viewport or beside an asymmetric safe area.
+    for (const safe of insets) for (const edge of ["top", "right", "bottom", "left"]) for (const at of [0, 50, 100]) {
+      localStorage.removeItem(collapsedKey)
+      localStorage.setItem(dockKey, JSON.stringify({ edge, at }))
+      document.cookie = "vitehub-tools=1; Path=/"
+      let tab
+      await loadViteHubPageTools({ load: async () => ({ default(context) {
+        exit = context.exit
+        context.bar.append(Object.assign(document.createElement("button"), { textContent: "Content" }))
+        tab = context.createTab()
+        tab.attachShadow({ mode: "open" }).innerHTML = `<style>
+          .controls{display:flex;justify-content:space-between;width:360px;height:180px}
+          button{flex:none;width:100px;height:28px;white-space:nowrap}
+          button:last-child{align-self:flex-end}
+        </style><section class="controls"><button>Draft</button><button>2 changes</button><button>Back to live</button></section>`
+      } }) })
+      const pill = document.querySelector("vitehub-pill")
+      pill.style.transition = "none"
+      for (const [side, value] of Object.entries(safe)) pill.style.setProperty(`--safe-${side}`, `${value}px`)
+      for (const animation of tab.getAnimations()) animation.finish()
+      const tabs = pill.shadowRoot.querySelector(".tabs")
+      const controls = tab.shadowRoot.querySelector(".controls")
+      for (const oversized of [false, true]) {
+        if (oversized) Object.assign(controls.style, { width: "1800px", height: "1200px" })
+        await new Promise(requestAnimationFrame)
+        const label = `${edge} ${at}% oversized=${oversized} safe=${JSON.stringify(safe)}`
+        const box = tabs.getBoundingClientRect()
+        assert(box.left >= Math.max(16, safe.left) - 1 && box.right <= innerWidth - Math.max(16, safe.right) + 1, `${label}: tab horizontal safe bounds (${box.left}, ${box.right})`)
+        assert(box.top >= Math.max(16, safe.top) - 1 && box.bottom <= innerHeight - Math.max(16, safe.bottom) + 1, `${label}: tab vertical safe bounds (${box.top}, ${box.bottom})`)
+        for (const button of tab.shadowRoot.querySelectorAll("button")) {
+          button.scrollIntoView({ block: "nearest", inline: "nearest" })
+          const control = button.getBoundingClientRect()
+          assert(control.left >= box.left - 1 && control.right <= box.right + 1 && control.top >= box.top - 1 && control.bottom <= box.bottom + 1, `${label}: ${button.textContent} is reachable`)
+        }
+      }
+      // Along the edge the tab takes the bar's place: its point at `at` percent meets the bar's point at `at` percent.
+      Object.assign(controls.style, { width: "", height: "", flexDirection: "var(--vitehub-pill-flow, row)" })
+      await new Promise(requestAnimationFrame)
+      const bar = pill.shadowRoot.querySelector("div").getBoundingClientRect()
+      const box = tabs.getBoundingClientRect()
+      const side = edge === "left" || edge === "right"
+      const barPoint = side ? bar.top + bar.height * at / 100 : bar.left + bar.width * at / 100
+      const tabPoint = side ? box.top + box.height * at / 100 : box.left + box.width * at / 100
+      assert(Math.abs(barPoint - tabPoint) < 1, `${edge} ${at}% safe=${JSON.stringify(safe)}: bar ${barPoint}, tab ${tabPoint}`)
+      const gap = edge === "top" ? box.top - bar.bottom : edge === "bottom" ? bar.top - box.bottom : edge === "left" ? box.left - bar.right : bar.left - box.right
+      assert(Math.abs(gap) < 1, `${edge} ${at}%: the tab touches the bar, gap ${gap}`)
+      const mark = pill.shadowRoot.querySelector("button.mark")
+      for (const collapsed of [true, false]) {
+        mark.click()
+        for (const animation of pill.getAnimations({ subtree: true })) animation.finish()
+        assert((getComputedStyle(tabs).visibility === "hidden") === collapsed, `${edge} ${at}%: the tab and its scrollbars hide with the pill`)
+      }
+      cases++
+      stop()
+    }
     for (const { safe, collapsed, edge, at } of scenarios) {
       result.textContent = `Running… ${cases}/${scenarios.length}: ${edge} ${at}%, collapsed=${collapsed}`
       if (collapsed) localStorage.setItem(collapsedKey, "1")
@@ -88,7 +151,7 @@
       bounds("expanded")
       cases++
       toolWindow.destroy()
-      exit()
+      stop()
     }
     // The mark only translates to the hexagon, so the bar keeps its size and the resize glide never cancels the morph.
     for (const edge of ["top", "right", "bottom", "left"]) {
@@ -118,17 +181,17 @@
         }
       }
       cases++
-      exit()
+      stop()
     }
-    result.textContent = `PASS: ${cases} dock states align at default and oversized window sizes, with zero, low and asymmetric safe areas; expanded windows stay within safe bounds; the hexagon morph keeps the bar size on every edge`
+    result.textContent = `PASS: ${cases} dock states keep tabs reachable and windows aligned at default and oversized sizes, with zero, low and asymmetric safe areas; expanded windows stay within safe bounds; the hexagon morph keeps the bar size on every edge`
   } catch (error) {
     result.textContent = `FAIL: ${error.stack}`
     throw error
   } finally {
     toolWindow?.destroy()
-    exit?.()
+    stop()
     window.fetch = originalFetch
-    for (const [index, key] of [dockKey, collapsedKey].entries()) {
+    for (const [index, key] of [dockKey, collapsedKey, offKey].entries()) {
       if (saved[index] === null) localStorage.removeItem(key)
       else localStorage.setItem(key, saved[index])
     }

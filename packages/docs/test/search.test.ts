@@ -74,6 +74,19 @@ describe("docs search on the vitehub.dev content", () => {
     expect(ids("sched")[0]).toBe("/docs/schedule")
   })
 
+  it("finds a page by its keywords, after the pages that have the word in their title", () => {
+    const records: DocsSearchSection[] = [
+      { id: "/annotate", title: "Annotate", titles: [], level: 1, content: "Marks on screenshots.", keywords: ["image annotation", "PR evidence"] },
+      { id: "/evidence", title: "Evidence", titles: [], level: 1, content: "" },
+      { id: "/guide#pr", title: "Open a PR", titles: ["Guide"], level: 2, content: "Write the evidence." },
+    ]
+    const local = createDocsSearch(records)
+    expect(local("annotation", 5).map(record => record.id)).toEqual(["/annotate"])
+    // A typo in a keyword still finds it, like a typo in a title.
+    expect(local("evidnce", 5).map(record => record.id)).toEqual(["/evidence", "/annotate"])
+    expect(local("pr evidence", 5).map(record => record.id)[0]).toBe("/annotate")
+  })
+
   it("needs every word and returns nothing for an unknown word", () => {
     expect(ids("kv zzqqxxnotaword")).toEqual([])
     expect(ids("")).toEqual([])

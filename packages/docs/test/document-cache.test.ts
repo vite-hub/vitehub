@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 import { H3 } from "h3"
-import { beforeEach, expect, it, vi } from "vitest"
+import { beforeEach, expect, it, onTestFinished, vi } from "vitest"
 
 const { getItem, parsed } = vi.hoisted(() => ({ getItem: vi.fn(), parsed: vi.fn() }))
 vi.mock("#imports", async () => ({
@@ -79,4 +79,39 @@ it("keeps the compact search index without retaining every document tree", async
   )
   expect(response.status).toBe(200)
   expect(getItem).toHaveBeenCalledTimes(reads + 1)
+})
+
+it("returns parsed credits beside a cached page document", async () => {
+  const { default: manifest } = await import("#docs/manifest")
+  const { findDocsPage } = await import("../src/navigation.ts")
+  const page = findDocsPage(manifest, "/docs/kv")!.page
+  const credits = page.credits
+  onTestFinished(() => { page.credits = credits })
+  page.credits = "Built with [Comark](https://comark.dev)."
+  const server = await app()
+  for (let i = 0; i < 2; i++) {
+    const response = await server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      credits: { nodes: [["p", {}, "Built with ", ["a", { href: "https://comark.dev" }, "Comark"], "."]] },
+    })
+  }
+  expect(getItem).toHaveBeenCalledTimes(1)
+})
+
+it("keeps page keywords in the cached search index", async () => {
+  const { default: manifest } = await import("#docs/manifest")
+  const { findDocsPage } = await import("../src/navigation.ts")
+  const page = findDocsPage(manifest, "/docs/kv")!.page
+  const keywords = page.keywords
+  onTestFinished(() => { page.keywords = keywords })
+  page.keywords = ["key value", "TTL"]
+  const server = await app()
+  for (let i = 0; i < 2; i++) {
+    const response = await server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toContainEqual(expect.objectContaining({
+      id: "/docs/kv", keywords: ["key value", "TTL"],
+    }))
+  }
 })

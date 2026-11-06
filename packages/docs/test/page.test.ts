@@ -1,6 +1,27 @@
 import { describe, expect, it } from "vitest"
 
-import { coversDocsPages } from "../src/page.ts"
+import { coversDocsPages, docsPageOf } from "../src/page.ts"
+
+describe("docsPageOf", () => {
+  const at = { id: "annotate", path: "/docs/annotate", file: "docs/annotate.md" }
+
+  it("shows the tagline under the heading, else the description", () => {
+    expect(docsPageOf({ title: "Annotate", description: "Marks on screenshots.", tagline: "Marks, notes, and arrows." }, at)).toMatchObject({ description: "Marks on screenshots.", tagline: "Marks, notes, and arrows." })
+    expect(docsPageOf({ title: "Annotate", description: "Marks on screenshots." }, at).tagline).toBe("Marks on screenshots.")
+    expect(docsPageOf({ title: "Annotate" }, at).tagline).toBeNull()
+  })
+
+  it("reads keywords as a list or as one string with commas", () => {
+    expect(docsPageOf({ title: "Annotate", keywords: "image annotation, markup ,, PR evidence" }, at).keywords).toEqual(["image annotation", "markup", "PR evidence"])
+    expect(docsPageOf({ title: "Annotate", keywords: ["markup", " circle "] }, at).keywords).toEqual(["markup", "circle"])
+    expect(docsPageOf({ title: "Annotate" }, at).keywords).toEqual([])
+  })
+
+  it("keeps credits as Markdown, and none when blank", () => {
+    expect(docsPageOf({ title: "Icon", credits: "Icons from [Lucide](https://lucide.dev)." }, at).credits).toBe("Icons from [Lucide](https://lucide.dev).")
+    expect(docsPageOf({ title: "Icon", credits: "  " }, at).credits).toBeNull()
+  })
+})
 
 const pages = ["/", "/docs", "/docs/kv", "/docs/kv/get-started"]
 

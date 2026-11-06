@@ -52,6 +52,7 @@ export function pageTools(options: { open?: boolean } = {}) {
     onOpen: vi.fn(),
     beforeExit: vi.fn(),
     openTool: vi.fn(async () => false),
+    createTab: vi.fn(() => document.createElement("vitehub-tab")),
     createWindow: vi.fn(() => {
       windowBody = document.createElement("div")
       document.body.append(windowBody)

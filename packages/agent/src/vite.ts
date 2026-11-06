@@ -20,6 +20,7 @@ import { getHostingProvider } from "@vite-hub/internal/hosting"
 import { wasmSqliteTraceDeps } from "@vite-hub/internal/runtime/sqlite-wasm"
 import { isWebContainer } from "@vite-hub/web-container/env"
 import { validateWorkspaceDevToken, workspaceDevTokenHeader, workspaceDevTokenServerId } from "@vite-hub/workspace/server"
+import { resolveModulePath } from "exsolve"
 
 import {
   agentInvocationsDevGuard,
@@ -291,22 +292,27 @@ function configuredGeneratedAgentRuntimeCapabilities(
   })
 }
 
-async function resolveGeneratedAgentRuntimeCapabilities(
-  config: Pick<ResolvedConfig, "plugins" | "root"> & Partial<Pick<ResolvedConfig, "createResolver">>,
+/**
+ * Whether the generated ESM module at `importer` can import `specifier`. This uses Node resolution, not
+ * `config.createResolver()`: `configResolved` runs before Vite creates its environments, and plugins
+ * such as vite-plugin-inspect (Nuxt DevTools) wrap that resolver and throw without an environment.
+ */
+function canImportFrom(importer: string, specifier: string, aliases: ResolvedConfig["resolve"]["alias"], conditions: string[]): boolean {
+  // Keep explicit aliases eligible: Vite may resolve a source file or virtual module that Node cannot.
+  // In particular, customResolver hooks must wait until Vite loads the generated route.
+  if (aliases.some(({ find }) => typeof find === "string" ? specifier === find || specifier.startsWith(`${find}/`) : find.test(specifier))) return true
+  return resolveModulePath(specifier, { cache: false, conditions, from: pathToFileURL(importer), try: true }) !== undefined
+}
+
+function resolveGeneratedAgentRuntimeCapabilities(
+  config: Pick<ResolvedConfig, "plugins" | "root"> & { isProduction?: boolean; resolve?: Pick<ResolvedConfig["resolve"], "alias" | "conditions"> },
   packageImports: Record<string, false | string> = {},
-): Promise<GeneratedAgentRuntimeCapability[]> {
+): GeneratedAgentRuntimeCapability[] {
   const candidates = configuredGeneratedAgentRuntimeCapabilities(config.plugins || [], packageImports, viteHubProjectRoot(config))
-  const resolveImport = config.createResolver?.()
-  if (!resolveImport) return candidates
   const importer = join(resolveViteHubGeneratedRoot(config), "agent", "runtime-capabilities.js")
-  const resolved = await Promise.all(candidates.map(async (capability) => {
-    const importName = capability.packageName
-    if (importName === false) return { ...capability, packageName: importName }
-    return await resolveImport(importName, importer)
-      ? { ...capability, packageName: importName }
-      : undefined
-  }))
-  return resolved.filter((capability): capability is GeneratedAgentRuntimeCapability => capability !== undefined)
+  const aliases = config.resolve?.alias ?? []
+  const conditions = ["import", ...(config.resolve?.conditions ?? ["node"])].map(condition => condition === "development|production" ? config.isProduction ? "production" : "development" : condition)
+  return candidates.filter(capability => capability.packageName === false || canImportFrom(importer, capability.packageName, aliases, conditions))
 }
 
 function generatedAgentRuntimeCapabilityAlias(capability: GeneratedAgentRuntimeCapability): string {
@@ -438,9 +444,29 @@ function transformGeneratedAgentWorkflowRegistry(
           "",
         ]
       : []
-  if (!capabilityLoaders.imports.length && !stateImports.length) return code
-  const preamble = [...capabilityLoaders.imports, ...stateImports, "", ...capabilityLoaders.setup, ...stateSetup, ""].join("\n")
-  return code.startsWith(preamble) ? code : preamble + code
+  // Nuxt writes this registry from its Nitro config hook before Vite resolves the host preset,
+  // and the Vite transform runs again on that file. The latest call owns the setup block.
+  const registry = stripGeneratedAgentWorkflowRegistrySetup(code)
+  if (!capabilityLoaders.imports.length && !stateImports.length) return registry
+  return [
+    generatedAgentWorkflowRegistrySetupStart,
+    ...capabilityLoaders.imports,
+    ...stateImports,
+    "",
+    ...capabilityLoaders.setup,
+    ...stateSetup,
+    generatedAgentWorkflowRegistrySetupEnd,
+    registry,
+  ].join("\n")
+}
+
+const generatedAgentWorkflowRegistrySetupStart = "// @vite-hub/agent workflow registry setup start"
+const generatedAgentWorkflowRegistrySetupEnd = "// @vite-hub/agent workflow registry setup end"
+
+function stripGeneratedAgentWorkflowRegistrySetup(code: string): string {
+  if (!code.startsWith(`${generatedAgentWorkflowRegistrySetupStart}\n`)) return code
+  const end = code.indexOf(`\n${generatedAgentWorkflowRegistrySetupEnd}\n`)
+  return end === -1 ? code : code.slice(end + generatedAgentWorkflowRegistrySetupEnd.length + 2)
 }
 
 function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
@@ -2071,7 +2097,7 @@ async function generateAgentWebhookRouteHandler(
     ...routeCapabilities.imports,
     // Nitro 2, which Nuxt 4 runs, passes H3 1 events to these routes. toEventRequest reads both H3 1 and H3 2 events.
     `import { toEventRequest } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
-    "import { createError, defineEventHandler, getRouterParam, type H3Event } from 'h3'",
+    `import { createError, defineEventHandler, getRouterParam, type H3Event } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
@@ -2445,8 +2471,8 @@ async function writeAgentWebhookRouteHandler(
       "}",
       "",
     ].join("\n"))
-    await writeFileIfChanged(processHostFiles[2]!, `import { defineEventHandler } from "h3"\nimport { host } from "./process-hosts"\n\nexport default defineEventHandler(() => ({ status: host.status() }))\n`)
-    await writeFileIfChanged(processHostFiles[3]!, `import { defineEventHandler } from "h3"\nimport { host } from "./process-hosts"\n\nexport default defineEventHandler(() => host.health())\n`)
+    await writeFileIfChanged(processHostFiles[2]!, `import { defineEventHandler } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}\nimport { host } from "./process-hosts"\n\nexport default defineEventHandler(() => ({ status: host.status() }))\n`)
+    await writeFileIfChanged(processHostFiles[3]!, `import { defineEventHandler } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}\nimport { host } from "./process-hosts"\n\nexport default defineEventHandler(() => host.health())\n`)
   }
   else {
     await Promise.all(processHostFiles.map(file => rm(file, { force: true })))
@@ -2566,7 +2592,7 @@ async function generateAgentDiscordGatewayRouteHandler(
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
-    "import { createError, defineEventHandler, getRouterParam, type H3Event } from 'h3'",
+    `import { createError, defineEventHandler, getRouterParam, type H3Event } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     "",
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
@@ -3564,7 +3590,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       buildConfigs.set(config, build)
       const generatedRoot = resolveViteHubGeneratedRoot(config)
       await prepareSourceDefinitions(config, viteHubProjectRoot(config), serverDirs)
-      runtimeCapabilities = await resolveGeneratedAgentRuntimeCapabilities(
+      runtimeCapabilities = resolveGeneratedAgentRuntimeCapabilities(
         config,
         getInternalAgentOptions(agent)?.runtimeCapabilityImports ?? frameworkOptions?.runtimeCapabilityImports,
       )

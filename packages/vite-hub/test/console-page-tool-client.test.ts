@@ -221,7 +221,7 @@ it("offers the draft of the open page and posts its preview form to the same pag
   const view = viewDraft()
   await vi.waitFor(() => expect(view.hidden).toBe(false))
   expect(view.textContent).toBe("View draft")
-  expect(document.querySelector("vitehub-draft-banner")).toBeNull()
+  expect(document.querySelector("vitehub-tab")).toBeNull()
   const resolveCall = fetch.mock.calls.find(([url]) => String(url).endsWith("/rpc/__call"))!
   expect(JSON.parse(String(resolveCall[1]!.body))).toEqual({ operation: "documents.action", input: { action: "resolve", body: { path: "/blog/hello" }, section: "content" } })
 
@@ -246,7 +246,7 @@ it.each(["", "/portal", "/portal/nested"])("resolves draft documents below the a
     body: JSON.stringify({ operation: "documents.action", input: { action: "resolve", body: { path }, section: "content" } }),
   }))
   try {
-    draftSwitch(base, shadow, controller.signal)
+    draftSwitch(base, shadow, () => document.createElement("vitehub-tab"), controller.signal)
     await vi.waitFor(() => expect(shadow.querySelector<HTMLButtonElement>("button.view-draft")!.hidden).toBe(false))
     resolved("/blog/hello")
 
@@ -325,7 +325,7 @@ it.each([false, true])("stops Content navigation tracking on exit with a later H
   }
 })
 
-it("shows the draft banner instead of View draft in the draft view, and removes it after leaving", async () => {
+it("shows the draft tab on the pill instead of View draft in the draft view, and removes it after leaving", async () => {
   history.replaceState(null, "", "/blog/hello?vitehub-content-preview&vitehub&tab=1")
   vi.stubGlobal("fetch", contentFetch({ resolve: { collection: "posts", id: "hello", state: "changed" } }))
   // The change marks load the live page in a hidden frame. The browser check covers that load.
@@ -333,9 +333,9 @@ it("shows the draft banner instead of View draft in the draft view, and removes 
   vi.spyOn(HTMLIFrameElement.prototype, "src", "set").mockImplementation((value: string) => { frames.push(value) })
   await loadViteHubPageTools({ load: async () => ({ default: start }) })
   expect(frames.map(value => new URL(value).search)).toEqual(["?vitehub=&tab=1&vitehub-content-published="])
-  const banner = document.querySelector("vitehub-draft-banner")!
-  expect(banner.shadowRoot!.textContent).toContain("Draft preview. Only you see this.")
-  expect([...banner.shadowRoot!.querySelectorAll("button")].map(button => button.textContent)).toContain("Back to live")
+  const tab = document.querySelector("vitehub-pill > vitehub-tab[slot=tab]")!
+  expect(tab.shadowRoot!.querySelector(".label")!.textContent).toBe("Draft")
+  expect([...tab.shadowRoot!.querySelectorAll("button")].map(button => button.textContent)).toEqual(["Finding changes…", "Back to live"])
   await new Promise(resolve => setTimeout(resolve, 0))
   expect(viewDraft().hidden).toBe(true)
   expect(isDraftView(location.search)).toBe(true)
@@ -343,7 +343,7 @@ it("shows the draft banner instead of View draft in the draft view, and removes 
 
   // A client-side link out of the draft view leaves the single document that the form granted.
   history.pushState(null, "", "/about")
-  await vi.waitFor(() => expect(document.querySelector("vitehub-draft-banner")).toBeNull())
+  await vi.waitFor(() => expect(document.querySelector("vitehub-tab")).toBeNull())
 })
 
 it("marks the draft blocks that the live page does not have", () => {

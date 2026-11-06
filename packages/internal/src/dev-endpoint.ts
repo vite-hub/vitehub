@@ -515,14 +515,17 @@ export interface ViteHubNitroDevHandlerSource {
   contextModules?: Readonly<Record<string, string>>
   /** Additional serialized string arguments passed after the request. */
   arguments?: readonly string[]
-  /** Named export of `module` that takes a Fetch `Request` and returns a `Response`. */
+  /**
+   * Named export of `module` that takes the Nitro event and returns a `Response`. Nitro 2 (Nuxt 4) passes an H3 1
+   * event, whose `req` is Node's request, so read the Fetch `Request` with `toEventRequest`.
+   */
   export: string
-  /** Module that the generated handler imports, for example `vite-hub/_internal/schedule/runtime/dev`. */
+  /** Module that exports the owner handler and `defineEventHandler`. */
   module: string
 }
 
 /**
- * Renders the source of a dev-only Nitro handler that passes the request to an owner package export. Add the file with
+ * Renders the source of a dev-only Nitro handler that passes the event to an owner package export. Add the file with
  * `addHandler` only in `serve` mode, so build output never contains it.
  */
 export function renderViteHubNitroDevHandler(source: ViteHubNitroDevHandlerSource): string {
@@ -534,11 +537,10 @@ export function renderViteHubNitroDevHandler(source: ViteHubNitroDevHandlerSourc
     ? `{ ...${JSON.stringify(source.context ?? {})}, ${contextModules.map(([field], index) => `${JSON.stringify(field)}: viteHubDevContext${index}`).join(", ")} }`
     : source.context ? JSON.stringify(source.context) : undefined
   return [
-    "import { defineEventHandler } from 'h3'",
-    `import { ${source.export} as handleViteHubDevRequest } from ${JSON.stringify(source.module)}`,
+    `import { defineEventHandler, ${source.export} as handleViteHubDevRequest } from ${JSON.stringify(source.module)}`,
     ...contextModules.map(([, module], index) => `import viteHubDevContext${index} from ${JSON.stringify(module)}`),
     "",
-    `export default defineEventHandler(event => handleViteHubDevRequest(${["event.req", ...(context ? [context] : []), ...(source.arguments ?? []).map(value => JSON.stringify(value))].join(", ")}))`,
+    `export default defineEventHandler(event => handleViteHubDevRequest(${["event", ...(context ? [context] : []), ...(source.arguments ?? []).map(value => JSON.stringify(value))].join(", ")}))`,
     "",
   ].join("\n")
 }

@@ -551,26 +551,9 @@ async function openWritable(sqlite: Sqlite, path: string): Promise<DatabaseSync>
   return db
 }
 
-function runInTransaction(db: DatabaseSync, work: () => number): number {
-  db.exec("BEGIN IMMEDIATE")
-  try {
-    const changes = work()
-    db.exec("COMMIT")
-    return changes
-  }
-  catch (error) {
-    try {
-      db.exec("ROLLBACK")
-    }
-    catch {}
-    throw error
-  }
-}
-
-/** Removes rows of the given threads from one Codex database. Returns the IDs whose rows are gone. */
 type DeletedRows = { table: string, columns: string[], rows: SQLOutputValue[][] }
 
-function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", threadIds: readonly string[], transactional = true): { done: string[], rows: number, backup: DeletedRows[] } {
+function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", threadIds: readonly string[]): { rows: number, backup: DeletedRows[] } {
   const statements: { sql: string, params: number }[] = []
   const backup: DeletedRows[] = []
   const json = JSON.stringify(threadIds)
@@ -596,7 +579,6 @@ function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", th
     backup.push({ table: "threads", columns: names, rows: rows.map(row => names.map(name => row[name])) })
     statements.push({ params: 1, sql: "DELETE FROM threads WHERE id IN (SELECT value FROM json_each(?))" })
   }
-  const done: string[] = []
   let rows = 0
   for (let index = 0; index < threadIds.length; index += threadDeleteBatch) {
     const batch = threadIds.slice(index, index + threadDeleteBatch)
@@ -605,10 +587,9 @@ function deleteThreadRows(db: DatabaseSync, kind: "state" | "thread_history", th
       const result = db.prepare(statement.sql).run(...Array.from({ length: statement.params }, () => json))
       return total + Number(result.changes)
     }, 0)
-    rows += transactional ? runInTransaction(db, work) : work()
-    done.push(...batch)
+    rows += work()
   }
-  return { done, rows, backup }
+  return { rows, backup }
 }
 
 function restoreDeletedRows(db: DatabaseSync, backups: readonly DeletedRows[]): void {
@@ -721,10 +702,9 @@ async function applyCodexHomeRetentionPlan(inventory: CodexHomeInventory, plan: 
     const backups: { db: DatabaseSync, rows: DeletedRows[] }[] = []
     try {
       for (const { database, db } of writable) {
-        const result = deleteThreadRows(db, database.kind as "state" | "thread_history", [...rowsRemoved], false)
+        const result = deleteThreadRows(db, database.kind as "state" | "thread_history", [...rowsRemoved])
         removed.threadRows += result.rows
         backups.push({ db, rows: result.backup })
-        rowsRemoved = new Set(result.done)
       }
       for (const { db } of writable) db.exec("COMMIT")
     }

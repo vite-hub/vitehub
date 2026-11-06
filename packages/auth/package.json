@@ -66,6 +66,11 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "import": "./dist/mcp.js",
+      "default": "./dist/mcp.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
@@ -146,6 +151,7 @@
     "@better-auth/oauth-provider": "catalog:auth"
   },
   "peerDependencies": {
+    "@better-auth/oauth-provider": "catalog:auth",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
     "@vite-hub/agent": "workspace:*",
@@ -154,6 +160,9 @@
     "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
+    "@better-auth/oauth-provider": {
+      "optional": true
+    },
     "@vite-hub/agent": {
       "optional": true
     },

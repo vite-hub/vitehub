@@ -1,8 +1,8 @@
 import { getViteHubErrorShape } from "@vite-hub/runtime"
-import { isWorkspaceConflict, resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace"
+import { isWorkspaceConflict, resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace/files"
 import { HTTPError } from "h3"
 
-import type { ReadonlyWorkspaceFiles, WorkspaceSnapshot, WritableWorkspaceFiles } from "@vite-hub/workspace"
+import type { ReadonlyWorkspaceFiles, WorkspaceSnapshot, WritableWorkspaceFiles } from "@vite-hub/workspace/files"
 import type { RealtimeDocumentAdapter } from "./types.ts"
 import { RealtimeDocumentConflict } from "./conflict.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"

@@ -1,6 +1,6 @@
 import { ViteHubError } from "@vite-hub/runtime"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace"
+import { resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace/files"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
