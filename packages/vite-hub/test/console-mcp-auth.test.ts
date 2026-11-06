@@ -259,15 +259,13 @@ describe("MCP sign-in against a real Better Auth", () => {
           state: "mcp-registration-test",
         })
         const authorization = await real(new Request(resource)).handler(new Request(`${context.baseURL}/oauth2/authorize?${query}`))
-        if (target !== resource) {
-          expect(authorization.status).toBe(400)
-          await expect(authorization.json()).resolves.toMatchObject({ error: "invalid_target" })
-          continue
-        }
         expect(authorization.status, await authorization.clone().text()).toBe(302)
         const redirect = new URL(authorization.headers.get("location") ?? "")
         expect(redirect.origin).toBe("http://localhost:53682")
-        expect(redirect.searchParams.get("error")).toBe("login_required")
+        expect(redirect.pathname).toBe("/callback")
+        expect(redirect.searchParams.get("state")).toBe("mcp-registration-test")
+        expect(redirect.searchParams.get("error")).toBe(target === resource ? "login_required" : "invalid_target")
+        expect(redirect.searchParams.has("code")).toBe(false)
       }
       // A web client keeps its type, and its https redirect.
       const web = await register({ client_name: "Web", redirect_uris: ["https://client.example.com/callback"], token_endpoint_auth_method: "none" })
