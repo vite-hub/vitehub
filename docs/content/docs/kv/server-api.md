@@ -124,7 +124,7 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 
 Every async method returns `[error, value]`. The type of `error.code` lists the codes that the method can return, and `error.why`, `error.fix`, and `error.docs` explain each failure. A provider failure has the code `KV_OPERATION_FAILED` and keeps the provider error in `cause`. Application code can log, retry, ignore, or translate the error without `try/catch`. Configuration errors, for example an unknown named store, throw. See [Limits and errors](/docs/kv/limits-and-errors) for each code.
 
-Keys are strings such as `users:alice` or `users/alice`, where `/` and `:` both separate segments. A key must have at least one segment and no `.` or `..` segment: `''`, `':'`, and `'a/../b'` return `KV_OPERATION_FAILED`.
+Keys are strings such as `users:alice` or `users/alice`, where `/` and `:` both separate segments. A key must have at least one segment and no `.` or `..` segment: `''`, `':'`, and `'a/../b'` return `KV_OPERATION_FAILED`. On Cloudflare KV, a key above 512 bytes in UTF-8 returns `KV_KEY_TOO_LONG`. See [Limits](/docs/kv/limits-and-errors#limits).
 
 ## Typed reads
 

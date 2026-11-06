@@ -74,8 +74,12 @@ export type KVErrorCode =
   | "KV_INVALID_CURSOR"
   | "KV_INVALID_LIMIT"
   | "KV_INVALID_TTL"
+  | "KV_KEY_TOO_LONG"
+  | "KV_METADATA_TOO_LARGE"
   | "KV_OPERATION_FAILED"
+  | "KV_TTL_TOO_SHORT"
   | "KV_UNSUPPORTED_OPERATION"
+  | "KV_VALUE_TOO_LARGE"
 
 export interface KVListOptions {
   /** Opaque continuation cursor returned by a previous page. */
@@ -115,22 +119,23 @@ export interface KVListPage {
  */
 export interface KVStorage {
   clear(base?: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
-  del(key: string, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
+  del(key: string, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /**
    * Reads a value or returns `null`. Without `options.type`, a string value is parsed as JSON, so `"123"` reads back as `123`.
    * `{ type: "text" }` returns the stored text, and `json`, `bytes`, `stream`, and `blob` convert it to that type.
    */
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
-  get<T = unknown, K extends KVGetType | undefined = undefined>(key: string, options?: KVGetOptions<K>): Promise<Result<KVValue<T, K> | null, "KV_OPERATION_FAILED">>
+  get<T = unknown, K extends KVGetType | undefined = undefined>(key: string, options?: KVGetOptions<K>): Promise<Result<KVValue<T, K> | null, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /** Atomically returns and deletes a value when the configured store supports it. `{ type: "text" }` returns the stored text. */
   // doctor-disable-next-line typescript/evidence/no-caller-chosen-result-type -- KV values are intentionally caller-typed until schema-aware reads are added.
   getAndDelete<T = unknown, K extends "text" | undefined = undefined>(key: string, options?: { type?: K }): Promise<Result<KVValue<T, K> | null, "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
-  has(key: string, options?: unknown): Promise<Result<boolean, "KV_OPERATION_FAILED">>
+  has(key: string, options?: unknown): Promise<Result<boolean, "KV_KEY_TOO_LONG" | "KV_OPERATION_FAILED">>
   /** Atomically increments a counter. The TTL is applied only when the counter is created. */
   increment(key: string, ttl: number): Promise<Result<number, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
   keys(base?: string, options?: unknown): Promise<Result<string[], "KV_OPERATION_FAILED">>
   list(options: KVListOptions): Promise<Result<KVListPage, "KV_INVALID_CURSOR" | "KV_INVALID_LIMIT" | "KV_OPERATION_FAILED">>
-  set<T = unknown>(key: string, value: T, options?: unknown): Promise<Result<void, "KV_OPERATION_FAILED">>
+  /** Cloudflare KV stores return `KV_KEY_TOO_LONG`, `KV_VALUE_TOO_LARGE`, `KV_METADATA_TOO_LARGE`, and `KV_TTL_TOO_SHORT` before a write that Cloudflare rejects. */
+  set<T = unknown>(key: string, value: T, options?: unknown): Promise<Result<void, "KV_KEY_TOO_LONG" | "KV_METADATA_TOO_LARGE" | "KV_OPERATION_FAILED" | "KV_TTL_TOO_SHORT" | "KV_VALUE_TOO_LARGE">>
   /**
    * Writes the value only when the key has no value, in one atomic step.
    * Returns `true` when this call wrote the value and `false` when the key already had one.

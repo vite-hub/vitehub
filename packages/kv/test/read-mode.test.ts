@@ -41,14 +41,16 @@ describe("kv.store(name, { mode: \"read\" })", () => {
     expect(Object.keys(reader).sort()).toEqual(["get", "has", "keys", "list"])
   })
 
-  it("rejects an unknown mode instead of returning a writable handle", () => {
+  it.each(["readonly", null])("rejects the invalid mode %j instead of returning a writable handle", (mode) => {
     // SAFETY: A JavaScript caller can pass a mode that the type rejects.
-    const options = { mode: "readonly" } as unknown as KVStoreOptions
+    const options = { mode } as unknown as KVStoreOptions
     expect(() => kv.store("default", options)).toThrow(expect.objectContaining({ code: "KV_INVALID_STORE_MODE" }))
   })
 
   it("keeps the writable handle by default", () => {
     expect(typeof kv.store("default").set).toBe("function")
+    expect(typeof kv.store("default", {}).set).toBe("function")
+    expect(typeof kv.store("default", { mode: undefined }).set).toBe("function")
     expect(typeof kv.store("default", { mode: "write" }).del).toBe("function")
   })
 })

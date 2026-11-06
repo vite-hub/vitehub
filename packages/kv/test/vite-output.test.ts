@@ -380,7 +380,7 @@ describe("KV Vite output", () => {
       `import { kv } from "@vite-hub/kv"`,
       `export const reader = kv.store("default", { mode: "read" })`,
       `export const writer = kv.store("default")`,
-      `export function badMode() { return kv.store("default", { mode: "readonly" }) }`,
+      `export function badMode(mode) { return kv.store("default", { mode }) }`,
       ``,
     ].join("\n"))
 
@@ -403,13 +403,15 @@ describe("KV Vite output", () => {
 
     // SAFETY: The fixture exports the generated KV runtime handles used by this regression.
     const worker = await import(pathToFileURL(join(rootDir, "dist", "worker.js")).href) as {
-      badMode: () => unknown
+      badMode: (mode: unknown) => unknown
       reader: object
       writer: object
     }
     expect(Object.keys(worker.reader).sort()).toEqual(["get", "has", "keys", "list"])
     expect("set" in worker.writer).toBe(true)
-    expect(() => worker.badMode()).toThrow(expect.objectContaining({ code: "KV_INVALID_STORE_MODE" }))
+    for (const mode of ["readonly", null]) {
+      expect(() => worker.badMode(mode)).toThrow(expect.objectContaining({ code: "KV_INVALID_STORE_MODE" }))
+    }
   })
 
   it("bundles generated config into the dev inspection runtime", async () => {
