@@ -64,8 +64,11 @@ export interface BlobPutOptions {
 export type BlobPutBody = string | ReadableStream<unknown> | ArrayBuffer | ArrayBufferView | Blob
 
 export type BlobOperation = "del" | "get" | "head" | "list" | "media" | "multipart" | "put" | "serve" | "sign" | "upload"
-/** `BLOB_CONFLICT` reports a media move onto an existing object or the removal of a non-empty folder. */
-export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED"
+/**
+ * `BLOB_CONFLICT` reports a media move onto an existing object or the removal of a non-empty folder.
+ * `BLOB_PATHNAME_TOO_LONG` reports a pathname above the host limit, such as 1024 bytes on Cloudflare R2.
+ */
+export type BlobErrorCode = "BLOB_CONFLICT" | "BLOB_NOT_FOUND" | "BLOB_OPERATION_FAILED" | "BLOB_PATHNAME_TOO_LONG"
 export type BlobErrorDetails = ViteHubErrorDetails & {
   operation: BlobOperation
   store: string

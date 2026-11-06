@@ -17,7 +17,7 @@ content/
   docs/
     index.md                /docs
     guide/
-      .navigation.yml       section title, icon, order, category
+      .navigation.yml       section title, icon, order, category, group
       index.md              /docs/guide
       install.md            /docs/guide/install
       deploy/
@@ -59,6 +59,32 @@ export default defineNuxtConfig({
 
 A section without a category, or with a category that `categories` does not list, shows in a last rail group and not in the catalog.
 
+### Groups
+
+A library with one section per package can have more sections than a rail can show. A group puts several sections in one rail item. The item opens the first section of the group, and the sidebar of every member lists all the sections of the group: each section is one row that opens its home page, and its other pages follow it. When the sections of a group have different categories, the sidebar shows each category as a heading.
+
+List the sections in `groups`, or set `group` in their `.navigation.yml`:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/docs/nuxt'],
+  docs: {
+    groups: [
+      { title: 'Components', icon: 'i-lucide-blocks', sections: ['tabs', 'steps', 'cards'] },
+    ],
+  },
+})
+```
+
+```yaml [content/docs/charts/.navigation.yml]
+title: Charts
+icon: i-lucide-chart-line
+category: Data blocks
+group: Components
+```
+
+The group takes the place of its first section in the rail, and its sections keep their `order`. A group without an `icon` shows the icon of its first section. A `group` that `groups` does not list is a group too, with that title. The sections of one group count as one item when the shell decides whether the site needs a rail.
+
 ### Pages in the sidebar
 
 `navigation.order` sorts the pages of a section after its Overview. `navigation.group` puts pages under a label. `navigation.title` is a shorter label than `title`. `navigation: false` keeps a page out of the sidebar; the page still renders at its URL.
@@ -71,6 +97,23 @@ navigation.group: Operate
 navigation.order: 4
 ---
 ```
+
+### Moved pages
+
+When a page moves, keep its old URL with a `redirect` route rule:
+
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['@vite-hub/docs/nuxt'],
+  routeRules: {
+    '/docs/guide/setup': { redirect: { to: '/docs/guide/install', statusCode: 301 } },
+  },
+})
+```
+
+The link checker passes links to the old URL. Instead, a production build checks the rule: it stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when the rule goes to a docs URL that no page answers, or when it starts at a page that still exists. Rules from other modules count too. A wildcard rule, such as `/docs/old/**`, is not checked this way.
+
+Rules added in a module's `nitro:config` hook are also validated, but keep the link checker's own redirect warnings.
 
 ### Taglines, credits, and keywords
 
