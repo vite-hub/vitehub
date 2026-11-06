@@ -24,7 +24,7 @@ import * as v from 'valibot'
 import { runQueue } from '@vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
-  const body = await readValidatedBody(event, v.object({ email: v.string() }))
+  const body = await readValidatedBody(event, v.parser(v.object({ email: v.string() })))
   const [error, result] = await runQueue('welcome-email', { email: body.email })
   if (error) {
     console.error(error.code, error.why, error.cause)
