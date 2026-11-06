@@ -502,6 +502,17 @@ describe("Manual Schedule runs", () => {
     expect(seen).toHaveLength(2)
   })
 
+  it("accepts a year-zero leap day and rejects invalid calendar days in early years", async () => {
+    const handler = vi.fn()
+    const registry = { close: async () => defineSchedule("0 0 1 * *", handler, { manual: true }) }
+    const run = await runSchedule("close", { registry, scheduledAt: "0000-02-29T00:00:00Z" })
+    expect(run.scheduledAt.toISOString()).toBe("0000-02-29T00:00:00.000Z")
+    for (const scheduledAt of ["0000-02-30T00:00:00Z", "0001-02-29T00:00:00Z", "0100-02-29T00:00:00Z"]) {
+      await expect(runSchedule("close", { registry, scheduledAt })).rejects.toMatchObject({ code: "SCHEDULE_INVALID_SCHEDULED_AT" })
+    }
+    expect(handler).toHaveBeenCalledOnce()
+  })
+
   it("creates distinct runs for concurrent manual invocations in one millisecond", async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date("2026-09-29T10:00:00.000Z"))

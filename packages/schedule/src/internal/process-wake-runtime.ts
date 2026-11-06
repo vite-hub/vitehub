@@ -16,7 +16,7 @@ export interface ProcessScheduleWake {
 }
 
 export interface ProcessWakeContext {
-  /** Scheduled time of the Schedule's newest run, or `undefined` when it has no run. The runtime uses it to catch up missed minutes. */
+  /** Scheduled time of the Schedule's newest cron-triggered run, or `undefined` when it has none. The runtime uses it to catch up missed minutes. */
   latestScheduledAt?(scheduleId: string): Promise<Date | undefined>
   reportError(error: unknown): void
   wake(input: ProcessScheduleWake): Promise<void>

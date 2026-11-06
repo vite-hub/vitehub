@@ -13,7 +13,7 @@ import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunStore }
 export interface ProcessScheduleRuntimeOptions {
   /**
    * How far back, in milliseconds, the runtime runs due minutes that it did not check, such as minutes during a
-   * restart. It only catches up a Schedule that already has a run. Defaults to one hour. `0` disables it.
+   * restart. It only catches up a Schedule that already has a cron-triggered run. Defaults to one hour. `0` disables it.
    */
   catchUpMs?: number
   /** Maximum number of Schedule runs at the same time. Defaults to `1`. */
@@ -25,7 +25,7 @@ export interface ProcessScheduleRuntimeOptions {
   onError?: (error: unknown) => void
   /** Static Schedule Definitions that this process runs on their cron. */
   registry: ScheduleDefinitionRegistry
-  /** Stores Schedule Runs. Catch-up after a restart reads the newest run of each Schedule from it. */
+  /** Stores Schedule Runs. Catch-up after a restart reads the newest cron-triggered run of each Schedule from it. */
   scheduleRunStore: ScheduleRunStore
 }
 
@@ -84,7 +84,7 @@ function createErrorReporter(onError: ProcessScheduleRuntimeOptions["onError"]):
 /**
  * Runs Static Schedule Definitions on their cron, in their `timeZone` (UTC by default), in this long-running process. It checks every minute, runs each
  * due minute once, and records each run in `scheduleRunStore`. After a restart it runs the minutes that no process
- * checked, within `catchUpMs`, for Schedules that already have a run. Call `close()` during host shutdown.
+ * checked, within `catchUpMs`, for Schedules that already have a cron-triggered run. Call `close()` during host shutdown.
  */
 export async function installProcessScheduleRuntime(options: ProcessScheduleRuntimeOptions): Promise<ScheduleRuntimeController> {
   const previousRegistry = getScheduleRuntimeRegistry()
@@ -109,8 +109,9 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
 
   const context: ProcessWakeContext = {
     async latestScheduledAt(scheduleId) {
-      const [run] = await options.scheduleRunStore.listRuns({ limit: 1, scheduleId })
-      return run?.scheduledAt
+      const runs = await options.scheduleRunStore.listRuns({ scheduleId })
+      // Manual runs can use simulated times and must not move the cron catch-up cursor.
+      return runs.find(run => run.id.startsWith("srun_static_"))?.scheduledAt
     },
     reportError,
     wake(input) {

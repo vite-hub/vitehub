@@ -19,7 +19,8 @@ function parseScheduledAtText(value: string): Date | undefined {
   const match = scheduledAtText.exec(value)
   if (!match) return
   const [, year, month, day, hour] = match.map(Number)
-  const calendarDay = new Date(Date.UTC(year!, month! - 1, day!))
+  const calendarDay = new Date(0)
+  calendarDay.setUTCFullYear(year!, month! - 1, day!)
   if (hour! > 23 || calendarDay.getUTCMonth() !== month! - 1 || calendarDay.getUTCDate() !== day!) return
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? undefined : date
