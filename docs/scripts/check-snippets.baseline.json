@@ -5,16 +5,6 @@
     "error": "TS2307 Cannot find module 'cloudflare:workers' or its corresponding type declarations."
   },
   {
-    "id": "docs/content/docs/channels/index.md#7f237ef8efd9",
-    "label": "server/utils/slack.ts",
-    "error": "TS18046 'env.slack' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/connections/index.md#b5254d8a047e",
-    "label": "server/connections/google.ts",
-    "error": "TS2571 Object is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/rate-limit/index.md#cb8cae0e5e63",
     "label": "server/api/messages.post.ts",
     "error": "TS2345 Argument of type 'AuthRequestInput' is not assignable to parameter of type 'RateLimitRequestEvent'."
