@@ -1,4 +1,5 @@
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { isH3V1Event } from "@vite-hub/internal/runtime/h3-v1-request"
 import { getStandardContext } from "@vite-hub/runtime/h3"
 import { createError } from "h3"
 
@@ -31,9 +32,34 @@ interface RateLimitRequestScope {
   standard?: ViteHubStandardProps
 }
 
-/** A request event carries `~standard`, an H3 2 `req`, or an H3 1 `node`. A Web `Request` has none of them. */
+function isObject(value: unknown): value is object {
+  return value !== null && typeof value === "object"
+}
+
+function isWebRequest(value: unknown): value is Request {
+  if (value instanceof Request) return true
+  if (!isObject(value)) return false
+  const headers: unknown = Reflect.get(value, "headers")
+  return typeof Reflect.get(value, "url") === "string"
+    && typeof Reflect.get(value, "method") === "string"
+    && isObject(headers)
+    && typeof Reflect.get(headers, "get") === "function"
+}
+
+/** Structural Requests may carry unrelated event-named properties, so identify the event's shape. */
 function isRequestEvent(input: RateLimitRequestEvent): input is ViteHubContext {
-  return "~standard" in input || "req" in input || "node" in input
+  if ("~standard" in input) {
+    const standard: unknown = input["~standard"]
+    return isObject(standard)
+      && typeof Reflect.get(standard, "vendor") === "string"
+      && isWebRequest(Reflect.get(standard, "req"))
+      && isObject(Reflect.get(standard, "res"))
+  }
+  // Match the H3 shapes that getStandardContext() can adapt when Nitro has not installed it yet.
+  if (Object.hasOwn(input, "req") && isWebRequest(Reflect.get(input, "req"))) {
+    return isObject(Reflect.get(input, "res"))
+  }
+  return isH3V1Event(input) && isObject(input.node.res)
 }
 
 function getRequestScope(input: RateLimitRequestEvent): RateLimitRequestScope {
