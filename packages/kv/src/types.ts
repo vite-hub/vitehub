@@ -142,5 +142,26 @@ export interface KVStorage {
    * Upstash, Deno KV, and `fs-lite` support it. Cloudflare KV is eventually consistent and returns `KV_UNSUPPORTED_OPERATION`.
    */
   setIfAbsent<T = unknown>(key: string, value: T, options?: KVSetIfAbsentOptions): Promise<Result<boolean, "KV_INVALID_TTL" | "KV_OPERATION_FAILED" | "KV_UNSUPPORTED_OPERATION">>
-  store(name: KVStoreName): KVStorage
+  /** Selects a named KV store. `{ mode: "read" }` returns a handle without write methods. */
+  store(name: KVStoreName, options?: { mode?: "write" }): KVStorage
+  store(name: KVStoreName, options: { mode: "read" }): ReadonlyKVStorage
+  store(name: KVStoreName, options?: KVStoreOptions): KVStorage | ReadonlyKVStorage
+}
+
+/** Options of `kv.store()`. */
+export interface KVStoreOptions {
+  /** `"read"` returns a handle without write methods. Defaults to `"write"`. */
+  mode?: "read" | "write"
+}
+
+/**
+ * KV handle from `kv.store(name, { mode: "read" })`, with only `get()`, `has()`, `keys()`, and `list()`.
+ * It limits this API, not the host: the KV binding or provider token keeps full access, so it is not a security
+ * boundary against code that reads the binding directly.
+ */
+export interface ReadonlyKVStorage {
+  get: KVStorage["get"]
+  has: KVStorage["has"]
+  keys: KVStorage["keys"]
+  list: KVStorage["list"]
 }
