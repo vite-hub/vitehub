@@ -148,7 +148,7 @@ Vercel deploys Vite and Nitro apps with [zero configuration](https://vercel.com/
 
 Some limits come from Vercel, and some come from the ViteHub driver. Read [Vercel Blob pricing and limits](https://vercel.com/docs/vercel-blob/usage-and-pricing) and [Vercel Functions limits](https://vercel.com/docs/functions/limitations#request-body-size).
 
-- A Vercel Function accepts a request body of at most 4.5 MB. `blob.handleUpload()` sends the file through your function, so keep `ensure.maxSize` under that limit. A larger request fails with `413`.
+- A Vercel Function accepts a request body of at most 4.5 MB. `blob.handleUpload()` sends the file through your function, so keep `ensure.maxSize` under that limit. A larger request fails with `413`, and `vite dev` for Vercel fails the same way. See [Blob limits](/docs/blob/limits-and-errors#limits).
 - The [multipart upload](/docs/blob/server-api#multipart-uploads) route also sends each part through your function. Vercel Blob needs parts of at least 5 MiB, except the last one. On Vercel, a file larger than 4.5 MB therefore cannot use this route either.
 - The `vercel-blob` driver does not sign requests, so `blob.sign()` throws `BLOB_R0025`. ViteHub does not wrap Vercel client uploads.
 - The driver rejects `customMetadata` with `BLOB_R0011`. [Media records](/docs/blob/media) still work, because ViteHub stores them as JSON objects in the same store.

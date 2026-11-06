@@ -124,3 +124,15 @@ A newer request cancels the older one through `signal`, and the older result nev
 ## Inspect
 
 `choices.inspect(text)` returns the state and the questions that `resolve()` would send. Nothing leaves your server.
+
+The `vitehub` CLI of `vite-hub` runs a definition by its file path. There is no registry.
+
+```sh
+pnpm vitehub decisions list                     # the exports of defineChoices() results, by file
+pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts except vak supply"
+pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts" --inspect   # no model call
+```
+
+`run` prints the selection as JSON. `--export <name>` picks one export of a file with several, and `--context <json>` passes the `context` of `options` functions. A Decision error prints `{ "error": { "code", "message" } }` and exits with status 1. The command reads gateway keys from the shell and the project `.env` files. It loads the file with Vite but not with the project config, so Nuxt aliases and auto-imports do not resolve.
+
+`createDecisionsCliNamespace()` from `@vite-hub/decisions/cli` returns the same commands for another CLI. It needs `vite`.

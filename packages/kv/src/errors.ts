@@ -31,6 +31,8 @@ export async function kvResult<TData, TCode extends KVErrorCode = never>(
 }
 
 // The generated Cloudflare KV runtime imports these helpers from the package build.
+export { kvStoreWithMode } from "./store-mode.ts"
+
 export function kvStoreNotFoundError(store: string): ResultError<"KV_STORE_NOT_FOUND"> {
   return kvErrorDiagnostics.KV_STORE_NOT_FOUND({ store })
 }
@@ -42,3 +44,9 @@ export function kvUnsupportedOperationError(operation: KVOperation, store: strin
 export function kvInvalidLimitError(): ResultError<"KV_INVALID_LIMIT"> {
   return kvErrorDiagnostics.KV_INVALID_LIMIT()
 }
+
+/** Codes that a Cloudflare KV store returns for a key above the host limit. */
+export const kvKeyLimitCodes: readonly ["KV_KEY_TOO_LONG"] = ["KV_KEY_TOO_LONG"]
+
+/** Codes that a Cloudflare KV store returns for a write above the host limits. */
+export const kvWriteLimitCodes: readonly ["KV_KEY_TOO_LONG", "KV_METADATA_TOO_LARGE", "KV_TTL_TOO_SHORT", "KV_VALUE_TOO_LARGE"] = ["KV_KEY_TOO_LONG", "KV_METADATA_TOO_LARGE", "KV_TTL_TOO_SHORT", "KV_VALUE_TOO_LARGE"]

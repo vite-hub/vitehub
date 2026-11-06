@@ -4,11 +4,12 @@ import { readEnv } from "@vite-hub/internal/env"
 import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 
 import { normalizeKVOptions } from "../config.ts"
-import { kvResult } from "../errors.ts"
+import { kvKeyLimitCodes, kvResult, kvWriteLimitCodes } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
-import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, ResolvedKVModuleOptions } from "../types.ts"
+import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
 import { createHostedKVStorage, type RuntimeStorage } from "./hosted-storage.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
+import { kvStoreWithMode } from "../store-mode.ts"
 
 const storagePromises = new Map<string, Promise<RuntimeStorage>>()
 let disposal: Promise<void> | undefined
@@ -98,15 +99,15 @@ async function runKVOperation<TResult, TCode extends KVErrorCode = never>(
 function createKVStorage(name = "default"): KVStorage {
   return {
     async clear(base, options) { return runKVOperation("clear", name, async storage => storage.clear(base, options)) },
-    async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options)) },
-    async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options)) },
+    async del(key, options) { return runKVOperation("del", name, async storage => storage.removeItem(key, options), kvKeyLimitCodes) },
+    async get(key, options) { return runKVOperation("get", name, storage => storage.getItem(key, options), kvKeyLimitCodes) },
     async getAndDelete(key, options) {
       return runKVOperation("getAndDelete", name, async (storage) => {
         if (!storage.getAndDeleteItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "getAndDelete", store: name })
         return storage.getAndDeleteItem(key, options)
       }, ["KV_UNSUPPORTED_OPERATION"])
     },
-    async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options)) },
+    async has(key, options) { return runKVOperation("has", name, storage => storage.hasItem(key, options), kvKeyLimitCodes) },
     async increment(key, ttl) {
       return runKVOperation("increment", name, async (storage) => {
         if (!storage.incrementItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "increment", store: name })
@@ -119,7 +120,7 @@ function createKVStorage(name = "default"): KVStorage {
       if (!Number.isInteger(options.limit) || options.limit <= 0) return [kvErrorDiagnostics.KV_INVALID_LIMIT(), undefined]
       return runKVOperation("list", name, storage => storage.listKeys(options), ["KV_INVALID_CURSOR"])
     },
-    async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options)) },
+    async set(key, value, options) { return runKVOperation("set", name, async storage => storage.setItem(key, value, options), kvWriteLimitCodes) },
     async setIfAbsent(key, value, options) {
       return runKVOperation("setIfAbsent", name, async (storage) => {
         if (!storage.setIfAbsentItem) throw kvErrorDiagnostics.KV_UNSUPPORTED_OPERATION({ operation: "setIfAbsent", store: name })
@@ -128,8 +129,15 @@ function createKVStorage(name = "default"): KVStorage {
         return storage.setIfAbsentItem(key, value, ttl)
       }, ["KV_INVALID_TTL", "KV_UNSUPPORTED_OPERATION"])
     },
-    store(storeName: KVStoreName) { return createKVStorage(storeName) },
+    store: selectKVStore,
   }
+}
+
+function selectKVStore(name: KVStoreName, options?: { mode?: "write" }): KVStorage
+function selectKVStore(name: KVStoreName, options: { mode: "read" }): ReadonlyKVStorage
+function selectKVStore(name: KVStoreName, options?: KVStoreOptions): KVStorage | ReadonlyKVStorage
+function selectKVStore(name: KVStoreName, options?: KVStoreOptions): KVStorage | ReadonlyKVStorage {
+  return kvStoreWithMode(createKVStorage(name), options)
 }
 
 export const kv: KVStorage = createKVStorage()

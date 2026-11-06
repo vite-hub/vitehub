@@ -1,3 +1,5 @@
+export { defineEventHandler } from "../server/internal.ts"
+
 import agentRegistry from "#vitehub/agent/registry"
 import { assertViteHubDevRequestGrant, validateViteHubNitroDevRequest } from "@vite-hub/internal/dev-endpoint"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"

@@ -10,6 +10,7 @@ import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } f
 // Generated provider runtime modules import the handlers from this entry.
 export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
+export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
 import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobResult, BlobServeEvent, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
@@ -17,6 +18,7 @@ import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { byteRangeBounds } from "./internal/byte-range.ts"
 import isBlob from "./internal/is-blob.ts"
 import { readDerivedHeader } from "./internal/derived-header.ts"
+import { withHostPathnameLimits } from "./internal/host-limits.ts"
 import { assertValidPathname } from "./internal/pathname.ts"
 import { createBlobMedia } from "./media/records.ts"
 import { resolveBlobImages } from "./media/transformers.ts"
@@ -226,7 +228,8 @@ export interface BlobStorageOptions {
   url?: (pathname: string) => string | undefined | Promise<string | undefined>
 }
 
-export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string = driver.name, options: BlobStorageOptions = {}): BlobStorage {
+export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: string = hostDriver.name, options: BlobStorageOptions = {}): BlobStorage {
+  const driver = withHostPathnameLimits(hostDriver)
   const pendingTransforms = new Map<string, Promise<Blob | undefined | false>>()
   async function clearDerived(pathname: string) {
     try {
