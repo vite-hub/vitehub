@@ -95,6 +95,10 @@ describe("docs Nuxt setup", () => {
     resolveApp(defaults)
     expect(defaults.mainComponent).toMatch(/runtime\/app\/app\.vue$/)
     expect(defaults.errorComponent).toMatch(/runtime\/app\/error\.vue$/)
+    const template = { mainComponent: "/node_modules/@nuxt/ui-templates/templates/dashboard/app.vue", errorComponent: "/app/error.vue" }
+    resolveApp(template)
+    expect(template.mainComponent).toMatch(/runtime\/app\/app\.vue$/)
+    expect(template.errorComponent).toBe("/app/error.vue")
     const own = { mainComponent: "/app/app.vue", errorComponent: "/app/error.vue" }
     resolveApp(own)
     expect(own).toEqual({ mainComponent: "/app/app.vue", errorComponent: "/app/error.vue" })

@@ -465,7 +465,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const welcome = resolve(nuxt.options.appDir, "components/welcome.vue")
     const nuxtErrorPage = resolve(nuxt.options.appDir, "components/nuxt-error-page.vue")
     nuxt.hook("app:resolve", (app) => {
-      if (!app.mainComponent || app.mainComponent === welcome) app.mainComponent = join(runtime, "app/app.vue")
+      if (!app.mainComponent || app.mainComponent === welcome || app.mainComponent.includes("@nuxt/ui-templates")) app.mainComponent = join(runtime, "app/app.vue")
       if (!app.errorComponent || app.errorComponent === nuxtErrorPage) app.errorComponent = join(runtime, "app/error.vue")
     })
 

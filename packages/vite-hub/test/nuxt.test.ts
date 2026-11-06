@@ -4800,7 +4800,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     else expect(nitroConfig.noExternals).toBe(noExternals)
   })
 
-  it("keeps Nuxt's Nitro 3 noExternals list and H3 2", async () => {
+  it.each([undefined, false, true])("keeps Nuxt's Nitro 3 externalization policy ($noExternals) and H3 2", async (incomingNoExternals) => {
     const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-nitro3-externals-"))
     const writePackage = async (directory: string, manifest: object) => {
       await mkdir(directory, { recursive: true })
@@ -4812,7 +4812,10 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       await writePackage(nuxtRoot, { name: "nuxt", dependencies: { "@nuxt/nitro-server": "5.0.0" } })
       await writePackage(builderRoot, { name: "@nuxt/nitro-server", dependencies: { nitro: "3.0.261102-rc" } })
       await writePackage(resolve(builderRoot, "node_modules/nitro"), { name: "nitro", version: "3.0.261102-rc" })
-      mocks.vitehub.mockReturnValue([])
+      mocks.vitehub.mockReturnValue(incomingNoExternals === undefined ? [] : [{
+        name: "consumer-nitro-inlining",
+        config: () => ({ nitro: { noExternals: ["plugin-package"] } }),
+      }])
       const { nuxt, runModulesDoneHook, runNitroConfigHook } = createNuxt()
       nuxt.options.rootDir = root
       nuxt.options.buildDir = resolve(root, ".nuxt")
@@ -4822,13 +4825,14 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       await writePackage(h3One, { name: "h3", version: "1.15.11" })
       await writeFile(resolve(h3One, "index.cjs"), "")
       const transpiled = /^\/app\/node_modules\/docs(?!.*node_modules)/
-      const nitroConfig: Record<string, unknown> = { noExternals: ["@nuxt/", transpiled], alias: { h3: resolve(h3One, "index.cjs"), kept: "/app/kept.ts" } }
+      const nitroConfig: Record<string, unknown> = { noExternals: incomingNoExternals ?? ["@nuxt/", transpiled], alias: { h3: resolve(h3One, "index.cjs"), kept: "/app/kept.ts" } }
 
       await viteHubNuxtModule({ console: false, preset: "node" }, nuxt)
       runModulesDoneHook()
       await runNitroConfigHook(nitroConfig)
 
-      expect(nitroConfig.noExternals).toEqual(expect.arrayContaining(["@nuxt/", transpiled, "vite-hub", "@vite-hub/"]))
+      if (incomingNoExternals === undefined) expect(nitroConfig.noExternals).toEqual(expect.arrayContaining(["@nuxt/", transpiled, "vite-hub", "@vite-hub/"]))
+      else expect(nitroConfig.noExternals).toBe(incomingNoExternals)
       expect(nitroConfig).not.toHaveProperty("externals")
       expect(nitroConfig.alias).not.toHaveProperty("h3")
       expect(nitroConfig.alias).toHaveProperty("kept", "/app/kept.ts")
