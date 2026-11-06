@@ -375,18 +375,38 @@ export default defineAgent({
 })
 ```
 
-The answers are the Invocation output, and their type comes from the questions. The standalone `runAgent` overload returns a tuple, so destructure it before reading the result:
+The answers are the Invocation output, and their type comes from the questions. The standalone `runAgent` overload returns a tuple, so destructure it before reading the result. The output can also be a streamed `Response` or a Workflow run, so check for the inline answers first:
 
-```ts
-const [error, answers] = await runAgent(labeller, { prompt: 'Invoice 42' })
-if (error) throw error
-answers.label.choice // 'invoice' | 'none'
-answers.urgent // boolean
+```ts [server/lib/label-invoice.ts]
+import { runAgent } from 'vite-hub/agent'
+import labeller from '../agents/labeller'
+
+export async function labelInvoice() {
+  const [error, answers] = await runAgent(labeller, { prompt: 'Invoice 42' })
+  if (error) throw error
+  if (answers instanceof Response || !('label' in answers)) throw new Error('Expected inline labeller output')
+  answers.label.choice // 'invoice' | 'none'
+  answers.urgent // boolean
+  return answers
+}
 ```
 
 No output schema or parsing is necessary.
 
-Jev reads the Invocation `data` when a caller sets it, else the prompt text, else the latest user message. Pass a function to build the questions for each Invocation. It receives the same context as `driver.run`:
+Jev reads the Invocation `data` when a caller sets it, else the prompt text, else the latest user message. Pass a function to build the questions for each Invocation. It receives the same context as `driver.run`. This one reads the labels from Server Env:
+
+```ts [vite.config.ts]
+import { env } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  env: {
+    server: {
+      labeller: { labels: env({ default: 'invoice,receipt,none' }) },
+    },
+  },
+})
+```
 
 ```ts [server/agents/labeller.ts]
 import { useServerEnv } from '#vitehub/env/server'

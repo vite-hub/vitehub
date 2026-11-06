@@ -261,14 +261,23 @@ Invocation journals are metadata-only by default. Set `content: 'content'` only 
 Use `redact` to rewrite or drop an observation before the store receives it. Use `redactError` to rewrite the error of a failed record:
 
 ```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { createDatabaseAgentInvocationStore } from 'vite-hub/agent/invocations/database'
+import { defineAgentInvocations } from 'vite-hub/agent/server'
+
 const invocations = defineAgentInvocations({
-  store,
+  store: createDatabaseAgentInvocationStore(),
   redact(observation) {
     if (observation.name === 'agent.tool.result') return undefined
     const { 'tool.input': _input, ...attributes } = observation.attributes ?? {}
     return { ...observation, attributes }
   },
   redactError: error => ({ message: error.message, name: error.name }),
+})
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  invocations,
 })
 ```
 

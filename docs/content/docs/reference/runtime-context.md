@@ -30,6 +30,19 @@ Keep reusable behavior in Definitions and task data in invocation input. Runtime
 Use `getRuntimeContext()` in application-owned H3 or Nuxt routes. Create a new
 context for each invocation:
 
+The route runs this Agent:
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: 'Answer support questions. Say when you need more information.',
+  },
+})
+```
+
 ```ts [server/api/support.post.ts]
 import { defineEventHandler, readValidatedBody } from 'h3'
 import { useRuntimeConfig } from 'nitro/runtime-config'

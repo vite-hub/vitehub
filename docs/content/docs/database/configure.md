@@ -237,9 +237,9 @@ export const historySchema = {
 
 A Nuxt module uses the same contribution. Add the plugin to `nuxt.options.vite.plugins` during module setup:
 
-```ts [my-module/module.ts]
+```ts [my-package/nuxt.ts]
 import { defineNuxtModule } from '@nuxt/kit'
-import { myPackage } from 'my-package/vite'
+import { myPackage } from './vite'
 
 export default defineNuxtModule({
   setup(_options, nuxt) {

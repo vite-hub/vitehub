@@ -138,7 +138,21 @@ Provider CLIs that start through `#!/usr/bin/env node` also run on the provision
 
 ## Add credentials and CLI state
 
-Keep secret values outside the repository. Resolve them into Sandbox `env`, Home files, or a first-use seed for writable state. The provider reads its credentials from the Sandbox Home, for example `.codex/auth.json`.
+Keep secret values outside the repository. Resolve them into Sandbox `env`, Home files, or a first-use seed for writable state. The provider reads its credentials from the Sandbox Home, for example `.codex/auth.json`. Declare the secrets in Server Env:
+
+```ts [vite.config.ts]
+import { env } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  env: {
+    server: {
+      githubToken: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+      codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+    },
+  },
+})
+```
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from '@vite-hub/agent'

@@ -88,15 +88,21 @@ Enforcement is a terminal check. It cannot undo a provider request that already 
 
 Read the result from a finish hook:
 
-```ts
-hooks: {
-  'agent:finish'(event) {
-    const budget = event.extensions.get('budget')
-    if (budget?.exceeded.length) {
-      console.log(budget.exceeded)
-    }
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: { model: 'gpt-5.6-sol' },
+  budget: { tokens: 40_000 },
+  hooks: {
+    'agent:finish'(event) {
+      const budget = event.extensions.get('budget')
+      if (budget?.exceeded.length) {
+        console.log(budget.exceeded)
+      }
+    },
   },
-}
+})
 ```
 
 The snapshot contains the configured `limits`, the normalized `usage` record when one is available, and an `exceeded` list with `inputTokens`, `outputTokens`, `totalTokens`, or `usd` entries.

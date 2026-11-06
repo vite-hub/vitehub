@@ -1,38 +1,8 @@
 [
   {
-    "id": "docs/content/docs/agents/agent-definitions.md#d6828f9cd407",
-    "label": "server/lib/sync.ts",
-    "error": "TS2304 Cannot find name 'email'."
-  },
-  {
     "id": "docs/content/docs/agents/agent-drivers.md#7b95e16bdad4",
     "label": "server/agents/review/agent.ts",
     "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'."
-  },
-  {
-    "id": "docs/content/docs/agents/agent-drivers.md#b020c6949bc2",
-    "label": null,
-    "error": "TS2304 Cannot find name 'runAgent'."
-  },
-  {
-    "id": "docs/content/docs/agents/agent-drivers.md#6943e3700cbc",
-    "label": "server/agents/labeller.ts",
-    "error": "TS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/agents/build-a-chat-app.md#04d5b39f0192",
-    "label": "server/api/chat.post.ts",
-    "error": "TS18048 'event.node' is possibly 'undefined'."
-  },
-  {
-    "id": "docs/content/docs/agents/capabilities/budget.md#338de8c4dfe8",
-    "label": null,
-    "error": "TS1005 ';' expected."
-  },
-  {
-    "id": "docs/content/docs/agents/capabilities/diagnostics.md#780265cb0b82",
-    "label": null,
-    "error": "TS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/agents/capabilities/input-commands.md#748af2836fda",
@@ -40,44 +10,9 @@
     "error": "TS2554 Expected 0 arguments, but got 1."
   },
   {
-    "id": "docs/content/docs/agents/capabilities/mcp.md#4a5c462e1230",
-    "label": "server/agents/support.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer."
-  },
-  {
-    "id": "docs/content/docs/agents/capabilities/openapi.md#7159a9110e24",
-    "label": "server/agents/support.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer."
-  },
-  {
-    "id": "docs/content/docs/agents/capabilities/transcribe.md#c01f4d271b5b",
-    "label": "server/agents/voice.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer."
-  },
-  {
-    "id": "docs/content/docs/agents/channels.md#862ca09365cf",
-    "label": "server/utils/prefect-channel.ts",
-    "error": "TS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/agents/channels.md#95eb70e7d232",
-    "label": "server/agents/support.ts",
-    "error": "TS2304 Cannot find name 'defineAgent'."
-  },
-  {
-    "id": "docs/content/docs/agents/channels.md#ad4e6fcc3ebb",
-    "label": "server/agents/labeller.ts",
-    "error": "TS18046 'message' is of type 'unknown'."
-  },
-  {
     "id": "docs/content/docs/agents/gmail.md#52ea1118141f",
     "label": "vite.config.ts",
     "error": "TS2554 Expected 1 arguments, but got 0."
-  },
-  {
-    "id": "docs/content/docs/agents/invocation-storage.md#608dc9c6c61f",
-    "label": "server/agents/support.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'store'. Either declare one or provide an initializer."
   },
   {
     "id": "docs/content/docs/agents/invocation-storage.md#1bfd2292966b",
@@ -85,59 +20,9 @@
     "error": "TS2307 Cannot find module 'cloudflare:workers' or its corresponding type declarations."
   },
   {
-    "id": "docs/content/docs/agents/process-hosts.md#e5d266f81857",
-    "label": "server/agents/reviewer.ts",
-    "error": "TS2769 No overload matches this call."
-  },
-  {
-    "id": "docs/content/docs/agents/sandboxes.md#a900a524eaf8",
-    "label": "server/agents/review/agent.ts",
-    "error": "TS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/auth/configure.md#e343728ee49a",
-    "label": "server/auth.ts",
-    "error": "TS7031 Binding element 'env' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/auth/configure.md#a5b1c0c3735d",
-    "label": "server/routes/mcp.ts",
-    "error": "TS18048 'event' is possibly 'undefined'."
-  },
-  {
-    "id": "docs/content/docs/blob/media.md#9c910d73996e",
-    "label": null,
-    "error": "TS2304 Cannot find name 'blob'."
-  },
-  {
-    "id": "docs/content/docs/channels/agent-capability.md#40109740a7a8",
-    "label": "server/schedules/weekly-report.ts",
-    "error": "TS2769 No overload matches this call."
-  },
-  {
-    "id": "docs/content/docs/channels/agent-capability.md#0876e6e71790",
-    "label": null,
-    "error": "TS7006 Parameter 'context' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/channels/agent-capability.md#8ede65de0174",
-    "label": null,
-    "error": "TS7006 Parameter 'message' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/channels/agent-capability.md#d71a3be85bbb",
-    "label": null,
-    "error": "TS2304 Cannot find name 'channelDelivery'."
-  },
-  {
     "id": "docs/content/docs/channels/index.md#7f237ef8efd9",
     "label": "server/utils/slack.ts",
     "error": "TS18046 'env.slack' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/cms/access.md#2b019396a64c",
-    "label": "server/routes/api/roles.post.ts",
-    "error": "TS2339 Property 'userId' does not exist on type '{}'."
   },
   {
     "id": "docs/content/docs/comments/index.md#daebbc2b469e",
@@ -145,34 +30,9 @@
     "error": "TS2339 Property 'page' does not exist on type 'CommentThread'."
   },
   {
-    "id": "docs/content/docs/comments/operations/configure.md#f4056f9a0e14",
-    "label": "server/comments.ts",
-    "error": "TS7031 Binding element 'user' implicitly has an 'any' type."
-  },
-  {
     "id": "docs/content/docs/connections/index.md#b5254d8a047e",
     "label": "server/connections/google.ts",
     "error": "TS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/database/configure.md#b8b90fb4cd95",
-    "label": "my-module/module.ts",
-    "error": "TS2307 Cannot find module 'my-package/vite' or its corresponding type declarations."
-  },
-  {
-    "id": "docs/content/docs/database/index.md#5e51d6f3417a",
-    "label": "server/api/notes.post.ts",
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/database/server-api.md#f322346ac6f0",
-    "label": "server/utils/files.ts",
-    "error": "TS2345 Argument of type '\"default\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/development/console.md#44aafb4e0c8f",
-    "label": "nuxt.config.ts",
-    "error": "TS2353 Object literal may only specify known properties, and 'robots' does not exist in type '{ prerender?: boolean | undefined; ssr?: boolean | undefined; noScripts?: boolean | undefined; payload?: boolean | undefined; redirect?: string | false | { to?: string | undefined; status?: number | undefined; } | undefined; isr?: number | ... 2 more ... | undefined; cache?: false | ... 1 more ... | undefined; }'."
   },
   {
     "id": "docs/content/docs/development/operations.md#5d5bf17d544a",
@@ -180,24 +40,9 @@
     "error": "TS2554 Expected 1 arguments, but got 0."
   },
   {
-    "id": "docs/content/docs/development/operations.md#e4b8751bd4fb",
-    "label": "server/agents/editor.ts",
-    "error": "TS2304 Cannot find name 'defineAgent'."
-  },
-  {
-    "id": "docs/content/docs/docs-site/configure.md#df8523d04622",
-    "label": "docs.parser.ts",
-    "error": "TS2307 Cannot find module 'comark-tabs' or its corresponding type declarations."
-  },
-  {
     "id": "docs/content/docs/logs/get-started.md#b7725026293a",
     "label": "vite.config.ts",
     "error": "TS2353 Object literal may only specify known properties, and 'local' does not exist in type 'ConsoleOptions'."
-  },
-  {
-    "id": "docs/content/docs/rate-limit/agent-capability.md#db72be2c6b21",
-    "label": "Before",
-    "error": "TS2304 Cannot find name 'rateLimit'."
   },
   {
     "id": "docs/content/docs/rate-limit/index.md#cb8cae0e5e63",
@@ -205,138 +50,18 @@
     "error": "TS2345 Argument of type 'AuthRequestInput' is not assignable to parameter of type 'RateLimitRequestEvent'."
   },
   {
-    "id": "docs/content/docs/rate-limit/server-api.md#1bc63bfa9b4b",
-    "label": null,
-    "error": "TS1108 A 'return' statement can only be used within a function body."
-  },
-  {
-    "id": "docs/content/docs/realtime/server-api.md#63e5b270fc82",
-    "label": "server/realtime/pages.ts",
-    "error": "TS18048 'fields' is possibly 'undefined'."
-  },
-  {
-    "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
-    "label": "server/collections/articles.ts",
-    "error": "TS18046 'article' is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/source/server-api.md#71326cceafb1",
-    "label": "server/collections/meals.ts",
-    "error": "TS7031 Binding element 'user' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/source/server-api.md#004ed78eccb1",
-    "label": null,
-    "error": "TS2304 Cannot find name 'useCollection'."
-  },
-  {
-    "id": "docs/content/docs/ui/comments.md#288c9cbbdae6",
-    "label": null,
-    "error": "TS2304 Cannot find name 'files'."
-  },
-  {
-    "id": "docs/content/docs/workspace/configure.md#c197ab50d2c5",
-    "label": null,
-    "error": "TS2717 Subsequent property declarations must have the same type.  Property 'channel' must be of type 'AgentChannelContext<Record<string, unknown>, Record<string, unknown>, Record<string, unknown>>', but here has type '{ meta?: { customer?: string | undefined; } | undefined; }'."
-  },
-  {
     "id": "packages/agent/README.md#e0e7838a305c",
     "label": null,
     "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'."
   },
   {
-    "id": "packages/agent/README.md#866f0b9e1b4d",
-    "label": null,
-    "error": "TS2344 Type '{ tenantId: string; }' does not satisfy the constraint '\"invoker\" | \"chat\" | \"agent.colocatedSkills\" | \"agent.invocation.traceId\" | \"agent.output.eventObserver\" | \"agent.output.progressSummary\" | \"agent.trigger\" | \"channel.delivery.titleDelivered\" | ... 19 more ... | \"channel.message\"'."
-  },
-  {
-    "id": "packages/agent/README.md#f017c18ce15f",
-    "label": null,
-    "error": "TS7006 Parameter 'repository' implicitly has an 'any' type."
-  },
-  {
-    "id": "packages/blob/README.md#0f443e92375d",
-    "label": null,
-    "error": "TS2304 Cannot find name 'file'."
-  },
-  {
-    "id": "packages/blob/README.md#f9b91514e273",
-    "label": null,
-    "error": "TS2304 Cannot find name 'file'."
-  },
-  {
-    "id": "packages/blob/README.md#49ae73a1f27e",
-    "label": null,
-    "error": "TS2304 Cannot find name 'blob'."
-  },
-  {
-    "id": "packages/comments/README.md#8e8bbe0cee0c",
-    "label": null,
-    "error": "TS18048 'event' is possibly 'undefined'."
-  },
-  {
-    "id": "packages/comments/README.md#0871d13332c2",
-    "label": null,
-    "error": "TS18004 No value exists in scope for the shorthand property 'transport'. Either declare one or provide an initializer."
-  },
-  {
-    "id": "packages/database/README.md#4de5ceb072d1",
-    "label": null,
-    "error": "TS2304 Cannot find name 'db'."
-  },
-  {
-    "id": "packages/docs/README.md#d1050de4115a",
-    "label": null,
-    "error": "TS2307 Cannot find module 'comark-tabs' or its corresponding type declarations."
-  },
-  {
-    "id": "packages/queue/README.md#47047c3584ed",
-    "label": null,
-    "error": "TS2304 Cannot find name 'runQueue'."
-  },
-  {
-    "id": "packages/runtime/README.md#d203a0063da4",
-    "label": null,
-    "error": "TS2304 Cannot find name 'defineGrant'."
-  },
-  {
-    "id": "packages/sandbox/README.md#6aa0cf0c4ae6",
-    "label": null,
-    "error": "TS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "packages/sandbox/README.md#e04cc9d558f8",
-    "label": null,
-    "error": "TS2304 Cannot find name 'resolveSandbox'."
-  },
-  {
-    "id": "packages/source/README.md#af264e7ce752",
-    "label": null,
-    "error": "TS18046 'article' is of type 'unknown'."
-  },
-  {
-    "id": "packages/vite-hub/README.md#2f4ad0597fb7",
-    "label": null,
+    "id": "docs/content/docs/agents/channels.md#e9c6d977ab3b",
+    "label": "server/agents/support.ts",
     "error": "TS2769 No overload matches this call."
   },
   {
-    "id": "packages/workspace/README.md#3f540cceb6dc",
-    "label": null,
-    "error": "TS2769 No overload matches this call."
-  },
-  {
-    "id": "docs/content/docs/agents/invocations.md#32fb1e808fb5",
-    "label": "server/api/support.post.ts",
-    "error": "TS2307 Cannot find module '../utils/auth' or its corresponding type declarations."
-  },
-  {
-    "id": "docs/content/docs/comments/configure.md#f787a47ce35d",
-    "label": "server/api/docs/[id]/comments.post.ts",
-    "error": "TS2307 Cannot find module '../../../utils/docs' or its corresponding type declarations."
-  },
-  {
-    "id": "docs/content/docs/reference/runtime-context.md#3588c0430aa3",
-    "label": "server/api/support.post.ts",
-    "error": "TS2307 Cannot find module '../agents/support' or its corresponding type declarations."
+    "id": "docs/content/docs/agents/build-a-chat-app.md#04d5b39f0192",
+    "label": "server/api/chat.post.ts",
+    "error": "TS18048 'event.node' is possibly 'undefined'."
   }
 ]

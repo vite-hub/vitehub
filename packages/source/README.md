@@ -217,8 +217,17 @@ paginated client read model:
 import { defineCollection } from "@vite-hub/source"
 import * as v from "valibot"
 
+interface Article { id: string, title: string, createdAt: number }
+
 export const articles = defineCollection(async ({ cursor, limit, query }) => {
-  return db.listArticles({ after: cursor, author: query.author, limit })
+  // A CMS API that pages by the last (createdAt, id) it returned
+  const url = new URL("https://cms.example.com/api/articles")
+  url.searchParams.set("limit", String(limit))
+  if (cursor) url.searchParams.set("after", cursor.join(","))
+  if (query.author) url.searchParams.set("author", query.author)
+  const response = await fetch(url)
+  if (!response.ok) throw new Error(`The CMS answered ${response.status}`)
+  return await response.json() as Article[]
 }, {
   cursor: article => [article.createdAt, article.id] as const,
   cursorSchema: v.tuple([v.number(), v.string()]),

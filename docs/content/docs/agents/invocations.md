@@ -56,6 +56,31 @@ For a model's completed text, pass `{ output: 'drained' }` as the third argument
 
 Pass a Runtime Context as the second argument when a host must supply request metadata or Workflow discovery. This form returns the result directly and throws failures. Inline runtimes may return a native `Response` when the Agent produces an HTTP-shaped result. Workflow runtimes return a Workflow Run for durable inspection and control. Structured Agent outputs remain typed values, and streaming uses the separate stream contract below.
 
+The route reads the signed-in user with a helper of the app:
+
+```ts [server/utils/auth.ts]
+import { createError } from 'h3'
+import { auth } from 'vite-hub/auth/server'
+import type { H3Event } from 'h3'
+
+export async function requireAuthenticatedUser(event: H3Event) {
+  const session = await auth.api.getSession({ headers: event.req.headers })
+  if (!session) throw createError({ status: 401 })
+  return session.user
+}
+```
+
+```ts [server/agents/support.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: 'Answer support questions. Say when you need more information.',
+  },
+})
+```
+
 ```ts [server/api/support.post.ts]
 import { defineEventHandler, readValidatedBody } from 'h3'
 import * as v from 'valibot'

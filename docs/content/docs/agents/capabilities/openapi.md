@@ -22,12 +22,12 @@ import { defineAgent } from 'vite-hub/agent'
 import { access, openapi } from 'vite-hub/agent/capabilities'
 
 export default defineAgent({
-  driver: { model },
+  driver: { model: 'openai/gpt-5.1-mini' },
   capabilities: [
     access({
       chat: {
         resolve({ invoker }) {
-          return invoker.kind === 'portal'
+          return invoker?.kind === 'portal'
         },
       },
     }),

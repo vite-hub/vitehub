@@ -98,6 +98,8 @@ Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin
 On a server behind Caddy, nginx, or Traefik, Node sees `http://` requests on an internal address, so `requestOrigin` and the default `baseURL` would start with `http://`. Set Better Auth's `advanced.trustedProxyHeaders` to read the origin from the first `X-Forwarded-Proto` and `X-Forwarded-Host` values instead. Without `X-Forwarded-Host`, the host comes from the request. `vitehub({ publicUrl })` still wins over both.
 
 ```ts [server/auth.ts]
+import { defineAuth } from '@vite-hub/auth'
+
 export default defineAuth(({ env, requestOrigin }) => ({
   advanced: { trustedProxyHeaders: true },
   baseURL: requestOrigin,
@@ -298,15 +300,20 @@ export default defineHandler(event => serveMcpOAuthDiscovery(event.req, {
 `verifyMcpRequest(request)` returns `[error, caller]`. `caller` has the `user`, the approved `scopes`, the `clientId`, and the `clientName` that the client registered, such as `Claude Code`:
 
 ```ts [server/routes/mcp.ts]
+import { defineHandler } from 'h3'
 import { verifyMcpRequest } from 'vite-hub/auth/mcp'
 
-const [error, caller] = await verifyMcpRequest(event.req)
-if (error) {
-  return new Response(null, {
-    status: 401,
-    headers: { 'WWW-Authenticate': `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource/mcp', event.req.url)}"${error.code === 'AUTH_MCP_TOKEN_INVALID' ? ', error="invalid_token"' : ''}` },
-  })
-}
+export default defineHandler(async (event) => {
+  const [error, caller] = await verifyMcpRequest(event.req)
+  if (error) {
+    return new Response(null, {
+      status: 401,
+      headers: { 'WWW-Authenticate': `Bearer resource_metadata="${new URL('/.well-known/oauth-protected-resource/mcp', event.req.url)}"${error.code === 'AUTH_MCP_TOKEN_INVALID' ? ', error="invalid_token"' : ''}` },
+    })
+  }
+  // Answer the MCP request for `caller.user` with the approved `caller.scopes`
+  return { client: caller.clientName, scopes: caller.scopes }
+})
 ```
 
 It reads the signing keys from the Auth in the same process, with no request to the authorization server. It checks the signature against the algorithms of those keys, the issuer, the audience, and the expiry with 30 seconds of tolerance. Then it reads the user again by the `sub` claim, so a deleted or banned person loses access while the token is still valid. The OAuth client must still exist and be enabled. When the token names a session in `sid`, that session must still exist and be unexpired, so signing out ends its access. A token opens only the resource at the origin and path of the request. Pass `resource` to accept the token on other routes, such as the app API. Errors are `AUTH_MCP_TOKEN_MISSING` and `AUTH_MCP_TOKEN_INVALID`; see [Limits and errors](/docs/auth/limits-and-errors#auth_mcp_token_missing).

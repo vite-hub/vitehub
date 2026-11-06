@@ -252,6 +252,8 @@ that inspect the Error instance.
 ViteHub packages use `defineGrant()` from the internal `@vite-hub/runtime/internal/grant` entry. It is not a public API. A grant connects a check to the sensitive action that it guards: the check issues a frozen grant, and the action requires the grant and verifies it at runtime.
 
 ```ts
+import { defineGrant } from "@vite-hub/runtime/internal/grant"
+
 const sourceWrite = defineGrant("vitehub.workspace.source-write", (path: string) => path)
 
 export function checkSourceWrite(path: string) {

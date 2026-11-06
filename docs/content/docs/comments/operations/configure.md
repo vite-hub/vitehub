@@ -9,8 +9,15 @@ icon: i-lucide-settings
 ## Access: `authorize`
 
 ```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
 export default defineComments({
-  authorize: ({ user, actor, action, thread, subject }) => { /* … */ },
+  authorize: ({ user, actor, action, thread, subject }) => {
+    if (action === 'read') return true
+    // Agents and guests may not delete. Editors may resolve any thread of a doc.
+    if (action === 'delete') return !actor && thread?.author.id === user?.id
+    return action !== 'resolve' || (subject?.kind === 'doc' && user?.role === 'editor')
+  },
 })
 ```
 

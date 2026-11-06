@@ -314,7 +314,14 @@ Pass `--json` for the structured inspection contract.
 ```ts
 import { openapi } from "@vite-hub/agent/capabilities";
 
-openapi({
+// The application sets this Invocation context value for each tenant.
+declare global {
+  interface ViteHubAgentInvocationContextValues {
+    billing: { tenantId: string; token: string };
+  }
+}
+
+export const billing = openapi({
   spec: "https://api.example.com/openapi.json",
   cli: {
     name: "billing",
@@ -329,11 +336,11 @@ openapi({
       handler({ context, request }) {
         request.body = {
           ...(request.body as Record<string, unknown> | undefined),
-          tenantId: context.get<{ tenantId: string }>("billing")?.tenantId,
+          tenantId: context.get("billing")?.tenantId,
         };
         request.headers.set(
           "authorization",
-          `Bearer ${context.get<{ token: string }>("billing")?.token}`,
+          `Bearer ${context.get("billing")?.token}`,
         );
       },
     },
@@ -893,18 +900,23 @@ A credential without admin access still reads the required checks from the branc
 summary; the policy then has `classicSource: "branch-summary"`.
 
 ```ts
+import { createGitHubRequiredCheckPolicyReader, evaluateGitHubRequiredChecks } from '@vite-hub/agent/server/github'
+import type { GitHubCheckEvidence } from '@vite-hub/agent/server/github'
 import { repoRef } from '@vite-hub/forge'
+import type { GitHubProvider } from '@vite-hub/forge'
 
-const policies = createGitHubRequiredCheckPolicyReader(async (repository, branch) => {
-  const provider = await github.forge({ repository })
-  return await provider.repos.branchRules(repoRef(provider, repository), branch)
-})
-const policy = await policies.read('acme/app', 'main')
-const result = evaluateGitHubRequiredChecks(policy, {
-  repository: 'acme/app', branch: 'main', headSha,
-  checkRuns, statuses,
-})
-policies.invalidate('acme/app', 'main') // after a protection or ruleset event
+export function requiredChecks(provider: GitHubProvider) {
+  const policies = createGitHubRequiredCheckPolicyReader(async (repository, branch) =>
+    await provider.repos.branchRules(repoRef(provider, repository), branch))
+  return {
+    async evaluate(evidence: GitHubCheckEvidence) {
+      const policy = await policies.read(evidence.repository, evidence.branch)
+      return evaluateGitHubRequiredChecks(policy, evidence)
+    },
+    // Call after a protection or ruleset event
+    invalidate: (repository: string, branch: string) => policies.invalidate(repository, branch),
+  }
+}
 ```
 
 Pass complete REST check-run records and commit statuses fetched for the exact

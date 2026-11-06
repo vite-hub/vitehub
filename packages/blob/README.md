@@ -90,8 +90,10 @@ Use `detectContentType()` when an application needs to classify leading bytes be
 ```ts
 import { detectContentType } from "@vite-hub/blob/content-type"
 
-const detected = detectContentType(new Uint8Array(await file.arrayBuffer()))
-if (detected !== file.type) throw new Error("File content does not match its declared type")
+export async function assertContentType(file: File) {
+  const detected = detectContentType(new Uint8Array(await file.arrayBuffer()))
+  if (detected !== file.type) throw new Error("File content does not match its declared type")
+}
 ```
 
 ```ts
@@ -161,12 +163,15 @@ The JSON Schema `x-vitehub-blob` keyword tells a form to render a Blob picker. Z
 ```ts
 import { blob, responsiveImage } from "@vite-hub/blob"
 
-const [, record] = await blob.media.put("posts/cover.jpg", file, { alt: "Cover", focal: { x: 0.7, y: 0.4 } })
-await blob.media.update("posts/cover.jpg", { crops: { mobile: { aspect: "4:5" } } })
-await blob.media.move("posts/cover.jpg", "posts/2026/cover.jpg")
+export async function storeCover(file: Blob) {
+  const [error, record] = await blob.media.put("posts/cover.jpg", file, { alt: "Cover", focal: { x: 0.7, y: 0.4 } })
+  if (error) throw error
+  await blob.media.update("posts/cover.jpg", { crops: { mobile: { aspect: "4:5" } } })
+  await blob.media.move("posts/cover.jpg", "posts/2026/cover.jpg")
 
-const image = responsiveImage(record!, { sizes: "100vw", art: [{ media: "(max-width: 640px)", crop: "mobile" }] })
-// image.img: { src, srcset, sizes, width, height, alt, style }, image.sources: <picture> sources
+  return responsiveImage(record, { sizes: "100vw", art: [{ media: "(max-width: 640px)", crop: "mobile" }] })
+  // img: { src, srcset, sizes, width, height, alt, style }, sources: <picture> sources
+}
 ```
 
 The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Sizes snap to an allowed list and never upscale. `blob.images.transformer` picks sharp on Node (optional peer), the Cloudflare Images binding on Workers, or passthrough, which serves originals. `transformer: "photon"` uses `@cf-wasm/photon` (optional peer), a WebAssembly image library that runs on Workers and Node without a binding. `@vite-hub/blob/media` exports the browser-safe helpers.
@@ -178,25 +183,30 @@ The generated serve route returns variants for `?w=&h=&fit=&fmt=&q=&crop=`. Size
 Use `blob.sign()` to grant short-lived access to one private object without routing its body through your server.
 
 ```ts
-const [downloadError, download] = await blob.sign("private/audio.mp3", {
-  method: "GET",
-  expiresIn: 60 * 60,
-})
-if (downloadError) throw downloadError
+import { blob } from "@vite-hub/blob"
 
-const [uploadError, upload] = await blob.sign("private/audio.mp3", {
-  method: "PUT",
-  expiresIn: 15 * 60,
-  contentType: "audio/mpeg",
-  createOnly: true,
-})
-if (uploadError) throw uploadError
+export async function shareAudio(file: Blob) {
+  const [downloadError, download] = await blob.sign("private/audio.mp3", {
+    method: "GET",
+    expiresIn: 60 * 60,
+  })
+  if (downloadError) throw downloadError
 
-await fetch(upload.url, {
-  method: upload.method,
-  headers: upload.headers,
-  body: file,
-})
+  const [uploadError, upload] = await blob.sign("private/audio.mp3", {
+    method: "PUT",
+    expiresIn: 15 * 60,
+    contentType: "audio/mpeg",
+    createOnly: true,
+  })
+  if (uploadError) throw uploadError
+
+  await fetch(upload.url, {
+    method: upload.method,
+    headers: upload.headers,
+    body: file,
+  })
+  return download.url
+}
 ```
 
 Blob operations return `[error, value]`. Missing objects return `[null, null]` from `get()` and `head()`, including when a serving route is configured. Provider and storage failures use `ViteHubError` with a stable `BLOB_*` code, operation/store details, and the provider failure in `cause`. Invalid arguments, unknown stores, and unsupported signing capabilities throw Nostics diagnostics with package-owned `BLOB_C####`, `BLOB_B####`, or `BLOB_R####` codes. Catch these defects by code. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).

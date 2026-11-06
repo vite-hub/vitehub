@@ -12,7 +12,41 @@ Use it when an Agent Invocation must deliver its result somewhere other than the
 
 ## Configure Channel delivery
 
-Pass the Channel client from `useChannel()` and the send options. Set `required` when the Agent Invocation must fail without a successful send:
+Pass the Channel client from `useChannel()` and the send options. Set `required` when the Agent Invocation must fail without a successful send. The examples on this page send through this `teams` Channel, which posts to a Microsoft Teams chat through your own relay:
+
+```ts [server/channels/teams.ts]
+import { defineOutboundChannel } from 'vite-hub/channels'
+
+export default defineOutboundChannel({
+  connectors: {
+    teams: {
+      async send(text: string, options: { recipient: string }) {
+        const response = await fetch('https://teams-relay.example.com/messages', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ recipient: options.recipient, text }),
+        })
+        if (!response.ok) throw new Error(`Teams answered ${response.status}`)
+        return { id: response.headers.get('x-message-id') ?? crypto.randomUUID() }
+      },
+    },
+  },
+  defaultConnector: 'teams',
+})
+```
+
+The Schedule extends this `bot` Agent:
+
+```ts [server/agents/bot/agent.ts]
+import { defineAgent } from 'vite-hub/agent'
+
+export default defineAgent({
+  driver: {
+    model: 'openai/gpt-5.1-mini',
+    instructions: 'Write short reports from the data in the prompt.',
+  },
+})
+```
 
 ```ts [server/schedules/weekly-report.ts]
 import { defineSchedule } from '@vite-hub/schedule'
@@ -54,14 +88,23 @@ Capabilities attach through the Agent Definition, so the Schedule extends the Ag
 
 `options` can be a function of the Capability context. It runs once per Agent Invocation, before the Driver runs, and can return a promise. Use it when one Agent Definition sends to a recipient that the Agent Invocation input selects:
 
-```ts
-channelDelivery({
-  channel: useChannel('teams'),
-  options(context) {
-    const thread = context.invocation.input.get().context?.thread
-    if (typeof thread !== 'string') throw new Error('Send a thread ID in the invocation context.')
-    return { recipient: thread }
-  },
+```ts [server/agents/thread-reply.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { channelDelivery } from 'vite-hub/agent/capabilities'
+import { useChannel } from 'vite-hub/channels/server'
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  capabilities: [
+    channelDelivery({
+      channel: useChannel('teams'),
+      options(context) {
+        const thread = context.invocation.input.get().context?.thread
+        if (typeof thread !== 'string') throw new Error('Send a thread ID in the invocation context.')
+        return { recipient: thread }
+      },
+    }),
+  ],
 })
 ```
 
@@ -73,13 +116,22 @@ channelDelivery({
 
 `onDelivered(message, receipt, context)` runs after each successful send and after each send that a dry run records. `message` is the model's message. `receipt` is `{ deliveryId, dryRun, text }`, where `text` is the Channel text after `format`. Use it to record what was sent:
 
-```ts
-channelDelivery({
-  channel: useChannel('teams'),
-  options: { recipient: 'user:7b0bff9d' },
-  onDelivered(message, receipt) {
-    console.info(`Sent ${receipt.deliveryId}${receipt.dryRun ? ' (dry run)' : ''}: ${receipt.text.length} characters`)
-  },
+```ts [server/agents/logged-report.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { channelDelivery } from 'vite-hub/agent/capabilities'
+import { useChannel } from 'vite-hub/channels/server'
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  capabilities: [
+    channelDelivery({
+      channel: useChannel('teams'),
+      options: { recipient: 'user:7b0bff9d' },
+      onDelivered(message, receipt) {
+        console.info(`Sent ${receipt.deliveryId}${receipt.dryRun ? ' (dry run)' : ''}: ${receipt.text.length} characters`)
+      },
+    }),
+  ],
 })
 ```
 
@@ -108,12 +160,21 @@ Without `description`, the tool description names the Channel and states how man
 
 Models sometimes finish with the answer as their final text and never call the tool. With `required: true`, set `reminder` to run the Driver again before the Agent Invocation fails:
 
-```ts
-channelDelivery({
-  channel: useChannel('teams'),
-  options: { recipient: 'user:7b0bff9d' },
-  required: true,
-  reminder: { turns: 1, instruction: 'Send the finished report with send_message now.' },
+```ts [server/agents/reminded-report.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { channelDelivery } from 'vite-hub/agent/capabilities'
+import { useChannel } from 'vite-hub/channels/server'
+
+export default defineAgent({
+  driver: { model: 'openai/gpt-5.1-mini' },
+  capabilities: [
+    channelDelivery({
+      channel: useChannel('teams'),
+      options: { recipient: 'user:7b0bff9d' },
+      required: true,
+      reminder: { turns: 1, instruction: 'Send the finished report with send_message now.' },
+    }),
+  ],
 })
 ```
 

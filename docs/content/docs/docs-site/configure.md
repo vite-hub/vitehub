@@ -288,13 +288,13 @@ The package has `::tutorial-step`, `::product-features`, `:::product-feature-ite
 
 ### Add Comark plugins
 
-The server parses every page with [Comark](https://comark.dev). To add Comark plugins, such as a plugin that turns `::code-group` into tabs, put them in a module and name it in `parser`. Plugins are functions, so they cannot go in `nuxt.config.ts` itself.
+The server parses every page with [Comark](https://comark.dev). To add Comark plugins, such as `emoji()` from `comark`, which turns `:rocket:` into 🚀, put them in a module and name it in `parser`. Plugins are functions, so they cannot go in `nuxt.config.ts` itself.
 
 ```ts [docs.parser.ts]
 import type { DocsParserOptions } from '@vite-hub/docs/server'
-import tabs from 'comark-tabs'
+import emoji from 'comark/plugins/emoji'
 
-export default { plugins: [tabs()] } satisfies DocsParserOptions
+export default { plugins: [emoji()] } satisfies DocsParserOptions
 ```
 
 ```ts [nuxt.config.ts]

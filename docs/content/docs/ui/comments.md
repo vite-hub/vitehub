@@ -228,7 +228,10 @@ async function upload(files: File[]): Promise<string[]> {
 `attachmentUrl` turns a key into a URL. With it, an image attachment shows as a thumbnail that opens the full image, and another file shows as a chip with a link. Without it, the message shows the file names. An attachment is an image when its name has an image extension, such as `.png`, or no extension. When the key does not say, return the media type with the URL:
 
 ```ts
-const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: files[key]?.name, type: files[key]?.type });
+// The files that `upload` stored, by key
+const uploads = new Map<string, File>();
+
+const attachmentUrl = (key: string) => ({ url: `/api/files/${key}`, name: uploads.get(key)?.name, type: uploads.get(key)?.type });
 ```
 
 ## Slots
