@@ -147,6 +147,8 @@ How you isolate a preview depends on how you deploy it.
 
 **Cloudflare Previews.** Previews never read the top-level bindings that ViteHub writes, so changing ViteHub config or env does not move them. Declare preview resources in the `previews` block of the project Wrangler config: `previews.d1_databases`, `previews.kv_namespaces`, `previews.r2_buckets`, and `previews.queues.producers`, with the same binding names as production. Cloudflare does not accept Queue consumers in `previews`. Point them at staging or test resources, never at production ids. ViteHub does not write this block. After a build, check that the generated config still has it with `vitehub inspect provider-output --json`.
 
+For D1, apply migrations before deploying the Preview. Create `wrangler.preview-migrations.jsonc` with a top-level `d1_databases` entry whose `database_name` and `database_id` match the Preview binding. Give it the binding name `PREVIEW_DB`, set `migrations_dir` to the Definition's migration directory relative to this file, and copy `migrations_table` if configured. Run `pnpm exec wrangler d1 migrations apply PREVIEW_DB --remote --config wrangler.preview-migrations.jsonc`. ViteHub stages migrations for its generated top-level binding, so use this separate config to target the Preview database. Read [Cloudflare's D1 migration procedure](https://developers.cloudflare.com/workers/previews/resources/#d1-migrations).
+
 **A preview Worker of its own.** When a preview deploys as a separate Worker, ViteHub's top-level bindings are the ones it uses. Give that build its own resource names through env, and provision them in the same job:
 
 | Resource | Set a preview name or id with |
@@ -156,9 +158,11 @@ How you isolate a preview depends on how you deploy it.
 | R2 | `BLOB_BUCKET_NAME` |
 | Cloudflare Queues | `queue.namePrefix` |
 
+For D1, leave `cloudflare.databaseId` unset to use the provisioned id, or set it to the preview id directly or through an Env declaration. A configured `cloudflare.databaseId` takes precedence over provision state; changing only `cloudflare.databaseName` does not override it.
+
 The env values are fallbacks: a store's configured `namespaceId` takes precedence over `KV_NAMESPACE_ID`, and its configured `bucketName` takes precedence over `BLOB_BUCKET_NAME`. Leave those config fields unset to use the fallbacks, or explicitly configure them with the preview resources instead of production resources.
 
-The [live smoke workflow](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/live-smoke.yml) works this way: it builds its own Worker with `VITEHUB_CLOUDFLARE_WORKER_NAME`, sets `BLOB_BUCKET_NAME` from a CI secret for both provisioning and building, and sets `KV_NAMESPACE_ID` from a CI secret only for building.
+The [live smoke workflow](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/live-smoke.yml) works this way: it sets `VITEHUB_CLOUDFLARE_WORKER_NAME`, `BLOB_BUCKET_NAME`, and `VITEHUB_KV_NAMESPACE_NAME` to scratch resource names for each run before provisioning and building its own Worker.
 
 A Version URL of the production Worker uses the bindings of that version. Do not use it to test writes.
 
