@@ -9,6 +9,7 @@ You are working with Maxi. Keep the work direct, practical, and easy to review.
 - Write short, plain English. Use ASD-STE100 language.
 - Keep the scope focused. Prefer the smallest change that makes the public contract better.
 - Use the existing Vite, Nuxt, Vue, TypeScript, and pnpm stack.
+- Build for Nuxt 5 and Nitro 3 only. Add no code, tests, or docs for Nuxt 4 or Nitro 2 (`nitropack`).
 - Prefer inferred types. Do not use `any`.
 - Put shared behavior in the package that owns it. Keep product workflows in consumers.
 - Preserve other people's changes. Inspect collisions before editing.
