@@ -3,6 +3,7 @@ import type { ConsoleSectionDetails, ConsoleSectionId } from "../sections"
 
 import { parseConsoleContributedSection } from "../definitions"
 import { consoleSectionDetails, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId } from "../sections"
+import { projectFetch } from "./project"
 import { requestConsole } from "./request"
 
 export interface ConsoleNavigation {
@@ -67,10 +68,8 @@ export function resolveConsoleSectionDetails(
  * Requests the page tools session once per loaded Console. It sets the `vitehub-tools` hint cookie when this person may
  * use a page tool, such as Comments, so the app's pages load those tools. The Console ignores the answer.
  */
-function openPageToolsSession(base: string): void {
-  const marker = base.lastIndexOf("/api/_vitehub/console/")
-  const prefix = marker === -1 ? "" : base.slice(0, marker)
-  void fetch(`${prefix}/_vitehub/page/session`, { credentials: "same-origin", headers: { accept: "application/json" } }).catch(() => undefined)
+function openPageToolsSession(): void {
+  void projectFetch("/_vitehub/page/session", { headers: { accept: "application/json" } }).catch(() => undefined)
 }
 
 export async function loadConsoleNavigation(base: string): Promise<ConsoleNavigation | undefined> {
@@ -80,7 +79,7 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
       .then((value) => {
         navigationErrors.delete(base)
         const navigation = parseConsoleNavigation(value)
-        openPageToolsSession(base)
+        openPageToolsSession()
         for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
         return navigation
       })
