@@ -255,8 +255,14 @@ async function envDeclarations(pageSnippets) {
     for (const [index, snippet] of configs.entries()) {
       const file = join(directory, `${index}.ts`)
       writeFileSync(file, snippet.code)
-      // A config that throws gets no Env types. The type check reports what is wrong with it.
-      const config = await import(pathToFileURL(file).href).then(module => module.default, () => undefined)
+      let config
+      try {
+        config = (await import(pathToFileURL(file).href)).default
+      }
+      catch {
+        // Keep the page's fallback declarations rather than deriving Env types from an incomplete config.
+        return []
+      }
       Object.assign(env.public, config?.env?.public)
       Object.assign(env.server, config?.env?.server)
     }

@@ -42,6 +42,33 @@ describe("documentation snippet check", () => {
     ])
   }, 60_000)
 
+  it("generates Env declarations from a page's Vite config", async () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/env-page")
+    const label = "vite.config.ts"
+    const declarations = await generatedDeclarations([{
+      code: `import { env } from "@vite-hub/env/vite"
+export default { env: { public: { appName: env({ default: "Acme", mode: "build" }) } } }`,
+      file: join(pageRoot, label), fragment: false, label, line: 1, page: "env-page.md", pageRoot,
+    }])
+
+    expect(declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code).toContain('"appName": string')
+    expect(declarations.some(declaration => declaration.file.endsWith("/auth.d.ts"))).toBe(true)
+  })
+
+  it.each([
+    'throw new Error("config failed")',
+    'import "./unavailable-snippet-config.ts"',
+  ])("keeps fallback Env declarations when a config cannot execute: %s", async (failure) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/failed-env-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "failed-env-page.md", pageRoot })
+    const declarations = await generatedDeclarations([
+      snippet("example/vite.config.ts", "export default { env: { public: {} } }"),
+      snippet("vite.config.ts", `${failure}\nexport default { env: { public: {} } }`),
+    ])
+
+    expect(declarations).toEqual([])
+  })
+
   it("types the Definition names of a page with the registries that ViteHub generates", async () => {
     const pageRoot = join(repoRoot, "docs/.snippets/registry-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "registry-page.md", pageRoot })
