@@ -5,10 +5,12 @@ import { Script } from "node:vm"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
+import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
 import { discord, slack, teams, telegram } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { channelSimulationEnv, isChannelSimulated } from "../src/internal/channel-simulation.ts"
 import { inspectMessageChannelInstructions } from "../src/internal/channels.ts"
+import { agentChannelOperations } from "../src/operations.ts"
 import { createChannelWebhookRouteHandler, createDiscordGatewayRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 
@@ -35,6 +37,19 @@ function streamedText(body: string): string {
 function lastUserText({ messages }: AgentRunContext): string {
   const parts = messages.filter(message => message.role === "user").at(-1)?.parts ?? []
   return parts.map(part => part.type === "text" ? part.text : "").join("")
+}
+
+const [channelsList] = agentChannelOperations
+
+/** Runs `channels.list` for one Agent named `support`, the way the Console and `vitehub channels list` call it. */
+async function listChannels(channels: Parameters<typeof defineAgent>[0]["channels"]) {
+  const agent = defineAgent({ channels, driver: { run: () => "ok" } })
+  installChannelsConsoleHost({
+    agents: { support: agent },
+    handlers: { support: createChannelWebhookRouteHandler(agent) },
+    options: () => ({ agentIdentity: { name: "support" } }),
+  })
+  return await channelsList.run({}, { access: { mode: "open", sections: "all" }, request: new Request("http://vitehub.local/_vitehub/rpc/__call"), surface: "console", user: null })
 }
 
 describe("simulated chat Channels", () => {
@@ -103,6 +118,46 @@ describe("simulated chat Channels", () => {
       const script = /<script type="module">([\s\S]*)<\/script>/.exec(html)?.[1] ?? ""
       expect(() => new Script(script), channel).not.toThrow()
     }
+  })
+
+  it("links the other simulated Channels of the Agent from each chat page", async () => {
+    const agent = defineAgent({
+      channels: { discord: discord(), helpdesk: slack(), telegram: telegram() },
+      driver: { run: () => "ok" },
+    })
+    const handler = createChannelWebhookRouteHandler(agent)
+    const html = await (await handler(new Request("https://example.com/hooks/support/helpdesk/in"), "helpdesk", { agentName: "support" })).text()
+    const switcher = /<nav class="switch" aria-label="Simulated Channels">(.*?)<\/nav>/.exec(html)?.[1]
+    expect(switcher).toBe([
+      "<a href=\"/hooks/support/discord/in\">Discord</a>",
+      "<a aria-current=\"page\">Slack (helpdesk)</a>",
+      "<a href=\"/hooks/support/telegram/in\">Telegram</a>",
+    ].join(""))
+
+    const single = defineAgent({ channels: { slack: slack() }, driver: { run: () => "ok" } })
+    const alone = await (await createChannelWebhookRouteHandler(single)(new Request("https://example.com/api/_vitehub/agents/support/webhooks/slack"), "slack", { agentName: "support" })).text()
+    expect(alone).not.toContain("<nav class=\"switch\"")
+  })
+
+  it("marks simulated Channels in the Channel list, with the path of their chat page", async () => {
+    const result = await listChannels({ discord: discord(), slack: slack() })
+    expect(result.channels).toEqual([
+      expect.objectContaining({ agent: "support", channel: "discord", provider: "discord", simulated: true, simulator: "/api/_vitehub/agents/support/webhooks/discord" }),
+      expect.objectContaining({ agent: "support", channel: "slack", provider: "slack", simulated: true, simulator: "/api/_vitehub/agents/support/webhooks/slack" }),
+    ])
+    expect(channelsList.cli?.format?.(result)).toBe([
+      "AGENT    CHANNEL  PROVIDER             HISTORY          CHAT PAGE",
+      "support  discord  discord (simulated)  provider-window  /api/_vitehub/agents/support/webhooks/discord",
+      "support  slack    slack (simulated)    provider-window  /api/_vitehub/agents/support/webhooks/slack",
+      "",
+    ].join("\n"))
+  })
+
+  it("lists Channels as not simulated when simulation is off", async () => {
+    delete process.env[channelSimulationEnv]
+    const result = await listChannels({ telegram: telegram() })
+    expect(result.channels).toEqual([expect.objectContaining({ channel: "telegram", provider: "telegram", simulated: false })])
+    expect(result.channels[0]).not.toHaveProperty("simulator")
   })
 
   it("escapes the Agent name in the chat page", async () => {

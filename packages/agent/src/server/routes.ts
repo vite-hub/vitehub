@@ -81,7 +81,7 @@ import { chatMessageHeaderPartType, createChatMetadataEchoFilter, formatChatHead
 import { chatFinalReplyContextKey, chatFinishDeliveryRegistrarKey, chatFinishDirectReplyTrace, chatFinishPrimaryReplyTrace } from "../internal/chat-finish-delivery.ts"
 import type { ChatFinalReplyMode, ChatFinishDeliveryCallback, ChatFinishDeliveryCapture, ChatFinishDeliveryRegistrar } from "../internal/chat-finish-delivery.ts"
 import { createAgentChatApprovalCustody, resolveAgentChatApprovalTtl, withAgentChatApprovalGrant } from "../internal/chat-approvals.ts"
-import { agentChatInvocationIdHeader } from "../internal/routes.ts"
+import { agentChatInvocationIdHeader, defaultAgentWebhookRoute, resolveAgentRoutePath } from "../internal/routes.ts"
 import { interruptedChatRetrySuffix, isChatReplyTargetId } from "../internal/chat-reply.ts"
 import { requireAtomicAgentStateQueue } from "../internal/state-queue.ts"
 import { isAmbiguousAgentWorkflowStartFailure } from "../internal/workflow-start.ts"
@@ -8292,6 +8292,10 @@ export interface AgentChannelInfo {
   origin: string
   provider: string
   retention: AgentChannelRetention
+  /** True when the Channel runs on the simulated chat of `agent.channels.simulate`, not on its provider. */
+  simulated: boolean
+  /** The path of the chat page of a simulated Channel, which is its webhook route. Only when the Channel is simulated. */
+  simulator?: string
 }
 
 /** A thread that the Invocation journal knows. */
@@ -9471,17 +9475,32 @@ function createQueuedChannelDispatch(
   }
 }
 
+/** The Channels of the Agent that run on the simulated chat, in definition order. */
+function simulatedChannels(agent: unknown): Array<{ id: string, kind: string }> {
+  if (!isRecord(agent) || !isRecord(agent.channels)) return []
+  return Object.entries(agent.channels).flatMap(([id, channel]) =>
+    isRuntimeRecord(channel) && hasRuntimeType(channel.kind, "string") && isChannelSimulated(channel.kind) ? [{ id, kind: channel.kind }] : [])
+}
+
 /**
  * A browser GET on the webhook route of a simulated chat Channel opens a chat page in the look of its platform. The page
  * POSTs to the same route, so opening the webhook URL is the way to chat with the Agent as that Channel.
  */
 async function simulatedChannelPageResponse(agent: unknown, request: Request, webhook: string | undefined, agentName: string | undefined): Promise<Response | undefined> {
   const webhookId = webhook ?? fallbackWebhookFromRequest(request)
-  if (!webhookId || !isRecord(agent) || !isRecord(agent.channels)) return undefined
-  const channel = agent.channels[webhookId]
-  if (!isRuntimeRecord(channel) || !hasRuntimeType(channel.kind, "string") || !isChannelSimulated(channel.kind)) return undefined
+  const simulated = simulatedChannels(agent)
+  const kind = simulated.find(channel => channel.id === webhookId)?.kind
+  if (!webhookId || !kind) return undefined
   const { renderChannelSimulatorPage } = await import("../internal/channel-simulator/page.ts")
-  const page = renderChannelSimulatorPage(channel.kind, { agent: agentName || "agent", route: new URL(request.url).pathname })
+  const route = new URL(request.url).pathname
+  // The other Channels share the route and differ in the Channel segment. A route without that segment, such as an
+  // alias, links only itself.
+  const segments = route.split("/")
+  const index = segments.lastIndexOf(encodeURIComponent(webhookId))
+  const channels = index < 0
+    ? []
+    : simulated.map(channel => ({ ...channel, route: [...segments.slice(0, index), encodeURIComponent(channel.id), ...segments.slice(index + 1)].join("/") }))
+  const page = renderChannelSimulatorPage(kind, { agent: agentName || "agent", channel: webhookId, channels, route })
   return page === undefined
     ? undefined
     : new Response(page, { headers: { "cache-control": "no-store", "content-type": "text/html; charset=utf-8" } })
@@ -10163,18 +10182,25 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     )
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const channels = new Map<string, AgentChannelInfo>()
+      const simulatedIds = new Set(simulatedChannels(agent).map(channel => channel.id))
+      const agentName = routeAgentIdentity(handlerOptions)?.name
       for (const { registration, trigger } of await agentWebhookRegistrations(agent, context)) {
         const id = registration.channelId || registration.id || registration.provider
         if (channels.has(id)) continue
         const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
         const state = await resolveChatState(chatOptions, context, registration, handlerOptions)
         const custom = Boolean(agentChannelOptions(agent)[id]?.history)
+        const simulated = simulatedIds.has(id)
+        // The chat page is the webhook route of the Channel, which needs the Agent name.
+        const simulator = simulated && agentName ? resolveAgentRoutePath(defaultAgentWebhookRoute, { agent: agentName, webhook: id }) : undefined
         channels.set(id, {
           conversations: !custom && trigger.id === "chat.message",
           id,
           origin: chatRegistrationOrigin(registration),
           provider: registration.provider,
           retention: channelRetention(chatOptions, state.state),
+          simulated,
+          ...(simulator ? { simulator } : {}),
         })
       }
       return [...channels.values()]

@@ -100,12 +100,12 @@ textarea::placeholder{color:var(--soft)}
 const icon = (path: string): string => `<svg viewBox="0 0 24 24" aria-hidden="true">${path}</svg>`
 const dots = icon("<path d=\"M6 12h.01M12 12h.01M18 12h.01\" stroke-width=\"2.5\"/>")
 
-function body(config: SimulatorConfig): string {
+function body(config: SimulatorConfig, switcher: string): string {
   const agent = escapeHtml(config.agent)
   const user = escapeHtml(config.user)
   const agentInitial = initialHtml(config.agent)
   return `<header class="top">
-  <div class="l"><span class="unofficial">Unofficial simulator · not affiliated with ${escapeHtml(config.platform)}</span></div>
+  <div class="l"><span class="unofficial">Unofficial simulator · not affiliated with ${escapeHtml(config.platform)}</span>${switcher}</div>
   <div class="search" aria-hidden="true">${icon("<circle cx=\"10\" cy=\"10\" r=\"6\"/><path d=\"M15 15l5 5\"/>")}Search</div>
   <div class="r"><span class="ib" aria-hidden="true">${dots}</span><span class="av sm" aria-hidden="true">${initialHtml(config.user)}</span></div>
 </header>

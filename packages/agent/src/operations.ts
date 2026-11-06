@@ -158,17 +158,49 @@ function cursorOf(value: string | undefined): ChannelCursor | undefined {
   return cursor
 }
 
+interface ChannelListEntry extends ChannelTarget {
+  conversations: boolean
+  provider: string
+  retention: ChannelRetentionView
+  /** True when the Channel runs on the simulated chat of `agent.channels.simulate`. */
+  simulated: boolean
+  /** The path of the chat page of a simulated Channel. */
+  simulator?: string
+}
+
+function table(rows: readonly (readonly string[])[]): string {
+  const widths = rows[0]!.map((_, column) => Math.max(...rows.map(row => row[column]!.length)))
+  return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  ")).join("\n")
+}
+
+function formatChannels({ channels }: { channels: readonly ChannelListEntry[] }): string {
+  if (channels.length === 0) return "No Channels.\n"
+  return `${table([
+    ["AGENT", "CHANNEL", "PROVIDER", "HISTORY", "CHAT PAGE"],
+    ...channels.map(entry => [entry.agent, entry.channel, entry.simulated ? `${entry.provider} (simulated)` : entry.provider, entry.retention.mode, entry.simulator ?? "-"]),
+  ])}\n`
+}
+
 const channelsList = defineOperation({
-  description: "List the Channels of the Agents, with the provider and how long each keeps its conversations.",
+  cli: { format: formatChannels },
+  description: "List the Channels of the Agents, with the provider, how long each keeps its conversations, and the chat page of a simulated Channel.",
   input: v.strictObject({}),
   kind: "read",
   name: "channels.list",
   run: async (_input, context) => {
     const installed = host()
-    const channels = []
+    const channels: ChannelListEntry[] = []
     for (const [agent, handler] of Object.entries(installed.handlers)) {
       for (const channel of await handler.channels(requestOf(context), installed.options(agent, context.env))) {
-        channels.push({ agent, channel: channel.id, conversations: channel.conversations, provider: channel.provider, retention: retentionOf(channel.retention) })
+        channels.push({
+          agent,
+          channel: channel.id,
+          conversations: channel.conversations,
+          provider: channel.provider,
+          retention: retentionOf(channel.retention),
+          simulated: channel.simulated,
+          ...(channel.simulator ? { simulator: channel.simulator } : {}),
+        })
       }
     }
     return { channels }
@@ -409,9 +441,7 @@ interface ChannelPageResult extends ChannelTarget {
 }
 
 type ChannelOperationDefinitions = readonly [
-  OperationDefinition<Record<string, never>, {
-    channels: (ChannelTarget & { conversations: boolean, provider: string, retention: ChannelRetentionView })[]
-  }>,
+  OperationDefinition<Record<string, never>, { channels: ChannelListEntry[] }>,
   OperationDefinition<ChannelTarget & ChannelPage, ChannelPageResult & {
     threads: { invocationCount: number, lastMessageAt: string, participants: string[], thread: string, title?: string }[]
   }>,

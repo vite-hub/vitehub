@@ -19,6 +19,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .top { display: grid; grid-template-columns: 1fr minmax(0, 560px) 1fr; align-items: center; gap: 16px; padding: 0 12px; }
 .top .search { height: 26px; border-radius: 6px; background: rgb(255 255 255 / .16); color: rgb(255 255 255 / .8); display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 13px; }
 .top .search svg { width: 14px; height: 14px; }
+.top .switch-slot { min-width: 0; display: flex; color: rgb(255 255 255 / .9); }
 .top .unofficial { justify-self: end; font-size: 11px; line-height: 14px; color: rgb(255 255 255 / .75); border: 1px dashed rgb(255 255 255 / .4); border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
 .app { display: grid; grid-template-columns: 70px 260px minmax(0, 1fr); min-height: 0; padding: 0 4px 4px 0; }
 .rail { display: flex; flex-direction: column; align-items: center; gap: 12px; padding-top: 8px; color: #fff; }
@@ -95,18 +96,18 @@ header .tabs .on { color: var(--text); font-weight: 600; box-shadow: inset 0 -2p
 .compose .send svg { fill: currentColor; stroke: none; }
 .typing { height: 24px; flex: none; padding: 2px 20px 0; font-size: 12px; color: var(--muted); }
 .typing b { font-weight: 700; }
-@media (max-width: 760px) { .app { grid-template-columns: minmax(0, 1fr); padding: 0; } .rail, .side, .top .search { display: none; } main { border-radius: 0; } .top { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .app { grid-template-columns: minmax(0, 1fr); padding: 0; } .rail, .side, .top .search { display: none; } main { border-radius: 0; } .top { grid-template-columns: minmax(0, 1fr) auto; } }
 @media (pointer: coarse) { .compose textarea { font-size: 16px; } }
 `
 
-function body(config: SimulatorConfig): string {
+function body(config: SimulatorConfig, switcher: string): string {
   const agent = escapeHtml(config.agent)
   const user = escapeHtml(config.user)
   const agentInitial = initialHtml(config.agent)
   const workspace = "ViteHub dev"
   const caret = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M6 9l6 6 6-6\"/></svg>"
   return `<header class="top">
-  <span></span>
+  <span class="switch-slot">${switcher}</span>
   <div class="search" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>Search ${workspace}</div>
   <span class="unofficial">Unofficial simulator · not affiliated with ${escapeHtml(config.platform)}</span>
 </header>

@@ -74,9 +74,10 @@ export type SimulatorUpdate = (view: SimulatorView, document: SimulatorDocument)
  * One platform look. `body` runs on the server. `message` and `update` run in the browser.
  *
  * `body` must contain `#scroll` (the scroll container), `#list` (the message list), `#form`, and the `#input` textarea.
+ * It puts `switcher`, the links to the other simulated Channels, in its top bar. `switcher` is empty for one Channel.
  */
 export interface SimulatorSkin {
-  body: (config: SimulatorConfig) => string
+  body: (config: SimulatorConfig, switcher: string) => string
   css: string
   message: SimulatorMessageRenderer
   platform: string

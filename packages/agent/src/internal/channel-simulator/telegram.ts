@@ -48,7 +48,7 @@ main::before { content: ""; position: absolute; inset: 0; pointer-events: none; 
               radial-gradient(ellipse 9px 4px at 30px 70px, transparent 6px, var(--dots) 6.5px, transparent 8px) 0 0 / 104px 96px; }
 header { position: relative; z-index: 1; height: 56px; flex: none; display: flex; align-items: center; gap: 12px; padding: 0 8px 0 16px; background: var(--side); }
 header .avatar { width: 42px; height: 42px; font-size: 17px; }
-header .who { flex: 1; min-width: 0; }
+header .who { flex: 1; min-width: 72px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 header .name { font-weight: 600; font-size: 16px; }
 header .status { font-size: 14px; color: var(--muted); }
 header .status.typing { color: var(--accent); }
@@ -100,7 +100,7 @@ textarea::placeholder { color: var(--muted); }
 @media (max-width: 720px) { aside { display: none; } .unofficial { white-space: normal; } }
 `
 
-function body(config: SimulatorConfig): string {
+function body(config: SimulatorConfig, switcher: string): string {
   const agent = escapeHtml(config.agent)
   const initial = initialHtml(config.agent)
   return `<aside aria-label="Chats">
@@ -123,7 +123,7 @@ function body(config: SimulatorConfig): string {
   <header>
     <div class="avatar" aria-hidden="true">${initial}</div>
     <div class="who"><div class="name">${agent}</div><div class="status" id="status">bot</div></div>
-    <span class="unofficial">Unofficial simulator · not affiliated with ${escapeHtml(config.platform)}</span>
+    ${switcher}<span class="unofficial">Unofficial simulator · not affiliated with ${escapeHtml(config.platform)}</span>
     <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="5.5" r=".6"/><circle cx="12" cy="12" r=".6"/><circle cx="12" cy="18.5" r=".6"/></svg></span>
   </header>
   <div id="scroll">

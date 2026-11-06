@@ -13,7 +13,7 @@ body { font: 16px/1.375 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .app { display: flex; flex-direction: column; height: 100dvh; }
-.titlebar { height: 22px; flex: none; display: grid; place-items: center; font-size: 12px; font-weight: 600; color: var(--muted); }
+.titlebar { height: 22px; flex: none; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; }
 .cols { flex: 1; display: flex; min-height: 0; }
 .av { --c: var(--brand); position: relative; flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--c); color: #fff; display: grid; place-items: center; font-weight: 600; font-size: 14px; user-select: none; }
 .av.user { --c: #248046; }
@@ -88,12 +88,12 @@ header .search { margin-left: auto; width: 144px; height: 24px; border-radius: 4
 @media (pointer: coarse) { .composer textarea { font-size: 16px; } }
 `
 
-function body(config: SimulatorConfig): string {
+function body(config: SimulatorConfig, switcher: string): string {
   const agent = escapeHtml(config.agent)
   const user = escapeHtml(config.user)
   const handle = escapeHtml(config.agent.toLowerCase().replace(/\s+/g, ""))
   return `<div class="app">
-  <div class="titlebar">Unofficial simulator · not affiliated with ${escapeHtml(config.platform)}</div>
+  <div class="titlebar"><span>Unofficial simulator · not affiliated with ${escapeHtml(config.platform)}</span>${switcher}</div>
   <div class="cols">
     <nav class="rail" aria-hidden="true">
       <div class="srv home"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M4 5h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-4 3v-3H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg></div>
