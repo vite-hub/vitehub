@@ -138,10 +138,10 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     const pageRoot = join(repoRoot, "docs/.snippets/registry-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "registry-page.md", pageRoot })
     const snippets = [
-      snippet(`server/queues/welcome-email.${extension}`, "import { defineQueue } from 'vite-hub/queue'\nexport default defineQueue<{ email: string }>(async () => {})"),
-      snippet("server/api/signup.ts", "import { runQueue } from 'vite-hub/queue'\nexport const sent = runQueue('welcome-email', { email: 'ada@example.com' })"),
-      snippet("server/api/typo.ts", "import { runQueue } from 'vite-hub/queue'\nexport const sent = runQueue('welcom-email', { email: 'ada@example.com' })"),
-      snippet("server/api/payload.ts", "import { runQueue } from 'vite-hub/queue'\nexport const sent = runQueue('welcome-email', { address: 'ada@example.com' })"),
+      snippet(`server/queues/welcome-email.${extension}`, "import { defineQueue } from '@vite-hub/queue'\nexport default defineQueue<{ email: string }>(async () => {})"),
+      snippet("server/api/signup.ts", "import { runQueue } from '@vite-hub/queue'\nexport const sent = runQueue('welcome-email', { email: 'ada@example.com' })"),
+      snippet("server/api/typo.ts", "import { runQueue } from '@vite-hub/queue'\nexport const sent = runQueue('welcom-email', { email: 'ada@example.com' })"),
+      snippet("server/api/payload.ts", "import { runQueue } from '@vite-hub/queue'\nexport const sent = runQueue('welcome-email', { address: 'ada@example.com' })"),
     ]
     const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
 
@@ -155,14 +155,14 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     const pageRoot = join(repoRoot, "docs/.snippets/collection-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "collection-page.md", pageRoot })
     const collection = "defineCollection({ source: array([{ id: 'intro', title: 'Introduction' }]) })"
-    const imports = "import { array, defineCollection } from 'vite-hub/source'\n"
+    const imports = "import { array, defineCollection } from '@vite-hub/source'\n"
     const snippets = [
       snippet("server/collections/docs/guides.ts", `${imports}export const guides = ${collection}\nexport const unrelated = ${collection}`),
       snippet("server/collections/hidden.ts", `${imports}export const hidden = defineCollection({ source: array([]), route: false })`),
-      snippet("client.ts", "import { useCollection } from 'vite-hub/source/client'\nexport const guides = useCollection('docs/guides')\nexport const title: string = guides.items.value[0].title"),
-      snippet("wrong-name.ts", "import { useCollection } from 'vite-hub/source/client'\nuseCollection('guides')"),
-      snippet("unrelated.ts", "import { useCollection } from 'vite-hub/source/client'\nuseCollection('unrelated')"),
-      snippet("hidden.ts", "import { useCollection } from 'vite-hub/source/client'\nuseCollection('hidden')"),
+      snippet("client.ts", "import { useCollection } from '@vite-hub/source/client'\nexport const guides = useCollection('docs/guides')\nexport const title: string = guides.items.value[0].title"),
+      snippet("wrong-name.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('guides')"),
+      snippet("unrelated.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('unrelated')"),
+      snippet("hidden.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('hidden')"),
     ]
     const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
 
