@@ -1,5 +1,5 @@
 // Type-checks every TypeScript code block in the docs and in the package READMEs against the built
-// workspace packages. Build them first: `vp run --cache -t vite-hub#build`.
+// workspace packages. Build them first: `corepack pnpm exec vp run build`.
 //
 // Each page is a small project: a block with a file label, such as ```ts [server/db/schema.ts], is written
 // at that path, so the other blocks of the page can import it. A block that is an excerpt of a larger file
@@ -220,6 +220,25 @@ export function snippetId(snippet) {
  */
 export const baselinePath = join(docsRoot, "scripts/check-snippets.baseline.json")
 
+/** Records every diagnostic, independent of checkout path, page line numbers, and diagnostic order. */
+export function baselineEntry({ snippet, diagnostics }) {
+  const checkout = `${repoRoot.replaceAll("\\", "/")}/`
+  const error = diagnostics.map(diagnostic => `TS${diagnostic.code} ${diagnostic.message.replaceAll("\\", "/").replaceAll(checkout, "")}`).sort().join("\n")
+  return { id: snippetId(snippet), label: snippet.label ?? null, error }
+}
+
+export function compareBaseline(failures, baseline) {
+  const known = new Map(baseline.map(entry => [entry.id, entry]))
+  const failed = new Set(failures.map(failure => snippetId(failure.snippet)))
+  const fresh = failures.filter((failure) => {
+    const current = baselineEntry(failure)
+    const expected = known.get(current.id)
+    return !expected || expected.label !== current.label || expected.error !== current.error
+  })
+  const stale = baseline.filter(entry => !failed.has(entry.id))
+  return { fresh, stale }
+}
+
 function readBaseline() {
   return existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8")) : []
 }
@@ -229,24 +248,18 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const { failures } = checkSnippets(snippets)
   const baseline = readBaseline()
   if (process.argv.includes("--update-baseline")) {
-    const entries = failures.map(({ snippet, diagnostics }) => {
-      const diagnostic = diagnostics.find(entry => entry.code !== 2304 && entry.code !== 2307) ?? diagnostics[0]
-      return { id: snippetId(snippet), label: snippet.label ?? null, error: `TS${diagnostic.code} ${diagnostic.message.split("\n")[0]}` }
-    })
+    const entries = failures.map(baselineEntry)
     writeFileSync(baselinePath, `${JSON.stringify(entries, null, 2)}\n`)
     console.log(`Wrote ${entries.length} known failures to ${relative(repoRoot, baselinePath)}.`)
     process.exit(0)
   }
-  const known = new Set(baseline.map(entry => entry.id))
-  const failed = new Set(failures.map(failure => snippetId(failure.snippet)))
-  const fresh = failures.filter(failure => !known.has(snippetId(failure.snippet)))
+  const { fresh, stale } = compareBaseline(failures, baseline)
   for (const { snippet, diagnostics } of fresh) {
     for (const diagnostic of diagnostics) console.error(`${snippet.page}:${diagnostic.line} TS${diagnostic.code} ${diagnostic.message.split("\n")[0]}`)
   }
-  const stale = baseline.filter(entry => !failed.has(entry.id))
   for (const entry of stale) console.error(`${entry.id} passes now or changed. Remove it from ${relative(repoRoot, baselinePath)}.`)
   const fragments = snippets.filter(snippet => snippet.fragment).length
   console.log(`${snippets.length - fragments} TypeScript blocks type-checked, ${fragments} marked \`${fragmentMarker}\`, ${failures.length} failed, ${failures.length - fresh.length} of them listed as known failures.`)
-  if (fresh.length) console.log(`Fix each block, or add \`${fragmentMarker}\` to the fence meta of a block that is an excerpt of a larger file.`)
+  if (fresh.length) console.log(`Fix each new or changed failure, or add \`${fragmentMarker}\` to the fence meta of a block that is an excerpt of a larger file.`)
   if (fresh.length || stale.length) process.exitCode = 1
 }
