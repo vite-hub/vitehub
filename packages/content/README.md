@@ -28,6 +28,12 @@ Content plugins, such as `json()`, `media()`, or `sqlite-full-text-search`, go i
 evaluated when the content runtime is created and can be changed by rebuilding
 or recreating that runtime.
 
+Install Comark when importing a parse plugin directly:
+
+```sh
+pnpm add comark
+```
+
 ```ts
 import { defineContent } from "@vite-hub/content"
 import { glob } from "@vite-hub/source/glob"

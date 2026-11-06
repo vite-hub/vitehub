@@ -77,6 +77,7 @@ export const content = defineContent({
   collections: {
     posts: documents({
       path: 'posts/**/*.md',
+      url: '/blog/:id',
       fields: {
         title: z.string().min(1),
         date: z.coerce.date(),
