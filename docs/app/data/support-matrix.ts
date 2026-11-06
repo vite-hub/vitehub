@@ -322,7 +322,7 @@ export const supportMatrixGroups: SupportMatrixGroup[] = [
         values: {
           local: cell(
             "available",
-            "The local provider stores jobs in .vitehub/data/queue and runs them in the dev server process.",
+            "The dev server stores jobs in .vitehub/data/queue and runs them in its process, with the delivery rules of the Cloudflare, Vercel, or local provider of the build.",
             "Local provider",
           ),
           cloudflare: cell("available", "Cloudflare Queues bindings and consumers.", "Queues"),

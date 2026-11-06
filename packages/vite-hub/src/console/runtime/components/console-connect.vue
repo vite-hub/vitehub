@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from "vue";
 
 import type { ConsoleNavigation } from "../client/sections";
+import { projectUrl } from "../client/project";
 import { isConsoleSignInRequired } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
 import { consoleDocsBase } from "../sections";
@@ -24,7 +25,7 @@ const navigation = shallowRef<ConsoleNavigation>();
 const error = shallowRef<unknown>();
 const checking = ref(false);
 const signedOut = computed(() => isConsoleSignInRequired(error.value));
-const host = typeof window === "undefined" ? "" : window.location.host;
+const host = typeof window === "undefined" ? "" : new URL(projectUrl("/"), window.location.href).host;
 // The sections that tools/list offers to this person: the same ones as the rail.
 const sections = computed(() =>
   (navigation.value?.sections ?? []).flatMap((section) => {
