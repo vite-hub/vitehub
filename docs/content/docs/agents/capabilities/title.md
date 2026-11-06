@@ -32,7 +32,7 @@ export default defineAgent({
 
 ## How titles are generated
 
-`title()` reads the prepared user message matching `run.messageId`, or the last prepared user message when no message ID is available. It uses a string `input.prompt` only when no user message is present. If an explicit message ID has no matching user message, it leaves the title unset.
+`title()` reads the prepared user message matching `run.messageId`, or the last prepared user message when no message ID is available. It uses a string `input.prompt` only when no user message is present. If prepared messages exist and an explicit message ID has no matching user message, it leaves the title unset.
 Input Capabilities run first, so `transcribe()` can replace audio with transcript text before `title()` reads it. Audio with authored text uses both in their prepared order.
 When the message has no semantic text, such as an attachment-only audio or image message, `title()` waits for the successful Agent reply and uses that text. When the reply is also empty or the invocation fails, it leaves the title unset.
 

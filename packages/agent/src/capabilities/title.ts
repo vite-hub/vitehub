@@ -195,7 +195,7 @@ function markTitleApplied<T>(value: T): T {
 }
 
 function currentUserMessage(messages: Message[], input: AgentRunInput, messageId: string | undefined): Message | undefined {
-  if (messageId) return messages.find(message => message.id === messageId && message.role === "user")
+  if (messageId && messages.length) return messages.find(message => message.id === messageId && message.role === "user")
   const message = messages.findLast(message => message.role === "user")
   if (message) return message
   return hasRuntimeType(input.prompt, "string") && stripChatEntityMarkup(input.prompt)

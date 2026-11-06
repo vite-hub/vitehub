@@ -291,7 +291,30 @@ describe("title journal ownership", () => {
     expect((await invocations.getByRunId("triggered-message"))?.title).toBe("Investigate portal forecasts")
   })
 
-  it("leaves the title unset when the triggering message is missing", async () => {
+  it.each(["journal", "finish hook"] as const)("titles prompt-only invocations with message IDs for the %s", async (consumer) => {
+    const invocations = journal()
+    const finish = vi.fn()
+    const execute = vi.fn(({ text }) => `Title: ${text}`)
+    await runAgent(defineAgent({
+      capabilities: [title({ execute })],
+      driver: { run: () => "Done." },
+      hooks: consumer === "finish hook" ? { "agent:finish": finish } : undefined,
+      invocations: consumer === "journal" ? invocations : undefined,
+    }), {
+      ...runtime("prompt-message-id"),
+      run: { messageId: "gmail-message", origin: "gmail", runId: "prompt-message-id" },
+    }, { prompt: "Summarize the received email" })
+
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ source: "input", text: "Summarize the received email" }))
+    if (consumer === "journal") {
+      expect((await invocations.getByRunId("prompt-message-id"))?.title).toBe("Title: Summarize the received email")
+    }
+    else {
+      expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: Summarize the received email" })
+    }
+  })
+
+  it.each(["user", "assistant"] as const)("leaves the title unset when the triggering message is missing from %s history", async (role) => {
     const invocations = journal()
     const execute = vi.fn(() => "Unrelated title")
     await runAgent(defineAgent({
@@ -302,7 +325,7 @@ describe("title journal ownership", () => {
       ...runtime("missing-message"),
       run: { messageId: "missing", runId: "missing-message" },
     }, {
-      messages: [createMessage({ role: "user", text: "Old topic" })],
+      messages: [createMessage({ role, text: "Old topic" })],
       prompt: "Unrelated fallback",
     })
 
