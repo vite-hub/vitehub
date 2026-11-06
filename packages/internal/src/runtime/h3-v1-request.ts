@@ -157,7 +157,8 @@ function openNodeRequestStream(event: H3V1Event, iterator: AsyncIterator<unknown
     async read() {
       while (true) {
         if (cancelled) return { done: true }
-        if (index < chunks.length) return { value: chunks[index++] }
+        // Web consumers may mutate a returned chunk; H3 must retain the original bytes.
+        if (index < chunks.length) return { value: new Uint8Array(chunks[index++]) }
         if (failure) throw failure.error
         if (ended) return { done: true }
         await pull()

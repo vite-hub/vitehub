@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer"
 import { H3Event } from "h3"
 import { describe, expect, it, vi } from "vitest"
 import { toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
@@ -205,6 +206,34 @@ describe("@vite-hub/runtime/h3", () => {
 
     expect(text).toBe("one,two")
     await expect(cached()).resolves.toBe("one,two")
+  })
+
+  it.each([
+    { kind: "Uint8Array", chunk: new TextEncoder().encode("one,") },
+    { kind: "Buffer", chunk: Buffer.from("one,") },
+  ])("keeps the H3 body cache intact when the Web reader mutates a $kind chunk", async ({ chunk }) => {
+    let reads = 0
+    const nodeRequest = {
+      headers: { host: "example.test" },
+      method: "POST",
+      url: "/",
+      async *[Symbol.asyncIterator]() {
+        reads++
+        yield chunk
+        reads++
+        yield "two"
+      },
+    }
+    const event: { _requestBody?: unknown, node: { req: typeof nodeRequest } } = { node: { req: nodeRequest } }
+    const reader = toH3V1Request(event).body!.getReader()
+    const first = await reader.read()
+    expect(reads).toBe(1)
+    first.value!.fill(0)
+
+    const cached = await event._requestBody
+    expect(new TextDecoder().decode(cached as Uint8Array)).toBe("one,two")
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe("two")
+    await expect(reader.read()).resolves.toMatchObject({ done: true })
   })
 
   it("closes the Node stream and drops the H3 body cache when the Web body is cancelled", async () => {
