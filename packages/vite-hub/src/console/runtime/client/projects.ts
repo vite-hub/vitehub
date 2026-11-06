@@ -58,7 +58,8 @@ export function normalizeProjectUrl(input: string): { target: ConsoleProjectTarg
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return { error: "Use an https:// URL, such as https://app.example.com." }
   if (url.username || url.password) return { error: "Remove the user name and password from the URL." }
-  const mount = url.pathname.indexOf("/_vitehub")
+  // Only a whole `/_vitehub` segment starts a pasted Console path. `/_vitehub-tools` is an application base.
+  const mount = url.pathname.search(/\/_vitehub(?=\/|$)/)
   const path = mount === -1 ? url.pathname : url.pathname.slice(0, mount)
   const base = path.replace(/\/+$/, "")
   return { target: { origin: url.origin, base, url: `${url.origin}${base}` } }

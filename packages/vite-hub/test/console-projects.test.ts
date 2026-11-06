@@ -28,6 +28,8 @@ describe("project URLs", () => {
     ["127.0.0.1:4100/", "http://127.0.0.1:4100", ""],
     ["https://app.example.com/portal/_vitehub/kv?store=default#top", "https://app.example.com", "/portal"],
     ["  https://APP.example.com:443/_vitehub  ", "https://app.example.com", ""],
+    ["https://app.example.com/_vitehub-app", "https://app.example.com", "/_vitehub-app"],
+    ["https://app.example.com/portal/_vitehub-tools/_vitehub/kv", "https://app.example.com", "/portal/_vitehub-tools"],
   ])("reads %s as origin and base", (input, origin, base) => {
     expect(normalizeProjectUrl(input)).toEqual({ target: { origin, base, url: `${origin}${base}` } })
   })
