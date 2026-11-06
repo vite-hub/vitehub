@@ -32,7 +32,13 @@ const resolvedCatalogModule = `\0${catalogModule}`
 /** A production catalog holds this string until the chunk renders. Then every message of the bundle is known. */
 const catalogMarker = (locale: string) => `__VITEHUB_I18N_CATALOG_${locale}__`
 const catalogMarkerRe = /"__VITEHUB_I18N_CATALOG_([\w-]+)__"/g
+const clientIdsModule = "virtual:vite-hub/i18n/client-ids"
+const resolvedClientIdsModule = `\0${clientIdsModule}`
+const clientIdsMarker = "__VITEHUB_I18N_CLIENT_IDS__"
 const generatedPlugin = ".vitehub/nitro/i18n/plugin.mjs"
+const generatedRoute = ".vitehub/nitro/i18n/catalog.mjs"
+/** The browser reads live catalogs from `<liveRoute>/<locale>.json`. */
+const liveRoute = "/_vitehub/i18n"
 const generatedMessages = ".vitehub/i18n/messages.mjs"
 const mergeNoExternal = createNoExternalAddition(packageName)
 
@@ -54,12 +60,20 @@ export type I18nVitePlugin = Plugin & { vitehub: ViteHubCliPluginMetadata & Vite
 
 type ViteHubConfig = (UserConfig | ResolvedConfig) & { i18n?: I18nOptions, nitro?: unknown, [VITEHUB_NITRO_MAJOR_VERSION]?: 2 | 3 }
 
-function renderNitroPlugin(importBase: string, messagesFile: string): string {
+function renderNitroPlugin(importBase: string, messagesFile: string, workspace: string | undefined): string {
+  // `vite-hub/i18n` gets the Workspace from `vite-hub/workspace/files`, and `@vite-hub/i18n` from `@vite-hub/workspace/files`.
+  const workspaceImport = importBase.replace(/i18n$/, "workspace/files")
   return [
     `import { definePlugin } from "nitro"`,
     `import { useRequest } from "nitro/context"`,
     `import { installI18nServer } from ${JSON.stringify(`${importBase}/server`)}`,
     `import { config, messages } from ${JSON.stringify(messagesFile)}`,
+    ...(workspace
+      ? [
+          `import { clientIds } from ${JSON.stringify(clientIdsModule)}`,
+          `import { useWorkspaceFiles } from ${JSON.stringify(workspaceImport)}`,
+        ]
+      : []),
     "",
     "export default definePlugin((nitroApp) => {",
     "  installI18nServer(nitroApp, {",
@@ -69,13 +83,25 @@ function renderNitroPlugin(importBase: string, messagesFile: string): string {
     "      try { return useRequest() }",
     "      catch { return undefined }",
     "    },",
+    ...(workspace
+      ? [`    workspace: { name: ${JSON.stringify(workspace)}, open: mode => useWorkspaceFiles(${JSON.stringify(workspace)}, { mode }), clientIds },`]
+      : []),
     "  })",
     "})",
     "",
   ].join("\n")
 }
 
-function renderClientModule(importBase: string, locale: I18nLocaleConfig): string {
+function renderCatalogRoute(importBase: string): string {
+  return [
+    `import { i18nCatalogResponse } from ${JSON.stringify(`${importBase}/server`)}`,
+    "",
+    "export default event => i18nCatalogResponse(event.req)",
+    "",
+  ].join("\n")
+}
+
+function renderClientModule(importBase: string, locale: I18nLocaleConfig, live: boolean): string {
   const loaders = locale.locales.map(entry => `    ${JSON.stringify(entry)}: () => import(${JSON.stringify(`${catalogModule}${entry}`)}),`)
   return [
     `import { configureI18n } from ${JSON.stringify(`${importBase}/runtime`)}`,
@@ -84,6 +110,7 @@ function renderClientModule(importBase: string, locale: I18nLocaleConfig): strin
     `  locales: ${JSON.stringify(locale.locales)},`,
     `  sourceLocale: ${JSON.stringify(locale.sourceLocale)},`,
     `  cookie: ${JSON.stringify(locale.cookie)},`,
+    ...(live ? [`  live: ${JSON.stringify(liveRoute)},`] : []),
     "  catalogs: {",
     ...loaders,
     "  },",
@@ -104,6 +131,8 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   /** Messages of each environment in this build. The client catalogs and the manifest come from it. */
   const manifest: I18nManifest = { environments: {} }
   let buildRecords: Promise<Record<string, TranslationRecords>> | undefined
+  /** Environments whose code runs in the browser. */
+  const browserEnvironments = new Set<string>()
 
   const setup = (config: ViteHubConfig): void => {
     configured = { ...options, ...config.i18n }
@@ -131,7 +160,8 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       `export const messages = ${JSON.stringify(messages)}`,
       "",
     ].join("\n"))
-    await writeFileIfChanged(resolve(projectRoot, generatedPlugin), renderNitroPlugin(importBase, messagesFile))
+    await writeFileIfChanged(resolve(projectRoot, generatedPlugin), renderNitroPlugin(importBase, messagesFile, configured.workspace))
+    if (configured.workspace) await writeFileIfChanged(resolve(projectRoot, generatedRoute), renderCatalogRoute(importBase))
   }
 
   // The CLI can run before Vite resolves the config, so it builds the config from the plugin options.
@@ -196,6 +226,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
         await writeServerFiles()
         const kit = createNitroServerKit(viteHubConfig.nitro)
         kit.addPlugin(resolve(projectRoot!, generatedPlugin), "start")
+        if (configured.workspace) kit.addHandler({ route: `${liveRoute}/:file`, method: "GET", handler: resolve(projectRoot!, generatedRoute) })
         // Nitro runs each request in an async context, so `t` in server code finds the locale of its request.
         const nitro = kit.config as Record<string, unknown> & { experimental?: Record<string, unknown> }
         nitro.experimental = { ...nitro.experimental, asyncContext: true }
@@ -217,11 +248,14 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     resolveId(id) {
       if (id === clientModule) return resolvedClientModule
+      if (id === clientIdsModule) return resolvedClientIdsModule
       if (id.startsWith(catalogModule)) return `\0${id}`
     },
     async load(id) {
       if (!projectRoot || !locale) return
-      if (id === resolvedClientModule) return renderClientModule(importBase, locale)
+      if (id === resolvedClientModule) return renderClientModule(importBase, locale, Boolean(configured.workspace))
+      // The server sends the browser only the translations of browser messages. Development sends all of them.
+      if (id === resolvedClientIdsModule) return `export const clientIds = ${isBuild ? JSON.stringify(clientIdsMarker) : "null"}\n`
       if (!id.startsWith(resolvedCatalogModule)) return
       const entry = locale.locales.find(candidate => candidate === id.slice(resolvedCatalogModule.length))
       if (!entry) return
@@ -238,6 +272,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
         if (isBuild && !id.includes("?")) {
           // The build reads each message from the file on disk, so origins point at the lines that you wrote.
           const source = await readFile(id, "utf8").catch(() => undefined)
+          if (!server) browserEnvironments.add(this.environment.name)
           const messages = manifest.environments[this.environment.name] ??= {}
           for (const message of source ? await extractFileMessages(id, source, lingui) : []) addMessage(messages, message, lingui.rootDir)
         }
@@ -247,6 +282,15 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       },
     },
     async renderChunk(code) {
+      if (code.includes(clientIdsMarker)) {
+        // The server builds after the browser, so every browser message is known here.
+        const ids = [...browserEnvironments].flatMap(name => Object.keys(manifest.environments[name] ?? {}))
+        const output = new MagicString(code)
+        for (const match of code.matchAll(new RegExp(`"${clientIdsMarker}"`, "g"))) {
+          output.overwrite(match.index, match.index + match[0].length, JSON.stringify([...new Set(ids)].sort()))
+        }
+        return { code: output.toString(), map: output.generateMap({ hires: "boundary" }) }
+      }
       if (!code.includes("__VITEHUB_I18N_CATALOG_")) return
       // The catalog of an environment holds only the messages of its code. Translations of server-only messages
       // stay out of the browser.

@@ -215,6 +215,23 @@ pnpm vitehub i18n prune --yes
 
 To add a locale, add it to `i18n.locales`. It starts with every message untranslated.
 
+## Store translations in a Workspace
+
+By default, translations are files in your repository, and a new translation needs a deploy. To change translations without a deploy, store them in a [Workspace](/docs/workspace) with retained history, such as the Blob and Database store or the GitHub store:
+
+```ts [vite.config.ts]
+vitehub({ i18n: { locales: ['en', 'es'], workspace: 'translations' } })
+```
+
+The Workspace holds the same records as `locales/`, at `<locale>/<file>.json`. It has two refs:
+
+- **`draft`** gets every save. The site does not show it.
+- **`published`** is what the site shows. [`useTranslations().publish()`](/docs/i18n/server-api#usetranslations) copies the changed drafts to it in one revision.
+
+The server reads the head of `published` at most once every 5 seconds, and compiles each revision once. A request after a publish gets the new translations. The browser gets them from `/_vitehub/i18n/<locale>.json`, which sends only the messages of browser code. Its ETag is the revision, so the browser downloads a catalog again only after a publish.
+
+The build still reads `locales/` and embeds those translations. The server uses them until the first publish, and when it cannot read the Workspace. `vitehub i18n status`, `export`, `import`, and `prune` work on `locales/`, not on the Workspace.
+
 ## What the build does
 
 - **Messages become IDs in the browser.** The build replaces each message with a short ID, a hash of the source text and its context. In a production build, the browser code has IDs and no source text.

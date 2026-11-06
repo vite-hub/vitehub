@@ -15,6 +15,8 @@ export type I18nCatalogLoader = () => Promise<{ messages: Messages }>
 
 export interface I18nRuntimeConfig extends I18nLocaleConfig {
   catalogs: Readonly<Record<string, I18nCatalogLoader>>
+  /** Path of the live catalog route, such as `/_vitehub/i18n`, when a Workspace stores the translations. */
+  live?: string
 }
 
 interface I18nState {
@@ -88,11 +90,31 @@ export function getLocales(): readonly string[] {
   return state().config?.locales ?? [getLocale()]
 }
 
+/**
+ * Translations that a Workspace published after the build. The route answers with an ETag, so the browser downloads a
+ * catalog again only after a publish. When the route fails, the page keeps the catalog of the build.
+ */
+async function liveMessages(live: string, locale: string): Promise<Messages> {
+  try {
+    const response = await fetch(`${live}/${encodeURIComponent(locale)}.json`)
+    if (!response.ok) return {}
+    const body = await response.json() as { revision?: string, messages?: Messages }
+    return body.revision === "build" ? {} : body.messages ?? {}
+  }
+  catch {
+    return {}
+  }
+}
+
 /** Load the compiled messages of a locale and activate it on an i18n instance. */
 export async function activateLocale(target: I18n, locale: string): Promise<void> {
-  const loader = state().config?.catalogs[locale]
-  const { messages } = loader ? await loader() : { messages: {} }
-  target.loadAndActivate({ locale, messages })
+  const config = state().config
+  const loader = config?.catalogs[locale]
+  const [{ messages }, live] = await Promise.all([
+    loader ? loader() : { messages: {} },
+    config?.live && browserDocument() ? liveMessages(config.live, locale) : {},
+  ])
+  target.loadAndActivate({ locale, messages: { ...messages, ...live } })
 }
 
 /** The parts of `document` that the runtime uses. Server code has no `document`. */
