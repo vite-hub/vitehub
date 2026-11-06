@@ -58,6 +58,75 @@ describe("vitehub add", () => {
     expect((await add(["console", "--no-install", "--yes"], root)).json.status).toBe("unchanged")
   })
 
+  it.each(["agent.invocations=database", "agent.invocations.store=database"])("enables Database for %s on native and explicit hosts", async (option) => {
+    for (const host of ["node", "vercel"]) {
+      const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}", database: false }`) })
+      const before = await snapshot(root)
+      const args = ["agent", "--option", option, "--no-install", "--yes"]
+      if (host === "vercel") {
+        const missing = await add(args, root)
+        expect(missing.exitCode, missing.stdout).toBe(2)
+        expect(missing.json.missing).toEqual([{ field: "database.connection" }])
+        expect(await snapshot(root)).toEqual(before)
+        args.push("--option", "database.connection.url=libsql://example.com")
+      }
+      const result = await add(args, root)
+      expect(result.exitCode, result.stdout).toBe(0)
+      expect(result.json.features).toContain("database")
+      expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/database", "drizzle-orm"]))
+      expect(result.json.install.devPackages).toContain("drizzle-kit")
+      const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
+      expect(config.ok && config.site.keys.database).toMatchObject({ value: host === "node" ? true : { connection: { url: "libsql://example.com" } } })
+      expect((await add(args, root)).json.status).toBe("unchanged")
+    }
+  })
+
+  it("plans sign-in packages for inline Console Auth options", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ preset: "node" }') })
+    const before = await snapshot(root)
+    const result = await add(["console", "--option", "console.auth.provider=github", "--option", "console.auth.org=vite-hub", "--dry-run"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"]))
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each([
+    '{ preset: "node", console: { auth: { provider: "github", org: "vite-hub" } } }',
+    '{ preset: "node", console: { auth: "app" }, auth: true }',
+  ])("plans sign-in packages for existing Console access: %s", async (options) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(options) })
+    const result = await add(["console", "--dry-run"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"]))
+    expect(result.json.changes).toEqual([])
+  })
+
+  it.each([
+    ['{ preset: "node", agent: true }', ["console", "--option", "console.auth=false"]],
+    ['{ preset: "node", console: { auth: false } }', ["agent"]],
+    ['{ preset: "node" }', ["console", "agent", "--option", "console.auth=false"]],
+  ])("plans the Console Agent journal packages with %s", async (options, args) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(options) })
+    const calls: string[][] = []
+    const result = await add([...args, "--yes"], root, async (_command, spawnArgs) => {
+      calls.push([...spawnArgs])
+      return { exitCode: 0 }
+    })
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toContain("@libsql/client")
+    expect(result.json.install.packages.filter(name => name === "drizzle-orm")).toHaveLength(1)
+    expect(calls[0]).toContain("@libsql/client")
+    expect(result.json.install.packages).not.toContain("@better-auth/oauth-provider")
+  })
+
+  it("does not install session sign-in packages for Cloudflare Access", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ preset: "cloudflare" }') })
+    const result = await add(["console", "--option", "console.auth.provider=cloudflare-access", "--option", "console.auth.teamDomain=example.cloudflareaccess.com", "--option", "console.auth.audience=console", "--dry-run"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).not.toContain("@vite-hub/auth")
+    expect(result.json.install.packages).not.toContain("@better-auth/oauth-provider")
+  })
+
   it.each([
     'serverDir: process.env.SERVER_DIR || "backend"',
     'rootDir: process.env.APP_ROOT || "app"',

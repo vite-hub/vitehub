@@ -4,7 +4,7 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
-import { featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { consoleFeaturePackages, featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
 import { basename, dirname, join, relative } from "pathe"
 
@@ -276,6 +276,10 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const requires: FeatureId[] = []
   let rerunnable = true
   const keep = status.features.filter(item => item.enabled === "off" && item.reason === "config" && !args.features.includes(item.id)).map(item => item.id)
+  const valueFor = (id: FeatureId): JsonValue | undefined => {
+    const current = project.config?.ok ? project.config.site.keys[id] : undefined
+    return mergeValue(current?.kind === "literal" ? current.value : undefined, args.options[id])
+  }
   // Implications and provider prerequisites need their inputs before any file can be written.
   // Database is mandatory for Comments and Connections, including Console's implied Comments.
   const inputFeatures = [...args.features, ...impliedFeatures(args.features, host, keep.filter(id => id !== "database"))]
@@ -284,7 +288,12 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const support = featureSupport(id, host)
     const options = args.options[id]
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
-    const value = mergeValue(current?.kind === "literal" ? current.value : undefined, options)
+    const value = valueFor(id)
+    const invocations = id === "agent" && isRecord(value) ? value.invocations : undefined
+    if (invocations === "database" || (isRecord(invocations) && invocations.store === "database")) {
+      if (!inputFeatures.includes("database")) inputFeatures.push("database")
+      if (!args.features.includes("database") && !requires.includes("database") && status.features.find(item => item.id === "database")?.enabled !== "on") requires.push("database")
+    }
     if (support.level === "explicit") {
       const key = support.option.slice(id.length + 1)
       if (!(options && key in options) && !setsOption(project, support.option)) {
@@ -383,10 +392,17 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   // The features that this command turns on, through the config or through an implication.
   const alreadyOn = new Set(status.features.filter(item => item.enabled === "on").map(item => item.id))
   const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], host, keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
-  const install: Planned["install"] = { dev: [], prod: [] }
-  for (const id of [...addedFeatures, ...implied]) {
-    for (const name of features[id].packages) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
-    for (const name of features[id].devPackages) if (!project.declared(name, true) && !install.dev.includes(name)) install.dev.push(name)
+  const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
+  const packages = [...addedFeatures, ...implied].flatMap(id => features[id].packages)
+  if (enabled.has("console")) {
+    if (enabled.has("agent")) packages.push(...consoleFeaturePackages.agents)
+    const consoleValue = valueFor("console")
+    const auth = isRecord(consoleValue) ? consoleValue.auth : "app"
+    if ((isRecord(auth) && auth.provider !== "cloudflare-access") || (auth === "app" && enabled.has("auth"))) packages.push(...consoleFeaturePackages.signIn)
+  }
+  const install: Planned["install"] = {
+    dev: [...new Set([...addedFeatures, ...implied].flatMap(id => features[id].devPackages))].filter(name => !project.declared(name, true)),
+    prod: [...new Set(packages)].filter(name => !project.declared(name, false)),
   }
   install.prod = installSpecifiers(install.prod)
   install.dev = installSpecifiers(install.dev)

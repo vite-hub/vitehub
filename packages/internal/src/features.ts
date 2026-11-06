@@ -468,6 +468,12 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
   }),
 }
 
+/** Additional Console owners selected by its access policy and enabled Agent integration. */
+export const consoleFeaturePackages = {
+  agents: ["@libsql/client", "drizzle-orm"],
+  signIn: ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
+} as const
+
 /** How `host` supports `id`. Development requires the app's configured (or detected) deployment preset. */
 export function featureSupport(id: FeatureId, host: DeploymentPreset): HostSupport
 export function featureSupport(id: FeatureId, host: FeatureHost, preset: DeploymentPreset): HostSupport
