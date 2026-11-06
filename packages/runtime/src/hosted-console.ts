@@ -41,8 +41,7 @@ export function normalizeConsoleProjectUrl(projectUrl: string): string | undefin
   }
   if (url.username || url.password) return undefined
   if (url.protocol !== "https:" && !(url.protocol === "http:" && loopbackHosts.has(url.hostname))) return undefined
-  // Only a whole `/_vitehub` segment starts a pasted Console path. `/_vitehub-app` is an application base.
-  const mount = /\/_vitehub(?:\/|$)/.exec(url.pathname)?.index ?? -1
+  const mount = url.pathname.search(/\/_vitehub(?=\/|$)/)
   const base = (mount === -1 ? url.pathname : url.pathname.slice(0, mount)).replace(/\/+$/, "")
   return `${url.origin}${base}`
 }
