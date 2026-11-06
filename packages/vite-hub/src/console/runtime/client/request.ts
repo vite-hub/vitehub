@@ -1,13 +1,13 @@
 import { Diagnostic } from "nostics"
 
 import { consoleRpcHeader } from "../rpc"
+import { projectFetch } from "./project"
 
 import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleApiMarker = "/api/_vitehub/console/"
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
-const consoleRpcUploadPath = "/_vitehub/rpc/__upload"
 
 function decodeConsoleId(value: string): string {
   try {
@@ -111,23 +111,6 @@ export async function consoleResponseError(response: Response, fallback: Console
     fix: fields.fix ?? fallback.fix,
     message: fields.message ?? fallback.message,
   }, failure)
-}
-
-/** The media upload route under the application mount of a Console API path. */
-export function consoleRpcUploadURL(path: string): string {
-  const url = new URL(path, "http://vitehub.local")
-  const marker = url.pathname.lastIndexOf(consoleApiMarker)
-  const appBase = marker === -1 ? "" : url.pathname.slice(0, marker)
-  return `${appBase}${consoleRpcUploadPath}`
-}
-
-function consoleRpcCallURL(path: string): string {
-  const url = new URL(path, "http://vitehub.local")
-  // The application mount may itself contain the Console API marker. The
-  // final marker is the generated route that belongs to this request.
-  const marker = url.pathname.lastIndexOf(consoleApiMarker)
-  const appBase = marker === -1 ? "" : url.pathname.slice(0, marker)
-  return `${appBase}${consoleRpcCallPath}`
 }
 
 interface ConsoleRoute {
@@ -287,15 +270,11 @@ export async function requestConsole(
     query[key] = Array.isArray(value) ? value.map(String) : String(value)
   }
   const call = consoleOperationCall(path, { body: options.body, method: options.method ?? "GET", query })
-  return requestConsoleOperation(path, call.operation, call.input, options)
+  return requestConsoleOperation(call.operation, call.input, options)
 }
 
-/**
- * Call one named operation over the Console RPC. `path` is any Console API path of the app, such as the definitions
- * route, and only locates the application mount.
- */
+/** Call one named operation over the Console RPC of the project. */
 export async function requestConsoleOperation(
-  path: string,
   operation: string,
   input: Record<string, unknown>,
   options: { keepalive?: boolean, signal?: AbortSignal } = {},
@@ -305,10 +284,9 @@ export async function requestConsoleOperation(
   const requestBody = JSON.stringify({ operation, input })
   let response: Response
   try {
-    response = await fetch(consoleRpcCallURL(path), {
+    response = await projectFetch(consoleRpcCallPath, {
       body: requestBody,
       cache: "no-store",
-      credentials: "same-origin",
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       ...(options.keepalive ? { keepalive: true } : {}),
       method: "POST",

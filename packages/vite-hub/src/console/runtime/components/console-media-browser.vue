@@ -7,11 +7,11 @@ import {
   consoleFocalCropPosition,
   consoleFolderTrail,
   consoleMediaAccepts,
+  consoleMediaFileUrl,
   consoleMediaFormat,
   consoleMediaTransformable,
   consoleMediaType,
   consoleMediaTypeIcons,
-  consoleMediaUrl,
   consoleMediaVariantUrl,
 } from "../client/media-library";
 import { consoleBytes } from "../client/format";
@@ -171,7 +171,7 @@ function open(path: string): void {
 }
 
 function thumbnail(file: ConsoleMediaFile, size = 256): string | undefined {
-  const url = file.url ?? consoleMediaUrl(served.value, file.pathname);
+  const url = consoleMediaFileUrl(file, served.value);
   if (!url || consoleMediaType(file.contentType) !== "image") return undefined;
   return consoleMediaTransformable(file.contentType) ? consoleMediaVariantUrl(url, {
     // Keep the source uncropped when a focal point is set; CSS then applies the same focal-aware crop as the serve route.

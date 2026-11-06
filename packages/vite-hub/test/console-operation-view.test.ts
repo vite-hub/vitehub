@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { parseConsoleContributedSection, parseConsoleSectionContent } from "../src/console/runtime/definitions.ts"
 import { loadOperationItems, operationCell, operationItems, operationLink, operationValue } from "../src/console/runtime/client/operation-view.ts"
 import { consoleCommentsTransport, consoleCommentSubjectLabel, isConsoleCommentThread, readConsoleCommentSession } from "../src/console/runtime/client/comment-thread.ts"
+import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { ConsoleRequestError, requestConsoleOperation } from "../src/console/runtime/client/request.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 import { describeViteHubConsoleSection, readViteHubConsoleSection } from "@vite-hub/internal/console"
@@ -26,7 +27,10 @@ const section: ViteHubConsoleOperationSection = {
   },
 }
 
+const pageProject = consoleProject()
+
 afterEach(() => {
+  setConsoleProject(pageProject)
   vi.unstubAllGlobals()
 })
 
@@ -62,7 +66,7 @@ describe("operation view", () => {
       requests.push(JSON.parse(String(init.body)).input)
       return Response.json({ ok: true, value: requests.length === 1 ? first : [older] })
     })
-    expect(await loadOperationItems("/api/_vitehub/console/definitions", section.view, { mine: true }, new AbortController().signal)).toEqual([...first, older])
+    expect(await loadOperationItems(section.view, { mine: true }, new AbortController().signal)).toEqual([...first, older])
     expect(requests).toEqual([{ mine: true, limit: 200 }, { mine: true, limit: 200, before: { id: "thread-199", updatedAt: 801 } }])
   })
 
@@ -74,7 +78,7 @@ describe("operation view", () => {
       return Response.json({ ok: true, value: Array.from({ length: 200 }, (_, id) => ({ id, updatedAt: 1 })) })
     })
     vi.stubGlobal("fetch", fetch)
-    await expect(loadOperationItems("/api/_vitehub/console/definitions", section.view, {}, controller.signal)).rejects.toMatchObject({ name: "AbortError" })
+    await expect(loadOperationItems(section.view, {}, controller.signal)).rejects.toMatchObject({ name: "AbortError" })
     expect(fetch).toHaveBeenCalledOnce()
   })
 
@@ -96,6 +100,7 @@ describe("operation view", () => {
   })
 
   it("runs each comments transport call as its comments operation with the Console user", async () => {
+    setConsoleProject({ origin: "", base: "/portal" })
     const calls: Array<{ input: unknown, operation: string }> = []
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       expect(url).toBe("/portal/_vitehub/rpc/__call")
@@ -105,7 +110,7 @@ describe("operation view", () => {
       if (body.operation === "comments.reply") return Response.json({ code: "COMMENTS_R0009", message: "You may not write here.", ok: false, status: 403 }, { status: 403 })
       return Response.json({ ok: true, value: { id: "t1" } })
     })
-    const transport = consoleCommentsTransport("/portal/api/_vitehub/console/definitions")
+    const transport = consoleCommentsTransport()
     await transport.resolve({ threadId: "t1" })
     await transport.users({ query: "an" })
     await expect(transport.reply({ body: "Hi @Ann", mentions: ["u1"], threadId: "t1" })).rejects.toMatchObject({ code: "COMMENTS_R0009", message: "You may not write here.", status: 403 })
@@ -114,13 +119,13 @@ describe("operation view", () => {
       { input: { query: "an" }, operation: "comments.users" },
       { input: { body: "Hi @Ann", mentions: ["u1"], threadId: "t1" }, operation: "comments.reply" },
     ])
-    expect(await readConsoleCommentSession("/portal/api/_vitehub/console/definitions", { id: "/pricing", kind: "page" }, undefined, "t1")).toEqual({ canWrite: false, capabilities: { reply: false, resolve: true, deleteThread: false, edit: ["m1"], delete: ["m2"] }, user: { id: "u1", name: "Ann" } })
+    expect(await readConsoleCommentSession({ id: "/pricing", kind: "page" }, undefined, "t1")).toEqual({ canWrite: false, capabilities: { reply: false, resolve: true, deleteThread: false, edit: ["m1"], delete: ["m2"] }, user: { id: "u1", name: "Ann" } })
     expect(calls.at(-1)).toEqual({ input: { subject: { id: "/pricing", kind: "page" }, threadId: "t1" }, operation: "comments.session" })
   })
 
   it("reads a signed-out comments session as read-only", async () => {
     vi.stubGlobal("fetch", async () => Response.json({ ok: true, value: { canRead: false, canWrite: false, user: null } }))
-    expect(await readConsoleCommentSession("/api/_vitehub/console/definitions", { id: "/", kind: "page" })).toEqual({ canWrite: false, capabilities: { reply: false, resolve: false, deleteThread: false, edit: [], delete: [] }, user: undefined })
+    expect(await readConsoleCommentSession({ id: "/", kind: "page" })).toEqual({ canWrite: false, capabilities: { reply: false, resolve: false, deleteThread: false, edit: [], delete: [] }, user: undefined })
   })
 
   it("opens only list items that have the fields of a thread", () => {
@@ -133,6 +138,7 @@ describe("operation view", () => {
   })
 
   it("calls the operation over the RPC and keeps the failure fields", async () => {
+    setConsoleProject({ origin: "", base: "/portal" })
     const calls: Array<{ body: string, url: string }> = []
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       calls.push({ body: String(init?.body), url })
@@ -140,9 +146,9 @@ describe("operation view", () => {
         ? Response.json({ code: "COMMENTS_R0006", fix: "Add authorize.", message: "No policy.", ok: false, status: 403 }, { status: 403 })
         : Response.json({ ok: true, value: [{ id: "a" }] })
     })
-    expect(await requestConsoleOperation("/portal/api/_vitehub/console/definitions", "fixtures.list", { mine: true })).toEqual([{ id: "a" }])
+    expect(await requestConsoleOperation("fixtures.list", { mine: true })).toEqual([{ id: "a" }])
     expect(calls[0]).toEqual({ body: '{"operation":"fixtures.list","input":{"mine":true}}', url: "/portal/_vitehub/rpc/__call" })
-    const failure = await requestConsoleOperation("/api/_vitehub/console/definitions", "fixtures.list", { fail: true }).catch(error => error)
+    const failure = await requestConsoleOperation("fixtures.list", { fail: true }).catch(error => error)
     expect(failure).toBeInstanceOf(ConsoleRequestError)
     expect(failure).toMatchObject({ code: "COMMENTS_R0006", fix: "Add authorize.", status: 403 })
   })

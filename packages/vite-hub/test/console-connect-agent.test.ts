@@ -5,12 +5,16 @@ import { createApp, defineComponent, h, nextTick, reactive } from "vue"
 import { expect, it, vi } from "vitest"
 
 import ConsoleConnectAgent from "../src/console/runtime/components/console-connect-agent.vue"
+import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import type { ConsoleNavigation } from "../src/console/runtime/client/sections.ts"
+
+const pageProject = consoleProject()
 
 it.each(["", "/portal", "/apps/_vitehub-preview", "/apps/_vitehub/preview"])("renders and copies mounted commands at %s, then updates the auth mode", async (mount) => {
   const window = new Window({ url: `https://app.example.com${mount}/_vitehub` })
   vi.stubGlobal("window", window)
   vi.stubGlobal("navigator", window.navigator)
+  setConsoleProject({ origin: "", base: mount })
   const writeText = vi.spyOn(window.navigator.clipboard, "writeText").mockResolvedValue()
   const props = reactive<{ auth: ConsoleNavigation["auth"] }>({ auth: "cloudflare-access" })
   const app = createApp({ render: () => h(ConsoleConnectAgent, props) })
@@ -54,6 +58,7 @@ it.each(["", "/portal", "/apps/_vitehub-preview", "/apps/_vitehub/preview"])("re
     vi.runAllTimers()
     vi.useRealTimers()
     writeText.mockRestore()
+    setConsoleProject(pageProject)
     vi.unstubAllGlobals()
   }
 })

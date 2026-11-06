@@ -2,7 +2,7 @@
 import { computed, ref } from "vue";
 
 import { consoleErrorMessage } from "../client/documents";
-import { consoleAspectRatio, consoleCropName, consoleFocalCropPosition, consoleMediaAspects, consoleMediaUrl, consoleMediaVariantUrl } from "../client/media-library";
+import { consoleAspectRatio, consoleCropName, consoleFocalCropPosition, consoleMediaAspects, consoleMediaFileUrl, consoleMediaVariantUrl } from "../client/media-library";
 import { useConsoleToast } from "../client/toast";
 
 import type { ConsoleMediaClient, ConsoleMediaFile } from "../client/media-library";
@@ -23,7 +23,7 @@ const emit = defineEmits<{ updated: [file: ConsoleMediaFile] }>();
 
 const toast = useConsoleToast();
 const crops = computed(() => Object.entries(props.file.crops ?? {}).map(([name, crop]) => ({ name, ...crop, ratio: consoleAspectRatio(crop.aspect) ?? 1 })));
-const originalUrl = computed(() => props.file.url ?? consoleMediaUrl(props.served, props.file.pathname));
+const originalUrl = computed(() => consoleMediaFileUrl(props.file, props.served));
 const busy = ref<string>();
 const adding = ref(false);
 const newName = ref("");

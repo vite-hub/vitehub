@@ -53,7 +53,7 @@ async function load(): Promise<void> {
   controller = current;
   loading.value = true;
   try {
-    const result = await loadOperationItems(props.definitionsBase, view.value, { ...activeFilter.value?.input }, current.signal);
+    const result = await loadOperationItems(view.value, { ...activeFilter.value?.input }, current.signal);
     if (controller !== current) return;
     items.value = result;
     error.value = undefined;
@@ -184,7 +184,6 @@ onBeforeUnmount(() => controller?.abort());
       ref="threadPanel"
       v-if="detail?.kind === 'comment-thread'"
       :id="selectedId"
-      :definitions-base="definitionsBase"
       :initial="selectedItem"
       :view="view"
       @changed="refreshItems"

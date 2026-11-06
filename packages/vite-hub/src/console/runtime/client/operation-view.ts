@@ -68,13 +68,13 @@ export function operationItems(result: unknown): Array<Record<string, unknown>> 
 }
 
 /** Load a complete list, following the operation's optional `before` cursor contract. */
-export async function loadOperationItems(definitionsBase: string, view: ConsoleOperationView, input: Record<string, unknown>, signal: AbortSignal): Promise<Array<Record<string, unknown>>> {
+export async function loadOperationItems(view: ConsoleOperationView, input: Record<string, unknown>, signal: AbortSignal): Promise<Array<Record<string, unknown>>> {
   const items: Array<Record<string, unknown>> = []
   const pagination = view.pagination
   let next: Record<string, unknown> = { ...input, ...(pagination ? { limit: pagination.limit } : {}) }
   while (true) {
     signal.throwIfAborted()
-    const page = operationItems(await requestConsoleOperation(definitionsBase, view.operation, next, { signal }))
+    const page = operationItems(await requestConsoleOperation(view.operation, next, { signal }))
     items.push(...page)
     if (!pagination || page.length < pagination.limit) return items
     const last = page.at(-1)!

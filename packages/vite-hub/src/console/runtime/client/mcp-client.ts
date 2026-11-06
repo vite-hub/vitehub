@@ -17,13 +17,10 @@ export interface ConsoleMcpResults {
   "mcp-client.reconnect": ConsoleMcpConnectResult
 }
 
-/**
- * Call one operation of the MCP client section. `base` is any Console API path of the app and only locates the application
- * mount, as in `requestConsoleOperation()`.
- */
-export async function requestConsoleMcp<Operation extends keyof ConsoleMcpResults>(base: string, operation: Operation, input: Record<string, unknown> = {}, signal?: AbortSignal): Promise<ConsoleMcpResults[Operation]> {
+/** Call one operation of the MCP client section. */
+export async function requestConsoleMcp<Operation extends keyof ConsoleMcpResults>(operation: Operation, input: Record<string, unknown> = {}, signal?: AbortSignal): Promise<ConsoleMcpResults[Operation]> {
   // SAFETY: The server operation of this name returns this shape. Console and server ship in one build.
-  return await requestConsoleOperation(base, operation, input, signal ? { signal } : {}) as ConsoleMcpResults[Operation]
+  return await requestConsoleOperation(operation, input, signal ? { signal } : {}) as ConsoleMcpResults[Operation]
 }
 
 /** Status words and colors. The word always comes with the color, so the status never depends on color alone. */

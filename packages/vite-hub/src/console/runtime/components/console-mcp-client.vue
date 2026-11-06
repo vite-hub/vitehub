@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { consoleMcpAccount, consoleMcpEndpoint, consoleMcpInitials, consoleMcpStatus, groupConsoleMcpConnections, requestConsoleMcp } from "../client/mcp-client";
+import { projectUrl } from "../client/project";
 import { rememberConsoleSection } from "../sections";
 import ConsoleMcpConnect from "./console-mcp-connect.vue";
 import ConsoleMcpConnectionView from "./console-mcp-connection.vue";
@@ -35,7 +36,7 @@ const connectOpen = ref(false);
 const connectPreset = ref<{ another?: boolean, server: string }>();
 let request: AbortController | undefined;
 
-const groups = computed(() => overview.value ? groupConsoleMcpConnections(overview.value, window.location.origin) : []);
+const groups = computed(() => overview.value ? groupConsoleMcpConnections(overview.value, new URL(projectUrl("/"), window.location.href).origin) : []);
 const connections = computed(() => overview.value?.connections ?? []);
 
 function queryValue(name: string): string | undefined {
@@ -62,7 +63,7 @@ async function load(): Promise<void> {
   loading.value = true;
   error.value = undefined;
   try {
-    const next = await requestConsoleMcp(props.sectionsBase, "mcp-client.list", {}, controller.signal);
+    const next = await requestConsoleMcp("mcp-client.list", {}, controller.signal);
     if (!controller.signal.aborted) overview.value = next;
   }
   catch (cause) {
@@ -201,7 +202,6 @@ onBeforeUnmount(() => request?.abort());
       :key="selected.id"
       v-model:tab="tab"
       v-model:item="item"
-      :base="sectionsBase"
       :connection="selected"
       :peers="peers"
       @changed="load"
@@ -245,7 +245,6 @@ onBeforeUnmount(() => request?.abort());
 
   <ConsoleMcpConnect
     v-model:open="connectOpen"
-    :base="sectionsBase"
     :preset="connectPreset"
     :servers="overview?.servers ?? []"
     :shared-session="overview?.sharedSession ?? false"

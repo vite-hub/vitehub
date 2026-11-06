@@ -57,7 +57,7 @@ async function mountAgents(path: string) {
   const push = vi.spyOn(router, "push")
   const app = renderer.createApp({ ...ConsoleApp, render: () => null }, {
     agentsBase: "/agents-api", apiBase: "/invocations", capabilitiesBase: "/capabilities", definitionsBase: "/definitions",
-    hostBase: "", kvBase: "/kv", searchBase: "/search", sectionsBase: "/sections", usageBase: "/usage-api",
+    kvBase: "/kv", searchBase: "/search", sectionsBase: "/sections", usageBase: "/usage-api",
   })
   app.use(router)
   app.provide(ssrContextKey, {})

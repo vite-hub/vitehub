@@ -8,7 +8,7 @@ import type {
 } from "@vite-hub/auth/console";
 import { computed, ref, shallowRef, watch } from "vue";
 import { authDate, authDuration, authFieldValue, readAuthConsole } from "../client/auth-management";
-import { consoleMountBase, consoleMountPath } from "../console-route";
+import { projectUrl } from "../client/project";
 import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthUserEvents from "./console-auth-user-events.vue";
 import ConsoleState from "./console-state.vue";
@@ -73,7 +73,7 @@ async function changed(name: AuthConsoleAction) {
   emit("changed");
   if (name === "remove") emit("close");
   else if (name === "impersonate")
-    window.location.assign(consoleMountPath(consoleMountBase(window.location.pathname), "/"));
+    window.location.assign(projectUrl("/"));
   else await refresh();
 }
 async function page(kind: "sessions" | "agents", direction: number) {

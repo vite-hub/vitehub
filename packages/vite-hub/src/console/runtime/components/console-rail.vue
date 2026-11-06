@@ -11,6 +11,7 @@ import type { ConsoleSectionId } from "../sections";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
 import { useConsoleUpdate, watchConsoleBuild } from "../client/build";
 import { clearConsoleDocumentCaches } from "../client/document-cache";
+import { projectFetch, projectUrl, resolveProjectUrl } from "../client/project";
 import { isConsoleSignInRequired } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
 import { consoleSignInURL } from "../client/sign-in";
@@ -38,8 +39,8 @@ const signOutFailed = ref(false);
 const accessIdentity = ref<{ label?: string; signOutURL: string }>();
 const userIdentity = ref<{ email?: string; image?: string; name?: string }>();
 const authBase = props.sectionsBase.replace(/\/sections$/, "/auth");
-const authClientURL = props.sectionsBase.replace(/\/sections$/, "/client.js");
-const signInURL = props.sectionsBase.replace(/\/api\/_vitehub\/console\/sections$/, "/_vitehub/sign-in");
+const authClientURL = projectUrl(props.sectionsBase.replace(/\/sections$/, "/client.js"));
+const signInURL = projectUrl("/_vitehub/sign-in");
 let authClientRequest: Promise<ReturnType<typeof createAuthClient>> | undefined;
 let unsubscribe: (() => void) | undefined;
 
@@ -168,7 +169,7 @@ function showNavigation(result: ConsoleNavigation): void {
 
 async function loadAccessIdentity(): Promise<void> {
   try {
-    const response = await fetch(`${authBase}/identity`, { credentials: "same-origin", headers: { accept: "application/json" } });
+    const response = await projectFetch(`${authBase}/identity`, { headers: { accept: "application/json" } });
     if (!response.ok) throw new Error("Identity request failed");
     // SAFETY: Reading optional properties is safe for any JSON value; each value is validated below.
     const identity = (await response.json()) as { commonName?: unknown; email?: unknown; signOutURL?: unknown } | null;
@@ -189,7 +190,7 @@ async function consoleAuthClient(): Promise<ReturnType<typeof createAuthClient>>
       return Reflect.get(globalThis, Symbol.for("vitehub.console.auth.client")) as ReturnType<typeof createAuthClient> | undefined;
     })
     .catch(() => undefined)
-    .then((configured) => configured ?? createAuthClient({ basePath: document.querySelector('meta[name="vitehub-console-auth-base"]')?.getAttribute("content") || authBase }));
+    .then((configured) => configured ?? createAuthClient({ basePath: document.querySelector('meta[name="vitehub-console-auth-base"]')?.getAttribute("content") || projectUrl(authBase) }));
   return await authClientRequest;
 }
 
@@ -215,7 +216,7 @@ async function signOut(): Promise<void> {
   signingOut.value = true;
   signOutFailed.value = false;
   if (accessIdentity.value) {
-    window.location.assign(accessIdentity.value.signOutURL);
+    window.location.assign(resolveProjectUrl(accessIdentity.value.signOutURL));
     return;
   }
   try {

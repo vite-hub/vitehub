@@ -42,7 +42,7 @@ onMounted(async () => {
   // Keep the code out of the history, whatever happens next.
   await router.replace({ name: "vitehub-console-mcp-client-callback" });
   try {
-    const connection = await requestConsoleMcp(props.sectionsBase, "mcp-client.complete", Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)));
+    const connection = await requestConsoleMcp("mcp-client.complete", Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)));
     toast.show({ title: `Connected as ${consoleMcpAccount(connection).primary}` });
     await router.replace({ name: "vitehub-console-mcp-client", query: { connection: connection.id } });
   }

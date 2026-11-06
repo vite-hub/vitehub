@@ -2,6 +2,7 @@ import type { ConnectionApproval, ConnectionInspection } from "@vite-hub/connect
 import type { EnvActivity } from "@vite-hub/env/bridge"
 import * as v from "valibot"
 import { envActorSchema } from "./env-management"
+import { projectFetch, projectUrl } from "./project"
 import { ConsoleNetworkError, consoleResponseError } from "./request"
 
 /** An approval as the Console shows it. The Console never reads call inputs. */
@@ -84,7 +85,7 @@ export function connectionActivityLabel(action: EnvActivity["action"]): string {
  * path such as the Console page, the result page of the flow returns there.
  */
 export function connectionConnectURL(endpoint: string, name: string, returnTo?: string): string {
-  const url = `${endpoint.replace(/\/+$/, "")}/connect/${encodeURIComponent(name)}`
+  const url = projectUrl(`${endpoint.replace(/\/+$/, "")}/connect/${encodeURIComponent(name)}`)
   return returnTo ? `${url}?return=${encodeURIComponent(returnTo)}` : url
 }
 
@@ -99,7 +100,7 @@ export async function requestConnectionsManagement<T extends v.BaseSchema<unknow
   const body = JSON.stringify({ ...input, action })
   let response: Response
   try {
-    response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body, ...init })
+    response = await projectFetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body, ...init })
   }
   catch (error) {
     if (error instanceof Error && error.name === "AbortError") throw error

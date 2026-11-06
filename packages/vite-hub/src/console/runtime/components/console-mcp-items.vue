@@ -14,7 +14,6 @@ import type { ConsoleMcpConnection, ConsoleMcpListKind, ConsoleMcpOutcome } from
  * compared side by side.
  */
 const props = defineProps<{
-  base: string;
   connection: ConsoleMcpConnection;
   kind: "prompts" | "resources" | "tools";
   /** Connections to the same server, including `connection`. */
@@ -92,7 +91,7 @@ async function load(): Promise<void> {
       const cursors = new Set<string>();
       let cursor: string | undefined;
       for (let page = 0; page < maximumListPages && !controller.signal.aborted; page++) {
-        const response = await requestConsoleMcp(props.base, "mcp-client.items", { id: props.connection.id, kind, ...(cursor ? { cursor } : {}) }, controller.signal);
+        const response = await requestConsoleMcp("mcp-client.items", { id: props.connection.id, kind, ...(cursor ? { cursor } : {}) }, controller.signal);
         all.push(...response.items);
         emit("connection", response.connection);
         cursor = response.nextCursor;
@@ -150,7 +149,7 @@ async function run(): Promise<void> {
   await Promise.all(ids.map(async (id) => {
     const call = input(id);
     try {
-      const outcome = await requestConsoleMcp(props.base, call.operation, call.input);
+      const outcome = await requestConsoleMcp(call.operation, call.input);
       results.value = { ...results.value, [id]: { outcome } };
       emit("connection", outcome.connection);
     }

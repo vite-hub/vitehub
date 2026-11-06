@@ -14,6 +14,7 @@ import {
 } from "../src/console/runtime/client/request.ts"
 import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../src/console/runtime/client/schedule-run.ts"
 import { consoleNavigationError, createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
+import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 
 import type { ConsoleRpcResult } from "../src/console/runtime/rpc.ts"
@@ -34,7 +35,10 @@ beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock)
 })
 
+const pageProject = consoleProject()
+
 afterEach(() => {
+  setConsoleProject(pageProject)
   mocks.call.mockReset()
   fetchMock.mockClear()
   vi.unstubAllGlobals()
@@ -57,11 +61,12 @@ describe("Console requests", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it("sends one stateless POST to the app-relative call endpoint", async () => {
+  it("sends one stateless POST to the call endpoint under the app mount", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
     const signal = new AbortController().signal
+    setConsoleProject({ origin: "", base: "/first" })
 
-    await expect(requestConsole("/first/api/_vitehub/console/sections", { signal }))
+    await expect(requestConsole("/api/_vitehub/console/sections", { signal }))
       .resolves.toEqual({ sections: ["kv"] })
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc/__call", {
@@ -82,8 +87,9 @@ describe("Console requests", () => {
 
   it("keeps an application mount that contains the Console API marker", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
+    setConsoleProject({ origin: "", base: "/tenant/api/_vitehub/console/thing" })
 
-    await expect(requestConsole("/tenant/api/_vitehub/console/thing/api/_vitehub/console/sections"))
+    await expect(requestConsole("/api/_vitehub/console/sections"))
       .resolves.toEqual({ sections: ["kv"] })
 
     expect(fetchMock).toHaveBeenCalledWith("/tenant/api/_vitehub/console/thing/_vitehub/rpc/__call", expect.any(Object))
@@ -138,8 +144,9 @@ describe("Console requests", () => {
 
   it("supports requests without query or signal options", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
+    setConsoleProject({ origin: "", base: "/first" })
 
-    await expect(requestConsole("/first/api/_vitehub/console/sections"))
+    await expect(requestConsole("/api/_vitehub/console/sections"))
       .resolves.toEqual({ sections: ["kv"] })
     expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc/__call", expect.objectContaining({ method: "POST", signal: undefined }))
     expect(mocks.call).toHaveBeenCalledWith("sections.list", {})
@@ -365,7 +372,8 @@ describe("Console requests", () => {
 
   it("requests the page tools session once per loaded Console, so the app's pages load the allowed tools", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
-    const base = "/page-tools-app/api/_vitehub/console/sections"
+    setConsoleProject({ origin: "", base: "/page-tools-app" })
+    const base = "/api/_vitehub/console/sections?page-tools-app"
     await loadConsoleNavigation(base)
     await loadConsoleNavigation(base)
     const sessions = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/_vitehub/page/session"))
@@ -424,7 +432,8 @@ describe("Console requests", () => {
     // Navigation uses RPC; the shared page session is an ordinary GET that sets the app cookie.
     const fetch = vi.fn(async (_url: string, init?: RequestInit) => init?.method === "POST" ? Response.json(navigation) : new Response())
     vi.stubGlobal("fetch", fetch)
-    const base = `${mount}/api/_vitehub/console/sections?page-session-test`
+    setConsoleProject({ origin: "", base: mount })
+    const base = `/api/_vitehub/console/sections?page-session-test${mount}`
     await expect(loadConsoleNavigation(base)).resolves.toMatchObject({ sections: ["comments"] })
     await loadConsoleNavigation(base)
     expect(fetch).toHaveBeenCalledTimes(2)
