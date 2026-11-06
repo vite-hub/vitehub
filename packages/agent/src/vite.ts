@@ -2965,6 +2965,9 @@ async function cleanupNetlifyAgentProviderOutput(
   })
 }
 
+/** Whether this module set `VITEHUB_CHANNELS`, so a config without `channels.simulate` can unset it. */
+let channelSimulationSetByPlugin = false
+
 export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   const frameworkOptions = getInternalAgentOptions(options)
   let agent: AgentModuleOptions | false | undefined = options
@@ -3025,9 +3028,17 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
     })
     if (normalized && config.command === "serve") {
-      if (agent && agent.channels?.simulate && globalThis.process.env[channelSimulationEnv] !== "simulate") {
-        globalThis.process.env[channelSimulationEnv] = "simulate"
-        config.logger.info("[vitehub] Simulated Channels: Slack, Discord, Teams, and Telegram run on a simulated chat. Open /api/_vitehub/agents/<agent>/webhooks/<channel> in a browser to chat, or POST an AI SDK chat request to it.")
+      if (agent && agent.channels?.simulate) {
+        if (globalThis.process.env[channelSimulationEnv] !== "simulate") {
+          globalThis.process.env[channelSimulationEnv] = "simulate"
+          config.logger.info("[vitehub] Simulated Channels: Slack, Discord, Teams, and Telegram run on a simulated chat. Open /api/_vitehub/agents/<agent>/webhooks/<channel> in a browser to chat, or POST an AI SDK chat request to it.")
+        }
+        channelSimulationSetByPlugin = true
+      }
+      else if (channelSimulationSetByPlugin) {
+        // A Vite restart without the option ends the simulation that an earlier config started.
+        delete globalThis.process.env[channelSimulationEnv]
+        channelSimulationSetByPlugin = false
       }
       const registryEntry = subpath(getAgentImportBase(agent, frameworkOptions), "server/registry")
       // Standalone hubAgent() also needs the app root in Node-loaded packages. Build the global's name at runtime
