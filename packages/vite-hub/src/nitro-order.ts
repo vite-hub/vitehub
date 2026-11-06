@@ -92,7 +92,7 @@ export function nitroOrderPlugins(): Plugin[] {
                 const createNitroConfig = (plugin as WorkflowVitePlugin).vitehub?.workflow?.createNitroConfig
                 if (!createNitroConfig) continue
                 Reflect.set(config, "nitro", await createNitroConfig({
-                  nitro: Reflect.get(config, "nitro") ?? {},
+                  nitro: { ...Reflect.get(config, "nitro") },
                   projectRoot: resolveViteHubProjectRoot(config.root || process.cwd(), { projectRoot: typeof projectRoot === "string" ? projectRoot : undefined }),
                   serverDirs: Reflect.get(config, VITEHUB_SERVER_DIRS),
                   viteConfig: config,
