@@ -4,7 +4,7 @@ import type { SecondaryStorage } from "better-auth"
 
 import { authDatabase } from "../src/database.ts"
 import { defineAuth } from "../src/definition.ts"
-import { createAuthForRequest, createBetterAuthOptions, handleAuthRequest, resetAuth } from "../src/server.ts"
+import { createAuthForRequest, createAuthHandler, createBetterAuthOptions, handleAuthRequest, resetAuth } from "../src/server.ts"
 
 const secret = "abcdefghijklmnopqrstuvwxyz0123456789"
 const definition = defineAuth(() => ({ emailAndPassword: { enabled: true }, secret }))
@@ -98,6 +98,20 @@ describe("Auth rate limiting", () => {
     expect(await statuses([send(second)])).toEqual([401])
   })
 
+  it("limits manual Web Request hosts by the supplied peer address", async () => {
+    workerRuntime()
+    const handler = createAuthHandler(definition)
+    const first = nextAddress()
+    const second = nextAddress()
+    const send = (clientAddress: string, index: number) => () => handler(signIn({
+      "x-forwarded-for": `203.0.113.${index}`,
+      "x-vitehub-client-address": `203.0.113.${index}`,
+    }), { clientAddress })
+
+    expect(await statuses([send(first, 1), send(first, 2), send(first, 3), send(first, 4)])).toEqual([401, 401, 401, 429])
+    expect(await statuses([send(second, 5)])).toEqual([401])
+  })
+
   it("ignores client-sent X-Forwarded-For and client address headers", async () => {
     workerRuntime()
     const address = nextAddress()
@@ -126,6 +140,12 @@ describe("Auth rate limiting", () => {
     const response = await handleAuthRequest(definition, viaHandler)
     const { token } = await response.json() as { token: string }
     expect(await ipOf(token)).toBe(address)
+
+    const manualHandler = createAuthHandler(definition)
+    const manualResponse = await manualHandler(signUp("manual@example.com", { "x-vitehub-client-address": "203.0.113.52" }), { clientAddress: address })
+    expect(manualResponse.status).toBe(200)
+    const manualSession = await manualResponse.json() as { token: string }
+    expect(await ipOf(manualSession.token)).toBe(address)
 
     const viaApi = await auth.api.signUpEmail({
       body: { email: "api@example.com", name: "Ada", password: "correct-horse-battery" },

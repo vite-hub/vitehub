@@ -13,6 +13,7 @@ import { discoverAuthDefinitions } from "./discovery.ts"
 import { resetAuth } from "./runtime-state.ts"
 import { isAuthRequestPath } from "./shared.ts"
 import { sendWebResponse } from "./node-response.ts"
+import { setRequestClientAddress } from "./client-address.ts"
 
 export function shouldPassThroughAuthResponse(basePath: string, status: number): boolean {
   return basePath === "/" && status === 404
@@ -328,7 +329,7 @@ function createWebRequest(request: IncomingMessage): Request {
     init.duplex = "half"
   }
 
-  return new Request(url, init)
+  return setRequestClientAddress(new Request(url, init), request.socket?.remoteAddress)
 }
 
 function loadAuthDefinitionModule(module: unknown): AuthDefinition | undefined {

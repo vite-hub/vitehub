@@ -311,11 +311,14 @@ export function toAuthRequest(input: AuthRequestInput): AuthRequest {
   return unwrapAuthRequest(input)
 }
 
+/** Create a handler whose optional host context supplies the peer address, never a client-sent header. */
 export function createAuthHandler(
   definition: AuthDefinition,
   runtimeOptions?: AuthRuntimeOptions,
-): ViteHubAuth["handler"] {
-  return createAuth(definition, runtimeOptions).handler
+) {
+  const auth = createAuth(definition, runtimeOptions)
+  return (request: Request, host?: { clientAddress?: string }): Promise<Response> =>
+    auth.handler(setRequestClientAddress(request, host?.clientAddress))
 }
 
 export function getAuthForDefinition<TDefinition extends AuthDefinition>(

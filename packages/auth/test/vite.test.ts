@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
+import { Readable } from "node:stream"
 import { fileURLToPath } from "node:url"
 
 import ts from "typescript"
@@ -486,6 +487,9 @@ describe("hubAuth", () => {
 
       expect(coldInvoker).toBeUndefined()
       expect(response.status).toBe(200)
+      const sessionResponse = await fetch(`http://127.0.0.1:${port}/api/auth/get-session`, { headers: { cookie } })
+      expect(sessionResponse.status).toBe(200)
+      await expect(sessionResponse.json()).resolves.toMatchObject({ session: { ipAddress: "127.0.0.1" } })
       if (!invoker) throw new Error("Expected authenticated invoker.")
       expect(invoker).toMatchObject({
         kind: "authUser",
@@ -621,6 +625,57 @@ describe("hubAuth", () => {
     })
     // One Auth instance serves `/api/auth` and the Console, so they share users and sessions.
     expect(use).not.toHaveBeenCalled()
+  })
+
+  it.each([true, false])("preserves peer rate-limit buckets in dev (request runtime: %s)", async (requestRuntime) => {
+    const root = await createTempProject()
+    await writeAuth(root)
+    const plugin = hubAuth()
+    await resolvePluginConfig(plugin, root)
+    const options = {
+      emailAndPassword: { enabled: true },
+      rateLimit: { enabled: true },
+    }
+    const runtime = { secret: "abcdefghijklmnopqrstuvwxyz0123456789" }
+    const definition = requestRuntime ? defineAuth(() => ({ ...options, ...runtime })) : defineAuth({ ...options, runtime })
+    let middleware: ((request: unknown, response: unknown, next: (error?: unknown) => void) => Promise<void>) | undefined
+    const configureServer = plugin.configureServer as unknown as (server: unknown) => void
+    configureServer({
+      environments: { ssr: { runner: {} } },
+      middlewares: { use(handler: typeof middleware) { middleware = handler } },
+      ssrLoadModule: async () => ({ default: definition }),
+    })
+    if (!middleware) throw new Error("Auth middleware was not registered.")
+
+    const send = async (address: string, index: number) => {
+      const request = Object.assign(Readable.from([Buffer.from(JSON.stringify({ email: "nobody@example.com", password: "wrong-password" }))]), {
+        headers: {
+          "content-type": "application/json",
+          "host": "app.example.com",
+          "origin": "http://app.example.com",
+          "x-forwarded-for": `203.0.113.${index}`,
+          "x-vitehub-client-address": `203.0.113.${index}`,
+        },
+        method: "POST",
+        socket: { remoteAddress: address },
+        url: "/api/auth/sign-in/email",
+      })
+      const response = { appendHeader() {}, end() {}, write() {}, statusCode: 0, statusMessage: "" }
+      const next = vi.fn()
+      await middleware!(request, response, next)
+      expect(next).not.toHaveBeenCalled()
+      return response.statusCode
+    }
+
+    try {
+      const first = requestRuntime ? "192.0.2.101" : "192.0.2.103"
+      const second = requestRuntime ? "192.0.2.102" : "192.0.2.104"
+      const statuses: number[] = []
+      for (let index = 1; index <= 4; index++) statuses.push(await send(first, index))
+      expect(statuses).toEqual([401, 401, 401, 429])
+      expect(await send(second, 5)).toBe(401)
+    }
+    finally { authServer.resetAuth() }
   })
 
   it("accepts comma-separated forwarded protocols in the dev middleware", async () => {

@@ -237,6 +237,8 @@ Better Auth's limiter allows 100 requests per 10 seconds for each client IP and 
 
 Auth passes the address to Better Auth in the `x-vitehub-client-address` header and removes a value that a client sends. `auth.api` calls do not run the limiter. An `auth.api` call with only `headers` has no client IP, so `session.ipAddress` stays empty for a session that it creates.
 
+For a manual host that adapts requests to plain Web `Request` objects, call the handler returned by `createAuthHandler()` with `handler(request, { clientAddress })`, using the peer address from the host. Without it, these requests share an addressless rate-limit bucket. See [Mount a server handler](/docs/frameworks-hosts/node-self-hosted#mount-a-server-handler).
+
 ## Give the first admin role
 
 Set `VITEHUB_ADMIN_EMAILS` to a comma-separated list of emails. A new account with one of them gets the admin role of Better Auth's `admin()` plugin: an email and password sign-up, or the first sign-in with a social provider. Existing accounts keep their role. The Auth Console shows the rule in its access notes.
