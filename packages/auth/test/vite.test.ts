@@ -220,6 +220,7 @@ describe("hubAuth", () => {
     const config = plugin.config as (config: { server?: { watch?: { ignored?: string[] } }, ssr?: { noExternal?: string[] } }) => unknown
 
     expect(config({})).toEqual({
+      define: { __VITEHUB_AUTH_DEV__: "false" },
       server: {
         watch: {
           ignored: ["**/.vitehub/**"],
@@ -230,6 +231,7 @@ describe("hubAuth", () => {
       },
     })
     expect(config({ server: { watch: { ignored: ["**/.vitehub/**"] } }, ssr: { noExternal: ["existing", "@vite-hub/auth"] } })).toEqual({
+      define: { __VITEHUB_AUTH_DEV__: "false" },
       server: {
         watch: {
           ignored: undefined,

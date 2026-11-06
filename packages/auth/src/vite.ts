@@ -115,7 +115,8 @@ export function createAuthNitroConfig(plugin: AuthVitePlugin, options: {
   }
   // SAFETY: This hook mutates the supplied Nitro config because Vite concatenates returned arrays.
   if (plugin.config && typeof plugin.config === "function") {
-    plugin.config.call({} as never, viteConfig, { command: "build", isPreview: false, isSsrBuild: true, mode: "production" })
+    const dev = options.nitro.dev === true
+    plugin.config.call({} as never, viteConfig, { command: dev ? "serve" : "build", isPreview: false, isSsrBuild: true, mode: dev ? "development" : "production" })
   }
   return viteConfig.nitro
 }
@@ -251,6 +252,8 @@ function authRoutePattern(route: string): string {
 }
 
 const authApplicationBaseURLName = "__VITEHUB_AUTH_APP_BASE_URL__"
+// Auth server code reads it to turn Better Auth's limiter on outside a development server, also on hosts without `NODE_ENV`.
+const authDevName = "__VITEHUB_AUTH_DEV__"
 
 /** Return Nitro `baseURL` when the host serves the app below a path, such as Nuxt `app.baseURL`. */
 function nitroApplicationBaseURL(value: unknown): string | undefined {
@@ -259,9 +262,10 @@ function nitroApplicationBaseURL(value: unknown): string | undefined {
   return baseURL.split("/").some(Boolean) ? baseURL : undefined
 }
 
-function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | undefined): NitroConfig {
+function mergeNitroAuthHandler(value: unknown, config: ResolvedAuthViteConfig | undefined, dev: boolean): NitroConfig {
   const nitro = cloneNitroConfig(value)
   if (!config) return nitro
+  nitro.replace = { ...cloneNitroConfig(nitro.replace), [authDevName]: JSON.stringify(dev) }
 
   // Nitro serves Auth routes below its baseURL, so Auth server code needs the same path for Better Auth routes and callbacks.
   const applicationBaseURL = nitroApplicationBaseURL(nitro)
@@ -391,14 +395,16 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
         }
       },
     },
-    config(config) {
+    config(config, env) {
       const configRoot = config.root || process.cwd()
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       // SAFETY: Vite config may include the Auth module options supplied by the integration.
       const authOptions = (config as { auth?: AuthModuleOptions }).auth ?? options
       const authConfig = resolveAuthViteConfig(authOptions, configRoot, { serverDirs })
         ?? resolveAuthViteConfig(authOptions, resolveViteHubProjectRoot(configRoot), { serverDirs })
-      const nitro = mergeNitroAuthHandler((config as { nitro?: unknown }).nitro, authConfig)
+      // Integrations such as the Nuxt module call this hook without a Vite environment.
+      const dev = env?.command === "serve"
+      const nitro = mergeNitroAuthHandler((config as { nitro?: unknown }).nitro, authConfig, dev)
       const hasNitroHandlers = Boolean(authConfig && (authConfig.route !== false || authConfig.access.routes.length > 0))
       const applicationBaseURL = authConfig ? nitroApplicationBaseURL(nitro) : undefined
       if (hasNitroHandlers || applicationBaseURL) {
@@ -416,7 +422,10 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
         },
       }
       // The default Vue Auth client sends requests below the same Nitro baseURL.
-      if (applicationBaseURL) contribution.define = { [authApplicationBaseURLName]: JSON.stringify(applicationBaseURL) }
+      contribution.define = {
+        [authDevName]: JSON.stringify(dev),
+        ...(applicationBaseURL ? { [authApplicationBaseURLName]: JSON.stringify(applicationBaseURL) } : {}),
+      }
       return contribution
     },
     async configResolved(config) {

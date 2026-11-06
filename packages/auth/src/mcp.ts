@@ -140,8 +140,8 @@ function registrationLimits(options: McpOAuthOptions): BetterAuthPlugin {
  * access tokens for the resource, and `oauthProvider()` registers clients, shows the login and consent pages, and issues
  * the tokens. Clients register themselves with no `application_type`, and a loopback or private-use redirect makes them
  * native clients. Registration is open, so its body and its fields are bounded. Better Auth's limiter allows 5
- * registrations per minute and IP when it is on, which it is in production. DPoP-bound client registration is refused;
- * these helpers support bearer tokens.
+ * registrations per minute for each client IP. `defineAuth()` turns it on outside a development server, on every host.
+ * DPoP-bound client registration is refused; these helpers support bearer tokens.
  *
  * ```ts [server/auth.ts]
  * import { defineAuth } from "vite-hub/auth"
