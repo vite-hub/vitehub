@@ -17,13 +17,13 @@ import {
   parseConsoleOAuthCallback,
   revokeConsoleOAuthTokens,
 } from "./oauth"
-import { createConsolePendingLinkStore, parseConsoleLinkFragment } from "./pending-links"
+import { consolePendingLinksStorageKey, createConsolePendingLinkStore, parseConsoleLinkFragment } from "./pending-links"
 import { setConsoleProject } from "./project"
 import { consoleProjectProblem, probeConsoleProject } from "./project-link"
 import { consoleProjectHost, consoleProjectTarget, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "./projects"
 
 import type { ConsoleOAuthFetch, ConsoleOAuthLock, ConsoleOAuthPendingSignIn, ConsoleOAuthRefresher, ConsoleOAuthStateStore, ConsoleOAuthTokens } from "./oauth"
-import type { ConsoleLinkRequest, ConsolePendingLinkStore, ConsolePendingLinkTicket } from "./pending-links"
+import type { ConsoleLinkRequest, ConsolePendingLinkLocks, ConsolePendingLinkStore, ConsolePendingLinkTicket } from "./pending-links"
 import type { ConsoleProjectInfo, ConsoleProjectProbe, ConsoleProjectProblem } from "./project-link"
 import type { ConsoleLinkedProject, ConsoleProjectStorage, ConsoleProjectStore, ConsoleProjectTarget } from "./projects"
 
@@ -76,6 +76,7 @@ interface ConsoleProjectsState {
   /** The `fetch` of OAuth metadata, token, and revocation requests. */
   fetch: ConsoleOAuthFetch
   now: () => number
+  pendingLinkLocks?: ConsolePendingLinkLocks
   /** Load a Console page, such as the Overview after a switch. */
   navigate: (url: string) => void
   /** The Console page that opens a project. */
@@ -175,6 +176,7 @@ export function startConsoleProjects(options: {
   fetch?: ConsoleOAuthFetch
   lock?: ConsoleOAuthLock
   now?: () => number
+  pendingLinkLocks?: ConsolePendingLinkLocks
 }): ConsoleProjectsState {
   const store = createConsoleProjectStore(options.storage)
   const projects = store.list()
@@ -211,6 +213,7 @@ export function startConsoleProjects(options: {
     navigate: options.navigate,
     pageOrigin: options.pageOrigin,
     pendingLinks: createConsolePendingLinkStore(options.storage),
+    pendingLinkLocks: options.pendingLinkLocks,
     projects: shallowRef(projects),
     statuses: shallowRef({}),
     store,
@@ -432,8 +435,20 @@ export type ConsoleLinkResult =
  */
 export async function confirmConsoleLink(pendingId: string, target: ConsoleProjectTarget): Promise<ConsoleLinkResult> {
   const projects = useState()
+  if (!projects.pendingLinkLocks) {
+    return { kind: "problem", final: false, problem: { title: "Update your browser", message: "This browser cannot coordinate one-time links between tabs. Use a browser with Web Locks support and open the link again." } }
+  }
+  // The lock covers the first disclosure as well as consumption, across all tabs of this Console origin.
+  return projects.pendingLinkLocks.request(`${consolePendingLinksStorageKey}:${pendingId}`, () => confirmLockedConsoleLink(projects, pendingId, target))
+}
+
+async function confirmLockedConsoleLink(projects: ConsoleProjectsState, pendingId: string, target: ConsoleProjectTarget): Promise<ConsoleLinkResult> {
   const lookup = projects.pendingLinks.lookup(pendingId)
   if (lookup.kind !== "pending") return { kind: "problem", problem: pendingLinkProblems[lookup.kind], final: true }
+  if (lookup.link.targetUrl && lookup.link.targetUrl !== target.url) {
+    return { kind: "problem", final: true, problem: { title: "This link belongs to another project", message: `Retry the link for ${lookup.link.targetUrl}, or make a new link for this project and run the new command.` } }
+  }
+  projects.pendingLinks.bind(pendingId, target.url)
   const probe = await probeConsoleProject(target, lookup.link.secret)
   if (probe.kind === "token") {
     return {
@@ -446,7 +461,7 @@ export async function confirmConsoleLink(pendingId: string, target: ConsoleProje
     }
   }
   if (probe.kind !== "ready") return { kind: "problem", problem: consoleProjectProblem(probe, problemContext(target)), final: false }
-  // Another tab can confirm the same link while this request runs. Only the first one saves the project.
+  // Expiry or removal while the request ran still prevents saving the project.
   if (projects.pendingLinks.lookup(pendingId).kind !== "pending") return { kind: "problem", problem: pendingLinkProblems.unknown, final: true }
   projects.pendingLinks.remove(pendingId)
   const project = projects.store.save({ url: target.url, label: probe.info.name, token: lookup.link.secret })
@@ -481,6 +496,7 @@ export async function startConsoleOAuthSignIn(target: ConsoleProjectTarget, reso
     clientId: loaded.client.clientId,
     createdAt: projects.now(),
     issuer: discovery.issuer,
+    issuerInResponse: discovery.issuerInResponse,
     projectUrl: target.url,
     redirectUri: loaded.client.redirectUri,
     resource: discovery.resource,
@@ -529,6 +545,15 @@ export async function finishConsoleOAuthSignIn(search: string): Promise<void> {
   const { signIn } = lookup
   const target = consoleProjectTarget({ url: signIn.projectUrl })
   const host = consoleProjectHost(target)
+  // RFC 9207 mix-up defense: the answer, a code or an error, must name the server of this sign-in. A server that does
+  // not send `iss` is trusted only through the state, which binds the issuer and the token endpoint discovered for it.
+  const issuerProblem = callback.issuer
+    ? callback.issuer !== signIn.issuer ? `The answer names ${callback.issuer}, but ${host} signs in with ${signIn.issuer}. Sign in again.` : undefined
+    : signIn.issuerInResponse ? `${host} signs in with ${signIn.issuer}, which names itself in each answer, but this answer names no server. Sign in again.` : undefined
+  if (issuerProblem) {
+    projects.gate.value = callbackProblem({ title: "The answer came from another server", message: issuerProblem }, signIn)
+    return
+  }
   if (callback.kind === "error") {
     projects.gate.value = callbackProblem(callback.error === "access_denied"
       ? { title: "The Console was not allowed", message: `${host} did not allow this Console. Sign in again and choose Allow.` }
@@ -537,11 +562,6 @@ export async function finishConsoleOAuthSignIn(search: string): Promise<void> {
   }
   if (lookup.kind === "expired") {
     projects.gate.value = callbackProblem({ title: "The sign-in took too long", message: `A sign-in must finish within ${consoleOAuthStateLifetime / 60_000} minutes. Sign in again.` }, signIn)
-    return
-  }
-  // RFC 9207: an answer that names another issuer can come from a server that a mix-up attack swapped in.
-  if (callback.issuer && callback.issuer !== signIn.issuer) {
-    projects.gate.value = callbackProblem({ title: "The answer came from another server", message: `The answer names ${callback.issuer}, but ${host} signs in with ${signIn.issuer}. Sign in again.` }, signIn)
     return
   }
   const result = await exchangeConsoleOAuthCode(signIn, callback.code, { fetch: projects.fetch, now: projects.now })

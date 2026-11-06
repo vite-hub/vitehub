@@ -51,6 +51,7 @@ function pending(overrides: Partial<ConsoleOAuthPendingSignIn> = {}): ConsoleOAu
     clientId: `${consoleOrigin}/oauth-client.json`,
     createdAt: 0,
     issuer,
+    issuerInResponse: false,
     projectUrl: app.url,
     redirectUri: `${consoleOrigin}/oauth/callback`,
     resource: "https://app.example.com/_vitehub",
@@ -67,7 +68,7 @@ interface Call { url: string, method: string, body: URLSearchParams, authorizati
  * An app with `auth: "app"` and `consoleMcpOAuth()`: the Console RPC, the OAuth metadata, the token and revocation
  * endpoints, and the client document of the Console. Each refresh rotates the refresh token.
  */
-function fakeApp(options: { expiresIn?: number, refreshTokens?: string[], tokenDelay?: Promise<void> } = {}) {
+function fakeApp(options: { expiresIn?: number, issuerInResponse?: boolean, refreshTokens?: string[], tokenDelay?: Promise<void> } = {}) {
   const calls: Call[] = []
   let issued = 0
   const access = new Set<string>()
@@ -89,6 +90,7 @@ function fakeApp(options: { expiresIn?: number, refreshTokens?: string[], tokenD
     if (url === "https://app.example.com/.well-known/oauth-authorization-server/api/auth") {
       return Response.json({
         authorization_endpoint: `${issuer}/oauth2/authorize`,
+        ...(options.issuerInResponse ? { authorization_response_iss_parameter_supported: true } : {}),
         client_id_metadata_document_supported: true,
         code_challenge_methods_supported: ["S256"],
         issuer,
@@ -207,6 +209,7 @@ describe("callback", () => {
     ["?code=abc&state=s1&iss=https%3A%2F%2Fapp.example.com%2Fapi%2Fauth", { kind: "code", code: "abc", state: "s1", issuer }],
     ["?code=abc&state=s1", { kind: "code", code: "abc", state: "s1" }],
     ["?error=access_denied&state=s1", { kind: "error", error: "access_denied", state: "s1" }],
+    ["?error=access_denied&state=s1&iss=https%3A%2F%2Fevil.example.com", { kind: "error", error: "access_denied", state: "s1", issuer: "https://evil.example.com" }],
     ["?error=invalid_scope&error_description=Unknown+scope", { kind: "error", error: "invalid_scope", description: "Unknown scope" }],
     ["?code=abc", { kind: "invalid" }],
     ["", { kind: "invalid" }],
@@ -232,6 +235,7 @@ describe("discovery", () => {
       discovery: {
         authorizationEndpoint: `${issuer}/oauth2/authorize`,
         issuer,
+        issuerInResponse: false,
         resource: "https://app.example.com/_vitehub",
         revocationEndpoint: `${issuer}/oauth2/revoke`,
         tokenEndpoint: `${issuer}/oauth2/token`,
@@ -437,6 +441,32 @@ describe("OAuth sign-in of a hosted Console", () => {
     expect(session.useConsoleProjects().gate.value).toMatchObject({ kind: "oauth", target: app, problem: { title } })
   })
 
+  it("requires iss when the authorization server says that it sends it", async () => {
+    const server = fakeApp({ issuerInResponse: true })
+    const { code, session, state, tab } = await signIn(server)
+    expect(JSON.parse(tab.getItem(consoleOAuthStateStorageKey) ?? "[]")[0]).toMatchObject({ issuer, issuerInResponse: true, tokenEndpoint: `${issuer}/oauth2/token` })
+    await session.finishConsoleOAuthSignIn(`?code=${code}&state=${encodeURIComponent(state)}`)
+    expect(session.useConsoleProjects().gate.value).toMatchObject({ kind: "oauth", problem: { title: "The answer came from another server" } })
+    expect(server.calls.some(call => call.url.endsWith("/oauth2/token"))).toBe(false)
+  })
+
+  it("checks iss on an error answer too", async () => {
+    const server = fakeApp({ issuerInResponse: true })
+    const { session, state } = await signIn(server)
+    await session.finishConsoleOAuthSignIn(`?error=access_denied&state=${encodeURIComponent(state)}`)
+    expect(session.useConsoleProjects().gate.value).toMatchObject({ kind: "oauth", problem: { title: "The answer came from another server" } })
+  })
+
+  it("finishes with the issuer and the token endpoint of the state when the server does not send iss", async () => {
+    const server = fakeApp({ issuerInResponse: false })
+    const { code, session, state } = await signIn(server)
+    // Extra parameters in the answer cannot point the token request somewhere else.
+    await session.finishConsoleOAuthSignIn(`?code=${code}&state=${encodeURIComponent(state)}&token_endpoint=https%3A%2F%2Fevil.example.com%2Ftoken`)
+    expect(session.useConsoleProjects().gate.value).toEqual({ kind: "ready" })
+    const tokenCalls = server.calls.filter(call => call.method === "POST" && call.body.has("grant_type"))
+    expect(tokenCalls.map(call => call.url)).toEqual([`${issuer}/oauth2/token`])
+  })
+
   it("refuses a callback that is older than 10 minutes", async () => {
     const server = fakeApp()
     const { code, session, state, tab } = await signIn(server)
@@ -510,5 +540,29 @@ describe("OAuth sign-in of a hosted Console", () => {
 
     await session.forgetConsoleProject(id)
     expect(createConsoleProjectStore(storage).list()).toEqual([])
+  })
+})
+
+describe("project snapshot of a request", () => {
+  it("sends a token only to the project that it belongs to, also when another project opens during a refresh", async () => {
+    const { projectFetch, projectRequest, setConsoleProject: open } = await import("../src/console/runtime/client/project.ts")
+    const fetch = vi.fn(async (_input: string, _init?: RequestInit) => new Response(null, { status: 401 }))
+    vi.stubGlobal("fetch", fetch)
+    let refreshed!: (value: string) => void
+    const refresh = new Promise<string>((resolve) => { refreshed = resolve })
+    const renewed = vi.fn(async () => "Bearer a-2")
+    open({ origin: "https://a.example.com", base: "", authorization: () => refresh, renew: renewed })
+
+    const request = projectFetch("/_vitehub/rpc/__call", { method: "POST", body: "{}" })
+    const upload = projectRequest("/_vitehub/rpc/__upload", { "x-vitehub-console": "1" })
+    // Project B opens while the token of project A is still refreshing.
+    open({ origin: "https://b.example.com", base: "", authorization: () => "Bearer b-1" })
+    refreshed("Bearer a-1")
+    await request
+
+    const sent = fetch.mock.calls.map(([url, init]) => [url, new Headers(init?.headers).get("authorization")])
+    expect(sent).toEqual([["https://a.example.com/_vitehub/rpc/__call", "Bearer a-1"], ["https://a.example.com/_vitehub/rpc/__call", "Bearer a-2"]])
+    expect(renewed).toHaveBeenCalledOnce()
+    expect(await upload).toEqual({ url: "https://a.example.com/_vitehub/rpc/__upload", headers: { "x-vitehub-console": "1", authorization: "Bearer a-1" } })
   })
 })

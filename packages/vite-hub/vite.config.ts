@@ -246,6 +246,10 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-project-oauth.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-project-switcher.vue",
           to: "dist/console/runtime/components",
         },

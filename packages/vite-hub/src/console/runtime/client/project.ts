@@ -30,9 +30,13 @@ export function setConsoleProject(project: ConsoleProject): void {
   active = project
 }
 
+function urlOf(project: ConsoleProject, path: string): string {
+  return `${project.origin}${project.base}${path}`
+}
+
 /** The URL of an app path on the project, such as `/_vitehub/rpc/__call` → `/portal/_vitehub/rpc/__call`. */
 export function projectUrl(path: string): string {
-  return `${active.origin}${active.base}${path}`
+  return urlOf(active, path)
 }
 
 /**
@@ -43,10 +47,15 @@ export function resolveProjectUrl(url: string): string {
   return active.origin && url.startsWith("/") && !url.startsWith("//") ? `${active.origin}${url}` : url
 }
 
-/** Request headers with the `authorization` header of the project, when it has one. */
-export async function projectHeaders(headers: Record<string, string> = {}): Promise<Record<string, string>> {
-  const authorization = await active.authorization?.()
-  return authorization ? { ...headers, authorization } : headers
+/**
+ * The URL of an app path and the request headers with the `authorization` header, both from the project that is active
+ * now. The authorization can wait for a refresh, and the active project can change meanwhile, so the URL never comes
+ * from a later project than the token.
+ */
+export async function projectRequest(path: string, headers: Record<string, string> = {}): Promise<{ url: string, headers: Record<string, string> }> {
+  const project = active
+  const authorization = await project.authorization?.()
+  return { url: urlOf(project, path), headers: authorization ? { ...headers, authorization } : headers }
 }
 
 /**
@@ -55,8 +64,10 @@ export async function projectHeaders(headers: Record<string, string> = {}): Prom
  * when the project can renew it. The body must be a value that can be sent twice, such as a string.
  */
 export async function projectFetch(path: string, init: Omit<RequestInit, "credentials" | "headers"> & { headers?: Record<string, string> } = {}): Promise<Response> {
+  // The URL, the token, and its renewal all come from one project, also when another project opens meanwhile.
   const project = active
-  const send = (authorization: string | undefined) => fetch(projectUrl(path), {
+  const url = urlOf(project, path)
+  const send = (authorization: string | undefined) => fetch(url, {
     ...init,
     credentials: "same-origin",
     headers: authorization ? { ...init.headers, authorization } : { ...init.headers },

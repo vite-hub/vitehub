@@ -1,5 +1,5 @@
 import { ConsoleRequestError, requestConsole } from "./request"
-import { projectHeaders, projectUrl, resolveProjectUrl } from "./project"
+import { projectRequest, resolveProjectUrl } from "./project"
 import { consoleRpcHeader } from "../rpc"
 
 // These types mirror the media library contract in `server/media.ts`.
@@ -153,9 +153,9 @@ interface ConsoleUploadRequest {
 }
 
 /** Sends one file as `multipart/form-data` with XMLHttpRequest, which reports upload progress and fetch does not. */
-async function uploadRequest(url: string, form: FormData, options: ConsoleMediaUploadOptions): Promise<unknown> {
+async function uploadRequest(path: string, form: FormData, options: ConsoleMediaUploadOptions): Promise<unknown> {
   // The headers wait first, so an OAuth access token that is about to expire is refreshed before the upload starts.
-  const headers = await projectHeaders({ [consoleRpcHeader]: "1" })
+  const { url, headers } = await projectRequest(path, { [consoleRpcHeader]: "1" })
   return await new Promise((resolve, reject) => {
     // SAFETY: The media library runs in the browser, where XMLHttpRequest exists with this shape.
     const XHR = Reflect.get(globalThis, "XMLHttpRequest") as new () => ConsoleUploadRequest
@@ -216,7 +216,7 @@ export function createConsoleMediaClient(base: string, section: string): Console
       }
       else if (options.folder) form.set("folder", options.folder)
       // SAFETY: The upload route returns `{ duplicate, file }`.
-      return await uploadRequest(`${projectUrl("/_vitehub/rpc/__upload")}?section=${encodeURIComponent(section)}`, form, options) as ConsoleMediaUploadResult
+      return await uploadRequest(`/_vitehub/rpc/__upload?section=${encodeURIComponent(section)}`, form, options) as ConsoleMediaUploadResult
     },
     async usage(pathnames) {
       const result = await call("usage", { pathnames: [...pathnames] })

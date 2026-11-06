@@ -52,6 +52,11 @@ export interface ConsoleOAuthPendingSignIn {
   resource: string
   tokenEndpoint: string
   revocationEndpoint?: string
+  /**
+   * The authorization server sends `iss` with its answer (RFC 9207), so the callback must name `issuer`. The callback
+   * never gives an endpoint: the token request goes to the `tokenEndpoint` of this sign-in.
+   */
+  issuerInResponse: boolean
 }
 
 /** The members of `fetch` that the OAuth requests use, so tests can pass a function. */
@@ -163,6 +168,8 @@ export interface ConsoleOAuthDiscovery {
   authorizationEndpoint: string
   tokenEndpoint: string
   revocationEndpoint?: string
+  /** `authorization_response_iss_parameter_supported` of the server metadata. */
+  issuerInResponse: boolean
 }
 
 async function readJson(request: ConsoleOAuthFetch, url: string): Promise<unknown> {
@@ -228,7 +235,16 @@ export async function discoverConsoleOAuth(
   if (field(serverDocument, "client_id_metadata_document_supported") !== true) {
     return { problem: { title: `${host} cannot sign this Console in`, message: "Its Auth does not accept client ID Metadata Documents. Install @better-auth/cimd at the version of better-auth, then redeploy." } }
   }
-  return { discovery: { resource, issuer, authorizationEndpoint, tokenEndpoint, ...(revocationEndpoint ? { revocationEndpoint } : {}) } }
+  return {
+    discovery: {
+      authorizationEndpoint,
+      issuer,
+      issuerInResponse: field(serverDocument, "authorization_response_iss_parameter_supported") === true,
+      resource,
+      tokenEndpoint,
+      ...(revocationEndpoint ? { revocationEndpoint } : {}),
+    },
+  }
 }
 
 /** The authorization URL of a sign-in, with PKCE `S256`, the Console resource, and the Console scopes. */
@@ -255,6 +271,7 @@ function parsePending(value: unknown): ConsoleOAuthPendingSignIn | undefined {
     clientId: values.clientId!,
     createdAt: Number(createdAt),
     issuer: values.issuer!,
+    issuerInResponse: field(value, "issuerInResponse") === true,
     projectUrl: values.projectUrl!,
     redirectUri: values.redirectUri!,
     resource: values.resource!,
@@ -313,21 +330,21 @@ export function createConsoleOAuthStateStore(storage: ConsoleProjectStorage, opt
 /** What the authorization server sent back to `/oauth/callback`. */
 export type ConsoleOAuthCallback =
   | { kind: "code", code: string, state: string, issuer?: string }
-  | { kind: "error", error: string, description?: string, state?: string }
+  | { kind: "error", error: string, description?: string, state?: string, issuer?: string }
   | { kind: "invalid" }
 
 /** Read the query of `/oauth/callback`, such as `?code=…&state=…&iss=…` or `?error=access_denied&state=…`. */
 export function parseConsoleOAuthCallback(search: string): ConsoleOAuthCallback {
   const params = new URLSearchParams(search)
   const state = text(params.get("state"))
+  const issuer = text(params.get("iss"))
   const error = text(params.get("error"))
   if (error) {
     const description = text(params.get("error_description"))
-    return { kind: "error", error, ...(description ? { description: description.slice(0, 300) } : {}), ...(state ? { state } : {}) }
+    return { kind: "error", error, ...(description ? { description: description.slice(0, 300) } : {}), ...(state ? { state } : {}), ...(issuer ? { issuer } : {}) }
   }
   const code = text(params.get("code"))
   if (!code || !state) return { kind: "invalid" }
-  const issuer = text(params.get("iss"))
   return { kind: "code", code, state, ...(issuer ? { issuer } : {}) }
 }
 

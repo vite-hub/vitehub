@@ -70,6 +70,7 @@ startConsoleProjects({
   storage: browserStorage("localStorage"),
   // The PKCE verifier and the state of a sign-in stay with the tab that started it.
   sessionStorage: browserStorage("sessionStorage"),
+  pendingLinkLocks: navigator.locks,
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);
 else if (oauthCallback !== undefined) void finishConsoleOAuthSignIn(oauthCallback);
