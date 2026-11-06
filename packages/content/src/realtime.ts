@@ -1,5 +1,5 @@
 import { RealtimeDocumentConflict } from "@vite-hub/realtime"
-import { isWorkspaceConflict } from "@vite-hub/workspace"
+import { isWorkspaceConflict } from "@vite-hub/workspace/files"
 
 import { contentRealtimeEditor } from "./editor.ts"
 import { contentLiveSession } from "./live.ts"

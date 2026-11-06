@@ -7,11 +7,11 @@ import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 import { matchesAny, normalizeSafeWorkspacePath } from "./core/path.ts"
 import { workspaceDefinitionPlugins } from "./core/plugins.ts"
 import { resolveWorkspaceAutoCommit } from "./core/rules.ts"
-import { useWorkspace } from "./core/use.ts"
+import { useWorkspaceFiles } from "./core/use.ts"
 import { withWorkspaceProgress } from "./session/progress.ts"
 
 import type { H3Event } from "h3"
-import type { ReadonlyWorkspaceFacade, WritableWorkspaceFacade } from "./core/use.ts"
+import type { ReadonlyWorkspaceFiles, WritableWorkspaceFiles } from "./core/use.ts"
 import type { ExecResult, WorkspaceDefinition, WorkspaceMaterializeSourcesOptions, WorkspaceName, WorkspacePrepareSessionProgressEvent, WorkspaceSession, WorkspaceSessionHost, WorkspaceSessionOptions } from "./core/types.ts"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -22,9 +22,9 @@ export const workspaceDevTokenHeader = "x-vitehub-dev-token"
 
 type WorkspaceInput<Name extends WorkspaceName> =
   | Name
-  | ReadonlyWorkspaceFacade<Name>
-  | WritableWorkspaceFacade<Name>
-  | (() => ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name> | Promise<ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name>>)
+  | ReadonlyWorkspaceFiles<Name>
+  | WritableWorkspaceFiles<Name>
+  | (() => ReadonlyWorkspaceFiles<Name> | WritableWorkspaceFiles<Name> | Promise<ReadonlyWorkspaceFiles<Name> | WritableWorkspaceFiles<Name>>)
 type WorkspaceSessionStarter = {
   startSession(options?: WorkspaceSessionOptions): Promise<WorkspaceSession>
 }
@@ -63,7 +63,7 @@ export interface WorkspaceDevCommandInput<Name extends WorkspaceName = Workspace
   onProgress?: (event: WorkspacePrepareSessionProgressEvent) => void | Promise<void>
   paths?: readonly string[]
   timeout?: number
-  workspace: Name | WritableWorkspaceFacade<Name> | (ReadonlyWorkspaceFacade<Name> & { fs: ReadonlyWorkspaceFacade<Name>["fs"] & Partial<WorkspaceSessionStarter> })
+  workspace: Name | WritableWorkspaceFiles<Name> | (ReadonlyWorkspaceFiles<Name> & { fs: ReadonlyWorkspaceFiles<Name>["fs"] & Partial<WorkspaceSessionStarter> })
 }
 
 export interface WorkspaceDevTokenOptions {
@@ -211,8 +211,8 @@ export async function validateWorkspaceDevToken(rootDir: string, headers: Worksp
 
 async function resolveWorkspace<Name extends WorkspaceName>(
   workspace: WorkspaceInput<Name>,
-): Promise<ReadonlyWorkspaceFacade<Name> | WritableWorkspaceFacade<Name>> {
-  if (typeof workspace === "string") return useWorkspace(workspace)
+): Promise<ReadonlyWorkspaceFiles<Name> | WritableWorkspaceFiles<Name>> {
+  if (typeof workspace === "string") return useWorkspaceFiles(workspace)
   if (typeof workspace === "function") return await workspace()
   return workspace
 }
@@ -354,7 +354,7 @@ export async function runWorkspaceDevCommand<Name extends WorkspaceName>(
   if (!command) throw workspaceErrorDiagnostics.WORKSPACE_R0040({ message: "Workspace Dev command cannot be empty." })
   const definition = input.definition
   const workspace = typeof input.workspace === "string"
-    ? await useWorkspace(input.workspace, definition ? { definition, mode: "write" } as { mode: "write" } : { mode: "write" })
+    ? await useWorkspaceFiles(input.workspace, definition ? { definition, mode: "write" } as { mode: "write" } : { mode: "write" })
     : input.workspace
   const starter = workspaceSessionStarter(workspace) ?? workspaceSessionStarter(workspace.fs)
   const startSession = starter?.startSession.bind(starter)
