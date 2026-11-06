@@ -398,6 +398,17 @@ jobs:
         timeout-minutes: 10
         run: vp run database:e2e --url "$LIVE_SMOKE_URL"
 
+      # always() also runs after a failure or a cancel. The long steps have step timeouts, so a
+      # hung step fails and this step still runs. After a cancel, GitHub stops it after 5 minutes.
+      # Capture evidence afterward so a teardown failure is included in the provider conclusion.
+      - name: Tear down Cloudflare scratch resources
+        if: always() && matrix.provider == 'cloudflare'
+        timeout-minutes: 5
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: node .github/scripts/live-smoke-teardown.mjs --prefix "$LIVE_SMOKE_NAME" --wrangler ./.github/ci-tools/node_modules/.bin/wrangler
+
       - name: Create stage evidence
         if: always()
         env:
@@ -424,16 +435,6 @@ jobs:
           path: live-smoke-evidence/${{ matrix.provider }}.json
           retention-days: 30
           if-no-files-found: error
-
-      # always() also runs after a failure or a cancel. The long steps have step timeouts, so a
-      # hung step fails and this step still runs. After a cancel, GitHub stops it after 5 minutes.
-      - name: Tear down Cloudflare scratch resources
-        if: always() && matrix.provider == 'cloudflare'
-        timeout-minutes: 5
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: node .github/scripts/live-smoke-teardown.mjs --prefix "$LIVE_SMOKE_NAME" --wrangler ./.github/ci-tools/node_modules/.bin/wrangler
 
   report-live-smoke:
     name: report live smoke

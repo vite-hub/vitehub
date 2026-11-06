@@ -97,8 +97,11 @@ describe("live smoke teardown", () => {
     expect(deletes(calls)).toEqual([`/workers/scripts/${prefix}`])
   })
 
-  it("empties a bucket that a failed test left objects in", async () => {
-    let objects = [{ key: "notes/a.txt" }]
+  it.each([
+    ["notes/a.txt", "notes/a.txt"],
+    ["notes/a b?#%.txt", "notes/a%20b%3F%23%25.txt"],
+  ])("empties a bucket containing %s after a failed test", async (key, encodedKey) => {
+    let objects = [{ key }]
     let bucketDeletes = 0
     const { calls, fetch } = createFakeCloudflare(({ method, path }) => {
       if (path === "/r2/buckets") return ok({ buckets: [{ name: prefix }] })
@@ -107,7 +110,7 @@ describe("live smoke teardown", () => {
         return objects.length ? { status: 409, body: { success: false, errors: [{ code: 10008, message: "bucket not empty" }] } } : ok(null)
       }
       if (path === `/r2/buckets/${prefix}/objects`) return ok(objects)
-      if (path === `/r2/buckets/${prefix}/objects/notes%2Fa.txt`) {
+      if (path === `/r2/buckets/${prefix}/objects/${encodedKey}`) {
         objects = []
         return ok(null)
       }
@@ -116,7 +119,30 @@ describe("live smoke teardown", () => {
 
     expect(failures).toEqual([])
     expect(bucketDeletes).toBe(2)
-    expect(deletes(calls)).toContain(`/r2/buckets/${prefix}/objects/notes%2Fa.txt`)
+    expect(deletes(calls)).toContain(`/r2/buckets/${prefix}/objects/${encodedKey}`)
+  })
+
+  it("follows container page tokens before deleting only this run's applications", async () => {
+    const token = "next+/=page"
+    const { calls, fetch } = createFakeCloudflare(({ method, path, query }) => {
+      if (path === "/containers/applications") {
+        return query.page_token === token
+          ? ok([{ id: "app-1", name: `${prefix}-sandbox` }, { id: "app-2", name: `${prefix}4-sandbox` }])
+          : ok([], { result_info: { next_page_token: token } })
+      }
+      if (method === "DELETE") return ok(null)
+    })
+    const { failures } = await teardownCloudflare({ accountId: "account", apiToken: "token", prefix, fetch, log: () => {} })
+
+    expect(failures).toEqual([])
+    expect(calls.filter(call => call.path === "/containers/applications").map(call => call.query)).toEqual([{}, { page_token: token }])
+    expect(deletes(calls)).toContain("/containers/applications/app-1")
+    expect(deletes(calls)).not.toContain("/containers/applications/app-2")
+    expect(calls.slice(0, 3).map(call => [call.method, call.path])).toEqual([
+      ["GET", "/containers/applications"],
+      ["GET", "/containers/applications"],
+      ["DELETE", "/containers/applications/app-1"],
+    ])
   })
 
   it("keeps going after one kind fails and reports it", async () => {
@@ -162,10 +188,21 @@ describe("live smoke workflow", () => {
     expect(text).not.toContain("CLOUDFLARE_R2_BUCKET_NAME")
   })
 
-  it("tears down last, also on failure and cancel", () => {
-    const teardown = steps.at(-1)
-    expect(teardown?.name).toBe("Tear down Cloudflare scratch resources")
+  it("tears down after runtime tests, also on failure and cancel", () => {
+    const teardownIndex = steps.findIndex(step => step.name === "Tear down Cloudflare scratch resources")
+    const teardown = steps[teardownIndex]
+    expect(steps[teardownIndex - 1]?.name).toBe("DB Live E2E")
     expect(teardown?.if).toBe("always() && matrix.provider == 'cloudflare'")
     expect(teardown?.run).toContain('--prefix "$LIVE_SMOKE_NAME"')
+  })
+
+  it("captures the job status after teardown before uploading provider evidence", () => {
+    const teardownIndex = steps.findIndex(step => step.name === "Tear down Cloudflare scratch resources")
+    expect(steps.slice(teardownIndex + 1).map(step => step.name)).toEqual(["Create stage evidence", "Upload stage evidence"])
+    const evidence = steps[teardownIndex + 1]
+    expect(evidence?.if).toBe("always()")
+    expect(evidence?.env?.LIVE_SMOKE_CONCLUSION).toBe("${{ job.status }}")
+    expect(evidence?.run).toContain('--conclusion "$LIVE_SMOKE_CONCLUSION"')
+    expect(steps[teardownIndex + 2]?.if).toBe("always()")
   })
 })

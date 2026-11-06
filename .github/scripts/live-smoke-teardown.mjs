@@ -61,6 +61,22 @@ async function listAll(request, path, { key, query = {} } = {}) {
   throw new Error(`GET ${path} returned more than ${maxPages} pages.`);
 }
 
+async function listContainerApplications(request) {
+  const path = "/containers/applications";
+  const applications = [];
+  let pageToken;
+  for (let page = 0; page < maxPages; page++) {
+    const response = await request(path, { query: pageToken ? { page_token: pageToken } : {} });
+    if (!response.ok) throw new Error(`GET ${path} failed: ${describeFailure(response)}`);
+    const listed = readList(response.body);
+    if (!listed) throw new Error(`GET ${path} returned an invalid list.`);
+    applications.push(...listed);
+    pageToken = response.body?.result_info?.next_page_token;
+    if (!pageToken) return applications;
+  }
+  throw new Error(`GET ${path} returned more than ${maxPages} pages.`);
+}
+
 async function deleteOne(request, path, query) {
   const response = await request(path, { method: "DELETE", query });
   if (response.ok) return "deleted";
@@ -77,7 +93,9 @@ async function emptyR2Bucket(request, bucket) {
     if (!objects) throw new Error(`GET ${path} returned an invalid list.`);
     if (!objects.length) return;
     for (const object of objects) {
-      await deleteOne(request, `${path}/${encodeURIComponent(object.key)}`);
+      // R2 requires literal separators while other characters stay percent-encoded.
+      const key = object.key.split("/").map(segment => encodeURIComponent(segment)).join("/");
+      await deleteOne(request, `${path}/${key}`);
     }
   }
   throw new Error(`R2 bucket ${bucket} still had objects after ${maxPages} passes.`);
@@ -122,11 +140,7 @@ export async function teardownCloudflare({ accountId, apiToken, prefix, fetch = 
   }
 
   await step("container application", async () => {
-    const response = await request("/containers/applications");
-    if (!response.ok) throw new Error(`GET /containers/applications failed: ${describeFailure(response)}`);
-    const applications = readList(response.body);
-    if (!applications) throw new Error("GET /containers/applications returned an invalid list.");
-    for (const application of applications) {
+    for (const application of await listContainerApplications(request)) {
       if (!isScratchName(application?.name, prefix)) continue;
       record("container application", application.name, await deleteOne(request, `/containers/applications/${encodeURIComponent(application.id)}`));
     }
