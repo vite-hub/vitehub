@@ -1,38 +1,44 @@
 <script setup lang="ts">
 import { PrimitiveRail, PrimitiveRailGroup, PrimitiveRailItem, resolvePrimitiveIconName } from "@vite-hub/ui/primitive-rail"
 import { NuxtLink } from "#components"
-import { docsRailGroups, docsSectionHome } from "#docs/navigation"
+import { docsRailEntries, docsSectionHome } from "#docs/navigation"
 
 import type { ComponentPublicInstance } from "vue"
-import type { DocsSection } from "@vite-hub/docs"
+import type { DocsRailEntry, DocsSection } from "@vite-hub/docs"
 
 defineProps<{
   /** Shows every label, with no tooltips. Touch has no hover to expand the rail. */
   labeled?: boolean
 }>()
 
-const { categories, railExclude, site, start } = useDocsConfig()
+const { categories, railExclude, groups: docsGroups, site, start } = useDocsConfig()
 const currentSection = useDocsSection()
 const icons = useDocsIcons()
-// One rail group for each catalog category. Sections without a category stay reachable in a last group.
+// One rail group for each catalog category. Sections without a category stay reachable in a last group. The sections
+// of a docs group share one item, which opens the first of them.
 // A section icon from the ViteHub set (`i-vitehub-kv`, or `kv` in the `rail` option) renders inline, so it can move on
 // hover. Any other Iconify icon renders through UIcon.
-const groups = docsRailGroups(useDocsManifest(), categories, railExclude).map(sections => sections.map((section) => {
-  const icon = icons.rail(section)
-  return { section, to: docsSectionHome(section), icon, railIcon: resolvePrimitiveIconName(icon) ?? null }
+const groups = docsRailEntries(useDocsManifest(), { categories, railExclude, groups: docsGroups }).map(entries => entries.map((entry) => {
+  const icon = entry.icon ?? icons.rail(entry.sections[0]!)
+  return { entry, to: docsSectionHome(entry.sections[0]!), icon, railIcon: resolvePrimitiveIconName(icon) ?? null }
 }))
 const brand = site.badge ? `${site.name} ${site.badge.label}` : site.name
+const currentEntry = computed(() => groups.flat().find(({ entry }) => entry.sections.some(section => section.id === currentSection.value?.id)))
 
 // A section that the rail leaves out, such as a shared reference topic, marks the start section.
 function isCurrent(section: DocsSection) {
   const current = currentSection.value
   if (!current) return false
-  return section.id === current.id || (section.id === start?.section && !!current.category && railExclude.includes(current.category))
+  return section.id === current.id || (!currentEntry.value && section.id === start?.section && !!current.category && railExclude.includes(current.category))
+}
+
+function isCurrentEntry(entry: DocsRailEntry) {
+  return entry.sections.some(isCurrent)
 }
 
 // The sidebar link is the current page, so the rail marks its section with aria-current="true", not "page".
-function ariaCurrent(section: DocsSection) {
-  return isCurrent(section) ? "true" : undefined
+function ariaCurrent(entry: DocsRailEntry) {
+  return isCurrentEntry(entry) ? "true" : undefined
 }
 
 // The rail hides its scrollbar. A fade at the clipped edge shows that more items are above or below.
@@ -79,9 +85,9 @@ onBeforeUnmount(() => {
     <template #default="{ expanded }">
       <PrimitiveRailGroup v-for="(items, index) in groups" :key="index">
         <UTooltip
-          v-for="{ section, to, icon, railIcon } in items"
-          :key="section.id"
-          :text="section.title"
+          v-for="{ entry, to, icon, railIcon } in items"
+          :key="entry.sections[0]!.id"
+          :text="entry.title"
           :content="{ side: 'right', sideOffset: 6 }"
           :delay-duration="150"
           :disabled="expanded || labeled"
@@ -90,12 +96,12 @@ onBeforeUnmount(() => {
             v-if="railIcon"
             :as="NuxtLink"
             :to="to"
-            :current="isCurrent(section)"
-            :aria-current="ariaCurrent(section)"
+            :current="isCurrentEntry(entry)"
+            :aria-current="ariaCurrent(entry)"
             :icon="railIcon"
-            :label="section.title"
+            :label="entry.title"
           />
-          <PrimitiveRailItem v-else :as="NuxtLink" :to="to" :current="isCurrent(section)" :aria-current="ariaCurrent(section)" :label="section.title">
+          <PrimitiveRailItem v-else :as="NuxtLink" :to="to" :current="isCurrentEntry(entry)" :aria-current="ariaCurrent(entry)" :label="entry.title">
             <UIcon :name="icon" class="size-4" />
           </PrimitiveRailItem>
         </UTooltip>

@@ -68,7 +68,7 @@ export default async function sendWelcome(user: { id: string, email: string }) {
 }
 ```
 
-Make each side effect safe to repeat. For example, create or update a user by email instead of inserting another user on every retry. A durable provider can replay a failed step while keeping earlier completed steps. The local inline provider used here runs each step once and does not replay it. In `vite dev`, `vitehub workflow runs show <runId>` shows each step that ran, with its status and error.
+Make each side effect safe to repeat. For example, create or update a user by email instead of inserting another user on every retry. A durable provider can replay a failed step while keeping earlier completed steps. The local inline provider used here runs each step once and does not replay it. In `vite dev`, `vitehub workflow runs show <runId>` shows each step that ran, with its status and error. [Durable execution](/docs/guides/durable-execution) walks through a three-step job that fails at step 2 on each provider.
 
 ::
 
@@ -109,8 +109,8 @@ curl -X POST http://localhost:5173/api/onboard \
 The response includes a run id and a provider status. Use
 [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run) with that id to
 inspect the final run status, result, or error metadata after the handler
-completes. Local inline execution retains the final result. It does not retain
-step history.
+completes. Local inline execution retains the final result. The run returned by
+`getWorkflowRun()` does not include step history.
 
 ## Start a run from the CLI or the Console
 

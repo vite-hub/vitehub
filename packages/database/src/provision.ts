@@ -13,6 +13,7 @@ type DatabaseProvisionOptions = DBModulePublicOptions | (Exclude<DBModulePublicO
 interface CloudflareD1Database {
   uuid?: string
   name?: string
+  read_replication?: { mode?: unknown }
 }
 
 const CLOUDFLARE_D1_LIST_PER_PAGE = 100
@@ -103,12 +104,20 @@ export function createDatabaseProvisionStep(
         .filter((database): database is { name: string, uuid: string } => Boolean(database.name && database.uuid))
         .map(database => [database.name, database.uuid]))
 
-      return planned.map(({ databaseName, definitions, nuxt, readReplication }): ProvisionAction => {
+      return await Promise.all(planned.map(async ({ databaseName, definitions, nuxt, readReplication }): Promise<ProvisionAction> => {
         const existingId = idByName.get(databaseName)
+        // The list response has no replication mode, so read it from the database itself.
+        const replicationMode = existingId && readReplication
+          ? (await request(`/d1/database/${encodeURIComponent(existingId)}`, { parse: parseDatabase })).result?.read_replication?.mode
+          : undefined
+        const update = existingId && readReplication && replicationMode !== "auto"
+          ? `read replication: ${typeof replicationMode === "string" ? replicationMode : "unknown"} -> auto`
+          : undefined
         return {
           kind: "cloudflare-d1",
           name: databaseName,
           exists: Boolean(existingId),
+          ...(update ? { pending: true, update } : {}),
           apply: async () => {
             let id = existingId
             // D1 places replicas itself. Reads use them only when the Definition sets `readReplication`.
@@ -117,7 +126,7 @@ export function createDatabaseProvisionStep(
               const created = await request("/d1/database", { method: "POST", body: { name: databaseName, ...replication }, parse: parseDatabase })
               id = created.result?.uuid
             }
-            else if (readReplication) {
+            else if (update) {
               await request(`/d1/database/${encodeURIComponent(id)}`, { method: "PATCH", body: replication, parse: parseDatabase })
             }
             if (!id) return {}
@@ -128,7 +137,7 @@ export function createDatabaseProvisionStep(
             } } }
           },
         }
-      })
+      }))
     },
   }
 }
