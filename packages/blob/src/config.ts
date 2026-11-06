@@ -14,6 +14,7 @@ import type {
   MinioBlobStoreConfig,
   NetlifyBlobsStoreConfig,
   ResolvedBlobModuleOptions,
+  ResolvedBlobStoreConfig,
   ResolvedCloudflareR2BlobStoreConfig,
   ResolvedFsBlobStoreConfig,
   ResolvedMinioBlobStoreConfig,
@@ -25,8 +26,12 @@ import type { BlobImagesOptions } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 
 export interface BlobResolutionInput {
+  /** True for `vite dev`, where a store's `remote` switch applies. */
+  dev?: boolean
   env?: Record<string, string | undefined>
   hosting?: string
+  /** The integration picked the `driver` from the deployment preset, so `vite dev` treats it like an inferred store. */
+  presetDriver?: boolean
 }
 
 export const MASKED_BLOB_RUNTIME_VALUE = "********"
@@ -275,6 +280,36 @@ export function hasVercelBlobEnv(env: Record<string, string | undefined>): boole
   return Boolean(readEnv(env, "BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN"))
 }
 
+function readRemote(value: unknown, path: string): boolean | undefined {
+  if (value === undefined || value === true || value === false) return value
+  throw blobErrorDiagnostics.BLOB_C0017({ message: `\`${path}\` must be true or false. Received ${JSON.stringify(value)}.` })
+}
+
+/**
+ * Applies the `vite dev` switch between the local `fs` store and a hosted store. A Vercel Blob store that env or the
+ * host preset picks becomes the local `fs` store unless it sets `remote: true`. An R2 store of the Cloudflare preset keeps
+ * a dev runner's R2 binding, which is a local emulation, and uses `fs` without one. Netlify Blobs keeps the local sandbox
+ * of `netlify dev`. An explicit `driver` is used as configured. Builds ignore `remote`.
+ */
+function applyDevelopmentMode(
+  resolved: ResolvedBlobStoreConfig,
+  options: { dev: boolean, env: Record<string, string | undefined>, inferred: boolean, path: string, remote: boolean | undefined },
+): ResolvedBlobStoreConfig {
+  const { remote: _remote, ...local } = resolved
+  if (local.driver === "fs") {
+    if (options.remote && (options.dev || !options.inferred)) {
+      throw blobErrorDiagnostics.BLOB_C0018({ message: `\`${options.path}\` is true, but the store uses the local \`fs\` driver. Set a hosted \`driver\`, or remove \`remote\`.` })
+    }
+    return local
+  }
+  if (!options.dev) return local
+  if (options.remote) return { ...local, remote: true }
+  if (!options.inferred) return local
+  if (local.driver === "vercel-blob") return resolveFsStore({}, options.env)
+  if (local.driver === "cloudflare-r2") return { ...local, localFallback: resolveFsStore({}, options.env) }
+  return local
+}
+
 export function normalizeBlobOptions(
   options: BlobModuleOptions | undefined,
   input: BlobResolutionInput = {},
@@ -288,6 +323,7 @@ export function normalizeBlobOptions(
   }
 
   const env = input.env || process.env
+  const dev = input.dev === true
   const hosting = normalizeHosting(input.hosting)
   const explicit = options as BlobStoreConfig | undefined
   const optionRecord = options as { serve?: BlobServeOptions } | undefined
@@ -303,34 +339,41 @@ export function normalizeBlobOptions(
 
   if (hasStoresConfig(options)) {
     const resolvedStores = Object.fromEntries(
-      Object.entries(options.stores).map(([name, store]) => [name, resolveExplicitStore(store, env)]),
+      Object.entries(options.stores).map(([name, store]) => {
+        const path = `blob.stores.${name}.remote`
+        const remote = readRemote(isPlainObject(store) ? store.remote : undefined, path)
+        return [name, applyDevelopmentMode(resolveExplicitStore(store, env), { dev, env, inferred: false, path, remote })]
+      }),
     )
     const defaultStore = resolvedStores.default
     if (!defaultStore) throw blobErrorDiagnostics.BLOB_C0008({ message: "`blob.stores.default` is required when using named Blob stores." })
     return createResolvedConfig(defaultStore, resolvedStores, serve, images)
   }
 
+  const remote = readRemote(explicit?.remote, "blob.remote")
+  const mode = { dev, env, inferred: !explicit?.driver || input.presetDriver === true, path: "blob.remote", remote }
+
   if (explicit?.driver) {
-    return createResolvedConfig(resolveExplicitStore(withoutModuleOptions(explicit), env), undefined, serve, images)
+    return createResolvedConfig(applyDevelopmentMode(resolveExplicitStore(withoutModuleOptions(explicit), env), mode), undefined, serve, images)
   }
 
   if (hosting.includes("cloudflare")) {
-    return createResolvedConfig(resolveCloudflareStore(implicitCloudflare, env), undefined, serve, images)
+    return createResolvedConfig(applyDevelopmentMode(resolveCloudflareStore(implicitCloudflare, env), mode), undefined, serve, images)
   }
 
   if (hosting.includes("netlify")) {
-    return createResolvedConfig(resolveNetlifyStore(), undefined, serve, images)
+    return createResolvedConfig(applyDevelopmentMode(resolveNetlifyStore(), mode), undefined, serve, images)
   }
 
   if (hasVercelBlobEnv(env)) {
-    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve, images)
+    return createResolvedConfig(applyDevelopmentMode(resolveVercelStore({}, env), mode), undefined, serve, images)
   }
 
   if (hosting.includes("vercel")) {
-    return createResolvedConfig(resolveVercelStore({}, env), undefined, serve, images)
+    return createResolvedConfig(applyDevelopmentMode(resolveVercelStore({}, env), mode), undefined, serve, images)
   }
 
-  return createResolvedConfig(resolveFsStore({}, env), undefined, serve, images)
+  return createResolvedConfig(applyDevelopmentMode(resolveFsStore({}, env), mode), undefined, serve, images)
 }
 
 export function warnVercelBlobFallback(

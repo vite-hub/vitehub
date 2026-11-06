@@ -1467,3 +1467,85 @@ describe("hubBlob", () => {
     expect(`${nitroPlugin}\n${middleware}\n${handler}`).not.toContain("@vite-hub/blob")
   })
 })
+
+describe("hubBlob in vite dev", () => {
+  async function resolveConfig(plugin: ReturnType<typeof hubBlob>, command: "build" | "serve", nitro: Record<string, unknown> = {}) {
+    const root = await temporaryDirectory("vitehub-blob-dev-remote-")
+    await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, command, nitro, plugins: [{ name: "nitro:main" }], root } as never)
+    return root
+  }
+
+  it("keeps a Vercel Blob token in env out of the dev runtime", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "secret-token")
+    try {
+      const plugin = hubBlob()
+      const root = await resolveConfig(plugin, "serve")
+
+      expect(plugin.api.getConfig().blob).toMatchObject({ store: { driver: "fs" } })
+      const runtime = await readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
+      expect(runtime).toContain("/drivers/fs")
+      expect(runtime).not.toContain("/drivers/vercel")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("keeps the build on Vercel Blob with or without remote", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "secret-token")
+    try {
+      const runtimes = await Promise.all([hubBlob(), hubBlob({ remote: true })].map(async (plugin) => {
+        const root = await resolveConfig(plugin, "build")
+        return readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
+      }))
+
+      expect(runtimes[0]).toContain("/drivers/vercel")
+      expect(runtimes[1]).toBe(runtimes[0])
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("gives the Cloudflare dev plugin a local fs fallback", async () => {
+    const root = await resolveConfig(hubBlob(), "serve", { preset: "cloudflare_module" })
+
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"localFallback":{"base":".vitehub/data/blob","driver":"fs"}')
+  })
+
+  it("gives the generated dev runtime of a vitehub() R2 store a local fs fallback", async () => {
+    const base = await temporaryDirectory("vitehub-blob-dev-fallback-")
+    vi.stubEnv("BLOB_FS_BASE", base)
+    try {
+      const root = await resolveConfig(hubBlob({ bucketName: "app-blob", driver: "cloudflare-r2" }, { presetDriver: true }), "serve")
+      const runtime = await import(pathToFileURL(join(root, ".vitehub", "nitro", "blob", "runtime.mjs")).href) as { blob: import("../src/types.ts").BlobStorage }
+
+      const [error] = await runtime.blob.put("hello.txt", "hello")
+
+      expect(error).toBeNull()
+      expect(await readFile(join(base, "hello.txt"), "utf8")).toBe("hello")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it.each([
+    [{ remote: true }, "Remote. `vite dev` uses the real store, so writes change real data."],
+    [undefined, "Local. `vite dev` uses the `fs` driver in .vitehub/data/blob."],
+  ] as const)("shows the development store of %o in inspect", async (options, development) => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "secret-token")
+    try {
+      const plugin = hubBlob(options)
+      await resolveConfig(plugin, "serve")
+      const [inspector] = plugin.vitehub.inspect!().definitions!
+
+      expect(inspector?.kind).toBe("blob")
+      expect(await inspector?.list()).toEqual([{ fields: [{ label: "Development", value: development }], file: "vite.config", name: "default", source: "blob config" }])
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+})

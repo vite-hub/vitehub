@@ -319,7 +319,15 @@ export interface BlobStorage {
  */
 export type CloudflareR2Jurisdiction = "eu" | "fedramp" | "us"
 
-export interface CloudflareR2BlobStoreConfig {
+interface HostedBlobStoreConfig {
+  /**
+   * In `vite dev`, use this hosted store instead of the local `fs` store, so writes change real data. Without it,
+   * `vite dev` never picks a hosted store from env or the host preset. An explicit `driver` is always used. Builds ignore it.
+   */
+  remote?: boolean
+}
+
+export interface CloudflareR2BlobStoreConfig extends HostedBlobStoreConfig {
   accountId?: string
   accessKeyId?: string
   binding?: string
@@ -336,10 +344,12 @@ export interface FsBlobStoreConfig {
   base?: string
   defaultUrlExpiresIn?: number
   driver: "fs"
+  /** A local store cannot be remote: `remote: true` fails with `BLOB_C0018`. */
+  remote?: boolean
   urlBaseUrl?: string
 }
 
-export interface VercelBlobStoreConfig {
+export interface VercelBlobStoreConfig extends HostedBlobStoreConfig {
   access?: "private" | "public"
   allowOverwrite?: boolean
   downloadTimeoutMs?: number
@@ -347,7 +357,7 @@ export interface VercelBlobStoreConfig {
   token?: string
 }
 
-export interface S3BlobStoreConfig {
+export interface S3BlobStoreConfig extends HostedBlobStoreConfig {
   bucket: string
   credentials?: { accessKeyId: string, secretAccessKey: string, sessionToken?: string }
   defaultUrlExpiresIn?: number
@@ -358,7 +368,7 @@ export interface S3BlobStoreConfig {
   region?: string
 }
 
-export interface GcsBlobStoreConfig {
+export interface GcsBlobStoreConfig extends HostedBlobStoreConfig {
   bucket: string
   credentials?: { client_email: string, private_key: string }
   defaultUrlExpiresIn?: number
@@ -368,7 +378,7 @@ export interface GcsBlobStoreConfig {
   publicBaseUrl?: string
 }
 
-export interface AzureBlobStoreConfig {
+export interface AzureBlobStoreConfig extends HostedBlobStoreConfig {
   accountKey?: string
   accountName?: string
   connectionString?: string
@@ -380,7 +390,7 @@ export interface AzureBlobStoreConfig {
   sasToken?: string
 }
 
-export interface SupabaseBlobStoreConfig {
+export interface SupabaseBlobStoreConfig extends HostedBlobStoreConfig {
   bucket: string
   defaultUrlExpiresIn?: number
   driver: "supabase"
@@ -390,7 +400,7 @@ export interface SupabaseBlobStoreConfig {
   url?: string
 }
 
-export interface NetlifyBlobsStoreConfig {
+export interface NetlifyBlobsStoreConfig extends HostedBlobStoreConfig {
   consistency?: "eventual" | "strong"
   deployScoped?: boolean
   driver: "netlify-blobs"
@@ -399,7 +409,7 @@ export interface NetlifyBlobsStoreConfig {
   token?: string
 }
 
-interface S3CompatibleBlobStoreConfig {
+interface S3CompatibleBlobStoreConfig extends HostedBlobStoreConfig {
   accessKeyId?: string
   bucket: string
   defaultUrlExpiresIn?: number
@@ -411,7 +421,7 @@ interface S3CompatibleBlobStoreConfig {
   secretAccessKey?: string
 }
 
-export interface UploadThingBlobStoreConfig {
+export interface UploadThingBlobStoreConfig extends HostedBlobStoreConfig {
   acl?: "private" | "public-read"
   defaultUrlExpiresIn?: number
   downloadTimeoutMs?: number
@@ -421,7 +431,7 @@ export interface UploadThingBlobStoreConfig {
   token?: string
 }
 
-export interface GoogleDriveBlobStoreConfig {
+export interface GoogleDriveBlobStoreConfig extends HostedBlobStoreConfig {
   credentials?: { client_email: string, private_key: string }
   driveId?: string
   driver: "google-drive"
@@ -432,7 +442,7 @@ export interface GoogleDriveBlobStoreConfig {
   subject?: string
 }
 
-export interface OneDriveBlobStoreConfig {
+export interface OneDriveBlobStoreConfig extends HostedBlobStoreConfig {
   accessToken?: string | (() => string | Promise<string>)
   clientCredentials?: { tenantId: string, clientId: string, clientSecret: string }
   copyTimeoutMs?: number
@@ -445,7 +455,7 @@ export interface OneDriveBlobStoreConfig {
   userId?: string
 }
 
-export interface DropboxBlobStoreConfig {
+export interface DropboxBlobStoreConfig extends HostedBlobStoreConfig {
   accessToken?: string | (() => string | Promise<string>)
   appKey?: string
   appSecret?: string
@@ -457,7 +467,7 @@ export interface DropboxBlobStoreConfig {
   rootFolderPath?: string
 }
 
-export interface BoxBlobStoreConfig {
+export interface BoxBlobStoreConfig extends HostedBlobStoreConfig {
   ccg?: { clientId: string, clientSecret: string, enterpriseId?: string, userId?: string }
   defaultUrlExpiresIn?: number
   developerToken?: string
@@ -492,7 +502,7 @@ export type BlobStoreConfig =
 export type AkamaiBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "akamai", region: string }
 export type DigitalOceanSpacesBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "digitalocean-spaces", region: string }
 export type HetznerBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "hetzner", region: string }
-export interface MinioBlobStoreConfig {
+export interface MinioBlobStoreConfig extends HostedBlobStoreConfig {
   accessKeyId?: string
   bucket?: string
   defaultUrlExpiresIn?: number
@@ -507,6 +517,8 @@ export type StorjBlobStoreConfig = S3CompatibleBlobStoreConfig & { driver: "stor
 
 export interface ResolvedCloudflareR2BlobStoreConfig extends CloudflareR2BlobStoreConfig {
   binding: string
+  /** Set only in `vite dev` for a store that the Cloudflare preset picks: without the R2 binding, the store uses this local store. */
+  localFallback?: ResolvedFsBlobStoreConfig
 }
 
 export interface ResolvedFsBlobStoreConfig extends FsBlobStoreConfig {
@@ -579,8 +591,8 @@ export interface BlobStoresConfig extends BlobModuleBaseOptions {
 export type BlobModuleOptions =
   | false
   | BlobStoresConfig
-  | (BlobModuleBaseOptions & { driver?: undefined } & Partial<Pick<ResolvedCloudflareR2BlobStoreConfig, "binding" | "bucketName" | "jurisdiction">>)
-  | (BlobModuleBaseOptions & { driver?: undefined } & Partial<Pick<NetlifyBlobsStoreConfig, "name">>)
+  | (BlobModuleBaseOptions & HostedBlobStoreConfig & { driver?: undefined } & Partial<Pick<ResolvedCloudflareR2BlobStoreConfig, "binding" | "bucketName" | "jurisdiction">>)
+  | (BlobModuleBaseOptions & HostedBlobStoreConfig & { driver?: undefined } & Partial<Pick<NetlifyBlobsStoreConfig, "name">>)
   | (BlobModuleBaseOptions & BlobStoreConfig)
 
 export interface ResolvedBlobModuleOptions {

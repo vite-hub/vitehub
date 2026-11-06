@@ -14,6 +14,8 @@ Application code keeps importing `blob` from `@vite-hub/blob` when you switch pr
 
 ## Read and write blobs during development
 
+`vite dev` uses a local store unless the store sets `remote: true` or an explicit `driver`. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
+
 `hubBlob()` contributes the `vitehub blob` CLI namespace. Start the Vite Development Server, then read and write blobs from another terminal.
 
 ```bash [Terminal]

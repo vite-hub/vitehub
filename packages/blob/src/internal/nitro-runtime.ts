@@ -93,7 +93,12 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
   const nativeCloudflareR2 = stores
     .filter(store => store.driver === "cloudflare-r2")
     .every(isCloudflareR2StoreWithBucket)
-  const selectedDriverModules = [...new Set(stores.map(store => getDriverModule(store.driver, provider, nativeCloudflareR2)))]
+  // Only `vite dev` sets `localFallback`: the R2 store then uses this `fs` store when the dev runner has no R2 binding.
+  const localFallback = stores.some(store => store.driver === "cloudflare-r2" && store.localFallback)
+  const selectedDriverModules = [...new Set([
+    ...stores.map(store => getDriverModule(store.driver, provider, nativeCloudflareR2)),
+    ...(localFallback ? [driverModules.fs] : []),
+  ])]
   const driverImports = Object.fromEntries(selectedDriverModules.map((driverModule, index) => [driverModule, `createDriver${index}`]))
   const imports = [
     `import { ensureBlob } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("ensure")))}`,
@@ -107,6 +112,9 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
     const driverImport = driverImports[driverModule]
     imports.push(`import { createDriver as ${driverImport} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule(driverModule)))}`)
   }
+  if (localFallback) {
+    imports.push(`import { getOptionalBucket } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("drivers/cloudflare-native")))}`)
+  }
   const runtimeStoreResolvers = [...new Set(stores.map(store => getRuntimeBlobStoreResolver(store.driver)).filter(Boolean))]
   if (runtimeStoreResolvers.length > 0) {
     imports.push(`import { ${runtimeStoreResolvers.join(", ")} } from ${JSON.stringify(createImportPath(file, resolveRuntimeModule("config")))}`)
@@ -118,6 +126,9 @@ export function renderBlobRuntimeModule(file: string, blobConfig: false | Resolv
     if (!driverImport) return undefined
     const runtimeStoreResolver = getRuntimeBlobStoreResolver(driver)
     const storeExpression = runtimeStoreResolver ? `${runtimeStoreResolver}(store, process.env)` : "store"
+    if (driver === "cloudflare-r2" && localFallback) {
+      return `    case ${JSON.stringify(driver)}: return store.localFallback && !getOptionalBucket(store) ? ${driverImports[driverModules.fs]}(store.localFallback) : ${driverImport}(${storeExpression})`
+    }
     return `    case ${JSON.stringify(driver)}: return ${driverImport}(${storeExpression})`
   }).filter(Boolean)
 

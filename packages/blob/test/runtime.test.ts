@@ -1,5 +1,10 @@
+import { existsSync } from "node:fs"
+import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+
 import { H3Event } from "h3"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { ensureBlob } from "../src/ensure.ts"
 import { normalizeBlobOptions } from "../src/config.ts"
@@ -1387,6 +1392,72 @@ describe("blob runtime", () => {
     expect(expectBlobSuccess(await blob.get("notes/slow.txt"))).toBeNull()
   })
 
+})
+
+describe("blob runtime in vite dev", () => {
+  async function localBase() {
+    const base = await mkdtemp(join(tmpdir(), "vitehub-blob-dev-"))
+    onTestFinished(() => rm(base, { force: true, recursive: true }))
+    return base
+  }
+
+  it("keeps a Vercel Blob token in env on the local fs store", async () => {
+    const base = await localBase()
+    process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
+    setBlobRuntimeConfig(normalizeBlobOptions(undefined, { dev: true, env: { BLOB_FS_BASE: base, BLOB_READ_WRITE_TOKEN: "secret-token" } }))
+
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+
+    expect(await readFile(join(base, "notes/hello.txt"), "utf8")).toBe("hello")
+    expect(vercelBlobMock.put).not.toHaveBeenCalled()
+  })
+
+  it("uses the real Vercel Blob store with remote: true and warns once", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    process.env.BLOB_READ_WRITE_TOKEN = "secret-token"
+    setBlobRuntimeConfig(normalizeBlobOptions({ remote: true }, { dev: true, env: { BLOB_READ_WRITE_TOKEN: "secret-token" } }))
+
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+    expectBlobSuccess(await blob.put("notes/again.txt", "again"))
+
+    expect(vercelBlobMock.put).toHaveBeenCalledTimes(2)
+    expect(warn.mock.calls).toEqual([["[vitehub] Blob store \"default\" is remote: `vite dev` uses the real Vercel Blob store. Writes change real data."]])
+  })
+
+  it("uses the local fs store for the Cloudflare preset when the dev runner has no R2 binding", async () => {
+    const base = await localBase()
+    setBlobRuntimeConfig(normalizeBlobOptions(undefined, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
+
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+
+    expect(await readFile(join(base, "notes/hello.txt"), "utf8")).toBe("hello")
+    expect(filesSdkMock.r2).not.toHaveBeenCalled()
+  })
+
+  it("uses the R2 binding of the dev runner for the Cloudflare preset", async () => {
+    const base = await localBase()
+    const bucket = createMemoryBucket()
+    setActiveCloudflareEnv({ BLOB: bucket })
+    setBlobRuntimeConfig(normalizeBlobOptions(undefined, { dev: true, env: { BLOB_FS_BASE: base }, hosting: "cloudflare" }))
+
+    expectBlobSuccess(await blob.put("notes/hello.txt", "hello"))
+
+    expect(await expectBlobSuccess(await blob.get("notes/hello.txt"))?.text()).toBe("hello")
+    expect(existsSync(join(base, "notes/hello.txt"))).toBe(false)
+  })
+
+  it("uses the R2 API instead of the local binding with remote: true", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    process.env.CLOUDFLARE_R2_ACCOUNT_ID = "account"
+    process.env.CLOUDFLARE_R2_ACCESS_KEY_ID = "access-key"
+    process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY = "secret-key"
+    setActiveCloudflareEnv({ BLOB: createMemoryBucket() })
+    setBlobRuntimeConfig(normalizeBlobOptions({ bucketName: "assets", remote: true }, { dev: true, hosting: "cloudflare" }))
+
+    expectBlobSuccess(await blob.list())
+
+    expect(filesSdkMock.r2).toHaveBeenCalledWith(expect.objectContaining({ bucket: "assets" }))
+  })
 })
 
 describe("ensureBlob", () => {

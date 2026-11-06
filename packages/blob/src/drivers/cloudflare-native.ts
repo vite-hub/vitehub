@@ -57,6 +57,8 @@ function toDriverMultipartUpload(upload: R2MultipartUploadLike): BlobDriverMulti
 }
 
 export function getOptionalBucket(options: ResolvedCloudflareR2BlobStoreConfig): R2BucketLike | undefined {
+  // With `remote: true`, `vite dev` uses the real bucket through the R2 API, not the dev runner's local binding.
+  if (options.remote) return undefined
   // SAFETY: Cloudflare installs configured R2 buckets as globals; Object.hasOwn excludes inherited values before accessing that binding.
   return getActiveCloudflareBinding<R2BucketLike>(options.binding)
     || (Object.hasOwn(globalThis, options.binding) ? (globalThis as Record<string, unknown>)[options.binding] as R2BucketLike | undefined : undefined)

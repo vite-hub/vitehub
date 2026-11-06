@@ -226,7 +226,18 @@ export interface BlobStorageOptions {
   url?: (pathname: string) => string | undefined | Promise<string | undefined>
 }
 
+/** Only `vite dev` sets `remote: true` on a store, so the dev server warns once per store that writes change real data. */
+function warnRemoteStore(options: { bucketName?: unknown, driver?: unknown, remote?: unknown } | undefined, store: string): void {
+  if (options?.remote !== true) return
+  const bucket = typeof options.bucketName === "string" && options.bucketName ? ` ${options.bucketName}` : ""
+  const target = options.driver === "vercel-blob"
+    ? "Vercel Blob store"
+    : options.driver === "cloudflare-r2" ? `R2 bucket${bucket}` : `\`${String(options.driver)}\` store`
+  console.warn(`[vitehub] Blob store "${store}" is remote: \`vite dev\` uses the real ${target}. Writes change real data.`)
+}
+
 export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string = driver.name, options: BlobStorageOptions = {}): BlobStorage {
+  warnRemoteStore(driver.options, store)
   const pendingTransforms = new Map<string, Promise<Blob | undefined | false>>()
   async function clearDerived(pathname: string) {
     try {

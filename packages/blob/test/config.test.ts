@@ -704,3 +704,86 @@ describe("blob config", () => {
     }
   })
 })
+
+describe("blob config in vite dev", () => {
+  const env = { BLOB_STORE_ID: "store_1", BLOB_READ_WRITE_TOKEN: "secret-token" }
+
+  it.each([
+    ["BLOB_READ_WRITE_TOKEN", { BLOB_READ_WRITE_TOKEN: "secret-token" }, undefined],
+    ["BLOB_STORE_ID", { BLOB_STORE_ID: "store_1" }, undefined],
+    ["the Vercel preset", {}, "vercel"],
+  ] as const)("keeps a store that %s picks on the local fs store", (_source, storeEnv, hosting) => {
+    expect(normalizeBlobOptions(undefined, { dev: true, env: storeEnv, hosting })).toEqual({
+      store: { base: ".vitehub/data/blob", driver: "fs" },
+    })
+  })
+
+  it("uses the hosted store with remote: true", () => {
+    expect(normalizeBlobOptions({ remote: true }, { dev: true, env })?.store).toEqual({
+      access: "public",
+      driver: "vercel-blob",
+      remote: true,
+      token: "********",
+    })
+  })
+
+  it("keeps an explicit driver without remote", () => {
+    expect(normalizeBlobOptions({ driver: "vercel-blob" }, { dev: true, env })?.store).toEqual({
+      access: "public",
+      driver: "vercel-blob",
+      token: "********",
+    })
+  })
+
+  it("treats a driver that vitehub() picks from the preset like an inferred store", () => {
+    expect(normalizeBlobOptions({ driver: "vercel-blob" }, { dev: true, env, presetDriver: true })?.store).toEqual({ base: ".vitehub/data/blob", driver: "fs" })
+    expect(normalizeBlobOptions({ bucketName: "app-blob", driver: "cloudflare-r2" }, { dev: true, env: {}, presetDriver: true })?.store).toMatchObject({
+      bucketName: "app-blob",
+      localFallback: { base: ".vitehub/data/blob", driver: "fs" },
+    })
+    expect(normalizeBlobOptions({ driver: "vercel-blob", remote: true }, { dev: true, env, presetDriver: true })?.store).toMatchObject({ driver: "vercel-blob", remote: true })
+  })
+
+  it("adds the local fs store as the fallback of the Cloudflare preset", () => {
+    expect(normalizeBlobOptions(undefined, { dev: true, env: {}, hosting: "cloudflare" })?.store).toEqual({
+      binding: "BLOB",
+      driver: "cloudflare-r2",
+      localFallback: { base: ".vitehub/data/blob", driver: "fs" },
+    })
+  })
+
+  it("applies remote per named store", () => {
+    const config = normalizeBlobOptions({
+      stores: {
+        default: { driver: "fs" },
+        media: { driver: "vercel-blob", remote: true },
+      },
+    }, { dev: true, env })
+
+    expect(config?.stores?.media).toMatchObject({ driver: "vercel-blob", remote: true })
+    expect(config?.stores?.default).toEqual({ base: ".vitehub/data/blob", driver: "fs" })
+  })
+
+  it("ignores remote in builds", () => {
+    expect(normalizeBlobOptions({ remote: true }, { env })).toEqual(normalizeBlobOptions(undefined, { env }))
+    expect(normalizeBlobOptions({ remote: false }, { env })?.store.driver).toBe("vercel-blob")
+    expect(normalizeBlobOptions({ remote: true }, { env: {}, hosting: "cloudflare" })?.store).toEqual({ binding: "BLOB", driver: "cloudflare-r2" })
+  })
+
+  it("rejects a remote value that is not a boolean", () => {
+    expect(() => normalizeBlobOptions({ remote: "yes" as unknown as boolean })).toThrow(expect.objectContaining({
+      code: "BLOB_C0017",
+      message: expect.stringContaining("`blob.remote` must be true or false. Received \"yes\"."),
+    }))
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "s3", bucket: "assets", remote: 1 as unknown as boolean } } })).toThrow(expect.objectContaining({
+      code: "BLOB_C0017",
+      message: expect.stringContaining("`blob.stores.default.remote`"),
+    }))
+  })
+
+  it("rejects remote: true on a local fs store", () => {
+    expect(() => normalizeBlobOptions({ driver: "fs", remote: true })).toThrow(expect.objectContaining({ code: "BLOB_C0018" }))
+    expect(() => normalizeBlobOptions({ remote: true }, { dev: true, env: {} })).toThrow(expect.objectContaining({ code: "BLOB_C0018" }))
+    expect(normalizeBlobOptions({ remote: true }, { env: {} })?.store.driver).toBe("fs")
+  })
+})

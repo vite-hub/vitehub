@@ -857,6 +857,7 @@ describe("vitehub", () => {
     }))
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith({ driver: "fs" }, {
       importBase: "vite-hub/_internal/blob",
+      presetDriver: true,
     })
     expect(integrationMocks.hubDb).toHaveBeenLastCalledWith(undefined)
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
@@ -1896,7 +1897,7 @@ describe("vitehub", () => {
     vitehub({ preset, blob: true })
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(
       expect.objectContaining({ driver }),
-      { importBase: "vite-hub/_internal/blob" },
+      { importBase: "vite-hub/_internal/blob", presetDriver: true },
     )
   })
 
@@ -1906,7 +1907,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(expect.objectContaining({
       driver: "netlify-blobs",
       name: "assets",
-    }), { importBase: "vite-hub/_internal/blob" })
+    }), { importBase: "vite-hub/_internal/blob", presetDriver: true })
   })
 
   it("keeps Blob disabled until requested and rejects unsupported presets", () => {
@@ -2132,7 +2133,7 @@ describe("vitehub", () => {
     vitehub({ name: "logical-app", preset: "cloudflare", blob: { driver: "fs" } })
     expect(integrationMocks.hubBlob).toHaveBeenLastCalledWith(
       expect.objectContaining({ driver: "fs" }),
-      { importBase: "vite-hub/_internal/blob" },
+      { importBase: "vite-hub/_internal/blob", presetDriver: false },
     )
   })
 

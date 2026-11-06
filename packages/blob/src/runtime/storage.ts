@@ -41,6 +41,8 @@ const driverModules = {
 
 async function importRuntimeDriver(config: ResolvedBlobStoreConfig) {
   if (config.driver === "cloudflare-r2") {
+    // In `vite dev`, a store that the Cloudflare preset picks uses its local `fs` store when the dev runner has no R2 binding.
+    if (config.localFallback && !getOptionalBucket(config)) return importRuntimeDriverModule(config.localFallback)
     const nativeDriver = createCloudflareR2NativeDriver(config)
     let fallbackDriver: Promise<BlobDriverAdapter<ResolvedCloudflareR2BlobStoreConfig>> | undefined
     const activeDriver = async () => {

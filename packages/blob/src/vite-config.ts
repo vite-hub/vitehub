@@ -28,6 +28,6 @@ export function resolveBlobViteConfig(
 ): BlobViteRuntimeConfig {
   const env = input.env || process.env
   const hosting = resolveHosting(input)
-  const resolved = normalizeBlobOptions(blob, { env, hosting })
+  const resolved = normalizeBlobOptions(blob, { dev: input.dev, env, hosting, presetDriver: input.presetDriver })
   return { blob: resolved ?? false, hosting }
 }
