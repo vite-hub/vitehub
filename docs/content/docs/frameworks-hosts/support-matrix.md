@@ -17,8 +17,11 @@ a whole.
 
 The primitive and feature rows come from the ViteHub feature catalog in
 `@vite-hub/internal/features`. A cell says what `vitehub({...})` does when the
-app enables the feature for that preset. The Local Vite column is `vite dev`
-with local providers. The Nitro and UnJS column describes generic Nitro output.
+app enables the feature for that preset, including requirements from features it
+enables implicitly. Comments, Connections, and Console require a hosted
+`database.connection` on Vercel, Netlify, and Deno. The Local Vite column is
+`vite dev` with the default Node preset; development with a different preset can
+select different providers. The Nitro and UnJS column describes generic Nitro output.
 
 ::support-matrix
 ## Server primitives
@@ -35,7 +38,7 @@ with local providers. The Nitro and UnJS column describes generic Nitro output.
 | Queue | Local provider | Queues | Vercel Queues | — | — | Cloudflare / Vercel | Local provider |
 | Rate Limit | memory | Cloudflare | — | — | — | Cloudflare | memory |
 | Realtime | memory | Durable Objects | — | — | — | Host authority | memory |
-| Sandbox | Sandbox provider | CF Sandbox | Vercel Sandbox | — | — | Cloudflare / Vercel | — |
+| Sandbox | — | CF Sandbox | Vercel Sandbox | — | — | Cloudflare / Vercel | — |
 | Schedule | Local / process | Cron triggers | Vercel Cron | Scheduled fn | — | Provider Wake | process |
 | Workflow | Vercel Workflow | CF Workflows | Vercel Workflow | OpenWorkflow | Vercel Workflow | Host provider | Vercel Workflow |
 | Workspace | local / memory | Artifacts / GitHub | memory / Blob / GitHub | GitHub | GitHub | Host store | local / GitHub |
@@ -49,9 +52,9 @@ with local providers. The Nitro and UnJS column describes generic Nitro output.
 | Agent | Nitro | Nitro | Nitro | Nitro | Nitro | Agent routes | Nitro |
 | Auth | Better Auth | Better Auth | Better Auth | Better Auth | Better Auth | Auth route | Better Auth |
 | Channels | Nitro | Nitro | Nitro | Nitro | Nitro | Agent routes | Nitro |
-| Comments | Database | Database | Database | Database | Database | Host database | Database |
-| Connections | Database | Database | Database | Database | Database | Host database | Database |
-| Console | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro routes | Nitro |
+| Comments | Database | Database | Database + libSQL / D1 | Database + libSQL | Database + libSQL | Host database | Database |
+| Connections | Database | Database | Database + libSQL / D1 | Database + libSQL | Database + libSQL | Host database | Database |
+| Console | Nitro | Nitro | Nitro + libSQL / D1 | Nitro + libSQL | Nitro + libSQL | Nitro routes | Nitro |
 | Env | Nitro | Nitro | Nitro | Nitro | Nitro | Nitro runtime | Nitro |
 | Logs | Nitro | Nitro | Nitro | Nitro | Nitro | Host source | Nitro |
 | Observability | Evlog | Evlog | Evlog | Evlog | Evlog | Evlog | Evlog |

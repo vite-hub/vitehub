@@ -1,4 +1,4 @@
-import { featureSupport, features } from "@vite-hub/internal/features";
+import { featureSupport, features, impliedFeatures } from "@vite-hub/internal/features";
 import type { FeatureHost, FeatureId, HostSupport } from "@vite-hub/internal/features";
 
 import { supportHosts } from "./support-proof";
@@ -100,9 +100,24 @@ export function supportLevel(support: HostSupport): SupportLevel {
   return support.level === "explicit" ? "package" : "none";
 }
 
-function catalogCell(support: HostSupport): SupportMatrixCell {
+function catalogCell(feature: FeatureId, host: FeatureHost): SupportMatrixCell {
+  const support = featureSupport(feature, host, "node");
   const display = support.level === "unsupported" ? "—" : support.display;
-  return cell(supportLevel(support), support.detail, display);
+  const requirements = impliedFeatures([feature], host === "dev" ? "node" : host)
+    .map((id) => ({ id, support: featureSupport(id, host, "node") }))
+    .filter((entry) => entry.support.level !== "native");
+  if (!requirements.length || support.level === "unsupported") {
+    return cell(supportLevel(support), support.detail, display);
+  }
+  const unsupported = requirements.some((entry) => entry.support.level === "unsupported");
+  const details = requirements.map(({ id, support }) =>
+    `Requires ${features[id].title}${support.level === "explicit" ? ` (${support.option})` : ""}: ${support.detail}`);
+  return cell(
+    unsupported ? "none" : "package",
+    [support.detail, ...details].join(" "),
+    unsupported ? "—" : [display, ...requirements.flatMap((entry) =>
+      entry.support.level === "explicit" ? [entry.support.display] : [])].join(" + "),
+  );
 }
 
 /** A row whose cells come from the feature catalog, except the hand-written `nitro` cell. */
@@ -113,7 +128,7 @@ function featureRow(
   id: string = feature,
 ): SupportMatrixRow {
   const catalog = (host: keyof typeof supportMatrixCatalogHosts) =>
-    catalogCell(featureSupport(feature, supportMatrixCatalogHosts[host]));
+    catalogCell(feature, supportMatrixCatalogHosts[host]);
   return {
     description,
     id,

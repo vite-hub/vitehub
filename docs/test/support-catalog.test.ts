@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { featureIds, featureSupport } from "@vite-hub/internal/features";
+import { featureIds, featureSupport, impliedFeatures } from "@vite-hub/internal/features";
 import type { FeatureId } from "@vite-hub/internal/features";
 import { describe, expect, it } from "vitest";
 
@@ -42,12 +42,37 @@ describe("support matrix and feature catalog", () => {
       if (!("values" in row)) continue;
       const id = rowFeatures[row.id] ?? (row.id as FeatureId);
       for (const [column, host] of Object.entries(supportMatrixCatalogHosts)) {
-        const support = featureSupport(id, host);
+        const support = featureSupport(id, host, "node");
         const cell = row.values[column as keyof typeof supportMatrixCatalogHosts];
+        const requirements = impliedFeatures([id], host === "dev" ? "node" : host)
+          .map((dependency) => featureSupport(dependency, host, "node"))
+          .filter((dependency) => dependency.level !== "native");
+        if (requirements.length && support.level !== "unsupported") {
+          expect(cell.detail, `${id}:${host}`).toContain(support.detail);
+          for (const requirement of requirements) {
+            expect(cell.detail, `${id}:${host}`).toContain(requirement.detail);
+          }
+          continue;
+        }
         expect(cell.status, `${id}:${host}`).toBe(supportLevel(support));
         expect(cell.detail, `${id}:${host}`).toBe(support.detail);
         expect(cell.display, `${id}:${host}`).toBe(support.level === "unsupported" ? "—" : support.display);
       }
+    }
+  });
+
+  it.each(["comments", "connections", "console"])("qualifies %s with its hosted Database requirement", (id) => {
+    const row = catalogRows().find((entry) => entry.id === id)!;
+    expect("values" in row).toBe(true);
+    if (!("values" in row)) return;
+    for (const host of ["vercel", "netlify", "deno"] as const) {
+      const cell = row.values[host];
+      expect(cell.status, `${id}:${host}`).toBe("package");
+      expect(cell.display, `${id}:${host}`).toContain("libSQL");
+      expect(cell.detail, `${id}:${host}`).toContain("database.connection");
+    }
+    for (const host of ["local", "cloudflare", "node"] as const) {
+      expect(row.values[host].status, `${id}:${host}`).toBe("available");
     }
   });
 
