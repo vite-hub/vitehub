@@ -33,7 +33,6 @@ export interface EnvCliOptions {
 }
 
 interface ParsedEnvCliArgs {
-  allowMissingSecrets: boolean
   help: boolean
   json: boolean
   stage?: string
@@ -49,7 +48,7 @@ export interface EnvCliReport {
 const defaultEnvCliStage = "development"
 
 function usage(command: EnvCliCommand): string {
-  return `vitehub env ${command} [--stage <name>] [--json]${command === "check" ? " [--allow-missing-secrets]" : ""}`
+  return `vitehub env ${command} [--stage <name>] [--json]`
 }
 
 function writeUsage(command: EnvCliCommand, stream: ViteHubCliContext["stdout"]): void {
@@ -64,25 +63,17 @@ function writeUsage(command: EnvCliCommand, stream: ViteHubCliContext["stdout"])
     `  --stage <name>  Load Vite env files for this mode. Defaults to ${defaultEnvCliStage}.`,
     "                  Variables from the current process take precedence.",
     "  --json          Print machine-readable output.",
-    ...command === "check"
-      ? [
-          "  --allow-missing-secrets",
-          "                  Pass when a secret from the host environment is missing.",
-          "                  Use it where the host adds secrets at runtime, such as a Worker build.",
-        ]
-      : [],
     "  -h, --help      Show this help.",
     "",
   ].join("\n"))
 }
 
-function parseArgs(command: EnvCliCommand, args: string[]): ParsedEnvCliArgs {
-  const parsed: ParsedEnvCliArgs = { allowMissingSecrets: false, help: false, json: false }
+function parseArgs(args: string[]): ParsedEnvCliArgs {
+  const parsed: ParsedEnvCliArgs = { help: false, json: false }
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!
     if (arg === "-h" || arg === "--help") parsed.help = true
     else if (arg === "--json") parsed.json = true
-    else if (command === "check" && arg === "--allow-missing-secrets") parsed.allowMissingSecrets = true
     else if (arg === "--stage" || arg.startsWith("--stage=")) {
       const value = arg === "--stage" ? args[++index] : arg.slice("--stage=".length)
       if (!value || value.startsWith("-")) throw envErrorDiagnostics.ENV_R0025({ message: "--stage requires a name." })
@@ -164,12 +155,7 @@ function formatTable(rows: string[][]): string[] {
   return rows.map(row => row.map((cell, column) => column === row.length - 1 ? cell : cell.padEnd(widths[column]!)).join("  "))
 }
 
-/** The host adds these at runtime, so the environment that runs the check need not have them. */
-function isMissingHostSecret(entry: ServerEnvInspectionEntry): boolean {
-  return entry.masked && entry.source === "env" && entry.status === "missing"
-}
-
-function writeReport(command: EnvCliCommand, report: EnvCliReport, isBlocking: (entry: ServerEnvInspectionEntry) => boolean, context: ViteHubCliContext): void {
+function writeReport(command: EnvCliCommand, report: EnvCliReport, context: ViteHubCliContext): void {
   const lines = [`Server Env (stage: ${report.stage})`, ""]
   if (!report.entries.length) {
     lines.push("No Server Env variables declared.")
@@ -179,14 +165,14 @@ function writeReport(command: EnvCliCommand, report: EnvCliReport, isBlocking: (
       ["VARIABLE", "STATUS", "SOURCE", "REQUIRED", "SECRET"],
       ...report.entries.map(entry => [
         displayPath(entry),
-        isBlocking(entry) ? `${entry.status} !` : entry.status,
+        isBlockingServerEnvEntry(entry) ? `${entry.status} !` : entry.status,
         displaySource(entry),
         entry.required ? "yes" : "no",
         entry.masked ? "yes" : "no",
       ]),
     ]))
   }
-  const blocking = report.entries.filter(isBlocking).length
+  const blocking = report.entries.filter(isBlockingServerEnvEntry).length
   lines.push("", blocking
     ? `${blocking} of ${report.entries.length} variables would make loadServerEnv() fail.`
     : `${report.entries.length} variables checked. Values are not shown.`)
@@ -197,7 +183,7 @@ function writeReport(command: EnvCliCommand, report: EnvCliReport, isBlocking: (
 async function runEnvCli(command: EnvCliCommand, args: string[], context: ViteHubCliContext, options: EnvCliOptions): Promise<number> {
   let parsed: ParsedEnvCliArgs
   try {
-    parsed = parseArgs(command, args)
+    parsed = parseArgs(args)
   }
   catch (error) {
     context.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`)
@@ -213,15 +199,13 @@ async function runEnvCli(command: EnvCliCommand, args: string[], context: ViteHu
   const inspection = options.inspect
     ? await options.inspect(input)
     : await inspectStage({ ...input, applicationRoot: context.cwd })
-  const isBlocking = (entry: ServerEnvInspectionEntry) =>
-    isBlockingServerEnvEntry(entry) && !(parsed.allowMissingSecrets && isMissingHostSecret(entry))
   const report: EnvCliReport = {
     entries: inspection.entries,
-    ok: !inspection.entries.some(isBlocking),
+    ok: !inspection.entries.some(isBlockingServerEnvEntry),
     stage: input.stage,
   }
   if (parsed.json) context.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
-  else writeReport(command, report, isBlocking, context)
+  else writeReport(command, report, context)
   return command === "check" && !report.ok ? 1 : 0
 }
 

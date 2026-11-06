@@ -68,8 +68,8 @@ describe("support proof ledger", () => {
 
   it("classifies failed, unpublished, and inapplicable evidence without success marks", () => {
     expect(
-      supportProofPresentation(supportProofFor("deployed-runtime", "cloudflare"), referenceNow),
-    ).toMatchObject({ display: "Stopped at provision", mark: "!", state: "incomplete" });
+      supportProofPresentation(supportProofFor("deployed-runtime", "vercel"), referenceNow),
+    ).toMatchObject({ display: "Failed", mark: "!", state: "failed" });
     expect(
       supportProofPresentation(supportProofFor("deployed-runtime", "netlify"), referenceNow),
     ).toMatchObject({ mark: "—", state: "unpublished" });
@@ -95,8 +95,9 @@ describe("support proof ledger", () => {
     expect(renderedRows).toContain("last observed 2026-08-26; stale after 30 days");
     expect(renderedRows).not.toContain("✓");
     const liveRow = renderedRows.split("\n").find((line) => line.startsWith("| Live Smoke |"));
-    expect(liveRow).toContain("last observed 2026-08-26; stale after 2 days");
-    expect(liveRow).toContain("**Stopped at provision** [Evidence](");
+    expect(liveRow).toContain("last observed 2026-10-31; stale after 2 days");
+    expect(liveRow).toContain("**Failed** [Evidence](");
+    expect(liveRow).not.toContain("Stopped at provision");
   });
 
   it("makes the Vue matrix consume the same proof projection", () => {
