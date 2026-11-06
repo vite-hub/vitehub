@@ -3240,6 +3240,9 @@ importers:
       jose:
         specifier: catalog:auth
         version: 6.2.12
+      nanotar:
+        specifier: ^0.3.0
+        version: 0.3.0
       nitro:
         specifier: catalog:unjs
         version: 3.0.261102-rc
