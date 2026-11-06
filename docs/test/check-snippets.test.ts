@@ -2,7 +2,7 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { baselineEntry, checkSnippets, compareBaseline, extractBlocks, repoRoot } from "../scripts/check-snippets.mjs"
+import { baselineEntry, checkSnippets, collectSnippets, compareBaseline, extractBlocks, generatedDeclarations, repoRoot } from "../scripts/check-snippets.mjs"
 
 describe("documentation snippet check", () => {
   it("reads labels, fragments, and indented blocks", () => {
@@ -93,5 +93,17 @@ describe("documentation snippet check", () => {
     expect(failures.map(failure => [failure.snippet.file.slice(page.length + 1), failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
       ["server/api/broken.ts", [2322]],
     ])
+  }, 60_000)
+
+  it("checks the Workflow README steps against generated declarations", async () => {
+    const root = join(repoRoot, "packages/workflow")
+    const snippets = collectSnippets([{ file: join(root, "README.md"), root }])
+    const declarations = await generatedDeclarations(snippets)
+    expect(declarations).toHaveLength(1)
+    expect(checkSnippets(snippets, declarations).failures).toEqual([])
+
+    const misspelled = snippets.map(snippet => ({ ...snippet, code: snippet.code.replace("steps.sendWelcome(user)", "steps.sendWelcomeEmail(user)") }))
+    const failures = checkSnippets(misspelled, declarations).failures
+    expect(failures.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2551]])
   }, 60_000)
 })

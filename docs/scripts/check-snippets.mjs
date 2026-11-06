@@ -54,8 +54,7 @@ export function extractBlocks(markdown) {
       end++
     }
     if (fenceLanguages.has(language)) {
-      // READMEs name the file in a first-line comment, such as `// server/workflows/onboard-user/index.ts`.
-      const label = /\[(.+)\]/.exec(info)?.[1] ?? /^\/\/ (\S+\.(?:m?ts|tsx))$/.exec(body[0] ?? "")?.[1]
+      const label = /\[(.+)\]/.exec(info)?.[1]
       const meta = info.replace(/\[.+\]/, "").split(/\s+/).filter(Boolean)
       blocks.push({ code: body.join("\n"), end: end + 1, fragment: meta.includes(fragmentMarker), indent, label, language, line: index + 1 })
     }
