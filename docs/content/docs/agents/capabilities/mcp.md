@@ -349,4 +349,4 @@ Open an Invocation's **Capabilities** tab and select **MCP**. Each configured se
 
 The snapshot distinguishes resolved servers, skipped optional servers, and resolution or discovery failures. Resolved servers can have no tools. These are observations from the selected Invocation, not current connection health. Opening the view does not reconnect or call tools. MCP resources mounted through Sources are outside this Capability's inventory.
 
-Enable `configuration: 'content'` on the Invocation journal to retain the custom view and tool contracts. Missing schemas are shown as not recorded. The built-in Console journal enables configuration capture.
+Enable `configuration: 'content'` on the Invocation journal to retain the custom view and tool contracts. Missing schemas are shown as not recorded. The default Agent journal enables configuration capture.

@@ -13,7 +13,7 @@ Start with `invocations: 'database'` when your app already uses [Database](/docs
 
 ## Store invocation history
 
-To keep a queryable invocation journal, set `invocations` on the Agent Definition. History is opt-in. An Agent without a journal records no Invocations, unless the [Console](/docs/development/console) supplies its own journal.
+An Agent Definition from `vite-hub/agent` that sets no `invocations` records into the [default journal](#use-the-default-journal), with the [Console](/docs/development/console) on or off. Set `invocations` on the Agent Definition to choose another journal:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -26,6 +26,7 @@ export default defineAgent({
 
 | Value | Journal |
 | --- | --- |
+| Omitted | The app-wide journal: [`agent.invocations`](#use-one-journal-for-every-agent), or the [default journal](#use-the-default-journal). |
 | `'database'` | The app's [ViteHub Database](/docs/database). It uses the `default` Database. |
 | `'memory'` | Memory of the server process. Records do not survive a restart, and replicas do not share them. |
 | `false` | No journal. This value also turns off the app-wide journal for this Agent. |
@@ -42,6 +43,52 @@ export default defineAgent({
 ```
 
 ViteHub creates one journal for each Agent Definition, not one for each request. The Database store connects to the Database on its first operation. Storage durability and recovery guarantees depend on the selected store and the host lifecycle.
+
+## Use the default journal
+
+When an app has Agents and sets no journal, ViteHub installs the default journal from `@vite-hub/agent`. It is the same journal with the Console on or off, so turning the Console on does not change where Invocations are stored. The Console only reads it.
+
+| Host | Default journal |
+| --- | --- |
+| Development and Node | Local SQLite at `.vitehub/data/agent-invocations.sqlite` in the project root |
+| Cloudflare production build | The D1 binding of the default or only Database Definition, table `vitehub_agent_invocations` |
+| Cloudflare without a Database Definition | Memory of the Worker isolate |
+
+The default journal keeps prompts, messages, final text, tool input and output, progress updates, and generated session titles, so the Console and the CLI can show them. It suits development and Node hosts with a persistent filesystem. A local file is local to one replica. Vercel, Netlify, and Deno production deployments should set a durable journal, such as `agent.invocations: 'database'` or a remote libSQL `databaseUrl`. A production build for these presets logs a warning while it uses the local file.
+
+Set its options in `agent.invocations`:
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    agent: {
+      invocations: {
+        databaseUrl: 'file:/var/lib/my-app/agent-invocations.sqlite',
+        retention: { maxAge: '14d', maxSize: '30%' },
+        observations: { maxCount: 1024, flushTimeoutMs: 10000 },
+      },
+    },
+  })],
+})
+```
+
+- `databaseUrl` takes a `file:` or libSQL URL. A relative `file:` path resolves from the ViteHub project root. It also keeps libSQL on the Cloudflare preset.
+- `retention` takes the [retention limits](#set-retention-limits). The SQLite and libSQL default journal keeps every terminal record by default. The D1 default journal defaults to 30 days and 10,000 terminal records. It does not support `maxSize` and fails the build with `VITE_HUB_B0016`. An invalid limit fails the build with `VITE_HUB_B0015`.
+- `observations` takes the [observation bounds](#bound-observation-storage).
+
+`VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` moves the journal at runtime and wins over `databaseUrl` and D1. Authenticated libSQL endpoints also need `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN`:
+
+```dotenv [.env]
+VITEHUB_AGENT_INVOCATIONS_DATABASE_URL=libsql://my-database.turso.io
+VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN=secret-token
+```
+
+The server opens the journal on the first record or read, so libSQL does not load at server start. Read it in server code with `getAgentInvocations()` from `vite-hub/agent/server`. `await getAgentInvocationsDatabase()` opens Drizzle over the same database for queries and `db.batch()` writes. Check `driver` before you destructure `db` and `schema`. D1 inserts require non-null `search` and `summary`, and the D1 `db.transaction()` method rejects. It resolves to `undefined` when `agent.invocations` selects another store or `false`, and for the memory journal of a Worker.
+
+Earlier releases kept this journal in the Console, at `.vitehub/data/console.sqlite`, with `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL`. These options are removed, and ViteHub does not move the old records. Set `databaseUrl` to the old file to keep reading it.
 
 ## Use one journal for every Agent
 
@@ -62,7 +109,7 @@ export default defineConfig({
 
 In Nuxt, set the same value in the `vitehub` key of `nuxt.config.ts`. The app-wide journal applies to Agent Definitions from `vite-hub/agent` that do not set `invocations`. An Agent's own `invocations` value replaces it, and `invocations: false` turns it off for that Agent.
 
-`agent.invocations` accepts `'database'`, `'memory'`, `false`, and the object form without the `redact` and `redactError` functions. Set those functions on the Agent Definition. `'database'` requires `database` in the ViteHub options. The app-wide journal requires Nitro-hosted Agents; Netlify and Deno Agent output fail the build. When the Console is enabled, it shows the app-wide journal.
+`agent.invocations` accepts `'database'`, `'memory'`, `false`, the [default journal options](#use-the-default-journal), and the object form without the `redact` and `redactError` functions. Set those functions on the Agent Definition. `'database'` requires `database` in the ViteHub options. A `'database'` or `'memory'` journal requires Nitro-hosted Agents; Netlify and Deno Agent output fail the build. `false` records no journal. When the Console is enabled, it shows the app-wide journal.
 
 ## Use a custom store
 
@@ -250,7 +297,7 @@ This starts a new Invocation from a captured prompt. [Channel history replay](/d
 
 ## Choose what to retain
 
-Use `configuration: 'content'` to retain resolved instructions and tool descriptions/schemas independently of other trace content. The default is `configuration: 'metadata'`. Console journals enable configuration retention for inspection; existing records cannot recover contracts that were not saved. Recorded configuration still uses the journal's observation limits and marks truncated values.
+Use `configuration: 'content'` to retain resolved instructions and tool descriptions/schemas independently of other trace content. The default is `configuration: 'metadata'`. The default journal enables configuration retention for inspection; existing records cannot recover contracts that were not saved. Recorded configuration still uses the journal's observation limits and marks truncated values.
 
 Invocation journals are metadata-only by default. Set `content: 'content'` only when the application must persist prompts, messages, reasoning, tool inputs and outputs, and result text. That opt-in stores sensitive model content in the configured durable store; apply the same access controls, retention policy, and encryption requirements as the source data.
 
@@ -360,11 +407,11 @@ Delete and prune open a SQLite or libSQL journal directly:
 vitehub agent invocations delete INVOCATION_ID
 vitehub agent invocations prune --older-than 30d --dry-run --json
 vitehub agent invocations prune --database file:./.data/invocations.db --older-than 12h
-vitehub agent invocations prune --database /data/console.sqlite --max-size 30% --dry-run
+vitehub agent invocations prune --database /data/agent-invocations.sqlite --max-size 30% --dry-run
 vitehub agent invocations prune --max-records 1000 --max-size 2GB
 ```
 
-Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, both commands use the Console journal: `VITEHUB_CONSOLE_DATABASE_URL`, or `.vitehub/data/console.sqlite` in the project root. Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint. Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`. With `--max-size` or `--max-records`, prune applies those limits and the oldest terminal records go first; `--older-than` then applies only when you pass it. `--max-size` accepts the same sizes and percents as `maxSize`, and prints the live data before and after the prune and the budget. Use `--table-prefix` when the store sets `tablePrefix`. The commands refuse a missing database file and never print URL credentials or tokens. For D1, call `invocations.prune()` from a Worker instead.
+Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, both commands use the default journal at `.vitehub/data/agent-invocations.sqlite` in the project root. Set `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated libSQL endpoint. Durations accept `ms`, `s`, `m`, `h`, `d`, and `w`. `--older-than` defaults to `30d`. With `--max-size` or `--max-records`, prune applies those limits and the oldest terminal records go first; `--older-than` then applies only when you pass it. `--max-size` accepts the same sizes and percents as `maxSize`, and prints the live data before and after the prune and the budget. Use `--table-prefix` when the store sets `tablePrefix`. The commands refuse a missing database file and never print URL credentials or tokens. For D1, call `invocations.prune()` from a Worker instead.
 
 
 ## Compact a journal file
@@ -372,8 +419,8 @@ Without `--database` or `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL`, both commands 
 A journal file that the adapter created before it set `auto_vacuum = INCREMENTAL` keeps its largest size. Its deletes only free pages inside the file. Run `compact` once to rebuild the file with `VACUUM` and set the mode:
 
 ```sh
-vitehub agent invocations compact --database /data/console.sqlite --dry-run
-vitehub agent invocations compact --database /data/console.sqlite --json
+vitehub agent invocations compact --database /data/agent-invocations.sqlite --dry-run
+vitehub agent invocations compact --database /data/agent-invocations.sqlite --json
 ```
 
 `compact` measures the file, its WAL, the page count, the free pages, and the `auto_vacuum` mode. Then it runs `PRAGMA auto_vacuum = INCREMENTAL`, `VACUUM`, and `PRAGMA wal_checkpoint(TRUNCATE)`, and prints the size before and after, the reclaimed bytes, and the new mode. `--dry-run` prints the measurements, the projected size, and the free space check, and changes nothing. It exits with 1 when compact would refuse to run. Prune first, so that the rebuilt file holds only the records that you keep.
@@ -385,8 +432,8 @@ vitehub agent invocations compact --database /data/console.sqlite --json
 `list`, `show`, and `tail` can also read a SQLite journal file directly, without the app or a Console session. This works inside a running container, where the journal is on local disk:
 
 ```sh
-vitehub agent invocations list --database /data/console.sqlite --status running
-vitehub agent invocations show INVOCATION_ID --database /data/console.sqlite --json
+vitehub agent invocations list --database /data/agent-invocations.sqlite --status running
+vitehub agent invocations show INVOCATION_ID --database /data/agent-invocations.sqlite --json
 ```
 
 The command opens the file read-only with `node:sqlite` and does not migrate or write it, so it is safe while the app writes the same file. It reads observations from the record and from the table where running records keep appended observations. It accepts a path or a `file:` URL and refuses a remote libSQL URL; use `--url` for a deployed app. `--table-prefix` applies. `cancel` still needs the running app. A runtime without `node:sqlite` reports that and exits with status 1.
@@ -435,7 +482,7 @@ D1 batches make creation and retention atomic. Conditional updates retry when an
 
 This direct adapter accepts a D1 binding. Use the [Database adapter](#store-invocations-in-a-vitehub-database) for ViteHub-managed SQLite or libSQL. The database binding stays owned by the host; the store does not open or close it. Use [`redact`](#redact-stored-evidence) to remove sensitive values before they reach D1. Route authorization remains application policy.
 
-On the Cloudflare preset, the Console journal uses this store with the D1 Database binding when no Agent Definition configures `invocations`. See [Cloudflare journal](/docs/development/console#know-what-the-console-stores). Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
+On the Cloudflare preset, the [default journal](#use-the-default-journal) uses this store with the D1 Database binding when no Agent Definition configures `invocations`. Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
 
 ## Append delivery evidence
 

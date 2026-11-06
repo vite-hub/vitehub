@@ -12,7 +12,7 @@ import type {
   InputCommandsOptions,
 } from "@vite-hub/agent/capabilities"
 import type { ConsoleInvocationLink, ConsoleRuntime } from "../console/server.ts"
-import type { ConsoleInvocationsDatabase } from "../console/runtime/server/invocations.ts"
+import type { AgentInvocationsDatabase } from "./invocations/journal-database.ts"
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 
 export type ConsoleInputCommand = Omit<InputCommand, "call"> & {
@@ -33,11 +33,11 @@ export interface ConsoleInputCommandsOptions extends Omit<InputCommandsOptions, 
 }
 
 /** Finds the latest earlier Invocation of the same Agent, and of the same Channel thread when the current one has a thread. */
-async function previousConsoleInvocation(invocations: ConsoleInvocationsDatabase, id: string): Promise<ConsoleInvocationLink | undefined> {
-  // Only the Console journal reaches here, so an Agent app without the Console does not need drizzle-orm.
+async function previousConsoleInvocation(invocations: AgentInvocationsDatabase, id: string): Promise<ConsoleInvocationLink | undefined> {
+  // Only the default journal reaches here, so an Agent app with another journal does not need drizzle-orm.
   const { and, desc, eq, lt, or, sql } = await import("drizzle-orm")
   // Both journal drivers are async SQLite databases with the same columns.
-  const db: BaseSQLiteDatabase<"async", unknown, ConsoleInvocationsDatabase["schema"]> = invocations.db
+  const db: BaseSQLiteDatabase<"async", unknown, AgentInvocationsDatabase["schema"]> = invocations.db
   const table = invocations.schema.invocations
   const [current] = await db
     .select({ agentName: table.agentName, sequence: table.sequence, summary: table.summary })
@@ -82,9 +82,10 @@ const debugInputCommand: ConsoleInputCommand = {
     if (!consoleRuntime) return await context.reply("The ViteHub Console is not enabled for this Agent.")
     const id = context.invocation.id
     if (!id) return await context.reply("This invocation is not recorded in the ViteHub Console.")
-    const database = await consoleRuntime.invocationsDatabase()
-    // Workers without D1 or a remote libSQL URL keep the journal in memory, without the history query.
-    if (!database) return await context.reply("Invocation history is not available on this Worker journal.")
+    const { getAgentInvocationsDatabase } = await import("./invocations/journal.ts")
+    const database = await getAgentInvocationsDatabase()
+    // Another journal store, or a Worker without D1 or a remote libSQL URL, has no history query.
+    if (!database) return await context.reply("Invocation history is not available on this journal.")
     const previous = await previousConsoleInvocation(database, id)
     if (!previous) return await context.reply("No previous invocation was found in the ViteHub Console.")
     return await context.reply(consoleRuntime.invocationUrl(previous))

@@ -486,6 +486,10 @@ For GitHub Channels, `activity: true` links pull request webhook activity to its
 
 `pullRequest.reconcile.concurrencyLimit` sets the maximum concurrent reconciled webhook deliveries per repository and pull request. It defaults to `1`; set a positive integer such as `4` to run up to four deliveries for one PR together. Other PRs have separate limits. See the [GitHub Channel guide](../../docs/content/docs/agents/channels.md#reconcile-github-pull-requests).
 
+## Default invocation journal
+
+`@vite-hub/agent/invocations/default` exports `createDefaultAgentInvocations({ projectRoot, databaseUrl?, d1?, observations?, retention? })`. It is the journal that `vite-hub` installs for Agents that set no journal, with the Console on or off. It keeps prompts, messages, results, and tool input and output (`configuration: "content"` with `defaultAgentInvocationsMetadataContent`). Without `databaseUrl` it opens local SQLite at `.vitehub/data/agent-invocations.sqlite` under `projectRoot` on its first operation. With `d1: { binding, env }` it uses the D1 store, which rejects `retention.maxSize`. On a Worker without D1 or a remote URL it keeps records in memory. The runtime env var `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` wins over `databaseUrl` and `d1`, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` authenticates a libSQL endpoint. The libSQL journal keeps every terminal record unless `retention` sets a limit. `resolveDefaultAgentInvocationsLocation()` reports where records go without touching the file system. `defaultAgentInvocationsDatabase(invocations)` returns `{ driver, open }` for the libSQL client or the D1 binding of the current request, after the journal created its tables. `vitehub agent invocations` reads the same default file.
+
 ## D1 invocation storage
 
 `@vite-hub/agent/invocations/d1` exports `createD1AgentInvocationStore({ database })`. Pass a D1 binding or a resolver that returns the current request binding. The store creates its table with idempotent `d1AgentInvocationSchema()` statements on first use of each binding in an isolate. Set `migrate: false` to apply those statements through your own D1 migration tool instead.

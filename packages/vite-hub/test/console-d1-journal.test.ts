@@ -4,19 +4,33 @@ import { Miniflare } from "miniflare"
 import { afterAll, beforeAll, describe, expect, expectTypeOf, it, vi } from "vitest"
 
 import { defineAgent } from "../src/agent.ts"
+import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
+
+import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
+import { getAgentInvocationsDatabase } from "../src/agent/invocations/journal.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
-import { console as consoleRuntime } from "../src/console/server.ts"
-import { createConsoleD1Invocations, getConsoleInvocations, getConsoleUsageIndex, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
+import { getConsoleInvocations, getConsoleUsageIndex, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 
 import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
+import type { DefaultAgentInvocationsD1 } from "@vite-hub/agent/invocations/default"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
 import { allowed } from "./support/console-access.ts"
 
 const usageHandler = allowed(usageHandlerRoute)
 
-describe("Console D1 journal", () => {
+/** Installs the default Agent journal in D1, as a Cloudflare production build does, and lets the Console read it. */
+function installD1Journal(projectRoot: string, d1: DefaultAgentInvocationsD1, retention?: AgentRetentionPolicy) {
+  installAgentInvocations({ ...(retention ? { default: { retention } } : {}), journal: { d1, projectRoot } })
+  return installConsoleInvocations(projectRoot)
+}
+
+function createD1Journal(d1: DefaultAgentInvocationsD1, retention?: AgentRetentionPolicy) {
+  return createDefaultAgentInvocations({ d1, projectRoot: "/console-d1-journal", retention })
+}
+
+describe("Default Agent D1 journal read by the Console", () => {
   let miniflare: Miniflare
   let database: AgentInvocationD1Database
 
@@ -34,15 +48,14 @@ describe("Console D1 journal", () => {
   it("journals Agents without their own journal into the Worker D1 binding and creates the table", { timeout: 30_000 }, async () => {
     const env = vi.fn(async () => ({ DB: database }))
     const agent = defineAgent({ driver: { run: () => "done" }, name: "labeller", runtime: false })
-    installConsoleAgentDefinitions([{ definition: agent, fallbackName: "labeller" }], {
-      d1: { binding: "DB", env },
-      projectRoot: "/console-d1-journal-test",
-    })
+    // The default journal does not depend on the Console. The Console reads it.
+    installAgentInvocations({ journal: { d1: { binding: "DB", env }, projectRoot: "/console-d1-journal-test" } })
+    installConsoleAgentDefinitions([{ definition: agent, fallbackName: "labeller" }], { projectRoot: "/console-d1-journal-test" })
     const invocations = agent.invocations
-    if (!invocations) throw new Error("Expected the Console journal fallback.")
-    const context = { memo: vi.fn(), run: { runId: "d1-default" }, runtime: "unknown", waitUntil: vi.fn() }
-    const journalDatabase = await consoleRuntime.resolve(context).invocationsDatabase()
-    if (journalDatabase?.driver !== "d1") throw new Error("Expected the D1 Console database.")
+    if (!invocations) throw new Error("Expected the default journal.")
+    expect(getConsoleInvocations()).toBe(invocations)
+    const journalDatabase = await getAgentInvocationsDatabase()
+    if (journalDatabase?.driver !== "d1") throw new Error("Expected the D1 journal database.")
     const { db, schema } = journalDatabase
     expectTypeOf<typeof schema.invocations.$inferInsert["search"]>().toEqualTypeOf<string>()
     expectTypeOf<typeof schema.invocations.$inferInsert["summary"]>().toEqualTypeOf<NonNullable<typeof schema.invocations.$inferInsert["summary"]>>()
@@ -73,13 +86,13 @@ describe("Console D1 journal", () => {
     const retention: AgentRetentionPolicy = {}
     Reflect.set(retention, limit, null)
     const env = vi.fn(() => ({ DB: database }))
-    expect(() => createConsoleD1Invocations({ binding: "DB", env }, undefined, retention)).toThrow(`D1 Agent Invocation ${limit} must be a positive`)
+    expect(() => createD1Journal({ binding: "DB", env }, retention)).toThrow(`D1 Agent Invocation ${limit} must be a positive`)
     expect(env).not.toHaveBeenCalled()
   })
 
   it.each(["500MB", "30%"] as const)("rejects maxSize %s before accessing the D1 binding", (maxSize) => {
     const env = vi.fn(() => ({ DB: database }))
-    expect(() => createConsoleD1Invocations({ binding: "DB", env }, undefined, { maxSize })).toThrow("not supported by the D1 Console journal")
+    expect(() => createD1Journal({ binding: "DB", env }, { maxSize })).toThrow("not supported by the D1 journal")
     expect(env).not.toHaveBeenCalled()
   })
 
@@ -88,10 +101,10 @@ describe("Console D1 journal", () => {
     const journal = { binding: "RETENTION", env: () => ({ RETENTION: retentionDatabase }) }
     const retention = { maxAge: 30 * 24 * 60 * 60 * 1000, maxRecords: false as const }
     const root = "/console-d1-retention"
-    const invocations = installConsoleInvocations(root, undefined, undefined, undefined, journal, retention)
-    expect(installConsoleInvocations(root, undefined, undefined, undefined, journal, retention)).toBe(invocations)
-    const journalDatabase = await consoleRuntime.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }).invocationsDatabase()
-    if (journalDatabase?.driver !== "d1") throw new Error("Expected the D1 Console database.")
+    const invocations = installD1Journal(root, journal, retention)
+    expect(installD1Journal(root, journal, retention)).toBe(invocations)
+    const journalDatabase = await getAgentInvocationsDatabase()
+    if (journalDatabase?.driver !== "d1") throw new Error("Expected the D1 journal database.")
     const { db, schema } = journalDatabase
     const recent = new Date().toISOString()
     const old = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString()
@@ -109,17 +122,17 @@ describe("Console D1 journal", () => {
     await expect(invocations.delete("recent")).resolves.toBe("deleted")
     expect((await invocations.list()).invocations.map(record => record.id)).toEqual(["running"])
     const disabled = { maxAge: false as const, maxRecords: false as const }
-    expect(installConsoleInvocations(root, undefined, undefined, undefined, journal, disabled)).not.toBe(invocations)
+    expect(installD1Journal(root, journal, disabled)).not.toBe(invocations)
   })
 
   it("resolves the D1 binding per Drizzle operation and initializes each database", async () => {
     let active = await miniflare.getD1Database("OTHER")
-    installConsoleInvocations("/console-d1-request-bindings", undefined, undefined, undefined, {
+    installD1Journal("/console-d1-request-bindings", {
       binding: "JOURNAL",
       env: async () => ({ JOURNAL: active }),
     })
-    const journalDatabase = await consoleRuntime.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }).invocationsDatabase()
-    if (journalDatabase?.driver !== "d1") throw new Error("Expected the D1 Console database.")
+    const journalDatabase = await getAgentInvocationsDatabase()
+    if (journalDatabase?.driver !== "d1") throw new Error("Expected the D1 journal database.")
     const { db, schema } = journalDatabase
     const record = {
       agentName: "binding-test",
@@ -151,7 +164,7 @@ describe("Console D1 journal", () => {
     async () => {
       const usageDatabase = await miniflare.getD1Database("USAGE")
       let active = usageDatabase
-      const invocations = createConsoleD1Invocations({
+      const invocations = createD1Journal({
         binding: "DB",
         env: () => ({ DB: active }),
       })
@@ -248,7 +261,7 @@ describe("Console D1 journal", () => {
       await ready
       return { DB: database }
     })
-    installConsoleInvocations("/console-d1-usage-cache", undefined, undefined, undefined, { binding: "DB", env })
+    installD1Journal("/console-d1-usage-cache", { binding: "DB", env })
     const request = () => usageHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/usage" } })
     const requests = [request(), request()]
     try {
@@ -263,14 +276,14 @@ describe("Console D1 journal", () => {
   })
 
   it.each(["update", "delete"])("keeps newer cached D1 usage when an older response finishes after an %s", { timeout: 30_000 }, async (change) => {
-    installConsoleInvocations(`/console-d1-usage-order-${change}`, undefined, undefined, undefined, {
+    installD1Journal(`/console-d1-usage-order-${change}`, {
       binding: "DB", env: () => ({ DB: database }),
     })
     const invocations = getConsoleInvocations()
     const index = getConsoleUsageIndex(invocations)
     if (!index) throw new Error("Expected a D1 usage index.")
-    const journalDatabase = await consoleRuntime.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }).invocationsDatabase()
-    if (journalDatabase?.driver !== "d1") throw new Error("Expected the D1 Console database.")
+    const journalDatabase = await getAgentInvocationsDatabase()
+    if (journalDatabase?.driver !== "d1") throw new Error("Expected the D1 journal database.")
     const { db, schema } = journalDatabase
     const now = new Date().toISOString()
     const observation = (totalTokens: number) => ({
@@ -320,7 +333,7 @@ describe("Console D1 journal", () => {
   })
 
   it("reports a missing D1 binding", async () => {
-    const invocations = createConsoleD1Invocations({ binding: "JOURNAL", env: () => ({}) })
+    const invocations = createD1Journal({ binding: "JOURNAL", env: () => ({}) })
     await expect(invocations.list()).rejects.toThrow("requires the D1 binding \"JOURNAL\"")
   })
 
@@ -336,12 +349,12 @@ describe("Console D1 journal", () => {
         return results
       },
     }
-    installConsoleInvocations("/console-d1-null-results", undefined, undefined, undefined, {
+    installD1Journal("/console-d1-null-results", {
       binding: "JOURNAL",
       env: () => ({ JOURNAL: binding }),
     })
-    const journalDatabase = await consoleRuntime.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }).invocationsDatabase()
-    if (journalDatabase?.driver !== "d1") throw new Error("Expected the D1 Console database.")
+    const journalDatabase = await getAgentInvocationsDatabase()
+    if (journalDatabase?.driver !== "d1") throw new Error("Expected the D1 journal database.")
     const { db, schema } = journalDatabase
     const record = { id: "null-batch-results", traceId: "null-batch-trace", status: "completed" as const, createdAt: "2026-09-30T00:00:00.000Z", updatedAt: "2026-09-30T00:00:00.000Z", observations: [] }
     const values = { id: record.id, status: record.status, search: "", summary: record, record }
@@ -358,9 +371,9 @@ describe("Console D1 journal", () => {
 
   it("rejects callback transactions before resolving D1 or running the callback", async () => {
     const env = vi.fn(() => ({ JOURNAL: database }))
-    installConsoleInvocations("/console-d1-transaction", undefined, undefined, undefined, { binding: "JOURNAL", env })
-    const journalDatabase = await consoleRuntime.resolve({ memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }).invocationsDatabase()
-    if (journalDatabase?.driver !== "d1") throw new Error("Expected the D1 Console database.")
+    installD1Journal("/console-d1-transaction", { binding: "JOURNAL", env })
+    const journalDatabase = await getAgentInvocationsDatabase()
+    if (journalDatabase?.driver !== "d1") throw new Error("Expected the D1 journal database.")
     const { db, schema } = journalDatabase
     const callback = vi.fn(async (transaction: Parameters<Parameters<typeof db.transaction>[0]>[0]) => {
       await transaction.update(schema.invocations).set({ agentName: "uncommitted" })

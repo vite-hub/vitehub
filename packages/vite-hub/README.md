@@ -53,11 +53,11 @@ export default defineConfig({
 
 This registers ViteHub's build integration. Your application still needs a server entry or a framework such as Nuxt. For Nuxt, use the `vite-hub/nuxt` module shown in the [installation guide](https://vitehub.dev/docs/getting-started/installation). With the Console enabled, the Nuxt module serves the same standalone Console page as a Vite app, so the host's styles and layouts do not apply to it.
 
-On a Node host with persistent storage, set `dataDir` once. Enabled Agent State, Console, KV, Blob, and Workspace integrations derive local paths from it. For example, `vitehub({ preset: "node", dataDir: "/var/lib/app", agent: true, kv: true, blob: true, workspace: true })` uses that directory without per-store environment variables. Relative paths resolve from the configuration process's working directory. The host must mount persistent storage there; `dataDir` does not create a volume. Other presets require their own storage providers.
+On a Node host with persistent storage, set `dataDir` once. Enabled Agent State, Agent Invocation journal, Console Auth, KV, Blob, and Workspace integrations derive local paths from it. For example, `vitehub({ preset: "node", dataDir: "/var/lib/app", agent: true, kv: true, blob: true, workspace: true })` uses that directory without per-store environment variables. Relative paths resolve from the configuration process's working directory. The host must mount persistent storage there; `dataDir` does not create a volume. Other presets require their own storage providers.
 
 Set `publicUrl` to the public origin of the deployed application, for example `vitehub({ preset: "node", publicUrl: "https://agents.example.com" })`. Console invocation links, GitHub activity links, telemetry session links, and the default Auth base URL use it. A function receives each discovered Agent name. It applies to builds. In `vite dev`, request-bound Console and Auth flows use the request origin. GitHub activity and telemetry links have no request-origin fallback. Use the GitHub Channel `activity.publicUrl` override or the evlog `sessionUrl` callback to supply links in development. Server code reads the origin with `resolvePublicUrl()` from `vite-hub/runtime`, also in Workflows. A string `publicUrl` is also the default `--url` of `vitehub channels sync` and `channels history`. On the `cloudflare` preset, it adds the custom-domain route and `workers_dev: false` to `wrangler.json` unless the app configures Worker routing.
 
-Explicit store paths, remote URLs, and disabled services remain authoritative. Set `console.databaseUrl` to preserve an existing journal location; `VITEHUB_CONSOLE_DATABASE_URL` remains a runtime override. Changing paths does not migrate existing data.
+Explicit store paths, remote URLs, and disabled services remain authoritative. Set `agent.invocations.databaseUrl` to preserve an existing journal location; `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` remains a runtime override. Changing paths does not migrate existing data.
 
 ## Run a complete first result
 
@@ -208,9 +208,27 @@ Built-in Agent Drivers and Sandbox runtimes are selected by literal or tagged va
 - [Generated files](https://vitehub.dev/docs/development/generated-files)
 - [Public import paths](https://vitehub.dev/docs/reference/import-paths)
 
-## Record Agent invocations in a Database
+## Record Agent invocations
 
-Set `invocations` to record invocations when the Console is disabled:
+An app with Agents records their invocations in the default journal, with the Console on or off. It is local SQLite at `.vitehub/data/agent-invocations.sqlite`, or the D1 binding of the default Database Definition in a Cloudflare production build. The Console only reads it. Set its options in `agent.invocations`:
+
+```ts
+vitehub({
+  agent: {
+    invocations: {
+      databaseUrl: "file:/var/lib/app/agent-invocations.sqlite",
+      retention: { maxAge: "14d", maxSize: "30%" },
+      observations: { maxCount: 1024 },
+    },
+  },
+})
+```
+
+`databaseUrl` takes a `file:` or libSQL URL, and `VITEHUB_AGENT_INVOCATIONS_DATABASE_URL` overrides it at runtime, with `VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN` for an authenticated endpoint. `retention` takes `maxAge`, `maxRecords`, and `maxSize`. The SQLite journal keeps every terminal record by default; the D1 journal defaults to 30 days and 10,000 terminal records and does not support `maxSize`. On a Worker without D1 or a remote URL, the journal stays in memory. `console.databaseUrl`, `console.retention`, `console.observations`, and `VITEHUB_CONSOLE_DATABASE_URL` are removed and fail with a message that names the new option. ViteHub does not move records from the old `.vitehub/data/console.sqlite` file. See [the default journal](https://vitehub.dev/docs/agents/invocation-storage#use-the-default-journal).
+
+`getAgentInvocations()` from `vite-hub/agent/server` returns the app-wide journal. `await getAgentInvocationsDatabase()` opens Drizzle over the default journal on first use, for queries and atomic writes such as `db.batch()` on D1. Check the returned `driver` before destructuring to narrow the D1 or libSQL database and schema types. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill. The D1 `db.transaction()` method rejects before the callback runs. It resolves to `undefined` for another journal store, for `agent.invocations: false`, and for the in-memory journal of a Worker.
+
+Set `invocations` on an Agent Definition to record into another journal, such as the app's Database:
 
 ```ts
 import { defineAgent } from "vite-hub/agent"
@@ -250,11 +268,7 @@ The Console RPC transport accepts browser requests only from its own origin, inc
 
 Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/development/console#start-agent-invocations) for the access and history contracts.
 
-Set `console.observations` to configure the fallback journal's observation count, string length, byte budget, and flush timeout. Set `console.retention` with `maxAge` (such as `'14d'`), `maxRecords`, or `maxSize` (such as `'500MB'` or `'30%'` of the volume) to remove old terminal records. The SQLite and libSQL fallback keeps them all by default; the D1 fallback defaults to 30 days and 10,000 terminal records and does not support `maxSize`. Discovered Agent Definitions with an explicit shared journal retain that journal's settings.
-
-On the `cloudflare` preset, production builds store the fallback journal in the D1 binding of the default or only Database Definition. Its Cloudflare config takes precedence over the `driver: "d1"` integration binding. Without a discovered Definition, the Console keeps libSQL. The D1 store creates its table on first use. Development, `console.databaseUrl`, and `VITEHUB_CONSOLE_DATABASE_URL` keep libSQL. See [Cloudflare journal](https://vitehub.dev/docs/development/console#know-what-the-console-stores).
-
-The server opens the journal database on first use, when an Agent records a run or the Console reads the journal, so libSQL and Drizzle do not load at server start. `console.resolve(context).invocations` is the `AgentInvocations` journal. `await console.resolve(context).invocationsDatabase()` opens the journal database for Drizzle queries and atomic writes, such as `db.batch()` on D1. Check the returned `driver` before destructuring to narrow the D1 or libSQL database and schema types. D1 inserts require non-null `search` and `summary`; libSQL reads allow null while legacy rows await backfill. The D1 `db.transaction()` method rejects before the callback runs. Use `db.batch()` to group D1 writes. On Cloudflare Workers, the default file journal is an in-memory journal, so `invocationsDatabase()` resolves to `undefined`; configure D1 or a remote libSQL URL when Drizzle access is required.
+The Console reads the app-wide Agent journal. It does not configure or store one. See [Record Agent invocations](#record-agent-invocations).
 
 `inputCommands({ debug: true })` from `vite-hub/agent/capabilities` adds a `/debug` input command. It replies with the Console URL of the previous Invocation of the same Agent. When the current Invocation has a Channel thread, it uses the previous Invocation in that thread. The Agent Driver does not run. `/debug` needs `vitehub({ console })`; without it, the command replies that the Console is not enabled. A `debug` entry in `commands` replaces the built-in command.
 

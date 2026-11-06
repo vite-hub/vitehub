@@ -34,7 +34,7 @@ export const optionalFeaturePackages = {
   "comments": ["@vite-hub/comments"],
   // Connections store grants in the default Database and turn `database` on.
   "connections": ["@vite-hub/database", "drizzle-orm"],
-  // The Console journal of Agent Invocations.
+  // The Console reads the Agent Invocation journal with libSQL, and its /debug command with Drizzle.
   "console agents": ["@libsql/client", "drizzle-orm"],
   "console sign-in": ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
   "content": ["@vite-hub/content"],

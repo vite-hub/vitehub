@@ -1,7 +1,7 @@
 import { defineAgent as defineUpstreamAgent } from "@vite-hub/agent"
 
 import { agentInvocationsDisabledKey, resolveAgentInvocationsSetting, resolveDefaultAgentInvocations } from "./_internal/agent/invocations.ts"
-import { consoleInvocationsFallbackKey, resolveConsoleInvocations } from "./console/internal.ts"
+import { consoleInvocationsFallbackKey, resolveConsoleFixtureInvocations } from "./console/internal.ts"
 
 export * from "@vite-hub/agent"
 export type { AgentInvocationsSetting, AgentInvocationsStoreName, AgentInvocationsStoreOptions } from "./_internal/agent/invocations.ts"
@@ -31,7 +31,8 @@ export const defineAgent: DefineAgent = ((options: Parameters<DefineAgent>[0]) =
   const agent = defineUpstreamAgent(agentOptions as never)
   if (!disabled && agent.invocations !== undefined) return agent
 
-  // Without an explicit journal, the app-wide `agent.invocations` journal applies, then the Console journal.
+  // Without an explicit journal, the app-wide Agent journal applies, with the Console on or off.
+  // Only Console fixture mode, a development tool, replaces it with its in-memory fixture journal.
   let assignedInvocations: AgentInvocations | undefined
   if (disabled) Object.defineProperty(agent, agentInvocationsDisabledKey, { configurable: true, enumerable: false, value: true })
   Object.defineProperty(agent, consoleInvocationsFallbackKey, {
@@ -46,7 +47,7 @@ export const defineAgent: DefineAgent = ((options: Parameters<DefineAgent>[0]) =
     enumerable: false,
     get() {
       if (assignedInvocations || disabled) return assignedInvocations
-      return resolveDefaultAgentInvocations() ?? resolveConsoleInvocations()
+      return resolveConsoleFixtureInvocations() ?? resolveDefaultAgentInvocations()
     },
     set(value: AgentInvocations | undefined) {
       assignedInvocations = value

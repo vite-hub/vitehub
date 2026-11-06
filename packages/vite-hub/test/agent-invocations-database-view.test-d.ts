@@ -1,11 +1,11 @@
 import { expectTypeOf, it } from "vitest"
 
 import type { AgentInvocationSummary } from "@vite-hub/agent"
-import type { ConsoleInvocationsDatabase } from "../src/console/runtime/server/invocations.ts"
+import type { AgentInvocationsDatabase } from "../src/agent/server.ts"
 
 it("requires D1 derived insert columns and preserves nullable libSQL reads", () => {
-  type D1 = Extract<ConsoleInvocationsDatabase, { driver: "d1" }>
-  type Libsql = Extract<ConsoleInvocationsDatabase, { driver: "libsql" }>
+  type D1 = Extract<AgentInvocationsDatabase, { driver: "d1" }>
+  type Libsql = Extract<AgentInvocationsDatabase, { driver: "libsql" }>
   type Insert = D1["schema"]["invocations"]["$inferInsert"]
   const record = {
     id: "invocation", createdAt: "2026-09-30T00:00:00.000Z", updatedAt: "2026-09-30T00:00:00.000Z",

@@ -17,6 +17,7 @@ import { openAgentInvocationJournalFile } from "./agent-invocations-journal-file
 import { compactJournalFile } from "./agent-invocations-compact.ts"
 import type { JournalCompactResult, JournalFileMeasurement } from "./agent-invocations-compact.ts"
 import { maxAgentInvocationListLimit } from "../invocations/list-options.ts"
+import { defaultAgentInvocationsAuthTokenEnv, defaultAgentInvocationsPath, defaultAgentInvocationsUrlEnv } from "../invocations/default-location.ts"
 import { formatRetentionPercentage, parseRetentionDuration, parseRetentionSize } from "./retention-policy.ts"
 import type { RetentionSizeLimit } from "./retention-policy.ts"
 import type { AgentRetentionPolicy } from "../retention.ts"
@@ -153,7 +154,7 @@ function usage(context: AgentInvocationsCliContext): void {
     "  --stale-after <duration>  wait-idle reports pending or running records last updated before this age, such as 2h,",
     "                            and does not wait on them. Defaults to 2h.",
     "  --agent <name>            wait-idle only waits on this Agent's Invocations.",
-    "  --database <url>          Journal database for delete, prune, compact, export, and wait-idle. Defaults to the Console journal.",
+    "  --database <url>          Journal database for delete, prune, compact, export, and wait-idle. Defaults to the default journal file.",
     "                            list, show, and tail read this SQLite file read-only, such as the journal inside",
     "                            a running container. They do not migrate or write it.",
     "  --table-prefix <prefix>   Journal table prefix. Defaults to vitehub_agent_.",
@@ -753,11 +754,8 @@ function safeDecode(value: string): string {
 
 function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext): JournalDatabase {
   const root = resolveViteHubProjectRoot(context.rootDir ?? process.cwd())
-  const explicit = parsed.database?.trim() || context.env.VITEHUB_AGENT_INVOCATIONS_DATABASE_URL?.trim()
-  const configured = explicit || context.env.VITEHUB_CONSOLE_DATABASE_URL?.trim()
-  const authToken = explicit
-    ? context.env.VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN
-    : context.env.VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN
+  const configured = parsed.database?.trim() || context.env[defaultAgentInvocationsUrlEnv]?.trim()
+  const authToken = configured ? context.env[defaultAgentInvocationsAuthTokenEnv] : undefined
   const token = authToken ? { authToken } : {}
   const secrets = authToken ? [authToken] : []
   const isWindowsPath = /^[a-z]:[\\/]/i.test(configured ?? "")
@@ -777,7 +775,7 @@ function journalDatabase(parsed: ParsedArgs, context: AgentInvocationsCliContext
     }
     return { ...token, label: `${location.protocol}//${location.host}${location.pathname === "/" ? "" : location.pathname}`, secrets, url: configured }
   }
-  const target = configured || resolve(root, ".vitehub/data/console.sqlite")
+  const target = configured || resolve(root, defaultAgentInvocationsPath)
   const withoutFragment = target.split("#", 1)[0]!
   const queryIndex = withoutFragment.indexOf("?")
   const location = queryIndex === -1 ? withoutFragment : withoutFragment.slice(0, queryIndex)

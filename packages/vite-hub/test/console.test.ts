@@ -45,7 +45,11 @@ import agentsHandlerRoute from "../src/console/runtime/server/agents.get.ts"
 import agentInvocationsHandlerRoute from "../src/console/runtime/server/agent-invocations.post.ts"
 import { encodeAgentRouteParam } from "../src/console/runtime/console-route.ts"
 import { installConsoleAgentDefinitions, installConsoleAgents } from "../src/console/runtime/server/agents.ts"
-import { createConsoleFixtureInvocations, createConsoleInvocations, getConsoleInvocations, getConsoleInvocationsDatabase, installConsoleFixtureInvocations, installConsoleInvocations, resolveConsoleDatabaseOptions } from "../src/console/runtime/server/invocations.ts"
+import { createConsoleFixtureInvocations, installConsoleFixtureInvocations, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
+import { createDefaultAgentInvocations, resolveDefaultAgentInvocationsLocation } from "@vite-hub/agent/invocations/default"
+import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
+import { getAgentInvocationsDatabase } from "../src/agent/invocations/journal.ts"
+import type { AgentInvocationsDefault } from "../src/_internal/agent/invocations.ts"
 import { console as consoleRuntime } from "../src/console/server.ts"
 import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import invocationHandlerRoute, { cancelConsoleInvocation, getConsoleInvocationDetail } from "../src/console/runtime/server/invocation.get.ts"
@@ -145,7 +149,14 @@ function runtime(runId: string): AgentRuntimeContext {
   }
 }
 
+/** Installs the default Agent journal, as the generated server does with the Console on or off, and lets the Console read it. */
+function installDefaultJournal(projectRoot: string, setting?: AgentInvocationsDefault): AgentInvocations {
+  installAgentInvocations({ default: setting, journal: { projectRoot } })
+  return installConsoleInvocations(projectRoot)
+}
+
 afterEach(() => {
+  installAgentInvocations({})
   for (const name of ["development", "development.root", "development.registry", "development.ambiguous-root"]) {
     const key = Symbol.for(`vitehub.console.${name}`)
     Reflect.deleteProperty(globalThis, key)
@@ -1643,27 +1654,6 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("passes Console observation limits into generated journal installation", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-console-observations-"))
-    const observations = { maxCount: 1024, maxStringLength: 131072, maxBytes: 16777216, flushTimeoutMs: 10000 }
-    try {
-      const plugin = consoleVitePlugin({
-        console: { auth: false, authorize: hostManagedAuthorize, observations },
-        preset: "node",
-        sections: ["agents"],
-      })
-      const configHook = plugin.config
-      if (!configHook) throw new TypeError("Expected a console config hook.")
-      const configHandler = "handler" in configHook ? configHook.handler : configHook
-      await Reflect.apply(configHandler, {}, [{ root }, { command: "build", mode: "production" }])
-      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(generated).toContain(`observations: ${JSON.stringify(observations)}`)
-    }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
-  })
-
   it("requires a ViteHub Auth authorize policy for the production Console route", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-host-"))
     const auth = (routes: ResolvedAuthViteConfig["access"]["routes"]): ResolvedAuthViteConfig => ({
@@ -2420,6 +2410,7 @@ describe("Agent invocation console", () => {
         },
         name,
       })
+      installAgentInvocations({ journal: { projectRoot: root } })
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },
       ], { invoke: true, projectRoot: root })
@@ -2461,6 +2452,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-legacy-invoke-"))
     try {
       const definition = defineAgent({ driver: { run: () => "done" }, name })
+      installAgentInvocations({ journal: { projectRoot: root } })
       installConsoleAgentDefinitions([
         { definition: { default: definition }, fallbackName: "help" },
       ], { invoke: true, projectRoot: root })
@@ -2504,6 +2496,7 @@ describe("Agent invocation console", () => {
         req: { ...(body === undefined ? {} : { json: async () => body }), method, url },
       }
     }
+    installAgentInvocations({ journal: { projectRoot: root } })
     const install = (invoke: boolean) => installConsoleAgentDefinitions([
       { definition: { default: definition }, fallbackName: "help" },
     ], { invoke, projectRoot: root })
@@ -4347,13 +4340,15 @@ describe("Agent invocation console", () => {
     expect(get).toHaveBeenNthCalledWith(2, "inv-2", { observationNames: ["agent.invocation.finish"] })
   })
 
-  it("supplies the console journal to framework Agent Definitions without a store", () => {
-    const fallback = fakeInvocations("console")
-    scope[consoleInvocationsKey] = fallback
+  it("gives framework Agent Definitions without a store the app-wide journal, never a Console journal", () => {
+    scope[consoleInvocationsKey] = fakeInvocations("console")
 
     const agent = defineAgent({ driver: { run: () => "ok" } })
 
-    expect(agent.invocations).toBe(fallback)
+    expect(agent.invocations).toBeUndefined()
+    installAgentInvocations({ default: "memory" })
+    expect(agent.invocations).toBeDefined()
+    expect(agent.invocations).not.toBe(scope[consoleInvocationsKey])
   })
 
   it("preserves an explicitly configured invocation journal", () => {
@@ -4598,33 +4593,33 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("persists configured Console storage across instances and isolates another URL", async () => {
+  it("persists the configured default journal across instances and isolates another URL", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-configured-"))
     const databaseUrl = pathToFileURL(join(projectRoot, "persistent", "history.sqlite")).href
     const otherUrl = pathToFileURL(join(projectRoot, "persistent", "other.sqlite")).href
     try {
-      const writer = installConsoleInvocations(projectRoot, undefined, undefined, databaseUrl)
-      expect(installConsoleInvocations(projectRoot, undefined, undefined, databaseUrl)).toBe(writer)
+      const writer = installDefaultJournal(projectRoot, { databaseUrl })
+      expect(installDefaultJournal(projectRoot, { databaseUrl })).toBe(writer)
       const agent = defineAgent({ driver: { run: () => "stored at configured path" }, runtime: false })
       await runAgent(agent, runtime("configured-console-storage"), {})
-      const readers = [createConsoleInvocations(projectRoot, undefined, databaseUrl), createConsoleInvocations(projectRoot, undefined, databaseUrl)]
+      const readers = [createDefaultAgentInvocations({ databaseUrl, projectRoot }), createDefaultAgentInvocations({ databaseUrl, projectRoot })]
       for (const reader of readers) {
         await expect(reader.getByRunId("configured-console-storage")).resolves.toMatchObject({ status: "completed" })
       }
-      const other = installConsoleInvocations(projectRoot, undefined, undefined, otherUrl)
+      const other = installDefaultJournal(projectRoot, { databaseUrl: otherUrl })
       expect(other).not.toBe(writer)
       await expect(other.getByRunId("configured-console-storage")).resolves.toBeUndefined()
       expect(existsSync(join(projectRoot, "persistent", "history.sqlite"))).toBe(true)
-      expect(existsSync(join(projectRoot, ".vitehub", "data", "console.sqlite"))).toBe(false)
+      expect(existsSync(join(projectRoot, ".vitehub", "data", "agent-invocations.sqlite"))).toBe(false)
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })
     }
   })
 
-  it("allows a runtime URL to override the Console config", () => {
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "libsql://runtime.example.com")
-    expect(resolveConsoleDatabaseOptions(process.cwd(), "libsql://configured.example.com")).toEqual({ url: "libsql://runtime.example.com" })
+  it("allows a runtime URL to override the configured journal URL", () => {
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "libsql://runtime.example.com")
+    expect(resolveDefaultAgentInvocationsLocation({ databaseUrl: "libsql://configured.example.com", projectRoot: process.cwd() })).toEqual({ url: "libsql://runtime.example.com" })
   })
 
   it("anchors the durable journal to the project root and shares it between runtime instances", async () => {
@@ -4632,11 +4627,11 @@ describe("Agent invocation console", () => {
     const unrelatedCwd = await mkdtemp(join(tmpdir(), "vitehub-console-cwd-"))
     vi.spyOn(process, "cwd").mockReturnValue(unrelatedCwd)
     try {
-      const writer = installConsoleInvocations(projectRoot)
+      const writer = installDefaultJournal(projectRoot)
       const agent = defineAgent({ driver: { run: () => "persisted" }, runtime: false, version: "1.0.0" })
       await runAgent(agent, runtime("console-cross-realm"), {})
 
-      const reader = createConsoleInvocations(projectRoot)
+      const reader = createDefaultAgentInvocations({ projectRoot })
       const invocation = await reader.getByRunId("console-cross-realm")
       expect(invocation).toMatchObject({ status: "completed" })
       await expect(reader.list({ search: "persisted" })).resolves.toMatchObject({
@@ -4653,8 +4648,8 @@ describe("Agent invocation console", () => {
         name: "vitehub.agent.configured",
       }))
       expect(agent.invocations).toBe(writer)
-      expect(existsSync(join(projectRoot, ".vitehub/data/console.sqlite"))).toBe(true)
-      expect(existsSync(join(unrelatedCwd, ".vitehub/data/console.sqlite"))).toBe(false)
+      expect(existsSync(join(projectRoot, ".vitehub/data/agent-invocations.sqlite"))).toBe(true)
+      expect(existsSync(join(unrelatedCwd, ".vitehub/data/agent-invocations.sqlite"))).toBe(false)
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })
@@ -4665,19 +4660,19 @@ describe("Agent invocation console", () => {
   it("exposes the Console invocation journal through Drizzle and builds invocation URLs", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-drizzle-"))
     try {
-      installConsoleInvocations(projectRoot)
+      installDefaultJournal(projectRoot)
       const agent = defineAgent({ driver: { run: () => "done" }, runtime: false })
       await runAgent(agent, { ...runtime("console-drizzle"), agentIdentity: { name: "agent" } }, {})
 
-      const database = await getConsoleInvocationsDatabase()
+      const database = await getAgentInvocationsDatabase()
+      if (database?.driver !== "libsql") throw new Error("Expected the libSQL journal database.")
       const { db, schema } = database
       const [invocation] = await db.select().from(schema.invocations).orderBy(desc(schema.invocations.sequence)).limit(1)
       if (!invocation) throw new Error("Expected the Console invocation journal to contain the completed invocation.")
       expect(invocation).toMatchObject({ agentName: "agent", status: "completed" })
 
       const requestless = consoleRuntime.resolve(runtime("console-requestless"))
-      expect(requestless.invocations).toBe(getConsoleInvocations())
-      await expect(requestless.invocationsDatabase()).resolves.toBe(database)
+      await expect(getAgentInvocationsDatabase()).resolves.toBe(database)
       expect(() => requestless.invocationUrl(invocation)).toThrow("Console invocation URLs require `vitehub({ publicUrl })` or a request context")
       vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { agent: "https://agents.example" } })
       expect(requestless.invocationUrl(invocation)).toBe(
@@ -4710,16 +4705,16 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("uses the configured Console database path relative to the project root", async () => {
+  it("uses the configured journal database path relative to the project root", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-configured-project-"))
     const unrelatedCwd = await mkdtemp(join(tmpdir(), "vitehub-console-configured-cwd-"))
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file:data/invocations.sqlite")
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "file:data/invocations.sqlite")
     vi.spyOn(process, "cwd").mockReturnValue(unrelatedCwd)
     try {
-      await createConsoleInvocations(projectRoot).list()
+      await createDefaultAgentInvocations({ projectRoot }).list()
 
       expect(existsSync(join(projectRoot, "data/invocations.sqlite"))).toBe(true)
-      expect(existsSync(join(projectRoot, ".vitehub/data/console.sqlite"))).toBe(false)
+      expect(existsSync(join(projectRoot, ".vitehub/data/agent-invocations.sqlite"))).toBe(false)
       expect(existsSync(join(unrelatedCwd, "data/invocations.sqlite"))).toBe(false)
     }
     finally {
@@ -4728,13 +4723,13 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("decodes configured relative Console database file URLs", async () => {
+  it("decodes configured relative journal database file URLs", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-encoded-project-"))
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file:data/my%20journal%231.sqlite")
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "file:data/my%20journal%231.sqlite")
     try {
       const databasePath = join(projectRoot, "data/my journal#1.sqlite")
-      expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({ url: pathToFileURL(databasePath).href })
-      await createConsoleInvocations(projectRoot).list()
+      expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({ url: pathToFileURL(databasePath).href })
+      await createDefaultAgentInvocations({ projectRoot }).list()
 
       expect(existsSync(databasePath)).toBe(true)
       expect(existsSync(join(projectRoot, "data/my%20journal%231.sqlite"))).toBe(false)
@@ -4744,14 +4739,14 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("preserves absolute Console database file URLs", async () => {
+  it("preserves absolute journal database file URLs", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-file-url-project-"))
     const databasePath = join(await mkdtemp(join(tmpdir(), "vitehub-console-file-url-data-")), "console #1.sqlite")
     const databaseUrl = pathToFileURL(databasePath).href
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", databaseUrl)
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", databaseUrl)
     try {
-      expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({ url: databaseUrl })
-      await createConsoleInvocations(projectRoot).list()
+      expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({ url: databaseUrl })
+      await createDefaultAgentInvocations({ projectRoot }).list()
 
       expect(existsSync(databasePath)).toBe(true)
       expect(existsSync(join(projectRoot, "console.sqlite"))).toBe(false)
@@ -4764,14 +4759,14 @@ describe("Agent invocation console", () => {
 
   it("keeps the default journal in memory on Workers without Node globals", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-workers-project-"))
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "")
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "")
     vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" })
     try {
       const processDescriptor = Object.getOwnPropertyDescriptor(globalThis, "process")
       Reflect.deleteProperty(globalThis, "process")
       let invocations: AgentInvocations
       try {
-        invocations = installConsoleInvocations(projectRoot)
+        invocations = installDefaultJournal(projectRoot)
       }
       finally {
         if (processDescriptor) Object.defineProperty(globalThis, "process", processDescriptor)
@@ -4787,105 +4782,105 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("recognizes one-slash absolute Console database file URLs", () => {
+  it("recognizes one-slash absolute journal database file URLs", () => {
     const databasePath = join(tmpdir(), "vitehub-console-one-slash", "console.sqlite")
     const databaseUrl = pathToFileURL(databasePath).href.replace("file:///", "file:/")
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", databaseUrl)
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", databaseUrl)
 
-    expect(resolveConsoleDatabaseOptions(join(tmpdir(), "vitehub-console-project"))).toEqual({
+    expect(resolveDefaultAgentInvocationsLocation({ projectRoot: join(tmpdir(), "vitehub-console-project") })).toEqual({
       url: pathToFileURL(databasePath).href,
     })
   })
 
-  it("resolves Console database file URL schemes case-insensitively", () => {
+  it("resolves journal database file URL schemes case-insensitively", () => {
     const projectRoot = join(tmpdir(), "vitehub-console-uppercase-scheme-project")
     const relativeDatabasePath = join(projectRoot, "data/invocations.sqlite")
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "FILE:data/invocations.sqlite")
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "FILE:data/invocations.sqlite")
 
-    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({
+    expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({
       url: pathToFileURL(relativeDatabasePath).href,
     })
 
     const absoluteDatabasePath = join(tmpdir(), "vitehub-console-uppercase-scheme", "console.sqlite")
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", pathToFileURL(absoluteDatabasePath).href.replace("file:", "FILE:"))
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", pathToFileURL(absoluteDatabasePath).href.replace("file:", "FILE:"))
 
-    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({
+    expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({
       url: pathToFileURL(absoluteDatabasePath).href,
     })
   })
 
-  it("preserves query parameters on configured Console database file URLs", () => {
+  it("preserves query parameters on configured journal database file URLs", () => {
     const projectRoot = join(tmpdir(), "vitehub-console-query-project")
     const databasePath = join(projectRoot, "data/invocations.sqlite")
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file:data/invocations.sqlite?mode=rwc")
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "file:data/invocations.sqlite?mode=rwc")
 
-    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({
+    expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({
       url: `${pathToFileURL(databasePath).href}?mode=rwc`,
     })
   })
 
-  it("excludes fragments from configured relative Console database file paths", () => {
+  it("excludes fragments from configured relative journal database file paths", () => {
     const projectRoot = join(tmpdir(), "vitehub-console-fragment-project")
     const databasePath = join(projectRoot, "data/invocations.sqlite")
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file:data/invocations.sqlite?mode=rwc#journal")
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "file:data/invocations.sqlite?mode=rwc#journal")
 
-    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({
+    expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({
       url: `${pathToFileURL(databasePath).href}?mode=rwc`,
     })
   })
 
-  it("preserves configured in-memory Console database URLs", async () => {
+  it("preserves configured in-memory journal database URLs", async () => {
     const databaseUrl = "file::memory:?cache=shared"
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", databaseUrl)
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", databaseUrl)
 
-    expect(resolveConsoleDatabaseOptions(process.cwd())).toEqual({ url: databaseUrl })
-    await expect(createConsoleInvocations(process.cwd()).list()).resolves.toMatchObject({ invocations: [] })
+    expect(resolveDefaultAgentInvocationsLocation({ projectRoot: process.cwd() })).toEqual({ url: databaseUrl })
+    await expect(createDefaultAgentInvocations({ projectRoot: process.cwd() }).list()).resolves.toMatchObject({ invocations: [] })
   })
 
-  it("recognizes percent-encoded in-memory Console database URLs", () => {
+  it("recognizes percent-encoded in-memory journal database URLs", () => {
     const databaseUrl = "file:%3Amemory%3A?cache=shared"
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", databaseUrl)
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", databaseUrl)
 
-    expect(resolveConsoleDatabaseOptions(process.cwd())).toEqual({ url: databaseUrl })
+    expect(resolveDefaultAgentInvocationsLocation({ projectRoot: process.cwd() })).toEqual({ url: databaseUrl })
   })
 
-  it("resolves Console database paths that begin with the in-memory name", () => {
+  it("resolves journal database paths that begin with the in-memory name", () => {
     const projectRoot = join(tmpdir(), "vitehub-console-memory-prefix-project")
     const databasePath = join(projectRoot, ":memory:backup.sqlite")
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "file::memory:backup.sqlite")
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "file::memory:backup.sqlite")
 
-    expect(resolveConsoleDatabaseOptions(projectRoot)).toEqual({ url: pathToFileURL(databasePath).href })
+    expect(resolveDefaultAgentInvocationsLocation({ projectRoot })).toEqual({ url: pathToFileURL(databasePath).href })
   })
 
-  it("configures the Console database authentication token", () => {
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "libsql://console.example.com")
-    vi.stubEnv("VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN", "console-token")
+  it("configures the journal database authentication token", () => {
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "libsql://console.example.com")
+    vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_AUTH_TOKEN", "console-token")
 
-    expect(resolveConsoleDatabaseOptions(process.cwd())).toEqual({
+    expect(resolveDefaultAgentInvocationsLocation({ projectRoot: process.cwd() })).toEqual({
       authToken: "console-token",
       url: "libsql://console.example.com",
     })
   })
 
-  it("validates changed observation limits before reusing the Console journal", async () => {
+  it("validates changed observation limits before reusing the default journal", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-invalid-retention-"))
     try {
-      const installed = installConsoleInvocations(projectRoot)
-      expect(() => installConsoleInvocations(projectRoot, undefined, { maxCount: Number.NaN }))
+      const installed = installDefaultJournal(projectRoot)
+      expect(() => installDefaultJournal(projectRoot, { observations: { maxCount: Number.NaN } }))
         .toThrow("observations.maxCount")
-      expect(installConsoleInvocations(projectRoot)).toBe(installed)
+      expect(installDefaultJournal(projectRoot)).toBe(installed)
     }
     finally {
       await rm(projectRoot, { force: true, recursive: true })
     }
   })
 
-  it("retains configured observation sizes and public titles in the Console journal", async () => {
+  it("retains configured observation sizes and public titles in the default journal", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-retention-"))
     const observations = { maxCount: 1024, maxStringLength: 131072, maxBytes: 16777216, flushTimeoutMs: 10000 }
     try {
-      const invocations = installConsoleInvocations(projectRoot, undefined, observations)
-      expect(installConsoleInvocations(projectRoot, undefined, { ...observations })).toBe(invocations)
+      const invocations = installDefaultJournal(projectRoot, { observations })
+      expect(installDefaultJournal(projectRoot, { observations: { ...observations } })).toBe(invocations)
       const text = "x".repeat(120000)
       const agent = defineAgent({
         driver: { run: async (context) => {
@@ -4900,7 +4895,7 @@ describe("Agent invocation console", () => {
         runtime: false,
       })
       await runAgent(agent, runtime("console-retention"), { prompt: "Find the receipt date." })
-      const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-retention")
+      const invocation = await createDefaultAgentInvocations({ projectRoot }).getByRunId("console-retention")
       expect(invocation?.observations).toContainEqual(expect.objectContaining({
         attributes: expect.objectContaining({ "vitehub.session.title": "Receipt date lookup" }),
         name: "agent.title.recorded",
@@ -4914,10 +4909,10 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("preserves progress summaries in the console journal", async () => {
+  it("preserves progress summaries in the default journal", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-progress-"))
     try {
-      installConsoleInvocations(projectRoot)
+      installDefaultJournal(projectRoot)
       const agent = defineAgent({
         driver: { run: () => (async function* () {
             yield {
@@ -4933,7 +4928,7 @@ describe("Agent invocation console", () => {
       // SAFETY: This Driver fixture always returns the async generator defined above.
       for await (const _event of result as AsyncIterable<unknown>) {}
 
-      const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-progress-summary")
+      const invocation = await createDefaultAgentInvocations({ projectRoot }).getByRunId("console-progress-summary")
       expect(invocation?.observations).toContainEqual(expect.objectContaining({
         attributes: expect.objectContaining({
           "content.omitted": expect.not.arrayContaining(["tool.output"]),
@@ -4948,10 +4943,10 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("preserves failed tool payloads in the console journal", async () => {
+  it("preserves failed tool payloads in the default journal", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-tool-error-"))
     try {
-      installConsoleInvocations(projectRoot)
+      installDefaultJournal(projectRoot)
       const agent = defineAgent({
         driver: { run: () => (async function* () {
             yield { id: "tool-1", input: { query: "missing" }, name: "lookup", type: "tool-call" }
@@ -4964,7 +4959,7 @@ describe("Agent invocation console", () => {
       // SAFETY: This Driver fixture always returns the async generator defined above.
       for await (const _event of result as AsyncIterable<unknown>) {}
 
-      const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-tool-error")
+      const invocation = await createDefaultAgentInvocations({ projectRoot }).getByRunId("console-tool-error")
       const observation = invocation?.observations.find(item => item.name === "agent.tool.error")
       expect(observation).toEqual(expect.objectContaining({
         attributes: expect.objectContaining({ "tool.error": "Lookup failed" }),

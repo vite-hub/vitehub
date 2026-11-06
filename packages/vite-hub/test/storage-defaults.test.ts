@@ -5,13 +5,14 @@ import { pathToFileURL } from "node:url"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import type { Plugin } from "vite"
 import { describe, expect, it, vi } from "vitest"
-import { consoleD1Binding, resolveConsoleJournal, withComments, withConnectionsDatabase, withDataDir } from "../src/storage-config.ts"
+import { defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "../src/storage-config.ts"
 import { vitehub } from "../src/index.ts"
 
 import type { ViteHubOptions } from "../src/index.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
-async function generatedConsolePlugin(options: ViteHubOptions, command: "build" | "serve", files: Record<string, string> = {}): Promise<{ info: string[], plugin: string }> {
+/** The generated Agent Invocations plugin, which installs the default journal with the Console on or off. */
+async function generatedJournalPlugin(options: ViteHubOptions, command: "build" | "serve", files: Record<string, string> = {}): Promise<{ info: string[], plugin: string }> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-storage-journal-"))
   try {
     for (const [file, contents] of Object.entries(files)) {
@@ -19,14 +20,14 @@ async function generatedConsolePlugin(options: ViteHubOptions, command: "build" 
       await writeFile(join(root, file), contents)
     }
     const plugin = vitehub(options)
-      .find((plugin): plugin is Plugin => !!plugin && typeof plugin === "object" && "name" in plugin && plugin.name === "vite-hub/console")
+      .find((plugin): plugin is Plugin => !!plugin && typeof plugin === "object" && "name" in plugin && plugin.name === "vite-hub/agent-invocations")
     const config = plugin?.config
     const configResolved = plugin?.configResolved
-    if (!config || !configResolved) throw new TypeError("Expected Console config hooks.")
+    if (!config || !configResolved) throw new TypeError("Expected Agent Invocations config hooks.")
     await Reflect.apply("handler" in config ? config.handler : config, {}, [{ root, [VITEHUB_SERVER_DIRS]: [join(root, "server")] }, { command, mode: command === "build" ? "production" : "development" }])
     const info: string[] = []
     await Reflect.apply("handler" in configResolved ? configResolved.handler : configResolved, {}, [{ root, logger: { info: (message: string) => info.push(message), warn: vi.fn() } }])
-    return { info, plugin: await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8") }
+    return { info, plugin: await readFile(join(root, ".vitehub/nitro/agent/invocations.mjs"), "utf8") }
   }
   finally {
     await rm(root, { force: true, recursive: true })
@@ -58,24 +59,17 @@ describe("Node storage defaults", () => {
     expect(withDataDir({ preset: "node", dataDir, console: { auth: accessAuth } }).console).toHaveProperty("auth", accessAuth)
   })
 
-  it.each(["serve", "build"] as const)("keeps the Vite Console journal under dataDir during %s", async (command) => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-storage-console-"))
-    try {
-      const dataDir = join(root, "persistent data")
-      const plugin = vitehub({ preset: "node", dataDir, agent: true, console: { auth: false } })
-        .find((plugin): plugin is Plugin => !!plugin && typeof plugin === "object" && "name" in plugin && plugin.name === "vite-hub/console")
-      const hook = plugin?.config
-      if (!hook) throw new TypeError("Expected a Console config hook.")
-      const handler = "handler" in hook ? hook.handler : hook
-      await Reflect.apply(handler, {}, [{ root }, { command, mode: command === "build" ? "production" : "development" }])
-      const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      // `invoke` defaults to true in development and false in a production build.
-      expect(generated.includes("invoke: true")).toBe(command === "serve")
-      expect(generated).toContain(`databaseUrl: ${JSON.stringify(pathToFileURL(join(dataDir, "console.sqlite")).href)}`)
+  it.each(["serve", "build"] as const)("keeps the default Agent journal under dataDir during %s, with the Console on or off", async (command) => {
+    const dataDir = "/var/lib/app data"
+    const databaseUrl = JSON.stringify(pathToFileURL(join(dataDir, "agent-invocations.sqlite")).href)
+    for (const options of [{ preset: "node", dataDir, agent: true }, { preset: "node", dataDir, agent: true, console: { auth: false } }] satisfies ViteHubOptions[]) {
+      const { plugin } = await generatedJournalPlugin(options, command)
+      expect(plugin).toContain(`default: {"databaseUrl":${databaseUrl}}`)
+      expect(plugin).toContain("journal: { projectRoot: ")
     }
-    finally {
-      await rm(root, { force: true, recursive: true })
-    }
+    const explicit = withDataDir({ preset: "node", dataDir, agent: { invocations: { databaseUrl: "libsql://journal.example.com", retention: { maxAge: "14d" } } } })
+    expect(explicit.agent).toEqual({ invocations: { databaseUrl: "libsql://journal.example.com", retention: { maxAge: "14d" } }, providers: { state: { provider: "libsql", url: pathToFileURL(join(dataDir, "agent-state.sqlite")).href } } })
+    expect(withDataDir({ preset: "node", dataDir, agent: { invocations: "memory" } }).agent).toMatchObject({ invocations: "memory" })
   })
 
   it("preserves explicit storage and disabled Agents", () => {
@@ -83,7 +77,7 @@ describe("Node storage defaults", () => {
       preset: "node" as const,
       dataDir: "/var/lib/app",
       agent: false as const,
-      console: { auth: false as const, authorize: hostManagedAuthorize, databaseUrl: "libsql://journal.example.com" },
+      console: { auth: false as const, authorize: hostManagedAuthorize },
       kv: { driver: "upstash" as const, url: "https://kv.example.com", token: "fixture" },
       blob: { driver: "fs" as const, base: "/existing/uploads" },
       workspace: { root: "/existing/workspaces" },
@@ -92,7 +86,7 @@ describe("Node storage defaults", () => {
   })
 
   it("keeps remote agent state and does not enable disabled services", () => {
-    const options = { preset: "node" as const, dataDir: "/var/lib/app", agent: { providers: { state: { provider: "libsql" as const, url: "libsql://state.example.com" } } }, kv: false as const, blob: false as const }
+    const options = { preset: "node" as const, dataDir: "/var/lib/app", agent: { invocations: false as const, providers: { state: { provider: "libsql" as const, url: "libsql://state.example.com" } } }, kv: false as const, blob: false as const }
     expect(withDataDir(options)).toEqual(options)
   })
 
@@ -138,28 +132,29 @@ describe("Node storage defaults", () => {
   })
 })
 
-describe("Console journal host defaults", () => {
-  const cloudflare = { preset: "cloudflare", agent: true, console: { auth: false, authorize: hostManagedAuthorize }, database: { driver: "d1", binding: "DB" } } satisfies ViteHubOptions
+describe("Default Agent journal host defaults", () => {
+  // The Console is off: the default journal does not depend on it.
+  const cloudflare = { preset: "cloudflare", agent: true, database: { driver: "d1", binding: "DB" } } satisfies ViteHubOptions
 
   it("does not select an unprovisioned explicit D1 binding", async () => {
-    const { info, plugin } = await generatedConsolePlugin(cloudflare, "build")
+    const { info, plugin } = await generatedJournalPlugin(cloudflare, "build")
     expect(plugin).not.toContain("cloudflare:workers")
     expect(info).toEqual([])
   })
 
   it("reads the D1 binding from the default Database Definition", async () => {
     const definition = `import { defineDatabase } from "vite-hub/database"\nexport default defineDatabase({ cloudflare: { binding: "APP_DB", databaseName: "app" }, schema: {} })\n`
-    const { plugin } = await generatedConsolePlugin({ ...cloudflare, database: true }, "build", { "server/databases/config.ts": definition })
+    const { plugin } = await generatedJournalPlugin({ ...cloudflare, database: true }, "build", { "server/databases/config.ts": definition })
     expect(plugin).toContain(`d1: { binding: "APP_DB",`)
-    const withoutDefinition = await generatedConsolePlugin({ ...cloudflare, database: true }, "build")
+    const withoutDefinition = await generatedJournalPlugin({ ...cloudflare, database: true }, "build")
     expect(withoutDefinition.plugin).not.toContain("cloudflare:workers")
   })
 
   it("reads the D1 binding from the only named Database and skips ambiguous ones", async () => {
     const named = (name: string, binding: string) => `export default defineDatabase({ name: "${name}", cloudflare: { binding: "${binding}", databaseName: "${name}" }, schema: {} })\n`
-    const only = await generatedConsolePlugin({ ...cloudflare, database: true }, "build", { "server/databases/app/config.ts": named("app", "APP_DB") })
+    const only = await generatedJournalPlugin({ ...cloudflare, database: true }, "build", { "server/databases/app/config.ts": named("app", "APP_DB") })
     expect(only.plugin).toContain('d1: { binding: "APP_DB",')
-    const ambiguous = await generatedConsolePlugin({ ...cloudflare, database: true }, "build", {
+    const ambiguous = await generatedJournalPlugin({ ...cloudflare, database: true }, "build", {
       "server/databases/app/config.ts": named("app", "APP_DB"),
       "server/databases/audit/config.ts": named("audit", "AUDIT_DB"),
     })
@@ -167,7 +162,7 @@ describe("Console journal host defaults", () => {
   })
 
   it("reads the D1 binding from the Database project root", async () => {
-    const { plugin } = await generatedConsolePlugin({ ...cloudflare, database: { projectRoot: "data" } }, "build", {
+    const { plugin } = await generatedJournalPlugin({ ...cloudflare, database: { projectRoot: "data" } }, "build", {
       "server/databases/config.ts": 'export default defineDatabase({ cloudflare: { binding: "APP_DB", databaseName: "app" }, schema: {} })\n',
       "data/server/databases/config.ts": 'export default defineDatabase({ cloudflare: { binding: "DATA_DB", databaseName: "data" }, schema: {} })\n',
     })
@@ -180,36 +175,51 @@ describe("Console journal host defaults", () => {
     ['cloudflare: { databaseName: "app" },', "JOURNAL_DB"],
     ["", "JOURNAL_DB"],
   ])("selects the effective D1 binding with Definition config %s", async (config, binding) => {
-    const { plugin } = await generatedConsolePlugin({ ...cloudflare, database: { driver: "d1", binding: "JOURNAL_DB" } }, "build", {
+    const { plugin } = await generatedJournalPlugin({ ...cloudflare, database: { driver: "d1", binding: "JOURNAL_DB" } }, "build", {
       "server/databases/config.ts": `export default defineDatabase({ ${config} schema: {} })\n`,
     })
     expect(plugin).toContain(`d1: { binding: "${binding}",`)
   })
 
   it("keeps the local libSQL journal during Cloudflare development", async () => {
-    const { info, plugin } = await generatedConsolePlugin(cloudflare, "serve")
-    expect(plugin).toContain("installConsoleAgentDefinitions(")
+    const { info, plugin } = await generatedJournalPlugin(cloudflare, "serve")
+    expect(plugin).toContain("journal: { projectRoot: ")
     expect(plugin).not.toContain("cloudflare:workers")
     expect(info).toEqual([])
   })
 
-  it("keeps libSQL on Node and when the Console database URL is explicit", async () => {
-    const node = await generatedConsolePlugin({ ...cloudflare, preset: "node" }, "build")
+  it("installs the same D1 journal with the Console on", async () => {
+    const definition = 'export default defineDatabase({ cloudflare: { binding: "APP_DB", databaseName: "app" }, schema: {} })\n'
+    const off = await generatedJournalPlugin({ ...cloudflare, database: true }, "build", { "server/databases/config.ts": definition })
+    const on = await generatedJournalPlugin({ ...cloudflare, database: true, console: { auth: false, authorize: hostManagedAuthorize } }, "build", { "server/databases/config.ts": definition })
+    expect(off.plugin).toContain('d1: { binding: "APP_DB",')
+    expect(off.info).toEqual(["[vitehub] Agent Invocation journal: D1 binding APP_DB, table vitehub_agent_invocations. The journal creates the table on first use."])
+    expect(on.plugin.replace(/"\/[^"]*"/g, "ROOT")).toBe(off.plugin.replace(/"\/[^"]*"/g, "ROOT"))
+  })
+
+  it("keeps libSQL on Node and when the journal database URL is explicit", async () => {
+    const node = await generatedJournalPlugin({ ...cloudflare, preset: "node" }, "build")
     expect(node.plugin).not.toContain("cloudflare:workers")
-    const explicit = await generatedConsolePlugin({ ...cloudflare, console: { auth: false, authorize: hostManagedAuthorize, databaseUrl: "libsql://journal.example.com" } }, "build")
-    expect(explicit.plugin).toContain(`databaseUrl: "libsql://journal.example.com"`)
+    const explicit = await generatedJournalPlugin({ ...cloudflare, agent: { invocations: { databaseUrl: "libsql://journal.example.com" } }, database: true }, "build", {
+      "server/databases/config.ts": 'export default defineDatabase({ cloudflare: { binding: "APP_DB", databaseName: "app" }, schema: {} })\n',
+    })
+    expect(explicit.plugin).toContain(`"databaseUrl":"libsql://journal.example.com"`)
     expect(explicit.plugin).not.toContain("cloudflare:workers")
   })
 
+  it("fails the build for the removed Console journal options", () => {
+    for (const key of ["databaseUrl", "observations", "retention"]) {
+      expect(() => vitehub({ preset: "node", agent: true, console: { auth: false, [key]: {} } as ViteHubOptions["console"] }))
+        .toThrow(expect.objectContaining({ code: "VITE_HUB_B0020", message: expect.stringContaining(`agent: { invocations: { ${key} } }`) }))
+    }
+  })
+
   it("resolves the D1 binding from the Database options", () => {
-    expect(consoleD1Binding("cloudflare", { driver: "d1" })).toBeUndefined()
-    expect(consoleD1Binding("cloudflare", { driver: "d1", binding: " JOURNAL " })).toBeUndefined()
-    expect(consoleD1Binding("cloudflare", true)).toBeUndefined()
-    expect(consoleD1Binding("cloudflare", { connection: { url: "libsql://db.example.com" } })).toBeUndefined()
-    expect(consoleD1Binding("vercel", { driver: "d1" })).toBeUndefined()
-    expect(resolveConsoleJournal("file:journal.sqlite", "DB", true)).toEqual({ databaseUrl: "file:journal.sqlite" })
-    expect(resolveConsoleJournal(undefined, "DB", true)).toEqual({ d1Binding: "DB" })
-    expect(resolveConsoleJournal(undefined, "DB", false)).toBeUndefined()
+    expect(defaultDatabaseD1Binding("cloudflare", { driver: "d1" })).toBeUndefined()
+    expect(defaultDatabaseD1Binding("cloudflare", { driver: "d1", binding: " JOURNAL " })).toBeUndefined()
+    expect(defaultDatabaseD1Binding("cloudflare", true)).toBeUndefined()
+    expect(defaultDatabaseD1Binding("cloudflare", { connection: { url: "libsql://db.example.com" } })).toBeUndefined()
+    expect(defaultDatabaseD1Binding("vercel", { driver: "d1" })).toBeUndefined()
   })
 })
 
@@ -284,7 +294,7 @@ describe("Connections database default", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-connections-d1-"))
     try {
       const database = { binding: "APP_DB", databaseId: "app-id", databaseName: "app", driver: "d1" as const }
-      expect(consoleD1Binding("cloudflare", database, { implicitDefault: true, root })).toBe("APP_DB")
+      expect(defaultDatabaseD1Binding("cloudflare", database, { implicitDefault: true, root })).toBe("APP_DB")
     }
     finally {
       await rm(root, { force: true, recursive: true })

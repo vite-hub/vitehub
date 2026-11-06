@@ -142,9 +142,9 @@ To add capacity beyond one host, set `options.placement`. Its `place({ repositor
 
 Admission only gates new work. Configure [Sandbox memory limits](/docs/agents/sandboxes) to contain provider commands and native tools. The preset runs focused local tests and lint, then uses hosted CI for full typechecks and builds. A maintainer can require a bounded local reproduction. A memory-limit failure must lead to a smaller workload or a different budget before retrying.
 
-## Share the Console journal
+## Share the Agent journal
 
-The Babysitter uses the invocation journal assigned to its discovered Agent. Set the Console journal in the ViteHub project configuration so the Console and the long-lived worker inspect the same records:
+The Babysitter uses the invocation journal assigned to its discovered Agent. Set the location of the [default journal](/docs/agents/invocation-storage#use-the-default-journal) in the ViteHub project configuration, so the Console and the long-lived worker inspect the same records:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -153,10 +153,10 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
+    agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       auth: false,
       authorize: './server/console-authorize.ts',
-      databaseUrl: 'file:/var/lib/babysitter/console.sqlite',
     },
   })],
 })
