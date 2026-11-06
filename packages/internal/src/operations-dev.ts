@@ -1,4 +1,5 @@
 import { validateViteHubNitroDevRequest } from "./dev-endpoint.ts"
+import { isViteHubLoopbackPeer } from "./dev-peer.ts"
 import { assertOperationProject, createOperationRegistry, operationRootHeader, operationRpcHeader, operationsOf, projectRootHash, runOperation, toOperationFailure } from "./operations.ts"
 import { getCloudflareEnv, resolveWaitUntil } from "./runtime/cloudflare-env.ts"
 import { toEventRequest } from "./runtime/h3-v1-request.ts"
@@ -31,7 +32,7 @@ export function createStandaloneOperationHandler(sources: { operations: unknown,
       const request = toEventRequest(event)
       const address = [readPath(event, "req", "ip"), readPath(event, "req", "context", "clientAddress"), readPath(event, "req", "runtime", "node", "req", "socket", "remoteAddress"), readPath(event, "node", "req", "socket", "remoteAddress")].find((value): value is string => typeof value === "string" && value !== "")
       const forwarded = request.headers.get("x-forwarded-host")
-      if (!localHost(request.headers.get("host") ?? new URL(request.url).host) || (forwarded && !localHost(forwarded)) || (address && address !== "::1" && !address.startsWith("127.") && !address.startsWith("::ffff:127."))) reject(403, "Standalone development operations accept only local requests.")
+      if (!localHost(request.headers.get("host") ?? new URL(request.url).host) || (forwarded && !localHost(forwarded)) || !await isViteHubLoopbackPeer(request, address)) reject(403, "Standalone development operations accept only local requests.")
       const site = request.headers.get("sec-fetch-site")
       if (site === "cross-site" || site === "same-site") reject(403, "Cross-origin operation requests are not allowed.")
       const checked = await validateViteHubNitroDevRequest(request, { header: operationRpcHeader, headerValue: "1", label: "Operation RPC" })
