@@ -7427,7 +7427,7 @@ async function handleChatSdkMessages(
     for (const queuedMessage of messages) {
       let claimedDelivery: AgentChannelDeliveryTracker | undefined
       try {
-        const queuedThread = individualMessages ? createChatSdkMessageThread(chat, adapter, state.state, thread, queuedMessage, options) : thread
+        const queuedThread = individualMessages ? createChatSdkMessageThread(chat, thread.adapter, state.state, thread, queuedMessage, options) : thread
         const queuedMessageId = agentChannelDeliverySourceValue(queuedMessage.id)
         const payloadFingerprint = await agentChannelDeliveryPayloadFingerprint(queuedMessage.raw).catch(() => undefined)
         const queuedDelivery = individualMessages
@@ -9475,13 +9475,30 @@ function createQueuedChannelDispatch(
  * A browser GET on the webhook route of a simulated chat Channel opens a chat page in the look of its platform. The page
  * POSTs to the same route, so opening the webhook URL is the way to chat with the Agent as that Channel.
  */
-async function simulatedChannelPageResponse(agent: unknown, request: Request, webhook: string | undefined, agentName: string | undefined): Promise<Response | undefined> {
+async function simulatedChannelPageResponse(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  request: Request,
+  webhook: string | undefined,
+  options: AgentChannelWebhookRouteOptions,
+): Promise<Response | undefined> {
+  const channels = agentChannelOptions(agent)
+  if (!Object.values(channels).some(channel => isChannelSimulated(channel.kind))) return undefined
+  const context = createRuntimeContext(
+    request,
+    undefined,
+    await resolveRuntimeWaitUntil(options.waitUntil),
+    options.cloudflare,
+    options.runtime,
+    options.capabilities,
+    routeAgentIdentity(options),
+  )
   const webhookId = webhook ?? fallbackWebhookFromRequest(request)
-  if (!webhookId || !isRecord(agent) || !isRecord(agent.channels)) return undefined
-  const channel = agent.channels[webhookId]
+  const match = await runWithRuntimeCloudflareEnv(context, () => findAgentWebhookRegistration(agent, context, request, webhookId))
+  const channelId = match?.registration.channelId
+  const channel = channelId ? channels[channelId] : undefined
   if (!isRuntimeRecord(channel) || !hasRuntimeType(channel.kind, "string") || !isChannelSimulated(channel.kind)) return undefined
   const { renderChannelSimulatorPage } = await import("../internal/channel-simulator/page.ts")
-  const page = renderChannelSimulatorPage(channel.kind, { agent: agentName || "agent", route: new URL(request.url).pathname })
+  const page = renderChannelSimulatorPage(channel.kind, { agent: routeAgentIdentity(options)?.name || "agent", route: new URL(request.url).pathname })
   return page === undefined
     ? undefined
     : new Response(page, { headers: { "cache-control": "no-store", "content-type": "text/html; charset=utf-8" } })
@@ -9506,7 +9523,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     // A replayed inbox request keeps its first arrival time for signature timestamps and retention.
     const webhookReceivedAt = (handlerOptions as AgentChannelWebhookRouteOptions & { [webhookInboxReceivedAt]?: number })[webhookInboxReceivedAt] ?? webhookStartedAt
     if (request.method === "GET") {
-      const page = await simulatedChannelPageResponse(agent, request, webhook, routeAgentIdentity(handlerOptions)?.name)
+      const page = await simulatedChannelPageResponse(agent, request, webhook, handlerOptions)
       if (page) return page
     }
     if (request.method !== "HEAD" && request.method !== "POST") {
