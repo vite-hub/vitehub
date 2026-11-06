@@ -1,5 +1,5 @@
 import { oauthProvider } from "@better-auth/oauth-provider"
-import { defineHandler } from "h3"
+import { defineHandler, H3Event } from "h3"
 import { DatabaseSync } from "node:sqlite"
 
 import type { BetterAuthPlugin } from "better-auth"
@@ -327,7 +327,7 @@ describe("MCP sign-in against a real Better Auth", () => {
       const query = new URLSearchParams({ client_id, code_challenge: "a".repeat(43), code_challenge_method: "S256", redirect_uri: "http://localhost:53682/callback", resource, response_type: "code", scope: "vitehub:read vitehub:write", state: "built-in-page" })
       const login = new URL((await call(`/oauth2/authorize?${query}`)).headers.get("location") ?? "", app)
       expect(login.pathname).toBe("/_vitehub/sign-in")
-      const page = await pages.signIn({ req: new Request(login) })
+      const page = await pages.signIn(new H3Event(new Request(login)))
       const html = await page.text()
       expect(html).toContain("Connect an agent")
       expect(html).toContain('autocomplete="current-password"')
