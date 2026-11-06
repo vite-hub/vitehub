@@ -12,7 +12,7 @@ portable; Vercel-specific behavior stays in the config and the generated output.
 
 | Feature | Default on the `vercel` preset |
 | --- | --- |
-| Blob | Vercel Blob with `BLOB_READ_WRITE_TOKEN` |
+| Blob | Vercel Blob with OIDC (`BLOB_STORE_ID`), or `BLOB_READ_WRITE_TOKEN` off Vercel |
 | KV | Upstash Redis with `KV_REST_API_URL` and `KV_REST_API_TOKEN` |
 | Queue | Vercel Queues |
 | Sandbox | Vercel Sandbox |
@@ -52,7 +52,7 @@ export default defineConfig({
 ```
 
 ::warning
-Vercel-hosted state needs hosted stores. Use `driver: 'vercel-blob'` with `BLOB_READ_WRITE_TOKEN` for Blob, and use Upstash-backed KV with `KV_REST_API_URL` and `KV_REST_API_TOKEN` when KV runs on Vercel. Local filesystem stores are development-only in Vercel deployments.
+Vercel-hosted state needs hosted stores. Use `driver: 'vercel-blob'` with a connected store (`BLOB_STORE_ID`) for Blob, and use Upstash-backed KV with `KV_REST_API_URL` and `KV_REST_API_TOKEN` when KV runs on Vercel. Local filesystem stores are development-only in Vercel deployments.
 ::
 
 Database Definitions own tables and identity, while the Database Integration selects the hosted connection used by Vercel output. Use Runtime Env declarations for Marketplace-provisioned credentials so generated output reads them at runtime.
