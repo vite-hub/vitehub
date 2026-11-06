@@ -164,10 +164,12 @@ The JSON Schema `x-vitehub-blob` keyword tells a form to render a Blob picker. Z
 import { blob, responsiveImage } from "@vite-hub/blob"
 
 export async function storeCover(file: Blob) {
-  const [error, record] = await blob.media.put("posts/cover.jpg", file, { alt: "Cover", focal: { x: 0.7, y: 0.4 } })
+  const [error] = await blob.media.put("posts/cover.jpg", file, { alt: "Cover", focal: { x: 0.7, y: 0.4 } })
   if (error) throw error
-  await blob.media.update("posts/cover.jpg", { crops: { mobile: { aspect: "4:5" } } })
-  await blob.media.move("posts/cover.jpg", "posts/2026/cover.jpg")
+  const [updateError] = await blob.media.update("posts/cover.jpg", { crops: { mobile: { aspect: "4:5" } } })
+  if (updateError) throw updateError
+  const [moveError, record] = await blob.media.move("posts/cover.jpg", "posts/2026/cover.jpg")
+  if (moveError) throw moveError
 
   return responsiveImage(record, { sizes: "100vw", art: [{ media: "(max-width: 640px)", crop: "mobile" }] })
   // img: { src, srcset, sizes, width, height, alt, style }, sources: <picture> sources
