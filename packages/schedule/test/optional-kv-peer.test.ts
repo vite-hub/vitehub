@@ -40,7 +40,7 @@ async function run(command: string, args: string[], cwd: string) {
 async function runPnpm(args: string[], cwd: string) {
   const npmExecPath = process.env.npm_execpath
   return npmExecPath?.includes("pnpm")
-    ? await run(process.execPath, [npmExecPath, ...args], cwd)
+    ? await run(npmExecPath, args, cwd)
     : await run("corepack", ["pnpm", ...args], cwd)
 }
 
@@ -75,7 +75,7 @@ async function installConsumer(root: string, dependencies: Record<string, string
       `${JSON.stringify(
         {
           dependencies,
-          packageManager: "pnpm@10.33.0",
+          packageManager: "pnpm@12.16.1",
           private: true,
           type: "module",
         },

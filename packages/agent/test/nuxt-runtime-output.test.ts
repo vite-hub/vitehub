@@ -31,8 +31,8 @@ const packedPackages = await packedWorkspacePackages(workspaceRoot, [
 
 async function runPnpm(args: string[], cwd: string, timeout = childProcessTimeout): Promise<void> {
   const npmExecPath = process.env.npm_execpath
-  const command = npmExecPath?.includes("pnpm") ? process.execPath : "corepack"
-  const commandArgs = npmExecPath?.includes("pnpm") ? [npmExecPath, ...args] : ["pnpm", ...args]
+  const command = npmExecPath?.includes("pnpm") ? npmExecPath : "corepack"
+  const commandArgs = npmExecPath?.includes("pnpm") ? args : ["pnpm", ...args]
   try {
     await execFileAsync(command, commandArgs, {
       cwd,
@@ -90,7 +90,7 @@ it("packages optional Agent runtimes into immutable Nuxt output", { timeout: 360
         nuxt: "4.5.2",
         vite: "8.2.2",
       },
-      packageManager: "pnpm@10.33.0",
+      packageManager: "pnpm@12.16.1",
       private: true,
       type: "module",
     }, null, 2)}\n`, "utf8")
