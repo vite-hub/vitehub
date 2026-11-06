@@ -110,14 +110,14 @@ The status should report a connected account.
 ::tutorial-step{title="Call the provider"}
 ## Call the provider
 
-The route calls Gmail as the connected account. `userId: 'me'` tells Gmail to use that account, and `{ event }` identifies the route in access checks and activity.
+The route calls Gmail as the connected account. `userId: 'me'` tells Gmail to use that account. The call runs as the `server` actor, so the `server` access rule applies.
 
 ```ts [server/api/labels.get.ts]
 import { defineEventHandler } from 'h3'
 import { useConnection } from 'vite-hub/connections/server'
 
-export default defineEventHandler(async (event) => {
-  const connection = useConnection('google', { event })
+export default defineEventHandler(async () => {
+  const connection = useConnection('google')
   const [error, data] = await connection.gmail.users.labels.list({ userId: 'me' })
   if (error) throw error
   return data

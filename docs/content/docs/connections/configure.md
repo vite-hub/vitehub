@@ -100,10 +100,39 @@ ViteHub seals the key like an OAuth grant. Access rules, approvals, dry run, and
 
 ## OAuth login Connections
 
-`oauthLogin()` from `vite-hub/connections` is an OAuth 2.0 provider that connects without a person, for a service account. Use it when a service accepts only its own OAuth tokens, for example an MCP server behind its own authorization server. The app supplies only `login`, which signs in and approves the request like a browser:
+`oauthLogin()` from `vite-hub/connections` is an OAuth 2.0 provider that connects without a person, for a service account. Use it when a service accepts only its own OAuth tokens, for example an MCP server behind its own authorization server. The app supplies only `login`, which signs in and approves the request like a browser. The examples below read their credentials from Server Env:
+
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', connections: true })],
+  env: {
+    server: {
+      portal: {
+        login: env({ secret: true, source: env.source('PORTAL_LOGIN') }),
+        acme: env({ secret: true, source: env.source('PORTAL_ACME_LOGIN') }),
+        globex: env({ secret: true, source: env.source('PORTAL_GLOBEX_LOGIN') }),
+      },
+      github: {
+        token: env({ secret: true, source: env.source('GITHUB_TOKEN') }),
+      },
+    },
+  },
+})
+```
 
 ```ts [server/connections/portal.ts]
-import { defineConnection, oauthLogin } from 'vite-hub/connections'
+import { useServerEnv } from '#vitehub/env/server'
+import { type ConnectionLoginContext, defineConnection, oauthLogin } from 'vite-hub/connections'
+
+async function login({ url, credentials, fetch }: ConnectionLoginContext) {
+  const [email, password] = credentials.split(':')
+  await fetch('/api/sign-in', { method: 'POST', body: JSON.stringify({ email, password }) })
+  return (await fetch(url)).headers.get('location')!
+}
 
 export default defineConnection({
   provider: oauthLogin({
@@ -111,11 +140,7 @@ export default defineConnection({
     mcp: 'https://portal.example.com/mcp',
     clientName: 'Support Agent',
     credentials: () => useServerEnv().portal.login,
-    async login({ url, redirectUri, credentials, fetch }) {
-      const [email, password] = credentials.split(':')
-      await fetch('/api/sign-in', { method: 'POST', body: JSON.stringify({ email, password }) })
-      return (await fetch(url)).headers.get('location')!
-    },
+    login,
   }),
   scopes: ['openid', 'email'],
   access: { 'agent:support': { read: true, write: ['fetch'], approve: false } },
@@ -143,9 +168,9 @@ Tokens and the client registration stay in memory, so each process signs in agai
 
 ## Keyed Connections
 
-A keyed definition defines one Connection per instance, for example one per tenant. Each instance is a Connection named `<name>:<instance>`:
+A keyed definition defines one Connection per instance, for example one per tenant. Each instance is a Connection named `<name>:<instance>`. Keep the imports and `login` function above, and replace the default export with this definition. It reads the per-tenant credentials declared in Server Env above:
 
-```ts [server/connections/portal.ts]
+```ts [server/connections/portal.ts] fragment
 export default defineConnection({
   instances: ['acme', 'globex'],
   definition: tenant => ({
@@ -198,6 +223,7 @@ export default defineConnection({
 
 ```ts [server/connections/github.ts]
 import { useServerEnv } from '#vitehub/env/server'
+import { apiKey, defineConnection } from 'vite-hub/connections'
 
 export default defineConnection({
   provider: apiKey({

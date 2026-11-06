@@ -150,16 +150,6 @@
     "error": "TS18046 'env.slack' is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/channels/server-api.md#0a63e2ce13a7",
-    "label": "server/api/build-finished.post.ts",
-    "error": "TS2322 Type 'string' is not assignable to type 'never'.\nTS2322 Type 'string' is not assignable to type 'never'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: \"teams\"): ChannelClient<{ teams: ChatConnector; }, \"teams\">', gave the following error.\n    Argument of type '\"alerts\"' is not assignable to parameter of type '\"teams\"'.\n  Overload 2 of 2, '(name: never): ChannelClient<ChannelConnectorMap, never>', gave the following error.\n    Argument of type '\"alerts\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/channels/server-api.md#7904bd1bf174",
-    "label": null,
-    "error": "TS2304 Cannot find name 'useChannel'."
-  },
-  {
     "id": "docs/content/docs/cms/access.md#2b019396a64c",
     "label": "server/routes/api/roles.post.ts",
     "error": "TS2339 Property 'role' does not exist on type '{}'.\nTS2339 Property 'setRole' does not exist on type 'InferAPI<Prettify<{ readonly ok: StrictEndpoint<\"/ok\", { method: \"GET\"; metadata: { openapi: { description: string; responses: { \"200\": { description: string; content: { \"application/json\": { schema: { type: \"object\"; properties: { ok: { type: string; description: string; }; }; required: string[]; }; }; }; }; }; }; ...'.\nTS2339 Property 'userId' does not exist on type '{}'."
@@ -180,29 +170,9 @@
     "error": "TS2304 Cannot find name 'defineComments'.\nTS7031 Binding element 'action' implicitly has an 'any' type.\nTS7031 Binding element 'actor' implicitly has an 'any' type.\nTS7031 Binding element 'subject' implicitly has an 'any' type.\nTS7031 Binding element 'thread' implicitly has an 'any' type.\nTS7031 Binding element 'user' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/connections/configure.md#6fb59e04b48a",
-    "label": "server/connections/portal.ts",
-    "error": "TS2304 Cannot find name 'useServerEnv'."
-  },
-  {
-    "id": "docs/content/docs/connections/configure.md#1b24c8752be5",
-    "label": "server/connections/portal.ts",
-    "error": "TS18004 No value exists in scope for the shorthand property 'login'. Either declare one or provide an initializer.\nTS2304 Cannot find name 'defineConnection'.\nTS2304 Cannot find name 'oauthLogin'.\nTS2304 Cannot find name 'useServerEnv'.\nTS7006 Parameter 'tenant' implicitly has an 'any' type."
-  },
-  {
-    "id": "docs/content/docs/connections/configure.md#5eebf89c9563",
-    "label": "server/connections/github.ts",
-    "error": "TS2304 Cannot find name 'apiKey'.\nTS2304 Cannot find name 'defineConnection'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/connections/get-started.md#470146cec573",
-    "label": "server/api/labels.get.ts",
-    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: \"google\", options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<GoogleApis, { ...; }, false>', gave the following error.\n    Object literal may only specify known properties, and 'event' does not exist in type 'Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "docs/content/docs/connections/index.md#b5254d8a047e",
     "label": "server/connections/google.ts",
-    "error": "TS2322 Type 'false' is not assignable to type 'true | \"approve\" | readonly ConnectionActionPattern<GoogleApis>[] | undefined'.\nTS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
+    "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
     "id": "docs/content/docs/content/configure.md#23a4c159d075",
