@@ -1531,7 +1531,8 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-lifecycle__rows .vh-invocation-event__notice {
   margin: 0;
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .vh-invocation-command__bar {
