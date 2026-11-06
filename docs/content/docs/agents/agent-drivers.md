@@ -74,7 +74,20 @@ To use a signed-in user's ChatGPT Plus or Pro plan, define a [ChatGPT Connection
 
 The built-in Drivers reuse T3 Code's normalized Codex and Claude Code runtime while ViteHub owns Agent Definitions, Capabilities, Workspaces, Invocations, and public lifecycle events.
 
-Install only the provider packages selected by your Agent Definitions:
+Install only the provider packages selected by your Agent Definitions. The Codex Agent below reads its `auth.json` from a Server Env secret:
+
+```ts [vite.config.ts]
+import { env } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  env: {
+    server: {
+      codexAuthJson: env({ secret: true, source: env.source('CODEX_AUTH_JSON') }),
+    },
+  },
+})
+```
 
 ```sh
 pnpm add @openai/codex@0.149.1

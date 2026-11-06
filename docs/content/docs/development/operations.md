@@ -92,7 +92,7 @@ const reports = {
   },
 }
 
-export default defineConfig({ plugins: [vitehub(), reports] })
+export default defineConfig({ plugins: [vitehub({ preset: 'node' }), reports] })
 ```
 
 The module is the specifier that your app can import. The export is one operation or a list of them. Two operations with the same name fail the build with `INTERNAL_B0048`, and the message names both plugins.

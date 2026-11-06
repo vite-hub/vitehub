@@ -17,7 +17,7 @@ Keep the three pieces separate:
 ## Install
 
 ```sh
-pnpm add @vite-hub/agent @vite-hub/workspace ai
+pnpm add @vite-hub/agent @vite-hub/env @vite-hub/workspace ai
 ```
 
 `ai` is required for model-backed drivers and AI SDK-powered capabilities such as model-backed `title()`, `chatSummary()`, `llmGate()`, and `transcribe()`. Agents with `driver.run` can bundle without installing `ai`.
@@ -142,6 +142,25 @@ To run Codex on a user's ChatGPT plan, set `driver: codexDriver({ gateway: chatg
 Use `driver: codexDriver()` or `driver: claudeCodeDriver()` for the defaults, including approval-required provider actions. The factory options expose shared model, environment, instruction, permission, output, and capacity options, plus Codex credential and reasoning options. Only these factories import the provider runtime, so an app that does not call one does not bundle it. A string such as `driver: "codex"` or a plain `{ kind: "codex" }` object fails with `AGENT_R0490` or `AGENT_R0492`.
 
 Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/agents/ai-gateways.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
+
+The Agent reads the Codex `auth.json` from a Server Env secret:
+
+```ts
+// vite.config.ts
+import { hubAgent } from "@vite-hub/agent/vite";
+import { env, hubEnv } from "@vite-hub/env/vite";
+import { hubWorkspace } from "@vite-hub/workspace/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [hubEnv(), hubWorkspace(), hubAgent()],
+  env: {
+    server: {
+      codexAuthJson: env({ secret: true, source: env.source("CODEX_AUTH_JSON") }),
+    },
+  },
+});
+```
 
 ```ts
 // server/agents/codex/agent.ts
@@ -273,17 +292,6 @@ Capability setup and close callbacks emit `agent.capability.<phase>` timing even
 `title()` accepts message input or a plain `prompt`. Its default prompt follows T3 Code’s subject-and-outcome rules, requests `{ "title": "..." }`, and caps the title at 39 characters. An explicit title Driver uses the configured fallback on failure or timeout. For a journaled run, title generation starts beside the main answer and cleanup joins it within its timeout. Metadata journals keep title text only when `metadataContent` includes `vitehub.session.title`.
 
 For model-backed drivers, put free-form guidance for configured Sources, Capabilities, and Skills in `driver.instructions` or a deterministic imported instruction file. Tool descriptions and schemas stay with the tools as structured contracts.
-
-```ts
-// vite.config.ts
-import { hubAgent } from "@vite-hub/agent/vite";
-import { hubWorkspace } from "@vite-hub/workspace/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [hubWorkspace(), hubAgent()],
-});
-```
 
 ## CLI inspection
 

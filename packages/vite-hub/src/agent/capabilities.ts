@@ -13,7 +13,6 @@ import type {
 } from "@vite-hub/agent/capabilities"
 import type { ConsoleInvocationLink, ConsoleRuntime } from "../console/server.ts"
 import type { ConsoleInvocationsDatabase } from "../console/runtime/server/invocations.ts"
-import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core"
 
 export type ConsoleInputCommand = Omit<InputCommand, "call"> & {
   call?: (input: Omit<InputCommandRunInput, "command" | "context"> & {
@@ -36,8 +35,7 @@ export interface ConsoleInputCommandsOptions extends Omit<InputCommandsOptions, 
 async function previousConsoleInvocation(invocations: ConsoleInvocationsDatabase, id: string): Promise<ConsoleInvocationLink | undefined> {
   // Only the Console journal reaches here, so an Agent app without the Console does not need drizzle-orm.
   const { and, desc, eq, lt, or, sql } = await import("drizzle-orm")
-  // Both journal drivers are async SQLite databases with the same columns.
-  const db: BaseSQLiteDatabase<"async", unknown, ConsoleInvocationsDatabase["schema"]> = invocations.db
+  const db = invocations.db
   const table = invocations.schema.invocations
   const [current] = await db
     .select({ agentName: table.agentName, sequence: table.sequence, summary: table.summary })

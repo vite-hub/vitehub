@@ -185,7 +185,7 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub()],
+  plugins: [vitehub({ preset: 'node' })],
   env: {
     server: {
       gmail: {
