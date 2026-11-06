@@ -3,12 +3,13 @@ import { Diagnostic } from "nostics"
 import { blobResult } from "../errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload } from "../upload.ts"
 import { createLazyBlobMedia } from "../media/lazy.ts"
+import { blobStoreMode, readonlyBlobStorage } from "../readonly.ts"
 import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../config.ts"
 import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
 
 import { getBlobRuntimeConfig, resolveNamedBlobRuntimeStorage } from "./state.ts"
 
-import type { BlobDriverAdapter, BlobMultipartUpload, BlobObject, BlobOperation, BlobResult, BlobStorage, BlobStoreName, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
+import type { BlobDriverAdapter, BlobMultipartUpload, BlobObject, BlobOperation, BlobResult, BlobStorage, BlobStoreName, BlobStoreOptions, ReadonlyBlobStorage, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
 
 class UnknownBlobStoreError extends Diagnostic {
@@ -214,9 +215,18 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [error, storage] = await resolveStorageResult("serve", name)
       return error ? [error, undefined] : storage.serve(event, pathname, options)
     },
-    store(storeName: BlobStoreName) { return createRuntimeBlobStorage(storeName) },
+    store: selectRuntimeBlobStore,
   }
   return storage
+}
+
+function selectRuntimeBlobStore(name: BlobStoreName, options?: { mode?: "write" }): BlobStorage
+function selectRuntimeBlobStore(name: BlobStoreName, options: { mode: "read" }): ReadonlyBlobStorage
+function selectRuntimeBlobStore(name: BlobStoreName, options?: BlobStoreOptions): BlobStorage | ReadonlyBlobStorage
+function selectRuntimeBlobStore(name: BlobStoreName, options?: BlobStoreOptions): BlobStorage | ReadonlyBlobStorage {
+  const mode = blobStoreMode(options)
+  const storage = createRuntimeBlobStorage(name)
+  return mode === "read" ? readonlyBlobStorage(storage) : storage
 }
 
 export const blob: BlobStorage = createRuntimeBlobStorage()

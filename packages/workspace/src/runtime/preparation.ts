@@ -1,5 +1,5 @@
 import { resolveRegisteredWorkspaceDefinition } from "../core/registry.ts"
-import { useWorkspace } from "../core/use.ts"
+import { useWorkspaceFiles } from "../core/use.ts"
 import { normalizeWorkspaceSources } from "../sources/config.ts"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
@@ -89,7 +89,7 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
   const sources = options.sources === undefined
     ? undefined
     : [...new Set(options.sources.map(source => source.trim()))]
-  let workspace = useWorkspace(workspaceName, { mode: "write" })
+  let workspace = useWorkspaceFiles(workspaceName, { mode: "write" })
   let state: WorkspacePreparationState = Object.freeze({
     stoppedAt: new Date().toISOString(),
     status: "stopped",
@@ -171,7 +171,7 @@ export function createWorkspacePreparation<Name extends WorkspaceName = Workspac
         if (controller.signal.aborted) {
           // Definition synchronization is owned by the facade. Discard a facade
           // whose synchronization was abandoned so a restart gets a fresh attempt.
-          workspace = useWorkspace(workspaceName, { mode: "write" })
+          workspace = useWorkspaceFiles(workspaceName, { mode: "write" })
         }
         if (stopped || attemptLifecycle !== lifecycle) return state
         const finishedAtMs = Date.now()
