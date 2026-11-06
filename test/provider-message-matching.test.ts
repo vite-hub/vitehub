@@ -31,7 +31,8 @@ import { describe, expect, it } from "vitest"
  * errors under another name. `packages/agent` and `packages/content` are not scanned.
  * It fails on:
  *
- * - `<value>.message.includes(...)`, `.match(...)`, `.startsWith(...)`, `.endsWith(...)`, or `.search(...)`.
+ * - `.includes(...)`, `.match(...)`, `.startsWith(...)`, `.endsWith(...)`, or `.search(...)` on a message read
+ *   (`.message`, `["message"]`, or `Reflect.get(x, "message")`) or an expression derived directly from one.
  * - `/regex/.test(...)` or `.exec(...)`, or `<name>.test(...)` with a name that ends in `re`, `regex`, `pattern`, or
  *   `retryable`, when an argument reads `.message`, or a variable named `message` or `messages` that is set from a
  *   `.message` read. A parameter named `message`, such as a commit message, does not count.
@@ -118,7 +119,7 @@ function messageMatches(file: string, source: string): MessageMatch[] {
     if (isCallExpression(node) && isPropertyAccessExpression(node.expression)) {
       const method = node.expression.name.text
       const receiver = node.expression.expression
-      const onMessage = stringMethods.has(method) && isPropertyAccessExpression(receiver) && receiver.name.text === "message"
+      const onMessage = stringMethods.has(method) && readsMessageProperty(receiver)
       const regexOnMessage = (method === "test" || method === "exec") && isRegexReceiver(receiver) && node.arguments.some(readsMessage)
       if (onMessage || regexOnMessage) {
         const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile))
@@ -151,6 +152,9 @@ describe("provider error contract", () => {
 
   it.each([
     ["error.message.includes(\"(10039)\")", "if (!error.message.includes(\"(10039)\")) throw error"],
+    ["error.message.toLowerCase().includes(\"not found\")", "if (error.message.toLowerCase().includes(\"not found\")) return null"],
+    ["error[\"message\"].includes(\"not found\")", "if (error[\"message\"].includes(\"not found\")) return null"],
+    ["Reflect.get(error, \"message\").includes(\"not found\")", "if (Reflect.get(error, \"message\").includes(\"not found\")) return null"],
     ["error.message.match(/exists/)", "const exists = error.message.match(/exists/)"],
     ["/already exists/i.test(error.message)", "const exists = /already exists/i.test(error.message)"],
     ["retryable.test(message)", "function retry(error: Error) {\n  const message = error.message\n  if (!retryable.test(message)) throw error\n}"],
@@ -166,6 +170,7 @@ describe("provider error contract", () => {
     ["an SDK class", "if (error instanceof BlobNotFoundError) return null"],
     ["a non-message string", "if (key.includes(\"/\")) return"],
     ["a commit message parameter", "function read(message: string) { return trailerPattern.exec(message) }"],
+    ["a normalized commit message parameter", "function read(message: string) { return message.toLowerCase().includes(\"trailer\") }"],
   ])("ignores %s", (_name, source) => {
     expect(messageMatches("packages/blob/src/drivers/a.ts", source)).toEqual([])
   })
