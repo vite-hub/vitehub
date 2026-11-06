@@ -436,4 +436,22 @@ describe("vitehub add", () => {
 
     expect(json.install.packages).toEqual(["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"])
   })
+
+  it("refuses a starter that would be a second Definition of the same name", async () => {
+    const root = await copyFixture("cloudflare")
+    await writeFile(join(root, "src/welcome-email.queue.ts"), "export default {}\n")
+    const before = await snapshot(root)
+
+    for (const [args, file, starter] of [
+      [["database", "--name", "default"], "src/database.ts", "server/databases/config.ts"],
+      // The owner rejects a Named Database next to the Default one.
+      [["database", "--name", "main"], "src/database.ts", "server/databases/main/config.ts"],
+      [["queue", "--name", "welcome-email"], "src/welcome-email.queue.ts", "server/queues/welcome-email.ts"],
+    ] as const) {
+      const { exitCode, json } = await add([...args, "--no-install", "--yes"], root)
+      expect(exitCode, args.join(" ")).toBe(3)
+      expect(json.error, args.join(" ")).toMatchObject({ code: "SETUP_FILE_EXISTS", message: `${file} already defines a ${args[0] === "queue" ? "Queue" : "Database"} Definition that conflicts with ${starter}, so the build would reject both.` })
+    }
+    expect(await snapshot(root)).toEqual(before)
+  })
 })

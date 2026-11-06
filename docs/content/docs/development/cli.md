@@ -212,7 +212,7 @@ The command needs more input, such as a feature name or the provider option that
 
 ### `SETUP_FILE_EXISTS`
 
-A starter Definition file exists and has other content. ViteHub never overwrites a file. Choose another `--name`, or edit the file by hand.
+A starter Definition file exists and has other content, or another file already defines the same Definition, such as `src/database.ts` for the Default Database or `src/<name>.queue.ts` for a Queue. ViteHub never overwrites a file and never writes a second Definition. Choose another `--name`, or edit the file by hand.
 
 ### `SETUP_INSTALL_FAILED`
 

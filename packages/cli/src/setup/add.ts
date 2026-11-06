@@ -355,6 +355,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
         if (await readFile(file, "utf8") === content) continue
         throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ file: path }), setupExitCodes.conflict)
       }
+      const conflict = starter.conflicts(args.name).find(other => existsSync(join(project.root, other)))
+      if (conflict) throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ definition: features[id].title, file: conflict, starter: path }), setupExitCodes.conflict)
       files.push({ content, path })
       changes.push({ after: content, diff: diffOf(path, "", content), kind: "create", path })
     }

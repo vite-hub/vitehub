@@ -78,6 +78,11 @@ export interface FeatureStarter {
   file: (name: string) => string
   /** The source of a minimal Definition named `name`. */
   template: (name: string) => string
+  /**
+   * Other files, relative to the project root, that already define the Definition `name` or that the owner rejects
+   * next to it. The starter is not written when one exists.
+   */
+  conflicts: (name: string) => readonly string[]
 }
 
 export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
@@ -125,9 +130,28 @@ function feature<TId extends FeatureId>(definition: Omit<FeatureDefinition<TId>,
   return { devPackages: [], enabledByDefault: false, implies: [], packages: [], ...definition }
 }
 
-/** A starter for Definitions in `dir`, one `<name>.ts` file each. */
-function starter(dir: string, template: (name: string) => string): FeatureStarter {
-  return { dir, file: name => `${dir}/${name}.ts`, template }
+const sourceExtensions = ["ts", "mts", "js", "mjs"] as const
+
+/** `<base>.<ext>` for each source extension. */
+function sourceFiles(base: string): string[] {
+  return sourceExtensions.map(extension => `${base}.${extension}`)
+}
+
+/**
+ * A starter for Definitions in `dir`, one `<name>.ts` file each. With `suffix`, the owner also discovers the Vite
+ * form `src/<name>.<suffix>.ts`, and a Definition folder `<dir>/<name>/` when `folder` names its entry file.
+ */
+function starter(dir: string, template: (name: string) => string, options: { suffix?: string, folder?: string } = {}): FeatureStarter {
+  return {
+    conflicts: name => [
+      ...sourceFiles(`${dir}/${name}`).slice(1),
+      ...(options.folder ? sourceFiles(`${dir}/${name}/${options.folder}`) : []),
+      ...(options.suffix ? [...sourceFiles(`src/${name}.${options.suffix}`), ...sourceFiles(`${name}.${options.suffix}`)] : []),
+    ],
+    dir,
+    file: name => `${dir}/${name}.ts`,
+    template,
+  }
 }
 
 export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
@@ -137,7 +161,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
 export default defineAgent({
   driver: { run: () => ({ text: "Hello from ${name}." }) },
 })
-`),
+`, { folder: "agent", suffix: "agent" }),
     docs: "/docs/agents",
     hosts: {
       ...everywhere("nitro", "Nitro"),
@@ -238,6 +262,10 @@ export default defineAgent({
   }),
   database: feature({
     definition: {
+      // A Default Definition also comes from `src/database.ts`, and the owner rejects Default and Named Definitions together.
+      conflicts: name => name === "default"
+        ? [...sourceFiles("server/databases/config").slice(1), "src/database.ts"]
+        : [...sourceFiles(`server/databases/${name}/config`).slice(1), ...sourceFiles(`src/${name}.database`), ...sourceFiles("server/databases/config"), "src/database.ts"],
       dir: "server/databases",
       file: name => name === "default" ? "server/databases/config.ts" : `server/databases/${name}/config.ts`,
       template: () => `import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
@@ -325,7 +353,7 @@ export default defineDatabase({
 export default defineQueue<{ id: string }>(async ({ payload }) => {
   console.log("${name}", payload.id)
 })
-`),
+`, { suffix: "queue" }),
     docs: "/docs/queue",
     hosts: {
       cloudflare: native("cloudflare", "Queues", "Cloudflare Queues bindings and consumers."),
@@ -401,7 +429,7 @@ export default defineSchedule({
     console.log("${name}")
   },
 })
-`),
+`, { suffix: "schedule" }),
     docs: "/docs/schedule",
     hosts: {
       cloudflare: native("cloudflare", "Cron triggers", "Cloudflare scheduled events and Nitro Provider Wake."),
@@ -422,7 +450,7 @@ export default defineSchedule({
 export default defineWorkflow<{ id: string }>(async ({ payload }) => {
   return { id: payload.id }
 })
-`),
+`, { folder: "index", suffix: "workflow" }),
     docs: "/docs/workflows",
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),

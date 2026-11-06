@@ -42,7 +42,9 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SETUP_FILE_EXISTS: {
       docs: "https://vitehub.dev/docs/development/cli#setup_file_exists",
       fix: "Choose another --name, or edit the file by hand.",
-      why: ({ file }: { file?: unknown }) => `${String(file)} exists and is not the starter Definition. ViteHub never overwrites a file.`,
+      why: ({ definition, file, starter }: { definition?: unknown, file?: unknown, starter?: unknown }) => starter === undefined
+        ? `${String(file)} exists and is not the starter Definition. ViteHub never overwrites a file.`
+        : `${String(file)} already defines a ${String(definition)} Definition that conflicts with ${String(starter)}, so the build would reject both.`,
     },
     SETUP_INPUT_NEEDED: {
       docs: "https://vitehub.dev/docs/development/cli#setup_input_needed",
