@@ -144,7 +144,8 @@ describe("Channels page", () => {
     // The chat page posts a message at the end of each reply. Only a message from its own frame reloads the threads.
     const frame = host.querySelector("iframe")!
     // happy-dom does not load iframe pages, so the frame gets a stand-in window.
-    const chat = {}
+    // SAFETY: The Console compares the message source with the frame window by identity only.
+    const chat = {} as unknown as Window
     Object.defineProperty(frame, "contentWindow", { value: chat })
     const window = page() as unknown as Window
     const calls = threads.mock.calls.length
