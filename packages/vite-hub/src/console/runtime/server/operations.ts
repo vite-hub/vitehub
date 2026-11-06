@@ -59,7 +59,7 @@ function legacyEvent(route: string, method: "GET" | "POST", request: LegacyReque
     signal: context.request?.signal,
   })
   // An omitted RPC body is already decoded; Fetch's empty-body JSON parser would reject it.
-  if (method === "POST" && request.body === undefined) req.json = async () => undefined
+  if (method === "POST" && request.body === undefined) Object.defineProperty(req, "json", { value: async () => undefined })
   const event: ConsoleRequestEvent = {
     env: context.env,
     context: Object.keys(params).length ? { params } : undefined,
