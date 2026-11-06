@@ -73,7 +73,12 @@ function importedNames(program: File, source: string, accept: (imported: string 
 /** The default export, following an identifier to its top-level `const`. */
 function defaultExport(program: File): Node | undefined {
   const exported = program.program.body.find(statement => statement.type === "ExportDefaultDeclaration")
-  const declaration = exported?.type === "ExportDefaultDeclaration" ? exported.declaration : undefined
+  let declaration: Node | undefined = exported?.type === "ExportDefaultDeclaration" ? exported.declaration : undefined
+  if (!declaration) {
+    const named = program.program.body.flatMap(statement => statement.type === "ExportNamedDeclaration" && !statement.source && statement.exportKind !== "type" ? statement.specifiers : [])
+      .find(specifier => specifier.type === "ExportSpecifier" && specifier.exportKind !== "type" && keyName(specifier.exported) === "default")
+    if (named?.type === "ExportSpecifier") declaration = named.local
+  }
   if (declaration?.type !== "Identifier") return declaration
   for (const statement of program.program.body) {
     const variables = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
@@ -161,12 +166,23 @@ function siteFor(code: string, form: ConfigForm, options: Node | undefined, cont
 
 function locateVite(code: string, program: File): Located | Failure {
   const names = importedNames(program, viteModule, imported => imported === undefined || imported === "vitehub")
+  const namespaces = new Set<string>()
+  for (const statement of program.program.body) {
+    if (statement.type !== "ImportDeclaration" || statement.source.value !== viteModule || statement.importKind === "type") continue
+    for (const specifier of statement.specifiers) {
+      if (specifier.type === "ImportNamespaceSpecifier") namespaces.add(specifier.local.name)
+    }
+  }
+  const isViteHubCall = (node: Node): node is CallExpression => node.type === "CallExpression" && (
+    (node.callee.type === "Identifier" && names.has(node.callee.name))
+    || (node.callee.type === "MemberExpression" && node.callee.object.type === "Identifier" && namespaces.has(node.callee.object.name) && keyName(node.callee.property, node.callee.computed) === "vitehub")
+  )
   const root = defaultExport(program)
-  if (!names.size || !root) return fail("no-vitehub")
+  if ((!names.size && !namespaces.size) || !root) return fail("no-vitehub")
   const calls: Array<CallExpression> = []
   let conditional: CallExpression | undefined
   walk(root, (node, ancestors) => {
-    if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name)) {
+    if (isViteHubCall(node)) {
       calls.push(node)
       if (ancestors.some(parent => parent.type === "ConditionalExpression" || parent.type === "LogicalExpression" || parent.type === "IfStatement" || parent.type === "SwitchCase")) conditional = node
     }
@@ -177,7 +193,7 @@ function locateVite(code: string, program: File): Located | Failure {
     // A call outside the export may reach it through a binding. Do not claim it is absent.
     let factored: CallExpression | undefined
     walk(program, (node) => {
-      if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name)) factored = node
+      if (isViteHubCall(node)) factored = node
     })
     return factored ? fail("dynamic-options", factored) : fail("no-vitehub")
   }
