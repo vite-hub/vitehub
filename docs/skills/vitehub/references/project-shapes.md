@@ -11,6 +11,10 @@ Read the installed manifest and exports, then open only the guide matching the p
 - [First Agent](https://vitehub.dev/raw/docs/getting-started/first-agent.md)
 - [File conventions](https://vitehub.dev/raw/docs/reference/file-conventions.md)
 
+## Create the files with `vitehub add`
+
+Run `vitehub status --json`, then `vitehub add <feature> --dry-run` for each feature the shape needs, and apply with `--yes`. Pass `--name <name>` where the shape lists a Definition, so the starter file lands in the discovery path that the build reads. Write a file or config key by hand only when `add` prints a manual `snippet`, or for files that `add` does not create, such as application routes. See [Add a feature](https://vitehub.dev/raw/docs/development/cli.md#add-a-feature).
+
 ## Coherent shapes
 
 ### Server Primitive
