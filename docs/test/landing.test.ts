@@ -227,6 +227,9 @@ describe("landing page", () => {
 
   it("wires landing-page metadata through Nuxt SEO and Schema.org", async () => {
     const source = await readFile(new URL("../app/pages/index.vue", import.meta.url), "utf8");
+    const markdown = await readFile(new URL("../content/index.md", import.meta.url), "utf8");
+    const description =
+      "ViteHub is an open-source Vite plugin. Use one API for databases, storage, queues, workflows, and AI Agents, and deploy to Cloudflare, Vercel, Netlify, or Node.";
 
     expect(source).toContain("<LandingHero />");
     expect(source).toContain("<LandingPortability />");
@@ -240,7 +243,10 @@ describe("landing page", () => {
     expect(source).toContain('ogUrl: "https://vitehub.dev"');
     expect(source).toContain("useSchemaOrg([\n  defineWebSite({");
     expect(source).not.toContain("defineOgImage");
-    expect(source).toContain("deploy it across supported Vite hosts");
+    expect(source).toContain('const title = "Server primitives and Agents for Vite apps";');
+    expect(source).toContain(description);
+    expect(markdown).toContain(`description: ${description}`);
+    expect(source).toContain("AI Agents defined in one file, with Channels for Slack, Discord, and Telegram");
     expect(source).not.toContain("titleTemplate");
   });
 
