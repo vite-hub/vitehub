@@ -3,6 +3,7 @@ import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
+import { addViteHubDevPeerDevHandler } from "@vite-hub/internal/dev-peer"
 import { viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "@vite-hub/internal/build/page-tools"
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -568,6 +569,12 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   const plugin: Plugin & { devtools: ConsoleViteDevTools, vitehub: NonNullable<ViteHubCliContributingPlugin["vitehub"]> & NonNullable<OperationContributingPlugin["vitehub"]> } = {
     name: "vite-hub/console",
     devtools: consoleViteDevTools,
+    // Nitro 3 runs the app in a worker that never sees the client's address. Its front process signs loopback requests.
+    nitro: {
+      setup(nitro) {
+        if (nitro.options.dev) addViteHubDevPeerDevHandler(nitro.options.devHandlers)
+      },
+    },
     transform(code) {
       const transformed = transformConsoleOperationFeatures(code, options.operationSections ?? sections)
       return transformed === undefined ? undefined : { code: transformed, map: null }

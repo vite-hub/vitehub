@@ -38,12 +38,13 @@ const secret = defineOperation({
   section: "fixture",
 })
 
-function call(operation: string, input: unknown = {}, headers: Record<string, string> = {}, url = "http://vitehub.local/_vitehub/rpc/__call") {
+/** A Console RPC request. `remoteAddress` is the peer address that the host reports, as plain `vite dev` does. `null` is no address. */
+function call(operation: string, input: unknown = {}, headers: Record<string, string> = {}, url = "http://vitehub.local/_vitehub/rpc/__call", remoteAddress: string | null = "127.0.0.1") {
   return handleConsoleRpcRequest(new Request(url, {
     body: JSON.stringify({ input, operation }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
-  }))
+  }), { remoteAddress: remoteAddress ?? undefined })
 }
 
 afterEach(() => {
@@ -334,6 +335,9 @@ describe("contributed operations over the Console RPC", () => {
       expect(tunnel.status).toBe(403)
       const rebound = await call("fixture.greet", { name: "Ada" }, { host: "attacker.example" }, "http://localhost:5173/_vitehub/rpc/__call")
       expect(rebound.status).toBe(403)
+      // A dev worker behind a proxy sees no peer address. Without the front process's evidence, it refuses.
+      const unknown = await call("fixture.greet", { name: "Ada" }, { "x-forwarded-for": "127.0.0.1" }, "http://localhost:5173/_vitehub/rpc/__call", null)
+      expect(unknown.status).toBe(403)
     }
   })
 
