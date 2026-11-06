@@ -39,7 +39,7 @@ content/
   docs/
     index.md                  → /docs
     guide/
-      .navigation.yml         section title, icon, order, category
+      .navigation.yml         section title, icon, order, category, group
       index.md                → /docs/guide
       install.md              → /docs/guide/install
 ```
@@ -76,6 +76,7 @@ Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the bui
 | `icon` | Section icon. |
 | `order` | Position in the rail. Lower comes first. |
 | `category` | Rail group and catalog group. List the categories in the `categories` option to order them. |
+| `group` | Title of the group of the section. See `groups`. |
 | `related` | Section ids listed under Related in the sidebar. |
 
 ## Layouts and rails
@@ -114,6 +115,7 @@ Most changes are options in `nuxt.config.ts`:
 | `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo` (one-color SVG path), `badge` (`{ label, tooltip }`). |
 | `categories` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |
+| `groups` | `[]` | `[{ title, icon, sections }]`: rail items that hold several sections, such as every component package of a library. The sidebar of a member lists every section of its group, one row per section. A section also joins with `group` in its `.navigation.yml`. |
 | `start` | None | `{ section, links }`: the section that new readers open first, and site pages listed at its top. |
 | `socials` | `[]` | Community links at the foot of the sidebar. |
 | `banner` | None | One line above every docs page. |

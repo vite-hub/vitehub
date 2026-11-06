@@ -30,6 +30,8 @@ export interface ProvisionAction {
   name: string
   exists: boolean
   pending?: boolean
+  /** Describes the change that `apply()` makes to an existing resource, for example `read replication: disabled -> auto`. */
+  update?: string
   apply: () => Promise<ProvisionResult>
 }
 
