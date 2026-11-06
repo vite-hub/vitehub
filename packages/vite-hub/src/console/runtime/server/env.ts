@@ -1,5 +1,6 @@
 import { consoleDiagnosticBody } from "../diagnostics.ts"
 import { isBlockingServerEnvEntry } from "@vite-hub/env"
+import { runWithCloudflareEnv } from "@vite-hub/env/server"
 import { installConsoleEnvScope, resolveConsoleEnv } from "../../internal.ts"
 import type { ServerEnvDescription, ServerEnvInspection, ServerEnvInspectionEntry } from "@vite-hub/env"
 import type { ConsoleEnvInspection } from "../../internal.ts"
@@ -36,7 +37,8 @@ export function getConsoleEnv(): ServerEnvDescription {
 export async function getConsoleEnvStatus(event: ConsoleRequestEvent): Promise<ConsoleEnvResponse | undefined> {
   const inspection = resolveConsoleEnv()
   if (!inspection?.inspect) return undefined
-  const { entries } = await inspection.inspect(event)
+  const inspect = inspection.inspect
+  const { entries } = await runWithCloudflareEnv(event["~standard"].runtime?.cloudflare?.env ?? {}, () => inspect(event))
   const status = entries.map((entry) => {
     const statusEntry: ConsoleEnvStatusEntry = {
       blocking: isBlockingServerEnvEntry(entry),

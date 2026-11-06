@@ -194,7 +194,14 @@ const documentsAction = defineConsoleOperation({
     : consoleDocumentReadActions.has(action),
   name: "documents.action",
   run: async ({ action, body, section }, context) => {
-    const result = actionResult(await (await import("./documents.ts")).default(legacyEvent("documents", "POST", { body, query: { action, section } }, context))) as { value: unknown }
+    const documents = await import("./documents.ts")
+    // JSON cannot preserve an omitted body. Use the checked operation's access for that call.
+    if (body === undefined) {
+      const actions = await documents.loadConsoleDocumentActions(section)
+      const user = await documents.consoleDocumentActionContext(context.access)
+      return await documents.runConsoleDocumentAction(() => actions[action](body, user)) ?? null
+    }
+    const result = actionResult(await documents.default(legacyEvent("documents", "POST", { body, query: { action, section } }, context))) as { value: unknown }
     return result.value
   },
   section: input => input.section,

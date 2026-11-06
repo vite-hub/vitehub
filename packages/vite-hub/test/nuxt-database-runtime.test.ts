@@ -17,13 +17,16 @@ it("runs Database request state through Nuxt's facade alias", async () => {
     platform: "node",
     stdin: {
       contents: [
-        'import { runWithDatabaseRequest } from "@vite-hub/database/runtime/state"',
-        "console.log(await runWithDatabaseRequest({ \"~standard\": { vendor: \"test\", req: new Request(\"https://example.test/\"), res: { headers: new Headers() } } }, () => 42))",
+        'import { getRequestCloudflareEnv, runWithDatabaseRequest } from "@vite-hub/database/runtime/state"',
+        'const env = { DATABASE: "request-binding" }',
+        'const event = { "~standard": { vendor: "test", req: new Request("https://example.test/"), res: { headers: new Headers() }, runtime: { cloudflare: { env } } } }',
+        "console.log(getRequestCloudflareEnv(event) === env)",
+        "console.log(await runWithDatabaseRequest(event, () => 42))",
       ].join("\n"),
       resolveDir: fileURLToPath(new URL("..", import.meta.url)),
     },
     write: false,
   })
   const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "-e", result.outputFiles[0]!.text])
-  expect(stdout.trim()).toBe("42")
+  expect(stdout.trim()).toBe("true\n42")
 })

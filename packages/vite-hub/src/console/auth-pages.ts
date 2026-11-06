@@ -1,6 +1,8 @@
 // The Console sign-in pages and the app Auth access check. The Console plugin imports this module when the server starts,
 // so it must not import Better Auth. Auth instances come from the resolver that the caller passes.
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { getStandardContext, installStandardContext } from "@vite-hub/runtime/h3"
+import { H3Event } from "h3"
 import * as v from "valibot"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
 import { consoleDocumentMetadata } from "./document-metadata.ts"
@@ -285,18 +287,21 @@ export type ConsoleAppAuthResolver = (
 
 /** Use the app's configured social providers and session without a second Auth Definition or client. */
 export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): {
-  signIn: (event: ConsoleRequestEvent, denied?: Response) => Promise<Response>
-  authBasePath: (event: ConsoleRequestEvent) => Promise<string>
+  signIn: (event: object, denied?: Response) => Promise<Response>
+  authBasePath: (event: object) => Promise<string>
 } {
-  async function requestAuth(event: ConsoleRequestEvent) {
-    const request = getStandardContext(event).req
+  async function requestAuth(event: object) {
+    // Request-only callers need a response target before Auth can read Standard Context.
+    const authEvent = "~standard" in event || "res" in event || "node" in event ? event : new H3Event(toEventRequest(event))
+    installStandardContext(authEvent)
+    const request = getStandardContext(authEvent).req
     const url = consolePublicURL(request)
     const authRequest = { headers: request.headers, url: url.href }
-    let auth = await resolveAuth(authRequest, undefined, event)
+    let auth = await resolveAuth(authRequest, undefined, authEvent)
     let context = await auth.$context
     // A static provider has no origin until its first HTTP request. Resolve it before reading its URLs.
     if (!context.baseURL) {
-      auth = await resolveAuth(authRequest, { baseURL: url.origin }, event)
+      auth = await resolveAuth(authRequest, { baseURL: url.origin }, authEvent)
       context = await auth.$context
     }
     if (new URL(context.baseURL).origin !== url.origin) {
@@ -309,7 +314,7 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
       const { context } = await requestAuth(event)
       return new URL(context.baseURL).pathname.replace(/\/$/, "")
     },
-    signIn: async (event: ConsoleRequestEvent, denied?: Response): Promise<Response> => {
+    signIn: async (event: object, denied?: Response): Promise<Response> => {
       const { auth, context, request, url } = await requestAuth(event)
       const mount = consoleMountBase(url.pathname)
       const page = `${mount}/_vitehub/sign-in`
