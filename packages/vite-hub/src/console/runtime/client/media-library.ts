@@ -153,13 +153,15 @@ interface ConsoleUploadRequest {
 }
 
 /** Sends one file as `multipart/form-data` with XMLHttpRequest, which reports upload progress and fetch does not. */
-function uploadRequest(url: string, form: FormData, options: ConsoleMediaUploadOptions): Promise<unknown> {
-  return new Promise((resolve, reject) => {
+async function uploadRequest(url: string, form: FormData, options: ConsoleMediaUploadOptions): Promise<unknown> {
+  // The headers wait first, so an OAuth access token that is about to expire is refreshed before the upload starts.
+  const headers = await projectHeaders({ [consoleRpcHeader]: "1" })
+  return await new Promise((resolve, reject) => {
     // SAFETY: The media library runs in the browser, where XMLHttpRequest exists with this shape.
     const XHR = Reflect.get(globalThis, "XMLHttpRequest") as new () => ConsoleUploadRequest
     const request = new XHR()
     request.open("POST", url)
-    for (const [name, value] of Object.entries(projectHeaders({ [consoleRpcHeader]: "1" }))) request.setRequestHeader(name, value)
+    for (const [name, value] of Object.entries(headers)) request.setRequestHeader(name, value)
     request.responseType = "json"
     request.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) options.onProgress?.(event.loaded / event.total)

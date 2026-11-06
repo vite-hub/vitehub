@@ -20,7 +20,8 @@ export interface ConsoleProjectInfo {
  * What the Console found when it read `project.get` of a project.
  * - `ready`: the project answered with protocol 1.
  * - `token`: the project uses `auth: "token"`. `rejected` is true when the request sent a token and the project refused it.
- * - `oauth`: the project signs in with OAuth (its challenge names `resource_metadata`).
+ * - `oauth`: the project signs in with OAuth. `resourceMetadata` is the URL of its protected resource metadata, from the
+ *   `resource_metadata` of its challenge.
  * - `sign-in`: the project wants a session of the app, such as with `auth: "app"`.
  * - `protocol`: the project answered with another protocol, or runs a vite-hub without `project.get`.
  * - `unreachable`: the request failed before a response, from CORS, the network, or a project that is offline.
@@ -30,7 +31,7 @@ export interface ConsoleProjectInfo {
 export type ConsoleProjectProbe =
   | { kind: "ready", info: ConsoleProjectInfo }
   | { kind: "token", rejected: boolean }
-  | { kind: "oauth" }
+  | { kind: "oauth", resourceMetadata: string }
   | { kind: "sign-in" }
   | { kind: "protocol", protocol?: number, vitehub?: string }
   | { kind: "unreachable" }
@@ -98,7 +99,8 @@ export async function probeConsoleProject(
   if (response.status === 401) {
     // A cross-origin page cannot read `WWW-Authenticate` unless the app exposes it, so the body code also counts.
     const challenge = response.headers.get("www-authenticate") ?? ""
-    if (/\bresource_metadata=/i.test(challenge)) return { kind: "oauth" }
+    const resourceMetadata = /\bresource_metadata="([^"]+)"/i.exec(challenge)?.[1]
+    if (resourceMetadata) return { kind: "oauth", resourceMetadata }
     if (fields.code === "CONSOLE_TOKEN_INVALID" || (consoleRealm.test(challenge) && !fields.code)) return { kind: "token", rejected: Boolean(token) }
     return { kind: "sign-in" }
   }
@@ -127,9 +129,12 @@ export function consoleProjectProblem(probe: Exclude<ConsoleProjectProbe, { kind
         ? { title: "The token is not correct", message: `${context.host} refused this token. Copy the current value of VITEHUB_CONSOLE_TOKEN from the server and try again.` }
         : { title: `Enter the Console token for ${context.host}`, message: "The project uses auth: \"token\". Paste the value of VITEHUB_CONSOLE_TOKEN." }
     case "oauth":
-      return { title: "OAuth sign-in is not ready", message: "This project signs in with OAuth. Coming soon; use auth: \"token\" for now." }
+      return { title: `Sign in to ${context.host}`, message: `${context.host} signs Consoles in with OAuth. Sign in on ${context.host} and allow this Console.` }
     case "sign-in":
-      return { title: "App sign-in is not ready", message: "This project signs in through the app. Coming soon; use auth: \"token\" for now." }
+      return {
+        title: `${context.host} cannot sign this Console in`,
+        message: `The project signs in through the app, but its Auth does not issue Console tokens. Add consoleMcpOAuth() to the app Auth, list ${context.consoleOrigin} in console.origins, and redeploy.`,
+      }
     case "protocol":
       return {
         title: "Update vite-hub",

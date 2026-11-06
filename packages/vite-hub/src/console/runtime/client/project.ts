@@ -9,9 +9,14 @@ export interface ConsoleProject {
   base: string
   /**
    * The `authorization` header of each request, such as `Bearer <token>`. Cookies go only to the origin of the Console
-   * page, so a project on another origin needs it.
+   * page, so a project on another origin needs it. It can wait, such as for an OAuth refresh before the token expires.
    */
-  authorization?: () => string | undefined
+  authorization?: () => string | undefined | Promise<string | undefined>
+  /**
+   * Called once when the project answers `401` to a request that sent `sent`. Returns the `authorization` header to send
+   * the request again with, such as after an OAuth refresh, or `undefined` to keep the `401`.
+   */
+  renew?: (response: Response, sent: string) => Promise<string | undefined>
 }
 
 let active: ConsoleProject = { origin: "", base: "" }
@@ -39,17 +44,28 @@ export function resolveProjectUrl(url: string): string {
 }
 
 /** Request headers with the `authorization` header of the project, when it has one. */
-export function projectHeaders(headers: Record<string, string> = {}): Record<string, string> {
-  const authorization = active.authorization?.()
+export async function projectHeaders(headers: Record<string, string> = {}): Promise<Record<string, string>> {
+  const authorization = await active.authorization?.()
   return authorization ? { ...headers, authorization } : headers
 }
 
 /**
  * `fetch()` of an app path on the project. Cookies go only to the origin of the Console page, and the `authorization`
- * header of the project goes with every request.
+ * header of the project goes with every request. A `401` to a request with an `authorization` header gets one more try
+ * when the project can renew it. The body must be a value that can be sent twice, such as a string.
  */
-export function projectFetch(path: string, init: Omit<RequestInit, "credentials" | "headers"> & { headers?: Record<string, string> } = {}): Promise<Response> {
-  return fetch(projectUrl(path), { ...init, credentials: "same-origin", headers: projectHeaders(init.headers) })
+export async function projectFetch(path: string, init: Omit<RequestInit, "credentials" | "headers"> & { headers?: Record<string, string> } = {}): Promise<Response> {
+  const project = active
+  const send = (authorization: string | undefined) => fetch(projectUrl(path), {
+    ...init,
+    credentials: "same-origin",
+    headers: authorization ? { ...init.headers, authorization } : { ...init.headers },
+  })
+  const authorization = await project.authorization?.()
+  const response = await send(authorization)
+  if (response.status !== 401 || !authorization || !project.renew) return response
+  const renewed = await project.renew(response, authorization)
+  return renewed ? send(renewed) : response
 }
 
 /**

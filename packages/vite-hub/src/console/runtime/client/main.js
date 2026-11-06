@@ -32,7 +32,8 @@ import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSection
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { consoleProjectReady, startConsoleLink, startConsoleProjects } from "./project-session";
+import { takeConsoleOAuthCallback } from "./oauth";
+import { consoleProjectReady, finishConsoleOAuthSignIn, startConsoleLink, startConsoleProjects } from "./project-session";
 import { takeConsoleLinkHash } from "./pending-links";
 import { memoryProjectStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
@@ -44,9 +45,9 @@ const hosted = document.querySelector('meta[name="vitehub-console-mode"]')?.getA
 const hostBase = hosted ? "" : consoleMountBase(window.location.pathname);
 const consoleBase = hosted ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
 
-function projectStorage() {
+function browserStorage(name) {
   try {
-    const storage = window.localStorage;
+    const storage = window[name];
     storage.getItem("vitehub-console:projects");
     return storage;
   } catch {
@@ -57,6 +58,8 @@ function projectStorage() {
 
 // A one-time link of a new project: /link#p=<pendingId>&url=<appOrigin>. Only the hosted Console links new projects.
 const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
+// The authorization server of an `auth: "app"` project sends the browser back to /oauth/callback?code=…&state=….
+const oauthCallback = hosted && linkHash === undefined ? takeConsoleOAuthCallback(window, consoleBase) : undefined;
 
 startConsoleProjects({
   base: hostBase,
@@ -64,9 +67,12 @@ startConsoleProjects({
   mode: hosted ? "hosted" : "embedded",
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
-  storage: projectStorage(),
+  storage: browserStorage("localStorage"),
+  // The PKCE verifier and the state of a sign-in stay with the tab that started it.
+  sessionStorage: browserStorage("sessionStorage"),
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);
+else if (oauthCallback !== undefined) void finishConsoleOAuthSignIn(oauthCallback);
 const sectionsBase = "/api/_vitehub/console/sections";
 const capabilitiesBase = "/api/_vitehub/console/invocation-capabilities";
 
