@@ -213,7 +213,75 @@ describe("OAuth Console tokens", () => {
     expect((await rpc(access_token, "fixture.greet", { name: "Ada" })).status).toBe(200)
     const write = await rpc(access_token, "fixture.save", { value: "x" })
     expect(write.status).toBe(403)
+    expect(write.headers.get("www-authenticate")).toContain('error="insufficient_scope", scope="vitehub:write"')
+    expect(write.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate")
     await expect(write.json()).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", message: expect.stringContaining("vitehub:write") })
+  })
+
+  it("challenges a write-only token for the read scope", async () => {
+    const { access_token } = await consoleTokens({ scope: "vitehub:write" })
+    expect((await rpc(access_token, "fixture.save", { value: "x" })).status).toBe(200)
+    const read = await rpc(access_token, "fixture.greet", { name: "Ada" })
+    expect(read.status).toBe(403)
+    expect(read.headers.get("www-authenticate")).toContain('error="insufficient_scope", scope="vitehub:read"')
+  })
+
+  it("challenges a read-only token for the write scope on uploads", async () => {
+    const { access_token } = await consoleTokens({ scope: "vitehub:read" })
+    const response = await defineHandler(consoleRpcHandler).fetch(new Request(`${app}/_vitehub/rpc/__upload?section=fixture`, {
+      headers: { authorization: `Bearer ${access_token}`, origin: local },
+      method: "POST",
+    }))
+    expect(response.status).toBe(403)
+    expect(response.headers.get("www-authenticate")).toContain('error="insufficient_scope", scope="vitehub:write"')
+    expect(response.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate")
+  })
+
+  it.each(["deleted", "disabled"])("refuses a token after its issuing client is %s", async (state) => {
+    const { access_token } = await consoleTokens()
+    expect(claims(access_token).azp).toBe(clientId)
+    expect((await rpc(access_token, "fixture.greet", { name: "Ada" })).status).toBe(200)
+    const changed = database.prepare(state === "deleted" ? 'DELETE FROM "oauthClient" WHERE "clientId" = ?' : 'UPDATE "oauthClient" SET "disabled" = 1 WHERE "clientId" = ?').run(clientId)
+    expect(changed.changes).toBe(1)
+    const response = await rpc(access_token, "fixture.greet", { name: "Ada" })
+    expect(response.status).toBe(401)
+    expect(response.headers.get("www-authenticate")).toContain('error="invalid_token"')
+  })
+
+  it.each(["deleted", "expired"])("refuses a token after its login session is %s", async (state) => {
+    const { access_token } = await consoleTokens()
+    const sessionId = v.parse(v.string(), claims(access_token).sid)
+    expect((await rpc(access_token, "fixture.greet", { name: "Ada" })).status).toBe(200)
+    const changed = database.prepare(state === "deleted" ? 'DELETE FROM "session" WHERE "id" = ?' : 'UPDATE "session" SET "expiresAt" = 0 WHERE "id" = ?').run(sessionId)
+    expect(changed.changes).toBe(1)
+    const response = await rpc(access_token, "fixture.greet", { name: "Ada" })
+    expect(response.status).toBe(401)
+    expect(response.headers.get("www-authenticate")).toContain('error="invalid_token"')
+  })
+
+  it("checks liveness with configured client and session model and field names", async () => {
+    database.close()
+    database = new DatabaseSync(":memory:")
+    const { oauthProvider } = await import("@better-auth/oauth-provider")
+    const definition = defineAuth(() => ({
+      baseURL: app,
+      database,
+      emailAndPassword: { enabled: true },
+      plugins: consoleMcpOAuth({ clientMetadataFetch, resource: mcpResource }).map(plugin => plugin.id === "oauth-provider"
+        ? oauthProvider({ ...plugin.options, schema: { oauthClient: { fields: { clientId: "publicId", disabled: "inactive" }, modelName: "consoleClient" } } })
+        : plugin),
+      secret: "test-secret-at-least-32-bytes-long",
+      session: { fields: { expiresAt: "expiresOn" }, modelName: "loginSession" },
+    }))
+    real = request => createAuthForRequest(definition, request)
+    await (await real(new Request(app)).$context).runMigrations()
+    const { access_token } = await consoleTokens()
+    expect((await rpc(access_token, "fixture.greet", { name: "Ada" })).status).toBe(200)
+    database.prepare('UPDATE "consoleClient" SET "inactive" = 1 WHERE "publicId" = ?').run(clientId)
+    expect((await rpc(access_token, "fixture.greet", { name: "Ada" })).status).toBe(401)
+    database.prepare('UPDATE "consoleClient" SET "inactive" = 0 WHERE "publicId" = ?').run(clientId)
+    database.prepare('UPDATE "loginSession" SET "expiresOn" = 0 WHERE "id" = ?').run(v.parse(v.string(), claims(access_token).sid))
+    expect((await rpc(access_token, "fixture.greet", { name: "Ada" })).status).toBe(401)
   })
 
   it("runs a Schedule with a write token from a listed origin, and refuses a read-only token", async () => {

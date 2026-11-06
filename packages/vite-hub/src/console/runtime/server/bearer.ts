@@ -15,6 +15,7 @@ export const consoleMcpScopes: readonly string[] = [consoleMcpReadScope, console
 
 /** What the Console reads from the Better Auth context of the app. */
 interface ConsoleOAuthContext {
+  adapter?: { findOne: (input: { model: string, where: Array<{ field: string, value: string }> }) => Promise<unknown> }
   baseURL: string
   getPlugin?: (id: string) => { options?: unknown } | null | undefined
   internalAdapter: { findUserById: (id: string) => Promise<unknown> }
@@ -264,13 +265,31 @@ function bannedUser(user: Record<string, unknown>): boolean {
   return until === undefined || Number.isNaN(until) || until > Date.now()
 }
 
+/** Check the persisted issuing client and login session without rediscovering a deleted CIMD client. */
+async function liveConsoleToken(context: ConsoleOAuthContext, payload: Record<string, unknown>): Promise<boolean> {
+  if (typeof payload.azp !== "string" || !payload.azp) return false
+  const options = pluginOptions(findPlugin(context, "oauth-provider"))
+  const schema = isRecord(options.schema) && isRecord(options.schema.oauthClient) ? options.schema.oauthClient : {}
+  const model = typeof schema.modelName === "string" ? schema.modelName : "oauthClient"
+  const client = await context.adapter?.findOne({ model, where: [{ field: "clientId", value: payload.azp }] })
+  if (!isRecord(client) || client.disabled === true) return false
+  if (payload.sid !== undefined) {
+    if (typeof payload.sid !== "string" || !payload.sid) return false
+    // Better Auth's adapter maps the canonical session model and fields to the app's configured schema.
+    const session = await context.adapter?.findOne({ model: "session", where: [{ field: "id", value: payload.sid }] })
+    if (!isRecord(session) || !(session.expiresAt instanceof Date) || !(session.expiresAt.getTime() > Date.now())) return false
+  }
+  return true
+}
+
 /**
  * Check an OAuth access token that Better Auth's `oauthProvider` and `jwt` plugins issued. The resource decides the
  * audience: the MCP endpoint accepts tokens for the MCP resource, and the Console data routes (`consoleDataRoutes`)
  * accept tokens for the Console resource. A token for one resource opens nothing else. The keys come from the app's own
  * Auth in-process, and the issuer and audiences from trusted configuration: a request cannot pick them. The signature
  * algorithm is pinned to the ones in the key set. The person is read from the Auth by the `sub` claim, so a deleted or
- * banned user loses access with the token still unexpired.
+ * banned user loses access with the token still unexpired. Console tokens also require a live issuing client and,
+ * when `sid` is present, a live login session. MCP keeps its existing verification behavior.
  *
  * On a Console data route, a bearer value that is not a JWT, or an Auth that issues no Console tokens, gives undefined,
  * so the route keeps its session and `console.authorize` checks, as before. Returns undefined when the request carries no
@@ -299,6 +318,7 @@ export async function verifyConsoleBearer(request: Request, event: ConsoleReques
     })
     const user = await state.context.internalAdapter.findUserById(payload.sub!)
     if (!isRecord(user) || bannedUser(user)) return { audience, ok: false, state }
+    if (audience === "console" && !await liveConsoleToken(state.context, payload)) return { audience, ok: false, state }
     // SAFETY: A Console user is an Auth user record, which is what the adapter returns.
     return { audience, ok: true, scopes: grantedScopes(payload), user: user as ConsoleUser }
   }

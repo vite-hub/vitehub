@@ -4,7 +4,7 @@ import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
-import { consoleAccessAllows, consoleAccessWrites, consoleScopesAllow, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { consoleAccessAllows, consoleAccessWrites, consoleScopeRejection, consoleScopesAllow, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
 import { assertLoopbackWithoutSignIn, eventRemoteAddress } from "./loopback.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
@@ -44,7 +44,7 @@ interface ConsoleRpcContext {
 
 interface ConsoleOperationContext extends ConsoleRpcContext {
   // Operations set a success status here, such as 202 for an accepted Agent invocation.
-  response: { status?: number }
+  response: { headers?: Headers, status?: number }
 }
 
 function errorResult(error: unknown): ConsoleRpcResult {
@@ -178,7 +178,10 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
     if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
     const section = url.searchParams.get("section") ?? ""
     if (!consoleAccessWrites(context.access, section)) throw consoleRequestError(403, "This Console access does not include this section, or only reads it.")
-    if (!consoleScopesAllow(context.access, { kind: "write" })) throw consoleRequestError(403, "The access token does not have the vitehub:write scope, which an upload needs.", "CONSOLE_ACCESS_DENIED")
+    if (!consoleScopesAllow(context.access, { kind: "write" })) {
+      context.response.headers = consoleScopeRejection({ kind: "write" }, "an upload").headers
+      throw consoleRequestError(403, "The access token does not have the vitehub:write scope, which an upload needs.", "CONSOLE_ACCESS_DENIED")
+    }
     return uploadConsoleMedia(request, section, context.access)
   }
   if (!isConsoleRpcPath(url.pathname, consoleRpcCallPath)) throw consoleRequestError(404, "Console RPC endpoint not found.")
@@ -210,6 +213,7 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   }
   // An OAuth access token runs reads with `vitehub:read`, and writes and destructive calls with `vitehub:write`.
   if (!consoleScopesAllow(context.access, classification)) {
+    context.response.headers = consoleScopeRejection(classification, operation.name).headers
     const scope = classification.kind === "read" || classification.readOnly ? "vitehub:read" : "vitehub:write"
     throw consoleRequestError(403, `The access token does not have the ${scope} scope, which ${operation.name} needs. Sign in again and grant it.`, "CONSOLE_ACCESS_DENIED")
   }
@@ -239,7 +243,10 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
   const body = await result(() => callConsoleOperation(request, { ...context, response }))
   // The local dev RPC names its project, so a command can tell that it reached the wrong dev server.
   const root = context.access.mode === "local" ? installedConsoleProjectRoot() : undefined
-  return Response.json(body, { headers: root ? { ...responseHeaders, [operationRootHeader]: projectRootHash(root) } : responseHeaders, status: body.ok ? response.status ?? 200 : body.status })
+  const headers = new Headers(responseHeaders)
+  response.headers?.forEach((value, name) => headers.set(name, value))
+  if (root) headers.set(operationRootHeader, projectRootHash(root))
+  return Response.json(body, { headers, status: body.ok ? response.status ?? 200 : body.status })
 }
 
 // A plain handler, because Nuxt 4 bundles every `h3` import as its own h3 1, which has no `defineHandler()`.

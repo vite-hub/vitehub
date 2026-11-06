@@ -574,15 +574,16 @@ The token endpoint and the revocation endpoint, `/api/auth/oauth2/revoke`, answe
 | `vitehub:write` | `write` and `destructive` operations, uploads, Channel replay, and Auth management changes |
 | `offline_access` | A refresh token |
 
-A call that needs a scope that the token does not have gets `403` with `CONSOLE_ACCESS_DENIED`. The token's user still goes through `console.authorize`, which decides the sections. A bearer call never starts or stops impersonation.
+A call that needs a scope that the token does not have gets `403` with `CONSOLE_ACCESS_DENIED`. RPC calls and uploads include a `WWW-Authenticate` Bearer challenge with `error="insufficient_scope"` and the required `scope`. The token's user still goes through `console.authorize`, which decides the sections. A bearer call never starts or stops impersonation.
 
 #### Token lifetime and revocation
 
 Console access tokens are signed JWTs that are valid for 15 minutes. A refresh token is valid for 7 days, and each refresh replaces it. MCP tokens keep Better Auth's defaults: 1 hour for an access token and 30 days for a refresh token.
 
 - Revoking a refresh token at `/api/auth/oauth2/revoke` stops the next refresh.
-- An access token stays valid until it expires, at most 15 minutes after it was issued, also after a revocation. The server checks the signature, not a revocation list.
+- Revoking a refresh token does not invalidate an access token already issued: it can stay valid until it expires, at most 15 minutes after issuance. The server does not keep an access-token revocation list.
 - A banned or deleted user loses access at once: each call reads the user from the Auth.
+- Deleting or disabling the issuing client stops its Console access tokens at once. A token with a `sid` claim also stops when that login session is deleted or expires.
 - Removing an origin from `console.origins` stops new sign-ins, refreshes, and calls from that origin after the next deploy.
 
 ### Use another authentication library
