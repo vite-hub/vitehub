@@ -158,6 +158,36 @@ describe("generated operation commands", () => {
     expect(help.fetch).not.toHaveBeenCalled()
   })
 
+  it("groups commands with a space under one feature", async () => {
+    const jobsList = defineOperation({ cli: { command: "jobs list", namespace: "work" }, description: "List the jobs.", input: v.strictObject({ state: v.optional(v.string()) }), kind: "read", name: "work.jobs-list", run: ({ state }) => ({ jobs: [], state: state ?? null }), section: "work" })
+    const jobsClear = defineOperation({ cli: { command: "jobs clear", namespace: "work" }, description: "Remove the jobs.", input: v.strictObject({}), kind: "destructive", name: "work.jobs-clear", run: () => ({ cleared: 2 }), section: "work" })
+    const operations = [jobsList, jobsClear]
+    const options = { fetch: server("http://localhost:5173", {}, operations), operations }
+
+    const listed = await run(["work", "jobs", "list", "--state", "dead"], options)
+    expect(listed.code).toBe(0)
+    expect(JSON.parse(listed.stdout)).toEqual({ jobs: [], state: "dead" })
+    expect(JSON.parse(String(listed.fetch.mock.calls[0]![1]!.body))).toEqual({ input: { state: "dead" }, operation: "work.jobs-list" })
+
+    expect((await run(["work"], options)).stdout).toContain("jobs")
+    const help = await run(["work", "jobs", "--help"], options)
+    expect(help.stdout).toContain("Usage: vitehub work jobs <clear|list> [args...]")
+    expect(help.stdout).toContain("Remove the jobs.")
+    expect((await run(["work", "jobs", "list", "--help"], options)).stdout).toContain("Usage: vitehub work jobs list [--state <value>]")
+    const unknown = await run(["work", "jobs", "drop"], options)
+    expect(unknown.code).toBe(1)
+    expect(unknown.stderr).toContain("Unknown ViteHub CLI command: work jobs drop")
+    expect((await run(["work", "jobs"], options)).code).toBe(1)
+
+    // A destructive command in a group keeps the confirmation rule.
+    const refused = await run(["work", "jobs", "clear"], { ...options, fetch: server("http://localhost:5173", {}, operations) })
+    expect(refused.code).toBe(1)
+    expect(refused.stderr).toContain("CLI_R0004")
+    expect(refused.fetch).not.toHaveBeenCalled()
+    const cleared = await run(["work", "jobs", "clear", "--yes"], options)
+    expect(JSON.parse(cleared.stdout)).toEqual({ cleared: 2 })
+  })
+
   it("runs the default command of a namespace when none is named", async () => {
     const bare = await run(["digest"])
     expect(bare.code).toBe(0)
