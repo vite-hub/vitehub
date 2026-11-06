@@ -245,7 +245,7 @@ pnpm vitehub unlink
 - `--account`: the Cloudflare account id, the Vercel team id, or the Netlify team slug.
 - `--create`: create the project when the host does not have it. Without it, a missing project exits with `3`.
 
-The credentials come from environment variables first, then from the host CLI login: `CLOUDFLARE_API_TOKEN` or `wrangler login`, `VERCEL_TOKEN` and `VERCEL_TEAM_ID`, `NETLIFY_AUTH_TOKEN`. ViteHub never stores or prints a token.
+The credentials come from environment variables first, then from the host CLI login: `CLOUDFLARE_API_TOKEN` or a Wrangler login, `VERCEL_TOKEN` and `VERCEL_TEAM_ID`, `NETLIFY_AUTH_TOKEN`. For Cloudflare, install Wrangler in the project (for example, `pnpm add -D wrangler`) and run `pnpm exec wrangler login`, or make `wrangler` available on `PATH`. A login made only through a cached `npx` or `pnpm dlx` invocation needs that installation before ViteHub can discover it. ViteHub never stores or prints a token.
 
 The command looks up the project through the host API: a Worker on Cloudflare, a project on Vercel, a site on Netlify. Deno has no lookup yet, so the link keeps the name with `verified: false`. The link is in `.vitehub/link.json`:
 

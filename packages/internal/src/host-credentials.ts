@@ -1,7 +1,9 @@
 import { spawn } from "node:child_process"
+import { readFileSync } from "node:fs"
 import { mkdtemp, rm } from "node:fs/promises"
+import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join, resolve } from "node:path"
 
 export type CredentialHost = "cloudflare" | "vercel" | "netlify" | "deno"
 export type CredentialSource = "env" | "host-cli"
@@ -34,7 +36,7 @@ export interface HostCredentialsContext {
 type EnvCredentials = Omit<Extract<HostCredentials, { ok: true }>, "ok" | "host" | "source">
 
 const missingFixes: Record<CredentialHost, { missing: readonly string[], fix: string }> = {
-  cloudflare: { missing: ["CLOUDFLARE_API_TOKEN"], fix: "Run `wrangler login`, or set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID." },
+  cloudflare: { missing: ["CLOUDFLARE_API_TOKEN"], fix: "Install Wrangler in the project and run `npx wrangler login`, or set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID." },
   // Vercel and Netlify have no documented command that prints the login token, so only env vars work.
   vercel: { missing: ["VERCEL_TOKEN"], fix: "Set VERCEL_TOKEN to a token from https://vercel.com/account/tokens. Set VERCEL_TEAM_ID for a team." },
   netlify: { missing: ["NETLIFY_AUTH_TOKEN"], fix: "Set NETLIFY_AUTH_TOKEN to a token from https://app.netlify.com/user/applications#personal-access-tokens." },
@@ -116,8 +118,9 @@ async function runJson(context: HostCredentialsContext, command: string, args: r
   try {
     // Wrangler loads dotenv files from its working directory even for auth commands.
     // Keep the supplied environment (including the login's HOME), but isolate project files.
+    const local = command === "wrangler" ? localWrangler(context.cwd) : undefined
     cwd = await mkdtemp(join(tmpdir(), "vitehub-host-login-"))
-    result = await run(command, args, { cwd, env: context.env })
+    result = await run(local ? process.execPath : command, local ? [local, ...args] : args, { cwd, env: context.env })
   }
   catch {
     return
@@ -134,13 +137,29 @@ async function runJson(context: HostCredentialsContext, command: string, args: r
   }
 }
 
+/** Resolve a project dependency before changing cwd, as package-manager invocations do. */
+function localWrangler(cwd: string | undefined): string | undefined {
+  if (!cwd) return
+  try {
+    const require = createRequire(join(resolve(cwd), "package.json"))
+    const manifest = require.resolve("wrangler/package.json")
+    const pkg: unknown = JSON.parse(readFileSync(manifest, "utf8"))
+    if (!isRecord(pkg)) return
+    const bin = typeof pkg.bin === "string" ? pkg.bin : isRecord(pkg.bin) ? pkg.bin.wrangler : undefined
+    return typeof bin === "string" ? resolve(dirname(manifest), bin) : undefined
+  }
+  catch {
+    return
+  }
+}
+
 /** The default host CLI runner. stdin is closed so a CLI cannot wait for a prompt. */
 export const runHostCli: HostCliRun = (command, args, options) => new Promise((resolve, reject) => {
   const child = spawn(command, [...args], {
     cwd: options.cwd,
     env: options.env,
-    // Windows needs a shell to run `.cmd` shims. The arguments are fixed literals.
-    shell: process.platform === "win32",
+    // Windows needs a shell for PATH shims, but the absolute Node executable runs directly.
+    shell: process.platform === "win32" && command !== process.execPath,
     stdio: ["ignore", "pipe", "ignore"],
     timeout: HOST_CLI_TIMEOUT_MS,
   })

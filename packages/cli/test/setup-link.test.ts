@@ -272,7 +272,7 @@ describe("vitehub link", () => {
     const { exitCode, json, stdout } = await runSetup<{ error: SetupError, missing: SetupMissing[] }>(["link", "--json"], root)
 
     expect(exitCode).toBe(2)
-    expect(json.error).toMatchObject({ code: "SETUP_LINK_CREDENTIALS_MISSING", fix: "Run `wrangler login`, or set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID." })
+    expect(json.error).toMatchObject({ code: "SETUP_LINK_CREDENTIALS_MISSING", fix: "Install Wrangler in the project and run `npx wrangler login`, or set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID." })
     expect(json.missing).toEqual([{ field: "CLOUDFLARE_API_TOKEN" }])
     expect(stdout.trim().split("\n")).toHaveLength(1)
   })

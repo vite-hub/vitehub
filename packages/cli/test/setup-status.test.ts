@@ -13,6 +13,17 @@ function feature(status: SetupStatus, id: SetupFeatureStatus["id"]): SetupFeatur
 }
 
 describe("vitehub status", () => {
+  it.each([
+    ["workflow", '{ provider: "openworkflow" }', ["openworkflow"]],
+    ["workflow", '{ sqlite: { path: ".data/workflows.db" } }', ["openworkflow"]],
+    ["blob", '{ driver: "s3", bucket: "assets" }', ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"]],
+  ] as const)("reports missing provider packages for %s: %s", async (id, options, packages) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node", ${id}: ${options} }`) })
+    const { json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(feature(json, id).missingPackages).toEqual(expect.arrayContaining([...packages]))
+    for (const name of packages) expect(feature(json, id).fix).toContain(name)
+  })
+
   it("reads the host from config without loading it", async () => {
     const root = await createProject({
       "package.json": pnpmManifest,

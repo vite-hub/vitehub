@@ -97,6 +97,8 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   enabledByDiscovery?: readonly string[]
   /** Packages that the app installs for this feature, in `pnpm add` order. */
   packages: readonly string[]
+  /** Additional packages selected by literal provider options. */
+  providerPackages?: Readonly<Record<string, Readonly<Record<string, readonly string[]>>>>
   /** Development dependencies that the app installs for this feature. */
   devPackages: readonly string[]
   implies: readonly FeatureImplication[]
@@ -132,7 +134,7 @@ function feature<TId extends FeatureId>(definition: Omit<FeatureDefinition<TId>,
   return { devPackages: [], enabledByDefault: false, implies: [], packages: [], ...definition }
 }
 
-const sourceExtensions = ["ts", "mts", "js", "mjs"] as const
+const sourceExtensions = ["ts", "mts", "js", "mjs", "cts", "cjs"] as const
 
 /** `<base>.<ext>` for each source extension. */
 function sourceFiles(base: string): string[] {
@@ -195,6 +197,7 @@ export default defineAgent({
       vercel: native("vercel-blob", "Vercel Blob", "Vercel Blob through the vercel-blob driver."),
     },
     id: "blob",
+    providerPackages: { driver: { s3: ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"] } },
     service: "blob",
     summary: "Object storage for files and uploads, with one API on every host.",
     title: "Blob",
@@ -469,6 +472,7 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
       vercel: native("vercel", "Vercel Workflow", "Vercel Workflow provider and Workflow DevKit output."),
     },
     id: "workflow",
+    providerPackages: { provider: { openworkflow: ["openworkflow"] } },
     summary: "Durable Workflows in `server/workflows/` with steps, sleeps, and retries.",
     title: "Workflow",
   }),
@@ -494,6 +498,19 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
     summary: "File workspaces that Agents read and edit, backed by local, Blob, or GitHub stores.",
     title: "Workspace",
   }),
+}
+
+/** Packages needed by a feature and its statically selected provider. */
+export function featurePackages(id: FeatureId, value: unknown, host: DeploymentPreset | "unknown"): string[] {
+  const definition = features[id]
+  const options = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined
+  const selected = Object.entries(definition.providerPackages ?? {}).flatMap(([key, choices]) => {
+    const choice = options?.[key]
+    return typeof choice === "string" ? choices[choice] ?? [] : []
+  })
+  // Node selects OpenWorkflow when its storage is set and no provider is.
+  if (id === "workflow" && host === "node" && options && options.provider === undefined && (options.sqlite !== undefined || options.postgres !== undefined)) selected.push("openworkflow")
+  return [...definition.packages, ...selected]
 }
 
 /** How `host` supports `id`. Development requires the app's configured (or detected) deployment preset. */

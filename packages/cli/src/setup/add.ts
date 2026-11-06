@@ -4,9 +4,9 @@ import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
-import { featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
-import { basename, dirname, join, relative } from "pathe"
+import { basename, dirname, join, relative, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
@@ -68,12 +68,6 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
   "kv.driver": { values: ["upstash"] },
   "realtime.authority": { values: ["memory"] },
   "workflow.provider": { values: ["openworkflow"] },
-}
-
-/** Packages that an option value needs, in addition to the feature's packages. */
-const optionPackages: Partial<Record<string, Readonly<Record<string, readonly string[]>>>> = {
-  "blob.driver": { s3: ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"] },
-  "workflow.provider": { openworkflow: ["openworkflow"] },
 }
 
 /** Option keys that select a provider or a store. A feature that sets one does not use the host default. */
@@ -345,6 +339,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const files: Planned["files"] = []
   let configFile: Planned["configFile"]
   const serverDir = relative(project.root, project.serverDirs?.[0] ?? join(project.root, "server"))
+  const nuxtRoot = project.config?.ok ? project.config.site.nuxt?.keys.rootDir : undefined
+  const definitionRoot = nuxtRoot?.kind === "literal" && typeof nuxtRoot.value === "string" ? resolve(project.root, nuxtRoot.value) : project.root
 
   // Starter Definition files.
   if (args.name !== undefined) {
@@ -359,7 +355,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
         if (await readFile(file, "utf8") === content) continue
         throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ file: path }), setupExitCodes.conflict)
       }
-      const conflict = starter.conflicts(args.name).find(other => existsSync(join(project.root, other)))
+      const conflict = starter.conflicts(args.name).flatMap(other => other.startsWith("server/")
+        ? (project.serverDirs ?? [join(project.root, "server")]).map(directory => relative(project.root, join(directory, relative("server", other))))
+        : [relative(project.root, join(definitionRoot, other))]).find(other => existsSync(join(project.root, other)))
       if (conflict) throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ definition: features[id].title, file: conflict, starter: path }), setupExitCodes.conflict)
       files.push({ content, path })
       changes.push({ after: content, diff: diffOf(path, "", content), kind: "create", path })
@@ -388,15 +386,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     return mergeValue(current?.kind === "literal" ? current.value : undefined, args.options[id])
   }
   for (const id of [...addedFeatures, ...implied]) {
-    const value = configured(id)
-    const selected = Object.entries(optionPackages).flatMap(([option, byValue]) => {
-      if (!option.startsWith(`${id}.`) || !isRecord(value)) return []
-      const choice = value[option.slice(id.length + 1)]
-      return typeof choice === "string" ? byValue?.[choice] ?? [] : []
-    })
-    // Node selects OpenWorkflow when its storage is set and no provider is.
-    if (id === "workflow" && host === "node" && isRecord(value) && value.provider === undefined && (value.sqlite !== undefined || value.postgres !== undefined)) selected.push("openworkflow")
-    for (const name of [...features[id].packages, ...selected]) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
+    for (const name of featurePackages(id, configured(id), host)) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
     for (const name of features[id].devPackages) if (!project.declared(name, true) && !install.dev.includes(name)) install.dev.push(name)
   }
   const command = installCommand(project.packageManager, install.prod, install.dev)

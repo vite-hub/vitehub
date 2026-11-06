@@ -503,6 +503,37 @@ describe("vitehub add", () => {
     expect(json.install.packages).toEqual(["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"])
   })
 
+  it.each([
+    ["", "server", "queues/jobs.cts"],
+    ["", "server", "queues/jobs.cjs"],
+    ['serverDir: "backend",', "backend", "queues/jobs.mjs"],
+    ['rootDir: "app",', "app/server", "queues/jobs.cts"],
+    ['rootDir: "app", serverDir: "backend",', "app/backend", "queues/jobs.cjs"],
+    ['rootDir: "app", serverDir: "backend",', "app", "src/jobs.queue.mjs"],
+  ])("rejects equivalent Nuxt Definitions without writing: %s %s/%s", async (options, serverDir, definition) => {
+    const root = await createProject({
+      [`${serverDir}/${definition}`]: "export default {}\n",
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options} vitehub: { preset: "node" } })`,
+      "package.json": pnpmManifest,
+    })
+    const before = await snapshot(root)
+    const { exitCode, json } = await add(["queue", "--name", "jobs", "--no-install", "--yes"], root)
+    expect(exitCode).toBe(3)
+    expect(json.error?.code).toBe("SETUP_FILE_EXISTS")
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each(["cts", "cjs"])("rejects Vite suffix Definitions with .%s extensions", async (extension) => {
+    const root = await createProject({
+      [`src/jobs.queue.${extension}`]: "export default {}\n",
+      "package.json": pnpmManifest,
+      "vite.config.ts": viteConfig('{ preset: "node" }'),
+    })
+    const before = await snapshot(root)
+    expect((await add(["queue", "--name", "jobs", "--no-install", "--yes"], root)).exitCode).toBe(3)
+    expect(await snapshot(root)).toEqual(before)
+  })
+
   it("refuses a starter that would be a second Definition of the same name", async () => {
     const root = await copyFixture("cloudflare")
     await writeFile(join(root, "src/welcome-email.queue.ts"), "export default {}\n")
