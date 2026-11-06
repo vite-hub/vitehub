@@ -7,6 +7,7 @@ import {
   consoleImpersonation,
   consoleRequest,
   withConsoleAccess,
+  consoleScopesAllow,
   type ConsoleAccess,
   type ConsoleAccessRoute,
 } from "./access.ts";
@@ -118,6 +119,11 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
   try {
     const command = v.safeParse(read, input);
     if (command.success) {
+      if (!consoleScopesAllow(access, { kind: "read" }))
+        return Response.json(
+          { message: "The access token does not have the vitehub:read scope, which reading Auth data needs." },
+          { status: 403, headers: { "cache-control": "no-store" } },
+        );
       const { operation, query, id, activity } = command.output;
       if ((operation === "user" || operation === "organization") && !id)
         return Response.json({ message: "An id is required." }, { status: 400 });
@@ -140,7 +146,7 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
     if (!action.success)
       return Response.json({ message: "Invalid Auth Console request." }, { status: 400 });
     // A read-only grant (`"auth:read"`) lists Auth data. It never changes it.
-    if (!consoleAccessWrites(access, "auth"))
+    if (!consoleAccessWrites(access, "auth") || !consoleScopesAllow(access, { kind: "write" }))
       return Response.json(
         { message: "This Console access can read Auth data but not change it." },
         { status: 403, headers: { "cache-control": "no-store" } },
@@ -151,10 +157,11 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
         { message: "Impersonation is off. Set console.impersonation to true to enable it." },
         { status: 404, headers: { "cache-control": "no-store" } },
       );
-    // A Console token names no administrator, so impersonation could not record who started it.
-    if ((output.action === "impersonate" || output.action === "stopImpersonating") && access.mode === "token")
+    // Impersonation swaps the session cookie on the app origin. A bearer call has no session to swap, and a Console
+    // token names no administrator that the record could name.
+    if ((output.action === "impersonate" || output.action === "stopImpersonating") && access.via !== undefined)
       return Response.json(
-        { message: "Impersonation needs a signed-in administrator. A Console token cannot start or stop it." },
+        { message: "Impersonation needs a signed-in administrator on the app origin. A bearer token cannot start or stop it." },
         { status: 403, headers: { "cache-control": "no-store" } },
       );
     const [error, response] =

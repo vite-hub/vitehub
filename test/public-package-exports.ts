@@ -66,7 +66,8 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/agent/observability", { "evlog": "both" }],
   ["vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   // The Console signs people in with Better Auth and keeps the Agent journal in libSQL.
-  ["vite-hub/console/auth", { "@better-auth/oauth-provider": "both", "@vite-hub/auth": "both", "better-auth": "both" }],
+  // `consoleMcpOAuth()` loads `@better-auth/cimd` when the Auth starts.
+  ["vite-hub/console/auth", { "@better-auth/cimd": "runtime", "@better-auth/oauth-provider": "both", "@vite-hub/auth": "both", "better-auth": "both" }],
   ["vite-hub/console/auth/inline", { "@better-auth/oauth-provider": "both", "@vite-hub/auth": "both", "better-auth": "both" }],
   ["vite-hub/console/server", { "@libsql/client": "both", "@vite-hub/agent": "both", "drizzle-orm": "both" }],
   ["vite-hub/doctor", { "vite-doctor": "both" }],

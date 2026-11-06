@@ -7,15 +7,16 @@ import type { ConsoleRequestEvent } from "./request.ts"
 
 /**
  * Browser origins that may call Console data routes from another origin, from `console.origins`. Generated Console
- * output installs them only with `auth: "token"`, the one mode that verifies a bearer token on these routes. Without
- * an installed list, every cross-origin call is rejected.
+ * output installs them with `auth: "token"` and with an Auth that issues OAuth access tokens, the modes that verify a
+ * bearer token on these routes. The OAuth client allow list of `consoleMcpOAuth()` reads the same list. Without an
+ * installed list, every cross-origin call is rejected.
  */
 const originsKey: unique symbol = Symbol.for("vitehub.console.origins")
 // SAFETY: This module owns the process slot shared by separately bundled generated plugins and Console routes.
 const scope = globalThis as typeof globalThis & { [originsKey]?: readonly string[] }
 
-/** The Console data routes that answer a cross-origin call, below any application mount. */
-const dataRoutes = ["/_vitehub/rpc/__call", "/_vitehub/rpc/__upload", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/_vitehub/channels/replay"]
+/** The Console data routes that answer a cross-origin call and accept a bearer token, below any application mount. */
+export const consoleDataRoutes: readonly string[] = ["/_vitehub/rpc/__call", "/_vitehub/rpc/__upload", "/_vitehub/auth/manage", "/_vitehub/env/manage", "/_vitehub/channels/replay"]
 
 /** The request headers that a listed origin may send. The CLI surface and project headers stay same-origin. */
 export const consoleCorsAllowedHeaders = "authorization, content-type, x-vitehub-console"
@@ -28,9 +29,18 @@ export function installedConsoleOrigins(): readonly string[] {
   return scope[originsKey] ?? []
 }
 
-/** The `WWW-Authenticate` value of a Console data route that needs a bearer token. */
-export function consoleBearerChallenge(parameters: { error?: "invalid_token" } = {}): string {
-  return `Bearer realm="vitehub-console"${parameters.error ? `, error="${parameters.error}"` : ""}`
+/**
+ * The `WWW-Authenticate` value of a Console data route that needs a bearer token: `Bearer realm="vitehub-console"`, an
+ * optional error, and `resource_metadata` when the app issues OAuth access tokens for the Console resource (RFC 9728).
+ */
+export function consoleBearerChallenge(parameters: { description?: string, error?: "insufficient_scope" | "invalid_token", resourceMetadata?: string, scope?: string } = {}): string {
+  return [
+    `Bearer realm="vitehub-console"`,
+    ...(parameters.error ? [`error="${parameters.error}"`] : []),
+    ...(parameters.description ? [`error_description="${parameters.description.replaceAll("\"", "'")}"`] : []),
+    ...(parameters.scope ? [`scope="${parameters.scope}"`] : []),
+    ...(parameters.resourceMetadata ? [`resource_metadata="${parameters.resourceMetadata}"`] : []),
+  ].join(", ")
 }
 
 function header(event: ConsoleRequestEvent, name: string): string | undefined {
@@ -55,23 +65,50 @@ function pathname(event: ConsoleRequestEvent): string {
 }
 
 /** The `Origin` of the request when `console.origins` lists it. */
-function listedOrigin(origin: string | null | undefined): string | undefined {
+export function listedConsoleOrigin(origin: string | null | undefined): string | undefined {
   return origin && installedConsoleOrigins().includes(origin) ? origin : undefined
 }
 
 /**
  * Whether a cross-origin request may reach a Console data route: `console.origins` lists its `Origin`, and the access
- * check accepted its `Authorization: Bearer` token. Only `auth: "token"` verifies a token on these routes, so a cookie
+ * check accepted its `Authorization: Bearer` token (`access.via`: the Console token or an OAuth access token). A cookie
  * or a session never authorizes a cross-origin call.
  */
 export function isConsoleCrossOriginBearerCall(request: Request, access: ConsoleAccess): boolean {
-  return access.mode === "token"
-    && listedOrigin(request.headers.get("origin")) !== undefined
+  return access.via !== undefined
+    && listedConsoleOrigin(request.headers.get("origin")) !== undefined
     && /^Bearer\s+\S+/i.test(request.headers.get("authorization") ?? "")
 }
 
-function corsHeaders(origin: string): Record<string, string> {
-  return { "access-control-allow-origin": origin, "vary": "Origin" }
+/**
+ * The CORS headers of a response to a listed origin. The Console reads `WWW-Authenticate` to find the OAuth resource
+ * metadata, so it is exposed. No response sends `Access-Control-Allow-Credentials`.
+ */
+export function consoleCorsHeaders(origin: string): Record<string, string> {
+  return { "access-control-allow-origin": origin, "access-control-expose-headers": "WWW-Authenticate", "vary": "Origin" }
+}
+
+/**
+ * Add the CORS headers to a public document, such as OAuth metadata, when `console.origins` lists the request `Origin`.
+ * With any listed origin, the response varies by `Origin`, so a shared cache keeps the answers apart.
+ */
+export function withListedConsoleOrigin(response: Response, request: Pick<Request, "headers">): Response {
+  if (!installedConsoleOrigins().length) return response
+  const origin = listedConsoleOrigin(request.headers.get("origin"))
+  return withResponseHeaders(response, (headers) => {
+    if (origin) for (const [name, value] of Object.entries(consoleCorsHeaders(origin))) headers.set(name, value)
+    else headers.append("vary", "Origin")
+  })
+}
+
+/**
+ * Copy a response with changed headers. A Response from a fetch or from another realm can have immutable headers, so it
+ * is copied. The copy names the status: srvx's Node.js `Response` reads no status from a `Response` passed as `init`.
+ */
+export function withResponseHeaders(response: Response, change: (headers: Headers) => void): Response {
+  const headers = new Headers(response.headers)
+  change(headers)
+  return new Response(response.body, { headers, status: response.status, statusText: response.statusText })
 }
 
 /**
@@ -84,8 +121,8 @@ export function answerConsolePreflight(event: ConsoleRequestEvent): Response | u
   const origin = header(event, "origin")
   if (!origin || !header(event, "access-control-request-method")) return undefined
   const path = pathname(event)
-  if (!dataRoutes.some(route => path.endsWith(route))) return undefined
-  const allowed = listedOrigin(origin)
+  if (!consoleDataRoutes.some(route => path.endsWith(route))) return undefined
+  const allowed = listedConsoleOrigin(origin)
   if (!allowed) {
     return Response.json({ ...consoleDiagnosticBody("CONSOLE_ORIGIN_NOT_ALLOWED", `${origin} is not in console.origins for this app.`), ok: false, status: 403 }, {
       headers: { "cache-control": "no-store", "vary": "Origin", "x-content-type-options": "nosniff" },
@@ -94,7 +131,7 @@ export function answerConsolePreflight(event: ConsoleRequestEvent): Response | u
   }
   return new Response(null, {
     headers: {
-      ...corsHeaders(allowed),
+      ...consoleCorsHeaders(allowed),
       "access-control-allow-headers": consoleCorsAllowedHeaders,
       "access-control-allow-methods": "POST",
       "access-control-max-age": "600",
@@ -108,11 +145,10 @@ export function answerConsolePreflight(event: ConsoleRequestEvent): Response | u
 function withHeaders(response: Response, origin: string | undefined): Response {
   const challenge = response.status === 401 && !response.headers.has("www-authenticate")
   if (!origin && !challenge) return response
-  // A Response from a fetch or from another realm can have immutable headers, so copy it.
-  const copy = new Response(response.body, response)
-  if (challenge) copy.headers.set("www-authenticate", consoleBearerChallenge())
-  if (origin) for (const [name, value] of Object.entries(corsHeaders(origin))) copy.headers.set(name, value)
-  return copy
+  return withResponseHeaders(response, (headers) => {
+    if (challenge) headers.set("www-authenticate", consoleBearerChallenge())
+    if (origin) for (const [name, value] of Object.entries(consoleCorsHeaders(origin))) headers.set(name, value)
+  })
 }
 
 function errorResponse(error: unknown): Response {
@@ -135,7 +171,7 @@ export function withConsoleCors<TEvent extends ConsoleRequestEvent, TResult>(
   handler: (event: TEvent) => Promise<TResult | Response>,
 ): (event: TEvent) => Promise<TResult | Response> {
   return async (event) => {
-    const origin = listedOrigin(header(event, "origin"))
+    const origin = listedConsoleOrigin(header(event, "origin"))
     let result: TResult | Response
     try {
       result = await handler(event)
@@ -147,7 +183,7 @@ export function withConsoleCors<TEvent extends ConsoleRequestEvent, TResult>(
     }
     if (isRuntimeResponse(result)) return withHeaders(result, origin)
     if (origin) {
-      for (const [name, value] of Object.entries(corsHeaders(origin))) {
+      for (const [name, value] of Object.entries(consoleCorsHeaders(origin))) {
         event.res?.headers?.set(name, value)
         event.node?.res?.setHeader(name, value)
       }

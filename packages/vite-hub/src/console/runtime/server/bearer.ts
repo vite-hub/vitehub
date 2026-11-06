@@ -1,5 +1,7 @@
 import { resolvePublicUrl } from "@vite-hub/runtime"
 
+import { consoleBearerChallenge, consoleDataRoutes } from "./cors.ts"
+
 import type { JSONWebKeySet } from "jose"
 import type { ConsoleUser } from "../../auth-types.ts"
 import type { ConsoleDiagnosticCode } from "../diagnostics.ts"
@@ -42,8 +44,16 @@ export interface ConsoleOAuthConfig {
   resource?: string
 }
 
+/**
+ * The Console resource: one OAuth resource for the RPC and the other Console data routes, `<origin><base>/_vitehub`.
+ * It is set when the Auth lists it in `oauthProvider({ resources })`. Otherwise `missing` says why Console tokens are off.
+ */
+export type ConsoleDataResource =
+  | { ready: true, metadataUrl: string, resource: string }
+  | { ready: false, message: string, resource: string }
+
 export type ConsoleOAuthState =
-  | { ready: true, auth: ConsoleOAuthAuth, context: ConsoleOAuthContext, issuer: string, metadataUrl: string, resource: string }
+  | { ready: true, auth: ConsoleOAuthAuth, console: ConsoleDataResource, context: ConsoleOAuthContext, issuer: string, metadataUrl: string, resource: string }
   | { ready: false, code: ConsoleDiagnosticCode, message: string }
 
 const wellKnownPrefix = "/.well-known/oauth-protected-resource"
@@ -67,6 +77,36 @@ export function bearerToken(request: Request): string | undefined {
  */
 export function isMcpPath(config: Pick<ConsoleOAuthConfig, "path">, request: Pick<Request, "url">): boolean {
   return new URL(request.url).pathname === config.path
+}
+
+/** The mounted path of the Console resource: the MCP path without its `/mcp` segment, such as `/_vitehub` or `/portal/_vitehub`. */
+export function consoleResourcePath(config: Pick<ConsoleOAuthConfig, "path">): string {
+  return config.path.replace(/\/mcp\/?$/, "")
+}
+
+/** Whether the request is for one Console data route below the mount, such as `/_vitehub/rpc/__call`. */
+export function isConsoleDataPath(config: Pick<ConsoleOAuthConfig, "path">, request: Pick<Request, "url">): boolean {
+  const pathname = new URL(request.url).pathname
+  const base = consoleResourcePath(config)
+  return consoleDataRoutes.some(route => pathname === `${base}${route.slice("/_vitehub".length)}`)
+}
+
+/** A compact JWS: three base64url parts, with a JSON header that names an algorithm. Other bearer values are not OAuth tokens. */
+function isJwt(token: string): boolean {
+  const parts = token.split(".")
+  if (parts.length !== 3 || !parts.every(part => /^[\w-]+$/.test(part))) return false
+  try {
+    const header: unknown = JSON.parse(atob(parts[0]!.replaceAll("-", "+").replaceAll("_", "/")))
+    return isRecord(header) && typeof header.alg === "string"
+  }
+  catch {
+    return false
+  }
+}
+
+function resourceIdentifiers(context: ConsoleOAuthContext): unknown[] {
+  const options = pluginOptions(findPlugin(context, "oauth-provider"))
+  return Array.isArray(options.resources) ? options.resources.map(entry => isRecord(entry) ? entry.identifier : entry) : []
 }
 
 function findPlugin(context: ConsoleOAuthContext, id: string): { options?: unknown } | undefined {
@@ -98,7 +138,7 @@ function missingOAuthSetup(context: ConsoleOAuthContext, resource: string): stri
     return missing
   }
   const options = pluginOptions(provider)
-  const resources = Array.isArray(options.resources) ? options.resources.map(entry => isRecord(entry) ? entry.identifier : entry) : []
+  const resources = resourceIdentifiers(context)
   if (!resources.includes(resource)) missing.push(`\`resources: [${JSON.stringify(resource)}]\` in \`oauthProvider()\`, without which Better Auth issues opaque tokens`)
   const defaults = Array.isArray(options.clientRegistrationDefaultResources) ? options.clientRegistrationDefaultResources : []
   if (!defaults.includes(resource)) missing.push(`\`clientRegistrationDefaultResources: [${JSON.stringify(resource)}]\` in \`oauthProvider()\`, so dynamically registered MCP clients can request this resource`)
@@ -142,8 +182,12 @@ async function buildState(config: ConsoleOAuthConfig, event: ConsoleRequestEvent
         ready: false,
       }
     }
+    const consoleResource = `${origin}${consoleResourcePath(config)}`
     return {
       auth,
+      console: resourceIdentifiers(context).includes(consoleResource)
+        ? { metadataUrl: `${origin}${wellKnownPrefix}${new URL(consoleResource).pathname}`, ready: true, resource: consoleResource }
+        : { message: `The Auth does not list the Console resource ${JSON.stringify(consoleResource)} in \`oauthProvider({ resources })\`, so Console data routes accept no access token. Use \`consoleMcpOAuth()\`, or add the resource.`, ready: false, resource: consoleResource },
       context,
       issuer: config.issuer ?? jwtIssuer(context),
       metadataUrl: `${origin}${wellKnownPrefix}${new URL(resource).pathname}`,
@@ -184,6 +228,11 @@ export function mcpChallenge(state: ConsoleOAuthState | undefined, parameters: {
   return fields.length ? `Bearer ${fields.join(", ")}` : "Bearer realm=\"vitehub-console\""
 }
 
+/** The `WWW-Authenticate` value of a Console data route, with the Console resource metadata when the app issues Console tokens. */
+export function consoleChallenge(state: ConsoleOAuthState | undefined, parameters: { description?: string, error?: "insufficient_scope" | "invalid_token", scope?: string } = {}): string {
+  return consoleBearerChallenge({ ...parameters, ...(state?.ready && state.console.ready ? { resourceMetadata: state.console.metadataUrl } : {}) })
+}
+
 /** Mark a bearer rejection, so the MCP endpoint keeps its challenge instead of building the sign-in one. */
 export function markBearerRejection(response: Response): Response {
   rejections.add(response)
@@ -194,9 +243,10 @@ export function isBearerRejection(response: Response): boolean {
   return rejections.has(response)
 }
 
+/** `audience` is the resource that the token was checked for: the MCP endpoint, or the Console data routes. */
 export type ConsoleBearerResult =
-  | { ok: true, scopes: readonly string[], user: ConsoleUser }
-  | { ok: false, state: ConsoleOAuthState }
+  | { ok: true, audience: "console" | "mcp", scopes: readonly string[], user: ConsoleUser }
+  | { ok: false, audience: "console" | "mcp", state: ConsoleOAuthState }
 
 function grantedScopes(payload: Record<string, unknown>): string[] {
   const scope = payload.scope
@@ -215,38 +265,44 @@ function bannedUser(user: Record<string, unknown>): boolean {
 }
 
 /**
- * Check an OAuth access token that Better Auth's `oauthProvider` and `jwt` plugins issued for the MCP endpoint. The keys
- * come from the app's own Auth in-process, and the issuer and audience from trusted configuration: a request cannot pick
- * them. The signature algorithm is pinned to the ones in the key set. The person is read from the Auth by the `sub` claim,
- * so a deleted or banned user loses access with the token still unexpired.
+ * Check an OAuth access token that Better Auth's `oauthProvider` and `jwt` plugins issued. The resource decides the
+ * audience: the MCP endpoint accepts tokens for the MCP resource, and the Console data routes (`consoleDataRoutes`)
+ * accept tokens for the Console resource. A token for one resource opens nothing else. The keys come from the app's own
+ * Auth in-process, and the issuer and audiences from trusted configuration: a request cannot pick them. The signature
+ * algorithm is pinned to the ones in the key set. The person is read from the Auth by the `sub` claim, so a deleted or
+ * banned user loses access with the token still unexpired.
  *
- * Returns undefined when the request carries no token for this endpoint, `ok: false` for a token that is not valid. It never throws.
+ * On a Console data route, a bearer value that is not a JWT, or an Auth that issues no Console tokens, gives undefined,
+ * so the route keeps its session and `console.authorize` checks, as before. Returns undefined when the request carries no
+ * token for this route, `ok: false` for a token that is not valid. It never throws.
  */
 export async function verifyConsoleBearer(request: Request, event: ConsoleRequestEvent, config: ConsoleOAuthConfig, development: boolean): Promise<ConsoleBearerResult | undefined> {
   const token = bearerToken(request)
-  // An access token is for the MCP endpoint only. Other Console routes keep to the session.
-  if (!token || !isMcpPath(config, request)) return undefined
+  if (!token) return undefined
+  const audience = isMcpPath(config, request) ? "mcp" : isConsoleDataPath(config, request) && isJwt(token) ? "console" : undefined
+  if (!audience) return undefined
   const state = await resolveConsoleOAuth(config, event, request, development)
-  if (!state.ready) return { ok: false, state }
+  if (!state.ready) return audience === "mcp" ? { audience, ok: false, state } : undefined
+  if (audience === "console" && !state.console.ready) return undefined
   try {
     const jwks = jwksOf(await state.auth.api.getJwks())
     const algorithms = [...new Set((jwks?.keys ?? []).flatMap(key => typeof key.alg === "string" ? [key.alg] : []))]
-    if (!jwks || !algorithms.length) return { ok: false, state }
-    // Only an MCP request with a token needs jose, so the server starts without it.
+    if (!jwks || !algorithms.length) return { audience, ok: false, state }
+    // Only a request with a token needs jose, so the server starts without it.
     const { createLocalJWKSet, jwtVerify } = await import("jose")
     const { payload } = await jwtVerify(token, createLocalJWKSet(jwks), {
       algorithms,
-      audience: state.resource,
+      audience: audience === "mcp" ? state.resource : state.console.resource,
       clockTolerance: clockToleranceSeconds,
       issuer: state.issuer,
       requiredClaims: ["exp", "sub"],
     })
     const user = await state.context.internalAdapter.findUserById(payload.sub!)
-    if (!isRecord(user) || bannedUser(user)) return { ok: false, state }
+    if (!isRecord(user) || bannedUser(user)) return { audience, ok: false, state }
     // SAFETY: A Console user is an Auth user record, which is what the adapter returns.
-    return { ok: true, scopes: grantedScopes(payload), user: user as ConsoleUser }
+    return { audience, ok: true, scopes: grantedScopes(payload), user: user as ConsoleUser }
   }
   catch {
-    return { ok: false, state }
+    return { audience, ok: false, state }
   }
 }

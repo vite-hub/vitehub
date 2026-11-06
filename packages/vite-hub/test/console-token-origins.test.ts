@@ -136,7 +136,7 @@ describe("console.origins", () => {
     expect(response.headers.get("access-control-allow-origin")).toBe(consoleOrigin)
     expect(response.headers.get("vary")).toBe("Origin")
     expect(response.headers.has("access-control-allow-credentials")).toBe(false)
-    expect(response.headers.has("access-control-expose-headers")).toBe(false)
+    expect(response.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate")
   })
 
   it("rejects a cookie-only cross-origin call from a listed origin, with CORS headers so the Console reads why", async () => {
@@ -265,7 +265,7 @@ describe("Console preflight", () => {
 })
 
 describe("Console origin and token options", () => {
-  it("defaults origins to the hosted Console and keeps them only for the token mode", () => {
+  it("defaults origins to the hosted Console and keeps them only for the bearer modes", () => {
     expect(resolveConsoleOrigins(undefined)).toEqual([consoleOrigin])
     expect(resolveConsoleAccessBuild({ auth: "token" }, { root: process.cwd() })).toEqual({ mode: "token", origins: [consoleOrigin] })
     expect(resolveConsoleAccessBuild({ auth: "token", origins: [] }, { root: process.cwd() })).toEqual({ mode: "token", origins: [] })
