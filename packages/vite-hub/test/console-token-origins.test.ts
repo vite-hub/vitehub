@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto"
+import { createServer } from "node:http"
 import { DatabaseSync } from "node:sqlite"
 
 import { defineAuth } from "@vite-hub/auth"
 import { createAuthAccessHandler, createAuthForRequest } from "@vite-hub/auth/server"
+import { installedOperationSectionResolver } from "@vite-hub/internal/operations"
 import { defineHandler, H3 } from "h3"
+import { createApp, eventHandler, toNodeListener } from "h3-v1"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
@@ -135,6 +138,15 @@ describe("console: { auth: \"token\" }", () => {
     expect(digest.mock.calls.map(([algorithm]) => algorithm)).toEqual(["SHA-256", "SHA-256", "SHA-256"])
     const hashed = digest.mock.calls.map(([, data]) => new TextDecoder().decode(data as Uint8Array))
     expect(hashed).toEqual([token, `${token}x`, tokenHash])
+  })
+
+  it.each([null, { id: "agent-user" }])("gives the operation section resolver the token context without a user (%j)", async (user) => {
+    const authorize = vi.fn((context: ConsoleAuthorizeContext) => context.via === "token" ? { sections: ["kv:read"] } : false)
+    install({ authorize, mode: "token" })
+    await expect(installedOperationSectionResolver()?.({ user })).resolves.toEqual(["kv:read"])
+    const context = authorize.mock.calls[0]?.[0]
+    expect(context).toMatchObject({ via: "token" })
+    expect(context).not.toHaveProperty("user")
   })
 })
 
@@ -277,17 +289,36 @@ describe("Console preflight", () => {
     expect((await h3.fetch(rpc({ authorization: `Bearer ${token}`, origin: consoleOrigin }))).status).toBe(401)
   })
 
-  it("answers on Nitro 2 from the request hook, which runs before every middleware", async () => {
+  it("answers on Nitro 2 before the real H3 1 stack runs app middleware", async () => {
     installConsoleOrigins([consoleOrigin])
-    let hook: ((event: never) => Promise<void>) | undefined
-    consolePreflightPlugin({ h3App: {}, hooks: { hook: (_name, callback) => { hook = callback } } })
-    const respondWith = vi.fn(async (_response: Response) => undefined)
-    const request = preflight("/portal/_vitehub/rpc/__call", consoleOrigin)
-    await hook?.({ method: "OPTIONS", node: { req: { headers: Object.fromEntries(request.headers), method: "OPTIONS", originalUrl: "/portal/_vitehub/rpc/__call" } }, respondWith } as never)
-    expect(respondWith).toHaveBeenCalledOnce()
-    expect(respondWith.mock.calls[0]?.[0].status).toBe(204)
-    await hook?.({ method: "GET", node: { req: { headers: {}, method: "GET", originalUrl: "/" } }, respondWith } as never)
-    expect(respondWith).toHaveBeenCalledOnce()
+    const h3App = createApp()
+    const middleware = vi.fn(() => new Response("Sign in first.", { status: 401 }))
+    h3App.use("/portal", eventHandler(middleware))
+    consolePreflightPlugin({ h3App })
+    const server = createServer(toNodeListener(h3App))
+    try {
+      await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
+      const address = server.address()
+      if (!address || typeof address === "string") throw new Error("The preflight test server has no TCP address.")
+      const baseURL = `http://127.0.0.1:${address.port}`
+      const request = preflight("/portal/_vitehub/rpc/__call", consoleOrigin)
+      const response = await fetch(`${baseURL}/portal/_vitehub/rpc/__call`, { headers: request.headers, method: request.method })
+      expect(response.status).toBe(204)
+      expect(response.headers.get("access-control-allow-origin")).toBe(consoleOrigin)
+      expect(middleware).not.toHaveBeenCalled()
+
+      const rejected = await fetch(`${baseURL}/portal/_vitehub/rpc/__call`, { headers: { ...Object.fromEntries(request.headers), origin: "https://evil.example" }, method: "OPTIONS" })
+      expect(rejected.status).toBe(403)
+      await expect(rejected.json()).resolves.toMatchObject({ code: "CONSOLE_ORIGIN_NOT_ALLOWED" })
+      expect(middleware).not.toHaveBeenCalled()
+
+      expect((await fetch(`${baseURL}/portal/api/items`, { headers: request.headers, method: "OPTIONS" })).status).toBe(401)
+      expect((await fetch(`${baseURL}/portal/_vitehub/rpc/__call`)).status).toBe(401)
+      expect(middleware).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+    }
   })
 })
 
