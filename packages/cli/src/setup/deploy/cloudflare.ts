@@ -235,7 +235,7 @@ export const listCloudflareDeployments: ListDeployments = async (context, { limi
   const client = createCloudflareProvisionClient({ accountId, token: context.credentials.token }, context.fetch)
   const script = `/workers/scripts/${encodeURIComponent(context.link.project.name)}`
   const [deployments, versions, subdomain] = await Promise.all([
-    client(`${script}/deployments`, { parse: parseDeployments }),
+    client(`${script}/deployments`, { parse: parseDeployments, query: { per_page: String(limit) } }),
     client(`${script}/versions`, { parse: parseVersions, query: { deployable: "true", per_page: String(Math.max(limit, 10)) } }),
     optional(client("/workers/subdomain", { parse: value => isRecord(value) ? optionalString(value.subdomain) : undefined })),
   ])

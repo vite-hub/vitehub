@@ -181,6 +181,30 @@ describe("vitehub deployments", () => {
     expect(api.requests.find(request => request.url.includes("/versions?"))?.url).toContain("deployable=true")
   })
 
+  it("honors a Cloudflare limit larger than the default deployment page", async () => {
+    const root = await createProject(projectFiles("cloudflare"))
+    const api = hostApi(cloudflareRoutes())
+    const deployments = Array.from({ length: 25 }, (_, index) => ({
+      created_on: new Date(Date.UTC(2026, 10, 7, 0, 0, 25 - index)).toISOString(),
+      id: `deployment-${index}`,
+      source: "wrangler",
+      versions: [{ percentage: 100, version_id: "bcf48806-b317-4351-9ee7-36e7d557d4de" }],
+    }))
+    const pagedFetch: typeof fetch = async (input, init) => {
+      const url = new URL(String(input))
+      if (url.href.startsWith(`${cloudflareScript}/deployments`)) {
+        const pageSize = Number(url.searchParams.get("per_page") ?? "20")
+        return Response.json({ result: { deployments: deployments.slice(0, pageSize) }, success: true })
+      }
+      return api.fetch(input, init)
+    }
+
+    const { exitCode, json } = await runSetup<SetupDeploymentsOutput>(["deployments", "--limit", "25", "--json"], root, credentials.cloudflare, { fetch: pagedFetch })
+
+    expect(exitCode).toBe(0)
+    expect(json.deployments.map(item => item.id)).toEqual(deployments.map(item => item.id))
+  })
+
   it("lists Vercel deployments and marks the production target as live", async () => {
     const root = await createProject(projectFiles("vercel"))
     const api = hostApi(vercelRoutes)
