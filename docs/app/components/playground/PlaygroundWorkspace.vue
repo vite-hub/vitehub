@@ -139,7 +139,7 @@ const runState = useRunState(workspace);
 const dragging = ref(false);
 const columns = [
   { id: "files", defaultSize: 18, minSize: 12, maxSize: 30, slot: "files" as const },
-  { id: "code", defaultSize: 45, minSize: 25, slot: "code" as const },
+  { id: "code", defaultSize: 44, minSize: 25, slot: "code" as const },
   { id: "preview", defaultSize: 38, minSize: 20, slot: "preview" as const },
 ];
 const rows = [
