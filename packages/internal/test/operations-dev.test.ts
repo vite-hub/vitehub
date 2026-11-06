@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 import { EventEmitter } from "node:events"
 import { mkdtemp, rm } from "node:fs/promises"
 import { join } from "node:path"
+import { useViteHubDevPeerKey, viteHubDevPeerDevHandler, viteHubDevPeerHeader, viteHubDevPeerKeyEnv } from "../src/dev-peer.ts"
 import { createStandaloneOperationHandler } from "../src/operations-dev.ts"
 import { publishStandaloneOperationServer } from "../src/operations-vite.ts"
 import { findViteHubDevServerUrl, readViteHubDevServerFile } from "../src/cli.ts"
@@ -13,16 +14,22 @@ function fixture() {
   const operation = defineOperation({ name: "test.echo", description: "Echo.", input: v.object({ text: v.string() }), kind: "write", section: "test", run })
   const large = defineOperation({ ...operation, name: "test.large", maxRequestBytes: 128 * 1024 })
   const handler = createStandaloneOperationHandler([{ operations: [operation, large], plugin: "test" }], "/server/project")
-  const request = (body: unknown, headers: Record<string, string> = {}, url = "http://localhost/_vitehub/rpc/__call") => new Request(url, {
+  // `ip` is the peer address that the host reports, as plain `vite dev` does. `null` is a peer with no address.
+  const request = (body: unknown, headers: Record<string, string> = {}, url = "http://localhost/_vitehub/rpc/__call", ip: string | null = "127.0.0.1") => Object.assign(new Request(url, {
     method: "POST", headers: { "content-type": "application/json", "x-vitehub-console": "1", ...headers }, body: JSON.stringify(body),
-  })
+  }), ip ? { ip } : {})
   return { handler, run, request }
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+  Reflect.deleteProperty(process.env, viteHubDevPeerKeyEnv)
+})
 
 describe("local operation RPC", () => {
   it("uses project identity for discovered targets but not explicit deployment URLs", async () => {
     const { handler, run } = fixture()
-    const fetch: typeof globalThis.fetch = (url, init) => handler({ req: new Request(url, init) })
+    const fetch: typeof globalThis.fetch = (url, init) => handler({ req: Object.assign(new Request(url, init), { ip: "127.0.0.1" }) })
     const result = await callOperationFromCli({ rootDir: "/client/project", env: {}, url: "http://localhost", fetch }, "test.echo", { text: "deployed" })
     expect(result).toEqual({ ok: true, value: "deployed" })
     const stale = await callOperationFromCli({ rootDir: "/client/project", env: { VITEHUB_DEV_SERVER_URL: "http://localhost" }, fetch }, "test.echo", { text: "wrong project" })
@@ -45,6 +52,31 @@ describe("local operation RPC", () => {
     Object.assign(req, { ip: "192.0.2.4" })
     expect((await handler({ req })).status).toBe(403)
     expect(run).not.toHaveBeenCalled()
+  })
+
+  it("refuses a peer without an address, whatever headers it sends", async () => {
+    const { handler, run, request } = fixture()
+    const forged = { "x-forwarded-for": "127.0.0.1", "x-real-ip": "127.0.0.1" }
+    expect((await handler({ req: request({ operation: "test.echo", input: { text: "unsafe" } }, forged, undefined, null) })).status).toBe(403)
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  it("trusts only the front process's evidence when the worker has a key", async () => {
+    const { handler, run, request } = fixture()
+    useViteHubDevPeerKey()
+    const signed = async (remoteAddress: string, headers: Record<string, string> = {}) => {
+      const req = { headers: { ...headers }, method: "POST", socket: { remoteAddress }, url: "/_vitehub/rpc/__call" }
+      await viteHubDevPeerDevHandler({ node: { req } })
+      return Object.fromEntries(Object.entries(req.headers).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+    }
+    const body = { operation: "test.echo", input: { text: "local" } }
+    // A dev worker behind the front process's proxy sees no address, or the proxy on 127.0.0.1.
+    expect((await handler({ req: request(body, await signed("127.0.0.1"), undefined, null) })).status).toBe(200)
+    expect((await handler({ req: request(body, await signed("127.0.0.1")) })).status).toBe(200)
+    expect(run).toHaveBeenCalledTimes(2)
+    expect((await handler({ req: request(body, await signed("192.168.0.38", { [viteHubDevPeerHeader]: "v1.forged" })) })).status).toBe(403)
+    expect((await handler({ req: request(body, {}, undefined, "127.0.0.1") })).status).toBe(403)
+    expect(run).toHaveBeenCalledTimes(2)
   })
 
   it("validates input and applies the selected operation's byte limit", async () => {
@@ -78,6 +110,21 @@ describe("standalone operation installation", () => {
       expect(findViteHubDevServerUrl([root], {})).toBe("http://127.0.0.1:5179/portal/")
       http.emit("close")
       expect(readViteHubDevServerFile(root)).toBeUndefined()
+    }
+    finally { await rm(root, { force: true, recursive: true }) }
+  })
+
+  it("signs loopback requests in the dev server that serves the transport", async () => {
+    const root = await mkdtemp(join(import.meta.dirname, ".operations-install-"))
+    try {
+      vi.stubEnv(viteHubDevPeerKeyEnv, undefined)
+      const { installStandaloneOperationRpc } = await import("../src/operations-vite.ts")
+      const config = { root, plugins: [{ name: "kv", vitehub: { operations: [{ module: "@vite-hub/kv/operations" }] } }] }
+      await installStandaloneOperationRpc(config, "serve", "@vite-hub/kv/operations")
+      const nitro = Reflect.get(config, "nitro") as { devHandlers: Array<{ handler?: unknown }> }
+      expect(nitro.devHandlers.map(entry => entry.handler)).toEqual([viteHubDevPeerDevHandler])
+      // The worker that the dev server starts inherits the key of this process.
+      expect(process.env[viteHubDevPeerKeyEnv]).toBe(useViteHubDevPeerKey())
     }
     finally { await rm(root, { force: true, recursive: true }) }
   })

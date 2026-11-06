@@ -324,11 +324,12 @@ it.each(["admin", "stranger"])("identifies %s through the standalone CLI operati
   // SAFETY: The libSQL Drizzle database implements the batch contract that ViteHub Databases expose.
   installComments(comments, { database: drizzle(client) as unknown as CommentsDatabase })
   const handler = createStandaloneOperationHandler([{ operations: commentsOperations, plugin: "comments" }], "/project")
-  const request = new Request("http://localhost/_vitehub/rpc/__call", {
+  // `ip` is the loopback peer address that srvx reports for `vite dev`.
+  const request = Object.assign(new Request("http://localhost/_vitehub/rpc/__call", {
     method: "POST",
     headers: { "content-type": "application/json", "x-vitehub-console": "1", "x-person": person },
     body: JSON.stringify({ operation: "comments.create", input }),
-  })
+  }), { ip: "127.0.0.1" })
   const event = new H3Event(request)
   const response = await handler(event)
   expect(response.status).toBe(person === "admin" ? 200 : 403)
