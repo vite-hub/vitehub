@@ -21,7 +21,7 @@ Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation), an
 pnpm add @vite-hub/comments
 ```
 
-The Nuxt module auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/comments`:
+Import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/comments`:
 
 ```ts
 import { CommentLayer } from "@vite-hub/ui/comments";

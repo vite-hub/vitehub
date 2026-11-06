@@ -172,10 +172,13 @@ A project `wrangler.json`, `wrangler.jsonc`, or `wrangler.toml` can still declar
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/database/nuxt'],
-  database: {
-    driver: 'd1',
-    databaseName: 'app-content',
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare',
+    database: {
+      driver: 'd1',
+      databaseName: 'app-content',
+    },
   },
 })
 ```
@@ -183,7 +186,7 @@ export default defineNuxtConfig({
 Run `vitehub provision run --provider cloudflare` to resolve the D1 id into `.vitehub/provision.json`. A Cloudflare production build fails before deployment when it cannot get the id from provision state, `database.databaseId`, or an existing complete matching Nitro Wrangler binding.
 
 ::note
-`@vite-hub/database/nuxt` is a narrow Nuxt lifecycle bridge for one D1 Database Host Resource. Its main use is to keep Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface. For Cloudflare and Vercel builds, the module writes the hosted runtime, schema modules, and Definition defaults before Nitro resolves their imports. Explicit Nitro aliases take precedence.
+In Nuxt, `vitehub.database` declares one D1 Database Host Resource. It keeps Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface. For Cloudflare and Vercel builds, `vite-hub/nuxt` writes the hosted runtime, schema modules, and Definition defaults before Nitro resolves their imports. Explicit Nitro aliases take precedence.
 ::
 
 ## Production checks

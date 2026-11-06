@@ -13,7 +13,7 @@ icon: i-ph-wifi-high-light
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/connection-status`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). Import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/connection-status`:
 
 ```ts
 import { ConnectionStatus, ConnectionStatusIndicator, ConnectionStatusLabel } from "@vite-hub/ui";

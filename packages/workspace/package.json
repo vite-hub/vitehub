@@ -7,7 +7,6 @@
     "cloudflare",
     "filesystem",
     "nuxt",
-    "nuxt-module",
     "typescript",
     "vercel",
     "vite",
@@ -85,11 +84,6 @@
       "types": "./dist/nitro.d.ts",
       "import": "./dist/nitro.js",
       "default": "./dist/nitro.js"
-    },
-    "./nuxt": {
-      "types": "./dist/nuxt.d.ts",
-      "import": "./dist/nuxt.js",
-      "default": "./dist/nuxt.js"
     },
     "./operations": {
       "types": "./dist/operations.d.ts",

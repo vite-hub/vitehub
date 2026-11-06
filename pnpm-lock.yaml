@@ -2460,9 +2460,6 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
-      nuxt:
-        specifier: catalog:nuxt
-        version: 4.6.4(4a4a2b076410cbacdc76ed15f35975b3)
       publint:
         specifier: catalog:tooling
         version: 0.3.25

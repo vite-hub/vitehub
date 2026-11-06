@@ -62,7 +62,6 @@ describe("public package export contracts", () => {
       ["@vite-hub/auth/nuxt", "vite"],
       ["@vite-hub/database/nuxt", "vite"],
       ["@vite-hub/database/vite", "vite"],
-      ["@vite-hub/schedule/nuxt", "vite"],
       ["@vite-hub/schedule/runtime/kv", "@vite-hub/kv"],
       ["@vite-hub/schedule/vite", "vite"],
       ["@vite-hub/source/client", "vue"],
@@ -151,7 +150,6 @@ describe("public package export contracts", () => {
       ["@vite-hub/workspace/nitro", "vite"],
       ["@vite-hub/workspace/vite", "vite"],
       ["vite-hub/browser/controllers/playwright", "playwright-core"],
-      ["vite-hub/ui/nuxt", "vue"],
     ])
 
     for (const [specifier, peer] of lazyPeerExports) {

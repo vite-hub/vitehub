@@ -182,7 +182,6 @@ On Cloudflare, successful handlers acknowledge the message. Failed handlers retr
 | -------------------------------- | ----------------------------------------------------------------------------------- |
 | `@vite-hub/queue`                | Queue Definitions, enqueue helpers, direct clients, host adapters, and public types |
 | `@vite-hub/queue/vite`           | Vite discovery and Cloudflare, Vercel, or local Nitro configuration                 |
-| `@vite-hub/queue/nuxt`           | Nuxt module that composes Queue into Nitro                                          |
 | `@vite-hub/queue/runtime/hosted` | Advanced hosted Vercel callback adapter                                             |
 
 `@vite-hub/queue/internal/*` exists for generated framework integration. Application code should not import it.

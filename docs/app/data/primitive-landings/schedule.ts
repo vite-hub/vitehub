@@ -66,7 +66,8 @@ export default defineConfig({
           path: "nuxt.config.ts",
           language: "typescript",
           content: `export default defineNuxtConfig({
-  modules: ["@vite-hub/schedule/nuxt"],
+  modules: ["vite-hub/nuxt"],
+  vitehub: { schedule: true },
 })`,
         },
         definition,
