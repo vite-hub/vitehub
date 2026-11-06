@@ -594,7 +594,8 @@ export async function finishConsoleOAuthSignIn(search: string): Promise<void> {
     projects.gate.value = callbackProblem(consoleProjectProblem(probe, problemContext(target)), signIn)
     return
   }
-  const project = projects.store.save({ url: signIn.projectUrl, label: probe.info.name, oauth: result.tokens })
+  // A project that had a Console token before now signs in with OAuth only, so the transport sends the new tokens.
+  const project = projects.store.save({ url: signIn.projectUrl, label: probe.info.name, oauth: result.tokens, token: null })
   projects.store.select(project.id)
   projects.projects.value = projects.store.list()
   projects.current.value = project

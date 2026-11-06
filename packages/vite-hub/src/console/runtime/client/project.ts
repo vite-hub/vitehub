@@ -52,10 +52,26 @@ export function resolveProjectUrl(url: string): string {
  * now. The authorization can wait for a refresh, and the active project can change meanwhile, so the URL never comes
  * from a later project than the token.
  */
-export async function projectRequest(path: string, headers: Record<string, string> = {}): Promise<{ url: string, headers: Record<string, string> }> {
+export async function projectRequest(path: string, headers: Record<string, string> = {}): Promise<{
+  url: string
+  headers: Record<string, string>
+  /**
+   * After a `401` with this challenge, the headers to send the request once more with, such as after an OAuth refresh
+   * of the same project, or `undefined` to keep the `401`.
+   */
+  renew: (challenge: string | null) => Promise<Record<string, string> | undefined>
+}> {
   const project = active
   const authorization = await project.authorization?.()
-  return { url: urlOf(project, path), headers: authorization ? { ...headers, authorization } : headers }
+  return {
+    url: urlOf(project, path),
+    headers: authorization ? { ...headers, authorization } : headers,
+    renew: async (challenge) => {
+      if (!authorization || !project.renew) return undefined
+      const renewed = await project.renew(new Response(null, { status: 401, headers: challenge ? { "www-authenticate": challenge } : {} }), authorization)
+      return renewed ? { ...headers, authorization: renewed } : undefined
+    },
+  }
 }
 
 /**

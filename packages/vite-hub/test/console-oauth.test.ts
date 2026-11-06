@@ -539,6 +539,21 @@ describe("OAuth sign-in of a hosted Console", () => {
     expect(tokenCalls.map(call => call.url)).toEqual([`${issuer}/oauth2/token`])
   })
 
+  it("drops the Console token of a project that signs in with OAuth now", async () => {
+    const server = fakeApp()
+    const storage = memoryProjectStorage()
+    createConsoleProjectStore(storage).save({ url: app.url, token: "old-console-token" })
+    const { navigate, projectFetch, session } = await hosted(server, storage)
+    expect(await session.startConsoleOAuthSignIn(app, resourceMetadata)).toBeUndefined()
+    const authorizationUrl = String(navigate.mock.calls[0]![0])
+    const code = server.authorize(authorizationUrl)
+    await session.finishConsoleOAuthSignIn(`?code=${code}&state=${new URL(authorizationUrl).searchParams.get("state")}`)
+    expect(createConsoleProjectStore(storage).find(app.url)?.token).toBeUndefined()
+    server.calls.length = 0
+    await projectFetch("/_vitehub/rpc/__call", { method: "POST", body: "{}" })
+    expect(server.calls.map(call => call.authorization)).toEqual(["Bearer access-1"])
+  })
+
   it("refuses a callback that is older than 10 minutes", async () => {
     const server = fakeApp()
     const { code, session, state, tab } = await signIn(server)
@@ -635,7 +650,10 @@ describe("project snapshot of a request", () => {
     const sent = fetch.mock.calls.map(([url, init]) => [url, new Headers(init?.headers).get("authorization")])
     expect(sent).toEqual([["https://a.example.com/_vitehub/rpc/__call", "Bearer a-1"], ["https://a.example.com/_vitehub/rpc/__call", "Bearer a-2"]])
     expect(renewed).toHaveBeenCalledOnce()
-    expect(await upload).toEqual({ url: "https://a.example.com/_vitehub/rpc/__upload", headers: { "x-vitehub-console": "1", authorization: "Bearer a-1" } })
+    const prepared = await upload
+    expect({ url: prepared.url, headers: prepared.headers }).toEqual({ url: "https://a.example.com/_vitehub/rpc/__upload", headers: { "x-vitehub-console": "1", authorization: "Bearer a-1" } })
+    // The renewal of the upload also belongs to project A.
+    expect(await prepared.renew(null)).toEqual({ "x-vitehub-console": "1", authorization: "Bearer a-2" })
   })
 })
 
@@ -651,5 +669,47 @@ describe("browser storage", () => {
     const working = { getItem: (key: string) => values.get(key) ?? null, removeItem: (key: string) => void values.delete(key), setItem: (key: string, value: string) => void values.set(key, value) }
     expect(openConsoleStorage(() => working)).toEqual({ storage: working, durable: true })
     expect(values.size).toBe(0)
+  })
+})
+
+describe("media upload with OAuth", () => {
+  it("refreshes once and uploads again when the project refuses the access token", async () => {
+    const sent: (string | undefined)[] = []
+    class FakeUpload {
+      headers: Record<string, string> = {}
+      listeners: Record<string, () => void> = {}
+      response: unknown
+      responseType = ""
+      status = 0
+      upload = { addEventListener: () => {} }
+      challenge: string | null = null
+      open() {}
+      abort() {}
+      setRequestHeader(name: string, value: string) { this.headers[name] = value }
+      getResponseHeader(name: string) { return name === "www-authenticate" ? this.challenge : null }
+      addEventListener(type: string, listener: () => void) { this.listeners[type] = listener }
+      send() {
+        sent.push(this.headers.authorization)
+        if (this.headers.authorization === "Bearer old") {
+          this.status = 401
+          this.challenge = `Bearer realm="vitehub-console", error="invalid_token", resource_metadata="${resourceMetadata}"`
+          this.response = { ok: false, status: 401, code: "CONSOLE_SIGN_IN_REQUIRED" }
+        }
+        else {
+          this.status = 200
+          this.response = { ok: true, value: { duplicate: false, file: { pathname: "a.png" } } }
+        }
+        queueMicrotask(() => this.listeners.load?.())
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", FakeUpload)
+    const { setConsoleProject: open } = await import("../src/console/runtime/client/project.ts")
+    const { createConsoleMediaClient } = await import("../src/console/runtime/client/media-library.ts")
+    const renew = vi.fn(async (response: Response) => /invalid_token/.test(response.headers.get("www-authenticate") ?? "") ? "Bearer new" : undefined)
+    open({ origin: "https://app.example.com", base: "", authorization: () => "Bearer old", renew })
+    const result = await createConsoleMediaClient("/api/_vitehub/console/media", "docs").upload(new File(["x"], "a.png", { type: "image/png" }))
+    expect(result).toEqual({ duplicate: false, file: { pathname: "a.png" } })
+    expect(sent).toEqual(["Bearer old", "Bearer new"])
+    expect(renew).toHaveBeenCalledOnce()
   })
 })
