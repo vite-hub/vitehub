@@ -352,6 +352,9 @@ jobs:
     name: node 22.18
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Exercise the package floor while keeping contributor installs on Node 24.
+      PNPM_CONFIG_RUNTIME_ON_FAIL: ignore
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
