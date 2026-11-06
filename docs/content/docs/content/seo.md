@@ -58,7 +58,7 @@ A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt). Read
 
 `seo()` is a field like any other. Add it to the collections whose pages need their own search and social text:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 import { z } from 'zod'
 import { documents, image, seo } from 'vite-hub/content'
 
@@ -123,10 +123,16 @@ The result includes `description`, `robots: noindex` when set, Open Graph `og:ti
 
 Turn on the routes in `defineContent()`:
 
-```ts [server/content.ts] fragment
+```ts [server/content.ts]
+import { defineContent, documents, seo, singleton } from 'vite-hub/content'
+import { z } from 'zod'
+
 export const content = defineContent({
   workspace: 'site',
-  collections: { posts, home },
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string(), seo: seo() } }),
+    home: singleton({ path: 'home.md', url: '/', fields: { title: z.string() } }),
+  },
   seo: { site: 'https://vitehub.dev', sitemap: true, robots: { disallow: ['/_vitehub'] } },
 })
 ```
@@ -143,9 +149,13 @@ ViteHub generates both routes the same way it generates `/api/content/**`: the `
 
 Check the output from code:
 
-```ts
-await content.sitemap()  // [{ collection: 'posts', id: 'hello', loc: 'https://vitehub.dev/blog/hello', lastmod }]
-content.robots()         // 'User-agent: *\nDisallow: /_vitehub\n\nSitemap: https://vitehub.dev/sitemap.xml\n'
+```ts [server/utils/seo-check.ts]
+import { content } from '../content'
+
+export async function checkSeo() {
+  await content.sitemap()  // [{ collection: 'posts', id: 'hello', loc: 'https://vitehub.dev/blog/hello', lastmod }]
+  content.robots()         // 'User-agent: *\nDisallow: /_vitehub\n\nSitemap: https://vitehub.dev/sitemap.xml\n'
+}
 ```
 
 In another server, mount `defineContentSitemapHandler(content)` and `defineContentRobotsHandler(content)` yourself. `renderContentSitemap(entries)` renders entries as sitemap XML, for example to merge them with pages that are not Content documents.

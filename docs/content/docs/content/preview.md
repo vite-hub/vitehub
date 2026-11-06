@@ -10,7 +10,23 @@ A preview cookie makes one browser read the `draft` ref through your real pages.
 
 ## Enable preview
 
-`content.preview.enable(event)` signs a token and sets it as a cookie on the response. `content.preview.disable(event)` clears it.
+`content.preview.enable(event)` signs a token and sets it as a cookie on the response. `content.preview.disable(event)` clears it. The routes below preview this `posts` collection:
+
+```ts [server/content.ts]
+import { cms } from 'vite-hub/cms'
+import { defineContent, documents } from 'vite-hub/content'
+import { z } from 'zod'
+
+export const content = defineContent({
+  extends: cms,
+  authorize: ({ user, action }) => action === 'read' && Boolean(user),
+  collections: {
+    posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string() } }),
+  },
+})
+```
+
+This policy lets signed-in users read drafts. Replace it with your app's preview access rules.
 
 ```ts [server/api/preview.post.ts] fragment
 import { content } from '../content'
@@ -24,6 +40,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 ```ts [server/api/preview.delete.ts]
+import { defineEventHandler } from 'h3'
 import { content } from '../content'
 
 export default defineEventHandler(event => content.preview.disable(event))
