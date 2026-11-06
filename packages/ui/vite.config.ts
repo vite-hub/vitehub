@@ -1,16 +1,21 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite-plus";
 import { normalizePackageExports } from "@vite-hub/internal/package-exports";
 import { componentNames, componentEntryName } from "./src/component-entries.ts";
 
+// The Node build of vega-canvas loads the optional `canvas` package with a top-level await, which Nitro's es2019 target rejects.
+// Without `canvas`, both builds return null in Node, so the browser build is bundled for every host.
+const vegaCanvasBrowser = fileURLToPath(new URL("vega-canvas.browser.js", import.meta.resolve("vega-canvas")));
+
 export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
+    alias: { "vega-canvas": vegaCanvasBrowser },
     copy: [{ from: "styles.css", to: "dist" }],
     deps: {
-      alwaysBundle: [/@pierre\//, "@vite-hub/icons", "@vite-hub/runtime", /^comark-(?!chat(?:\/|$))/],
-      // Keep Vega's Node/browser exports selectable by the consuming host.
+      alwaysBundle: [/@pierre\//, "@vite-hub/icons", "@vite-hub/runtime", /^comark-(?!chat(?:\/|$))/, "vega-canvas"],
+      // Keep vega-loader's Node/browser exports selectable by the consuming host.
       neverBundle: [
-        "vega-canvas",
         "vega-loader",
         "#app",
         "@comark/vue",

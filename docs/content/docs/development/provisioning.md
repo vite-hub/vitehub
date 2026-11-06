@@ -8,7 +8,9 @@ icon: i-lucide-cloud-cog
 
 Use Provision to create the provider resources that your Definitions need before
 the first deploy. Each enabled package contributes Provision Steps. The steps are
-idempotent and create-only: they never delete or change existing resources.
+idempotent and never delete resources. They change an existing resource only when
+the plan shows an `update` action: D1 read replication for a Database that sets
+`readReplication`.
 
 | Provider | Resources that Provision can create | Owner package |
 | --- | --- | --- |
@@ -33,13 +35,21 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 
 Provider steps use read credentials during planning to distinguish existing resources from resources to create. Each step reads every page of the provider's resource list, so an account with many D1 databases, KV namespaces, R2 buckets, or Queues does not plan a create for a resource that already exists. A dry run does not call `apply()` or write Provision State. A dry run without credentials does not fail. Steps that cannot look up current state skip their actions, and the CLI prints `provision: plan not checked.` instead of `no ... resources to create`. Database, KV, Blob, and Queue steps all report a skipped lookup this way.
 
-Each line shows the action status, the resource kind, and the resource name.
+Each line shows the action status, the resource kind, and the resource name. An `update` line also shows the change.
 
 ```txt [Output]
 create  cloudflare-d1            app-content
+update  cloudflare-d1            app-db      read replication: disabled -> auto
 create  cloudflare-kv-namespace  app-cache
 exists  cloudflare-r2-bucket     uploads
 ```
+
+| Status | Meaning |
+| --- | --- |
+| `create` | The resource does not exist. `provision run` creates it. |
+| `update` | The resource exists, but a setting differs. `provision run` changes only that setting. |
+| `pending` | The resource exists but needs provider-side setup, such as a Vercel Blob project connection. |
+| `exists` | The resource exists. `provision run` only records its id. |
 
 ## Apply the plan
 
@@ -101,6 +111,8 @@ Without provider credentials, the command still shows recorded ids, but it repor
 
 When you rename or remove a Database Definition, a KV Store, an R2 Blob Store, or a Queue Definition, its id stays in `.vitehub/provision.json` and its resource stays on the host. `provision status` marks that entry as `not declared` and prints a `fix:` line for it. This check reads only local config, so it also works without credentials.
 
+Status also marks an R2 or Queue entry when its key is still declared but its recorded bucket name, jurisdiction, or Queue name differs from current config.
+
 ```txt [Output]
 recorded cloudflare ids (.vitehub/provision.json):
 d1      main     db-main
@@ -148,6 +160,7 @@ pnpm vitehub provision status --provider cloudflare --json
 `undeclared` lists each recorded id that no Definition declares, as `{ category, key, id, fix }`.
 `provision run --json` returns `mode` (`dry-run` or `apply`), the planned `actions`, the `ids` written by this run, `stateFile` (`null` when nothing was written), and `warnings`.
 An action may include `pending` to report required provider-side setup independently of resource existence. Without this field, an action is pending when `exists` is `false`. Vercel Blob includes the field because an existing store may still need a project connection.
+An action with `update` changes an existing resource. It has `exists: true` and `pending: true`, and `update` describes the change, for example `"read replication: disabled -> auto"`.
 Both commands exit with code `0` when the plan phase succeeds, also when actions are pending.
 For `provision status --json`, require `plan.checked === true` before checking `plan.pending === 0` to gate a CI step. An unchecked plan can have zero pending actions because resource lookups were skipped.
 

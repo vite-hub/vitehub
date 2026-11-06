@@ -71,7 +71,7 @@ function writeUsage(command: ProvisionCommand, stream: ProvisionFeatureContext["
         `Usage: ${USAGE.run}`,
         "",
         "Idempotently creates missing provider resources for the app's Definitions.",
-        "Never deletes or mutates existing resources.",
+        "Never deletes resources. Changes an existing resource only for a planned update, such as D1 read replication.",
         "",
         "Options:",
         "  --provider <name>  Target provider: cloudflare or vercel (required).",
@@ -165,29 +165,36 @@ function findUndeclaredEntries(
       for (const category of described) unverifiedDeclarations.add(category.category)
     }
   }
-  const isDeclared = (category: string, key: string) => categories.get(category)?.declared.includes(key) ?? false
   const resourceIdentity = (category: string, key: string, id: string) => {
     const describe = categories.get(category)?.resourceIdentity
     return describe ? describe({ id, key }) : id
+  }
+  const isDeclared = (category: string, key: string, id: string) => {
+    const description = categories.get(category)
+    if (!description?.declared.includes(key)) return false
+    const expected = description.declaredResourceIdentity?.(key)
+    const identity = resourceIdentity(category, key, id)
+    // Keep key-based declarations when identities are unknown, but report definite config changes.
+    return expected === undefined || identity === undefined || identity === expected
   }
   const declaredById = new Map<string, string>()
   for (const [category, ids] of Object.entries(recorded)) {
     for (const [key, id] of Object.entries(ids)) {
       const identity = resourceIdentity(category, key, id)
-      if (identity !== undefined && isDeclared(category, key) && !declaredById.has(identity)) declaredById.set(identity, `${category} ${JSON.stringify(key)}`)
+      if (identity !== undefined && isDeclared(category, key, id) && !declaredById.has(identity)) declaredById.set(identity, `${category} ${JSON.stringify(key)}`)
     }
   }
   const stateEdit = `remove the entry from ${PROVISION_STATE_FILE}`
   const entries: UndeclaredProvisionEntry[] = []
   for (const [category, ids] of Object.entries(recorded)) {
     for (const [key, id] of Object.entries(ids)) {
-      if (isDeclared(category, key)) continue
+      if (isDeclared(category, key, id)) continue
       const identity = resourceIdentity(category, key, id)
       const sharedWith = identity === undefined ? undefined : declaredById.get(identity)
       let fix: string
       if (sharedWith) fix = `${sharedWith} uses the same id, so keep the resource and only ${stateEdit}.`
       else if (unverifiedDeclarations.has(category) || (identity === undefined && activeDeclarations.has(category))) {
-        fix = "No Definition declares this key. A current Definition may still use this resource because its identity cannot be verified from local state and config. Verify its resource id before deleting anything by comparing the provider's resource names and bindings with current Definitions."
+        fix = "A current Definition may still use this recorded resource, but its identity cannot be verified from local state and config. Verify its resource id before deleting anything by comparing the provider's resource names and bindings with current Definitions."
       }
       else {
         const deleteHint = categories.get(category)?.deleteHint({ id, key }) ?? `delete resource ${id} in the ${provider === "cloudflare" ? "Cloudflare" : "Vercel"} dashboard`
@@ -206,13 +213,14 @@ function serializeAction({ action, step }: PlannedProvisionAction) {
     kind: action.kind,
     name: action.name,
     step,
+    ...(action.update === undefined ? {} : { update: action.update }),
   }
 }
 
 function writeActions(actions: PlannedProvisionAction[], stdout: ProvisionFeatureContext["stdout"]): void {
   for (const { action } of actions) {
-    const status = !action.exists ? "create" : action.pending ? "pending" : "exists"
-    stdout.write(`${status}\t${action.kind}\t${action.name}\n`)
+    const status = !action.exists ? "create" : action.update ? "update" : action.pending ? "pending" : "exists"
+    stdout.write(`${status}\t${action.kind}\t${action.name}${action.update ? `\t${action.update}` : ""}\n`)
   }
 }
 

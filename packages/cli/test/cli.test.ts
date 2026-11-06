@@ -26,7 +26,7 @@ async function createTempDir() {
   return rootDir
 }
 
-function provisionPlugin(apply: () => Promise<{ ids?: unknown }>, overrides: { exists?: boolean, pending?: boolean } = {}) {
+function provisionPlugin(apply: () => Promise<{ ids?: unknown }>, overrides: { exists?: boolean, pending?: boolean, update?: string } = {}) {
   return {
     vitehub: {
       cli: {
@@ -1190,7 +1190,7 @@ export default function (_options, nuxt) {
     })
     const stdout = stream()
     await runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", "--json"], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout })
-    const [entry] = JSON.parse(stdout.output()).undeclared
+    const entry = JSON.parse(stdout.output()).undeclared.find((entry: { key: string }) => entry.key === "old")
     expect(entry).toMatchObject({ category: "r2", key: "old", id: staleId })
     expect(entry.fix.includes("keep the resource")).toBe(shared)
     if (deferred) {
@@ -1198,6 +1198,45 @@ export default function (_options, nuxt) {
       expect(entry.fix).not.toContain("delete the bucket")
     }
     else if (!shared) expect(entry.fix).toContain("delete the bucket in its jurisdiction")
+  })
+
+  it.each([
+    { category: "r2", recordedId: "default/assets", expectedId: "default/new-assets" },
+    { category: "r2", recordedId: "default/assets", expectedId: "eu/assets" },
+    { category: "queue", recordedId: "old-jobs", expectedId: "new-jobs" },
+  ])("reports $category resources when a declared key changes identity to $expectedId", async ({ category, recordedId, expectedId }) => {
+    const rootDir = await createTempDir()
+    const stateFile = join(rootDir, ".vitehub", "provision.json")
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    const initialState = JSON.stringify({ cloudflare: { [category]: { current: recordedId, old: recordedId } } })
+    await writeFile(stateFile, initialState)
+    const plan = vi.fn(async () => [])
+    const deleteHint = vi.fn(() => "delete the resource")
+    const loadConfig = async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [], provision: [{
+        id: "test:cloudflare",
+        plan,
+        provider: "cloudflare",
+        recordedState: () => [{ category, declared: ["current"], declaredResourceIdentity: () => expectedId, deleteHint }],
+      }] } } }],
+      root: rootDir,
+    })
+
+    const human = stream()
+    await expect(runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare"], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout: human })).resolves.toBe(0)
+    expect(human.output()).toContain(`${category}\tcurrent\t${recordedId}\tnot declared`)
+
+    const stdout = stream()
+    await expect(runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare", "--json"], cwd: rootDir, env: {}, loadConfig, stderr: stream(), stdout })).resolves.toBe(0)
+    expect(JSON.parse(stdout.output()).undeclared).toEqual(["current", "old"].map(key => ({
+      category,
+      key,
+      id: recordedId,
+      fix: expect.stringContaining("Verify its resource id before deleting anything"),
+    })))
+    expect(deleteHint).not.toHaveBeenCalled()
+    expect(plan).not.toHaveBeenCalled()
+    expect(await readFile(stateFile, "utf8")).toBe(initialState)
   })
 
   it("counts existing but incomplete actions as pending", async () => {
@@ -1224,6 +1263,39 @@ export default function (_options, nuxt) {
         pending: 1,
       },
     })
+    expect(apply).not.toHaveBeenCalled()
+  })
+
+  it("shows a planned update of an existing resource in status, dry run, and JSON", async () => {
+    const rootDir = await createTempDir()
+    const apply = vi.fn(async () => ({}))
+    const env = { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" }
+    const loadConfig = async () => ({
+      plugins: [provisionPlugin(apply, { exists: true, pending: true, update: "read replication: disabled -> auto" })],
+      root: rootDir,
+    })
+
+    const status = stream()
+    await expect(runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare"], cwd: rootDir, env, loadConfig, stdout: status }))
+      .resolves.toBe(0)
+    expect(status.output()).toBe([
+      "recorded cloudflare ids: none in .vitehub/provision.json",
+      "update\ttest-resource\tdemo\tread replication: disabled -> auto",
+      "plan: 1 pending action. Run `vitehub provision run --provider cloudflare` to apply.",
+      "",
+    ].join("\n"))
+
+    const dryRun = stream()
+    await expect(runViteHubCli({ args: ["provision", "run", "--provider", "cloudflare", "--dry-run"], cwd: rootDir, env, loadConfig, stdout: dryRun }))
+      .resolves.toBe(0)
+    expect(dryRun.output()).toBe("update\ttest-resource\tdemo\tread replication: disabled -> auto\n")
+
+    const json = stream()
+    await expect(runViteHubCli({ args: ["provision", "run", "--provider", "cloudflare", "--dry-run", "--json"], cwd: rootDir, env, loadConfig, stdout: json }))
+      .resolves.toBe(0)
+    expect(JSON.parse(json.output()).actions).toEqual([
+      { exists: true, kind: "test-resource", name: "demo", pending: true, step: "test:cloudflare", update: "read replication: disabled -> auto" },
+    ])
     expect(apply).not.toHaveBeenCalled()
   })
 
