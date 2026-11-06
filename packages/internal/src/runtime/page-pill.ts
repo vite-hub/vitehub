@@ -14,28 +14,29 @@ import type { ViteHubPageToolsDock, ViteHubPageToolsEdge } from "./page-tools-wi
 //
 // The pill docks to an edge of the screen, like the floating frame of Nuxt and Vite DevTools: `edge` names the edge and
 // `--at` the place along it, from 0 (left or top end) to 100 (right or bottom end). Expanded, the pill sits 16px from
-// the edge and stays 16px inside both ends. On the left and right edges its buttons stack. Collapsed, the glass is the
-// ViteHub hexagon (24px high, the mark's 20:18; 40px on touch screens), 2px from the edge, so it covers almost nothing
-// of the page. The bar keeps its layout and only its clip changes, so the morph never reflows: 12 clip points go from
-// the bar to the hexagon with softened corners, at the center of the bar, while the bar moves so that the hexagon lands
-// on the edge. The bar's corner points cut 6px corners that stay outside the 12px border-radius, so the shape keeps
-// soft corners at every frame instead of square ones that round only at the end. The shape grows from its center and
+// the edge and stays 16px inside both ends. On the left and right edges the mark and the exit button share the first
+// row, and the tools stack under them, aligned at the left. Collapsed, the glass is the ViteHub hexagon (24px high, the
+// mark's 20:18; 40px on touch screens), 2px from the edge, so it covers almost nothing of the page. The bar keeps its layout and only its clip changes, so the morph never reflows: 12 clip points go from
+// the bar to the hexagon, at the center of the bar, while the bar moves so that the hexagon lands on the edge. Each
+// corner of the hexagon is two points where the mark's path meets its rounded corner, so the shape is the mark at every
+// size. The bar's corner points cut 6px corners that stay outside the 12px border-radius, so the shape keeps soft
+// corners at every frame instead of square ones that round only at the end. The shape grows from its center and
 // shrinks from its ends, so the mark and the exit button at the ends of the bar fade with their own timing. Collapsing
 // fades the ends out in 40ms and the tools in 80ms, and closes the shape 40ms in, so it never cuts through a label.
 // Expanding shows the tools from 80ms and the ends from 120ms, when the shape has reached them.
 const pillBar = "polygon(0 6px,6px 0,calc(100% - 6px) 0,100% 6px,100% 50%,100% 50%,100% calc(100% - 6px),calc(100% - 6px) 100%,6px 100%,0 calc(100% - 6px),0 50%,0 50%)"
-const hexagonPoints: Array<[number, number, number, number]> = [
-  [-0.235, -1.01, -1, 1.72], [-0.235, 2, -1, 0], [0.235, -2, -1, 0], [0.235, 1.01, -1, 1.72],
-  [0.5, -1.01, 0, -1.72], [0.5, -1.01, 0, 1.72], [0.235, 1.01, 1, -1.72], [0.235, -2, 1, 0],
-  [-0.235, 2, 1, 0], [-0.235, -1.01, 1, -1.72], [-0.5, 1.01, 0, 1.72], [-0.5, 1.01, 0, -1.72],
+// The points of the mark's path in its 20 by 18 box, from its center, as parts of its width and height.
+const hexagonPoints: Array<[number, number]> = [
+  [-0.28, -0.453], [-0.208, -0.5], [0.208, -0.5], [0.28, -0.453], [0.488, -0.047], [0.488, 0.047],
+  [0.28, 0.453], [0.208, 0.5], [-0.208, 0.5], [-0.28, 0.453], [-0.488, 0.047], [-0.488, -0.047],
 ]
-const pillHexagon = `polygon(${hexagonPoints.map(([x, dx, y, dy]) => `calc(50% + var(--vitehub-hex-w) * ${x} + ${dx}px) calc(50% + var(--vitehub-hex-h) * ${y / 2} + ${dy}px)`).join(",")})`
+const pillHexagon = `polygon(${hexagonPoints.map(([x, y]) => `calc(50% + var(--vitehub-hex-w) * ${x}) calc(50% + var(--vitehub-hex-h) * ${y})`).join(",")})`
 const along = (size: string) => `calc(var(--start) + ${size} / 2 + (100% - var(--start) - var(--end) - ${size}) * var(--at) / 100)`
 /** The pill's styles. A pill of its own, such as the small mark that stays when the tools are off, can reuse them. */
 export const viteHubPagePillStyles: string = `:host{all:initial;position:fixed;z-index:2147483001;pointer-events:none;filter:drop-shadow(0 8px 24px rgb(0 0 0/25%));color-scheme:dark;font:500 12px/1 ui-sans-serif,system-ui,sans-serif;color:#d4d4d4;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;--vitehub-pill-text:#d4d4d4;--vitehub-pill-strong:#fafafa;--vitehub-pill-muted:#a3a3a3;--vitehub-pill-hover:rgb(255 255 255/8%);--vitehub-pill-on:#fafafa;--vitehub-pill-on-text:#0a0a0a;--vitehub-pill-line:rgb(255 255 255/12%);--vitehub-pill-surface:#111;--vitehub-pill-flow:row;--vitehub-pill-ease:cubic-bezier(.32,.72,0,1);--vitehub-hex-h:24px;--vitehub-hex-w:calc(var(--vitehub-hex-h) * 10 / 9);--vitehub-pill-morph:280ms;--vitehub-pill-fade:opacity 160ms ease-out 80ms,visibility 0s;--vitehub-pill-fade-end:opacity 160ms ease-out 120ms,visibility 0s;--at:50;--margin:16px;--safe-top:env(safe-area-inset-top,0px);--safe-right:env(safe-area-inset-right,0px);--safe-bottom:env(safe-area-inset-bottom,0px);--safe-left:env(safe-area-inset-left,0px);transition-property:left,top,right,bottom,translate;transition-duration:var(--vitehub-pill-morph);transition-timing-function:var(--vitehub-pill-ease);transition-delay:var(--vitehub-pill-wait,0s)}
 :host([collapsed]){--margin:2px;--vitehub-pill-morph:240ms;--vitehub-pill-wait:40ms;--vitehub-pill-fade:opacity 80ms ease-out,visibility 0s 80ms;--vitehub-pill-fade-end:opacity 40ms ease-out,visibility 0s 40ms}
 :host(:is([edge=top],[edge=bottom])){left:${along("0px")};--start:max(var(--margin),var(--safe-left));--end:max(var(--margin),var(--safe-right));--x:calc(var(--at) * -1%)}
-:host(:is([edge=left],[edge=right])){top:${along("0px")};--start:max(var(--margin),var(--safe-top));--end:max(var(--margin),var(--safe-bottom));--y:calc(var(--at) * -1%);--vitehub-pill-flow:column}
+:host(:is([edge=left],[edge=right])){top:${along("0px")};--start:max(var(--margin),var(--safe-top));--end:max(var(--margin),var(--safe-bottom));--y:calc(var(--at) * -1%);--vitehub-pill-flow:column;--vitehub-pill-justify:flex-start}
 :host([edge=bottom]){bottom:max(16px,var(--safe-bottom))}
 :host([edge=top]){top:max(16px,var(--safe-top))}
 :host([edge=right]){right:max(16px,var(--safe-right))}
@@ -49,13 +50,13 @@ export const viteHubPagePillStyles: string = `:host{all:initial;position:fixed;z
 :host{translate:var(--x,0) var(--y,0)}
 :host([dragging]){transition:none;cursor:grabbing;user-select:none;-webkit-user-select:none}
 div{position:relative;box-sizing:border-box;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);overflow:auto;scrollbar-width:none;display:flex;flex-direction:var(--vitehub-pill-flow);align-items:center;gap:8px;padding:4px;border:1px solid var(--vitehub-pill-line);border-radius:12px;background:rgb(17 17 17/92%);pointer-events:auto;clip-path:${pillBar};transition:clip-path var(--vitehub-pill-morph) var(--vitehub-pill-ease) var(--vitehub-pill-wait,0s),background-color 150ms ease-out,scale 150ms ease-out}
-:host(:is([edge=left],[edge=right])) div{align-items:stretch}
+:host(:is([edge=left],[edge=right])) div{display:grid;grid-template-columns:auto 1fr;align-items:stretch;gap:8px 2px}
 :host([collapsed]) div{clip-path:${pillHexagon}}
 @media(hover:hover){:host([collapsed]) div:hover{background:rgb(38 38 38/94%)}}
 :host([collapsed]) div:active{scale:.96}
 :host([dragging]) div{transition:none;scale:none}
 ::slotted(*){flex-shrink:0;display:flex;flex-direction:var(--vitehub-pill-flow);align-items:center;gap:2px;transition:var(--vitehub-pill-fade)}
-:host(:is([edge=left],[edge=right])) ::slotted(*){align-items:stretch}
+:host(:is([edge=left],[edge=right])) ::slotted(*){grid-column:1/-1;align-items:stretch}
 ::slotted([hidden]){display:none!important}
 :host([collapsed]) ::slotted(*),:host([collapsed]) .exit{opacity:0;visibility:hidden}
 .tabs{position:absolute;display:flex;width:max-content;height:max-content;max-width:calc(100vw - max(16px,var(--safe-left)) - max(16px,var(--safe-right)));max-height:calc(100dvh - max(16px,var(--safe-top)) - max(16px,var(--safe-bottom)));gap:4px;overflow:auto;pointer-events:auto}
@@ -72,9 +73,11 @@ div{position:relative;box-sizing:border-box;max-width:calc(100vw - 32px);max-hei
 :host([edge=left]) ::slotted([slot=tab]){border-left:0;border-radius:0 10px 10px 0}
 :host([edge=right]) ::slotted([slot=tab]){border-right:0;border-radius:10px 0 0 10px}
 ${viteHubPillButtonStyles}
-button{flex-shrink:0;padding:0}
+button{flex-shrink:0;padding:0;justify-content:center}
 .exit{position:sticky;right:0;bottom:0;transition:background-color 150ms,color 150ms,scale 150ms,var(--vitehub-pill-fade-end)}
-.mark{position:sticky;left:0;top:0;z-index:1;cursor:grab;touch-action:none}
+:host(:is([edge=left],[edge=right])) .mark{justify-self:start}
+:host(:is([edge=left],[edge=right])) .exit{grid-area:1/2;justify-self:end;top:0;bottom:auto}
+.mark{position:sticky;left:0;top:0;z-index:1;cursor:grab}
 :host([dragging]) .mark{cursor:grabbing}
 .mark,.mark[aria-expanded=true]{background:none;color:var(--vitehub-pill-strong)}
 @media(hover:hover){.mark:hover{background:var(--vitehub-pill-hover)}}
@@ -219,9 +222,8 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   let opened = options.markOnly?.opened === true
   const folded = () => markOnly() ? !opened : storedCollapsed(options.storage.collapsed) ?? initiallyCollapsed
   collapse(folded())
-  let dragged = false
   mark.addEventListener("click", () => {
-    if (dragged) return
+    if (dragged()) return
     const collapsed = !pill.hasAttribute("collapsed")
     collapse(collapsed)
     place(dock)
@@ -271,56 +273,33 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
     pill.setAttribute("edge", shown.edge)
     pill.style.setProperty("--at", String(shown.at))
     const collapsed = pill.hasAttribute("collapsed")
-    const thickness = collapsed ? vertical() ? hexagonSize(pill).width : hexagonSize(pill).height : vertical() ? toolbar.offsetWidth : toolbar.offsetHeight
+    const thickness = collapsed ? vertical() ? viteHubPageHexagonSize(pill).width : viteHubPageHexagonSize(pill).height : vertical() ? toolbar.offsetWidth : toolbar.offsetHeight
     options.onPlace?.({ ...shown, collapsed, thickness })
     // Collapsed, the mark moves to the hexagon at the bar's center. It only translates, so the bar keeps its size and
     // the clip morph is not cut short by the resize animation below.
     mark.style.setProperty("--vitehub-mark-x", `${toolbar.clientWidth / 2 - mark.offsetLeft - mark.offsetWidth / 2}px`)
     mark.style.setProperty("--vitehub-mark-y", `${toolbar.clientHeight / 2 - mark.offsetTop - mark.offsetHeight / 2}px`)
   }
-  // Dragging the mark docks the pill to the edge under the pointer and keeps the mark under it. A press that moves less
-  // than 4px is a click.
-  mark.addEventListener("pointerdown", (event) => {
-    if (event.button !== 0) return
-    dragged = false
-    const markBox = mark.getBoundingClientRect()
-    const grip = { x: event.clientX - markBox.left - markBox.width / 2, y: event.clientY - markBox.top - markBox.height / 2 }
-    mark.setPointerCapture(event.pointerId)
-    const move = (moved: PointerEvent) => {
-      if (!dragged && Math.hypot(moved.clientX - event.clientX, moved.clientY - event.clientY) < 4) return
-      dragged = true
-      pill.setAttribute("dragging", "")
-      const width = document.documentElement.clientWidth
-      const height = document.documentElement.clientHeight
-      const x = moved.clientX - grip.x
-      const y = moved.clientY - grip.y
-      const edge = viteHubPageToolsEdgeAt(x, y, width, height)
-      if (edge !== dock.edge) place({ edge, at: dock.at })
-      const side = edge === "left" || edge === "right"
+  // Dragging the mark docks the pill to the edge under the pointer and keeps the mark under it.
+  const dragged = dragViteHubPageDock({
+    host: pill,
+    handle: mark,
+    dock: () => dock,
+    shape: (side) => {
       const collapsed = pill.hasAttribute("collapsed")
       // Expanded, the mark leads the bar; collapsed, the mark is the hexagon at the bar's center.
       const size = collapsed ? side ? pill.offsetHeight : pill.offsetWidth : side ? toolbar.offsetHeight : toolbar.offsetWidth
       const lead = collapsed ? size / 2 : side ? mark.offsetTop + mark.offsetHeight / 2 : mark.offsetLeft + mark.offsetWidth / 2
-      const hexagon = collapsed ? side ? hexagonSize(pill).height : hexagonSize(pill).width : size
-      const center = (side ? y : x) - lead + size / 2
-      // Use the same asymmetric safe margins as CSS, so a drag keeps its place on devices with cutouts.
-      const computed = getComputedStyle(pill)
-      const margin = collapsed ? 2 : 16
-      const start = Math.max(margin, Number.parseFloat(computed.getPropertyValue(side ? "--safe-top" : "--safe-left")) || 0)
-      const end = Math.max(margin, Number.parseFloat(computed.getPropertyValue(side ? "--safe-bottom" : "--safe-right")) || 0)
-      place({ edge, at: placeAlong(center, hexagon, start, end, side ? height : width) })
-    }
-    mark.addEventListener("pointermove", move)
-    mark.addEventListener("lostpointercapture", () => {
-      mark.removeEventListener("pointermove", move)
-      if (!dragged) return
-      pill.removeAttribute("dragging")
+      const part = collapsed ? side ? viteHubPageHexagonSize(pill).height : viteHubPageHexagonSize(pill).width : size
+      return { size, lead, part, margin: collapsed ? 2 : 16 }
+    },
+    place,
+    drop: () => {
       place(dock)
       try { localStorage.setItem(options.storage.dock, JSON.stringify({ edge: dock.edge, at: dock.at })) }
       catch {}
-      // The click that ends the drag comes first, so a later key press on the mark still toggles the pill.
-      setTimeout(() => { dragged = false })
-    }, { once: true })
+    },
+    signal,
   })
 
   // A segment that grows or shrinks, such as a tool that draws more buttons once it loads, would move every other
@@ -386,8 +365,81 @@ export function mountViteHubPagePill(options: ViteHubPagePillOptions): HTMLEleme
   return pill
 }
 
-/** The collapsed hexagon's size, from the pill's CSS. */
-function hexagonSize(pill: HTMLElement): { width: number, height: number } {
+/** The part of a pill that a drag moves, along the edge it docks to: a `side` edge is the left or right one. */
+export interface ViteHubPageDragShape {
+  /** The length of the host element. */
+  size: number
+  /** How far the point under the pointer is from the start of the host. */
+  lead: number
+  /** The length of the part that must stay inside the margins, such as the hexagon. */
+  part: number
+  /** The space it keeps from both ends of the edge, without the safe area. */
+  margin: number
+}
+
+export interface ViteHubPageDragOptions {
+  /** The fixed element with the `edge` attribute and the `--safe-*` properties. It gets `dragging` during a drag. */
+  host: HTMLElement
+  /** The part that the pointer grabs. */
+  handle: HTMLElement
+  dock: () => ViteHubPageToolsDock
+  shape: (side: boolean) => ViteHubPageDragShape
+  /** Moves the host to a dock while the pointer moves. */
+  place: (dock: ViteHubPageToolsDock) => void
+  /** Runs once when the drag ends, after `dragging` goes away: keep the dock here. */
+  drop: () => void
+  signal?: AbortSignal
+}
+
+/**
+ * Lets a pointer drag `handle` to dock `host` to the edge under it, and keeps the point that it grabbed under the
+ * pointer. A press that moves less than 4px is a click. Returns whether the press that ends with the current click was
+ * a drag, so the click handler can ignore it.
+ */
+export function dragViteHubPageDock(options: ViteHubPageDragOptions): () => boolean {
+  const { host, handle } = options
+  let dragged = false
+  handle.style.touchAction = "none"
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return
+    dragged = false
+    const box = handle.getBoundingClientRect()
+    const grip = { x: event.clientX - box.left - box.width / 2, y: event.clientY - box.top - box.height / 2 }
+    handle.setPointerCapture(event.pointerId)
+    const move = (moved: PointerEvent) => {
+      if (!dragged && Math.hypot(moved.clientX - event.clientX, moved.clientY - event.clientY) < 4) return
+      dragged = true
+      host.setAttribute("dragging", "")
+      const width = document.documentElement.clientWidth
+      const height = document.documentElement.clientHeight
+      const x = moved.clientX - grip.x
+      const y = moved.clientY - grip.y
+      const edge = viteHubPageToolsEdgeAt(x, y, width, height)
+      if (edge !== options.dock().edge) options.place({ edge, at: options.dock().at })
+      const side = edge === "left" || edge === "right"
+      const { size, lead, part, margin } = options.shape(side)
+      const center = (side ? y : x) - lead + size / 2
+      // Use the same asymmetric safe margins as CSS, so a drag keeps its place on devices with cutouts.
+      const computed = getComputedStyle(host)
+      const start = Math.max(margin, Number.parseFloat(computed.getPropertyValue(side ? "--safe-top" : "--safe-left")) || 0)
+      const end = Math.max(margin, Number.parseFloat(computed.getPropertyValue(side ? "--safe-bottom" : "--safe-right")) || 0)
+      options.place({ edge, at: placeAlong(center, part, start, end, side ? height : width) })
+    }
+    handle.addEventListener("pointermove", move)
+    handle.addEventListener("lostpointercapture", () => {
+      handle.removeEventListener("pointermove", move)
+      if (!dragged) return
+      host.removeAttribute("dragging")
+      options.drop()
+      // The click that ends the drag comes first, so a later key press on the handle still counts as a click.
+      setTimeout(() => { dragged = false })
+    }, { once: true })
+  }, { signal: options.signal })
+  return () => dragged
+}
+
+/** The collapsed hexagon's size, from the CSS of a pill or of its off mark. */
+export function viteHubPageHexagonSize(pill: HTMLElement): { width: number, height: number } {
   const height = Number.parseFloat(getComputedStyle(pill).getPropertyValue("--vitehub-hex-h")) || 24
   return { width: height * 10 / 9, height }
 }

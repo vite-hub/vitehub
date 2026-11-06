@@ -1,4 +1,4 @@
-import { mountViteHubPagePill, storedViteHubPageDock, viteHubPagePillStyles, viteHubPageSvgIcon } from "./page-pill.ts"
+import { dragViteHubPageDock, mountViteHubPagePill, storedViteHubPageDock, viteHubPageHexagonSize, viteHubPagePillStyles, viteHubPageSvgIcon } from "./page-pill.ts"
 import { createViteHubPageWindow, dockViteHubPageWindows } from "./page-tools-window.ts"
 import type { ViteHubPageToolsDock, ViteHubPageWindow, ViteHubPageWindowOptions } from "./page-tools-window.ts"
 
@@ -64,12 +64,15 @@ function startOf(module: unknown): ViteHubPageToolModule["default"] | undefined 
 // light hairline so it shows on light and dark pages, at the place of the pill. The way back is always there but covers
 // almost nothing of the page. It is half transparent until the pointer or the focus reaches it. Its hit area grows 6px
 // around it (10px on touch screens) and runs off the edge of the screen, so a pointer pushed against the edge finds
-// it, without taking more clicks from the page. The pill's clipped hexagon would round into a circle at this size.
+// it, without taking more clicks from the page. Dragging it moves it to another place, like the pill's mark. The pill's
+// clipped hexagon would round into a circle at this size.
 const offMarkStyles = `:host([off]){--vitehub-hex-h:14px;filter:drop-shadow(0 1px 2px rgb(0 0 0/25%))}
-:host([off]) button{position:relative;display:block;width:var(--vitehub-hex-w);min-width:0;height:var(--vitehub-hex-h);padding:0;border-radius:4px;pointer-events:auto;opacity:.55;transition:opacity 150ms ease-out;animation:vitehub-off-in 200ms cubic-bezier(.23,1,.32,1)}
+:host([off]) button{position:relative;display:block;width:var(--vitehub-hex-w);min-width:0;height:var(--vitehub-hex-h);padding:0;border-radius:4px;pointer-events:auto;cursor:grab;opacity:.55;transition:opacity 150ms ease-out;animation:vitehub-off-in 200ms cubic-bezier(.23,1,.32,1)}
+:host([off][dragging]) button{opacity:1;cursor:grabbing}
 :host([off]) button::before{content:"";position:absolute;inset:-6px}
 svg{display:block;width:100%;height:100%;overflow:visible;fill:rgb(17 17 17/92%);stroke:rgb(255 255 255/18%);stroke-width:1px;vector-effect:non-scaling-stroke;transition:fill 150ms ease-out,scale 150ms ease-out}
 :host([off]) button:focus-visible{opacity:1}
+:host([off][dragging]) svg{scale:none}
 @media(hover:hover){:host([off]) button:hover{opacity:1;background:none}button:hover svg{fill:rgb(38 38 38/94%)}}
 button:active svg{scale:.96}
 @media(any-pointer:coarse){:host([off]){--vitehub-hex-h:20px}:host([off]) button{min-width:0;height:var(--vitehub-hex-h)}:host([off]) button::before{inset:-10px}}
@@ -133,9 +136,10 @@ function mountOffMark(turnOn: () => void, focus: boolean): void {
   mark.setAttribute("off", "")
   mark.setAttribute("collapsed", "")
   mark.style.viewTransitionName = "vitehub-pill"
-  const dock = storedViteHubPageDock(dockKey) ?? { edge: "bottom", at: 50 }
+  let dock = storedViteHubPageDock(dockKey) ?? { edge: "bottom", at: 50 }
   const place = () => {
-    const shown = pageAsksForMark() ? asideOf(dock) : dock
+    // A drag follows the pointer, even where the page asks for the mark.
+    const shown = pageAsksForMark() && !mark.hasAttribute("dragging") ? asideOf(dock) : dock
     mark.setAttribute("edge", shown.edge)
     mark.style.setProperty("--at", String(shown.at))
   }
@@ -152,7 +156,30 @@ function mountOffMark(turnOn: () => void, focus: boolean): void {
   button.append(viteHubPageSvgIcon("0 0 20 18", markPath, {}))
   shadow.append(style, button)
   document.documentElement.append(mark)
-  button.addEventListener("click", () => { watching.abort(); mark.remove(); turnOn() })
+  // The pill opens where the mark is dropped: both keep the same dock.
+  const dragged = dragViteHubPageDock({
+    host: mark,
+    handle: button,
+    dock: () => dock,
+    shape: (side) => {
+      const size = side ? mark.offsetHeight : mark.offsetWidth
+      const hexagon = viteHubPageHexagonSize(mark)
+      return { size, lead: size / 2, part: side ? hexagon.height : hexagon.width, margin: 2 }
+    },
+    place: (next) => { dock = next; place() },
+    drop: () => {
+      place()
+      try { localStorage.setItem(dockKey, JSON.stringify(dock)) }
+      catch {}
+    },
+    signal: watching.signal,
+  })
+  button.addEventListener("click", () => {
+    if (dragged()) return
+    watching.abort()
+    mark.remove()
+    turnOn()
+  })
   if (focus) button.focus({ preventScroll: true })
 }
 
