@@ -27,9 +27,8 @@ function hook<T>(value: unknown): T {
 }
 
 /** Runs the hooks that `vite dev` or `vite build` runs, and returns the resolved KV config and Nitro options. */
-async function resolvePlugin(command: "build" | "serve", options?: KVModuleOptions, hosting?: string) {
+async function resolvePlugin(command: "build" | "serve", options?: KVModuleOptions, hosting?: string, nitro: { cloudflare?: { wrangler?: { kv_namespaces?: unknown[] } } } = {}) {
   const plugin = hubKv(options, { hosting })
-  const nitro: { cloudflare?: { wrangler?: { kv_namespaces?: unknown[] } } } = {}
   await hook<(config: object, env: { command: string }) => unknown>(plugin.config)({ nitro, root: directory }, { command })
   await hook<(config: object) => unknown>(plugin.configResolved)({ build: { outDir: "dist" }, command, nitro, root: directory })
   const resolveId = hook<(id: string, importer?: string, options?: { ssr: boolean }) => unknown>(plugin.resolveId)
@@ -175,6 +174,18 @@ describe("KV in vite dev", () => {
       ["cache", [{ label: "Driver", value: "cloudflare-kv-binding" }, { label: "Development", value: "Remote. `vite dev` uses the real Cloudflare KV namespace through the `CACHE` binding, so writes change real data." }]],
     ])
   })
+
+  it.each([undefined, false])("applies the remote opt-in to an existing Wrangler binding with remote %s", async (remote) => {
+    const namespace = { binding: "KV", id: "namespace-id", preview_id: "preview-id", remote }
+    const manual = { binding: "MANUAL", id: "manual-id" }
+    const { nitro } = await resolvePlugin("serve", { remote: true }, "cloudflare-module", {
+      cloudflare: { wrangler: { kv_namespaces: [namespace, manual] } },
+    })
+    expect(nitro.cloudflare?.wrangler?.kv_namespaces).toEqual([
+      { binding: "KV", id: "namespace-id", preview_id: "preview-id", remote: true },
+      manual,
+    ])
+  })
 })
 
 describe("KV in a Vite dev server", () => {
@@ -217,6 +228,17 @@ describe("KV in a Vite dev server", () => {
 })
 
 describe("KV in a build", () => {
+  it.each(["fs-lite", "deno-kv", "upstash", "cloudflare-kv-binding"] as const)("ignores boolean remote flags for explicit %s stores", (driver) => {
+    const baseline = normalizeKVOptions({ driver }, { env: {} })
+    const namedBaseline = normalizeKVOptions({ stores: { default: { driver } } }, { env: {} })
+    for (const remote of [true, false]) {
+      // SAFETY: JavaScript config can contain driver/remote combinations rejected by the public types.
+      const store = { driver, remote } as KVModuleOptions
+      expect(normalizeKVOptions(store, { env: {} })).toEqual(baseline)
+      expect(normalizeKVOptions({ stores: { default: { driver, remote } } } as KVModuleOptions, { env: {} })).toEqual(namedBaseline)
+    }
+  })
+
   it("ignores `remote` and keeps env inference", async () => {
     for (const [name, value] of Object.entries(upstashEnv)) vi.stubEnv(name, value)
     expect((await resolvePlugin("build")).kv).toEqual({ store: { driver: "upstash", token: "********", url: "********" } })
@@ -239,9 +261,11 @@ describe("KV `remote` errors", () => {
   })
 
   it.each([
-    [{ driver: "fs-lite", remote: true }, {}],
-    [{ driver: "upstash", remote: false }, {}],
+    [{ driver: "fs-lite", remote: true }, { dev: true }],
+    [{ driver: "deno-kv", remote: true }, { dev: true }],
+    [{ driver: "upstash", remote: false }, { dev: true }],
     [{ remote: true }, { dev: true }],
+    [{ remote: true }, { dev: true, hosting: "deno" }],
   ])("rejects %j", (options, input) => {
     // SAFETY: The cases include configs that the types reject.
     expect(() => normalizeKVOptions(options as unknown as KVModuleOptions, { env: {}, ...input })).toThrow(expect.objectContaining({ code: "KV_REMOTE_CONFLICT" }))

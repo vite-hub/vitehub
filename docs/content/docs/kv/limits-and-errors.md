@@ -121,6 +121,10 @@ The runtime has no KV configuration. Add `hubKv()` to the Vite config, and do no
 
 `remote` of a store is not `true` or `false`. Set `remote: true` to use the real store in `vite dev`, or remove it to keep the store local.
 
+### KV_INVALID_STORE_MODE
+
+`kv.store(name, { mode })` received a mode other than `'read'` or `'write'`. KV throws instead of returning a writable handle. Pass `{ mode: 'read' }` for a [read-only handle](/docs/kv/server-api#read-only-handles), or omit `mode`.
+
 ### KV_MISSING_DEFAULT_STORE
 
 A config with `kv.stores` must have a `default` store.
@@ -131,7 +135,7 @@ The `upstash` driver needs `KV_REST_API_URL` and `KV_REST_API_TOKEN`, or `UPSTAS
 
 ### KV_REMOTE_CONFLICT
 
-`remote` conflicts with the driver of the store. `remote: true` cannot apply to `fs-lite` or `deno-kv`, which are local, or to an inferred store in `vite dev` that has no hosted store to use. `remote: false` cannot apply to `upstash`, which is always remote. Remove `remote`, or select another driver. See [Development stays local](/docs/kv/configure#development-stays-local).
+In `vite dev`, `remote` conflicts with the driver of the store. `remote: true` cannot apply to `fs-lite` or `deno-kv`, which are local, or to an inferred store that has no hosted store to use. `remote: false` cannot apply to `upstash`, which is always remote. Remove `remote`, or select another driver. Builds ignore boolean `remote` flags. See [Development stays local](/docs/kv/configure#development-stays-local).
 
 ### KV_STORE_NOT_FOUND
 

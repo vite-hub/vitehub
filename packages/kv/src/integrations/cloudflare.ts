@@ -1,4 +1,3 @@
-import { pushUnique } from "@vite-hub/internal/arrays"
 import { readProvisionedId } from "@vite-hub/internal/provision-state"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
@@ -32,10 +31,13 @@ export function configureCloudflareKV(
     target.cloudflare.wrangler ||= {}
     target.cloudflare.wrangler.kv_namespaces ||= []
 
-    pushUnique(
-      target.cloudflare.wrangler.kv_namespaces,
-      { binding, ...(namespaceId ? { id: namespaceId } : {}), ...(store.remote ? { remote: true } : {}) },
-      entry => entry.binding,
-    )
+    const namespaces = target.cloudflare.wrangler.kv_namespaces
+    const existing = namespaces.find(entry => entry.binding === binding)
+    if (existing) {
+      if (store.remote) existing.remote = true
+    }
+    else {
+      namespaces.push({ binding, ...(namespaceId ? { id: namespaceId } : {}), ...(store.remote ? { remote: true } : {}) })
+    }
   }
 }

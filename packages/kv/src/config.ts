@@ -75,7 +75,7 @@ function resolveDenoStore(config: Partial<DenoKVStoreConfig> = {}): ResolvedDeno
 function resolveExplicitStore(store: KVStoreConfig, env: Record<string, string | undefined>, name: string, dev: boolean | undefined): ResolvedKVStoreConfig {
   const remote = readRemote(store, name)
   const { driver } = store
-  if ((remote === true && (driver === "fs-lite" || driver === "deno-kv")) || (remote === false && driver === "upstash")) {
+  if (dev && ((remote === true && (driver === "fs-lite" || driver === "deno-kv")) || (remote === false && driver === "upstash"))) {
     throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver, remote, store: name })
   }
   const resolved = resolveStoreDriver(store, env)
@@ -136,7 +136,10 @@ export function normalizeKVOptions(
   const inferred = (store: ResolvedKVStoreConfig) => createResolvedConfig(input.dev ? resolveDevStore(store, remote) : store)
   // Only an explicit `remote: true` lets `vite dev` infer a hosted store from env or the host.
   const hosted = !input.dev || remote === true
-  if (hosting.includes("deno")) return inferred(resolveDenoStore())
+  if (hosting.includes("deno")) {
+    if (input.dev && remote === true) throw kvErrorDiagnostics.KV_REMOTE_CONFLICT({ driver: "deno-kv", remote, store: "default" })
+    return inferred(resolveDenoStore())
+  }
   if (hosted && hasUpstashEnv(env)) return inferred(resolveUpstashStore())
   if (hosted && hosting.includes("vercel")) return inferred(resolveUpstashStore())
   if (hosting.includes("cloudflare")) return inferred(resolveCloudflareStore({}, env))

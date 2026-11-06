@@ -88,6 +88,10 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
         ? "Remove `remote: true`, or select a remote store: the `upstash` or `cloudflare-kv-binding` driver, Upstash env, or the Vercel or Cloudflare preset."
         : "Remove `remote: false`, or select a local driver such as `fs-lite` for `vite dev`.",
     },
+    KV_INVALID_STORE_MODE: {
+      why: ({ mode }: { mode: string }) => `\`kv.store()\` mode ${mode} is not "read" or "write".`,
+      fix: "Pass `{ mode: 'read' }` for a read-only handle, or omit `mode` for a writable one.",
+    },
     KV_MISSING_DEFAULT_STORE: {
       why: "`kv.stores.default` is missing.",
       fix: "Add a `default` store when you configure named KV stores.",

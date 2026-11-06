@@ -16,11 +16,13 @@ export type {
   KVSetIfAbsentOptions,
   KVStorage,
   KVStoreConfig,
+  KVStoreOptions,
   ResolvedCloudflareKVStoreConfig,
   ResolvedDenoKVStoreConfig,
   ResolvedFsLiteKVStoreConfig,
   ResolvedKVModuleOptions,
   ResolvedKVStoreConfig,
   ResolvedUpstashKVStoreConfig,
+  ReadonlyKVStorage,
   UpstashKVStoreConfig,
 } from "./types.ts"
