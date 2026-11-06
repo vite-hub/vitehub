@@ -7,6 +7,7 @@ import {
   consoleImpersonation,
   consoleRequest,
   withConsoleAccess,
+  consoleScopeRejection,
   consoleScopesAllow,
   type ConsoleAccess,
   type ConsoleAccessRoute,
@@ -114,16 +115,16 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
   )
     throw consoleRequestError(403, "The Console request must use the same origin.");
   const input = await consoleRequestJSON(event);
+  const command = v.safeParse(read, input);
+  // A missing OAuth scope gets the insufficient_scope challenge, so the Console can ask for the scope again. It is
+  // checked before Better Auth opens, and apart from the section grant below.
+  const call = { kind: command.success ? "read" : "write" } as const;
+  if (!consoleScopesAllow(access, call))
+    return consoleScopeRejection(call, command.success ? "reading Auth data" : "changing Auth data");
   const impersonation = consoleImpersonation();
   const api = getAuthConsoleForRequest(request, event, { impersonation });
   try {
-    const command = v.safeParse(read, input);
     if (command.success) {
-      if (!consoleScopesAllow(access, { kind: "read" }))
-        return Response.json(
-          { message: "The access token does not have the vitehub:read scope, which reading Auth data needs." },
-          { status: 403, headers: { "cache-control": "no-store" } },
-        );
       const { operation, query, id, activity } = command.output;
       if ((operation === "user" || operation === "organization") && !id)
         return Response.json({ message: "An id is required." }, { status: 400 });
@@ -146,7 +147,7 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
     if (!action.success)
       return Response.json({ message: "Invalid Auth Console request." }, { status: 400 });
     // A read-only grant (`"auth:read"`) lists Auth data. It never changes it.
-    if (!consoleAccessWrites(access, "auth") || !consoleScopesAllow(access, { kind: "write" }))
+    if (!consoleAccessWrites(access, "auth"))
       return Response.json(
         { message: "This Console access can read Auth data but not change it." },
         { status: 403, headers: { "cache-control": "no-store" } },

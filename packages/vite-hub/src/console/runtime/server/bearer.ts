@@ -277,7 +277,9 @@ async function liveConsoleToken(context: ConsoleOAuthContext, payload: Record<st
     if (typeof payload.sid !== "string" || !payload.sid) return false
     // Better Auth's adapter maps the canonical session model and fields to the app's configured schema.
     const session = await context.adapter?.findOne({ model: "session", where: [{ field: "id", value: payload.sid }] })
-    if (!isRecord(session) || !(session.expiresAt instanceof Date) || !(session.expiresAt.getTime() > Date.now())) return false
+    // Adapters return a Date, an ISO string, or a timestamp. An unreadable expiry counts as expired.
+    const expiresAt = isRecord(session) && (session.expiresAt instanceof Date || typeof session.expiresAt === "string" || typeof session.expiresAt === "number") ? new Date(session.expiresAt).getTime() : Number.NaN
+    if (!(expiresAt > Date.now())) return false
   }
   return true
 }

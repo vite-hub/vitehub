@@ -15,7 +15,9 @@ import { installConsoleOrigins } from "../src/console/runtime/server/cors.ts"
 import consoleMcpAuthorizationServerHandler from "../src/console/runtime/server/mcp-authorization-server.ts"
 import consoleMcpMetadataHandler from "../src/console/runtime/server/mcp-metadata.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
+import authManageHandler from "../src/console/runtime/server/auth-manage.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
+import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import scheduleRunHandler from "../src/console/runtime/server/schedule-run.ts"
 import { resolveConsoleAccessBuild } from "../src/console/vite.ts"
 
@@ -237,6 +239,22 @@ describe("OAuth Console tokens", () => {
     expect(response.headers.get("access-control-expose-headers")).toBe("WWW-Authenticate")
   })
 
+  it.each([
+    ["read", "vitehub:write", { operation: "users" }],
+    ["write", "vitehub:read", { action: "ban", userId: "someone" }],
+  ] as const)("challenges a token without the %s scope on Auth management", async (kind, granted, body) => {
+    installConsoleSections("console-oauth-auth-manage", ["auth"])
+    const { access_token } = await consoleTokens({ scope: granted })
+    const response = await authManageHandler({ req: new Request(`${app}/_vitehub/auth/manage`, {
+      body: JSON.stringify(body),
+      headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "origin": local, "x-vitehub-console": "1" },
+      method: "POST",
+    }) })
+    expect(response.status).toBe(403)
+    expect(response.headers.get("www-authenticate")).toContain(`error="insufficient_scope", scope="vitehub:${kind}"`)
+    expect(response.headers.get("access-control-allow-origin")).toBe(local)
+  })
+
   it.each(["deleted", "disabled"])("refuses a token after its issuing client is %s", async (state) => {
     const { access_token } = await consoleTokens()
     expect(claims(access_token).azp).toBe(clientId)
@@ -268,7 +286,8 @@ describe("OAuth Console tokens", () => {
       database,
       emailAndPassword: { enabled: true },
       plugins: consoleMcpOAuth({ clientMetadataFetch, resource: mcpResource }).map(plugin => plugin.id === "oauth-provider"
-        ? oauthProvider({ ...plugin.options, schema: { oauthClient: { fields: { clientId: "publicId", disabled: "inactive" }, modelName: "consoleClient" } } })
+        // SAFETY: These are the options that consoleMcpOAuth() passed to oauthProvider(), so they are its options.
+        ? oauthProvider({ ...plugin.options as Parameters<typeof oauthProvider>[0], schema: { oauthClient: { fields: { clientId: "publicId", disabled: "inactive" }, modelName: "consoleClient" } } })
         : plugin),
       secret: "test-secret-at-least-32-bytes-long",
       session: { fields: { expiresAt: "expiresOn" }, modelName: "loginSession" },
