@@ -128,6 +128,8 @@ Filesystem listings skip child directories removed or replaced by files during t
 `blob.store(name, { mode: "read" })` returns a `ReadonlyBlobStorage` handle with `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET` requests, and `media.get()`, `media.list()`, and `media.variants()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`. Another value throws `BLOB_R0038`, and a `PUT` sign request throws `BLOB_R0037`.
 
 ```ts
+import { blob } from "@vite-hub/blob"
+
 const reports = blob.store("reports", { mode: "read" })
 const [error, file] = await reports.get("2026/q1.pdf")
 ```

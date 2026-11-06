@@ -74,6 +74,7 @@ export const reports = blob.store('reports')
 Pass `{ mode: 'read' }` to `blob.store()` when code only reads. The handle has `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET` requests, and `media.get()`, `media.list()`, and `media.variants()`. It has no `put()`, `del()`, upload, or multipart methods, so calling them is a type error, and they are absent at runtime. The Default Blob Store is `blob.store('default', { mode: 'read' })`.
 
 ```ts [server/api/reports/[...path].get.ts]
+import { createError, defineEventHandler, getRouterParam } from 'h3'
 import { blob } from '@vite-hub/blob'
 
 const reports = blob.store('reports', { mode: 'read' })

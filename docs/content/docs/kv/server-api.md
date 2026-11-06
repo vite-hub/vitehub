@@ -61,6 +61,7 @@ export async function savePreferences(tenantId: string, value: unknown) {
 Pass `{ mode: 'read' }` to `kv.store()` when code only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. It has no `set()`, `setIfAbsent()`, `del()`, `clear()`, `increment()`, or `getAndDelete()`, so calling them is a type error, and they are absent at runtime. The Default KV Store is `kv.store('default', { mode: 'read' })`.
 
 ```ts [server/api/flags.get.ts]
+import { defineEventHandler } from 'h3'
 import { kv } from '@vite-hub/kv'
 
 const flags = kv.store('default', { mode: 'read' })
