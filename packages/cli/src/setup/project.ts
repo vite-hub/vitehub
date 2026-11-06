@@ -1,6 +1,8 @@
-import { existsSync } from "node:fs"
+import { existsSync, realpathSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
+import { delimiter } from "node:path"
+import process from "node:process"
 
 import { locateViteHubConfig } from "@vite-hub/internal/config-edit"
 import { dirname, join, resolve } from "pathe"
@@ -92,6 +94,18 @@ function nuxtServerDirs(root: string, config: LocateResult | undefined): string[
   return [resolve(appRoot, serverDir?.kind === "literal" && typeof serverDir.value === "string" ? serverDir.value || "server" : "server")]
 }
 
+/** The real folders of `name` in NODE_PATH, which Node's resolver reads after every node_modules folder. */
+function globalPackageDirs(name: string): string[] {
+  return (process.env.NODE_PATH ?? "").split(delimiter).filter(Boolean).flatMap((dir) => {
+    try {
+      return [realpathSync(join(dir, name))]
+    }
+    catch {
+      return []
+    }
+  })
+}
+
 /**
  * Reads the project in `root` without loading its config: the config file is parsed, never run.
  * Throws `SETUP_NOT_A_PROJECT` when `root` has no package.json and no Vite or Nuxt config.
@@ -115,16 +129,19 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
     framework,
     declared: (name, dev) => Object.hasOwn(manifest?.dependencies ?? {}, name) || (dev && Object.hasOwn(manifest?.devDependencies ?? {}, name)),
     installed: (name) => {
+      if (folders.some(folder => existsSync(join(folder, "node_modules", name, "package.json")))) return true
       // Yarn PnP and other active loader hooks can resolve packages without node_modules.
-      // Resolve metadata or an entry point without evaluating either one.
+      // Resolve metadata or an entry point without evaluating either one. `require.resolve` also reads NODE_PATH,
+      // and `pnpm exec` points it at the workspace's hoisted packages: a package found only there is not installed.
+      const globalCopies = globalPackageDirs(name)
       for (const specifier of [`${name}/package.json`, name]) {
         try {
-          require.resolve(specifier)
-          return true
+          const file = realpathSync(require.resolve(specifier))
+          if (!globalCopies.some(dir => file.startsWith(`${dir}/`))) return true
         }
         catch {}
       }
-      return folders.some(folder => existsSync(join(folder, "node_modules", name, "package.json")))
+      return false
     },
     packageManager: detectPackageManager(root, manifest, env),
     root,
