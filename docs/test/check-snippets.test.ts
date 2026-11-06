@@ -2,7 +2,7 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { checkSnippets, extractBlocks, generatedDeclarations, repoRoot } from "../scripts/check-snippets.mjs"
+import { checkBaseline, checkSnippets, extractBlocks, generatedDeclarations, repoRoot, snippetId } from "../scripts/check-snippets.mjs"
 
 describe("documentation snippet check", () => {
   it("reads labels, fragments, and indented blocks", () => {
@@ -75,6 +75,24 @@ describe("documentation snippet check", () => {
     expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
       ["server/api/stale.ts", [2339]],
     ])
+  }, 60_000)
+
+  it("keeps marked mismatches out of regenerated baselines and rejects existing entries for them", () => {
+    const page = join(repoRoot, "docs/.snippets/baseline-page")
+    const snippet = (name: string, code: string, fails?: number[]) => ({ code, fails, file: join(page, name), fragment: false, line: 1, page: "baseline-page.md" })
+    const { failures } = checkSnippets([
+      snippet("passes.ts", "export const count: number = 1", [2322]),
+      snippet("different.ts", "export const count: number = missing", [2322]),
+      snippet("extra.ts", "export const count: number = 'one'\nexport const extra = missing", [2322]),
+      snippet("ordinary.ts", "export const count: number = 'one'"),
+    ])
+    const baseline = failures.map(({ snippet }) => ({ id: snippetId(snippet) }))
+    const { entries, fresh, stale } = checkBaseline(failures, baseline)
+
+    expect(fresh.map(({ snippet }) => snippet.file.slice(page.length + 1))).toEqual(["passes.ts", "different.ts", "extra.ts"])
+    expect(stale).toEqual(baseline.slice(0, 3))
+    expect(entries.map(entry => entry.id)).toEqual([baseline[3].id])
+    expect(checkBaseline(failures, entries).fresh).toEqual(fresh)
   }, 60_000)
 
   it("types the Definition names of a page with the registries that ViteHub generates", async () => {

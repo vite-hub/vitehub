@@ -439,6 +439,22 @@ function readBaseline() {
   return existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8")) : []
 }
 
+/** Expected-error assertions always fail on a mismatch, even if a baseline once listed them. */
+export function checkBaseline(failures, baseline) {
+  const ordinary = failures.filter(({ snippet }) => !snippet.fails)
+  const entries = ordinary.map(({ snippet, diagnostics }) => {
+    const diagnostic = diagnostics.find(entry => entry.code !== 2304 && entry.code !== 2307) ?? diagnostics[0]
+    return { id: snippetId(snippet), label: snippet.label ?? null, error: `TS${diagnostic.code} ${diagnostic.message.split("\n")[0]}` }
+  })
+  const known = new Set(baseline.map(entry => entry.id))
+  const failed = new Set(entries.map(entry => entry.id))
+  return {
+    entries,
+    fresh: failures.filter(({ snippet }) => snippet.fails || !known.has(snippetId(snippet))),
+    stale: baseline.filter(entry => !failed.has(entry.id)),
+  }
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const snippets = collectSnippets()
   // A page with generated declarations, such as Workflow step types, gets its own program, because two pages
@@ -455,23 +471,15 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ...sharedCheck.failures,
     ...separate.flatMap(({ declarations, pageSnippets }) => checkSnippets(pageSnippets, declarations, sharedCheck.program).failures),
   ]
-  const baseline = readBaseline()
-  if (process.argv.includes("--update-baseline")) {
-    const entries = failures.map(({ snippet, diagnostics }) => {
-      const diagnostic = diagnostics.find(entry => entry.code !== 2304 && entry.code !== 2307) ?? diagnostics[0]
-      return { id: snippetId(snippet), label: snippet.label ?? null, error: `TS${diagnostic.code} ${diagnostic.message.split("\n")[0]}` }
-    })
+  const { entries, fresh, stale } = checkBaseline(failures, readBaseline())
+  if (process.argv.includes("--update-baseline") && !failures.some(({ snippet }) => snippet.fails)) {
     writeFileSync(baselinePath, `${JSON.stringify(entries, null, 2)}\n`)
     console.log(`Wrote ${entries.length} known failures to ${relative(repoRoot, baselinePath)}.`)
     process.exit(0)
   }
-  const known = new Set(baseline.map(entry => entry.id))
-  const failed = new Set(failures.map(failure => snippetId(failure.snippet)))
-  const fresh = failures.filter(failure => !known.has(snippetId(failure.snippet)))
   for (const { snippet, diagnostics } of fresh) {
     for (const diagnostic of diagnostics) console.error(`${snippet.page}:${diagnostic.line} TS${diagnostic.code} ${diagnostic.message.split("\n")[0]}`)
   }
-  const stale = baseline.filter(entry => !failed.has(entry.id))
   for (const entry of stale) console.error(`${entry.id} passes now or changed. Remove it from ${relative(repoRoot, baselinePath)}.`)
   const fragments = snippets.filter(snippet => snippet.fragment).length
   const mistakes = snippets.filter(snippet => snippet.fails).length

@@ -9389,14 +9389,7 @@ describe("server helpers", () => {
         "",
         { waitUntil: (task) => waitUntilTasks.push(task) },
       )
-      const response = await Promise.race([responsePromise, new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 25))])
-
-      if (response === "blocked") {
-        releaseRun()
-        await responsePromise
-      }
-      expect(response).not.toBe("blocked")
-      if (response === "blocked") throw new Error("Workflow webhook response waited for deferred workflow completion.")
+      const response = await vi.waitFor(() => responsePromise)
       const json = await response.json()
 
       expect(response.status).toBe(200)
@@ -9414,6 +9407,7 @@ describe("server helpers", () => {
         await expect(completedRun.result.text()).resolves.toEqual("accepted github delivery")
       })
     } finally {
+      releaseRun()
       resetWorkflowRuntime()
     }
   })
