@@ -22,6 +22,18 @@ const projectGet = { ok: true, value: { protocol: 1, name: "Shop", vitehub: "0.1
 const tokenRejection = { code: "CONSOLE_TOKEN_INVALID", message: "The Console token is not correct.", ok: false, status: 401 }
 const app = { origin: "https://app.example.com", base: "", url: "https://app.example.com" }
 
+// Shared by independent sessions, like the browser's origin-wide Web Locks manager.
+function linkLocks() {
+  let tail = Promise.resolve()
+  return {
+    request<T>(_name: string, run: () => Promise<T>): Promise<T> {
+      const result = tail.then(run)
+      tail = result.then(() => {}, () => {})
+      return result
+    },
+  }
+}
+
 describe("pending link verifier", () => {
   it("is the hex SHA-256 that `printf %s \"$secret\" | sha256sum` prints", async () => {
     // printf %s "dGhpcy1pcy1hLWZpeGVkLXRlc3Qtc2VjcmV0LTMyYnl0ZXM" | sha256sum
@@ -132,10 +144,52 @@ describe("linking from a pending link", () => {
     const module = await import("../src/console/runtime/client/project-session.ts")
     const navigate = vi.fn()
     const storage = memoryProjectStorage()
-    const state = module.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate, pageOrigin: "https://console.example.com", storage })
+    const pendingLinkLocks = linkLocks()
+    const state = module.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate, pageOrigin: "https://console.example.com", storage, pendingLinkLocks })
     const ticket = await module.createConsolePendingLink()
-    return { fetch: fetchMock, module, navigate, state, storage, ticket }
+    return { fetch: fetchMock, module, navigate, state, storage, ticket, pendingLinkLocks }
   }
+
+  it("does not disclose one secret to two projects during concurrent confirmations in separate tabs", async () => {
+    let finish!: (response: Response) => void
+    const response = new Promise<Response>(resolve => { finish = resolve })
+    const { fetch, module, storage, ticket, pendingLinkLocks } = await session(async () => (await response).clone())
+    vi.resetModules()
+    const otherTab = await import("../src/console/runtime/client/project-session.ts")
+    otherTab.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate: vi.fn(), pageOrigin: "https://console.example.com", storage, pendingLinkLocks })
+
+    const first = module.confirmConsoleLink(ticket.pendingId, app)
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    const second = otherTab.confirmConsoleLink(ticket.pendingId, { origin: "https://other.example.com", base: "", url: "https://other.example.com" })
+    finish(Response.json(projectGet))
+
+    expect(await first).toMatchObject({ kind: "linked" })
+    const secondResult = await second
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(secondResult).toMatchObject({ kind: "problem", final: true })
+  })
+
+  it("keeps a failed link bound to its first confirmed project across tabs, and permits retrying that project", async () => {
+    const { fetch, module, storage, ticket, pendingLinkLocks } = await session(async () => Response.json(tokenRejection, { status: 401 }))
+    expect(await module.confirmConsoleLink(ticket.pendingId, app)).toMatchObject({ kind: "problem", final: false })
+    vi.resetModules()
+    const otherTab = await import("../src/console/runtime/client/project-session.ts")
+    otherTab.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate: vi.fn(), pageOrigin: "https://console.example.com", storage, pendingLinkLocks })
+    expect(await otherTab.confirmConsoleLink(ticket.pendingId, { ...app, base: "/other", url: `${app.url}/other` }))
+      .toMatchObject({ kind: "problem", final: true, problem: { title: "This link belongs to another project" } })
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    fetch.mockResolvedValue(Response.json(projectGet))
+    expect(await otherTab.confirmConsoleLink(ticket.pendingId, app)).toMatchObject({ kind: "linked" })
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
+
+  it("sends nothing when the browser cannot lock confirmations across tabs", async () => {
+    const { fetch, module, storage, ticket } = await session(async () => Response.json(projectGet))
+    module.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate: vi.fn(), pageOrigin: "https://console.example.com", storage })
+    expect(await module.confirmConsoleLink(ticket.pendingId, app)).toMatchObject({ kind: "problem", final: false, problem: { title: "Update your browser" } })
+    expect(fetch).not.toHaveBeenCalled()
+  })
 
   it("asks first, then links with the secret as the token, and works only once", async () => {
     let secret = ""

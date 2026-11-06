@@ -302,7 +302,7 @@ The Console then opens the project and shows only the sections that the project 
 
 ### Link a new project
 
-A new project can link itself with a one-time link, so you do not copy a token by hand. The hosted Console makes a random key and keeps it in this browser, in `localStorage` under `vitehub-console:pending-links`. It gives out only an id and the SHA-256 of the key. `vite-hub init` stores that hash in the app as `VITEHUB_CONSOLE_TOKEN_SHA256` and prints a link such as `https://console.vitehub.dev/link#p=<id>&url=<app origin>`. The link holds no secret.
+A new project can link itself with a one-time link, so you do not copy a token by hand. In the hosted Console, open **Link project** and choose **Link a new project**. Copy the generated `vite-hub init --console <id>:sha256:<verifier>` command and run it in your terminal. The hosted Console makes a random key and keeps it in this browser, in `localStorage` under `vitehub-console:pending-links`. It gives out only an id and the SHA-256 of the key. `vite-hub init` stores that hash in the app as `VITEHUB_CONSOLE_TOKEN_SHA256` and prints a link such as `https://console.vitehub.dev/link#p=<id>&url=<app origin>`. The link holds no secret.
 
 When you open the link, the Console removes it from the address bar and asks **Link `<host>`?**. It sends nothing before you confirm. Select **Link project** only when the host is the app that you just started, because a changed link can name another host. The Console then sends the key to that app, saves the project with the key as its Console token, and deletes the one-time entry.
 
@@ -311,6 +311,7 @@ The link has limits:
 - It works only in the browser profile that made it. Teammates use [`auth: "app"`](#use-the-app-auth), or link the project with their own token.
 - It works once, and for 24 hours. A used or unknown link says `This link was made in another browser or already used`. Make a new link and run the command again.
 - When the app refuses the key, its `VITEHUB_CONSOLE_TOKEN_SHA256` is not the hash of this link. Run the command again, or relink.
+- The first confirmation binds the link to that app URL, even if the request fails. You can fix the app and retry the same URL; a different project needs a new command. Confirmations use Web Locks to coordinate tabs; use a browser with Web Locks support.
 
 ### Switch projects
 

@@ -65,6 +65,7 @@ startConsoleProjects({
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
   storage: projectStorage(),
+  pendingLinkLocks: navigator.locks,
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);
 const sectionsBase = "/api/_vitehub/console/sections";
