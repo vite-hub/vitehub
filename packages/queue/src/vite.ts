@@ -248,7 +248,7 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
             list: () => inspectQueueDefinitions({ projectRoot: resolveViteHubProjectRoot(rootDir), rootDir, serverDirs }),
           }],
           resources: () => resolvedQueue.provider === "cloudflare"
-            ? inspectQueueResources({ namePrefix: resolvedQueue.namePrefix, projectRoot: resolveViteHubProjectRoot(rootDir), rootDir, serverDirs })
+            ? inspectQueueResources({ binding: resolvedQueue.binding, namePrefix: resolvedQueue.namePrefix, projectRoot: resolveViteHubProjectRoot(rootDir), rootDir, serverDirs })
             : [],
         }
       },

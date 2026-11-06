@@ -73,6 +73,7 @@ rm -rf .vitehub/data/blob/.vitehub/blob-writes
 This maintenance removes staging files. Published objects and their metadata remain in place. Do not run it while writers are active.
 
 Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Other configured tokens stay unchanged.
+`vitehub inspect resources` reports those other tokens with source `config`, without printing a token value or an environment store id.
 
 Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.

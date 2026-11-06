@@ -1,3 +1,4 @@
+import { isMaskedBlobRuntimeValue } from "./config.ts"
 import { resolveBlobViteConfig } from "./vite-config.ts"
 
 import type { ViteHubResourceSummary } from "@vite-hub/internal/inspect"
@@ -5,7 +6,7 @@ import type { BlobModuleOptions } from "./types.ts"
 
 /**
  * Lists the R2 buckets and the Vercel Blob store that Blob stores use. Reads local config only.
- * R2 binds a bucket by name. Vercel Blob names the store connected to the project with `BLOB_STORE_ID`, or reaches it through `BLOB_READ_WRITE_TOKEN`.
+ * R2 binds a bucket by name. Vercel Blob uses a configured token, or the project's `BLOB_STORE_ID` / `BLOB_READ_WRITE_TOKEN`.
  */
 export function inspectBlobResources(
   options: BlobModuleOptions | undefined,
@@ -35,11 +36,13 @@ export function inspectBlobResources(
         host: "vercel",
         kind: "vercel-blob-store",
         owner: "blob",
-        ...(env.BLOB_STORE_ID
-          ? { env: "BLOB_STORE_ID", id: env.BLOB_STORE_ID, source: "env" }
-          : env.BLOB_READ_WRITE_TOKEN
-            ? { env: "BLOB_READ_WRITE_TOKEN", source: "env" }
-            : { note: "Vercel sets `BLOB_STORE_ID` for the store that is connected to the project. Off Vercel, set `BLOB_READ_WRITE_TOKEN`." }),
+        ...(!isMaskedBlobRuntimeValue(store.token)
+          ? { source: "config" }
+          : env.BLOB_STORE_ID
+            ? { env: "BLOB_STORE_ID", id: env.BLOB_STORE_ID, source: "env" }
+            : env.BLOB_READ_WRITE_TOKEN
+              ? { env: "BLOB_READ_WRITE_TOKEN", source: "env" }
+              : { note: "Vercel sets `BLOB_STORE_ID` for the store that is connected to the project. Off Vercel, set `BLOB_READ_WRITE_TOKEN`." }),
       })
     }
   }

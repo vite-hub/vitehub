@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -238,7 +238,7 @@ describe("vitehub inspect", () => {
 })
 
 describe("vitehub inspect resources", () => {
-  async function runResources(rootDir: string, args: string[]) {
+  async function runResources(rootDir: string, args: string[], wranglerPath = join(rootDir, "dist/server/wrangler.json")) {
     const stdout = stream()
     const stderr = stream()
     const exitCode = await runViteHubCli({
@@ -249,7 +249,7 @@ describe("vitehub inspect resources", () => {
           name: "resources",
           vitehub: {
             inspect: {
-              providerOutput: [{ description: "Generated Cloudflare Worker config", owner: "vite-hub", path: join(rootDir, "dist/server/wrangler.json") }],
+              providerOutput: [{ description: "Generated Cloudflare Worker config", owner: "vite-hub", path: wranglerPath }],
               resources: () => [
                 { binding: "DB", definition: "default", host: "cloudflare", id: "db-state", kind: "cloudflare-d1", name: "app-db", owner: "database", source: "provision-state" },
                 { binding: "KV", definition: "default", host: "cloudflare", kind: "cloudflare-kv-namespace", name: "app-cache", owner: "kv" },
@@ -306,6 +306,19 @@ describe("vitehub inspect resources", () => {
       { kind: "cloudflare-r2-bucket", source: "name" },
       { kind: "vercel-blob-store" },
     ])
+  })
+
+  it("reads missing resource ids from a Wrangler path with Windows separators", async () => {
+    const rootDir = await createTempDir()
+    const wranglerPath = join(rootDir, "dist\\server\\wrangler.json")
+    await mkdir(dirname(wranglerPath), { recursive: true })
+    await writeFile(wranglerPath, JSON.stringify({ kv_namespaces: [{ binding: "KV", id: "windows-namespace" }] }))
+
+    const result = await runResources(rootDir, ["--json"], wranglerPath)
+    expect(result).toMatchObject({ exitCode: 0, stderr: "" })
+    expect(JSON.parse(result.stdout).resources).toContainEqual(expect.objectContaining({
+      binding: "KV", id: "windows-namespace", source: "provider-output",
+    }))
   })
 
   it("reports when no Definition maps to a host resource", async () => {

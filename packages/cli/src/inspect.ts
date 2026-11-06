@@ -2,7 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs"
 
 import { collectViteHubDefinitionInspectors, collectViteHubProviderOutputEntries, collectViteHubResourceSummaries, redactInspectionValue } from "@vite-hub/internal/inspect"
 import { PROVISION_STATE_FILE, readProvisionStateSync } from "@vite-hub/internal/provision-state"
-import { relative, resolve } from "pathe"
+import { basename, relative, resolve } from "pathe"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ViteHubDefinitionSummary, ViteHubProviderOutputEntry, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
@@ -233,7 +233,7 @@ const wranglerIdFields = { "cloudflare-d1": ["d1_databases", "database_id"], "cl
 function readGeneratedWranglerIds(entries: readonly ViteHubProviderOutputEntry[]): Map<string, string> {
   const ids = new Map<string, string>()
   for (const entry of entries) {
-    if (!entry.path.endsWith("/wrangler.json") || !existsSync(entry.path) || !statSync(entry.path).isFile()) continue
+    if (basename(entry.path) !== "wrangler.json" || !existsSync(entry.path) || !statSync(entry.path).isFile()) continue
     let config: unknown
     try {
       config = JSON.parse(readFileSync(entry.path, "utf8"))

@@ -45,4 +45,31 @@ describe("Blob resource inspection", () => {
     expect(inspectBlobResources(options, { env: {} })).toEqual([])
     expect(inspectBlobResources(options, { env: {}, hosting: "cloudflare" })).toMatchObject([{ kind: "cloudflare-r2-bucket", name: "uploads", source: "name" }])
   })
+
+  it.each([
+    {},
+    { BLOB_READ_WRITE_TOKEN: "env-secret", BLOB_STORE_ID: "env-store" },
+  ])("reports an explicit Vercel Blob token ahead of environment credentials: %j", (env) => {
+    const store = { driver: "vercel-blob", token: "configured-secret" } as const
+    for (const options of [store, { stores: { default: store, media: store } }]) {
+      const resources = inspectBlobResources(options, { env })
+      expect(resources).toHaveLength("stores" in options ? 2 : 1)
+      for (const resource of resources) {
+        expect(resource).toMatchObject({ host: "vercel", kind: "vercel-blob-store", source: "config" })
+        expect(resource).not.toHaveProperty("env")
+        expect(resource).not.toHaveProperty("id")
+      }
+      expect(JSON.stringify(resources)).not.toContain("configured-secret")
+      expect(JSON.stringify(resources)).not.toContain("env-secret")
+    }
+  })
+
+  it("reports the environment source when a configured token is masked to use the same runtime variable", () => {
+    const token = "env-secret"
+    const resources = inspectBlobResources({ driver: "vercel-blob", token }, { env: { BLOB_READ_WRITE_TOKEN: token } })
+    expect(resources).toEqual([
+      { definition: "default", env: "BLOB_READ_WRITE_TOKEN", host: "vercel", kind: "vercel-blob-store", owner: "blob", source: "env" },
+    ])
+    expect(JSON.stringify(resources)).not.toContain(token)
+  })
 })
