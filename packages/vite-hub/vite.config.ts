@@ -143,6 +143,8 @@ export default defineConfig({
   pack: [
     {
       tsconfig: "tsconfig.build.json",
+      // `project.get` reports this version, without the package manifest in the app's server output.
+      define: { __VITE_HUB_VERSION__: JSON.stringify(frameworkPackageManifest.version) },
       copy: [
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },

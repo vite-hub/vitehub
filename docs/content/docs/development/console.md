@@ -160,6 +160,27 @@ App Auth and the Console must use the same public origin, including the protocol
 
 If `console` is omitted or set to `false`, ViteHub does not register a Console page, RPC route, Nitro plugin, or public asset path. A disabled Console returns the host's normal not-found response.
 
+## Read the project
+
+The `project.get` operation tells a client what the project runs and what the caller may use. Each section and each operation is one that the app installs and that [`authorize`](#limit-a-user-to-some-sections) allows for the caller. It does not need Agents or a section grant, so every caller that passes Console access can read it.
+
+```bash [Terminal]
+pnpm vitehub project info
+pnpm vitehub project info --url https://app.example.com
+```
+
+```json
+{
+  "protocol": 1,
+  "name": "my-app",
+  "vitehub": "0.1.0",
+  "sections": ["env", "kv"],
+  "operations": ["definitions.list", "documents.action", "env.get", "kv.del", "kv.get", "kv.has", "kv.list", "kv.set", "media.action", "project.get", "sections.list"]
+}
+```
+
+`protocol` is the version of this answer. A client stops when the protocol is one that it does not know. `vitehub` is the version of the `vite-hub` package that the app runs. An operation that reads its section from the input, such as `documents.action`, is in the list, and each call checks its section again.
+
 ## Inspect environment declarations
 
 Open Env to search declared Server Env variables and filter by source. Select a variable to inspect its provider, secret flag, requirement, and whether a default is configured. Host environment includes process environment variables and host runtime bindings.

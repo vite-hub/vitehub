@@ -154,7 +154,7 @@ describe("MCP endpoint", () => {
     installConsoleAccess({ authorize: () => ({ sections: ["other"] }), mode: "open" })
     const second = await read<{ result: { tools: Array<{ name: string }> } }>(await post(rpc(2, "tools/list")))
     // Operations for any Console user stay, such as the section list.
-    expect(second.result.tools.map(tool => tool.name)).toEqual(["definitions_list", "other_greet", "sections_list"])
+    expect(second.result.tools.map(tool => tool.name)).toEqual(["definitions_list", "other_greet", "project_get", "sections_list"])
   })
 
   it("limits read-only section grants to read tools", async () => {

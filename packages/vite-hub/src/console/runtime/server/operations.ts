@@ -287,6 +287,16 @@ const mediaAction = defineConsoleOperation({
   section: input => input.section,
 })
 
+const projectGet = defineConsoleOperation({
+  cli: { command: "info", namespace: "project" },
+  description: "Read the project: its name, the vite-hub version, and the sections and operations that this access may use.",
+  input: v.strictObject({}),
+  kind: "read",
+  name: "project.get",
+  run: async (_input, context) => (await import("./project.ts")).readConsoleProject(context.access),
+  section: false,
+})
+
 const searchQuery = defineConsoleOperation({
   cli: { namespace: "search", command: "query", positional: ["search"] },
   description: "Search the Agent Invocations of the Console.",
@@ -375,6 +385,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   invocationsWorkspace,
   logsList,
   mediaAction,
+  projectGet,
   searchQuery,
   sectionsList,
   skillsInspect,
