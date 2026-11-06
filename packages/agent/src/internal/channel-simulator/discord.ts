@@ -5,16 +5,14 @@ import type { SimulatorConfig, SimulatorDocument, SimulatorSkin, SimulatorView }
 // Inspired by a Discord direct message with an app, in the dark theme. No Discord logo, font, or asset is used.
 const css = `
 :root { --rail:#1e1f22; --side:#2b2d31; --chat:#313338; --input:#383a40; --panel:#232428; --hover:#2e3035; --sel:#404249; --side-hover:#35373c;
-  --text:#dbdee1; --strong:#f2f3f5; --muted:#949ba4; --faint:#6d6f78; --line:#3f4147; --code:#2b2d31; --code-line:#1e1f22; --quote:#4e5058;
-  --link:#00a8fc; --brand:#5865f2; --green:#23a55a; --plus:#b5bac1; --skel:#3f4147; color-scheme: dark; }
+  --text:#dbdee1; --strong:#f2f3f5; --muted:#949ba4; --faint:#a3a6aa; --line:#3f4147; --code:#2b2d31; --code-line:#1e1f22; --quote:#4e5058;
+  --link:#00a8fc; --brand:#5865f2; --green:#23a55a; --plus:#b5bac1; --skel:#3f4147; color-scheme: dark;
+  --sim-strip-bg: var(--rail); --sim-strip-text: var(--muted); --sim-surface: var(--input); --sim-text: var(--text); --sim-line: var(--line); }
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
-body { font: 16px/1.375 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--rail); color: var(--text); -webkit-font-smoothing: antialiased; overflow: hidden; }
+body { font: 16px/1.375 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--rail); color: var(--text); -webkit-font-smoothing: antialiased; }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.app { display: flex; flex-direction: column; height: 100dvh; }
-.titlebar { height: 22px; flex: none; display: flex; align-items: center; justify-content: center; gap: 12px; padding: 0 8px; font-size: 12px; font-weight: 600; color: var(--muted); white-space: nowrap; overflow: hidden; }
-.cols { flex: 1; display: flex; min-height: 0; }
+.cols { height: 100%; display: flex; }
 .av { --c: var(--brand); position: relative; flex: none; width: 32px; height: 32px; border-radius: 50%; background: var(--c); color: #fff; display: grid; place-items: center; font-weight: 600; font-size: 14px; user-select: none; }
 .av.user { --c: #248046; }
 .av.dot::after { content: ""; position: absolute; right: -3px; bottom: -3px; width: 10px; height: 10px; border-radius: 50%; background: var(--green); border: 3px solid var(--ring, var(--side)); }
@@ -43,7 +41,8 @@ main { flex: 1; min-width: 0; display: flex; flex-direction: column; background:
 header { height: 48px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; box-shadow: 0 1px 0 rgb(4 4 5 / .2), 0 2px 0 rgb(6 6 7 / .05); z-index: 1; }
 header .av { width: 24px; height: 24px; font-size: 12px; margin-right: 4px; }
 header .av.dot::after { width: 8px; height: 8px; border-width: 2px; right: -2px; bottom: -2px; }
-header h1 { margin: 0; font-size: 16px; font-weight: 600; color: var(--strong); }
+header h1 { min-width: 0; margin: 0; font-size: 16px; font-weight: 600; color: var(--strong); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header .tag { flex: none; }
 header .search { margin-left: auto; width: 144px; height: 24px; border-radius: 4px; background: var(--rail); color: var(--muted); font-size: 14px; line-height: 24px; padding: 0 6px; }
 .scroll { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
 .history { margin-top: auto; padding-bottom: 24px; }
@@ -74,10 +73,15 @@ header .search { margin-left: auto; width: 144px; height: 24px; border-radius: 4
 .body pre code { display: block; padding: 0; font-size: 14px; white-space: pre-wrap; background: none; }
 .body blockquote { border-left: 4px solid var(--quote); border-radius: 4px 0 0 4px; padding-left: 12px; }
 .composer { flex: none; margin: 0 16px; display: flex; align-items: flex-start; background: var(--input); border-radius: 8px; }
+.composer:focus-within { box-shadow: 0 0 0 2px var(--brand); }
 .composer .plus { flex: none; width: 24px; height: 24px; margin: 10px 16px; border-radius: 50%; background: var(--plus); color: var(--input); font-size: 20px; line-height: 24px; font-weight: 700; }
 .composer textarea { flex: 1; min-height: 44px; max-height: 50vh; padding: 11px 10px 11px 0; border: 0; outline: 0; resize: none; background: none; color: var(--text); font: inherit; }
 .composer textarea::placeholder { color: var(--faint); }
-.composer .emoji { flex: none; margin: 10px 16px 10px 4px; width: 24px; height: 24px; color: var(--muted); }
+.composer .emoji { flex: none; margin: 10px 4px; width: 24px; height: 24px; color: var(--muted); }
+.composer .send { flex: none; width: 32px; height: 32px; margin: 6px 8px 6px 4px; border-radius: 4px; display: grid; place-items: center; color: var(--muted); }
+.composer .send:hover { color: var(--strong); }
+.composer .send:focus-visible { outline: 2px solid var(--brand); }
+.composer .send svg { width: 20px; height: 20px; fill: currentColor; }
 .typing { height: 24px; flex: none; padding: 0 16px; display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--text); }
 .dots { display: inline-flex; gap: 3px; margin-right: 2px; }
 .dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--text); animation: blink 1.2s infinite ease-in-out; }
@@ -85,49 +89,49 @@ header .search { margin-left: auto; width: 144px; height: 24px; border-radius: 4
 @keyframes blink { 0%, 60%, 100% { opacity: .3; transform: scale(.8); } 30% { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) { .dots i { animation: none; opacity: .7; } }
 @media (max-width: 720px) { .rail, .dms { display: none; } header .search { display: none; } .row { padding-right: 16px; } }
-@media (pointer: coarse) { .composer textarea { font-size: 16px; } }
+[data-embed] .rail, [data-embed] .dms, [data-embed] header .search { display: none; }
+[data-embed] .row { padding-right: 16px; }
+@media (pointer: coarse) { .composer textarea { font-size: 16px; } .composer .send { width: 44px; height: 44px; margin: 0 4px 0 0; } }
 `
 
-function body(config: SimulatorConfig, switcher: string): string {
+function body(config: SimulatorConfig): string {
   const agent = escapeHtml(config.agent)
   const user = escapeHtml(config.user)
   const handle = escapeHtml(config.agent.toLowerCase().replace(/\s+/g, ""))
-  return `<div class="app">
-  <div class="titlebar"><span>Unofficial simulator · not affiliated with ${escapeHtml(config.platform)}</span>${switcher}</div>
-  <div class="cols">
-    <nav class="rail" aria-hidden="true">
-      <div class="srv home"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M4 5h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-4 3v-3H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg></div>
-      <hr><div class="srv"></div><div class="srv"></div><div class="srv">+</div>
+  return `<div class="cols">
+  <nav class="rail" aria-hidden="true">
+    <div class="srv home"><svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M4 5h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H10l-4 3v-3H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg></div>
+    <hr><div class="srv"></div><div class="srv"></div><div class="srv">+</div>
+  </nav>
+  <aside class="dms" aria-label="Direct messages">
+    <div class="find"><div>Find or start a conversation</div></div>
+    <nav>
+      <div class="item"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M1 20c0-4 4-6 8-6s8 2 8 6z"/><circle cx="17" cy="9" r="3" opacity=".6"/></svg>Friends</div>
+      <h2>Direct Messages <span aria-hidden="true">+</span></h2>
+      <div class="item sel" aria-current="page"><div class="av dot" aria-hidden="true">${initialHtml(config.agent)}</div><span>${agent}</span><span class="tag">APP</span></div>
+      <div class="skel" aria-hidden="true"><i></i><b style="width:110px"></b></div>
+      <div class="skel" aria-hidden="true" style="opacity:.45"><i></i><b style="width:80px"></b></div>
     </nav>
-    <aside class="dms" aria-label="Direct messages">
-      <div class="find"><div>Find or start a conversation</div></div>
-      <nav>
-        <div class="item"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M1 20c0-4 4-6 8-6s8 2 8 6z"/><circle cx="17" cy="9" r="3" opacity=".6"/></svg>Friends</div>
-        <h2>Direct Messages <span aria-hidden="true">+</span></h2>
-        <div class="item sel" aria-current="page"><div class="av dot" aria-hidden="true">${initialHtml(config.agent)}</div><span>${agent}</span><span class="tag">APP</span></div>
-        <div class="skel" aria-hidden="true"><i></i><b style="width:110px"></b></div>
-        <div class="skel" aria-hidden="true" style="opacity:.45"><i></i><b style="width:80px"></b></div>
-      </nav>
-      <div class="me"><div class="av user dot" aria-hidden="true">${initialHtml(config.user)}</div><div class="who"><b>${user}</b><span>Online</span></div></div>
-    </aside>
-    <main>
-      <header><div class="av dot" aria-hidden="true">${initialHtml(config.agent)}</div><h1>${agent}</h1><span class="tag">APP</span><div class="search" aria-hidden="true">Search</div></header>
-      <div class="scroll" id="scroll">
-        <div class="history">
-          <div class="intro"><div class="av" aria-hidden="true">${initialHtml(config.agent)}</div><h2>${agent}</h2><div class="handle">${handle}</div>
-            <p>This is the beginning of your direct message history with <b>${agent}</b>.</p></div>
-          <div id="list" role="log" aria-live="polite" aria-label="Messages"></div>
-        </div>
+    <div class="me"><div class="av user dot" aria-hidden="true">${initialHtml(config.user)}</div><div class="who"><b>${user}</b><span>Online</span></div></div>
+  </aside>
+  <main>
+    <header><div class="av dot" aria-hidden="true">${initialHtml(config.agent)}</div><h1>${agent}</h1><span class="tag">APP</span><div class="search" aria-hidden="true">Search</div></header>
+    <div class="scroll" id="scroll">
+      <div class="history">
+        <div class="intro"><div class="av" aria-hidden="true">${initialHtml(config.agent)}</div><h2>${agent}</h2><div class="handle">${handle}</div>
+          <p>This is the beginning of your direct message history with <b>${agent}</b>.</p></div>
+        <div id="list" role="log" aria-live="polite" aria-label="Messages"></div>
       </div>
-      <form class="composer" id="form">
-        <span class="plus" aria-hidden="true">+</span>
-        <label for="input" class="sr">Message ${agent}</label>
-        <textarea id="input" rows="1" enterkeyhint="send" autocomplete="off" placeholder="Message @${agent}"></textarea>
-        <svg class="emoji" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 14c1 1.5 2.5 2 4 2s3-.5 4-2"/><circle cx="9" cy="10" r=".5"/><circle cx="15" cy="10" r=".5"/></svg>
-      </form>
-      <div class="typing" id="typing" aria-hidden="true"></div>
-    </main>
-  </div>
+    </div>
+    <form class="composer" id="form">
+      <span class="plus" aria-hidden="true">+</span>
+      <label for="input" class="sr">Message ${agent}</label>
+      <textarea id="input" rows="1" enterkeyhint="send" autocomplete="off" placeholder="Message @${agent}"></textarea>
+      <svg class="emoji" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 14c1 1.5 2.5 2 4 2s3-.5 4-2"/><circle cx="9" cy="10" r=".5"/><circle cx="15" cy="10" r=".5"/></svg>
+      <button class="send" type="submit" aria-label="Send"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.4 20.4l17.4-7.5a1 1 0 0 0 0-1.8L3.4 3.6a.7.7 0 0 0-1 .8L4.5 11l9 1-9 1-2.1 6.6a.7.7 0 0 0 1 .8z"/></svg></button>
+    </form>
+    <div class="typing" id="typing" aria-hidden="true"></div>
+  </main>
 </div>`
 }
 

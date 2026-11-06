@@ -8317,6 +8317,8 @@ export interface AgentChannelConversation {
   participants: string[]
   provider: string
   retention: AgentChannelRetention
+  /** True when the Channel runs on the simulated chat of `agent.channels.simulate`, not on its provider. */
+  simulated: boolean
   threadId: string
   /** True when the transcript limit cut the oldest messages. */
   truncated: boolean
@@ -8609,6 +8611,7 @@ async function readChannelConversation(
     participants: [...participants],
     provider: registration.provider,
     retention,
+    simulated: isSimulatedChatAdapter(adapter),
     threadId: input.threadId,
     truncated: transcripts.truncated,
   }

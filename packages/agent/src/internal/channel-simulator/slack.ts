@@ -6,21 +6,20 @@ import type { SimulatorConfig, SimulatorDocument, SimulatorSkin, SimulatorView }
 const css = `
 :root { --frame:#350d36; --side:#3f0e40; --side-text:rgb(255 255 255 / .7); --side-strong:#fff; --side-hover:rgb(255 255 255 / .08); --sel:#1164a3;
   --main:#fff; --text:#1d1c1d; --muted:#616061; --line:rgb(29 28 29 / .13); --hover:#f8f8f8; --link:#1264a3; --tag:rgb(29 28 29 / .13);
-  --code:rgb(29 28 29 / .04); --code-text:#e01e5a; --quote:#dddddd; --field:rgb(29 28 29 / .3); --send:#007a5a; --agent:#5b6ee1; --user:#c75a1b; color-scheme: light; }
+  --code:rgb(29 28 29 / .04); --code-text:#e01e5a; --quote:#dddddd; --field:rgb(29 28 29 / .3); --send:#007a5a; --agent:#5b6ee1; --user:#c75a1b; color-scheme: light;
+  --sim-strip-bg: var(--frame); --sim-strip-text: rgb(255 255 255 / .75); --sim-surface: var(--main); --sim-text: var(--text); --sim-line: var(--line); }
 @media (prefers-color-scheme: dark) { :root { --frame:#121016; --side:#19171d; --side-hover:rgb(255 255 255 / .06);
   --main:#1a1d21; --text:#d1d2d3; --muted:#ababad; --line:rgb(232 232 232 / .13); --hover:#222529; --link:#1d9bd1; --tag:rgb(232 232 232 / .13);
   --code:rgb(232 232 232 / .04); --code-text:#e8912d; --quote:#4a4b4e; --field:rgb(232 232 232 / .3); color-scheme: dark; } }
 * { box-sizing: border-box; }
-html, body { height: 100%; margin: 0; }
-body { display: grid; grid-template-rows: 40px minmax(0, 1fr); height: 100dvh; font: 15px/22px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); background: var(--frame); -webkit-font-smoothing: antialiased; overflow: hidden; }
+body { font: 15px/22px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: var(--text); background: var(--frame); -webkit-font-smoothing: antialiased; }
+.sim-root { display: grid; grid-template-rows: 40px minmax(0, 1fr); }
 button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; flex: none; }
 .top { display: grid; grid-template-columns: 1fr minmax(0, 560px) 1fr; align-items: center; gap: 16px; padding: 0 12px; }
 .top .search { height: 26px; border-radius: 6px; background: rgb(255 255 255 / .16); color: rgb(255 255 255 / .8); display: flex; align-items: center; gap: 8px; padding: 0 10px; font-size: 13px; }
 .top .search svg { width: 14px; height: 14px; }
-.top .switch-slot { min-width: 0; display: flex; color: rgb(255 255 255 / .9); }
-.top .unofficial { justify-self: end; font-size: 11px; line-height: 14px; color: rgb(255 255 255 / .75); border: 1px dashed rgb(255 255 255 / .4); border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
 .app { display: grid; grid-template-columns: 70px 260px minmax(0, 1fr); min-height: 0; padding: 0 4px 4px 0; }
 .rail { display: flex; flex-direction: column; align-items: center; gap: 12px; padding-top: 8px; color: #fff; }
 .rail .ws { width: 36px; height: 36px; border-radius: 8px; background: #fff; color: var(--frame); display: grid; place-items: center; font-weight: 800; font-size: 18px; }
@@ -37,6 +36,7 @@ svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width:
 .side h2 { display: flex; align-items: center; gap: 6px; margin: 12px 0 2px; padding: 0 8px; font-size: 15px; font-weight: 500; }
 .side h2 svg { width: 12px; height: 12px; }
 .item { display: flex; align-items: center; gap: 8px; height: 28px; padding: 0 8px 0 16px; border-radius: 6px; white-space: nowrap; overflow: hidden; }
+.item .label { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .item .hash { width: 20px; text-align: center; opacity: .9; }
 .item.on { background: var(--sel); color: #fff; font-weight: 600; }
 .av { flex: none; position: relative; width: 20px; height: 20px; border-radius: 4px; background: var(--agent); color: #fff; display: grid; place-items: center; font-size: 11px; font-weight: 700; user-select: none; }
@@ -49,7 +49,8 @@ main { background: var(--main); border-radius: 0 8px 8px 0; display: flex; flex-
 header { flex: none; border-bottom: 1px solid var(--line); padding: 0 20px; }
 header .title { height: 49px; display: flex; align-items: center; gap: 8px; }
 header .title .av { width: 24px; height: 24px; font-size: 12px; --ring: var(--main); }
-header h1 { margin: 0; font-size: 18px; font-weight: 800; }
+header h1 { min-width: 0; margin: 0; font-size: 18px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header .title .tag { flex: none; }
 header .tabs { display: flex; gap: 20px; font-size: 13px; color: var(--muted); }
 header .tabs span { padding-bottom: 8px; }
 header .tabs .on { color: var(--text); font-weight: 600; box-shadow: inset 0 -2px 0 var(--text); }
@@ -96,20 +97,23 @@ header .tabs .on { color: var(--text); font-weight: 600; box-shadow: inset 0 -2p
 .compose .send svg { fill: currentColor; stroke: none; }
 .typing { height: 24px; flex: none; padding: 2px 20px 0; font-size: 12px; color: var(--muted); }
 .typing b { font-weight: 700; }
-@media (max-width: 760px) { .app { grid-template-columns: minmax(0, 1fr); padding: 0; } .rail, .side, .top .search { display: none; } main { border-radius: 0; } .top { grid-template-columns: minmax(0, 1fr) auto; } }
-@media (pointer: coarse) { .compose textarea { font-size: 16px; } }
+@media (max-width: 760px) { .sim-root { grid-template-rows: minmax(0, 1fr); } .app { grid-template-columns: minmax(0, 1fr); padding: 0; } .top, .rail, .side { display: none; } main { border-radius: 0; } }
+[data-embed] .sim-root { grid-template-rows: minmax(0, 1fr); }
+[data-embed] .app { grid-template-columns: minmax(0, 1fr); padding: 0; }
+[data-embed] .top, [data-embed] .rail, [data-embed] .side { display: none; }
+[data-embed] main { border-radius: 0; }
+@media (pointer: coarse) { .compose textarea { font-size: 16px; } .compose .send { width: 44px; height: 44px; } }
 `
 
-function body(config: SimulatorConfig, switcher: string): string {
+function body(config: SimulatorConfig): string {
   const agent = escapeHtml(config.agent)
   const user = escapeHtml(config.user)
   const agentInitial = initialHtml(config.agent)
   const workspace = "ViteHub dev"
   const caret = "<svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M6 9l6 6 6-6\"/></svg>"
   return `<header class="top">
-  <span class="switch-slot">${switcher}</span>
+  <span></span>
   <div class="search" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6"/><path d="M15 15l5 5"/></svg>Search ${workspace}</div>
-  <span class="unofficial">Unofficial simulator · not affiliated with ${escapeHtml(config.platform)}</span>
 </header>
 <div class="app">
   <nav class="rail" aria-hidden="true">
@@ -128,7 +132,7 @@ function body(config: SimulatorConfig, switcher: string): string {
       <h2>${caret}Direct messages</h2>
       <div class="item"><span class="av user dot" aria-hidden="true">${initialHtml(config.user)}</span>${user} <span style="opacity:.6">you</span></div>
       <h2>${caret}Apps</h2>
-      <div class="item on" aria-current="page"><span class="av dot" aria-hidden="true">${agentInitial}</span>${agent}</div>
+      <div class="item on" aria-current="page"><span class="av dot" aria-hidden="true">${agentInitial}</span><span class="label">${agent}</span></div>
     </nav>
   </aside>
   <main>
