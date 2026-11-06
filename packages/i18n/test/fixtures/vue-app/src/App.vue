@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useLocale } from "@vite-hub/i18n/vue"
+import Notice from "./Notice.vue"
 import { deployStatus } from "./status"
 
 const props = defineProps<{ name?: string }>()
@@ -11,5 +12,6 @@ const { locale, setLocale } = useLocale()
   <p><Trans>Hello <b>{{ props.name }}</b>, read the <a href="/docs">docs</a>.</Trans></p>
   <input :placeholder="t`Search agents`">
   <output>{{ deployStatus(2) }}</output>
+  <Notice />
   <button @click="setLocale(locale === 'en' ? 'es' : 'en')">{{ locale }}</button>
 </template>

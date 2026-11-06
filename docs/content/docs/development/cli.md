@@ -54,6 +54,7 @@ Available namespaces:
   workflow    Start and inspect Workflow runs in development.
   task        List and run Nitro tasks, such as server/tasks/seed.ts, in the running app.
   types       Generate ViteHub TypeScript declarations.
+  i18n        Collect messages into PO catalogs and show translation coverage.
   decisions   List the Decisions of the app and run one with a text. Does not load the project config.
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions and generated Provider Output.
@@ -123,6 +124,8 @@ Available namespaces:
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with `--url`. |
+| `vitehub i18n extract` | Available | i18n Package | Collect the messages of the code into `locales/<locale>.po`. Translations stay. |
+| `vitehub i18n status` | Available | i18n Package | Show how many messages each locale translates. |
 | `vitehub decisions list` | Available | Decisions Package | List the exports of `defineChoices()` results, by file. |
 | `vitehub decisions run` | Available | Decisions Package | Run one Decision with a text and print the selection as JSON, or the questions with `--inspect`. |
 | `vitehub queue list` | Available | Queue Package | List the Queue Definitions of the app and the provider that sends their jobs. |
@@ -471,6 +474,17 @@ The output of the first command, with the offline gateway of the [Decisions tuto
 | `--json` | `decisions list` only: print the files as JSON. |
 
 A Decision error prints `{ "error": { "code", "message" } }` and exits with status `1`. The command loads the file with Vite but without the project config, so the file must import with relative paths or package names. Nuxt aliases such as `~~` and auto-imports do not resolve. Read [Decisions server API](/docs/decisions/server-api) for `resolve()` and `inspect()`.
+
+## Collect and check translations
+
+Run `vitehub i18n extract` after you add or change messages. It reads `t`, `<Trans>`, `plural`, `select`, and `msg` in the code, and writes `locales/<locale>.po` for each locale in `i18n.locales`. Existing translations stay. Pass `--keep-obsolete` to keep messages that the code no longer uses.
+
+```bash [Terminal]
+pnpm vitehub i18n extract
+pnpm vitehub i18n status --json
+```
+
+`status` prints, per locale, the number of messages, translated messages, and missing messages. It needs no dev server. Read [Translate your first page](/docs/i18n/get-started) for the full flow.
 
 ## Run app tasks
 

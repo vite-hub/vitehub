@@ -37,17 +37,20 @@ export function t(..._args: unknown[]): string {
 }
 
 /** Pick the plural form of a number: `plural(count, { one: "# file", other: "# files" })`. */
-export function plural(value: number | Readonly<Record<string, number>>, forms: PluralForms): string {
+export function plural(value: number | Readonly<Record<string, number>>, forms: PluralForms): string
+export function plural(..._args: unknown[]): string {
   return notCompiled("plural")
 }
 
 /** Pick the ordinal form of a number: `selectOrdinal(place, { one: "#st", two: "#nd", few: "#rd", other: "#th" })`. */
-export function selectOrdinal(value: number | Readonly<Record<string, number>>, forms: PluralForms): string {
+export function selectOrdinal(value: number | Readonly<Record<string, number>>, forms: PluralForms): string
+export function selectOrdinal(..._args: unknown[]): string {
   return notCompiled("selectOrdinal")
 }
 
 /** Pick a form by a value: `select(role, { admin: "Admin", other: "Member" })`. */
-export function select(value: string | Readonly<Record<string, string>>, forms: { other: string, [value: string]: string }): string {
+export function select(value: string | Readonly<Record<string, string>>, forms: { other: string, [value: string]: string }): string
+export function select(..._args: unknown[]): string {
   return notCompiled("select")
 }
 

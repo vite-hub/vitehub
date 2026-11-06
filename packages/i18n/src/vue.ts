@@ -1,9 +1,10 @@
-/// <reference path="./virtual.d.ts" />
+// oxlint-disable-next-line typescript/triple-slash-reference -- Declares the client module that the Vite plugin generates.
+/// <reference path="./virtual.d.ts" preserve="true" />
 import "virtual:vite-hub/i18n/client"
 import { createLingui, Trans } from "@lingui/vue"
 import { inject, readonly, shallowRef } from "vue"
 
-import { activateLocale, getI18n, getI18nConfig, getLocales, resolveBrowserLocale, setLocale } from "./runtime.ts"
+import { activateLocale, getI18n, getI18nConfig, getLocales, resolveBrowserLocale, setI18nTracker, setLocale } from "./runtime.ts"
 
 import type { I18n, MessageDescriptor } from "@lingui/core"
 import type { Result } from "@vite-hub/runtime"
@@ -20,6 +21,22 @@ export interface LocaleState {
 
 const localeKey: InjectionKey<LocaleState> = Symbol("vite-hub.i18n.locale")
 
+// The locale of the last app change. Templates that read it re-render after `setLocale()`.
+const activeLocale = shallowRef<string>()
+
+/**
+ * Translate a compiled template message. The build calls it for ``t`...` `` in a template when `<script setup>`
+ * also imports `t`. Do not call it yourself.
+ */
+export function translateInTemplate(descriptor: MessageDescriptor): string {
+  void activeLocale.value
+  return getI18n()._(descriptor)
+}
+
+setI18nTracker(() => {
+  void activeLocale.value
+})
+
 /**
  * Install messages in a Vue app: `t` and `<Trans>` work in every template without an import.
  * Pass `i18n` to use a specific instance, such as the instance of a server request.
@@ -31,6 +48,7 @@ export function i18nPlugin(options: { i18n?: I18n } = {}): Plugin {
       const locale = shallowRef(i18n.locale)
       i18n.on("change", () => {
         locale.value = i18n.locale
+        activeLocale.value = i18n.locale
       })
       app.use(createLingui({ i18n }))
       app.component("Trans", Trans)

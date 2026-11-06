@@ -161,6 +161,7 @@ the Vite and the Nuxt path.
 | `agent` | `@vite-hub/agent` |
 | `auth` | `@vite-hub/auth better-auth` |
 | `database`, and Connections or Comments, which turn Database on | `@vite-hub/database drizzle-orm`, and `drizzle-kit` as a development dependency |
+| `i18n` | `@vite-hub/i18n` |
 | `realtime` | `@vite-hub/realtime` |
 | `schedule` | `@vite-hub/schedule` |
 | `workspace` | `@vite-hub/workspace`, and `@vite-hub/shell` for shell commands |

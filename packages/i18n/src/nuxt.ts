@@ -6,10 +6,12 @@ import { i18nErrorDiagnostics } from "./errors.ts"
 
 /** The parts of a Nuxt instance that `installI18nNuxt()` uses. */
 export interface I18nNuxt {
-  options: { buildDir: string, plugins: Array<string | { src: string }> }
+  options: { plugins: Array<string | { src: string }> }
 }
 
 export interface I18nNuxtOptions {
+  /** The project root. The plugin goes to `.vitehub/i18n/`, because Nuxt clears its build directory after modules run. */
+  projectRoot: string
   /** The Nitro major version of the app. Nuxt 4 builds with Nitro 2, which i18n does not support. */
   nitroMajorVersion: 2 | 3
   /** The public import path of the i18n re-exports, such as `vite-hub/i18n`. */
@@ -22,7 +24,7 @@ export interface I18nNuxtOptions {
  */
 export async function installI18nNuxt(nuxt: I18nNuxt, options: I18nNuxtOptions): Promise<void> {
   if (options.nitroMajorVersion === 2) throw i18nErrorDiagnostics.I18N_UNSUPPORTED_HOST()
-  const plugin = join(nuxt.options.buildDir, "vitehub/i18n-plugin.mjs")
+  const plugin = join(options.projectRoot, ".vitehub/i18n/nuxt-plugin.mjs")
   await writeFileIfChanged(plugin, nuxtPluginSource(options.importBase))
   if (!nuxt.options.plugins.some(entry => (typeof entry === "string" ? entry : entry.src) === plugin)) nuxt.options.plugins.push(plugin)
 }

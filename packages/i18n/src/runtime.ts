@@ -21,6 +21,8 @@ interface I18nState {
   config?: I18nRuntimeConfig
   app?: I18n
   scope?: () => I18n | undefined
+  /** Set by the Vue plugin. A message read inside `computed` or a render then re-runs after a locale change. */
+  track?: () => void
 }
 
 // One state per JavaScript realm, so the build output and linked copies of this package share it.
@@ -38,6 +40,11 @@ export function configureI18n(config: I18nRuntimeConfig): void {
 
 export function getI18nConfig(): I18nRuntimeConfig | undefined {
   return state().config
+}
+
+/** The Vue plugin sets a tracker, so reactive code that translates a message depends on the locale. */
+export function setI18nTracker(track: (() => void) | undefined): void {
+  state().track = track
 }
 
 /** The server sets a scope so that each request reads its own locale. */
@@ -64,6 +71,7 @@ export function getI18n(): I18n {
 // SAFETY: Every property read forwards to a real I18n instance.
 export const i18n: I18n = new Proxy({} as I18n, {
   get(_target, key) {
+    state().track?.()
     const target = getI18n()
     const value: unknown = Reflect.get(target, key, target)
     return typeof value === "function" ? value.bind(target) : value
@@ -135,5 +143,6 @@ export async function setLocale(locale: string): Promise<Result<string, "I18N_UN
 
 /** Translate a message that `msg` declared, in the active locale. */
 export function translate(descriptor: MessageDescriptor): string {
+  state().track?.()
   return getI18n()._(descriptor)
 }

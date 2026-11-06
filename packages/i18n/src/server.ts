@@ -39,7 +39,9 @@ function requestHeaders(event: RequestEvent): HeaderBag {
  * server code calls `t` without passing the event.
  */
 export function installI18nServer(nitroApp: NitroAppLike, options: I18nServerOptions): void {
-  configureI18n(options.config)
+  // `setLocale()` in server code switches the request instance, so it loads from the compiled messages.
+  const catalogs = Object.fromEntries(options.config.locales.map(locale => [locale, async () => ({ messages: options.messages[locale] ?? {} })]))
+  configureI18n({ ...options.config, catalogs })
   const byRequest = new WeakMap<object, I18n>()
   const create = (locale: string): I18n => setupI18n({ locale, messages: { [locale]: options.messages[locale] ?? {} } })
 

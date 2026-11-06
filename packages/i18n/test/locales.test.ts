@@ -58,6 +58,13 @@ describe("server scope", () => {
         return `${getLocale()}:${translate({ id: "greeting", message: "Hello" })}`
       })
     }
+    // `setLocale()` in a route switches only that request, with the compiled messages of the locale.
+    const switched = { req: new Request("http://app.test/"), context: {} }
+    expect(await context.run(switched, async () => {
+      for (const hook of hooks) hook(switched)
+      await setLocale("es")
+      return `${getLocale()}:${translate({ id: "greeting", message: "Hello" })}`
+    })).toBe("es:Hola")
     const languages = Array.from({ length: 30 }, (_, index) => ["en", "es", "pt-BR"][index % 3]!)
     expect(await Promise.all(languages.map(handle))).toEqual(languages.map(language => `${language}:${{ en: "Hello", es: "Hola", "pt-BR": "Olá" }[language]}`))
   })

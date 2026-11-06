@@ -50,8 +50,8 @@ describe("a Vue app with messages in templates and scripts", () => {
     expect(po).toContain("#: src/App.vue")
     expect(po).toContain("#: src/status.ts")
     expect(statuses).toEqual([
-      expect.objectContaining({ locale: "en", source: true, messages: 5, missing: 0 }),
-      expect.objectContaining({ locale: "es", source: false, messages: 5, translated: 0, missing: 5 }),
+      expect.objectContaining({ locale: "en", source: true, messages: 7, missing: 0 }),
+      expect.objectContaining({ locale: "es", source: false, messages: 7, translated: 0, missing: 7 }),
     ])
   })
 
@@ -63,7 +63,7 @@ describe("a Vue app with messages in templates and scripts", () => {
       "{count, plural, one {# agent} other {# agents}}": "{count, plural, one {# agente} other {# agentes}}",
     })
     const statuses = await inspectI18n(linguiConfig())
-    expect(statuses[1]).toMatchObject({ locale: "es", translated: 4, missing: 1 })
+    expect(statuses[1]).toMatchObject({ locale: "es", translated: 4, missing: 3 })
   })
 
   it("compiles messages to IDs and keeps the source text out of the app code", async () => {
@@ -89,6 +89,9 @@ describe("a Vue app with messages in templates and scripts", () => {
     expect(app.code).not.toContain("Search agents")
     expect(app.code).not.toContain("Deploy finished")
     expect(app.code).toMatch(/id: "[\w+/-]{6}"/)
+    // `<script setup>` imports the `t` macro, so the template `t` needs a runtime binding after the build removes it.
+    expect(app.code).not.toContain("Changes saved")
+    expect(app.code).toContain("translateInTemplate")
     expect(spanish, "the Spanish catalog is its own chunk").toBeDefined()
     expect(spanish!.file).not.toBe(app.file)
     // A message without a translation falls back to the source text instead of its ID.
