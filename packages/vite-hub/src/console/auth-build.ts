@@ -239,7 +239,7 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
     ].join("\n")),
     writeFileIfChanged(middleware, [
       'import { createAuthForRequest, requireAuthAccessRoutes, toAuthRequest, withAuthorization } from "#vitehub/auth/server"',
-      'import { consoleAuthPageResponse, readConsoleSessionUser } from "vite-hub/console/auth"',
+      'import { consoleAuthPageResponse, consoleAuthSignInURLs, readConsoleSessionUser } from "vite-hub/console/auth"',
       'import { definition, input, prepare } from "./auth-definition.mjs"',
       "const authorizeConsoleAccess = withAuthorization(input.authorize, () => undefined, definition)",
       "// Each Console data route calls this check, whatever its path. It never redirects to sign-in.",
@@ -276,7 +276,7 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "  if (path === '/_vitehub/schedules/run' && request.headers.has('x-vitehub-dispatch-signature')) return",
       "  if (!(path === '/_vitehub' || path.startsWith('/_vitehub/') || path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/'))) return",
       "  await prepare(event)",
-      "  if (path === '/_vitehub' || path.startsWith('/_vitehub/')) return consoleAuthPageResponse(request, await requireAuthAccessRoutes(event, [0], definition, [0], { redirectToSignIn: path === '/_vitehub' && url.searchParams.has('auth_start') }), mountBase)",
+      "  if (path === '/_vitehub' || path.startsWith('/_vitehub/')) return consoleAuthPageResponse(request, await requireAuthAccessRoutes(event, [0], definition, [0], { redirectToSignIn: path === '/_vitehub' && url.searchParams.has('auth_start'), signIn: consoleAuthSignInURLs(request, mountBase) }), mountBase)",
       "  if (path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/')) return requireAuthAccessRoutes(event, [1], definition, [1], { redirectToSignIn: false })",
       "}",
       "",
