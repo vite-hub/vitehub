@@ -2,7 +2,7 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { baselineEntry, checkSnippets, compareBaseline, collectSnippets, extractBlocks, generatedDeclarations, repoRoot } from "../scripts/check-snippets.mjs"
+import { baselineEntry, checkSnippets, collectSnippets, compareBaseline, extractBlocks, generatedDeclarations, repoRoot } from "../scripts/check-snippets.mjs"
 
 describe("documentation snippet check", () => {
   it("reads labels, fragments, and indented blocks", () => {
@@ -16,6 +16,11 @@ describe("documentation snippet check", () => {
       "   tools: {}\r",
       "   ```",
       "",
+      "```ts",
+      "// src/welcome-email.queue.ts",
+      "export default 1",
+      "```",
+      "",
       "```sh",
       "pnpm vitehub types prepare",
       "```",
@@ -24,6 +29,7 @@ describe("documentation snippet check", () => {
     expect(blocks.map(({ code, fragment, label }) => ({ code, fragment, label }))).toEqual([
       { code: "export default 1", fragment: false, label: "server/routes/[id].get.ts" },
       { code: "tools: {}", fragment: true, label: "server/agents/support.ts" },
+      { code: "// src/welcome-email.queue.ts\nexport default 1", fragment: false, label: "src/welcome-email.queue.ts" },
     ])
   })
 
@@ -170,6 +176,24 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     ])
   }, 60_000)
 
+  it.each([
+    ["queues", "queue", "email.queue"],
+    ["browsers", "browser", "email.browser"],
+    ["channels", "channel", "email"],
+    ["connections", "connection", "email"],
+  ])("uses %s directory names and only discovers non-TSX suffix files", async (directory, kind, serverName) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/definition-paths")
+    const snippets = [
+      `server/${directory}/email.${kind}.ts`,
+      `src/typed.${kind}.ts`,
+      `src/module.${kind}.mts`,
+      `src/unsupported.${kind}.tsx`,
+    ].map(label => ({ code: "export default { connectors: { log: { send: () => ({ id: 'sent' }) } } }", file: join(pageRoot, label), fragment: false, label, line: 1, page: "definition-paths.md", pageRoot }))
+    const declarations = await generatedDeclarations(snippets)
+    expect(declarations).toHaveLength(1)
+    expect([...declarations[0].code.matchAll(/^    ("[^"]+"): /gm)].map(match => JSON.parse(match[1]))).toEqual([serverName, "typed", "module"])
+  })
+
   it("uses Collection file paths and only registers the matching route-enabled export", async () => {
     const pageRoot = join(repoRoot, "docs/.snippets/collection-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "collection-page.md", pageRoot })
@@ -216,6 +240,25 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     ])
   }, 60_000)
 
+  it("excludes helpers inside indexed Channel folders", async () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/channel-folder-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "channel-folder-page.md", pageRoot })
+    const channel = "import { defineOutboundChannel } from 'vite-hub/channels'\nexport default defineOutboundChannel({ connectors: { log: { send: (text: string) => ({ id: text }) } } })"
+    const snippets = [
+      snippet("server/channels/teams/config.ts", "import channel from './index'\nexport default channel"),
+      snippet("server/channels/teams/connectors.ts", channel),
+      snippet("server/channels/teams/index.ts", channel),
+      snippet("outbound.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('teams')"),
+      snippet("opaque-helper.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('teams/config')"),
+      snippet("outbound-helper.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('teams/connectors')"),
+    ]
+    const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["opaque-helper.ts", [2769]],
+      ["outbound-helper.ts", [2769]],
+    ])
+  }, 60_000)
+
   it("preserves PostgreSQL and SQLite Database client dialects", async () => {
     const pageRoot = join(repoRoot, "docs/.snippets/database-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "database-page.md", pageRoot })
@@ -232,5 +275,17 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
       ["wrong-postgres.ts", [2339]],
       ["wrong-sqlite.ts", [2339]],
     ])
+  }, 60_000)
+
+  it("checks the Workflow README steps against generated declarations", async () => {
+    const root = join(repoRoot, "packages/workflow")
+    const snippets = collectSnippets([{ file: join(root, "README.md"), root }])
+    const declarations = await generatedDeclarations(snippets)
+    expect(declarations).toHaveLength(1)
+    expect(checkSnippets(snippets, declarations).failures).toEqual([])
+
+    const misspelled = snippets.map(snippet => ({ ...snippet, code: snippet.code.replace("steps.sendWelcome(user)", "steps.sendWelcomeEmail(user)") }))
+    const failures = checkSnippets(misspelled, declarations).failures
+    expect(failures.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2551]])
   }, 60_000)
 })

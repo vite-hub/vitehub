@@ -9335,7 +9335,7 @@ describe("server helpers", () => {
     expect(run).toHaveBeenCalledOnce()
   })
 
-  it("runs GitHub channel webhooks through workflow-backed agents", async () => {
+  it("runs GitHub channel webhooks through workflow-backed agents", async ({ onTestFinished }) => {
     const { defineAgent, workflow } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -9345,6 +9345,7 @@ describe("server helpers", () => {
     const runFinished = new Promise<void>((resolve) => {
       releaseRun = resolve
     })
+    onTestFinished(releaseRun)
     const run = vi.fn(async (context) => {
       await runFinished
       return `accepted ${context.prompt}`
@@ -9389,6 +9390,7 @@ describe("server helpers", () => {
         "",
         { waitUntil: (task) => waitUntilTasks.push(task) },
       )
+      // The response must arrive while the Workflow is still waiting for releaseRun().
       const response = await withDeadline(responsePromise, 3_000, "Workflow webhook response waited for deferred workflow completion.")
       const json = await response.json()
 
@@ -15604,7 +15606,7 @@ describe("server helpers", () => {
     })
   })
 
-  it("defers manual delivery to the active Agent Workflow by default", async () => {
+  it("defers manual delivery to the active Agent Workflow by default", async ({ onTestFinished }) => {
     const { defineAgent } = await import("../src/index.ts")
     const { telegram } = await import("../src/channels.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -15619,6 +15621,7 @@ describe("server helpers", () => {
     const blocked = new Promise<void>((resolve) => {
       release = resolve
     })
+    onTestFinished(release)
     const agent = defineAgent({
       channels: {
         telegram: testTelegram(telegram, {
@@ -15644,17 +15647,12 @@ describe("server helpers", () => {
 
     try {
       await state.connect()
-      const response = await Promise.race([
-        handler(chatWebhookRequest(91_100), "telegram", {
-          agentIdentity: { name: "calories" },
-          cloudflare: { env: {} },
-          waitUntil: (task) => waitUntilTasks.push(task),
-        }),
-        new Promise<"blocked">((resolve) => setTimeout(() => resolve("blocked"), 1_000)),
-      ])
-
-      expect(response).not.toBe("blocked")
-      if (response === "blocked") throw new Error("Durable chat delivery waited for Workflow completion.")
+      // The response must arrive before the blocked Driver is released below.
+      const response = await handler(chatWebhookRequest(91_100), "telegram", {
+        agentIdentity: { name: "calories" },
+        cloudflare: { env: {} },
+        waitUntil: (task) => waitUntilTasks.push(task),
+      })
       expect(response.status).toBe(200)
       expect(adapter.postMessage).not.toHaveBeenCalled()
       expect(adapter.startTyping).toHaveBeenCalledWith("telegram:456", undefined, { initiatorUserId: "123", messageId: "91100" })
