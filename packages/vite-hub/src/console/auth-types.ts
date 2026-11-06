@@ -18,8 +18,21 @@ export interface ConsoleTokenAuthorizeContext {
   via: "token"
 }
 
-/** The request that `console.authorize` checks. `via` is `"token"` when the caller sent the Console token. */
-export type ConsoleAuthorizeContext = ConsoleSessionAuthorizeContext | ConsoleTokenAuthorizeContext
+/**
+ * The check for an Agent that calls Console operations as tools. No browser request and no token reach it: the request has
+ * no headers, and `user` is the person the Agent acts for, when there is one.
+ */
+export interface ConsoleAgentAuthorizeContext {
+  request: Request
+  user?: ConsoleUser
+  via: "agent"
+}
+
+/**
+ * The request that `console.authorize` checks. `via` is `"token"` when the caller sent a valid Console token, and
+ * `"agent"` when an Agent calls Console operations as tools.
+ */
+export type ConsoleAuthorizeContext = ConsoleSessionAuthorizeContext | ConsoleTokenAuthorizeContext | ConsoleAgentAuthorizeContext
 
 /**
  * What `console.authorize` returns for one request.

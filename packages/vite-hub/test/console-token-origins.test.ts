@@ -140,13 +140,20 @@ describe("console: { auth: \"token\" }", () => {
     expect(hashed).toEqual([token, `${token}x`, tokenHash])
   })
 
-  it.each([null, { id: "agent-user" }])("gives the operation section resolver the token context without a user (%j)", async (user) => {
-    const authorize = vi.fn((context: ConsoleAuthorizeContext) => context.via === "token" ? { sections: ["kv:read"] } : false)
+  it("never gives an Agent's operation calls the token context, which means a verified token", async () => {
+    // A policy that trusts `via: "token"` must not reach Agents: they send no token.
+    const authorize = vi.fn((context: ConsoleAuthorizeContext) => context.via === "token" ? { sections: ["kv"] } : false)
     install({ authorize, mode: "token" })
-    await expect(installedOperationSectionResolver()?.({ user })).resolves.toEqual(["kv:read"])
-    const context = authorize.mock.calls[0]?.[0]
-    expect(context).toMatchObject({ via: "token" })
-    expect(context).not.toHaveProperty("user")
+    await expect(installedOperationSectionResolver()?.({ user: null })).resolves.toEqual([])
+    expect(authorize.mock.calls[0]?.[0]).toMatchObject({ via: "agent" })
+    expect(authorize.mock.calls[0]?.[0]).not.toHaveProperty("user")
+  })
+
+  it("gives an Agent's operation calls the agent context with the user it acts for", async () => {
+    const authorize = vi.fn((context: ConsoleAuthorizeContext) => context.via === "agent" ? { sections: ["kv:read"] } : false)
+    install({ authorize, mode: "token" })
+    await expect(installedOperationSectionResolver()?.({ user: { id: "agent-user" } })).resolves.toEqual(["kv:read"])
+    expect(authorize.mock.calls[0]?.[0]).toMatchObject({ user: { id: "agent-user" }, via: "agent" })
   })
 })
 
