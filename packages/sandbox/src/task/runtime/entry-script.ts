@@ -294,6 +294,7 @@ export function createEntrySource(definitionPath: string, execution: 'definition
     `  try {`,
     `    const raw = await readFile(inputPath, 'utf8')`,
     `    const input = await reviveValue(JSON.parse(raw || '{}'), inputPath + '.files', 'input')`,
+    `    input.context ??= {}`,
     ...invocation,
     `    const output = await serializeSuccess(result, outputPath + '.files')`,
     `    await writeFile(outputPath, output)`,

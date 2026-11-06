@@ -405,10 +405,8 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
           ? devWorkflow && buildNeedsStartupRegistry() ? devWorkflow : undefined
           : devWorkflow ?? false)
       }
-      if (workflow !== false) {
-        const typesRoot = devRootDir ?? resolveViteHubProjectRoot(config.root)
-        await writeWorkflowTypes(typesRoot, discoverWorkflowDevDefinitions(typesRoot, buildServerDirs), internalOptions.importBase)
-      }
+      const typesRoot = devRootDir ?? resolveViteHubProjectRoot(config.root)
+      await writeWorkflowTypes(typesRoot, workflow === false ? [] : discoverWorkflowDevDefinitions(typesRoot, buildServerDirs), internalOptions.importBase)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {

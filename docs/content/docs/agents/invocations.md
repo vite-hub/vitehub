@@ -65,7 +65,7 @@ import support from '../agents/support'
 import { requireAuthenticatedUser } from '../utils/auth'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readValidatedBody(event, v.object({ prompt: v.string() }))
+  const { prompt } = await readValidatedBody(event, body => v.parse(v.object({ prompt: v.string() }), body))
   const user = await requireAuthenticatedUser(event)
 
   const runtime = getRuntimeContext(event)
@@ -117,7 +117,7 @@ import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const { prompt } = await readValidatedBody(event, v.object({ prompt: v.string() }))
+  const { prompt } = await readValidatedBody(event, body => v.parse(v.object({ prompt: v.string() }), body))
 
   const output = await streamAgent(
     support,
@@ -155,7 +155,7 @@ import { getRuntimeContext } from 'vite-hub/runtime/h3'
 import support from '../agents/support'
 
 export default defineEventHandler(async (event) => {
-  const { text } = await readValidatedBody(event, v.object({ text: v.string() }))
+  const { text } = await readValidatedBody(event, body => v.parse(v.object({ text: v.string() }), body))
   const runId = crypto.randomUUID()
 
   const output = await streamAgentTrigger(

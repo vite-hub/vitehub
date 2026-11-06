@@ -2,7 +2,7 @@ import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
-import { checkBaseline, checkSnippets, extractBlocks, generatedDeclarations, repoRoot, snippetId } from "../scripts/check-snippets.mjs"
+import { baselineEntry, checkBaseline, checkSnippets, compareBaseline, collectSnippets, extractBlocks, generatedDeclarations, repoRoot } from "../scripts/check-snippets.mjs"
 
 describe("documentation snippet check", () => {
   it("reads labels, fragments, and indented blocks", () => {
@@ -26,6 +26,59 @@ describe("documentation snippet check", () => {
       { code: "tools: {}", fragment: true, label: "server/agents/support.ts" },
     ])
   })
+
+  const knownFailure = {
+    snippet: { page: "test-page.md", code: "export const value: number = dependency.value", label: "server/value.ts" },
+    diagnostics: [
+      { code: 2322, line: 2, message: "Type 'string' is not assignable to type 'number'." },
+      { code: 2339, line: 3, message: "Property 'count' does not exist on type '{ value: string; }'." },
+    ],
+  }
+
+  it("accepts the same diagnostics after page line or diagnostic order changes", () => {
+    const moved = { ...knownFailure, diagnostics: knownFailure.diagnostics.toReversed().map(diagnostic => ({ ...diagnostic, line: diagnostic.line + 20 })) }
+    expect(compareBaseline([moved], [baselineEntry(knownFailure)])).toEqual({ fresh: [], stale: [] })
+  })
+
+  it.each([
+    ["changed diagnostic", { ...knownFailure, diagnostics: [{ ...knownFailure.diagnostics[0], code: 2307, message: "Cannot find module './dependency'." }, knownFailure.diagnostics[1]] }],
+    ["additional diagnostic", { ...knownFailure, diagnostics: [...knownFailure.diagnostics, { code: 2304, line: 4, message: "Cannot find name 'other'." }] }],
+    ["removed diagnostic", { ...knownFailure, diagnostics: knownFailure.diagnostics.slice(1) }],
+    ["changed label", { ...knownFailure, snippet: { ...knownFailure.snippet, label: "server/nested/value.ts" } }],
+    ["changed code", { ...knownFailure, snippet: { ...knownFailure.snippet, code: "export const value: string = dependency.value" } }],
+  ])("rejects a known block with a %s", (_name, current) => {
+    expect(compareBaseline([current], [baselineEntry(knownFailure)]).fresh).toEqual([current])
+  })
+
+  it("reports a listed block that now passes", () => {
+    const expected = baselineEntry(knownFailure)
+    expect(compareBaseline([], [expected])).toEqual({ fresh: [], stale: [expected] })
+  })
+
+  it("compares complete diagnostic messages without checkout-specific paths", () => {
+    const failure = (detail: string) => ({
+      ...knownFailure,
+      diagnostics: [{ code: 2322, line: 2, message: `Type 'import("${repoRoot}/packages/example").Value' is not assignable.\n  ${detail}` }],
+    })
+    const original = failure("Property 'name' is missing.")
+    const changed = failure("Property 'count' is missing.")
+    expect(baselineEntry(original).error).not.toContain(repoRoot)
+    expect(compareBaseline([changed], [baselineEntry(original)]).fresh).toEqual([changed])
+  })
+
+  it("rejects new errors in unchanged source after a sibling API changes", () => {
+    const page = join(repoRoot, "docs/.snippets/api-drift")
+    const consumer = {
+      page: "api-drift.md", line: 1, label: "consumer.ts", file: join(page, "consumer.ts"),
+      code: "import { values } from './dependency'\nexport const name: number = values.name\nexport const count = values.count",
+    }
+    const dependency = (code: string) => ({ page: "api-drift.md", line: 1, label: "dependency.ts", file: join(page, "dependency.ts"), code })
+    const before = checkSnippets([consumer, dependency("export const values = { name: 'name', count: 1 }")]).failures
+    const after = checkSnippets([consumer, dependency("export const values = { name: 'name' }")]).failures
+    expect(before.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2322]])
+    expect(after.map(failure => failure.diagnostics.map(diagnostic => diagnostic.code))).toEqual([[2322, 2339]])
+    expect(compareBaseline(after, before.map(baselineEntry)).fresh).toEqual(after)
+  }, 60_000)
 
   it("imports the labeled blocks of a page and reports the errors of each block", () => {
     const page = join(repoRoot, "docs/.snippets/test-page")
@@ -86,7 +139,7 @@ describe("documentation snippet check", () => {
       snippet("extra.ts", "export const count: number = 'one'\nexport const extra = missing", [2322]),
       snippet("ordinary.ts", "export const count: number = 'one'"),
     ])
-    const baseline = failures.map(({ snippet }) => ({ id: snippetId(snippet) }))
+    const baseline = failures.map(baselineEntry)
     const { entries, fresh, stale } = checkBaseline(failures, baseline)
 
     expect(fresh.map(({ snippet }) => snippet.file.slice(page.length + 1))).toEqual(["passes.ts", "different.ts", "extra.ts"])
@@ -110,20 +163,81 @@ describe("documentation snippet check", () => {
     expect(failures).toEqual([])
   }, 60_000)
 
-  it("types the Definition names of a page with the registries that ViteHub generates", async () => {
+  it("generates Env declarations from a page's Vite config", async () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/env-page")
+    const label = "vite.config.ts"
+    const declarations = await generatedDeclarations([{
+      code: `import { env } from "@vite-hub/env/vite"
+export default { env: { public: { appName: env({ default: "Acme", mode: "build" }) } } }`,
+      file: join(pageRoot, label), fragment: false, label, line: 1, page: "env-page.md", pageRoot,
+    }])
+
+    expect(declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code).toContain('"appName": string')
+    expect(declarations.some(declaration => declaration.file.endsWith("/auth.d.ts"))).toBe(true)
+  })
+
+  it("generates Env types from all configs and the schema fixture on the Env configure page", async () => {
+    const snippets = collectSnippets([{ file: join(repoRoot, "docs/content/docs/env/configure.md"), root: join(repoRoot, "docs") }])
+    const declarations = await generatedDeclarations(snippets)
+    const env = declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code
+
+    expect(env).toContain('"labeller": {')
+    expect(env).toContain('"appName": string')
+    expect(env).toContain('"apiToken": import("@vite-hub/env/secret").SecretEnv<string>')
+    const labeller = snippets.find(snippet => snippet.label === "server/labeller.ts")!
+    expect(checkSnippets([labeller], declarations).failures).toEqual([])
+  }, 60_000)
+
+  it.each([
+    'throw new Error("config failed")',
+    'import "./unavailable-snippet-config.ts"',
+  ])("keeps fallback Env declarations when a config cannot execute: %s", async (failure) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/failed-env-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "failed-env-page.md", pageRoot })
+    const declarations = await generatedDeclarations([
+      snippet("example/vite.config.ts", "export default { env: { public: {} } }"),
+      snippet("vite.config.ts", `${failure}\nexport default { env: { public: {} } }`),
+    ])
+
+    expect(declarations).toEqual([])
+  })
+
+  it.each(["ts", "mts", "tsx"])("types the Definition names of a page from %s files", async (extension) => {
     const pageRoot = join(repoRoot, "docs/.snippets/registry-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "registry-page.md", pageRoot })
     const snippets = [
-      snippet("server/queues/welcome-email.ts", "import { defineQueue } from '@vite-hub/queue'\nexport default defineQueue<{ email: string }>(async () => {})"),
-      snippet("server/api/signup.ts", "import { runQueue } from '@vite-hub/queue'\nexport const sent = runQueue('welcome-email', { email: 'ada@example.com' })"),
-      snippet("server/api/typo.ts", "import { runQueue } from '@vite-hub/queue'\nexport const sent = runQueue('welcom-email', { email: 'ada@example.com' })"),
-      snippet("server/api/payload.ts", "import { runQueue } from '@vite-hub/queue'\nexport const sent = runQueue('welcome-email', { address: 'ada@example.com' })"),
+      snippet(`server/queues/welcome-email.${extension}`, "import { defineQueue } from 'vite-hub/queue'\nexport default defineQueue<{ email: string }>(async () => {})"),
+      snippet("server/api/signup.ts", "import { runQueue } from 'vite-hub/queue'\nexport const sent = runQueue('welcome-email', { email: 'ada@example.com' })"),
+      snippet("server/api/typo.ts", "import { runQueue } from 'vite-hub/queue'\nexport const sent = runQueue('welcom-email', { email: 'ada@example.com' })"),
+      snippet("server/api/payload.ts", "import { runQueue } from 'vite-hub/queue'\nexport const sent = runQueue('welcome-email', { address: 'ada@example.com' })"),
     ]
     const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
 
     expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
       ["server/api/typo.ts", [2345]],
       ["server/api/payload.ts", [2353]],
+    ])
+  }, 60_000)
+
+  it("uses Collection file paths and only registers the matching route-enabled export", async () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/collection-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "collection-page.md", pageRoot })
+    const collection = "defineCollection({ source: array([{ id: 'intro', title: 'Introduction' }]) })"
+    const imports = "import { array, defineCollection } from 'vite-hub/source'\n"
+    const snippets = [
+      snippet("server/collections/docs/guides.ts", `${imports}export const guides = ${collection}\nexport const unrelated = ${collection}`),
+      snippet("server/collections/hidden.ts", `${imports}export const hidden = defineCollection({ source: array([]), route: false })`),
+      snippet("client.ts", "import { useCollection } from 'vite-hub/source/client'\nexport const guides = useCollection('docs/guides')\nexport const title: string = guides.items.value[0].title"),
+      snippet("wrong-name.ts", "import { useCollection } from 'vite-hub/source/client'\nuseCollection('guides')"),
+      snippet("unrelated.ts", "import { useCollection } from 'vite-hub/source/client'\nuseCollection('unrelated')"),
+      snippet("hidden.ts", "import { useCollection } from 'vite-hub/source/client'\nuseCollection('hidden')"),
+    ]
+    const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
+
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["wrong-name.ts", [2345]],
+      ["unrelated.ts", [2345]],
+      ["hidden.ts", [2345]],
     ])
   }, 60_000)
 })

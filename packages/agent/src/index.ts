@@ -1017,7 +1017,7 @@ async function getAgentWorkflowHandle<
   if (!registered && recovery) {
     registerInlineWorkflowDefinition(name, {
       internalAgentInvocationRecovery: true,
-      handler: async (workflowContext) => {
+      handler: async (_payload, workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
@@ -1028,7 +1028,7 @@ async function getAgentWorkflowHandle<
   const handle = registered || recovery
     // SAFETY: The Agent Workflow registry and recovery registration above own this exact payload and output contract.
     ? createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>>(name) as WorkflowHandle<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>
-    : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name, async (workflowContext) => {
+    : createWorkflow<AgentWorkflowInvocationPayload<CALL_OPTIONS>, AgentWorkflowOutput<TOutput>>(name, async (_payload, workflowContext) => {
         const { runAgentWorkflowDefinition } = await import("./runtime/workflow.ts")
         // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
         return await runAgentWorkflowDefinition(agent as never, workflowContext as never, runAgentInline as never) as AgentWorkflowOutput<TOutput>
