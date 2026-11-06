@@ -29,7 +29,6 @@ const filesSdkProviderPeers = [...new Set(Object.values(filesSdkDriverPeers).fla
 export default defineConfig({
   pack: {
     alias: {
-      "@vercel/oidc": fileURLToPath(new URL("./src/internal/vercel-oidc.ts", import.meta.url)),
       "async-retry": fileURLToPath(new URL("./src/internal/vercel-retry.ts", import.meta.url)),
       "is-buffer": fileURLToPath(new URL("./src/internal/vercel-is-buffer.ts", import.meta.url)),
       throttleit: fileURLToPath(new URL("./src/internal/vercel-throttle.ts", import.meta.url)),
