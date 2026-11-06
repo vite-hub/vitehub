@@ -509,7 +509,7 @@ describe("local queue review regressions", () => {
 describe("local queue delivery with hosted provider rules", () => {
   const causeMessage = (error: { cause?: unknown } | undefined) => error?.cause instanceof Error ? error.cause.message : undefined
 
-  function rulesEngine(rules: "cloudflare" | "vercel", definitions: Record<string, QueueDefinition>, retryDelayMs?: () => number) {
+  function rulesEngine(rules: "cloudflare" | "local" | "vercel", definitions: Record<string, QueueDefinition>, retryDelayMs?: () => number) {
     return createLocalQueueEngine({
       base,
       load: async name => definitions[name],
@@ -518,6 +518,57 @@ describe("local queue delivery with hosted provider rules", () => {
       rules: localQueueDeliveryRules[rules],
     })
   }
+
+  it.each(["cloudflare", "local", "vercel"] as const)("handles an empty batch with %s rules", async (rules) => {
+    const handler = vi.fn(async () => {})
+    const engine = rulesEngine(rules, { welcome: { handler } })
+    const client = createLocalQueueClient(engine, "welcome")
+
+    const [error, result] = await client.sendBatch([])
+
+    if (rules === "vercel") {
+      expect(error).toMatchObject({ code: "QUEUE_PROVIDER_FAILED", cause: expect.any(RangeError) })
+      expect(causeMessage(error)).toBe("Vercel requires at least one job in a `sendBatch()`.")
+      expect(result).toBeUndefined()
+    }
+    else {
+      expect(error).toBeUndefined()
+      expect(result).toEqual([])
+    }
+    expect(await engine.jobs()).toEqual([])
+    expect(await storedJobs()).toEqual([])
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("preserves the original Vercel retention across repeated dead-job retries and a restart", async () => {
+    const handler = vi.fn(async () => { throw queueErrorDiagnostics.QUEUE_DISABLED() })
+    let engine = rulesEngine("vercel", { welcome: { handler } })
+    const client = createLocalQueueClient(engine, "welcome")
+
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      const enqueuedAt = Date.now()
+      const [error] = await client.send({}, { id: "job-1", retentionSeconds: 60 })
+      expect(error).toBeUndefined()
+      for (let cycle = 1; cycle <= 2; cycle++) {
+        await vi.waitFor(async () => expect((await engine.status()).queues.welcome).toEqual({ dead: 1, pending: 0, running: 0 }))
+        engine.close()
+        vi.setSystemTime(enqueuedAt + cycle * 61_000)
+        engine = rulesEngine("vercel", { welcome: { handler } })
+
+        expect(await engine.retry("job-1")).toMatchObject({
+          enqueuedAt: new Date(enqueuedAt).toISOString(),
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        })
+      }
+      await vi.waitFor(async () => expect((await engine.status()).queues.welcome).toEqual({ dead: 1, pending: 0, running: 0 }))
+    }
+    finally {
+      engine.close()
+      vi.useRealTimers()
+      await vi.waitFor(async () => expect((await engine.status()).queues.welcome?.running).toBe(0))
+    }
+  })
 
   it("follows the Cloudflare defaults: 4 attempts, a retry at once, and a kept dead job", async () => {
     const handler = vi.fn(async (_job: QueueJob) => { throw new Error("SMTP down") })
