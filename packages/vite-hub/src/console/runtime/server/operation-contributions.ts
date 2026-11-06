@@ -16,8 +16,7 @@ interface InstalledContribution {
 }
 
 const contributionKey: unique symbol = Symbol.for("vitehub.console.operations")
-const rootKey: unique symbol = Symbol.for("vitehub.console.project-root")
-const scope = globalThis as typeof globalThis & { [contributionKey]?: { contributed: readonly InstalledContribution[], registry: OperationRegistry }, [rootKey]?: string }
+const scope = globalThis as typeof globalThis & { [contributionKey]?: { contributed: readonly InstalledContribution[], registry: OperationRegistry } }
 
 let builtin: OperationRegistry | undefined
 
@@ -41,13 +40,4 @@ export function consoleOperationRegistry(): OperationRegistry {
   if (installed) return installed.registry
   builtin ??= createOperationRegistry([{ operations: consoleOperations, plugin: "vite-hub" }])
   return builtin
-}
-
-/** Record the project root that this server runs. The local dev RPC names it in a response header. */
-export function installConsoleProjectRoot(projectRoot: string): void {
-  scope[rootKey] = projectRoot
-}
-
-export function installedConsoleProjectRoot(): string | undefined {
-  return scope[rootKey]
 }

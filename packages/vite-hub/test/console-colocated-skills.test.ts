@@ -26,7 +26,7 @@ it("loads colocated Skills into the production Console definition", async () => 
     expect(skillsRuntime.agentWithColocatedSkills).toBeTypeOf("function")
     const install = vi.fn()
     const definition = defineAgent({ driver: codexDriver(), runtime: false, workspace: {} })
-    const execute = new Function("installConsoleSections", "installConsoleOperations", "installConsoleRuntime", "installConsoleProjectName", "installConsoleBuild", "installConsoleDevelopment", "installConsoleAgentDefinitions", "agentWithColocatedSkills", "vitehubConsoleAgent0", generated.replace(/^import .+$/gm, "").replace("export default function", "function"))
+    const execute = new Function("installConsoleSections", "installOperations", "installConsoleRuntime", "installConsoleProjectName", "installConsoleBuild", "installConsoleDevelopment", "installConsoleAgentDefinitions", "agentWithColocatedSkills", "vitehubConsoleAgent0", generated.replace(/^import .+$/gm, "").replace(`import("vite-hub/console/operations")`, "Promise.resolve({ installConsoleOperations: installOperations })").replace("export default function", "function"))
     const installOperations = vi.fn()
     let loadRuntime: (() => Promise<() => void>) | undefined
     execute(() => {}, installOperations, (load: () => Promise<() => void>) => { loadRuntime = load }, () => {}, () => {}, () => {}, install, agentWithColocatedSkills, { default: definition })

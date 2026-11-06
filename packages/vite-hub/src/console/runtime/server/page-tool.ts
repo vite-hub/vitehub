@@ -4,7 +4,12 @@ import type { ViteHubPageToolsInstallOptions } from "@vite-hub/internal/runtime/
 
 import { getConsoleSections } from "./sections.ts"
 
-import { consoleAllowsRequest } from "./access.ts"
+import type { ConsoleSectionId } from "../sections.ts"
+
+/** The access checks load on the first page that asks for the tools, not when the server starts. */
+async function consoleAllowsRequest(event: unknown, section?: ConsoleSectionId, kind?: "read" | "write"): Promise<boolean> {
+  return (await import("./access.ts")).consoleAllowsRequest(event, section, kind)
+}
 
 /**
  * The Console page tool script, with the Console's hashed assets, below the app base. The package build writes the

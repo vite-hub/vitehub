@@ -2,27 +2,21 @@ import { mkdirSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
-import { createD1AgentInvocationStore, d1AgentInvocationSchema } from "@vite-hub/agent/invocations/d1"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
-
-import { createConsoleUsageIndex } from "./usage-index.ts"
+import { d1AgentInvocationRetention } from "@vite-hub/agent/server/internal"
 
 import {
   createConsoleInvocationsIdentity,
   installConsoleInvocationFallback,
   resolveConsoleInvocations,
-  resolveConsoleInvocationsByIdentity,
   resolveConsoleInvocationsIdentity,
-  resolveConsoleInvocationsRevision,
 } from "../../internal.ts"
-import { consoleFixtureRevision, readConsoleFixture } from "../../fixture.ts"
 
 import type { Value } from "@libsql/client"
 import type { ConsoleD1Database, ConsoleInvocationsDatabase, ConsoleLibsqlJournal } from "./invocations-database.ts"
-import type { ConsoleUsageClient } from "./usage-index.ts"
+import type { ConsoleUsageClient, createConsoleUsageIndex } from "./usage-index.ts"
 import type { AgentInvocationStore, AgentInvocations } from "@vite-hub/agent"
 import type { AgentInvocationsOptions, AgentRetentionPolicy } from "@vite-hub/agent/server"
-import type { ConsoleFixture } from "../../fixture.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import { consoleD1MaxSizeError } from "../../retention.ts"
 
@@ -30,7 +24,7 @@ export type { ConsoleInvocationsDatabase } from "./invocations-database.ts"
 
 // Content attributes that the Console journal keeps in metadata mode: prompts, results, tool input and output.
 // `input.data` and `result.output` are the structured forms, such as `driver.ask` state and answers.
-const consoleMetadataContent = [
+export const consoleMetadataContent = [
   "channel.effect.content",
   "input.data",
   "input.messages",
@@ -157,6 +151,15 @@ function isD1Database(value: unknown): value is ConsoleD1Database {
 export function createConsoleD1Invocations(d1: ConsoleD1Journal, observations?: AgentInvocationsOptions["observations"], retention?: AgentRetentionPolicy): AgentInvocations {
   const { maxSize, ...limits } = retention ?? {}
   if (maxSize !== undefined && maxSize !== false) throw consoleD1MaxSizeError()
+  // Check the limits now, so a bad limit fails when the server starts, not on the first invocation.
+  d1AgentInvocationRetention(limits)
+  // The D1 store code loads on the first read or write, not at server start. A module import is not request I/O, so
+  // concurrent first uses share it. A failed import tries again on the next use.
+  let d1Store: Promise<typeof import("@vite-hub/agent/invocations/d1")> | undefined
+  const loadD1 = () => d1Store ??= import("@vite-hub/agent/invocations/d1").catch((error: unknown) => {
+    d1Store = undefined
+    throw error
+  })
   // Keep only completed initialization; Worker requests cannot share pending I/O.
   const migrated = new WeakSet<ConsoleD1Database>()
   const database = async () => {
@@ -165,22 +168,25 @@ export function createConsoleD1Invocations(d1: ConsoleD1Journal, observations?: 
       throw viteHubErrorDiagnostics.VITE_HUB_R0122({ message: `[vitehub] The Console journal requires the D1 binding ${JSON.stringify(d1.binding)} in the Worker env. Configure the Database D1 binding or set console.databaseUrl.` })
     }
     if (!migrated.has(binding)) {
+      const { d1AgentInvocationSchema } = await loadD1()
       await binding.batch(d1AgentInvocationSchema().map(statement => binding.prepare(statement)))
       migrated.add(binding)
     }
     return binding
   }
+  let store: Required<AgentInvocationStore> | undefined
   const invocations = defineAgentInvocations({
     configuration: "content",
     metadataContent: consoleMetadataContent,
     observations,
-    store: createD1AgentInvocationStore({ database, migrate: false, ...limits }),
+    store: lazyAgentInvocationStore(async () => store ??= (await loadD1()).createD1AgentInvocationStore({ database, migrate: false, ...limits })),
   })
   let drizzleDatabase: Promise<ConsoleInvocationsDatabase> | undefined
   consoleInvocationDatabases.set(invocations, () => drizzleDatabase ??= import("./invocations-database.ts").then(module => module.createConsoleD1Database(database)))
   const indexes = new WeakMap<ConsoleD1Database, ReturnType<typeof createConsoleUsageIndex>>()
   const usageIndex = async () => {
     const binding = await database()
+    const { createConsoleUsageIndex } = await import("./usage-index.ts")
     let index = indexes.get(binding)
     if (!index) {
       const prepare = (statement: Parameters<ConsoleUsageClient["execute"]>[0]) =>
@@ -252,19 +258,6 @@ export function createConsoleInvocations(projectRoot: string, observations?: Age
   return invocations
 }
 
-function createConsoleFixtureInvocationsFromSnapshot(fixture: ConsoleFixture): AgentInvocations {
-  const store = createMemoryAgentInvocationStore()
-  for (const record of fixture.invocations) {
-    const { cursor: _cursor, ...input } = record
-    store.create(input)
-  }
-  return defineAgentInvocations({ configuration: "content", metadataContent: consoleMetadataContent, store })
-}
-
-export function createConsoleFixtureInvocations(file: string): AgentInvocations {
-  return createConsoleFixtureInvocationsFromSnapshot(readConsoleFixture(file))
-}
-
 export function installConsoleInvocations(
   projectRoot: string,
   configuredInvocations?: AgentInvocations,
@@ -286,27 +279,5 @@ export function installConsoleInvocations(
   if (installed && resolveConsoleInvocationsIdentity() === identity && (configuredInvocations ? installed === configuredInvocations : sameConfiguration && consoleDatabaseConfigurations.get(installed) === databaseConfiguration())) return installed
   const invocations = configuredInvocations ?? (useD1 ? createConsoleD1Invocations(d1, observations, retention) : createConsoleInvocations(resolvedRoot, observations, databaseUrl, retention))
   installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity)
-  return invocations
-}
-
-export function installConsoleFixtureInvocations(
-  projectRoot: string,
-  file: string,
-  generatedFixture?: ConsoleFixture,
-  generatedRevision?: string,
-  runtimeBinding?: string,
-): AgentInvocations {
-  const resolvedRoot = resolve(projectRoot)
-  const resolvedFile = resolve(file)
-  const fixture = generatedFixture ?? readConsoleFixture(resolvedFile)
-  const revision = generatedRevision ?? consoleFixtureRevision(fixture)
-  const identity = createConsoleInvocationsIdentity(resolvedRoot, resolvedFile, revision, runtimeBinding)
-  const installed = resolveConsoleInvocationsByIdentity(identity)
-  if (installed && resolveConsoleInvocationsRevision(identity) === revision) {
-    installConsoleInvocationFallback(installed, resolvedRoot, globalThis, identity, revision)
-    return installed
-  }
-  const invocations = createConsoleFixtureInvocationsFromSnapshot(fixture)
-  installConsoleInvocationFallback(invocations, resolvedRoot, globalThis, identity, revision)
   return invocations
 }

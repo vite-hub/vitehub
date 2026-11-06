@@ -1184,6 +1184,11 @@
       "import": "./dist/console/runtime/server/mcp-client-operations.js",
       "default": "./dist/console/runtime/server/mcp-client-operations.js"
     },
+    "./console/operations": {
+      "types": "./dist/console/runtime/server/operation-contributions.d.ts",
+      "import": "./dist/console/runtime/server/operation-contributions.js",
+      "default": "./dist/console/runtime/server/operation-contributions.js"
+    },
     "./console/sections": {
       "types": "./dist/console/runtime/server/sections.d.ts",
       "import": "./dist/console/runtime/server/sections.js",

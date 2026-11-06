@@ -83,6 +83,11 @@
       "import": "./dist/object.js",
       "default": "./dist/object.js"
     },
+    "./operation-registry": {
+      "types": "./dist/operation-registry.d.ts",
+      "import": "./dist/operation-registry.js",
+      "default": "./dist/operation-registry.js"
+    },
     "./operations": {
       "types": "./dist/operations.d.ts",
       "import": "./dist/operations.js",
