@@ -16,8 +16,10 @@ Keep host-specific setup behind the Sandbox or provider boundary. Agent Instruct
 
 - Run `vitehub link` to connect the project to its host project. It writes `.vitehub/link.json` and adds `.vitehub` to `.gitignore`, because the link belongs to one machine and must not follow forks or templates. `vitehub unlink` removes the file and leaves the host project as it is. See [Link a project to its host](https://vitehub.dev/raw/docs/development/cli.md#link-a-project-to-its-host).
 - Host credentials come from environment variables, then from the host CLI login, such as `wrangler login`. Never write a token into a project `.env` or the link file. When `link` exits with `2`, run the login command or set the variable that its `fix` names.
-- Deploy runs from the developer's machine by default. Add a GitHub CI deploy only when the developer asks for it.
-- `vitehub deploy`, `vitehub deployments`, and `vitehub init` are not built yet. Build the app and deploy with the command that the selected host guide documents.
+- Deploy with `vitehub deploy --yes`. It builds the app, then runs the deploy command that the build wrote for the host. It runs on the developer's machine with the host credentials above. It never adds a CI workflow; add a GitHub CI deploy only when the developer asks for one. See [Deploy from your machine](https://vitehub.dev/raw/docs/development/cli.md#deploy-from-your-machine).
+- When no credentials resolve, `deploy` exits with `2` (`SETUP_DEPLOY_CREDENTIALS_MISSING`). Ask the developer to log in, or, on Cloudflare and Vercel, offer `--temporary`: a deploy with no account that prints a claim link. A temporary Cloudflare Worker must be claimed within 60 minutes. Treat the claim link as private.
+- The Console link: console.vitehub.dev gives the developer a `--console <pendingId>:sha256:<hex>` value for `init`. The browser keeps the Console token; the CLI gets only its hash. `deploy` then sets the hash as a host secret and prints the link, which `--json` returns as `console.linkUrl`. Give that URL to the developer. Never ask for, print, or store the plain Console token.
+- Inspect what is deployed with `vitehub deployments --json`: each deployment with its state, target, commit, and `live` flag. `vitehub status --json` has a `live` field with the live commit and how many commits it is behind HEAD. When `live` is `null`, `liveReason` tells why, such as `not-linked` or `no-credentials`. Pass `--offline` to skip the host request. See [List deployments](https://vitehub.dev/raw/docs/development/cli.md#list-deployments).
 
 ## Proof
 

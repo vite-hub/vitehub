@@ -56,7 +56,7 @@ Read only the references whose conditions match, but read them before writing co
 | Agent Channel, Trigger, webhook admission, concurrency, or Agent delivery | [Channels and Triggers](references/channels-triggers.md) |
 | Capability, tool, secret, rate limit, telemetry, or other granted authority | [Capabilities and authority](references/capabilities-authority.md) |
 | Schedule, Workflow, orchestration retry, idempotency, or terminal state | [Schedules, Workflows, and Invocations](references/schedules-workflows-invocations.md) |
-| Sandbox, trusted host, isolation, required command, host link, or deployment | [Sandboxes and hosts](references/sandboxes-hosts.md) |
+| Sandbox, trusted host, isolation, required command, host link, deploy, Console link, or deployed version | [Sandboxes and hosts](references/sandboxes-hosts.md) |
 | A proof has failed, generated state disagrees, or a runtime/host failure needs diagnosis | [Proof and recovery](references/proof-recovery.md) |
 | Looking for a complete public application pattern | [Project patterns](references/project-patterns.md) |
 
@@ -65,7 +65,7 @@ Routing is complete when every requested behavior has one primary lane and every
 ## 3. Inspect the installed contract
 
 - Read each installed package's `package.json`, exports, relevant types, and generated declarations before writing imports or options.
-- For a fresh application, install `vite-hub` and use its root integration plus feature subpaths. Opt-in features such as Agent, Auth, Database, Schedule, Workspace, Realtime, Content, and Comments also need their owner package next to `vite-hub`. `vitehub add` installs it, `vitehub status` lists any that is missing, and the build error names it. Use other direct owner packages only for a focused library, an unexported advanced subpath, or an installed older contract.
+- For a fresh application, create it with `vitehub init` (see [Project shapes](references/project-shapes.md)), then use the root integration plus feature subpaths. Opt-in features such as Agent, Auth, Database, Schedule, Workspace, Realtime, Content, and Comments also need their owner package next to `vite-hub`. `vitehub add` installs it, `vitehub status` lists any that is missing, and the build error names it. Use other direct owner packages only for a focused library, an unexported advanced subpath, or an installed older contract.
 - When docs, examples, and installed artifacts disagree, implement the installed artifacts and record the mismatch. Treat project examples as patterns whose imports must be revalidated.
 
 Contract inspection is complete when every planned package, import, option, generated path, and runtime entry exists in the installed graph; no syntax is inferred only from memory.
@@ -85,7 +85,7 @@ Turn features on with `vitehub add <feature>`, not by editing `vitehub({...})` b
 - Pass `--name <name>` for a starter Definition, such as `server/queues/<name>.ts`. It never overwrites a file.
 - Pass provider options as `--option key=value`, such as `--option email.driver=resend`.
 - Follow the exit code. `0`: done or unchanged. `2`: input is needed; run the `rerun` command it prints, or supply the options listed in `missing` with their `choices`. `3`: the host does not support the feature, or `add` cannot edit the config; for `SETUP_CONFIG_MANUAL`, paste the printed `snippet` into the `vitehub()` options by hand. For an unsupported feature, choose another host or report the boundary, because a hand-written key does not give the host the feature.
-- `vitehub remove` is not available yet. To turn a feature off, set its key to `false` in `vitehub({...})` by hand.
+- Turn a feature off with `vitehub remove <feature>`. Run `--dry-run` first and read the plan, then apply with `--yes`. It deletes the config key, deletes starter files that are still unchanged, and uninstalls packages that nothing else uses. Exit `3` means another feature implies it (`SETUP_FEATURE_IMPLIED`, see `impliedBy`) or the app still uses it (`SETUP_FEATURE_IN_USE`): `references` lists each file and line, including starter files you edited. Delete or move those files and run it again. Pass `--force` only when the developer wants the feature off and the files kept. `remove` never deletes host resources, local data, or the host link; `nextSteps` names the host resources to delete by hand. See [Remove a feature](https://vitehub.dev/raw/docs/development/cli.md#remove-a-feature).
 
 Building is complete when every requested behavior has an implemented row and no placeholder, unused integration, implicit authority, or unowned persistence remains.
 
