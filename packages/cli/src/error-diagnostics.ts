@@ -103,6 +103,68 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Copy the command from the Console \"New project\" page again. Never pass the Console token itself.",
       why: () => "--console must be `<pendingId>:sha256:<64 hex characters>`. The value is not printed, because it can hold a secret.",
     },
+    SETUP_DEPLOY_HOST_UNSUPPORTED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_host_unsupported",
+      fix: "Set `preset` in vitehub() to cloudflare, vercel, netlify, or deno, or start the Node server from `.output` yourself.",
+      why: ({ host }: { host?: unknown }) => `\`vitehub deploy\` has no upload for the ${String(host)} host.`,
+    },
+    SETUP_DEPLOY_CREDENTIALS_MISSING: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_credentials_missing",
+      fix: ({ fix }: { host?: unknown, fix?: unknown }) => String(fix),
+      why: ({ host }: { host?: unknown, fix?: unknown }) => `No ${String(host)} credentials were found in the environment or in the host CLI login.`,
+    },
+    SETUP_DEPLOY_TEMPORARY_UNSUPPORTED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_temporary_unsupported",
+      fix: "Remove --temporary and deploy with your host login.",
+      why: ({ reason }: { reason?: unknown }) => `--temporary cannot run here. ${String(reason)}`,
+    },
+    SETUP_DEPLOY_PREVIEW_UNSUPPORTED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_preview_unsupported",
+      fix: "Remove --preview to deploy to production.",
+      why: ({ host }: { host?: unknown }) => `The ${String(host)} deploy that the build writes always deploys to production.`,
+    },
+    SETUP_DEPLOY_ORG_REQUIRED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_org_required",
+      fix: "Set DENO_DEPLOY_ORG to your Deno Deploy organization, or run `vitehub link --host deno --account <org>`.",
+      why: () => "The Deno Deploy organization is not known.",
+    },
+    SETUP_DEPLOY_BUILD_FAILED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_build_failed",
+      fix: "Fix the build error above and run the command again, or pass --no-build to deploy the output that is there.",
+      why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => exitCode === undefined
+        ? `package.json has no \`build\` script, so \`${String(command)}\` cannot build the app.`
+        : `\`${String(command)}\` exited with code ${String(exitCode)}.`,
+    },
+    SETUP_DEPLOY_OUTPUT_MISSING: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_output_missing",
+      fix: "Build the app with vitehub() for this host, then run the command again without --no-build.",
+      why: ({ file }: { file?: unknown }) => `The build output has no ${String(file)}.`,
+    },
+    SETUP_DEPLOY_HOST_MISMATCH: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_host_mismatch",
+      fix: "Build again for the linked host, or run `vitehub unlink` and link the host that the build targets.",
+      why: ({ built, host }: { built?: unknown, host?: unknown }) => `The build output is for ${String(built)}, but the project deploys to ${String(host)}.`,
+    },
+    SETUP_DEPLOY_COMMAND_REJECTED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_command_rejected",
+      fix: "Build again with vitehub(). If you set the deploy command yourself, run it yourself.",
+      why: ({ command }: { command?: unknown }) => `The build output names a deploy command that ViteHub did not write, so it does not run it: ${String(command)}`,
+    },
+    SETUP_DEPLOY_FAILED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_failed",
+      fix: "Read the host output above, fix the cause, and run the command again.",
+      why: ({ exitCode, output, step }: { exitCode?: unknown, output?: unknown, step?: unknown }) => `\`${String(step)}\` failed${exitCode === undefined ? "" : ` with exit code ${String(exitCode)}`}.${output ? `\n${String(output)}` : ""}`,
+    },
+    SETUP_DEPLOY_SECRET_UNVERIFIED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_secret_unverified",
+      fix: "Check the project's environment variables on the host, then run the command again.",
+      why: ({ host, name }: { host?: unknown, name?: unknown }) => `${String(name)} was set on ${String(host)}, but the host does not list it. The app was not deployed with the Console link.`,
+    },
+    SETUP_DEPLOY_SECRET_UNSUPPORTED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_secret_unsupported",
+      fix: "Run the command on Linux or macOS, or set the variable in the host dashboard.",
+      why: ({ host, reason }: { host?: unknown, reason?: unknown }) => `ViteHub cannot set the Console secret on ${String(host)} without putting it in a command argument. ${String(reason)}`,
+    },
     CLI_R0004: {
       fix: "Run it again with --yes, or check the change first with a dry run when the command has one.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),

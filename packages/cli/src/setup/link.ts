@@ -283,7 +283,9 @@ export function gitignoreWithViteHub(content: string): string | undefined {
   return `${content}${content === "" || content.endsWith("\n") ? "" : "\n"}.vitehub\n`
 }
 
-async function writeIfMissingLine(file: string): Promise<SetupLinkResult["gitignore"]> {
+/** Appends `.vitehub` to the project `.gitignore` when it is missing. */
+export async function ensureViteHubGitignore(root: string): Promise<SetupLinkResult["gitignore"]> {
+  const file = join(root, ".gitignore")
   if (!existsSync(file)) return "no-gitignore"
   const next = gitignoreWithViteHub(await readFile(file, "utf8"))
   if (next === undefined) return "present"
@@ -327,7 +329,7 @@ export async function linkSetupProject(project: SetupProject, options: SetupLink
     created: linked.created,
     credentials: credentials.ok ? { source: credentials.source } : null,
     file: SETUP_LINK_FILE,
-    gitignore: await writeIfMissingLine(join(project.root, ".gitignore")),
+    gitignore: await ensureViteHubGitignore(project.root),
     link,
   }
 }
@@ -337,7 +339,8 @@ export function formatSetupLinkFile(link: SetupLinkFile): string {
   return `${JSON.stringify(link, null, 2)}\n`
 }
 
-async function writeSetupLinkFile(root: string, link: SetupLinkFile): Promise<void> {
+/** Writes `.vitehub/link.json`. */
+export async function writeSetupLinkFile(root: string, link: SetupLinkFile): Promise<void> {
   const file = join(root, SETUP_LINK_FILE)
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, formatSetupLinkFile(link))

@@ -74,6 +74,7 @@ Available namespaces:
 | `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, and what each one still needs. Does not load the project config. |
 | `vitehub link` | Available | ViteHub CLI | Link the project to its project on the host in `.vitehub/link.json`. Does not load the project config. |
 | `vitehub unlink` | Available | ViteHub CLI | Remove `.vitehub/link.json`. Does not load the project config. |
+| `vitehub deploy` | Available | ViteHub CLI | Build the app and run the host deploy that the build wrote, with your local login. Sets the Console link secret. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent codex-home` | Available | Agent Package | Inspect or manage the Agent Codex home. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
@@ -314,6 +315,97 @@ The project name is not known, for example because `vitehub({ name })` is an exp
 ### `SETUP_LINK_PROJECT_NOT_FOUND`
 
 The host has no project with that name. Run the command in `rerun`, which adds `--create`, or pass `--project` with the name of a project that exists. The command exits with `3`.
+
+## Deploy from your machine
+
+`vitehub deploy` builds the app, then runs the deploy that the build wrote for its host. It runs on your machine with your host login. It does not add a CI workflow.
+
+```bash [Terminal]
+pnpm vitehub deploy
+pnpm vitehub deploy --preview
+pnpm vitehub deploy --temporary --yes --json
+```
+
+- `--preview`: a preview deploy instead of production. Deno has none.
+- `--no-build`: deploy the build output that is there.
+- `--temporary`: deploy without an account. Only Cloudflare and Vercel have it, and only when no credentials are found.
+- `--yes`: deploy without the question. Without a terminal, the command needs it and exits with `2` and a `rerun`.
+
+The command runs each host CLI with an argument array and no shell. It runs only the deploy command that ViteHub's build writes, and refuses any other command.
+
+| Host | Deploy | Console secret |
+| --- | --- | --- |
+| Cloudflare | `wrangler deploy --config ./server/wrangler.json` from `commands.deploy` in `.output/nitro.json`, with `--tag` and `--message` for the commit. `--preview` runs `wrangler versions upload`. | `wrangler secret put` over stdin, then `wrangler secret list` |
+| Vercel | `vercel deploy --prebuilt --prod --project <name>`, with `--meta vitehubCommit=<sha>` | `vercel env add --sensitive` over stdin, then `vercel env ls` |
+| Netlify | `netlify deploy --no-build --dir dist --prod`, with `--message` for the commit | The environment variables API, with the value in the JSON request body |
+| Deno | `node .output/deploy.mjs` with `DENO_DEPLOY_ORG` and `DENO_DEPLOY_APP` | `deno deploy env load /dev/stdin`, then `deno deploy env list` |
+
+The credentials are the ones that `vitehub link` reads, and the host CLIs read them from the environment. Deno also needs `DENO_DEPLOY_ORG`, or a link with `--account <org>`.
+
+When `vitehub init --console` left a pending Console link, `deploy` sets `VITEHUB_CONSOLE_TOKEN_SHA256` on the host before the deploy and checks that the host lists it. A host project that does not exist yet gets a first deploy, then the secret, then a second deploy. The value never goes into a command argument or the output. After the deploy, the command prints the Console link, and opens it in a terminal. `--json` returns it in `console.linkUrl`:
+
+```json [vitehub deploy --json]
+{
+  "schemaVersion": 1,
+  "host": "cloudflare",
+  "url": "https://my-app.example.workers.dev",
+  "version": "2f1c7a1e-5b0d-4c7e-9a3f-0d6e8b4c2a10",
+  "console": { "linkUrl": "https://console.vitehub.dev/link#p=pending_42&url=https%3A%2F%2Fmy-app.example.workers.dev", "secret": "set" },
+  "commit": { "sha": "4f2a9c0e8b7d6a5f4e3d2c1b0a9f8e7d6c5b4a39", "dirty": false }
+}
+```
+
+A temporary deploy has no account to hold a secret. The hash is SHA-256 of a 256-bit random token, so it is not secret by itself. It goes into the build output as a plain runtime var: `vars` in the generated `wrangler.json` on Cloudflare, `environment` in each `.vc-config.json` on Vercel. `console.secret` is then `var`. The command prints the claim link: claim a Cloudflare Worker within 60 minutes. `--json` returns it in `temporary.claimUrl`. Do not share the claim link.
+
+After a first deploy, `.vitehub/link.json` gets the host project with `verified: false`, so `vitehub status` finds it. Run `vitehub link` to verify it.
+
+### `SETUP_DEPLOY_HOST_UNSUPPORTED`
+
+The host is `node`. Start the server in `.output` yourself. The command exits with `3`.
+
+### `SETUP_DEPLOY_CREDENTIALS_MISSING`
+
+No token was found. Run the login command or set the variable that the `fix` names. On Cloudflare and Vercel, `rerun` is a temporary deploy that needs no account. The command exits with `2`.
+
+### `SETUP_DEPLOY_TEMPORARY_UNSUPPORTED`
+
+The host has no temporary deploy, `--preview` was passed, credentials were found, or the Vercel CLI refuses it (in CI, or in a folder with `.vercel/project.json`). The command exits with `3`.
+
+### `SETUP_DEPLOY_PREVIEW_UNSUPPORTED`
+
+The Deno deploy that the build writes always goes to production. The command exits with `3`.
+
+### `SETUP_DEPLOY_ORG_REQUIRED`
+
+Set `DENO_DEPLOY_ORG`, or run `vitehub link --host deno --account <org>`. The command exits with `2`.
+
+### `SETUP_DEPLOY_BUILD_FAILED`
+
+The build script failed, or package.json has no `build` script. The command exits with `1`.
+
+### `SETUP_DEPLOY_OUTPUT_MISSING`
+
+The build output has no `deployment.json` or no deploy command for the host. Build again. The command exits with `1`.
+
+### `SETUP_DEPLOY_HOST_MISMATCH`
+
+The build output is for another host than the link or the config. The command exits with `3`.
+
+### `SETUP_DEPLOY_COMMAND_REJECTED`
+
+The deploy command in the build output is not the one that ViteHub writes, so the command does not run it. The command exits with `1`.
+
+### `SETUP_DEPLOY_FAILED`
+
+A host CLI exited with an error. The reason shows its last lines. The command exits with `1`.
+
+### `SETUP_DEPLOY_SECRET_UNVERIFIED`
+
+The host does not list `VITEHUB_CONSOLE_TOKEN_SHA256` after the command set it, so the command did not deploy. The command exits with `1`.
+
+### `SETUP_DEPLOY_SECRET_UNSUPPORTED`
+
+On Windows, the Deno secret has no stdin path. Set the variable in the host dashboard. The command exits with `3`.
 
 ## Read and write blobs
 

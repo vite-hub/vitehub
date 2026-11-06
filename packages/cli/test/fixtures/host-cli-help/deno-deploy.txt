@@ -1,0 +1,58 @@
+
+Usage:   deno deploy [root-path]
+Version: 0.0.9909               
+
+Description:
+
+  Interact with Deno Deploy                                                                      
+                                                                                                 
+  Calling this subcommand without any further subcommands will                                   
+  deploy your local directory to the specified application.                                      
+                                                                                                 
+  For non-interactive use (CI, AI agents), authenticate via the                                  
+  DENO_DEPLOY_TOKEN env var (or --token) and pass --json --non-interactive                       
+  to every subcommand. The CLI then emits a single JSON object on stdout,                        
+  a structured { error: { code, message, hint } } envelope on stderr,                            
+  and a stable exit code (0 OK, 1 GENERIC, 2 USAGE, 3 AUTH, 4 NOT_FOUND,                         
+  5 CONFLICT, 6 NETWORK). See https://docs.deno.com/runtime/reference/cli/deploy/#agent--ci-usage
+  for the full reference.                                                                        
+
+Options:
+
+  -h, --help                       - Show this help.                                                                            
+  -V, --version                    - Show the version number for this program.                                                  
+  --token                <token>   - Auth token to use                                                                          
+  --config               <config>  - Path for the config file                                                                   
+  --ignore               <path>    - Ignore particular source files                                                             
+  -q, --quiet                      - Suppress non-essential output                                                              
+  -j, --json                       - Emit JSON on stdout instead of human-readable output                                       
+  -y, --non-interactive            - Fail fast instead of prompting; values must be supplied via flags or env vars (alias: -y)  
+  --org                  <name>    - The name of the organization                                                               
+  --app                  <name>    - The name of the application                                                                
+  --prod                           - Deploy directly to production                                                              
+  --allow-node-modules             - Allow node_modules directory to be included when uploading                                 
+  --no-wait                        - Skip waiting for the build to complete                                                     
+
+Commands:
+
+  create       [root-path]  - Create a new application. If none of the flags are specified, the flow will be run interactively.
+  env                       - Modify environment variables                                                                     
+  database                  - Manage databases                                                                                 
+  apps                      - Manage applications                                                                              
+  orgs                      - List organizations                                                                               
+  deployments               - Manage deployments (revisions)                                                                   
+  logs                      - Stream logs from an application                                                                  
+  setup-aws    [contexts]   - Setup cloud connections for AWS                                                                  
+  setup-gcp    [contexts]   - Setup cloud connections for GCP                                                                  
+  switch                    - Switch between organizations and applications                                                    
+  logout                    - Revoke the Deno Deploy token if one is present                                                   
+  whoami                    - Verify the current Deno Deploy token and list reachable organizations                            
+  sandbox                   - Interact with sandboxes                                                                          
+
+Examples:
+
+  Verify the active token                    whoami --json                                                                                            
+  Deploy current directory non-interactively --json --non-interactive --org my-org --app my-app --prod                                                
+  Create a static app from CI                create --json --non-interactive --org my-org --app my-app --source local --runtime-mode static           
+                                             --static-dir dist --region us                                                                            
+

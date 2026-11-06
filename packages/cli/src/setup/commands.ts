@@ -1,4 +1,5 @@
 import { addCommand } from "./add.ts"
+import { deployCommand } from "./deploy.ts"
 import { initCommandDefinition, readSetupStack } from "./init.ts"
 import { parseArgs } from "node:util"
 
@@ -181,4 +182,4 @@ const unlinkCommand: ViteHubCliCommand = {
 }
 
 /** The setup commands. They run before the CLI loads the project config. */
-export const setupCommands: readonly ViteHubCliCommand[] = [initCommandDefinition, addCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand]
+export const setupCommands: readonly ViteHubCliCommand[] = [initCommandDefinition, addCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand, deployCommand]
