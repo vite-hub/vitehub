@@ -1,6 +1,6 @@
 import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withComments, withConnectionsDatabase, withDataDir, type ConsoleJournal } from "./storage-config.ts"
-import { readFileSync } from "node:fs"
-import { readFile, writeFile } from "node:fs/promises"
+import { existsSync, readFileSync } from "node:fs"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { createRequire, findPackageJSON } from "node:module"
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -131,6 +131,31 @@ const cloudflareNodeCompatModule = {
       await writeFile(file, `${JSON.stringify({ ...wrangler, compatibility_flags: flags }, null, 2)}\n`)
     })
   },
+}
+
+async function writeCloudflareAssetsMiddleware(
+  projectRoot: string,
+  nitroMajor: 2 | 3,
+): Promise<string> {
+  const file = join(projectRoot, ".vitehub/nitro/cloudflare-assets.mjs");
+  await writeFileIfChanged(
+    file,
+    [
+      nitroMajor === 2
+        ? 'import { defineEventHandler, toWebRequest } from "h3"'
+        : 'import { defineHandler } from "nitro"',
+      `export default ${nitroMajor === 2 ? "defineEventHandler" : "defineHandler"}(async event => {`,
+      `  const request = ${nitroMajor === 2 ? "toWebRequest(event)" : "event.req"}`,
+      '  if (request.method !== "GET" && request.method !== "HEAD") return',
+      `  const assets = ${nitroMajor === 2 ? "event.context.cloudflare?.env.ASSETS" : "request.runtime?.cloudflare?.env.ASSETS"}`,
+      "  if (!assets) return",
+      "  const response = await assets.fetch(request)",
+      "  if (response.status !== 404) return response",
+      "})",
+      "",
+    ].join("\n"),
+  );
+  return file;
 }
 
 function configuredScanDirs(value: unknown): string[] | undefined {
@@ -1059,11 +1084,42 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     experimental.websocket = true
   }
   if (plan.preset === "cloudflare") {
-    const cloudflare = (nitro.cloudflare ??= {}) as Record<string, unknown>
-    cloudflare.deployConfig ??= true
-    const wasm = (nitro.wasm ??= {}) as Record<string, unknown>
-    wasm.lazy ??= true
-    if (!nuxt.options.dev) nitro.exportConditions = cloudflareExportConditions(nitro.exportConditions)
+    const cloudflare = (nitro.cloudflare ??= {}) as Record<string, unknown>;
+    cloudflare.deployConfig ??= true;
+    const wasm = (nitro.wasm ??= {}) as Record<string, unknown>;
+    wasm.lazy ??= true;
+    if (!nuxt.options.dev)
+      nitro.exportConditions = cloudflareExportConditions(nitro.exportConditions);
+    if (!nuxt.options.dev) {
+      if (nuxt.hook)
+        Reflect.apply(nuxt.hook, nuxt, [
+          "nitro:init",
+          (instance: {
+            options: {
+              dev?: boolean;
+              output: { serverDir: string };
+            };
+            hooks: { hook: (name: string, callback: () => Promise<void>) => void };
+          }) => {
+            instance.hooks.hook("compiled", async () => {
+              if (instance.options.dev) return;
+              const config = await findNearestFile(
+                ["wrangler.json", "wrangler.jsonc", "wrangler.toml"],
+                { startingFrom: rootDir },
+              ).catch(() => undefined);
+              if (!config) return;
+              const generated = join(instance.options.output.serverDir, "wrangler.json");
+              if (!existsSync(generated)) return;
+              const redirect = join(dirname(config), ".wrangler/deploy/config.json");
+              await mkdir(dirname(redirect), { recursive: true });
+              await writeFile(
+                redirect,
+                `${JSON.stringify({ configPath: relative(dirname(redirect), generated) })}\n`,
+              );
+            });
+          },
+        ]);
+    }
     // Nitro 3 resolves the Cloudflare preset to `cloudflare-dev` in development, which runs the server in workerd.
     // ViteHub's Cloudflare development shims bindings on Node, so keep Nitro's Node runner unless the app picks one.
     if (nuxt.options.dev) {
@@ -1630,8 +1686,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       alias["cloudflare:workers"] ??= await writeCloudflareWorkersDevShim(nuxt.options.buildDir)
     }
     if (plan.preset === "cloudflare") {
-      const cloudflare = (config.cloudflare ??= {}) as Record<string, unknown>
-      const envServer = generatedAliases["#vitehub/env/server"]
+      if (!nuxt.options.dev) {
+        // Nitro 3 reloads its config before the production build.
+        const handler = await writeCloudflareAssetsMiddleware(projectRoot, nitroMajorVersion);
+        const handlers = Array.isArray(config.handlers) ? config.handlers : [];
+        if (!handlers.some((entry) => isRecord(entry) && entry.handler === handler))
+          config.handlers = [...handlers, { handler, route: "/**", middleware: true }];
+      }
+      const cloudflare = (config.cloudflare ??= {}) as Record<string, unknown>;
+      const envServer = generatedAliases["#vitehub/env/server"];
       if (envServer) {
         const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
         const alias = (wrangler.alias ??= {}) as Record<string, string>
