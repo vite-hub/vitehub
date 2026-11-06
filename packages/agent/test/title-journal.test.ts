@@ -240,12 +240,13 @@ describe("title journal ownership", () => {
     expect(completed.observations.filter(entry => entry.name === "agent.invocation.finish")).toHaveLength(1)
   })
 
-  it("uses the first user message with multi-turn history and a prompt", async () => {
-    const execute = vi.fn(() => "First topic")
+  it("uses the latest prepared user message before a string prompt", async () => {
+    const execute = vi.fn(({ text }) => text)
+    const invocations = journal()
     await runAgent(defineAgent({
       capabilities: [title({ execute })],
       driver: { run: () => "Done." },
-      invocations: journal(),
+      invocations,
     }), runtime("existing-message"), {
       messages: [
         createMessage({ role: "user", text: "Original topic" }),
@@ -254,7 +255,99 @@ describe("title journal ownership", () => {
       ],
       prompt: "Follow up",
     })
-    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ text: "Original topic" }))
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({ text: "Later topic" }))
+    expect((await invocations.getByRunId("existing-message"))?.title).toBe("Later topic")
+  })
+
+  it("selects the triggering message even when history contains a later request", async () => {
+    const invocations = journal()
+    const execute = vi.fn(({ text }) => text)
+    const agent = defineAgent({
+      capabilities: [title({ execute })],
+      driver: { run: () => (async function* () {
+        yield { text: "Done.", type: "text-delta" as const }
+        yield { type: "finish" as const }
+      })() },
+      invocations,
+    })
+    const stream = await streamAgent(agent, {
+      ...runtime("triggered-message"),
+      run: { messageId: "current", runId: "triggered-message" },
+    }, {
+      messages: [
+        createMessage({ id: "old", role: "user", text: "Clarify sye" }),
+        createMessage({ id: "current", role: "user", text: "Investigate portal forecasts" }),
+        createMessage({ id: "later", role: "user", text: "Another request" }),
+      ],
+    })
+    const events: unknown[] = []
+    for await (const event of stream as AsyncIterable<unknown>) events.push(event)
+
+    expect(execute).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.objectContaining({ id: "current" }),
+      text: "Investigate portal forecasts",
+    }))
+    expect(events).toContainEqual({ data: { title: "Investigate portal forecasts", type: "title" }, type: "data" })
+    expect((await invocations.getByRunId("triggered-message"))?.title).toBe("Investigate portal forecasts")
+  })
+
+  it("leaves the title unset when the triggering message is missing", async () => {
+    const invocations = journal()
+    const execute = vi.fn(() => "Unrelated title")
+    await runAgent(defineAgent({
+      capabilities: [title({ execute })],
+      driver: { run: () => "Done." },
+      invocations,
+    }), {
+      ...runtime("missing-message"),
+      run: { messageId: "missing", runId: "missing-message" },
+    }, {
+      messages: [createMessage({ role: "user", text: "Old topic" })],
+      prompt: "Unrelated fallback",
+    })
+
+    expect(execute).not.toHaveBeenCalled()
+    expect((await invocations.getByRunId("missing-message"))?.title).toBeUndefined()
+  })
+
+  it.each(["text", "stream", "empty", "failure"] as const)("uses only the current attachment's successful reply for %s", async (mode) => {
+    const invocations = journal()
+    const execute = vi.fn(({ text }) => text)
+    const agent = defineAgent({
+      capabilities: [title({ execute })],
+      driver: { run: () => {
+        if (mode === "failure") throw new Error("Driver failed")
+        if (mode === "empty") return ""
+        if (mode === "text") return "A rainy street in Bangkok"
+        return (async function* () {
+          yield { text: "A rainy street in Bangkok", type: "text-delta" as const }
+          yield { type: "finish" as const }
+        })()
+      } },
+      hooks: { "agent:finish": vi.fn() },
+      invocations,
+    })
+    const input = {
+      messages: [
+        createMessage({ role: "user", text: "Old topic" }),
+        createMessage({ role: "user", parts: [{ type: "image", mediaType: "image/jpeg", url: "https://example.com/photo.jpg" }] }),
+      ],
+    }
+    if (mode === "failure") await expect(runAgent(agent, runtime(mode), input)).rejects.toThrow("Driver failed")
+    else if (mode === "stream") {
+      const stream = await streamAgent(agent, runtime(mode), input)
+      for await (const _event of stream as AsyncIterable<unknown>) {}
+    }
+    else await runAgent(agent, runtime(mode), input)
+
+    if (mode === "empty" || mode === "failure") {
+      expect(execute).not.toHaveBeenCalled()
+      expect((await invocations.getByRunId(mode))?.title).toBeUndefined()
+    }
+    else {
+      expect(execute).toHaveBeenCalledWith(expect.objectContaining({ source: "response", text: "A rainy street in Bangkok" }))
+      expect((await invocations.getByRunId(mode))?.title).toBe("A rainy street in Bangkok")
+    }
   })
 
   it("releases pending title work on invocation abort", async () => {

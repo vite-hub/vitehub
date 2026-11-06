@@ -13099,7 +13099,9 @@ describe("server helpers", () => {
     }
   })
 
-  it("delivers state-backed Chat SDK titles once per thread across handler recreation", async () => {
+  it.each([false, true])("delivers state-backed Chat SDK titles once per thread across handler recreation, journal: %s", async (journaled) => {
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const invocations = defineAgentInvocations({ metadataContent: ["vitehub.session.title"], store: createMemoryAgentInvocationStore() })
     const state = createLibsqlAgentState({ url: "file::memory:" })
     const setThreadTitle = vi.fn(async () => undefined)
     const execute = vi.fn(({ text }: { text: string }) => `Title: ${text}`)
@@ -13115,6 +13117,7 @@ describe("server helpers", () => {
             channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
           },
           driver: { run },
+          invocations: journaled ? invocations : undefined,
           hooks: { "agent:finish": finish },
           messages: { state, stream: false, triggerHistory: "none" },
         }) as never,
@@ -13125,10 +13128,10 @@ describe("server helpers", () => {
       await expect(first(chatWebhookRequest(101, 456, "first"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
       await expect(first(chatWebhookRequest(102, 456, "second"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
       expect(run).toHaveBeenCalledTimes(2)
-      expect(execute).toHaveBeenCalledOnce()
+      expect(execute).toHaveBeenCalledTimes(journaled ? 2 : 1)
       expect(setThreadTitle).toHaveBeenCalledOnce()
       expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: first" })
-      expect(finish.mock.calls[1]![0].extensions.get("title")).toBeUndefined()
+      expect(finish.mock.calls[1]![0].extensions.get("title")).toEqual(journaled ? { title: "Title: second" } : undefined)
 
       const recreated = createHandler()
       await expect(recreated(chatWebhookRequest(103, 456, "third"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
@@ -13137,7 +13140,11 @@ describe("server helpers", () => {
       expect(setThreadTitle).toHaveBeenCalledTimes(2)
       expect(setThreadTitle).toHaveBeenNthCalledWith(1, "telegram:456", "Title: first")
       expect(setThreadTitle).toHaveBeenNthCalledWith(2, "telegram:789", "Title: other thread")
-      expect(execute).toHaveBeenCalledTimes(2)
+      expect(execute).toHaveBeenCalledTimes(journaled ? 4 : 2)
+      if (journaled) {
+        const { invocations: records } = await invocations.list()
+        expect(records.map(record => record.title).sort()).toEqual(["Title: first", "Title: second", "Title: third", "Title: other thread"].sort())
+      }
       await expect(state.get("chat:mini:channel:channel-title:telegram:456:delivered")).resolves.toBe(true)
       await expect(state.get("chat:mini:channel:channel-title:telegram:789:delivered")).resolves.toBe(true)
     } finally {

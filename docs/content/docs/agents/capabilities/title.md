@@ -32,7 +32,7 @@ export default defineAgent({
 
 ## How titles are generated
 
-`title()` reads the prepared first user message, or `input.prompt` when no user message is present.
+`title()` reads the prepared user message matching `run.messageId`, or the last prepared user message when no message ID is available. It uses a string `input.prompt` only when no user message is present. If an explicit message ID has no matching user message, it leaves the title unset.
 Input Capabilities run first, so `transcribe()` can replace audio with transcript text before `title()` reads it. Audio with authored text uses both in their prepared order.
 When the message has no semantic text, such as an attachment-only audio or image message, `title()` waits for the successful Agent reply and uses that text. When the reply is also empty or the invocation fails, it leaves the title unset.
 
@@ -66,7 +66,7 @@ Finish hooks read the title with `event.extensions.get('title')`, or with your c
 
 ### Channel delivery
 
-For framework-managed Chat SDK message Channels, ViteHub delivers the title once per thread by default, even when each webhook contains only the current message or the handler is recreated. Follow-up Channel invocations skip title generation after successful delivery. Set `channelDelivery: "always"` to refresh the platform title on every invocation.
+For framework-managed Chat SDK message Channels, ViteHub delivers the title once per thread by default, even when each webhook contains only the current message or the handler is recreated. When an Invocation journal observes the run, follow-up invocations still generate and record their own titles without renaming the platform thread or replacing its established stream title. Without a journal, they skip title generation after successful delivery. Set `channelDelivery: "always"` to refresh the platform title on every invocation.
 When a Channel invocation fails after title generation started, ViteHub delivers the title with an `ERROR:` prefix.
 
 Plain `runAgent()` and UI invocations without framework-managed Chat SDK delivery still receive stream data and finish extensions per invocation.

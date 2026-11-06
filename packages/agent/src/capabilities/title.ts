@@ -194,8 +194,9 @@ function markTitleApplied<T>(value: T): T {
   return value
 }
 
-function firstUserMessage(messages: Message[], input: AgentRunInput): Message | undefined {
-  const message = messages.find(message => message.role === "user")
+function currentUserMessage(messages: Message[], input: AgentRunInput, messageId: string | undefined): Message | undefined {
+  if (messageId) return messages.find(message => message.id === messageId && message.role === "user")
+  const message = messages.findLast(message => message.role === "user")
   if (message) return message
   return hasRuntimeType(input.prompt, "string") && stripChatEntityMarkup(input.prompt)
     ? createMessage({ role: "user", text: input.prompt })
@@ -1129,15 +1130,13 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       let title: Promise<TitleResolutionValue> | undefined
       let titleClaimed = false
       let titleSkipped = false
-      let titleTraced = false
       let pendingTitleStart: Promise<void> | undefined
       const invocationJournalObservesRun = Boolean(
         context.runtimeContext?.traceLog
         && agentInvocationJournalTraceLogSymbol in context.runtimeContext.traceLog,
       )
       const traceTitle = async (value: TitleResolutionValue) => {
-        if (!invocationJournalObservesRun || titleTraced || !hasRuntimeType(value, "string") || !context.runtimeContext?.traceLog) return
-        titleTraced = true
+        if (!invocationJournalObservesRun || !hasRuntimeType(value, "string") || !context.runtimeContext?.traceLog) return
         await traceAgentEvent({
           context: context.context,
           input: context.input.get(),
@@ -1152,7 +1151,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       }
       const titleInput = (source: TitleSource, text: string): TitleExecuteInput | undefined => {
         const messages = context.input.messages()
-        const message = firstUserMessage(messages, context.input.get())
+        const message = currentUserMessage(messages, context.input.get(), context.run?.messageId)
         if (!message || !stripChatEntityMarkup(text)) return
         return {
           input: context.input.get(),
@@ -1163,7 +1162,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         }
       }
       const preparedTitleInput = () => {
-        const message = firstUserMessage(context.input.messages(), context.input.get())
+        const message = currentUserMessage(context.input.messages(), context.input.get(), context.run?.messageId)
         return message ? titleInput("input", getMessageText(message)) : undefined
       }
       const getTitle = (responseText?: string): Promise<TitleResolutionValue> => {
@@ -1173,11 +1172,11 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         title = (async () => {
           const pendingAttempt = getChannelDeliveryAttempt()
           const attempt = pendingAttempt instanceof Promise ? await pendingAttempt : pendingAttempt
-          if (!attempt.deliver) {
+          if (!attempt.deliver && !invocationJournalObservesRun) {
             publishInspection(context, "Skipped: already delivered")
             return skippedTitleDelivery
           }
-          titleClaimed = true
+          titleClaimed = attempt.deliver
           try {
             publishInspection(context, "Generating")
             // SAFETY: Title Capability normalization establishes the asserted delivery and stream contract.
@@ -1192,6 +1191,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
               await finishMessageChannelTitleDelivery(attempt, false).catch(() => undefined)
             }
             publishInspection(context, resolvedTitle ? "Completed" : "No title", resolvedTitle)
+            if (invocationJournalObservesRun) await traceTitle(resolvedTitle)
             return resolvedTitle
           }
           catch {
@@ -1204,7 +1204,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       }
 
       const startTitle = async () => {
-        if (!firstUserMessage(context.input.messages(), context.input.get())) return
+        if (!currentUserMessage(context.input.messages(), context.input.get(), context.run?.messageId)) return
         if (!shouldRunForTrigger(options.trigger, agentTriggerId(context))) {
           publishInspection(context, "Skipped: trigger")
           return
@@ -1215,9 +1215,8 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
         }
         const provideFinishExtension = shouldProvideTitleFinishExtension(context)
         if (!provideFinishExtension && !invocationJournalObservesRun) return
-        if (context.context.get(messageChannelTitleDeliveredContextKey) === true) return
+        if (context.context.get(messageChannelTitleDeliveredContextKey) === true && !invocationJournalObservesRun) return
         const resolvedTitle = await getTitle()
-        await traceTitle(resolvedTitle)
         if (!provideFinishExtension) {
           await releaseChannelDeliveryAttempt()
           return
@@ -1282,7 +1281,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       }
       titleDeliveryEffect.active = finish =>
         Boolean(finish.channel)
-        && Boolean(firstUserMessage(context.input.messages(), context.input.get()))
+        && Boolean(currentUserMessage(context.input.messages(), context.input.get(), context.run?.messageId))
         && finish.context.get(messageChannelTitleSupportContextKey) !== false
         && (Object.hasOwn(finish.event, "error")
           || finish.context.get(messageChannelTitleDeliveredContextKey) !== true)
@@ -1291,7 +1290,14 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
       context.output.render((result) => {
         if (hasTitleApplied(result)) return result
         const messages = context.input.messages()
-        if (!firstUserMessage(messages, context.input.get())) return result
+        if (!currentUserMessage(messages, context.input.get(), context.run?.messageId)) return result
+        const streamTitle = invocationJournalObservesRun && supportsTitleDelivery(context)
+          ? async (responseText?: string): Promise<TitleResolutionValue> => {
+              const resolvedTitle = await getTitle(responseText)
+              if (!hasRuntimeType(resolvedTitle, "string")) return resolvedTitle
+              return (await getChannelDeliveryAttempt()).deliver ? resolvedTitle : skippedTitleDelivery
+            }
+          : getTitle
         const preparedInput = preparedTitleInput()
         const establishedTitle = createAgentChatData(messages.flatMap(message => message.parts)).get("title")
         const provisionalTitle = preparedInput
@@ -1305,7 +1311,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           if (result.stream || result.fullStream) {
             const stream = result.stream
             const fullStream = result.fullStream
-            const title = preparedInput ? getTitle() : (text: string) => getTitle(text)
+            const title = preparedInput ? streamTitle() : (text: string) => streamTitle(text)
             const fallbackCount = Number(Boolean(stream)) + Number(Boolean(fullStream && fullStream !== stream))
             const fallbackBranches = !preparedInput && fallbackCount
               ? lazyFallbackBranches(() => result.textStream, fallbackCount + (hasPropertyGetter(result, "textStream") ? 0 : 1))
@@ -1325,7 +1331,7 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
             })
           }
           if (result.textStream) {
-            const title = preparedInput ? getTitle() : (text: string) => getTitle(text)
+            const title = preparedInput ? streamTitle() : (text: string) => streamTitle(text)
             return cloneStreamTextResult(result, {
               stream: withTitleTextStream(result.textStream, title),
               ...titleUiMessageStreamOverride(toUIMessageStream, title, provisionalTitle),
@@ -1333,12 +1339,12 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           }
           if (toUIMessageStream) {
             return cloneStreamTextResult(result, {
-              ...titleUiMessageStreamOverride(toUIMessageStream, preparedInput ? getTitle() : text => getTitle(text), provisionalTitle),
+              ...titleUiMessageStreamOverride(toUIMessageStream, preparedInput ? streamTitle() : text => streamTitle(text), provisionalTitle),
             })
           }
         }
         if (!isAsyncIterable(result)) return result
-        return withTitleEvent(result, preparedInput ? getTitle() : text => getTitle(text))
+        return withTitleEvent(result, preparedInput ? streamTitle() : text => streamTitle(text))
       })
     },
   }), {

@@ -7963,7 +7963,7 @@ describe("agent message protocol", () => {
     }))
   })
 
-  it("emits title data for the first user message in streams", async () => {
+  it("emits title data for the latest user message in streams", async () => {
     const { defineAgent, streamAgent } = await import("../src/index.ts")
     const execute = vi.fn(({ text }) => `Title: ${text}`)
     const agent = defineAgent({
@@ -7988,11 +7988,11 @@ describe("agent message protocol", () => {
     }
 
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      message: expect.objectContaining({ id: "user-1" }),
-      text: "First user request",
+      message: expect.objectContaining({ id: "user-2" }),
+      text: "Latest user request",
     }))
     expect(events).toContainEqual({
-      data: { title: "Title: First user request", type: "title" },
+      data: { title: "Title: Latest user request", type: "title" },
       type: "data",
     })
     expect(events).toContainEqual({ text: "hello", type: "text-delta" })
@@ -9210,12 +9210,15 @@ describe("agent message protocol", () => {
     await reader.cancel()
   })
 
-  it("preserves an established UI title when once-per-thread delivery was already claimed", async () => {
+  it.each([false, true])("preserves an established UI title when once-per-thread delivery was already claimed, journal: %s", async (journaled) => {
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const invocations = defineAgentInvocations({ metadataContent: ["vitehub.session.title"], store: createMemoryAgentInvocationStore() })
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
     const { messageChannelStateContextKey } = await import("../src/internal/channels.ts")
     const { messageChannelTitleSupportContextKey } = await import("../src/channels.ts")
     const execute = vi.fn(() => "Replacement title")
     const agent = defineAgent({
+      invocations: journaled ? invocations : undefined,
       capabilities: [
         defineCapability({
           id: "delivered-title-state",
@@ -9265,7 +9268,8 @@ describe("agent message protocol", () => {
       ...messages.flatMap(message => message.parts),
       ...events,
     ]).get("title", "title")).toBe("Critical Overstock")
-    expect(execute).not.toHaveBeenCalled()
+    expect(execute).toHaveBeenCalledTimes(journaled ? 1 : 0)
+    if (journaled) expect((await invocations.getByRunId("run-2"))?.title).toBe("Replacement title")
   })
 
   it("starts a UI error with the code of a diagnostic that has a fix", async () => {
