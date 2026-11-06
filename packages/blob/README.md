@@ -12,7 +12,7 @@
 ## Install
 
 ```sh
-pnpm add @vite-hub/blob h3
+pnpm add @vite-hub/blob h3 valibot
 pnpm add -D vite
 ```
 
@@ -27,7 +27,7 @@ import { defineEventHandler, readValidatedBody } from "h3"
 import * as v from "valibot"
 
 export default defineEventHandler(async (event) => {
-  const body = await readValidatedBody(event, v.object({ path: v.string(), text: v.string() }))
+  const body = await readValidatedBody(event, body => v.parse(v.object({ path: v.string(), text: v.string() }), body))
 
   const [writeError] = await blob.put(body.path, body.text, { contentType: "text/plain" })
   if (writeError) throw writeError
