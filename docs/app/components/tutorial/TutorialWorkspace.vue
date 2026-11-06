@@ -14,7 +14,7 @@ import WorkspaceRunState from "~/components/workspace/WorkspaceRunState.vue";
 import WorkspaceTabs from "~/components/workspace/WorkspaceTabs.vue";
 import { splitterHitArea, splitterUi, useRunState } from "~/utils/workspace-layout";
 import { parseCurl, requestScript } from "~/utils/runnable-tutorial";
-import { tutorialStepFiles, tutorialWorkspaceFiles } from "~~/modules/tutorials/steps";
+import { restartsDevServer, tutorialStepFiles, tutorialWorkspaceFiles } from "~~/modules/tutorials/steps";
 
 import type { TutorialActions } from "~/utils/tutorial-actions";
 
@@ -52,7 +52,7 @@ const tab = ref<"preview" | "console" | "connect">("preview");
 const tabs = [
   { label: "Preview", value: "preview" as const, icon: "i-lucide-app-window" },
   { label: "Console", value: "console" as const, icon: "i-lucide-square-terminal" },
-  { label: "Connect", value: "connect" as const, icon: "i-lucide-plug" },
+  ...connect.providers.length ? [{ label: "Connect", value: "connect" as const, icon: "i-lucide-plug" }] : [],
 ];
 const runState = useRunState(workspace);
 const moreItems = computed(() => [[
@@ -84,11 +84,18 @@ const source = computed({
   set: value => void workspace.setFiles({ [selected.value]: value }),
 });
 
+/** Writes `next` and restarts a running dev server when it must start again to see the change. */
+async function write(next: Files) {
+  const restart = restartsDevServer(workspace.files.value, next) && ["starting", "ready"].includes(workspace.status.value);
+  await workspace.setFiles(next, { mode: "replace" });
+  if (restart) await workspace.restart();
+}
+
 /** Restores the tutorial-owned files to `target`, and keeps unrelated files that the reader added. */
 async function load(target: Files) {
   const next = tutorialWorkspaceFiles(props.tutorial, workspace.files.value, target);
   baseline.value = target;
-  await workspace.setFiles(next, { mode: "replace" });
+  await write(next);
 }
 
 // Changing steps loads the files of the new step, unless the reader edited files. Then the bar asks first.
@@ -149,7 +156,7 @@ watchEffect(() => {
     paths: paths.value,
     show(path: string) {
       // A file that the step tells the reader to create opens empty.
-      if (!(path in workspace.files.value)) void workspace.setFiles({ [path]: "" });
+      if (!(path in workspace.files.value)) void write({ ...workspace.files.value, [path]: "" });
       selected.value = path;
     },
     run,
@@ -223,7 +230,7 @@ onBeforeUnmount(() => { props.actions.available = false; });
           </template>
           <template #connect>
             <div class="h-full overflow-auto">
-              <ConnectPanel :connect="connect" empty="No accounts needed for this step." />
+              <ConnectPanel :connect="connect" />
             </div>
           </template>
         </WorkspaceTabs>

@@ -34,6 +34,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/agent/eval", { "evalite": "both", "vitest": "both" }],
   ["@vite-hub/agent/runtime/workflow", { "@vite-hub/workflow": "declaration" }],
   ["@vite-hub/auth/agent", { "@vite-hub/agent": "both" }],
+  ["@vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   ["@vite-hub/auth/nuxt", { "vite": "both" }],
   ["@vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
   ["@vite-hub/browser/internal/chromium", { "playwright-core": "declaration" }],
@@ -73,6 +74,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub", { "vite": "both" }],
   ["vite-hub/agent/invocations/database", { "@vite-hub/database": "both", "drizzle-orm": "both" }],
   ["vite-hub/agent/observability", { "evlog": "both" }],
+  ["vite-hub/auth/mcp", { "@better-auth/oauth-provider": "both" }],
   // The Console signs people in with Better Auth and keeps the Agent journal in libSQL.
   ["vite-hub/console/auth", { "@better-auth/oauth-provider": "both", "@vite-hub/auth": "both", "better-auth": "both" }],
   ["vite-hub/console/auth/inline", { "@better-auth/oauth-provider": "both", "@vite-hub/auth": "both", "better-auth": "both" }],

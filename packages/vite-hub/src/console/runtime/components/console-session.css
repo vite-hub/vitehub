@@ -620,8 +620,8 @@
   display: flex;
   font-size: 0.75rem;
   gap: 0.35rem;
-  height: 1.625rem;
-  min-height: 1.625rem;
+  height: 2rem;
+  min-height: 2rem;
   overflow-x: auto;
   overflow-y: hidden;
   padding: 0 0.75rem;
@@ -659,10 +659,10 @@
   align-items: center;
   border-radius: 0.3rem !important;
   display: inline-flex;
-  height: 1.375rem !important;
+  height: 1.75rem !important;
   justify-content: center;
   padding: 0 !important;
-  width: 1.375rem !important;
+  width: 1.75rem !important;
 }
 .session-inspector__workspace-actions [data-slot="leadingIcon"] {
   height: 0.75rem !important;
@@ -1764,7 +1764,18 @@
   padding: 0.75rem 1rem;
 }
 .session-inspector__diff-toolbar > div { display: flex; flex-direction: column; gap: 0.15rem; }
-.session-inspector__diff-list { overflow: auto; padding: 0.75rem 1rem 2rem; }
+.session-inspector__diff-list { flex: 1; min-height: 0; overflow: auto; padding: 0.5rem 0.5rem 2rem; }
 .session-inspector__diff-turn { border: 1px solid var(--ui-border); border-radius: 0.5rem; margin-bottom: 0.75rem; overflow: hidden; }
 .session-inspector__diff-select { align-items: center; background: var(--ui-bg-muted); display: flex; gap: 0.5rem; padding: 0.45rem 0.65rem; font-size: 0.75rem; }
-.session-inspector__patch { min-height: 12rem; }
+.session-inspector__patch { min-width: 0; }
+
+@media (any-pointer: coarse) {
+  .session-inspector__breadcrumbs {
+    height: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .session-inspector__workspace-actions button {
+    height: 2.75rem !important;
+    width: 2.75rem !important;
+  }
+}

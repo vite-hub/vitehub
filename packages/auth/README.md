@@ -334,6 +334,23 @@ import { isGitHubOrgMember } from "@vite-hub/auth";
 const member = await isGitHubOrgMember(account.accessToken, "acme", { cacheMs: 300_000 });
 ```
 
+## MCP OAuth
+
+`@vite-hub/auth/mcp` makes Better Auth the OAuth 2.1 authorization server of an MCP server that the app owns, such as `/mcp`. `mcpOAuth({ resource, loginPage })` returns `jwt()`, `oauthProvider()` with open dynamic registration for native MCP clients, and a guard that bounds the registration body and its fields. `serveMcpOAuthDiscovery(request)` answers the protected resource, authorization server, and OpenID documents at the origin root and returns `undefined` for other paths. `verifyMcpRequest(request)` returns `[error, caller]` with the user, scopes, and client name of a valid access token. `deleteUnusedMcpClients()` deletes registrations that never finished sign-in. Install `@better-auth/oauth-provider` with the version of `better-auth` that this package uses.
+
+```ts
+// server/auth.ts
+import { defineAuth } from "@vite-hub/auth"
+import { mcpOAuth } from "@vite-hub/auth/mcp"
+
+export default defineAuth(({ requestOrigin }) => ({
+  baseURL: requestOrigin,
+  plugins: [...mcpOAuth({ resource: `${requestOrigin}/mcp`, loginPage: "/oauth" })],
+}))
+```
+
+Read [Sign MCP clients in](https://vitehub.dev/docs/auth/configure#sign-mcp-clients-in).
+
 ## Authenticated Agents
 
 Use `authenticated()` when an Agent should derive its Agent Invoker from the current Auth Session.

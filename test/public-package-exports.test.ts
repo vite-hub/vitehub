@@ -7,6 +7,19 @@ import { publicPackageBinContracts, publicPackageExportContracts } from "./publi
 import { packageDir, packageInfos, readPackageManifest } from "./utils/repo"
 
 describe("public package export contracts", () => {
+  it("limits the OAuth Provider peer to the MCP Auth subpaths", () => {
+    for (const specifier of ["@vite-hub/auth/mcp", "vite-hub/auth/mcp"]) {
+      const contract = publicPackageExportContracts.find(entry => entry.specifier === specifier)
+      expect(contract?.optionalRuntimePeers).toContain("@better-auth/oauth-provider")
+      expect(contract?.optionalDeclarationPeers).toContain("@better-auth/oauth-provider")
+    }
+    for (const specifier of ["@vite-hub/auth", "@vite-hub/auth/server", "vite-hub/auth", "vite-hub/auth/server"]) {
+      const contract = publicPackageExportContracts.find(entry => entry.specifier === specifier)
+      expect(contract?.optionalRuntimePeers).not.toContain("@better-auth/oauth-provider")
+      expect(contract?.optionalDeclarationPeers).not.toContain("@better-auth/oauth-provider")
+    }
+  })
+
   it("keeps Source handler declarations independent from H3", () => {
     const server = readFileSync(join(packageDir("source"), "src/server.ts"), "utf8")
     const content = readFileSync(join(packageDir("content"), "src/index.ts"), "utf8")

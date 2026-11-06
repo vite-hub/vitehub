@@ -15,7 +15,7 @@ const page = computed(() => props.response.page)
 
 <template>
   <UPage v-if="header" :ui="{ root: 'lg:!grid-cols-1 lg:!gap-0', center: 'lg:!col-span-1', right: 'hidden' }" :data-path="page.path">
-    <UPageHeader :title="page.sourceTitle" :description="page.description ?? undefined">
+    <UPageHeader :title="page.sourceTitle" :description="page.tagline ?? undefined">
       <template #links>
         <DocsPageHeaderLinks />
       </template>
@@ -23,6 +23,7 @@ const page = computed(() => props.response.page)
 
     <UPageBody prose class="docs-content docs-catalog-content pb-16">
       <DocsMarkdown :document="response.document" />
+      <DocsPageCredits v-if="response.credits" :credits="response.credits" class="not-prose mt-10" />
     </UPageBody>
   </UPage>
 
@@ -33,6 +34,7 @@ const page = computed(() => props.response.page)
 
     <UPageBody prose class="docs-content vh-product-body !px-0">
       <DocsMarkdown :document="response.document" />
+      <DocsPageCredits v-if="response.credits" :credits="response.credits" class="not-prose mt-10" />
     </UPageBody>
 
     <DocsCatalogFooter :current="section" />
