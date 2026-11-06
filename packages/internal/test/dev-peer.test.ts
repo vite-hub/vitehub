@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { EventEmitter } from "node:events"
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
@@ -21,13 +22,30 @@ function request(evidence: string | undefined, init: { method?: string, url?: st
   return new Request(init.url ?? url, { headers: evidence === undefined ? {} : { [peer.viteHubDevPeerHeader]: evidence }, method: init.method ?? "POST" })
 }
 
-function nodeEvent(remoteAddress: string | undefined, headers: Record<string, string> = {}, path = "/_vitehub/rpc/__call") {
+// Node gives a dev handler the request headers with lowercase names. A browser on this machine sends this `Host`.
+const localHost = { host: "localhost:3000" }
+
+function nodeEvent(remoteAddress: string | undefined, headers: Record<string, string> = localHost, path = "/_vitehub/rpc/__call") {
   return { node: { req: { headers: { ...headers }, method: "POST", socket: { remoteAddress }, url: path } } }
 }
 
-function webEvent(remoteAddress: string | undefined, headers: Record<string, string> = {}, path = "/_vitehub/rpc/__call") {
+function webEvent(remoteAddress: string | undefined, headers: Record<string, string> = localHost, path = "/_vitehub/rpc/__call") {
   const node = { headers: { ...headers }, method: "POST", socket: { remoteAddress }, url: path }
   return { node, event: { req: new Request(`http://localhost:3000${path}`, { headers, method: "POST" }), runtime: { node: { req: node } } } }
+}
+
+/** Whether the dev handler and the upgrade signer sign a loopback request with these headers. */
+async function signs(headers: Record<string, string>): Promise<boolean> {
+  peer.useViteHubDevPeerKey()
+  const v1 = nodeEvent("127.0.0.1", headers)
+  await peer.viteHubDevPeerDevHandler(v1)
+  const v2 = webEvent("127.0.0.1", headers)
+  await peer.viteHubDevPeerDevHandler(v2.event)
+  const upgrade = { headers: { ...headers }, method: "GET", socket: { remoteAddress: "127.0.0.1" }, url: "/api/_vitehub/realtime/content/doc" }
+  peer.viteHubDevPeerUpgradeListener(upgrade)
+  const results = [peer.viteHubDevPeerHeader in v1.node.req.headers, v2.event.req.headers.has(peer.viteHubDevPeerHeader), peer.viteHubDevPeerHeader in upgrade.headers]
+  expect(new Set(results).size, JSON.stringify(headers)).toBe(1)
+  return results[0]!
 }
 
 describe("dev peer evidence", () => {
@@ -100,6 +118,18 @@ describe("dev peer evidence", () => {
     for (const address of ["127.0.0.1", "127.1.2.3", "::1", "::ffff:127.0.0.1", "::FFFF:127.0.0.1"]) expect(peer.isViteHubLoopbackAddress(address), address).toBe(true)
     for (const address of [undefined, "", "0.0.0.0", "::", "192.168.0.38", "100.88.128.32", "::ffff:192.168.0.38", "1127.0.0.1", "127.0.0.1.attacker.example", "127.0.0.1, 203.0.113.9", "localhost", "fe80::1"]) expect(peer.isViteHubLoopbackAddress(address), String(address)).toBe(false)
   })
+
+  it("rejects forwarding headers on a direct loopback peer without a signing key", async () => {
+    vi.stubEnv(peer.viteHubDevPeerKeyEnv, undefined)
+    const local = (headers: Record<string, string> = {}) => new Request(url, { headers: { ...localHost, ...headers } })
+    await expect(peer.isViteHubLoopbackPeer(local(), "127.0.0.1")).resolves.toBe(true)
+    for (const name of ["x-forwarded-for", "forwarded", "cf-ray", "tailscale-user-login"]) {
+      await expect(peer.isViteHubLoopbackPeer(local({ [name]: "203.0.113.9" }), "127.0.0.1"), name).resolves.toBe(false)
+    }
+    // Nitro's own proxy adds forwarding headers after the front process signs a local request.
+    const evidence = await peer.signViteHubDevPeer(peer.useViteHubDevPeerKey(), { method: "GET", path: new URL(url).pathname })
+    await expect(peer.isViteHubLoopbackPeer(local({ "x-forwarded-for": "127.0.0.1", [peer.viteHubDevPeerHeader]: evidence }), "127.0.0.1")).resolves.toBe(true)
+  })
 })
 
 describe("dev peer key", () => {
@@ -114,6 +144,23 @@ describe("dev peer key", () => {
     expect(peer.readViteHubDevPeerKey()).toBe(created)
   })
 
+  it("takes the inherited key out of a worker's environment, so a process that the app starts does not get it", async () => {
+    const inherited = "w".repeat(43)
+    const child = () => execFileSync(process.execPath, ["-e", `process.stdout.write(String(process.env.${peer.viteHubDevPeerKeyEnv}))`], { encoding: "utf8" })
+    vi.stubEnv(peer.viteHubDevPeerKeyEnv, inherited)
+    // Without the module, a child process inherits the key of its parent.
+    expect(child()).toBe(inherited)
+    // A dev worker starts with the key in its environment and loads the module.
+    Reflect.deleteProperty(globalThis, Symbol.for("vitehub.dev-peer"))
+    vi.resetModules()
+    peer = await import("../src/dev-peer.ts")
+    expect(process.env).not.toHaveProperty(peer.viteHubDevPeerKeyEnv)
+    expect(child()).toBe("undefined")
+    expect(peer.readViteHubDevPeerKey()).toBe(inherited)
+    const evidence = await peer.signViteHubDevPeer(inherited, { method: "POST", path: "/_vitehub/rpc/__call" })
+    await expect(peer.isViteHubLoopbackPeer(request(evidence), undefined)).resolves.toBe(true)
+  })
+
   it("reads no key from a worker without one, or with a short one", () => {
     vi.stubEnv(peer.viteHubDevPeerKeyEnv, undefined)
     expect(peer.readViteHubDevPeerKey()).toBeUndefined()
@@ -126,7 +173,7 @@ describe("dev peer key", () => {
 
 describe("dev peer dev handler", () => {
   it("signs a loopback request of H3 1 and replaces a client copy", async () => {
-    const event = nodeEvent("127.0.0.1", { [peer.viteHubDevPeerHeader]: "v1.forged" })
+    const event = nodeEvent("127.0.0.1", { ...localHost, [peer.viteHubDevPeerHeader]: "v1.forged" })
     await expect(peer.viteHubDevPeerDevHandler(event)).resolves.toBeUndefined()
     const evidence = event.node.req.headers[peer.viteHubDevPeerHeader]
     expect(evidence).not.toBe("v1.forged")
@@ -134,7 +181,7 @@ describe("dev peer dev handler", () => {
   })
 
   it("signs a loopback request of H3 2 in the Node request and the Web request", async () => {
-    const { event, node } = webEvent("::ffff:127.0.0.1", { [peer.viteHubDevPeerHeader]: "v1.forged" })
+    const { event, node } = webEvent("::ffff:127.0.0.1", { ...localHost, [peer.viteHubDevPeerHeader]: "v1.forged" })
     await peer.viteHubDevPeerDevHandler(event)
     const evidence = event.req.headers.get(peer.viteHubDevPeerHeader)
     expect(evidence).not.toBe("v1.forged")
@@ -158,9 +205,101 @@ describe("dev peer dev handler", () => {
   })
 
   it("signs no request target that is not a path", async () => {
-    const event = nodeEvent("127.0.0.1", {}, "http://attacker.example/_vitehub/rpc/__call")
+    const event = nodeEvent("127.0.0.1", localHost, "http://attacker.example/_vitehub/rpc/__call")
     await peer.viteHubDevPeerDevHandler(event)
     expect(event.node.req.headers).not.toHaveProperty(peer.viteHubDevPeerHeader)
+  })
+
+  it("signs no request that a tunnel or a proxy on this machine forwards", async () => {
+    expect(await signs(localHost)).toBe(true)
+    for (const name of [
+      "forwarded",
+      "x-forwarded-for",
+      "x-forwarded-host",
+      "x-forwarded-proto",
+      "x-forwarded-port",
+      "x-forwarded-server",
+      "x-real-ip",
+      "true-client-ip",
+      "x-client-ip",
+      "x-cluster-client-ip",
+      "x-original-forwarded-for",
+      "via",
+      "cdn-loop",
+      "cf-connecting-ip",
+      "cf-ray",
+      "cf-visitor",
+      "cf-warp-tag-id",
+      "fly-client-ip",
+      "fastly-client-ip",
+      "x-vercel-forwarded-for",
+      "ngrok-auth-user-email",
+      "tailscale-user-login",
+      "tailscale-headers-info",
+      "tailscale-funnel-request",
+    ]) {
+      expect(await signs({ ...localHost, [name]: "127.0.0.1" }), name).toBe(false)
+      expect(await signs({ ...localHost, [name.toUpperCase()]: "127.0.0.1" }), name.toUpperCase()).toBe(false)
+    }
+  })
+
+  it("signs none of the requests that cloudflared, ngrok, and tailscale serve forward", async () => {
+    // Recorded on 2026-11-06 from a `cloudflared tunnel --url --http-host-header localhost:3000` quick tunnel. Without
+    // `--http-host-header`, the request keeps the `trycloudflare.com` Host.
+    const cloudflared = {
+      ...localHost,
+      "cdn-loop": "cloudflare; loops=1; subreqs=1",
+      "cf-connecting-ip": "203.0.113.9",
+      "cf-ew-via": "15",
+      "cf-ipcountry": "SE",
+      "cf-ray": "a56057ef3e64fa44-ARN",
+      "cf-visitor": "{\"scheme\":\"https\"}",
+      "cf-warp-tag-id": "1d5eae5e-a8cc-4cb0-82ba-4a3dd134ade2",
+      "cf-worker": "trycloudflare.com",
+      "x-forwarded-for": "203.0.113.9",
+      "x-forwarded-host": "threatened-advised-previous-hints.trycloudflare.com",
+      "x-forwarded-proto": "https",
+    }
+    expect(await signs(cloudflared)).toBe(false)
+    expect(await signs({ ...cloudflared, host: "threatened-advised-previous-hints.trycloudflare.com" })).toBe(false)
+    // ngrok keeps the public `Host` unless a Traffic Policy rewrites it, and always adds these.
+    expect(await signs({ ...localHost, "x-forwarded-for": "203.0.113.9", "x-forwarded-host": "abc.ngrok-free.app", "x-forwarded-proto": "https" })).toBe(false)
+    // `tailscale serve` to a Unix socket sends `Host: localhost`, and to a port it keeps the tailnet name.
+    expect(await signs({ ...localHost, "tailscale-headers-info": "https://tailscale.com/s/serve-headers", "tailscale-user-login": "alice@example.com", "x-forwarded-for": "100.88.128.32", "x-forwarded-host": "slimbook.tail1234.ts.net", "x-forwarded-proto": "https" })).toBe(false)
+    expect(await signs({ host: "slimbook.tail1234.ts.net" })).toBe(false)
+  })
+
+  it("signs only a request whose Host names this machine", async () => {
+    for (const host of ["localhost", "localhost:3000", "LOCALHOST:3000", "app.localhost:3000", "127.0.0.1:3000", "127.0.0.2", "[::1]:3000"]) {
+      expect(await signs({ host }), host).toBe(true)
+      expect(peer.isViteHubLoopbackHost(host), host).toBe(true)
+    }
+    for (const host of ["", "abc.trycloudflare.com", "abc.ngrok-free.app", "192.168.0.38:3000", "[::2]:3000", "0.0.0.0:3000", "localhost.attacker.example", "127.0.0.1.attacker.example", "localhost@attacker.example", "attacker.example@localhost", "localhost/x", "localhost:3000:3000"]) {
+      expect(await signs({ host }), host).toBe(false)
+      expect(peer.isViteHubLoopbackHost(host), host).toBe(false)
+    }
+    expect(await signs({})).toBe(false)
+    // An HTTP/2 request names its host in `:authority`, which a Web `Headers` object cannot hold.
+    peer.useViteHubDevPeerKey()
+    const http2 = nodeEvent("127.0.0.1", { ":authority": "localhost:3000" })
+    await peer.viteHubDevPeerDevHandler(http2)
+    expect(http2.node.req.headers).toHaveProperty(peer.viteHubDevPeerHeader)
+  })
+
+  it("refuses conflicting HTTP/2 Host and authority headers", async () => {
+    peer.useViteHubDevPeerKey()
+    for (const headers of [
+      { host: "localhost:3000", ":authority": "attacker.example" },
+      { host: "attacker.example", ":authority": "localhost:3000" },
+      { host: "localhost:3000", ":authority": "other.localhost:3000" },
+    ]) {
+      const event = nodeEvent("127.0.0.1", headers)
+      await peer.viteHubDevPeerDevHandler(event)
+      expect(event.node.req.headers).not.toHaveProperty(peer.viteHubDevPeerHeader)
+    }
+    const matching = nodeEvent("127.0.0.1", { ...localHost, ":authority": localHost.host })
+    await peer.viteHubDevPeerDevHandler(matching)
+    expect(matching.node.req.headers).toHaveProperty(peer.viteHubDevPeerHeader)
   })
 
   it("goes first in Nitro dev handlers once, and creates the key", () => {
@@ -183,7 +322,7 @@ describe("the WebSocket upgrade signer of the front process", () => {
     const emitter = new EventEmitter()
     const seen: Array<Record<string, string | string[] | undefined>> = []
     emitter.on("upgrade", (req: { headers: Record<string, string | string[] | undefined> }) => seen.push({ ...req.headers }))
-    return { emitter, seen, upgrade: (remoteAddress: string | undefined, headers: Record<string, string> = {}, url = "/api/_vitehub/realtime/content/doc") => {
+    return { emitter, seen, upgrade: (remoteAddress: string | undefined, headers: Record<string, string> = localHost, url = "/api/_vitehub/realtime/content/doc") => {
       emitter.emit("upgrade", { headers: { ...headers }, method: "GET", socket: { remoteAddress }, url })
       return seen.at(-1)!
     } }
@@ -210,14 +349,14 @@ describe("the WebSocket upgrade signer of the front process", () => {
     peer.useViteHubDevPeerKey()
     peer.addViteHubDevPeerUpgradeSigner(emitter)
     for (const address of ["192.168.0.38", "100.88.128.32", undefined]) {
-      expect(upgrade(address, { [peer.viteHubDevPeerHeader]: "v1.forged", "x-forwarded-for": "127.0.0.1" }), String(address)).not.toHaveProperty(peer.viteHubDevPeerHeader)
+      expect(upgrade(address, { ...localHost, [peer.viteHubDevPeerHeader]: "v1.forged" }), String(address)).not.toHaveProperty(peer.viteHubDevPeerHeader)
     }
-    expect(upgrade("127.0.0.1", {}, "http://attacker.example/x")).not.toHaveProperty(peer.viteHubDevPeerHeader)
+    expect(upgrade("127.0.0.1", localHost, "http://attacker.example/x")).not.toHaveProperty(peer.viteHubDevPeerHeader)
   })
 
   it("signs nothing in a process without a key", () => {
     const { emitter, upgrade } = server()
     peer.addViteHubDevPeerUpgradeSigner(emitter)
-    expect(upgrade("127.0.0.1", { [peer.viteHubDevPeerHeader]: "v1.forged" })).not.toHaveProperty(peer.viteHubDevPeerHeader)
+    expect(upgrade("127.0.0.1", { ...localHost, [peer.viteHubDevPeerHeader]: "v1.forged" })).not.toHaveProperty(peer.viteHubDevPeerHeader)
   })
 })

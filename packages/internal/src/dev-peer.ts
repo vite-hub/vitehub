@@ -6,7 +6,13 @@
  * `x-forwarded-for` as is. The front process sees the real socket, so its Nitro dev handler removes any client copy
  * of {@link viteHubDevPeerHeader} and, for a loopback socket only, adds an HMAC over the method, the path, a
  * timestamp, and a nonce. The key is random for each process and reaches the worker only through its environment
- * ({@link viteHubDevPeerKeyEnv}), never through a header.
+ * ({@link viteHubDevPeerKeyEnv}), never through a header. The worker takes the key out of its environment, so the
+ * processes that the app starts do not inherit it.
+ *
+ * A tunnel or a reverse proxy on this machine, such as `cloudflared`, `ngrok`, `tailscale serve`, or Caddy, connects
+ * from a loopback socket too. Such a request is not from this machine, so the front process signs no request that
+ * names another host or carries a forwarding header ({@link isViteHubForwardedRequest}). A forwarder that copies raw
+ * TCP bytes, such as `ssh -R`, sends no such sign. Only sign-in protects a dev server behind one.
  *
  * The worker calls {@link verifyViteHubDevPeer}. Each piece of evidence is valid once, for one method and path, for a
  * short time. This module uses Web Crypto and no Node import, so the check also runs in Worker runtimes.
@@ -32,6 +38,8 @@ type HmacKey = Awaited<ReturnType<typeof crypto.subtle.importKey>>
 interface DevPeerState {
   /** The key that this process signs with. Only the front process creates it. */
   key?: string
+  /** The key that a dev worker took from its environment. */
+  inherited?: string
   keys: Map<string, Promise<HmacKey>>
   /** Nonces that a verified request used, with the time when they expire. */
   nonces: Map<string, number>
@@ -96,10 +104,23 @@ export function useViteHubDevPeerKey(): string {
   return state.key
 }
 
-/** The key that a dev worker inherited from its front process, or `undefined` when no front process set one. */
+/**
+ * The key that this process verifies with: its own key in the front process, or the key that a dev worker inherited
+ * from its front process. `undefined` when no front process set one.
+ *
+ * A dev worker removes the key from its `process.env` on the first read, so a child process that the app starts, such
+ * as a shell command of an Agent, does not inherit it. The module also reads once when it loads.
+ */
 export function readViteHubDevPeerKey(): string | undefined {
-  const value = globalThis.process?.env?.[viteHubDevPeerKeyEnv]
-  return typeof value === "string" && value.length >= 32 ? value : undefined
+  const env = globalThis.process?.env
+  const value = env?.[viteHubDevPeerKeyEnv]
+  // The front process keeps its own key in the environment for the workers that it starts later.
+  if (state.key && value === state.key) return state.key
+  if (env && value !== undefined) {
+    Reflect.deleteProperty(env, viteHubDevPeerKeyEnv)
+    state.inherited = typeof value === "string" && value.length >= 32 ? value : undefined
+  }
+  return state.inherited
 }
 
 /** Create the evidence for one request that came from a loopback socket. */
@@ -148,15 +169,16 @@ async function verify(request: Request, key: string, now: number): Promise<boole
 }
 
 /**
- * Whether a development request came from this machine. Headers can be forged, so only the socket decides.
+ * Whether a development request came from this machine. The socket or signed front-process evidence proves the peer.
  * - A dev server whose front process signs loopback requests gives its worker a key. The worker then trusts only
  *   that evidence, because its own peer is the proxy of the front process.
- * - Without a key, `remoteAddress`, the peer address that the host adapter reports, decides. An unknown peer is refused.
+ * - Without a key, require a loopback `remoteAddress` from the host adapter and no forwarding headers. An unknown
+ *   peer is refused. A signed request can carry forwarding headers that Nitro's own proxy added after signing.
  */
 export async function isViteHubLoopbackPeer(request: Request, remoteAddress: string | undefined): Promise<boolean> {
   if (remoteAddress && !isViteHubLoopbackAddress(remoteAddress)) return false
   const key = readViteHubDevPeerKey()
-  return key ? verifyViteHubDevPeer(request, key) : isViteHubLoopbackAddress(remoteAddress)
+  return key ? verifyViteHubDevPeer(request, key) : isViteHubLoopbackAddress(remoteAddress) && !isViteHubForwardedRequest(Object.fromEntries(request.headers))
 }
 
 /** The parts of an H3 1 (Nitro 2) or H3 2 (Nitro 3) event that the dev handler reads. */
@@ -173,10 +195,58 @@ interface DevPeerNodeRequest {
   url?: string
 }
 
-/** Remove a client copy of the evidence. Returns the request to sign when it came from a loopback socket. */
+// Headers that a proxy, a tunnel, or a CDN adds for the client it forwards. A browser sends none of them.
+const forwardingHeaders = new Set([
+  "cdn-loop",
+  "fastly-client-ip",
+  "fly-client-ip",
+  "forwarded",
+  "true-client-ip",
+  "via",
+  "x-client-ip",
+  "x-cluster-client-ip",
+  "x-original-forwarded-for",
+  "x-real-ip",
+  "x-vercel-forwarded-for",
+])
+// `x-forwarded-for`, `-host`, `-proto`, and others; Cloudflare `cf-connecting-ip` and `cf-ray`; ngrok OAuth
+// `ngrok-auth-user-email`; `tailscale serve` `tailscale-user-login` and `tailscale-headers-info`.
+const forwardingHeaderPrefixes = ["x-forwarded-", "cf-", "ngrok-", "tailscale-"]
+
+/**
+ * Whether a request carries a header that a proxy, a tunnel, or a CDN adds for the client that it forwards. The front
+ * process signs no such request, because it came from somewhere else through a program on this machine.
+ */
+export function isViteHubForwardedRequest(headers: Record<string, unknown>): boolean {
+  return Object.keys(headers).some((name) => {
+    const lower = name.toLowerCase()
+    return forwardingHeaders.has(lower) || forwardingHeaderPrefixes.some(prefix => lower.startsWith(prefix))
+  })
+}
+
+/** Whether a `Host` header names this machine: `localhost`, a `.localhost` name, a `127.0.0.0/8` address, or `[::1]`. */
+export function isViteHubLoopbackHost(host: string | undefined): boolean {
+  if (!host || /[/?#@\\]/.test(host)) return false
+  let name: string
+  try {
+    name = new URL(`http://${host}`).hostname
+  }
+  catch { return false }
+  return name === "localhost" || name.endsWith(".localhost") || name === "[::1]" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(name)
+}
+
+/**
+ * Remove a client copy of the evidence. Returns the request to sign when it came from a loopback socket, names this
+ * machine in `Host`, and carries no forwarding header.
+ */
 function takeSignableRequest(node: DevPeerNodeRequest): { method: string, path: string } | undefined {
   delete node.headers[viteHubDevPeerHeader]
   if (!isViteHubLoopbackAddress(node.socket?.remoteAddress) || !node.method || !node.url?.startsWith("/")) return
+  // An HTTP/2 request, such as one to `vite --https`, names its host in `:authority`.
+  const authority = node.headers[":authority"]
+  if (authority !== undefined && node.headers.host !== undefined && node.headers.host !== authority) return
+  const host = authority ?? node.headers.host
+  if (typeof host !== "string" || !isViteHubLoopbackHost(host) || isViteHubForwardedRequest(node.headers)) return
   return { method: node.method, path: node.url }
 }
 
@@ -237,3 +307,6 @@ export function addViteHubDevPeerDevHandler(devHandlers: Array<{ handler?: unkno
   if (index !== -1) devHandlers.splice(index, 1)
   devHandlers.unshift({ handler: devHandler })
 }
+
+// A dev worker loads this module before the app starts any process. Take the inherited key out of the environment now.
+readViteHubDevPeerKey()

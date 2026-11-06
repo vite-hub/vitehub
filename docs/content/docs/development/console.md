@@ -527,6 +527,23 @@ Each Console data route checks access itself. The Console Auth middleware stays 
 
 All Console paths in this guide use the application base: an explicit ViteHub application base (set from Nuxt `app.baseURL`), otherwise a root-relative Vite `base`. With `base: '/portal/'`, host middleware that you keep as a first layer must authenticate and authorize `/portal/_vitehub/**` and `/portal/api/_vitehub/console/**` for every method, including assets, RPC, and invocation actions. Update host policies when changing the application base or upgrading to base-aware Console routes. Absolute and protocol-relative Vite bases such as `https://cdn.example/portal/` and `//cdn.example/portal/` are asset CDN URLs; without an explicit application base, protect `/_vitehub/**` and `/api/_vitehub/console/**` at root. Relative bases (`''` or `'./'`) also use root routes. When Nitro `baseURL` matches the application base, Nitro adds it once, so the Console is at `/portal/_vitehub`. Primary Auth access routes must also use the application base; built-in Console Auth applies it automatically.
 
+### Share a development server
+
+A Console without sign-in trusts whoever can reach it, so in development it answers only this machine. A tunnel or a reverse proxy on this machine, such as `cloudflared`, `ngrok`, `tailscale serve`, an `ssh -R` tunnel, or Caddy, connects to the dev server from `127.0.0.1` too. To share a dev server through one, set `console.auth` to `"app"` or a Console Auth config.
+
+ViteHub refuses the forwarded requests that it can recognize:
+
+- A `Host` other than `localhost`, a `.localhost` name, a `127.0.0.0/8` address, or `[::1]`.
+- A forwarding header: `Forwarded`, `Via`, any `X-Forwarded-*`, `X-Real-IP`, `True-Client-IP`, `X-Client-IP`, `X-Cluster-Client-IP`, `CDN-Loop`, any `CF-*`, `Fly-Client-IP`, `Fastly-Client-IP`, `X-Vercel-Forwarded-For`, any `Ngrok-*`, or any `Tailscale-*`.
+
+A forwarder that copies raw TCP bytes, such as `ssh -R` or `tailscale serve --tcp`, adds no header, so ViteHub cannot tell its requests from yours. Only sign-in protects a dev server behind one. A local reverse proxy that adds `X-Forwarded-For`, such as Caddy, also gets `403` until you set `console.auth`.
+
+When the Console has no sign-in, the dev server prints this at startup. A server that listens on more than loopback, for example with `--host`, prints it as a warning.
+
+```txt
+[vitehub] The Console has no sign-in and answers only this machine. Set console.auth before you share this dev server through a tunnel or a proxy: https://vitehub.dev/docs/development/console#share-a-development-server
+```
+
 ### Open the Console from the app's pages
 
 The ViteHub tools pill shows at the bottom of the app's pages for people that the Console lets in. It has a **Console** button that opens the Console in a floating window, next to page tools such as [Comments](/docs/comments/configure#turn-comment-mode-on-and-off).
@@ -660,7 +677,7 @@ vitehub({
 
 Every user that passes the Console access policy with the `connections` section can then manage every Connection. Restrict the policy to the people who own the provider accounts.
 
-In `vite dev`, a Console without sign-in (`local` access, or `console: { auth: false }`) answers only loopback requests. A request whose `Host` is not `localhost`, `127.0.0.1`, or `[::1]`, or whose peer address is not loopback, gets `403` with `CONSOLE_LOOPBACK_ONLY`. Production servers are not affected, so set `console.auth` or `console.authorize` for them.
+In `vite dev`, a Console without sign-in (`local` access, or `console: { auth: false }`) answers only loopback requests. A request whose `Host` is not `localhost`, `127.0.0.1`, or `[::1]`, whose peer address is not loopback, or that carries a forwarding header gets `403` with `CONSOLE_LOOPBACK_ONLY`. See [Share a development server](#share-a-development-server). Production servers are not affected, so set `console.auth` or `console.authorize` for them.
 
 Console RPC requests must come from the same origin. The RPC route rejects opaque origins and browser requests marked `same-site` or `cross-site`. Browser Fetch Metadata permits same-origin requests through reverse proxies. When that metadata is absent, the RPC route compares the `Origin` header with the request URL. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata.
 

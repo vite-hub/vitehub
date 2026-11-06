@@ -114,6 +114,18 @@ describe.each(["local", "open"] as const)("the %s development Console behind a d
     expect((await rpc(await throughFront("127.0.0.1", { "x-forwarded-host": "abc.trycloudflare.com" }))).status).toBe(403)
   })
 
+  it("refuses a tunnel or a proxy on this machine, which connects from 127.0.0.1", async () => {
+    // A TCP forwarder that adds `x-forwarded-for` for the client it forwards, as the reviewer's probe did.
+    const response = await rpc(await throughFront("127.0.0.1", { "x-forwarded-for": "203.0.113.9" }))
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_LOOPBACK_ONLY" })
+    expect((await mcp(await throughFront("127.0.0.1", { "x-forwarded-for": "203.0.113.9" }, "/_vitehub/mcp"))).status).toBe(403)
+    const forwarders: Array<Record<string, string>> = [{ "cf-connecting-ip": "203.0.113.9", "cf-ray": "9a0b1c2d3e4f5a6b-MAD" }, { forwarded: "for=203.0.113.9" }, { "tailscale-user-login": "alice@example.com" }, { "x-real-ip": "203.0.113.9" }]
+    for (const headers of forwarders) {
+      expect((await rpc(await throughFront("127.0.0.1", headers))).status, JSON.stringify(headers)).toBe(403)
+    }
+  })
+
   it("trusts only the evidence when the worker has a key, not its own peer address", async () => {
     // A worker that its front process reaches over TCP on 127.0.0.1 sees that address for every client.
     expect((await rpc(await throughFront(remote, forgedLocal), "127.0.0.1")).status).toBe(403)

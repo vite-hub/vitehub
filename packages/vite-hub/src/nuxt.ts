@@ -32,6 +32,7 @@ import { vitehub } from "./index.ts"
 import { markCmsPresetFeaturesResolved, resolveCmsPresetFeatures } from "./internal/cms-preset-features.ts"
 import { disabledKVConfigModule, disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "./internal/kv-runtime.ts"
 import { createConsoleCliNamespace } from "./console/cli.ts"
+import { consoleDevAccessNotice } from "./console/dev-access-notice.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./console/fixture.ts"
 import { createConsoleInvocationsIdentity, type ConsoleAuthMode } from "./console/internal.ts"
 import { importOptionalOwner, isPackageInstalled, requireOptionalOwner } from "./internal/optional-owners.ts"
@@ -582,8 +583,10 @@ async function installConsole(
       addViteHubDevPeerDevHandler(nitro.options.devHandlers)
     }])
     // WebSocket upgrades, such as Realtime rooms of the Console, skip Nitro's dev handlers. Sign them on the listener.
-    Reflect.apply(nuxt.hook, nuxt, ["listen", (server: ViteHubDevPeerUpgradeServer) => {
+    Reflect.apply(nuxt.hook, nuxt, ["listen", (server: ViteHubDevPeerUpgradeServer & { address?: () => { address: string } | string | null }) => {
       addViteHubDevPeerUpgradeSigner(server)
+      const notice = consoleDevAccessNotice(access?.mode, server.address?.())
+      if (notice) console[notice.level](notice.message)
     }])
     const tab = consoleNuxtDevToolsTab(nuxt.options.app?.baseURL)
     // Nuxt DevTools 3 and 4 read this hook. DevTools 4 shows the tab in its Devframe dock.
