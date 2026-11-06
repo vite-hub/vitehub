@@ -1,4 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { createRequire } from "node:module"
 import { dirname, join, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -256,6 +258,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const contentDirsToWatch = sources?.map(source => source.dir) ?? [contentDir]
     const manifestOptions = { dir: contentDir, base: normalizeDocsBase(options.base ?? "/docs"), sources, sections: options.sections }
     const rawDir = join(nuxt.options.buildDir, "docs/raw")
+    // comark-ui's blocks add their styles when they mount. The page links them too, so the first paint, before the app
+    // hydrates, shows no raw blocks, such as an anchor's screen reader text or a tab row as plain text. They are one
+    // static file, because Vite's CSS pipeline does not parse some of their newer syntax, such as `interpolate-size`.
+    const stylesDir = join(nuxt.options.buildDir, "docs/styles")
+    const comarkCss = comarkStylesheet()
+    const comarkCssFile = `comark-${createHash("sha256").update(comarkCss).digest("hex").slice(0, 10)}.css`
+    mkdirSync(stylesDir, { recursive: true })
+    writeFileSync(join(stylesDir, comarkCssFile), comarkCss)
     const config = publicConfig(options, nuxt.options.app.baseURL)
     if (config.github && !nuxt.options.dev) config.github.stars = await githubStars(config.github.repo)
     nuxt.options.runtimeConfig.public.docs = config
@@ -294,6 +304,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     // The error page replaces `app.vue`, so the head that every page needs is part of the app's head config.
     const head = nuxt.options.app.head
+    head.link = [...head.link ?? [], { rel: "stylesheet", href: docsAppPath(`/_docs/${comarkCssFile}`, nuxt.options.app.baseURL) }]
     const meta = head.meta ??= []
     const viewport = meta.find(tag => tag.name === "viewport")
     // Content may use the area around a notch, and `100dvh` shrinks when the phone keyboard opens. A viewport that
@@ -559,7 +570,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // Pages are read at runtime, so a host without a file system serves them too.
       nitro.serverAssets = [...nitro.serverAssets ?? [], ...sources ? sources.map((source, index) => ({ baseName: `docs-${index}`, dir: source.dir, pattern: "**/*.md" })) : [{ baseName: "docs", dir: contentDir, pattern: "**/*.md" }], { baseName: "docs-raw", dir: rawDir }]
       // A removed page has no raw file. Fall through so a redirect route rule answers it.
-      nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/raw", dir: rawDir, fallthrough: true, maxAge: 300 }]
+      nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/raw", dir: rawDir, fallthrough: true, maxAge: 300 }, { baseURL: "/_docs", dir: stylesDir, maxAge: 31_536_000 }]
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development
       // prerenders nothing, and Nuxt would turn listed routes into prerender route rules there.
       nitro.prerender = defu(nitro.prerender, { crawlLinks: true, autoSubfolderIndex: false, routes: nuxt.options.dev ? [] : prerenderRoutes() })
@@ -619,6 +630,33 @@ function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicCo
     assistant: options.assistant ? { agent: options.assistant === true ? "docs" : options.assistant.agent ?? "docs" } : false,
     ogImage: options.ogImage === false ? false : { component: options.ogImage?.component ?? "DocsPage" },
   }
+}
+
+/**
+ * The stylesheets of the comark-* packages that comark-ui renders with, in one file. It names the layer order first,
+ * the same as the app's CSS, so it can load before or after it.
+ */
+function comarkStylesheet(): string {
+  const layers = "@layer theme, base, comark, components, utilities;"
+  let ui: string
+  try {
+    ui = createRequire(import.meta.url).resolve("comark-ui/package.json")
+  }
+  catch {
+    // An app that installs the module without its dependencies, as the module tests do, gets the layer order alone.
+    return layers
+  }
+  const dependencies = Object.keys((JSON.parse(readFileSync(ui, "utf8")) as { dependencies?: Record<string, string> }).dependencies ?? {})
+  const fromUi = createRequire(ui)
+  const sheets = dependencies.filter(name => name.startsWith("comark-")).flatMap((name) => {
+    try {
+      return [readFileSync(fromUi.resolve(`${name}/style.css`), "utf8")]
+    }
+    catch {
+      return []
+    }
+  })
+  return [layers, ...sheets].join("\n")
 }
 
 // The header shows the star count next to the GitHub link. One request per build; a failure only drops the count.

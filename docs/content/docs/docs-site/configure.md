@@ -340,17 +340,17 @@ Lumen does not run on Node.js 22 or older.
 ::
 ```
 
-The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, and `::agent-only`.
+The package has `::tutorial-step`, `::product-features`, `:::product-feature-item`, `::agent-only`, and `::examples` with `:::example`, which show rendered Markdown next to its source. Every page also renders [comark-ui](https://comark-ui.onmax.me)'s blocks: callouts, tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, and cards.
 
 ### Add Comark plugins
 
-The server parses every page with [Comark](https://comark.dev). To add Comark plugins, such as a plugin that turns `::code-group` into tabs, put them in a module and name it in `parser`. Plugins are functions, so they cannot go in `nuxt.config.ts` itself.
+The server parses every page with [Comark](https://comark.dev) and comark-ui's plugins. To add more, such as `comark-chips`, which turns web links into chips with their favicon, put them in a module and name it in `parser`. Plugins are functions, so they cannot go in `nuxt.config.ts` itself.
 
 ```ts [docs.parser.ts]
 import type { DocsParserOptions } from '@vite-hub/docs/server'
-import tabs from 'comark-tabs'
+import chips from 'comark-chips'
 
-export default { plugins: [tabs()] } satisfies DocsParserOptions
+export default { plugins: [chips()] } satisfies DocsParserOptions
 ```
 
 ```ts [nuxt.config.ts]
@@ -360,7 +360,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The page route, search, and Console drafts parse with these plugins after the built-in ones. A plugin with the name of a built-in plugin, such as `alert`, replaces it. The browser receives the parsed nodes, so a plugin that adds a tag needs a component for it in `app/components/content/`.
+The page route, search, and Console drafts parse with these plugins after the built-in ones. A plugin with the name of a built-in plugin, such as `alert` or `comark-tabs`, replaces it. The browser receives the parsed nodes, so a plugin that adds a tag needs a component for it in `app/components/content/`.
 
 ## Agent resources
 

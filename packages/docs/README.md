@@ -178,17 +178,21 @@ Components read the site with auto-imported composables: `useDocsConfig()`, `use
 
 ### Comark plugins
 
-The server parses each page with Comark, and the browser renders the nodes. Comark plugins are functions, so they go in a module that `parser` names:
+The server parses each page with Comark, and the browser renders the nodes with [comark-ui](https://comark-ui.onmax.me)'s blocks: GitHub callouts (`> [!NOTE]`, and `::note`, `::tip`, `::warning`, `::caution`, `::important`), tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, cards, and the rest. comark-ui's typeset is off, since the design styles the prose. Chips are off too: they turn every web link into a chip and fetch its favicon.
+
+`::examples` and `:::example{label play}` show rendered Markdown next to its source, with underlined tabs, a Preview and Code switch, and an optional link to a playground. The site's parser writes the rendered copy as an `example-preview` node before the source.
+
+Comark plugins are functions, so more of them go in a module that `parser` names:
 
 ```ts
 // docs.parser.ts
 import type { DocsParserOptions } from "@vite-hub/docs/server"
-import tabs from "comark-tabs"
+import chips from "comark-chips"
 
-export default { plugins: [tabs()] } satisfies DocsParserOptions
+export default { plugins: [chips()] } satisfies DocsParserOptions
 ```
 
-Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console drafts use these plugins after the built-in ones. A plugin with a built-in name, such as `alert`, replaces it. A plugin that adds a tag needs a component for it in `app/components/content/`.
+Set `docs: { parser: "./docs.parser.ts" }`. The page route, search, and Console drafts use these plugins after the built-in ones. A plugin with a built-in name, such as `alert` or `comark-tabs`, replaces it. A plugin that adds a tag that comark-ui doesn't render needs a component for it in `app/components/content/`.
 
 ### Design
 
