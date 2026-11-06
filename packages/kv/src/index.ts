@@ -3,6 +3,7 @@ export type {
   CloudflareKVStoreConfig,
   DenoKVStoreConfig,
   FsLiteKVStoreConfig,
+  InferredKVStoreConfig,
   KVDriver,
   KVErrorCode,
   KVGetOptions,

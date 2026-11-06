@@ -35,6 +35,11 @@ const lazyOptionalDriverMethods: Record<ResolvedKVStoreConfig["driver"], Set<Pro
 async function createRuntimeDriver(store: ResolvedKVStoreConfig): Promise<KVRuntimeDriver> {
   switch (store.driver) {
     case "cloudflare-kv-binding": {
+      const { localBase } = store
+      if (localBase) {
+        const { default: factory } = await import("./cloudflare-kv-local.ts")
+        return factory({ ...store, localBase })
+      }
       const { default: factory } = await import("./cloudflare-kv.ts")
       // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- This adapter accepts the resolved Cloudflare record and returns KVRuntimeDriver.
       // SAFETY: The discriminated configuration is resolved and the adapter installs every KVRuntimeDriver member.

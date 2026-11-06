@@ -1340,7 +1340,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else plugins.push(hubEmailOptionalPeerResolver())
   // The cache can enable KV through Vite's top-level config after plugin construction.
   if (options.kv || (options.cache && options.cache !== true && options.cache.driver === "kv")) {
-    plugins.push(hubKv(presetKVOptions || undefined))
+    // hubKv() infers the driver itself, because `vite dev` keeps an inferred store local unless it sets `remote: true`.
+    plugins.push(hubKv(configuredKV, options.kv ? { hosting: plan.nitroPreset } : {}))
   }
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {

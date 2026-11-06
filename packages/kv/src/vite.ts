@@ -18,15 +18,19 @@ import {
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveViteHubProjectRoot, shouldSkipViteProviderBuild } from "@vite-hub/internal/build/vite"
 import { isPlainObject } from "@vite-hub/internal/object"
+import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 
 import { configureCloudflareKV } from "./integrations/cloudflare.ts"
+import { inspectKVStores } from "./inspect.ts"
 import { createKVCloudflareProvisionStep } from "./provision.ts"
 
+import type { KVResolutionInput } from "./config.ts"
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
 import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
 import type { ProviderJsonRecord } from "@vite-hub/internal/build/deployment-output"
 import type { ViteHubCliContributor, ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
+import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin, ResolvedConfig } from "vite"
 
@@ -56,7 +60,7 @@ export type KVVitePlugin = Plugin & {
     name: string
     setup: (nitro: { options: NitroCloudflareKVTarget }) => void
   }
-  vitehub: ViteHubCliPluginMetadata & { operations: readonly OperationContributionEntry[] }
+  vitehub: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] }
 }
 
 export function hubKvOptionalPeerResolver(): Plugin {
@@ -209,10 +213,12 @@ function getNitroCloudflareKVNamespaces(target: unknown): ProviderJsonRecord[] {
     const id: unknown = Reflect.get(normalized, "id")
     const previewId: unknown = Reflect.get(normalized, "preview_id")
     const experimentalRemote: unknown = Reflect.get(normalized, "experimental_remote")
+    const remote: unknown = Reflect.get(normalized, "remote")
     if (typeof binding !== "string") return []
     if (id !== undefined && typeof id !== "string") return []
     if (previewId !== undefined && typeof previewId !== "string") return []
     if (experimentalRemote !== undefined && typeof experimentalRemote !== "boolean") return []
+    if (remote !== undefined && typeof remote !== "boolean") return []
     return [normalized]
   })
 }
@@ -241,6 +247,7 @@ function reconcileNitroCloudflareKV(
 function configureNitroCloudflareKV(
   config: { kv?: KVModuleOptions, nitro?: unknown },
   options: KVModuleOptions | undefined,
+  input: KVResolutionInput,
   ownedNamespaces: Set<{ binding: string, id?: string }>,
   provisionState: ReturnType<typeof readProvisionStateSync>,
 ): boolean {
@@ -255,7 +262,7 @@ function configureNitroCloudflareKV(
   }
   ownedNamespaces.clear()
 
-  const kv = resolveKVViteConfig(config.kv ?? options).kv
+  const kv = resolveKVViteConfig(config.kv ?? options, input).kv
   configureNitroCloudflareRequestEnv(target, kv)
   if (kv) {
     const existingNamespaces = new Set(target.cloudflare?.wrangler?.kv_namespaces)
@@ -267,7 +274,11 @@ function configureNitroCloudflareKV(
   return true
 }
 
-export function hubKv(options?: KVModuleOptions): KVVitePlugin {
+/** `input.hosting` names the host preset for driver inference, as `vitehub()` passes it. Without it, KV reads the host from env. */
+export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, "hosting"> = {}): KVVitePlugin {
+  let command: "build" | "serve" = "build"
+  // `vite dev` keeps a store local unless it sets `remote: true`. Builds ignore `remote`.
+  const resolutionInput = (): KVResolutionInput => ({ dev: command === "serve", hosting: input.hosting })
   let nitroOwned = false
   let nitroOptions: NitroCloudflareKVTarget | undefined
   const ownedNitroNamespaces = new Set<{ binding: string, id?: string }>()
@@ -276,7 +287,7 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
   let runtimeConfig: KVViteRuntimeConfig | undefined
   let configuredOptions = options
   let projectRoot = process.cwd()
-  const getConfig = () => runtimeConfig ??= resolveKVViteConfig(options)
+  const getConfig = () => runtimeConfig ??= resolveKVViteConfig(options, resolutionInput())
   const providerOutputGenerations = createProviderDeploymentOutputGenerationState()
 
   return {
@@ -291,6 +302,13 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
       },
     },
     vitehub: {
+      inspect: () => {
+        const build = resolveKVViteConfig(configuredOptions, { hosting: input.hosting }).kv
+        const dev = resolveKVViteConfig(configuredOptions, { dev: true, hosting: input.hosting }).kv
+        if (!build || !dev) return
+        const file = resolved?.configFile ? relativeDefinitionFile(projectRoot, resolved.configFile) : "vite.config.ts"
+        return { definitions: [{ kind: "kv", label: "KV stores", list: () => inspectKVStores(build, dev, file) }] }
+      },
       // The Console, `vitehub kv`, and agents run these. The app imports them through `vite-hub`.
       operations: [{ export: "kvOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).kvOperations, module: "@vite-hub/kv/operations" }],
       cli: async () => {
@@ -304,9 +322,11 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
     config: {
       order: "pre",
       handler(config, env) {
+        command = env?.command ?? "build"
+        runtimeConfig = undefined
         configuredOptions = config.kv ?? options
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
-        nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroNamespaces, readProvisionStateSync(projectRoot))
+        nitroOwned = configureNitroCloudflareKV(config, options, resolutionInput(), ownedNitroNamespaces, readProvisionStateSync(projectRoot))
         return installStandaloneOperationRpc(config, env?.command ?? "build", "@vite-hub/kv/operations")
       },
     },
@@ -314,14 +334,16 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
       order: "pre",
       handler(config) {
         resolved = config
+        // The Nuxt replay passes a Vite config without `command`; the `config` hook already set it.
+        if (config.command) command = config.command
         configuredOptions = config.kv ?? options
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
         providerOutput = useProviderOutputCatalog(config)
-        runtimeConfig = resolveKVViteConfig(config.kv ?? options)
+        runtimeConfig = resolveKVViteConfig(config.kv ?? options, resolutionInput())
         const provisionState = readProvisionStateSync(projectRoot)
         if (nitroOptions) reconcileNitroCloudflareKV(nitroOptions, runtimeConfig.kv, ownedNitroNamespaces, provisionState)
         if (hasNitroConfigContext(config) || isPlainObject(getResolvedNitroConfig(config))) {
-          nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroNamespaces, provisionState)
+          nitroOwned = configureNitroCloudflareKV(config, options, resolutionInput(), ownedNitroNamespaces, provisionState)
         }
       },
     },
@@ -345,7 +367,8 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
           return { external: true, id }
         }
         if (resolveOptions?.ssr && isUnstorageCloudflareWorkersImport(id, importer)) return { external: true, id }
-        if (id === "@vite-hub/kv" && isCloudflareKVConfig(getConfig().kv)) return RESOLVED_KV_RUNTIME_ID
+        // `vite dev` uses the package runtime, which can fall back to `fs-lite` and prints the remote notice.
+        if (id === "@vite-hub/kv" && command === "build" && isCloudflareKVConfig(getConfig().kv)) return RESOLVED_KV_RUNTIME_ID
         if (id === KV_VIRTUAL_CONFIG_ID) return RESOLVED_KV_VIRTUAL_CONFIG_ID
       },
     },
@@ -354,7 +377,7 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
       handler(id) {
         if (id === RESOLVED_KV_RUNTIME_ID) {
           const kv = getConfig().kv
-          if (isCloudflareKVConfig(kv)) return serializeCloudflareRuntime(kv)
+          if (command === "build" && isCloudflareKVConfig(kv)) return serializeCloudflareRuntime(kv)
         }
         if (id === RESOLVED_KV_VIRTUAL_CONFIG_ID) return serializeVirtualConfig(getConfig())
       },

@@ -76,6 +76,18 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ driver }: { driver: string }) => `\`kv.driver\` ${driver} is not a KV driver.`,
       fix: "Set `kv.driver` to \"cloudflare-kv-binding\", \"deno-kv\", \"upstash\", or \"fs-lite\".",
     },
+    KV_INVALID_REMOTE: {
+      why: ({ store }: { store: string }) => `\`remote\` of the KV store "${store}" must be \`true\` or \`false\`.`,
+      fix: "Set `remote: true` to use the real store in `vite dev`, or remove `remote` to keep the store local.",
+    },
+    KV_REMOTE_CONFLICT: {
+      why: ({ driver, remote, store }: { driver: string, remote: boolean, store: string }) => remote
+        ? `The KV store "${store}" sets \`remote: true\`, but it uses the local \`${driver}\` driver in \`vite dev\`.`
+        : `The KV store "${store}" sets \`remote: false\`, but the \`${driver}\` driver is always remote.`,
+      fix: ({ remote }: { driver: string, remote: boolean, store: string }) => remote
+        ? "Remove `remote: true`, or select a remote store: the `upstash` or `cloudflare-kv-binding` driver, Upstash env, or the Vercel or Cloudflare preset."
+        : "Remove `remote: false`, or select a local driver such as `fs-lite` for `vite dev`.",
+    },
     KV_MISSING_DEFAULT_STORE: {
       why: "`kv.stores.default` is missing.",
       fix: "Add a `default` store when you configure named KV stores.",

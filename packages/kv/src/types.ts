@@ -6,6 +6,11 @@ export type KVDriver = "cloudflare-kv-binding" | "deno-kv" | "upstash" | "fs-lit
 export interface CloudflareKVStoreConfig {
   driver: "cloudflare-kv-binding"
   binding?: string
+  /**
+   * In `vite dev`, use the real namespace: ViteHub writes `remote: true` on the Wrangler binding and does not fall back
+   * to the local `fs-lite` store. Writes change real data. Builds ignore it.
+   */
+  remote?: boolean
   /** Cloudflare KV namespace id. When omitted, the build reads the id recorded by `vitehub provision run`. */
   namespaceId?: string
   /** Cloudflare KV namespace title that `vitehub provision run` finds or creates when `namespaceId` is not set. */
@@ -14,6 +19,8 @@ export interface CloudflareKVStoreConfig {
 
 export interface UpstashKVStoreConfig {
   driver: "upstash"
+  /** An Upstash store is always remote, in `vite dev` too. */
+  remote?: true
   token?: string
   url?: string
 }
@@ -21,11 +28,26 @@ export interface UpstashKVStoreConfig {
 export interface DenoKVStoreConfig {
   driver: "deno-kv"
   path?: string
+  /** A Deno KV store is local. */
+  remote?: false
 }
 
 export interface FsLiteKVStoreConfig {
   driver: "fs-lite"
   base?: string
+  /** An `fs-lite` store is local. */
+  remote?: false
+}
+
+/** A store without `driver`. ViteHub infers the driver from the host and the env. */
+export interface InferredKVStoreConfig {
+  driver?: undefined
+  /**
+   * In `vite dev`, the inferred store is local unless this is `true`: Upstash env and the Vercel preset do not select
+   * Upstash, and the Cloudflare preset uses the local `fs-lite` store when the dev runtime has no KV binding. With
+   * `true`, `vite dev` uses the real store, so writes change real data. Builds ignore it.
+   */
+  remote?: boolean
 }
 
 export type KVStoreConfig =
@@ -36,9 +58,16 @@ export type KVStoreConfig =
 
 export interface ResolvedCloudflareKVStoreConfig extends CloudflareKVStoreConfig {
   binding: string
+  /** Only in `vite dev`: the `fs-lite` directory that the store uses when the runtime has no binding. */
+  localBase?: string
+  /** Only in `vite dev`. */
+  remote?: true
 }
 
-export type ResolvedUpstashKVStoreConfig = Required<UpstashKVStoreConfig>
+export interface ResolvedUpstashKVStoreConfig extends UpstashKVStoreConfig {
+  token: string
+  url: string
+}
 
 export interface ResolvedDenoKVStoreConfig extends DenoKVStoreConfig {
   path?: string
@@ -60,7 +89,7 @@ export interface KVStoresConfig {
   stores: Record<string, KVStoreConfig>
 }
 
-export type KVModuleOptions = KVStoreConfig | KVStoresConfig | false
+export type KVModuleOptions = KVStoreConfig | InferredKVStoreConfig | KVStoresConfig | false
 
 export interface ResolvedKVModuleOptions {
   store: ResolvedKVStoreConfig

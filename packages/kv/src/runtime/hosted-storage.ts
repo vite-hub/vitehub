@@ -1,7 +1,7 @@
 import { destr } from "destr"
 import { normalizeKey } from "unstorage"
 
-import type { KVListOptions, KVListPage, ResolvedKVModuleOptions } from "../types.ts"
+import type { KVListOptions, KVListPage, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "../types.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createLazyKVRuntimeDriver } from "./driver.ts"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
@@ -53,11 +53,24 @@ function serializeValue(value: unknown): string {
   throw new TypeError("KV cannot serialize this value.")
 }
 
+/** The line that `vite dev` prints when a store uses real data. Only `vite dev` resolves a store with `remote: true`. */
+export function kvRemoteNotice(name: string, store: ResolvedKVStoreConfig): string | undefined {
+  if (store.driver === "upstash" && store.remote) {
+    return `[vitehub] KV store "${name}" is remote: \`vite dev\` uses the real Upstash database. Writes change real data.`
+  }
+  if (store.driver === "cloudflare-kv-binding" && store.remote) {
+    const namespace = store.namespaceId ? ` ${store.namespaceId}` : ""
+    return `[vitehub] KV store "${name}" is remote: \`vite dev\` uses the real Cloudflare KV namespace${namespace} through the \`${store.binding}\` binding. Writes change real data.`
+  }
+}
+
 export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | undefined, name = "default"): RuntimeStorage {
   const resolved = assertHostedConfig(config)
   const stores = resolved.stores || { default: resolved.store }
   const store = Object.hasOwn(stores, name) ? stores[name] : undefined
   if (!store) throw kvErrorDiagnostics.KV_STORE_NOT_FOUND({ store: name })
+  const notice = kvRemoteNotice(name, store)
+  if (notice) console.warn(notice)
   const driver = createLazyKVRuntimeDriver({ store, stores: { default: store, [name]: store } })
   // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- createKVStorage supplies every RuntimeStorage method; listKeys is installed immediately below.
   // SAFETY: createKVStorage supplies the base methods, and this boundary installs the required listKeys method before returning.

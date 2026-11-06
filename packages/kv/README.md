@@ -56,6 +56,14 @@ Providers include local `fs-lite`, Deno KV, [Cloudflare Workers KV](https://deve
 
 Deno KV accepts `kv.set(key, value, { ttl: seconds })` to expire a value. Omitting `ttl` keeps the value until it is deleted or replaced. Initialization failures do not disable a store for the life of the process. The next operation can retry initialization.
 
+## Development stays local
+
+In `vite dev` (and `nuxt dev`), a KV store is local unless it sets `remote: true`. When ViteHub infers the driver, Upstash env vars and the Vercel preset do not select Upstash in development: the store is `fs-lite` in `.vitehub/data/kv`. On the Cloudflare preset, a store uses the KV binding of the dev runtime when there is one, for example on the workerd runner. Without one, for example on Nitro's default Node runner, it uses `fs-lite` in `.vitehub/data/kv-cloudflare/<binding>` with the Workers KV limits.
+
+`kv: { remote: true }` lets development infer the hosted store as a build does. On Cloudflare, ViteHub then writes `remote: true` on the generated Wrangler KV binding. The first operation prints `KV store "<name>" is remote`, and `vitehub inspect definitions --kind kv` shows `Development: Remote`. Writes change real data.
+
+An explicit `driver` is honored as before; an `upstash` store prints the same notice. Builds ignore `remote`. A `remote` value that is not a boolean fails with `KV_INVALID_REMOTE`. `remote: true` with `fs-lite` or `deno-kv`, `remote: false` with `upstash`, and `remote: true` in development without a hosted store fail with `KV_REMOTE_CONFLICT`.
+
 ## Nitro cache
 
 `@vite-hub/kv/runtime/nitro-cache` is an unstorage driver over the default store, for Nitro's `cache` mount. Its keys get the `nitro-cache:` prefix, or the `base` option. With `vitehub()`, set `cache: { driver: "kv" }` to mount it.
