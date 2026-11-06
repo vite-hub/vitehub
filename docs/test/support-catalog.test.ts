@@ -23,13 +23,18 @@ const columnHosts: Record<string, FeatureHost> = {
 const knownDrift: Record<string, string> = {
   "browser:dev": "The docs describe localBrowser() from code. Browser Definitions through vitehub() need the Cloudflare preset.",
   "browser:node": "The docs describe localBrowser() from code. vitehub() rejects browser on the Node preset.",
+  "database:vercel": "The docs mark hosted libSQL or D1 as available. ViteHub's default SQLite file is rejected on Vercel, so the app must configure a hosted connection.",
   "queue:netlify": "The docs describe an explicit Queue Provider. `queue` in vitehub() is a boolean with no provider option.",
   "realtime:node": "The docs mark memory as local. The app must set realtime.authority to \"memory\" for a build.",
-  "sandboxTask:dev": "The docs say the provider is selected explicitly. Development runs the provider of the preset.",
+  "sandboxTask:dev": "The docs say the provider is selected explicitly. Default Node development has no Sandbox Provider; Cloudflare or Vercel development uses that preset's provider.",
   "sandboxTask:netlify": "The docs describe an explicit Vercel Sandbox. vitehub() turns sandboxTask off where the preset has no Sandbox.",
   "sandboxTask:node": "The docs describe an explicit provider. vitehub() turns sandboxTask off where the preset has no Sandbox.",
   "schedule:deno": "The docs describe the standalone Deno.cron integration. vitehub() rejects schedule on the Deno preset.",
+  "workflow:deno": "The docs describe explicit OpenWorkflow. The owner resolver defaults Deno hosting to Vercel Workflow.",
+  "workflow:dev": "The docs describe OpenWorkflow. The default Node preset selects Vercel Workflow unless OpenWorkflow storage is configured.",
+  "workflow:node": "The docs describe OpenWorkflow. Node hosting defaults to Vercel Workflow unless OpenWorkflow storage is configured.",
   "workspace:cloudflare": "The default store is memory in the Worker isolate. Durable state needs an explicit Artifacts or GitHub store.",
+  "workspace:vercel": "The default store is process-local memory without BLOB_READ_WRITE_TOKEN. A Blob token selects durable Vercel Blob storage.",
 };
 
 function docsLevel(support: HostSupport): SupportLevel {
@@ -51,7 +56,7 @@ describe("support matrix and feature catalog", () => {
       const id = rowFeatures[row.id] ?? (row.id as FeatureId);
       for (const [column, host] of Object.entries(columnHosts)) {
         const cell = row.values[column as keyof typeof row.values];
-        const support = featureSupport(id, host);
+        const support = featureSupport(id, host, "node");
         if (docsLevel(support) !== cell.status || docsDisplay(support) !== (cell.display ?? "—")) drift.push(`${id}:${host}`);
       }
     }

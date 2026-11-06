@@ -30,9 +30,21 @@ export const featureIds = [
 ] as const
 export type FeatureId = (typeof featureIds)[number]
 
-/** `dev` is `vite dev` with local providers. The others are the deployment presets. */
+/** `dev` stores default Node development support. Use `featureSupport()` with the configured preset for development lookups. */
 export const featureHosts = ["dev", "cloudflare", "vercel", "netlify", "deno", "node"] as const
 export type FeatureHost = (typeof featureHosts)[number]
+
+export interface NativeHostSupport {
+  level: "native"
+  /** The default provider or adapter that ViteHub selects, such as `cloudflare-r2`. */
+  adapter: string
+  /** Short provider name for tables, such as `R2`. */
+  display: string
+  guarantee: "native" | "single-host" | "process-local"
+  detail: string
+  /** The first override whose environment variable has a non-empty, trimmed value replaces the default. */
+  envOverrides?: readonly { env: string, support: Omit<NativeHostSupport, "envOverrides"> }[]
+}
 
 /**
  * How a host supports a feature when the app enables it in `vitehub({...})`.
@@ -41,15 +53,7 @@ export type FeatureHost = (typeof featureHosts)[number]
  * - `unsupported`: `vitehub({...})` cannot provide the feature on this host.
  */
 export type HostSupport
-  = | {
-    level: "native"
-    /** The provider or adapter that ViteHub selects, such as `cloudflare-r2`. */
-    adapter: string
-    /** Short provider name for tables, such as `R2`. */
-    display: string
-    guarantee: "native" | "single-host" | "process-local"
-    detail: string
-  }
+  = | NativeHostSupport
   | {
     level: "explicit"
     display: string
@@ -72,8 +76,10 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   /** One sentence for pickers and docs. */
   summary: string
   docs: `/docs/${string}`
-  /** Whether the feature is on when the app does not set its key. */
+  /** Whether the feature is unconditionally on when the app does not set its key. */
   enabledByDefault: boolean
+  /** File names in the configured server directories (default `server/`) that enable an unset feature. `false` disables discovery. */
+  enabledByDiscovery?: readonly string[]
   /** Packages that the app installs for this feature, in `pnpm add` order. */
   packages: readonly string[]
   /** Development dependencies that the app installs for this feature. */
@@ -82,11 +88,13 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   /** The Deployment Plan service that this feature reads, when it has one. */
   service?: DeploymentService
   hosts: Readonly<Record<FeatureHost, HostSupport>>
+  /** Presets that use `hosts.dev` during development instead of their deployment entry. Node always uses `hosts.dev`. */
+  developmentOverrides?: readonly DeploymentPreset[]
 }
 
 const noHostLimit = "No host limit in ViteHub."
 
-function native(adapter: string, display: string, detail: string, guarantee: "native" | "single-host" | "process-local" = "native"): HostSupport {
+function native(adapter: string, display: string, detail: string, guarantee: "native" | "single-host" | "process-local" = "native"): NativeHostSupport {
   return { adapter, detail, display, guarantee, level: "native" }
 }
 
@@ -160,6 +168,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Browser",
   }),
   cache: feature({
+    developmentOverrides: ["cloudflare", "deno", "vercel"],
     docs: "/docs/reference/config-options",
     hosts: {
       cloudflare: native("cloudflare-kv-binding", "Workers KV", "Workers KV binding `CACHE`."),
@@ -182,6 +191,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
   }),
   comments: feature({
     docs: "/docs/comments",
+    enabledByDiscovery: ["comments.ts", "comments.mts", "comments.js", "comments.mjs"],
     hosts: everywhere("database", "Database"),
     id: "comments",
     implies: [{ feature: "database" }],
@@ -207,6 +217,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Console",
   }),
   database: feature({
+    developmentOverrides: ["deno", "netlify", "vercel"],
     devPackages: ["drizzle-kit"],
     docs: "/docs/database",
     hosts: {
@@ -215,7 +226,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
       dev: native("sqlite", "SQLite", "Local SQLite through libSQL and Drizzle.", "single-host"),
       netlify: explicit("database.connection", "libSQL", "Use a hosted libSQL connection. No Netlify-native database driver is provided."),
       node: native("sqlite", "SQLite / libSQL", "SQLite or hosted libSQL through the selected Database connection.", "single-host"),
-      vercel: native("libsql", "libSQL / D1", "Hosted libSQL or Cloudflare D1 over authenticated HTTP."),
+      vercel: explicit("database.connection", "libSQL / D1", "Configure hosted libSQL, D1 over authenticated HTTP, or a PostgreSQL Database Definition. The default local SQLite file is not supported in Vercel functions."),
     },
     id: "database",
     packages: ["@vite-hub/database", "drizzle-orm"],
@@ -245,6 +256,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Env",
   }),
   kv: feature({
+    developmentOverrides: ["netlify"],
     docs: "/docs/kv",
     hosts: {
       cloudflare: native("cloudflare-kv-binding", "Workers KV", "Cloudflare Workers KV binding."),
@@ -289,6 +301,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Queue",
   }),
   rateLimit: feature({
+    developmentOverrides: ["cloudflare"],
     docs: "/docs/rate-limit",
     hosts: {
       cloudflare: native("cloudflare", "Cloudflare", "Native Cloudflare Rate Limiting binding."),
@@ -304,6 +317,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Rate Limit",
   }),
   realtime: feature({
+    developmentOverrides: ["cloudflare", "deno", "netlify", "vercel"],
     docs: "/docs/realtime",
     hosts: {
       cloudflare: native("cloudflare", "Durable Objects", "Cloudflare Durable Objects provide the production room authority."),
@@ -324,7 +338,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     hosts: {
       cloudflare: native("cloudflare", "CF Sandbox", "Cloudflare Sandbox execution provider."),
       deno: unsupported("No Deno Sandbox provider is provided."),
-      dev: native("preset", "Sandbox provider", "Development runs the Sandbox provider of the cloudflare or vercel preset."),
+      dev: unsupported("The default Node preset has no Sandbox Provider. Development with the Cloudflare or Vercel preset uses that preset's Sandbox."),
       netlify: unsupported("The Netlify preset has no built-in isolated Sandbox Provider."),
       node: unsupported("The Node preset has no built-in isolated Sandbox Provider."),
       vercel: native("vercel", "Vercel Sandbox", "Vercel Sandbox execution provider."),
@@ -335,6 +349,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Sandbox",
   }),
   schedule: feature({
+    developmentOverrides: ["cloudflare", "netlify", "vercel"],
     docs: "/docs/schedule",
     hosts: {
       cloudflare: native("cloudflare", "Cron triggers", "Cloudflare scheduled events and Nitro Provider Wake."),
@@ -353,10 +368,10 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     docs: "/docs/workflows",
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
-      deno: explicit("workflow.provider", "OpenWorkflow", "Use OpenWorkflow explicitly. No Deno-native Workflow provider is provided."),
-      dev: native("openworkflow", "OpenWorkflow", "OpenWorkflow worker or inline development execution."),
+      deno: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Set workflow.provider explicitly to select OpenWorkflow."),
+      dev: native("vercel", "Vercel Workflow", "The default Node preset selects Vercel Workflow. Node hosting selects OpenWorkflow when workflow.sqlite.path or workflow.postgres.url is configured."),
       netlify: explicit("workflow.provider", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow provider is provided."),
-      node: native("openworkflow", "OpenWorkflow", "OpenWorkflow worker or inline execution.", "single-host"),
+      node: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Setting workflow.sqlite.path or workflow.postgres.url selects OpenWorkflow unless workflow.provider is explicit."),
       vercel: native("vercel", "Vercel Workflow", "Vercel Workflow provider and Workflow DevKit output."),
     },
     id: "workflow",
@@ -364,6 +379,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Workflow",
   }),
   workspace: feature({
+    developmentOverrides: ["cloudflare", "deno", "netlify", "vercel"],
     docs: "/docs/workspace",
     hosts: {
       cloudflare: native("memory", "Artifacts / GitHub", "Memory by default, or Cloudflare Artifacts beta and GitHub for durable state.", "process-local"),
@@ -371,7 +387,13 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
       dev: native("local", "local / memory", "Local filesystem or in-memory Workspace Store.", "single-host"),
       netlify: explicit("workspace.store", "GitHub", "Select the GitHub Workspace Store explicitly for durable state."),
       node: native("local", "local / GitHub", "Local filesystem, memory, or GitHub Workspace Store.", "single-host"),
-      vercel: native("vercel-blob", "Blob / GitHub", "Vercel Blob or GitHub Workspace Store for durable state."),
+      vercel: {
+        ...native("memory", "memory / Blob / GitHub", "Process-local memory by default. BLOB_READ_WRITE_TOKEN selects Vercel Blob; GitHub can be selected explicitly for durable state.", "process-local"),
+        envOverrides: [{
+          env: "BLOB_READ_WRITE_TOKEN",
+          support: native("vercel-blob", "Blob / GitHub", "BLOB_READ_WRITE_TOKEN selects durable Vercel Blob storage by default."),
+        }],
+      },
     },
     id: "workspace",
     packages: ["@vite-hub/workspace"],
@@ -380,9 +402,14 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
   }),
 }
 
-/** How `host` supports `id`. */
-export function featureSupport(id: FeatureId, host: FeatureHost): HostSupport {
-  return features[id].hosts[host]
+/** How `host` supports `id`. Development requires the app's configured (or detected) deployment preset. */
+export function featureSupport(id: FeatureId, host: DeploymentPreset): HostSupport
+export function featureSupport(id: FeatureId, host: FeatureHost, preset: DeploymentPreset): HostSupport
+export function featureSupport(id: FeatureId, host: FeatureHost, preset?: DeploymentPreset): HostSupport {
+  const definition = features[id]
+  if (host !== "dev") return definition.hosts[host]
+  if (!preset) throw new Error("Development feature support requires the configured deployment preset.")
+  return definition.hosts[preset === "node" || definition.developmentOverrides?.includes(preset) ? "dev" : preset]
 }
 
 /**

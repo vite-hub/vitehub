@@ -3047,7 +3047,8 @@
     --vh-ws-code-tag: #d5512f;
     --vh-ws-code-attribute: #18a46c;
     --vh-ws-code-punctuation: #636363;
-    --vh-ws-terminal-bg: #fafafa;
+    /* The terminal shares the editor surface, so the panel under the editor reads as one pane. */
+    --vh-ws-terminal-bg: var(--vh-ws-code-bg);
     --vh-ws-terminal-fg: #3f3f46;
     /* Explicit fallbacks: without Nuxt UI, currentColor for both ink and its inverse gives white text on a white fill. */
     --vh-ws-ink: var(--ui-text-highlighted, #18181b);
@@ -3068,7 +3069,6 @@
     --vh-ws-code-tag: #ff855e;
     --vh-ws-code-attribute: #60d199;
     --vh-ws-code-punctuation: #8a8a8a;
-    --vh-ws-terminal-bg: #18181b;
     --vh-ws-terminal-fg: #d4d4d8;
     --vh-ws-ink: var(--ui-text-highlighted, #fafafa);
     --vh-ws-ink-inverted: var(--ui-bg, #09090b);
