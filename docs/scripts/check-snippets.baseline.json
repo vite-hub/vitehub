@@ -425,11 +425,6 @@
     "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2304 Cannot find name 'readBody'.\nTS2304 Cannot find name 'useRuntimeConfig'.\nTS2307 Cannot find module '../agents/support' or its corresponding type declarations.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
-    "id": "docs/content/docs/sandbox/configure.md#c19c21559f74",
-    "label": "server/tools/resize.sandbox-task.ts",
-    "error": "TS2322 Type '(payload: { width: number; }) => Promise<{ width: number; }>' is not assignable to type 'SandboxTaskDefinitionHandler<{ width: number; }, { width: number; }> & ((payload: { width: number; }) => Promise<{ width: number; }>)'.\n  Type '(payload: { width: number; }) => Promise<{ width: number; }>' is not assignable to type 'SandboxTaskDefinitionHandler<{ width: number; }, { width: number; }>'.\n    Types of parameters 'payload' and 'payload' are incompatible.\n      Type '{ width: number; } | undefined' is not assignable to type '{ width: number; }'.\n        Type 'undefined' is not assignable to type '{ width: number; }'."
-  },
-  {
     "id": "docs/content/docs/source/server-api.md#9afe81a0582d",
     "label": "server/collections/articles.ts",
     "error": "TS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS18046 'article' is of type 'unknown'.\nTS2304 Cannot find name 'db'."
