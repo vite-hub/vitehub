@@ -8762,7 +8762,7 @@ export async function startAgentInvocation<
   TData = unknown,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
+  context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: {
     runId?: string
@@ -8770,7 +8770,7 @@ export async function startAgentInvocation<
     onInputHandoff?: () => void
   } = {},
 ): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS>> {
-  const invocationContext = withAgentIdentityOwner(agent, context)
+  const invocationContext = withAgentIdentityOwner(agent, withAgentRuntimeMemo(context))
   const workflowContext = invocationContext.run?.activity && !invocationContext.run.activity.runId
     ? {
         ...invocationContext,
@@ -9086,11 +9086,11 @@ export async function streamAgent<
   TData = unknown,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
+  context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: { output?: "events" | "ui-message-stream" } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  return await streamAgentInline(agent, context, input, options)
+  return await streamAgentInline(agent, withAgentRuntimeMemo(context), input, options)
 }
 
 export async function getAgent<TContext extends AgentRuntimeContext>(

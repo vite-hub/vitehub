@@ -392,19 +392,22 @@ interface SearchEntry {
   record: DocsSearchSection
   order: number
   title: string[]
+  keywords: string[]
   trail: string[]
   content: string[]
 }
 
-// A page title outranks a heading, a heading outranks the headings above it, and those outrank the text.
+// A page title outranks a heading, a heading outranks the page's keywords and the headings above it, and those
+// outrank the text.
 const pageTitleWeight = 100
 const headingWeight = 40
+const keywordWeight = 30
 const trailWeight = 15
 const contentWeight = 5
 
 /**
- * The search of the docs dialog. Every query word must match the record. Records whose titles match more query words
- * come first, then the higher score: page titles over headings over text. Titles tolerate typos and prefixes, text
+ * The search of the docs dialog. Every query word must match the record. Records whose titles or keywords match more
+ * query words come first, then the higher score: page titles over headings and keywords over text. Titles tolerate typos and prefixes, text
  * matches whole words and prefixes. Ties keep the order of the index, which follows the navigation.
  */
 export function createDocsSearch(records: readonly DocsSearchSection[]): (query: string, limit: number) => DocsSearchSection[] {
@@ -412,6 +415,7 @@ export function createDocsSearch(records: readonly DocsSearchSection[]): (query:
     record,
     order,
     title: searchWords(record.title),
+    keywords: searchWords((record.keywords ?? []).join(" ")),
     trail: searchWords(record.titles.join(" ")),
     content: [...new Set(searchWords(record.content))],
   }))
@@ -426,14 +430,15 @@ export function createDocsSearch(records: readonly DocsSearchSection[]): (query:
       let missed = false
       for (const word of words) {
         const title = wordMatch(word, entry.title, true) * titleWeight
+        const keyword = wordMatch(word, entry.keywords, true) * keywordWeight
         const trail = wordMatch(word, entry.trail, true) * trailWeight
         const content = wordMatch(word, entry.content, false) * contentWeight
-        const best = Math.max(title, trail, content)
+        const best = Math.max(title, keyword, trail, content)
         if (!best) {
           missed = true
           break
         }
-        if (title || trail) inTitles++
+        if (title || keyword || trail) inTitles++
         score += best
       }
       if (missed) continue

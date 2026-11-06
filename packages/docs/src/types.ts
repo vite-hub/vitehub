@@ -15,6 +15,12 @@ export interface DocsPage {
   /** The `title` field, for the page heading. */
   sourceTitle: string
   description: string | null
+  /** Text under the heading: `tagline`, else `description`. */
+  tagline: string | null
+  /** Inline Markdown at the end of the page. The page route returns it parsed. */
+  credits: string | null
+  /** Search words besides the page's own text. */
+  keywords: string[]
   icon: string | null
   layout: DocsLayout
   tutorial?: "project" | "quickstart"
@@ -74,4 +80,6 @@ export interface DocsSearchSection {
   titles: string[]
   level: number
   content: string
+  /** Page entries only: the page's `keywords`, which search matches like a title. */
+  keywords?: string[]
 }
