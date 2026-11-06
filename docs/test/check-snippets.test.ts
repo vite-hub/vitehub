@@ -127,11 +127,30 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     const pageRoot = join(repoRoot, "docs/.snippets/failed-env-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "failed-env-page.md", pageRoot })
     const declarations = await generatedDeclarations([
-      snippet("example/vite.config.ts", "export default { env: { public: {} } }"),
       snippet("vite.config.ts", `${failure}\nexport default { env: { public: {} } }`),
     ])
 
     expect(declarations).toEqual([])
+  })
+
+  it.each([false, true])("retains Env types from valid configs when another cannot execute (failed first: %s)", async (failedFirst) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/mixed-env-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "mixed-env-page.md", pageRoot })
+    const configs = [
+      snippet("valid/vite.config.ts", `import { env } from "@vite-hub/env/vite"
+export default { env: { public: { appName: env({ default: "Acme", mode: "build" }) } } }`),
+      snippet("invalid/vite.config.ts", 'throw new Error("config failed")\nexport default { env: { public: {} } }'),
+    ]
+    const declarations = await generatedDeclarations(failedFirst ? configs.toReversed() : configs)
+
+    expect(declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code).toContain('"appName": string')
+  })
+
+  it("retains Env types on the Doctor rules page despite its illustrative invalid config", async () => {
+    const snippets = collectSnippets([{ file: join(repoRoot, "docs/content/docs/reference/doctor-rules.md"), root: join(repoRoot, "docs") }])
+    const declarations = await generatedDeclarations(snippets)
+
+    expect(declarations.find(declaration => declaration.file.endsWith("/env.d.ts"))?.code).toContain('"githubToken": import("@vite-hub/env/secret").SecretEnv<string>')
   })
 
   it.each(["ts", "mts", "tsx"])("types the Definition names of a page from %s files", async (extension) => {
@@ -157,12 +176,18 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
     const collection = "defineCollection({ source: array([{ id: 'intro', title: 'Introduction' }]) })"
     const imports = "import { array, defineCollection } from '@vite-hub/source'\n"
     const snippets = [
-      snippet("server/collections/docs/guides.ts", `${imports}export const guides = ${collection}\nexport const unrelated = ${collection}`),
+      snippet("server/collections/docs/guides.ts", `${imports}const local = ${collection}\nexport { local as guides }\nexport const unrelated = ${collection}`),
       snippet("server/collections/hidden.ts", `${imports}export const hidden = defineCollection({ source: array([]), route: false })`),
+      snippet("server/collections/aliased.ts", "import { array, defineCollection as make } from '@vite-hub/source'\nexport const aliased = make({ source: array([]), route: false })"),
+      snippet("server/collections/namespaced.ts", "import * as source from '@vite-hub/source'\nconst options = { source: source.array([]), route: false as const }\nexport const namespaced = source.defineCollection(options)"),
+      snippet("server/collections/wrapped.ts", `${imports}const options = { source: array([]), ...{ route: false as const } }\nconst local = Object.freeze(defineCollection(options))\nexport { local as wrapped }`),
       snippet("client.ts", "import { useCollection } from '@vite-hub/source/client'\nexport const guides = useCollection('docs/guides')\nexport const title: string = guides.items.value[0].title"),
       snippet("wrong-name.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('guides')"),
       snippet("unrelated.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('unrelated')"),
       snippet("hidden.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('hidden')"),
+      snippet("aliased.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('aliased')"),
+      snippet("namespaced.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('namespaced')"),
+      snippet("wrapped.ts", "import { useCollection } from '@vite-hub/source/client'\nuseCollection('wrapped')"),
     ]
     const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
 
@@ -170,6 +195,42 @@ export default { env: { public: { appName: env({ default: "Acme", mode: "build" 
       ["wrong-name.ts", [2345]],
       ["unrelated.ts", [2345]],
       ["hidden.ts", [2345]],
+      ["aliased.ts", [2345]],
+      ["namespaced.ts", [2345]],
+      ["wrapped.ts", [2345]],
+    ])
+  }, 60_000)
+
+  it("excludes inbound Agent Channels while retaining outbound Channels", async () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/channel-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "channel-page.md", pageRoot })
+    const snippets = [
+      snippet("server/channels/inbox.ts", "import { defineChannel } from 'vite-hub/agent/channels'\nexport default defineChannel('inbox', { messages: false, triggers: {} })"),
+      snippet("server/channels/alerts.ts", "import { defineOutboundChannel } from 'vite-hub/channels'\nexport default defineOutboundChannel({ connectors: { log: { send: (text: string) => ({ id: text }) } } })"),
+      snippet("outbound.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('alerts')"),
+      snippet("inbound.ts", "import { useChannel } from 'vite-hub/channels/server'\nuseChannel('inbox')"),
+    ]
+    const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["inbound.ts", [2769]],
+    ])
+  }, 60_000)
+
+  it("preserves PostgreSQL and SQLite Database client dialects", async () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/database-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "database-page.md", pageRoot })
+    const snippets = [
+      snippet("server/databases/postgres/config.ts", "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ dialect: 'postgresql', schema: {} })"),
+      snippet("server/databases/config.ts", "import { defineDatabase } from 'vite-hub/database'\nexport default defineDatabase({ schema: {} })"),
+      snippet("postgres.ts", "import { useDatabase } from 'vite-hub/database/drizzle'\nuseDatabase('postgres').db.execute('select 1')"),
+      snippet("sqlite.ts", "import { useDatabase } from 'vite-hub/database/drizzle'\nuseDatabase('default').db.run('select 1')"),
+      snippet("wrong-postgres.ts", "import { useDatabase } from 'vite-hub/database/drizzle'\nuseDatabase('postgres').db.run('select 1')"),
+      snippet("wrong-sqlite.ts", "import { useDatabase } from 'vite-hub/database/drizzle'\nuseDatabase('default').db.execute('select 1')"),
+    ]
+    const { failures } = checkSnippets(snippets, await generatedDeclarations(snippets))
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["wrong-postgres.ts", [2339]],
+      ["wrong-sqlite.ts", [2339]],
     ])
   }, 60_000)
 })

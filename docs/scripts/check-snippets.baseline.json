@@ -312,12 +312,12 @@
   {
     "id": "docs/content/docs/reference/doctor-rules.md#e3f6e4dc09d2",
     "label": "server/api/issues.get.ts",
-    "error": "TS18046 'github' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'github' does not exist on type 'ServerEnv'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#ff43a766764d",
     "label": "server/api/issues.get.ts",
-    "error": "TS18046 'github' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'github' does not exist on type 'ServerEnv'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#159fe97daf2e",
@@ -327,12 +327,12 @@
   {
     "id": "docs/content/docs/reference/doctor-rules.md#e2b27a0e912b",
     "label": "server/api/crm.get.ts",
-    "error": "TS18046 'crm' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'crm' does not exist on type 'ServerEnv'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#1522ebb07cd8",
     "label": "server/api/crm.get.ts",
-    "error": "TS18046 'crm' is of type 'unknown'.\nTS2304 Cannot find name 'defineEventHandler'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
+    "error": "TS2304 Cannot find name 'defineEventHandler'.\nTS2339 Property 'crm' does not exist on type '{ readonly githubToken: SecretEnv<string>; readonly airtableToken: SecretEnv<string>; }'.\nTS7006 Parameter 'event' implicitly has an 'any' type."
   },
   {
     "id": "docs/content/docs/reference/doctor-rules.md#f5c9bb564ea8",
