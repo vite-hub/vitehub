@@ -1,3 +1,5 @@
+import { EventEmitter } from "node:events"
+
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 type DevPeer = typeof import("../src/dev-peer.ts")
@@ -172,5 +174,50 @@ describe("dev peer dev handler", () => {
     expect(handlers[0]).not.toHaveProperty("route")
     expect(handlers[1]).toBe(other)
     expect(peer.readViteHubDevPeerKey()).toBe(peer.useViteHubDevPeerKey())
+  })
+})
+
+describe("the WebSocket upgrade signer of the front process", () => {
+  /** An HTTP server whose own `upgrade` listener reads the headers at once, as Nitro's dev servers forward them. */
+  function server() {
+    const emitter = new EventEmitter()
+    const seen: Array<Record<string, string | string[] | undefined>> = []
+    emitter.on("upgrade", (req: { headers: Record<string, string | string[] | undefined> }) => seen.push({ ...req.headers }))
+    return { emitter, seen, upgrade: (remoteAddress: string | undefined, headers: Record<string, string> = {}, url = "/api/_vitehub/realtime/content/doc") => {
+      emitter.emit("upgrade", { headers: { ...headers }, method: "GET", socket: { remoteAddress }, url })
+      return seen.at(-1)!
+    } }
+  }
+
+  it("signs a loopback upgrade before the dev server forwards it, once", async () => {
+    const { emitter, upgrade } = server()
+    const key = peer.useViteHubDevPeerKey()
+    peer.addViteHubDevPeerUpgradeSigner(emitter)
+    peer.addViteHubDevPeerUpgradeSigner(emitter)
+    expect(emitter.listeners("upgrade")).toHaveLength(2)
+    const evidence = upgrade("127.0.0.1")[peer.viteHubDevPeerHeader]
+    expect(evidence).toMatch(/^v1\./)
+    const target = "http://localhost:3000/api/_vitehub/realtime/content/doc"
+    expect(await peer.verifyViteHubDevPeer(new Request(target, { headers: { [peer.viteHubDevPeerHeader]: String(evidence) } }), key)).toBe(true)
+    // The same evidence for another path, or a second time, is refused.
+    expect(await peer.verifyViteHubDevPeer(new Request(target, { headers: { [peer.viteHubDevPeerHeader]: String(evidence) } }), key)).toBe(false)
+    const other = upgrade("::1")[peer.viteHubDevPeerHeader]
+    expect(await peer.verifyViteHubDevPeer(new Request("http://localhost:3000/_vitehub/rpc/__call", { headers: { [peer.viteHubDevPeerHeader]: String(other) } }), key)).toBe(false)
+  })
+
+  it("removes client evidence and signs no remote or unknown peer", () => {
+    const { emitter, upgrade } = server()
+    peer.useViteHubDevPeerKey()
+    peer.addViteHubDevPeerUpgradeSigner(emitter)
+    for (const address of ["192.168.0.38", "100.88.128.32", undefined]) {
+      expect(upgrade(address, { [peer.viteHubDevPeerHeader]: "v1.forged", "x-forwarded-for": "127.0.0.1" }), String(address)).not.toHaveProperty(peer.viteHubDevPeerHeader)
+    }
+    expect(upgrade("127.0.0.1", {}, "http://attacker.example/x")).not.toHaveProperty(peer.viteHubDevPeerHeader)
+  })
+
+  it("signs nothing in a process without a key", () => {
+    const { emitter, upgrade } = server()
+    peer.addViteHubDevPeerUpgradeSigner(emitter)
+    expect(upgrade("127.0.0.1", { [peer.viteHubDevPeerHeader]: "v1.forged" })).not.toHaveProperty(peer.viteHubDevPeerHeader)
   })
 })

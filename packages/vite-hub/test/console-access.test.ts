@@ -160,7 +160,8 @@ describe("Console access policies", () => {
 
   it("keeps the local development Console open and fails closed in production", async () => {
     installConsoleDevelopment("/test/app", true)
-    const allowed = await run({ mode: "local" })
+    // A development Console without sign-in serves only this machine.
+    const allowed = await run({ mode: "local" }, requestEvent(new Request("http://localhost:3000/api/_vitehub/console/data"), { remoteAddress: "127.0.0.1" }))
     expect(allowed.result).toEqual({ mode: "local", sections: "all" })
     expect(Object.isFrozen(allowed.result)).toBe(true)
 
@@ -347,7 +348,7 @@ describe("read-only section access", () => {
 
 describe("Connections manager from Console access", () => {
   function connectionsEvent(): ConsoleRequestEvent {
-    return requestEvent(new Request("http://vitehub.local/_vitehub/connections", { headers: { "content-type": "application/json", origin: "http://vitehub.local" }, method: "POST", body: JSON.stringify({ action: "list" }) }))
+    return requestEvent(new Request("http://localhost:3000/_vitehub/connections", { headers: { "content-type": "application/json", origin: "http://localhost:3000" }, method: "POST", body: JSON.stringify({ action: "list" }) }), { remoteAddress: "127.0.0.1" })
   }
 
   it.each([
