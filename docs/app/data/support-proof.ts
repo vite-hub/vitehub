@@ -70,10 +70,17 @@ const currentCiEvidence = {
   url: "https://github.com/vite-hub/vitehub/actions/runs/32939970902",
 } as const satisfies ProofEvidence;
 
-const failedLiveEvidence = {
+// Last Live Smoke run that reached the hosts. Later runs stopped at the CI gate before any host job.
+const cloudflareLiveEvidence = {
+  conclusion: "success",
+  observedAt: "2026-10-31T10:05:31Z",
+  url: "https://github.com/vite-hub/vitehub/actions/runs/41190104698",
+} as const satisfies ProofEvidence;
+
+const vercelLiveEvidence = {
   conclusion: "failure",
-  observedAt: "2026-08-26T04:09:44Z",
-  url: "https://github.com/vite-hub/vitehub/actions/runs/32928943031",
+  observedAt: "2026-10-31T10:04:22Z",
+  url: "https://github.com/vite-hub/vitehub/actions/runs/41190104698",
 } as const satisfies ProofEvidence;
 
 const notPublished = {
@@ -204,17 +211,17 @@ const claimDefinitions = {
     cloudflare: {
       claim:
         "The nightly Live Smoke targets nine primitives, including Rate Limit. Browser and Agent routes are outside this run.",
-      evidence: failedLiveEvidence,
+      evidence: cloudflareLiveEvidence,
       freshness: { maxAgeDays: 2 },
-      lastLiveSmokeStage: "provision",
+      lastLiveSmokeStage: "runtime",
       owner: liveSmokeOwner,
     },
     vercel: {
       claim:
         "The nightly Live Smoke targets eight primitives. ViteHub has no native Vercel Rate Limit driver, and Agent routes are outside this run.",
-      evidence: failedLiveEvidence,
+      evidence: vercelLiveEvidence,
       freshness: { maxAgeDays: 2 },
-      lastLiveSmokeStage: "provision",
+      lastLiveSmokeStage: "runtime",
       owner: liveSmokeOwner,
     },
     netlify: unpublishedClaim("Live proof is not published for Netlify."),

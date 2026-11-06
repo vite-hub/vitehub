@@ -520,7 +520,7 @@ export interface ViteHubNitroDevHandlerSource {
    * event, whose `req` is Node's request, so read the Fetch `Request` with `toEventRequest`.
    */
   export: string
-  /** Module that the generated handler imports, for example `vite-hub/_internal/schedule/runtime/dev`. */
+  /** Module that exports the owner handler and `defineEventHandler`. */
   module: string
 }
 
@@ -537,8 +537,7 @@ export function renderViteHubNitroDevHandler(source: ViteHubNitroDevHandlerSourc
     ? `{ ...${JSON.stringify(source.context ?? {})}, ${contextModules.map(([field], index) => `${JSON.stringify(field)}: viteHubDevContext${index}`).join(", ")} }`
     : source.context ? JSON.stringify(source.context) : undefined
   return [
-    "import { defineEventHandler } from 'h3'",
-    `import { ${source.export} as handleViteHubDevRequest } from ${JSON.stringify(source.module)}`,
+    `import { defineEventHandler, ${source.export} as handleViteHubDevRequest } from ${JSON.stringify(source.module)}`,
     ...contextModules.map(([, module], index) => `import viteHubDevContext${index} from ${JSON.stringify(module)}`),
     "",
     `export default defineEventHandler(event => handleViteHubDevRequest(${["event", ...(context ? [context] : []), ...(source.arguments ?? []).map(value => JSON.stringify(value))].join(", ")}))`,
