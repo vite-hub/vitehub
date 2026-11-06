@@ -89,7 +89,7 @@ describe("a Vue app with messages in templates and scripts", () => {
     await writeFile(join(root, "es.po"), po)
 
     const imported = await cli("import", "es", "es.po", "--json")
-    expect(JSON.parse(imported.stdout)).toEqual({ locale: "es", saved: 4, unchanged: 0 })
+    expect(JSON.parse(imported.stdout)).toEqual({ locale: "es", saved: 4, unchanged: 0, fuzzy: 0 })
     const record = JSON.parse(await readFile(join(root, "locales", recordPath("es", messageId("Search agents"))), "utf8")) as Record<string, unknown>
     expect(record).toMatchObject({ source: "Search agents", translation: "Buscar agentes", review: "edited" })
     expect(JSON.parse((await cli("import", "es", "es.po", "--json")).stdout)).toMatchObject({ saved: 0, unchanged: 4 })
@@ -145,5 +145,23 @@ describe("a Vue app with messages in templates and scripts", () => {
     const manifest = JSON.parse(await readFile(join(root, ".vitehub/i18n/manifest.json"), "utf8")) as I18nManifest
     expect(manifest.environments.client![messageId("Changes saved")]).toEqual({ message: "Changes saved", origins: [expect.stringMatching(/^src\/Notice\.vue:\d+$/)] })
     expect(Object.keys(manifest.environments.client!)).toHaveLength(7)
+  })
+
+  it("offers the old translation of a changed message as a fuzzy draft", async () => {
+    const app = join(root, "src/App.vue")
+    await writeFile(app, (await readFile(app, "utf8")).replace("t`Search agents`", "t`Search all agents`"))
+    const status = await inspectI18n(linguiConfig())
+    expect(status.locales[1]).toMatchObject({ translated: 3, missing: 4, changed: 1, unused: 1 })
+    expect((await cli("status")).stdout).toContain("4 missing (1 changed), 1 unused")
+
+    await cli("export", "es", "--output", "changed.po")
+    const po = await readFile(join(root, "changed.po"), "utf8")
+    expect(po).toContain(`#. Previous source: Search agents\n#: src/App.vue:`)
+    expect(po).toMatch(/#, fuzzy\nmsgid "Search all agents"\nmsgstr "Buscar agentes"/)
+    expect(JSON.parse((await cli("import", "es", "changed.po", "--json")).stdout)).toEqual({ locale: "es", saved: 0, unchanged: 3, fuzzy: 1 })
+
+    await writeFile(join(root, "changed.po"), po.replace(/#, fuzzy\n(msgid "Search all agents")\nmsgstr "Buscar agentes"/, `$1\nmsgstr "Buscar todos los agentes"`))
+    expect(JSON.parse((await cli("import", "es", "changed.po", "--json")).stdout)).toMatchObject({ saved: 1, fuzzy: 0 })
+    expect((await inspectI18n(linguiConfig())).locales[1]).toMatchObject({ translated: 4, changed: 0, unused: 1 })
   })
 })

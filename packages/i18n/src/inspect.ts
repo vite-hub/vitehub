@@ -1,3 +1,4 @@
+import { findPreviousTranslations } from "./lineage.ts"
 import { recordsRoot } from "./lingui.ts"
 import { scanMessages } from "./manifest.ts"
 import { readRecords } from "./records.ts"
@@ -18,6 +19,8 @@ export interface I18nLocaleStatus {
   translated: number
   /** Messages that show the source text in this locale. */
   missing: number
+  /** Missing messages whose source text changed a little. Their old translation is a starting point. */
+  changed: number
   /** Records of messages that the code no longer has. */
   unused: number
   /** Record files that ViteHub cannot use. */
@@ -48,6 +51,7 @@ export async function inspectI18n(config: LinguiConfigNormalized): Promise<I18nS
       messages: ids.length,
       translated,
       missing: ids.length - translated,
+      changed: source ? 0 : findPreviousTranslations(messages, read.records).size,
       unused: Object.keys(read.records).filter(id => !(id in messages)).length,
       problems: read.problems,
     }
