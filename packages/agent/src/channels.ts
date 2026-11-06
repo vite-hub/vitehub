@@ -226,6 +226,7 @@ export interface AgentChannelOptions<
   message?: AgentChannelMessageDefinition<TRuntimeConfig, TData, TMethods>
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: boolean | AgentChannelChatRouteHandlerOptions<TBody, TAuth>
+  transcripts?: AgentChannelDefinition<TRuntimeConfig>["transcripts"]
   triggers?: AgentChannelDefinition<TRuntimeConfig>["triggers"]
   webhooks?: AgentChannelDefinition<TRuntimeConfig>["webhooks"]
 }

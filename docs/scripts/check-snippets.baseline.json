@@ -1,20 +1,5 @@
 [
   {
-    "id": "docs/content/docs/agents/agent-drivers.md#7b95e16bdad4",
-    "label": "server/agents/review/agent.ts",
-    "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'."
-  },
-  {
-    "id": "docs/content/docs/agents/capabilities/input-commands.md#748af2836fda",
-    "label": "server/agents/support.ts",
-    "error": "TS2554 Expected 0 arguments, but got 1."
-  },
-  {
-    "id": "docs/content/docs/agents/gmail.md#52ea1118141f",
-    "label": "vite.config.ts",
-    "error": "TS2554 Expected 1 arguments, but got 0."
-  },
-  {
     "id": "docs/content/docs/agents/invocation-storage.md#1bfd2292966b",
     "label": "server/invocations.ts",
     "error": "TS2307 Cannot find module 'cloudflare:workers' or its corresponding type declarations."
@@ -25,39 +10,14 @@
     "error": "TS18046 'env.slack' is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/comments/index.md#daebbc2b469e",
-    "label": "server/api/open-threads.get.ts",
-    "error": "TS2339 Property 'page' does not exist on type 'CommentThread'."
-  },
-  {
     "id": "docs/content/docs/connections/index.md#b5254d8a047e",
     "label": "server/connections/google.ts",
     "error": "TS2571 Object is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/development/operations.md#5d5bf17d544a",
-    "label": "vite.config.ts",
-    "error": "TS2554 Expected 1 arguments, but got 0."
-  },
-  {
-    "id": "docs/content/docs/logs/get-started.md#b7725026293a",
-    "label": "vite.config.ts",
-    "error": "TS2353 Object literal may only specify known properties, and 'local' does not exist in type 'ConsoleOptions'."
-  },
-  {
     "id": "docs/content/docs/rate-limit/index.md#cb8cae0e5e63",
     "label": "server/api/messages.post.ts",
     "error": "TS2345 Argument of type 'AuthRequestInput' is not assignable to parameter of type 'RateLimitRequestEvent'."
-  },
-  {
-    "id": "packages/agent/README.md#e0e7838a305c",
-    "label": null,
-    "error": "TS2322 Type '({ abortSignal }: AgentProviderCredentialContext<AgentRuntimeConfig>) => Promise<unknown>' is not assignable to type 'AgentProviderCredentialResolver<AgentRuntimeConfig> | undefined'."
-  },
-  {
-    "id": "docs/content/docs/agents/channels.md#e9c6d977ab3b",
-    "label": "server/agents/support.ts",
-    "error": "TS2769 No overload matches this call."
   },
   {
     "id": "docs/content/docs/agents/build-a-chat-app.md#04d5b39f0192",

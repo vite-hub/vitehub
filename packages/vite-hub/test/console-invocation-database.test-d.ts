@@ -27,3 +27,13 @@ it("requires D1 derived insert columns and preserves nullable libSQL reads", () 
   expectTypeOf<Libsql["schema"]["invocations"]["$inferSelect"]["search"]>().toEqualTypeOf<string | null>()
   expectTypeOf<Libsql["schema"]["invocations"]["$inferSelect"]["summary"]>().toEqualTypeOf<Omit<AgentInvocationSummary, "cursor"> | null>()
 })
+
+it("queries the journal of either driver without narrowing", () => {
+  // SAFETY: This type-only fixture is never evaluated; inputCommands() handlers receive this shape.
+  const { db, schema } = {} as ConsoleInvocationsDatabase
+  const latest = db
+    .select({ agentName: schema.invocations.agentName, id: schema.invocations.id })
+    .from(schema.invocations)
+    .limit(1)
+  expectTypeOf(latest).resolves.toEqualTypeOf<{ agentName: string, id: string }[]>()
+})

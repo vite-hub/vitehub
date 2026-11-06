@@ -143,6 +143,22 @@ Use `driver: codexDriver()` or `driver: claudeCodeDriver()` for the defaults, in
 
 Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/agents/ai-gateways.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
 
+The Agent reads the Codex `auth.json` from a Server Env secret:
+
+```ts
+// vite.config.ts
+import { env } from "@vite-hub/env/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  env: {
+    server: {
+      codexAuthJson: env({ secret: true, source: env.source("CODEX_AUTH_JSON") }),
+    },
+  },
+});
+```
+
 ```ts
 // server/agents/codex/agent.ts
 import { codexDriver, defineAgent } from "@vite-hub/agent";

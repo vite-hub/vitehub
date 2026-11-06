@@ -10,9 +10,8 @@ import { createConsoleUsageIndex } from "./usage-index.ts"
 import type { AgentInvocationRecord, AgentInvocationStore, AgentInvocationSummary } from "@vite-hub/agent"
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"
+import type { AnySQLiteColumn, BaseSQLiteDatabase, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
 import type { SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy"
-import type { LibSQLDatabase } from "drizzle-orm/libsql"
-import type { AnySQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 type ConsoleInvocationColumn<Data, NotNull extends boolean, HasDefault extends boolean = false> = AnySQLiteColumn<{
@@ -71,15 +70,23 @@ const consoleD1InvocationSchema: { invocations: typeof consoleD1InvocationsTable
   invocations: consoleD1InvocationsTable,
 }
 
+/**
+ * Drizzle over the Console journal of either driver. Both are async SQLite databases with the same columns, so one type
+ * queries both: a union of the two clients has no callable `select()`. Reads use the libSQL columns, where `search` and
+ * `summary` can be null. `schema` keeps the exact columns of each driver for inserts.
+ */
+export type ConsoleInvocationsClient = BaseSQLiteDatabase<"async", unknown, typeof consoleInvocationSchema>
+  & Pick<SqliteRemoteDatabase<typeof consoleInvocationSchema>, "batch">
+
 export type ConsoleInvocationsDatabase = {
+  db: ConsoleInvocationsClient
+} & ({
   driver: "libsql"
-  db: LibSQLDatabase<typeof consoleInvocationSchema>
   schema: typeof consoleInvocationSchema
 } | {
   driver: "d1"
-  db: SqliteRemoteDatabase<typeof consoleD1InvocationSchema>
   schema: typeof consoleD1InvocationSchema
-}
+})
 
 export interface ConsoleLibsqlJournal {
   database: ConsoleInvocationsDatabase
@@ -119,6 +126,7 @@ export interface ConsoleD1Database extends AgentInvocationD1Database {
 
 /** Drizzle over the D1 Console journal. `database` returns the migrated binding of the current Worker request. */
 export function createConsoleD1Database(database: () => Promise<ConsoleD1Database>): ConsoleInvocationsDatabase {
+  // The Drizzle schema only types relational reads, so the D1 client reads with the shared, nullable columns.
   const db = drizzleRemote(async (query, parameters, method) => {
     const binding = await database()
     const statement = binding.prepare(query).bind(...parameters)
@@ -131,7 +139,7 @@ export function createConsoleD1Database(database: () => Promise<ConsoleD1Databas
       const rows = (result.results ?? []).map(row => Object.values(row))
       return { rows: queries[index]!.method === "get" ? rows[0]! : rows }
     })
-  }, { schema: consoleD1InvocationSchema })
+  }, { schema: consoleInvocationSchema })
   // D1 cannot keep Drizzle's separate BEGIN/query/COMMIT calls in one transaction.
   db.transaction = async () => {
     throw viteHubErrorDiagnostics.VITE_HUB_R0123({ message: "[vitehub] The D1 Console journal does not support db.transaction(). Use db.batch() for atomic writes." })
