@@ -56,7 +56,8 @@ function startOf(module: unknown): ViteHubPageToolModule["default"] | undefined 
 //
 // The pill docks to an edge of the screen, like the floating frame of Nuxt and Vite DevTools: `edge` names the edge and
 // `--at` the place along it, from 0 (left or top end) to 100 (right or bottom end). Expanded, the pill sits 16px from
-// the edge and stays 16px inside both ends. On the left and right edges its buttons stack. Collapsed, the glass is the
+// the edge and stays 16px inside both ends. On the left and right edges the mark and the exit button share the first
+// row, and the tools stack under them, aligned at the left (upstream #3531). Collapsed, the glass is the
 // ViteHub hexagon (24px high, the mark's 20:18; 40px on touch screens), 2px from the edge, so it covers almost nothing
 // of the page. The bar keeps its layout and only its clip changes, so the morph never reflows: 12 clip points go from
 // the bar to the hexagon with softened corners, at the center of the bar, while the bar moves so that the hexagon lands
@@ -76,7 +77,7 @@ const along = (size: string) => `calc(var(--start) + ${size} / 2 + (100% - var(-
 const pillStyles = `:host{all:initial;position:fixed;z-index:2147483001;pointer-events:none;filter:drop-shadow(0 8px 24px rgb(0 0 0/25%));color-scheme:dark;font:500 12px/1 ui-sans-serif,system-ui,sans-serif;color:#d4d4d4;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;--vitehub-pill-text:#d4d4d4;--vitehub-pill-strong:#fafafa;--vitehub-pill-muted:#a3a3a3;--vitehub-pill-hover:rgb(255 255 255/8%);--vitehub-pill-on:#fafafa;--vitehub-pill-on-text:#0a0a0a;--vitehub-pill-line:rgb(255 255 255/12%);--vitehub-pill-surface:#111;--vitehub-pill-flow:row;--vitehub-pill-ease:cubic-bezier(.32,.72,0,1);--vitehub-hex-h:24px;--vitehub-hex-w:calc(var(--vitehub-hex-h) * 10 / 9);--vitehub-pill-morph:280ms;--vitehub-pill-fade:opacity 160ms ease-out 80ms,visibility 0s;--vitehub-pill-fade-end:opacity 160ms ease-out 120ms,visibility 0s;--at:50;--margin:16px;--safe-top:env(safe-area-inset-top,0px);--safe-right:env(safe-area-inset-right,0px);--safe-bottom:env(safe-area-inset-bottom,0px);--safe-left:env(safe-area-inset-left,0px);transition-property:left,top,right,bottom,translate;transition-duration:var(--vitehub-pill-morph);transition-timing-function:var(--vitehub-pill-ease);transition-delay:var(--vitehub-pill-wait,0s)}
 :host([collapsed]){--margin:2px;--vitehub-pill-morph:240ms;--vitehub-pill-wait:40ms;--vitehub-pill-fade:opacity 80ms ease-out,visibility 0s 80ms;--vitehub-pill-fade-end:opacity 40ms ease-out,visibility 0s 40ms}
 :host(:is([edge=top],[edge=bottom])){left:${along("0px")};--start:max(var(--margin),var(--safe-left));--end:max(var(--margin),var(--safe-right));--x:calc(var(--at) * -1%)}
-:host(:is([edge=left],[edge=right])){top:${along("0px")};--start:max(var(--margin),var(--safe-top));--end:max(var(--margin),var(--safe-bottom));--y:calc(var(--at) * -1%);--vitehub-pill-flow:column}
+:host(:is([edge=left],[edge=right])){top:${along("0px")};--start:max(var(--margin),var(--safe-top));--end:max(var(--margin),var(--safe-bottom));--y:calc(var(--at) * -1%);--vitehub-pill-flow:column;--vitehub-pill-justify:flex-start;--vitehub-pill-inset:8px}
 :host([edge=bottom]){bottom:max(16px,var(--safe-bottom))}
 :host([edge=top]){top:max(16px,var(--safe-top))}
 :host([edge=right]){right:max(16px,var(--safe-right))}
@@ -90,18 +91,20 @@ const pillStyles = `:host{all:initial;position:fixed;z-index:2147483001;pointer-
 :host{translate:var(--x,0) var(--y,0)}
 :host([dragging]){transition:none;cursor:grabbing;user-select:none;-webkit-user-select:none}
 div{position:relative;box-sizing:border-box;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);overflow:auto;scrollbar-width:none;display:flex;flex-direction:var(--vitehub-pill-flow);align-items:center;gap:8px;padding:4px;border:1px solid var(--vitehub-pill-line);border-radius:12px;background:rgb(17 17 17/92%);pointer-events:auto;clip-path:${pillBar};transition:clip-path var(--vitehub-pill-morph) var(--vitehub-pill-ease) var(--vitehub-pill-wait,0s),background-color 150ms ease-out,scale 150ms ease-out}
-:host(:is([edge=left],[edge=right])) div{align-items:stretch}
+:host(:is([edge=left],[edge=right])) div{display:grid;grid-template-columns:auto 1fr;align-items:stretch;gap:4px 2px}
 :host([collapsed]) div{clip-path:${pillHexagon}}
 @media(hover:hover){:host([collapsed]) div:hover{background:rgb(38 38 38/94%)}}
 :host([collapsed]) div:active{scale:.96}
 :host([dragging]) div{transition:none;scale:none}
 ::slotted(*){flex-shrink:0;display:flex;flex-direction:var(--vitehub-pill-flow);align-items:center;gap:2px;transition:var(--vitehub-pill-fade)}
-:host(:is([edge=left],[edge=right])) ::slotted(*){align-items:stretch}
+:host(:is([edge=left],[edge=right])) ::slotted(*){grid-column:1/-1;align-items:stretch;padding-top:4px;border-top:1px solid var(--vitehub-pill-line)}
 ::slotted([hidden]){display:none!important}
 :host([collapsed]) ::slotted(*),:host([collapsed]) .exit{opacity:0;visibility:hidden}
 ${viteHubPillButtonStyles}
-button{flex-shrink:0;padding:0}
+button{flex-shrink:0;padding:0;justify-content:center}
 .exit{position:sticky;right:0;bottom:0;transition:background-color 150ms,color 150ms,scale 150ms,var(--vitehub-pill-fade-end)}
+:host(:is([edge=left],[edge=right])) .mark{justify-self:start}
+:host(:is([edge=left],[edge=right])) .exit{grid-area:1/2;justify-self:end;top:0;bottom:auto}
 .mark{position:sticky;left:0;top:0;z-index:1;cursor:grab;touch-action:none}
 :host([dragging]) .mark{cursor:grabbing}
 .mark,.mark[aria-expanded=true]{background:none;color:var(--vitehub-pill-strong)}

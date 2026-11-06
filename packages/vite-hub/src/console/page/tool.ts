@@ -60,7 +60,13 @@ const start: ViteHubPageToolModule["default"] = (context) => {
   let loading: HTMLElement | undefined
   let loadTimer: ReturnType<typeof setTimeout> | undefined
   const panel = context.createWindow({ id: `${base}:${tool.id}`, title: tool.label, trigger: button, colorScheme: appearance, href: () => consolePageUrl(base, route) })
+  // Content follows the page: it opens on the document of the page behind it, and the page goes to the document that is
+  // open in the editor (see `followDocument`).
+  let pageDocument: () => PageDocument | undefined = () => undefined
+  const follow = isContent ? followDocument(base, signal) : undefined
   const open = (path?: string) => {
+    const shown = pageDocument()
+    if (!path && !frame && shown && shown.state !== "deleted") path = documentRoute(shown)
     if (path) {
       const target = new URL(`${base}${path}`, location.origin)
       if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\") || target.origin !== location.origin || !target.pathname.startsWith(`${base}/`)) return
@@ -115,6 +121,7 @@ const start: ViteHubPageToolModule["default"] = (context) => {
     if (data.type === "vitehub:route" && "path" in data && typeof data.path === "string" && data.path.startsWith("/") && !data.path.startsWith("//")) {
       route = data.path
       try { sessionStorage.setItem(key, route) } catch {}
+      follow?.(route)
     }
   }, { signal })
   window.addEventListener("beforeunload", event => { if (dirty) event.preventDefault() }, { signal })
@@ -181,7 +188,7 @@ const start: ViteHubPageToolModule["default"] = (context) => {
       stop(false)
     }, { capture: true, signal })
     signal.addEventListener("abort", () => { mutations.disconnect(); stop(true); style.remove() }, { once: true })
-    draftSwitch(base, shadow, signal)
+    pageDocument = draftSwitch(base, shadow, signal)
   }
 }
 /** The Console RPC header. It matches `consoleRpcHeader`, which the page tool does not import to stay small. */
@@ -194,8 +201,70 @@ export interface PageDocument {
   state: "draft" | "published" | "changed" | "deleted"
 }
 
+/** The Content route of a document in the Console. */
+function documentRoute(document: Pick<PageDocument, "collection" | "id">): string {
+  return `/content/${encodeURIComponent(document.collection)}/${document.id.split("/").map(encodeURIComponent).join("/")}`
+}
+
+/** The document of a Content route, such as `/content/en/guides/visa?preview`, or undefined for a list or another page. */
+export function routeDocument(route: string): { collection: string, id: string } | undefined {
+  const match = /^\/content\/([^/?#]+)\/([^?#]+)/.exec(route)
+  if (!match) return
+  try {
+    const id = match[2]!.replace(/\/+$/, "").split("/").map(decodeURIComponent).join("/")
+    return id ? { collection: decodeURIComponent(match[1]!), id } : undefined
+  }
+  catch { return undefined }
+}
+
+/**
+ * The router of a Vue app on the page, such as Nuxt's, found on the element that the app is mounted on. A hydrated app
+ * has no `data-v-app`, so the usual mount points and the children of the body are tried too.
+ */
+function vueRouter(): { push: (path: string) => unknown } | undefined {
+  const candidates = [document.getElementById("__nuxt"), document.getElementById("app"), ...document.querySelectorAll("[data-v-app]"), ...document.body.children]
+  for (const element of candidates) {
+    if (!element) continue
+    const app: unknown = Reflect.get(element, "__vue_app__")
+    const properties: unknown = app && typeof app === "object" ? Reflect.get(Reflect.get(app, "config") ?? {}, "globalProperties") : undefined
+    const router: unknown = properties && typeof properties === "object" ? Reflect.get(properties, "$router") : undefined
+    const push: unknown = router && typeof router === "object" ? Reflect.get(router, "push") : undefined
+    if (push instanceof Function) return { push: (path: string) => Reflect.apply(push, router, [path]) }
+  }
+}
+
+/**
+ * Moves the page behind the Content window to the page of the document that the editor opens, so the editor and the
+ * page show the same thing. It asks Content for the document's `url`, and does nothing for a document without a page on
+ * this origin or a page that is already open. A Vue app's router changes the page in place; any other page loads it.
+ */
+export function followDocument(base: string, signal: AbortSignal): (route: string) => void {
+  let last: string | undefined
+  let pending: AbortController | undefined
+  return (route) => {
+    const opened = routeDocument(route)
+    const key = opened && `${opened.collection}\u0000${opened.id}`
+    if (key === last) return
+    last = key
+    pending?.abort()
+    if (!opened || signal.aborted) return
+    const controller = new AbortController()
+    pending = controller
+    signal.addEventListener("abort", () => controller.abort(), { once: true, signal: controller.signal })
+    void documentAction(base, "get", opened, controller.signal).then((value) => {
+      const url: unknown = value && typeof value === "object" ? Reflect.get(value, "url") : undefined
+      if (controller.signal.aborted || String(url) !== url || !url) return
+      const target = new URL(url, location.origin)
+      if (target.origin !== location.origin || target.pathname === location.pathname) return
+      const router = vueRouter()
+      if (router) void Promise.resolve(router.push(`${target.pathname}${target.search}${target.hash}`)).catch(() => location.assign(target.href))
+      else location.assign(target.href)
+    }, () => {})
+  }
+}
+
 /** Calls one Content document action over the Console RPC below `base`, the Console mount such as `/_vitehub`. */
-async function documentAction(base: string, action: "preview" | "resolve", body: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
+async function documentAction(base: string, action: "get" | "preview" | "resolve", body: Record<string, unknown>, signal: AbortSignal): Promise<unknown> {
   const response = await fetch(`${base}/rpc/__call`, {
     body: JSON.stringify({ operation: "documents.action", input: { action, body, section: "content" } }),
     cache: "no-store",
@@ -377,12 +446,12 @@ function draftBanner(signal: AbortSignal): () => void {
 }
 
 /**
- * The draft view of the Content segment. On a live page whose document has an unpublished draft, the pill shows
+ * The draft view of the Content segment, which returns the document of the page once it is known. On a live page whose document has an unpublished draft, the pill shows
  * **View draft**. It posts the preview form of that one document to this page, as the side browser of the editor does,
  * so the token stays in the form body and only this browser sees the draft. The draft page shows a banner instead,
  * with the changes marked and **Back to live**. Client-side navigation resolves the next page again.
  */
-export function draftSwitch(base: string, shadow: ShadowRoot, signal: AbortSignal): void {
+export function draftSwitch(base: string, shadow: ShadowRoot, signal: AbortSignal): () => PageDocument | undefined {
   const appBase = base.replace(/\/_vitehub$/, "")
   const view = document.createElement("button")
   view.type = "button"
@@ -474,6 +543,7 @@ export function draftSwitch(base: string, shadow: ShadowRoot, signal: AbortSigna
   window.addEventListener("popstate", navigated, { signal })
   render()
   void refresh()
+  return () => current
 }
 
 export default start

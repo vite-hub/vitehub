@@ -15,4 +15,6 @@ export const overlayAliases = [
   { find: /^@vite-hub\/ui\/comments$/, replacement: resolve(ui, "src/comments.ts") },
   { find: /^@vite-hub\/ui\/headless$/, replacement: resolve(ui, "src/headless.ts") },
   { find: /^@vite-hub\/comments\/client$/, replacement: resolve(root, "src/client.ts") },
+  // The pill's button styles come from the internal sources, so a change there reaches the segment in the same build.
+  { find: /^@vite-hub\/internal\/runtime\/(.+)$/, replacement: `${resolve(root, "../internal/src/runtime")}/$1.ts` },
 ]

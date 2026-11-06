@@ -257,9 +257,9 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   }
 
   const hasText = (): boolean => (draft.value?.body.trim().length ?? 0) > 0 || hasDirtyComposer(uiRoot());
-  const block = (): void => {
+  const block = (escape = false): void => {
     blocked.value++;
-    shakeDirtyComposers(uiRoot());
+    shakeDirtyComposers(uiRoot(), escape);
   };
 
   function enter(): void {
@@ -292,8 +292,8 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     hoverId.value = null;
     return true;
   }
-  function exit(): void {
-    if (hasText()) return block();
+  function exit(escape = false): void {
+    if (hasText()) return block(escape);
     cancelDraft();
     close();
     active.value = false;
@@ -410,7 +410,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     const origin = path[0];
     if (event.key === "Escape") {
       if (path.some(element => element.matches("[data-slot='comment-composer']"))) return;
-      if (active.value || draft.value || openId.value) exit();
+      if (active.value || draft.value || openId.value) exit(true);
       return;
     }
     if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || isEditable(path)) return;

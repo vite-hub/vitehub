@@ -323,7 +323,7 @@ function resolveText(anchor: TextAnchor, element: Element): TextResolution | und
   const to = boundary(nodes, start + anchor.exact.length, true)
   const own = boxOf(element)
   let rect = own
-  let first = own
+  let last = own
   if (from && to) {
     const doc = ownerDocument(element) ?? document
     const range = doc.createRange()
@@ -333,12 +333,14 @@ function resolveText(anchor: TextAnchor, element: Element): TextResolution | und
       const { left, top, width, height } = range.getBoundingClientRect()
       if (visible({ left, top, width, height })) rect = { left, top, width, height }
     }
-    const line = typeof range.getClientRects === "function" ? range.getClientRects()[0] : undefined
-    first = line && visible(line) ? { left: line.left, top: line.top, width: line.width, height: line.height } : rect
+    const lines = typeof range.getClientRects === "function" ? [...range.getClientRects()].filter(visible) : []
+    const line = lines.at(-1)
+    last = line ? { left: line.left, top: line.top, width: line.width, height: line.height } : rect
   }
   if (!visible(rect)) return undefined
-  const x = first.left
-  const y = first.top
+  // The pin follows the quote: at its end, in the middle of its last line.
+  const x = last.left + last.width
+  const y = last.top + last.height / 2
   return {
     position: { clipped: isClipped(element, x, y), detached: false, kind: "text", x, y, width: rect.width, height: rect.height, element },
     score: match.score,
@@ -365,6 +367,31 @@ function isClipped(element: Element, x: number, y: number): boolean {
     if (x < box.left - 1 || x > box.left + box.width + 1 || y < box.top - 1 || y > box.top + box.height + 1) return true
   }
   return false
+}
+
+/**
+ * The range of the quote of a text anchor on the page, for a highlight. It finds the quote as `resolveAnchor()` does,
+ * and returns `undefined` when that would detach the anchor.
+ */
+export function anchorRange(anchor: TextAnchor, root: ParentNode = document): Range | undefined {
+  let best: { range: Range, score: number, ambiguous: boolean } | undefined
+  for (const element of lookup(root, anchor.selector)) {
+    const nodes = textNodes(element)
+    const match = findQuote(nodes.map(node => node.data).join(""), anchor)
+    const from = match && boundary(nodes, match.start, false)
+    const to = match && boundary(nodes, match.start + anchor.exact.length, true)
+    if (!match || !from || !to) continue
+    if (best && match.score === best.score) {
+      best.ambiguous = true
+      continue
+    }
+    if (best && match.score < best.score) continue
+    const range = (ownerDocument(element) ?? document).createRange()
+    range.setStart(from.node, from.offset)
+    range.setEnd(to.node, to.offset)
+    best = { range, score: match.score, ambiguous: match.ambiguous }
+  }
+  return best && !best.ambiguous ? best.range : undefined
 }
 
 /**
