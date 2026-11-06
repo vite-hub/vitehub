@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // A fake `wrangler` for host credential tests. It records its arguments and prints a recorded fixture.
 import { appendFileSync, existsSync, readFileSync } from "node:fs"
+import { dirname, resolve, sep } from "node:path"
 
 const args = process.argv.slice(2)
 appendFileSync(process.env.FAKE_WRANGLER_LOG, `${JSON.stringify(args)}\n`)
@@ -17,10 +18,15 @@ if (mode === "project-state") {
   for (const file of envFiles) {
     if (existsSync(file)) projectToken = readFileSync(file, "utf8").match(/^CLOUDFLARE_API_TOKEN=(.+)$/m)?.[1] ?? projectToken
   }
-  const token = process.env.CLOUDFLARE_API_TOKEN ?? projectToken ?? "fake-oauth-token-from-wrangler"
   const configFile = args.includes("--config") ? args[args.indexOf("--config") + 1] : "wrangler.json"
   if (existsSync(configFile)) JSON.parse(readFileSync(configFile, "utf8"))
-  process.stdout.write(JSON.stringify(command === "auth token" ? { type: "oauth", token } : { loggedIn: true, accounts: [{ id: token === "project-token" ? "project-account" : "fake-account-id" }] }))
+  // Wrangler resolves activated profiles from the config directory, including its ancestors.
+  const profileDirectory = process.env.FAKE_WRANGLER_PROFILE_DIRECTORY
+  const configDirectory = dirname(resolve(configFile))
+  const hasBoundProfile = profileDirectory && (configDirectory === profileDirectory || configDirectory.startsWith(`${profileDirectory}${sep}`))
+  const token = process.env.CLOUDFLARE_API_TOKEN ?? projectToken ?? (hasBoundProfile ? "bound-profile-token" : "fake-oauth-token-from-wrangler")
+  const accountId = token === "project-token" ? "project-account" : hasBoundProfile ? "bound-profile-account" : "fake-account-id"
+  process.stdout.write(JSON.stringify(command === "auth token" ? { type: "oauth", token } : { loggedIn: true, accounts: [{ id: accountId }] }))
   process.exit(0)
 }
 const fixture = command === "auth token" ? (mode === "api-key" ? "auth-token-api-key.json" : "auth-token-oauth.json") : command === "whoami --json" ? "whoami.json" : undefined

@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -101,6 +101,24 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
     const result = await resolveHostCredentials("cloudflare", { cwd: dir, env: env({ CLOUDFLARE_API_TOKEN: "env-token", FAKE_WRANGLER_MODE: "project-state" }) })
 
     expect(result).toEqual({ ok: true, host: "cloudflare", source: "env", token: "env-token", accountId: "fake-account-id" })
+  })
+
+  it("preserves an ancestor's Wrangler profile while ignoring project env and config", async () => {
+    installFakeWrangler()
+    const project = join(dir, "project")
+    const cwd = join(project, "nested")
+    mkdirSync(cwd, { recursive: true })
+    writeFileSync(join(cwd, ".env"), "CLOUDFLARE_API_TOKEN=project-token\n")
+    writeFileSync(join(cwd, ".env.local"), "CLOUDFLARE_API_TOKEN=project-token\n")
+    writeFileSync(join(cwd, "wrangler.json"), "invalid project config")
+
+    const result = await resolveHostCredentials("cloudflare", {
+      cwd,
+      env: env({ FAKE_WRANGLER_MODE: "project-state", FAKE_WRANGLER_PROFILE_DIRECTORY: project }),
+    })
+
+    expect(result).toEqual({ ok: true, host: "cloudflare", source: "host-cli", token: "bound-profile-token", accountId: "bound-profile-account" })
+    expect(calls()).toEqual([["auth", "token", "--json", ...isolatedFlags], ["whoami", "--json", ...isolatedFlags]])
   })
 
   it("does not treat a Global API Key as a bearer token", async () => {

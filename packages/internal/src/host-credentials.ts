@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 export type CredentialHost = "cloudflare" | "vercel" | "netlify" | "deno"
@@ -24,6 +23,7 @@ export interface HostCliRunResult {
 export type HostCliRun = (command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv }) => Promise<HostCliRunResult>
 
 export interface HostCredentialsContext {
+  /** Directory whose activated Wrangler profile is used. Defaults to the process cwd. */
   cwd?: string
   /** Only this object is read. A project `.env` file is never read. */
   env: NodeJS.ProcessEnv
@@ -120,8 +120,9 @@ async function runJson(context: HostCredentialsContext, command: string, args: r
   let cwd: string | undefined
   try {
     // Wrangler loads project .env files before dispatch and searches ancestors for config.
-    // Explicit empty files prevent both discoveries, even if the temp directory has a config above it.
-    cwd = await mkdtemp(join(tmpdir(), "vitehub-wrangler-auth-"))
+    // Keep the empty config under the caller's directory so its activated profile is inherited.
+    // Explicit empty files still prevent project env and config discovery.
+    cwd = await mkdtemp(join(context.cwd ?? process.cwd(), ".vitehub-wrangler-auth-"))
     await writeFile(join(cwd, ".env"), "")
     await writeFile(join(cwd, "wrangler.json"), "{}")
     const result = await run(command, [...args, "--env-file", ".env", "--config", "wrangler.json"], { cwd, env: context.env })
