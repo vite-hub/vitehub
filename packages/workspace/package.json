@@ -56,6 +56,11 @@
       "import": "./dist/blob-database.js",
       "default": "./dist/blob-database.js"
     },
+    "./checkout": {
+      "types": "./dist/checkout.d.ts",
+      "import": "./dist/checkout.js",
+      "default": "./dist/checkout.js"
+    },
     "./cloudflare": {
       "types": "./dist/cloudflare.d.ts",
       "import": "./dist/cloudflare.js",
