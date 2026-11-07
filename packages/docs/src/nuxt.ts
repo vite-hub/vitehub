@@ -413,6 +413,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     // Nuxt watches the app folder, and the content folder usually sits beside it, so the module watches it in development.
     if (nuxt.options.dev) {
+      nuxt.options.watch = [...new Set([...(nuxt.options.watch ?? []), examplesDir])]
       let timer: ReturnType<typeof setTimeout> | undefined
       let regeneration = Promise.resolve()
       let closed = false

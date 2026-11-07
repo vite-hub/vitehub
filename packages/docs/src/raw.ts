@@ -810,6 +810,7 @@ const presentationDirectives = new Set([
   "support-matrix",
   // Humans expand a collapsible; agents get its content inline.
   "collapsible",
+  "component-preview",
   "example",
   "examples",
   "important",
@@ -855,6 +856,8 @@ function directiveLabel(name: string, attributes: string | undefined) {
     const label = attributes?.match(/\blabel=(?:"([^"]+)"|'([^']+)')/)?.slice(1).find(Boolean);
     return label ? `### ${label}` : "";
   }
+
+  if (name === "component-preview") return "_Interactive preview available on the rendered documentation page._";
 
   // A Markdown example keeps its source, which is the example. A Vue example is a file the copy can't show.
   if (name === "example") {

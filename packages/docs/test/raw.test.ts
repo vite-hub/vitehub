@@ -91,6 +91,11 @@ describe("toRawMarkdown", () => {
     expect(raw).not.toContain("::example")
   })
 
+  it("marks existing component previews in raw Markdown", () => {
+    const raw = convert("::component-preview{name=\"ButtonExample\"}\n::")
+    expect(raw).toBe("_Interactive preview available on the rendered documentation page._\n")
+  })
+
   it("keeps site-relative links relative without a site URL", () => {
     expect(toRawMarkdown("[Get started](/docs/kv/get-started)")).toBe("[Get started](/docs/kv/get-started)\n")
     expect(toRawMarkdown("[Get started](/docs/kv/get-started)", { siteUrl: "https://example.com/" })).toBe("[Get started](https://example.com/docs/kv/get-started)\n")
