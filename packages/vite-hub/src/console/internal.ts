@@ -1,5 +1,6 @@
 import { createConsoleProjectRegistry, type ConsoleProjectRegistry } from "./project-registry.ts"
 import type { ServerEnvDescription, ServerEnvInspection } from "@vite-hub/env"
+import type { EnvBridgeRequestOptions } from "@vite-hub/env/http"
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
@@ -61,7 +62,7 @@ type ConsoleDefinitionsByRoot = ConsoleProjectRegistry<ConsoleSectionCatalog>
 
 export type ConsoleEnvInspection = ServerEnvDescription & {
   inspect?: (event: ConsoleRequestEvent & ViteHubContext) => Promise<ServerEnvInspection>
-  manage?: (request: Request) => Promise<Response>
+  manage?: (request: Request, options?: EnvBridgeRequestOptions) => Promise<Response>
 }
 
 export interface ConsoleDatabaseInspection {

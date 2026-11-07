@@ -1,8 +1,6 @@
 import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises"
-import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { join } from "node:path"
 
 import { H3, H3Event } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -61,19 +59,13 @@ describe("Blob response transforms", () => {
     expect(missing.res.headers.has("x-frame-options")).toBe(false)
   })
 
-  it("serves Nuxt H3 v1 requests with cache validators, HEAD, and byte ranges", async () => {
-    const h3 = join(dirname(createRequire(import.meta.resolve("nitropack/package.json")).resolve("h3/package.json")), "dist/index.mjs")
-    const { createApp, toWebHandler } = await import(pathToFileURL(h3).href) as {
-      createApp: () => { use: (path: string, handler: (event: Parameters<BlobStorage["serve"]>[0]) => unknown) => void }
-      toWebHandler: (app: unknown) => (request: Request) => Promise<Response>
-    }
-    const app = createApp()
-    app.use("/photo", async (event) => {
+  it("serves H3 requests with cache validators, HEAD, and byte ranges", async () => {
+    const app = new H3().all("/photo", async (event) => {
       const [error, body] = await storage.serve(event, "private/original")
       if (error) throw error
-      return body
+      return body ?? new Response(null, { status: 304 })
     })
-    const fetch = toWebHandler(app)
+    const fetch = (request: Request) => app.fetch(request)
     const response = await fetch(new Request("https://example.test/photo"))
     expect(response.status).toBe(200)
     expect(await response.text()).toBe("public:private-camera-data")

@@ -180,6 +180,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/email/operations",
   "@vite-hub/email/runtime/console",
   "@vite-hub/kv/runtime/cloudflare-kv",
+  "@vite-hub/kv/runtime/cloudflare-request-env",
   "@vite-hub/kv/runtime/nitro-cache",
   "@vite-hub/kv/operations",
   "@vite-hub/kv/runtime/upstash-driver",
@@ -368,6 +369,7 @@ describe("framework package contract", () => {
       "./logs/source",
       "./nuxt",
       "./operations",
+      "./skills",
       "./source/vite",
       "./task",
       "./ui/nuxt",
@@ -478,12 +480,7 @@ describe("framework package contract", () => {
     expect(consolePage).toContain("AgentInvocationList");
     expect(consolePage).toContain('aria-label="Filter sessions"');
     expect(consolePage).toContain("selectedCapabilityId");
-    expect(consolePage).not.toContain(':workspace-base="`${hostBase}/api/invocations`"');
-    expect(
-      consolePage.match(
-        /:workspace-base="`\$\{hostBase\}\/api\/_vitehub\/console\/invocations`"/g,
-      ),
-    ).toHaveLength(3);
+    expect(consolePage.match(/:workspace-base="apiBase"/g)).toHaveLength(3);
     expect(consolePage.match(/:workspace-inspectable="true"/g)).toHaveLength(2);
     expect(consolePage).toContain(
       'const view = target === "agent" ? "details" : "workspace";',

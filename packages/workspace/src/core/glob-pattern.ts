@@ -34,42 +34,8 @@ function boundedUtf8Bytes(value: string, limit: number): number {
   return bytes
 }
 
-function findClosingBrace(pattern: string, opening: number): number {
-  let depth = 0
-  for (let index = opening; index < pattern.length; index++) {
-    if (pattern[index] === "\\") {
-      index++
-      continue
-    }
-    if (pattern[index] === "{") depth++
-    else if (pattern[index] === "}" && --depth === 0) return index
-  }
-  return -1
-}
-
-function splitBraceParts(content: string, separator: "," | ".."): string[] {
-  const parts: string[] = []
-  let depth = 0
-  let start = 0
-  for (let index = 0; index < content.length; index++) {
-    if (content[index] === "\\") {
-      index++
-      continue
-    }
-    if (content[index] === "{") depth++
-    else if (content[index] === "}") depth--
-    else if (depth === 0 && content.startsWith(separator, index)) {
-      parts.push(content.slice(start, index))
-      index += separator.length - 1
-      start = index + 1
-    }
-  }
-  parts.push(content.slice(start))
-  return parts
-}
-
 function sequenceComplexity(content: string, limit: number): number | undefined {
-  const parts = splitBraceParts(content, "..")
+  const parts = content.split("..")
   if (parts.length < 2 || parts.length > 3) return undefined
 
   const [rawStart, rawEnd, rawStep] = parts
@@ -96,16 +62,12 @@ function sequenceComplexity(content: string, limit: number): number | undefined 
 function patternComplexity(pattern: string, limit: number): number {
   let complexity = 1
   for (let index = 0; index < pattern.length; index++) {
-    if (pattern[index] === "\\") {
-      index++
-      continue
-    }
     if (pattern[index] === "}") {
       return limit + 1
     }
     if (pattern[index] !== "{") continue
 
-    const closing = findClosingBrace(pattern, index)
+    const closing = pattern.indexOf("}", index + 1)
     if (closing === -1) return limit + 1
     const content = pattern.slice(index + 1, closing)
     // brace-expansion can recover an empty group against later brace-like text
@@ -114,7 +76,7 @@ function patternComplexity(pattern: string, limit: number): number {
     // brace-expansion reparses nested results, so their eventual sequence width
     // cannot be bounded from each brace group independently.
     if (content.includes("{") || content.includes("}")) return limit + 1
-    const alternatives = splitBraceParts(content, ",")
+    const alternatives = content.split(",")
     let braceComplexity: number
     if (alternatives.length > 1) {
       braceComplexity = 0

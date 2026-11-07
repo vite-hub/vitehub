@@ -142,7 +142,7 @@ describe("shared Console navigation layout", () => {
     // A record Schedule runs from its detail panel.
     expect(definitions).toMatch(/<article v-if="selectedRecord"[\s\S]*?<UButton\s+v-if="canRunSelected"[\s\S]*?label="Run now"/)
     expect(definitions).toContain("Boolean(props.scheduleRunBase && registeredOperations.value.includes(\"schedule.run\") && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable))")
-    expect(readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")).toContain('scheduleRunBase: consolePath("/api/_vitehub/console/schedule-run")')
+    expect(readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")).toContain('scheduleRunBase: "/api/_vitehub/console/schedule-run"')
   })
 
   it("opens the Database table route in data mode", () => {

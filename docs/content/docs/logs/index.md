@@ -8,14 +8,17 @@ icon: i-lucide-logs
 ---
 
 ::product-hero{tagline="Structured logs powered by Evlog, with Explorer, Stream, and a data inspector." hosts="Local development, existing backends"}
-  :::code-group
+  :::product-files
   ```ts [vite.config.ts]
   import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'
   import { vitehub } from 'vite-hub'
 
   export default defineConfig({
-    plugins: [vitehub({ preset: 'node', logs: true }), nitro()],
+    plugins: [
+      vitehub({ preset: 'node', logs: true }),
+      nitro(),
+    ],
   })
   ```
   :::
