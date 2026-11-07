@@ -173,6 +173,29 @@ You keep the schedule file. You change the `schedule` option for the host:
 
 For example, on Vercel:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [vercel/nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'vercel', schedule: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vercel/vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', schedule: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vercel/vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -181,6 +204,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'vercel', schedule: true })],
 })
 ```
+:::
+::
 
 The `deno` preset does not support Schedule. [Hosts](/docs/schedule/hosts) shows the output for each host.
 
