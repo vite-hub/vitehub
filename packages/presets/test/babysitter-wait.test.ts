@@ -139,19 +139,19 @@ describe("Babysitter check waits", () => {
     expect(wakeReasons(await deferred(settled), "unknown", policy)).toEqual(["gates-settled"]);
   });
 
-  it("treats a check that runs for half an hour as stuck", async () => {
+  it("treats a check run that runs for eight hours as stuck", async () => {
     const now = Date.parse("2026-10-18T12:00:00Z");
     const running = (startedAt: string) => parked(s => {
       s.checks = { "check_run:1": { id: 1, name: "ci", head_sha: head, status: "in_progress", started_at: startedAt, app: { id: 5 } } };
     });
-    expect(checksStillRunning(await running("2026-10-18T11:45:00Z"), now)).toBe(true);
-    expect(checksStillRunning(await running("2026-10-18T11:29:00Z"), now)).toBe(false);
+    expect(checksStillRunning(await running("2026-10-18T11:29:00Z"), now)).toBe(true);
+    expect(checksStillRunning(await running("2026-10-18T03:59:00Z"), now)).toBe(false);
     // A queued check without a start time still runs.
     expect(checksStillRunning(await parked(s => { s.checks = { "check_run:1": { id: 1, name: "ci", head_sha: head, status: "queued", app: { id: 5 } } } }), now)).toBe(true);
     expect(checksStillRunning(await parked(), now)).toBe(false);
   });
 
-  it("keeps waiting for a check run that waits hours for a runner", async () => {
+  it("keeps waiting for a check run that waits up to a day for a runner", async () => {
     const now = Date.parse("2026-11-07T10:00:00Z");
     // GitHub sets a queued run's started_at when it creates the run. vitehub#3514 had this at 09:50.
     const queued = (status: string, startedAt: string) => parked(s => {
@@ -159,10 +159,8 @@ describe("Babysitter check waits", () => {
     });
     expect(checksStillRunning(await queued("queued", "2026-11-07T08:41:29Z"), now)).toBe(true);
     expect(checksStillRunning(await queued("waiting", "2026-11-07T07:00:00Z"), now)).toBe(true);
-    expect(checksStillRunning(await queued("queued", "2026-11-07T03:59:00Z"), now)).toBe(false);
-    // A run that reached a runner keeps the half-hour limit.
-    expect(checksStillRunning(await queued("in_progress", "2026-11-07T09:29:00Z"), now)).toBe(false);
-    // A pending commit status keeps the half-hour limit.
+    expect(checksStillRunning(await queued("queued", "2026-11-06T09:59:00Z"), now)).toBe(false);
+    // A pending commit status has no GitHub limit and keeps the half-hour one.
     expect(checksStillRunning(await parked(s => { s.checks = {}; s.statuses = { preview: { id: 1, sha: head, context: "preview", state: "pending", created_at: "2026-11-07T09:29:00Z" } } }), now)).toBe(false);
   });
 
