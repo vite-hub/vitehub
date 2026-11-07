@@ -781,6 +781,7 @@ async function applyNitroConfig(
     schedule?: Parameters<typeof vitehub>[0]["schedule"]
     sandboxTask?: Parameters<typeof vitehub>[0]["sandboxTask"]
     workspace?: Parameters<typeof vitehub>[0]["workspace"]
+    vitehubCliDiscovery?: true
   }
   config.root = resolve(nuxt.options.rootDir || process.cwd(), config.root || ".")
   // Filter command-only plugins from both lists without re-evaluating Vite's functional `apply` selection.
@@ -793,6 +794,9 @@ async function applyNitroConfig(
     config[VITEHUB_PROJECT_ROOT] = projectRoot
     config[VITEHUB_APP_BASE_URL] = nuxt.options.app?.baseURL || "/"
     if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
+    // A CLI command loads the project while its dev server may run. Plugins that see the flag do not rewrite the
+    // generated files that the dev server watches, as they do when the CLI resolves a plain Vite config.
+    if (nuxt.options.vitehubCliDiscovery) config.vitehubCliDiscovery = true
   }
   restoreReplayOwnership()
   config.build ??= {}
