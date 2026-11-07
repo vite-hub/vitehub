@@ -1,4 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises"
+import { userInfo } from "node:os"
 import { join, relative, resolve, sep } from "node:path"
 
 import { formatter as poFormatter } from "@lingui/format-po"
@@ -6,7 +7,7 @@ import { formatter as poFormatter } from "@lingui/format-po"
 import { inspectI18n } from "./inspect.ts"
 import { findPreviousTranslations } from "./lineage.ts"
 import { recordsRoot } from "./lingui.ts"
-import { messageId, readRecords, removeRecord, writeRecord } from "./records.ts"
+import { isVisible, messageId, readRecords, removeRecord, saveTranslation } from "./records.ts"
 
 import type { CatalogType, LinguiConfigNormalized } from "@lingui/conf"
 import type { ViteHubCliContext, ViteHubCliContributor } from "@vite-hub/internal/cli"
@@ -19,6 +20,7 @@ interface Flags {
   help: boolean
   json: boolean
   yes: boolean
+  by?: string
   output?: string
   positionals: string[]
 }
@@ -32,6 +34,8 @@ function parseFlags(args: string[]): Flags {
     else if (arg === "--yes" || arg === "-y") flags.yes = true
     else if (arg === "--output" || arg === "-o") flags.output = args[++index]
     else if (arg.startsWith("--output=")) flags.output = arg.slice("--output=".length)
+    else if (arg === "--by") flags.by = args[++index]
+    else if (arg.startsWith("--by=")) flags.by = arg.slice("--by=".length)
     else flags.positionals.push(arg)
   }
   return flags
@@ -93,7 +97,7 @@ function usage(context: ViteHubCliContext, text: string, code = 0): number {
 const usages = {
   status: "vitehub i18n status [--json]",
   export: "vitehub i18n export <locale> [--output <file.po>]",
-  import: "vitehub i18n import <locale> <file.po> [--json]",
+  import: "vitehub i18n import <locale> <file.po> [--by <login>] [--json]",
   prune: "vitehub i18n prune [--yes] [--json]",
 }
 
@@ -144,7 +148,7 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver, work
               catalog[id] = {
                 message: message.message,
                 ...(message.context ? { context: message.context } : {}),
-                translation: records[id]?.translation ?? carried?.record.translation ?? "",
+                translation: records[id] && isVisible(records[id]) ? records[id].text : carried?.record.text ?? "",
                 ...(carried ? { comments: [`Previous source: ${carried.record.source}`], extra: { flags: ["fuzzy"] } } : {}),
                 origin: message.origins.map((origin) => {
                   const index = origin.lastIndexOf(":")
@@ -164,7 +168,7 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver, work
         },
         {
           name: "import",
-          description: "Save the translations of a PO file as records. Messages without a translation stay as they are.",
+          description: "Save the translations of a PO file as records. Messages without a translation stay as they are, and a translation that loses a placeholder is refused.",
           usage: usages.import,
           run: async (args, context) => {
             const flags = parseFlags(args)
@@ -177,10 +181,12 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver, work
             const catalog = await poFormatter().parse(await readFile(file, "utf8"), { locale, sourceLocale: config.sourceLocale, filename: file })
             const root = recordsRoot(config.rootDir)
             const { records } = await readRecords(root, locale)
-            const updatedAt = new Date().toISOString()
+            const by = flags.by || userInfo().username
+            const at = new Date().toISOString()
             let saved = 0
             let unchanged = 0
             let fuzzy = 0
+            const refused: { message: string, problem: string }[] = []
             for (const entry of Object.values(catalog)) {
               if (!entry.message || !entry.translation) continue
               const flags = (entry.extra as { flags?: unknown } | undefined)?.flags
@@ -188,18 +194,18 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver, work
                 fuzzy++
                 continue
               }
-              const id = messageId(entry.message, entry.context)
-              if (records[id]?.translation === entry.translation) {
-                unchanged++
-                continue
-              }
-              await writeRecord(root, locale, { source: entry.message, context: entry.context, translation: entry.translation, review: "edited", updatedAt })
-              saved++
+              const expected = records[messageId(entry.message, entry.context)]?.text ?? null
+              const result = await saveTranslation(root, locale, { message: entry.message, context: entry.context }, entry.translation, { by, at, expected })
+              if (result.ok) saved++
+              else if (result.code === "unchanged") unchanged++
+              else refused.push({ message: entry.message, problem: result.message })
             }
-            const result = { locale, saved, unchanged, fuzzy }
+            const lines = refused.map(entry => `  ${JSON.stringify(entry.message)}: ${entry.problem}`)
             const skipped = fuzzy ? ` Skipped ${fuzzy} fuzzy translations: remove the fuzzy flag after you review them.` : ""
-            context.stdout.write(flags.json ? `${JSON.stringify(result)}\n` : `Saved ${saved} translations to locales/${locale}. ${unchanged} were already saved.${skipped}\n`)
-            return 0
+            context.stdout.write(flags.json
+              ? `${JSON.stringify({ locale, saved, unchanged, fuzzy, refused })}\n`
+              : `Saved ${saved} translations to locales/${locale}. ${unchanged} were already saved.${skipped}\n${refused.length ? `Refused ${refused.length}:\n${lines.join("\n")}\n` : ""}`)
+            return refused.length ? 1 : 0
           },
         },
         {
@@ -212,8 +218,8 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver, work
             const config = resolveConfig(context.rootDir)
             const status = await inspectI18n(config)
             const unused = Object.entries(status.records).flatMap(([locale, records]) =>
-              Object.entries(records).filter(([id]) => !(id in status.messages)).map(([id, record]) => ({ locale, id, source: record.source })))
-            if (flags.yes) for (const record of unused) await removeRecord(recordsRoot(config.rootDir), record.locale, record.id)
+              Object.entries(records).filter(([id]) => !(id in status.messages)).map(([, record]) => ({ locale, hash: record.hash, source: record.source })))
+            if (flags.yes) for (const record of unused) await removeRecord(recordsRoot(config.rootDir), record.locale, record.hash)
             if (flags.json) context.stdout.write(`${JSON.stringify({ deleted: flags.yes, records: unused })}\n`)
             else if (!unused.length) context.stdout.write("Every record belongs to a message in the code.\n")
             else {

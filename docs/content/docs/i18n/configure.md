@@ -171,18 +171,27 @@ export function statusLabel(status: keyof typeof labels) {
 
 ## Translate the messages
 
-The source text is the key. Each translation is one JSON file in `locales/<locale>/` at the project root, so two people who translate different messages never edit the same file:
+The source text is the key. Each translation is one [Diglot](https://github.com/danielroe/diglot) record in `locales/<locale>/segments/` at the project root, so two people who translate different messages never edit the same file:
 
-```json [locales/es/a0413cbe9.json]
+```json [locales/es/segments/52/5220fa743183ff60.json]
 {
+  "hash": "5220fa743183ff60",
   "source": "Deploy your agent",
-  "translation": "Despliega tu agente",
+  "text": "Despliega tu agente",
+  "origin": "human",
   "review": "edited",
-  "updatedAt": "2026-11-06T12:00:00.000Z"
+  "derived": "fresh",
+  "by": "ana",
+  "updatedAt": "2026-11-07T12:00:00.000Z"
 }
 ```
 
-The file name is the message ID, a hash of `source` and `context`. Edit `translation`, not `source`. A record whose `source` does not match its name is skipped, and `status` lists it. `review` is `machine`, `edited`, or `verified`.
+The `locales/` folder is a Diglot translations folder, so `diglot validate` from [`@diglot/cli`](https://www.npmjs.com/package/@diglot/cli) checks it with no ViteHub code. The file name is Diglot's hash of the message. A message with a `context` keeps it in `salt`, and the context is part of the hash. Edit `text`, not `source`. A record whose `source` does not match its hash is skipped, and `status` lists it.
+
+- `origin` is `mt` for a machine translation, `tm` for a translation memory match, or `human`.
+- `review` is `none`, `edited`, `verified`, or `rejected`. A `rejected` translation shows the source text.
+- A translation must keep each positional value of its message, such as `{0}`. A translation that loses one shows the source text, and `import` refuses it.
+- ViteHub saves a translation with Diglot's `editRecord()` and verifies it with `verifyRecord()`, with the text that the person saw as `expected`. When the record has another text now, the change is refused as `stale`.
 
 `status` reads the messages in the code and compares them with the records. It changes no file:
 
@@ -199,14 +208,14 @@ pnpm vitehub i18n status --json
 
 The `missing` count tells a CI job or an Agent which locales need work. `status` exits with `0` also when messages are missing.
 
-Translators who use Poedit or a translation service work with PO files. `export` writes every message of a locale with its translation, and `import` saves the translations of a PO file as records:
+Translators who use Poedit or a translation service work with PO files. `export` writes every message of a locale with its translation, and `import` saves the translations of a PO file as `human` edits. `--by` sets the login in the record, and defaults to the user name of your machine. A translation that loses a placeholder is refused, and `import` then exits with `1`:
 
 ```bash [Terminal]
 pnpm vitehub i18n export es --output es.po
-pnpm vitehub i18n import es es.po
+pnpm vitehub i18n import es es.po --by ana
 ```
 
-When you change the source text of a message, it gets a new ID, and its old record becomes unused. If the new text is close to the old one, with the same context and placeholders, `status` counts the message as `changed`, and `export` gives it the old translation. The entry is marked `fuzzy`, as in gettext, with the old source text in a note:
+When you change the source text of a message, it gets a new ID and a new hash, and its old record becomes unused. If the new text is close to the old one, with the same context and placeholders, `status` counts the message as `changed`, and `export` gives it the old translation. The entry is marked `fuzzy`, as in gettext, with the old source text in a note:
 
 ```po [es.po]
 #. Previous source: Search agents
@@ -235,7 +244,7 @@ By default, translations are files in your repository, and a new translation nee
 vitehub({ i18n: { locales: ['en', 'es'], workspace: 'translations' } })
 ```
 
-The Workspace holds the same records as `locales/`, at `<locale>/<file>.json`. It has two refs:
+The Workspace holds the same Diglot records as `locales/`, at `<locale>/segments/<hh>/<hash>.json`. It has two refs:
 
 - **`draft`** gets every save. The site does not show it.
 - **`published`** is what the site shows. [`useTranslations().publish()`](/docs/i18n/server-api#usetranslations) copies the changed drafts to it in one revision.
@@ -264,7 +273,7 @@ Check out `published`, not `draft`. The build embeds `locales/`, so a draft in `
 - **The server has every locale.** Server code keeps the source text. The server loads the translations of all locales when it starts, so a request never waits for a catalog.
 - **A missing translation shows the source text.** A message that has no translation in a locale shows the text of the source locale.
 
-The build writes the messages that it found to `.vitehub/i18n/manifest.json`, by Vite environment. Do not commit it.
+The build writes the messages that it found to `.vitehub/i18n/manifest.json`, by Vite environment. Each message has its runtime ID as its key and the Diglot `hash` of its record. Do not commit it.
 
 ## Inspect i18n
 

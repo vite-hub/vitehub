@@ -1,12 +1,17 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
 
+import { createRecord, parseRecord } from "@diglot/core"
+import { writeRecord } from "@diglot/store"
 import { compileMessage } from "@lingui/message-utils/compileMessage"
 import { describe, expect, it, vi } from "vitest"
 
 import { createLiveTranslations, readRevisionRecords } from "../src/live.ts"
 import { resolveI18nLocaleConfig } from "../src/locales.ts"
-import { recordPath } from "../src/record-format.ts"
-import { messageId } from "../src/records.ts"
+import { messageSegment, recordPath } from "../src/record-format.ts"
+import { messageId, readRecords } from "../src/records.ts"
 import { configureI18n, getI18n, setLocale, translate } from "../src/runtime.ts"
 import { i18nCatalogResponse, installI18nServer, useTranslations } from "../src/server.ts"
 
@@ -29,7 +34,7 @@ function memoryWorkspace() {
       async open(id) {
         const files = revisions.get(id)!
         return {
-          list: async folder => Object.keys(files).filter(path => path.startsWith(`${folder}/`)).map(path => ({ path, type: "file" })),
+          list: async (folder, options) => Object.keys(files).filter(path => path.startsWith(`${folder}/`) && (options?.recursive || !path.slice(folder.length + 1).includes("/"))).map(path => ({ path, type: "file" })),
           readFile: async path => files[path]!,
         }
       },
@@ -49,8 +54,12 @@ function memoryWorkspace() {
 }
 
 const config = { ...resolveI18nLocaleConfig({ locales: ["en", "es"] }), catalogs: {} }
-const deploy = { id: messageId("Deploy your agent"), message: "Deploy your agent" }
-const note = { id: messageId("Server only note"), message: "Server only note" }
+const deploy = { hash: messageSegment("Deploy your agent").hash, id: messageId("Deploy your agent"), message: "Deploy your agent" }
+const note = { hash: messageSegment("Server only note").hash, id: messageId("Server only note"), message: "Server only note" }
+
+function record(source: string, text: string, context?: string) {
+  return createRecord({ segment: messageSegment(source, context), text, origin: "human", review: "edited" })
+}
 
 function deferred() {
   let resolve!: () => void
@@ -59,7 +68,7 @@ function deferred() {
 }
 
 describe("Workspace records", () => {
-  it("publishes valid translations alongside invalid ICU in later revisions", async () => {
+  it("skips invalid ICU without blocking valid translations in later revisions", async () => {
     const store = memoryWorkspace()
     const snapshot = { [note.id]: compileMessage("Nota del servidor") }
     const live = createLiveTranslations({
@@ -70,43 +79,35 @@ describe("Workspace records", () => {
       clientIds: [deploy.id, note.id],
       interval: 0,
     })
-    const log = vi.spyOn(console, "error").mockImplementation(() => {})
-    try {
-      let head: string | null = null
-      for (const translation of ["Primera", "Segunda"]) {
-        const revision = await store.workspace.history.commit({
-          ref: "published",
-          ifHead: head,
-          changes: { put: {
-            [recordPath("es", note.id)]: JSON.stringify({ source: note.message, translation: "{count, plural," }),
-            [recordPath("es", deploy.id)]: JSON.stringify({ source: deploy.message, translation }),
-          } },
-        })
-        head = revision.id
-        await live.refresh()
-        expect(live.revision).toBe(revision.id)
-        // Lingui logs invalid ICU and keeps it as literal text; other records still become live.
-        const messages = { [note.id]: ["{count, plural,"], [deploy.id]: compileMessage(translation) }
-        expect(live.messages("es")).toEqual(messages)
-        expect(live.clientMessages("es")).toEqual(messages)
-      }
-      expect(log).toHaveBeenCalledWith(expect.stringContaining("Message: {count, plural,"))
-    }
-    finally {
-      log.mockRestore()
+    let head: string | null = null
+    for (const translation of ["Primera", "Segunda"]) {
+      const revision = await store.workspace.history.commit({
+        ref: "published",
+        ifHead: head,
+        changes: { put: {
+          [recordPath("es", note.hash)]: JSON.stringify(record(note.message, "{count, plural,")),
+          [recordPath("es", deploy.hash)]: JSON.stringify(record(deploy.message, translation)),
+        } },
+      })
+      head = revision.id
+      await live.refresh()
+      expect(live.revision).toBe(revision.id)
+      // Invalid records keep the build or source fallback, as file-backed records do.
+      expect(live.messages("es")).toEqual({ ...snapshot, [deploy.id]: compileMessage(translation) })
+      expect(live.clientMessages("es")).toEqual({ [deploy.id]: compileMessage(translation) })
     }
   })
 
   it.each([undefined, "checkout"])("skips records whose source and context %s do not match their filename", async (context) => {
     const store = memoryWorkspace()
-    const valid = { source: deploy.message, ...(context === undefined ? {} : { context }), translation: "Publica tu agente" }
-    const id = messageId(valid.source, valid.context)
+    const valid = record(deploy.message, "Publica tu agente", context)
+    const id = messageId(valid.source, valid.salt)
     const revision = await store.workspace.history.commit({
       ref: "published",
       ifHead: null,
       changes: { put: {
-        [recordPath("es", id)]: JSON.stringify(valid),
-        [recordPath("es", note.id)]: JSON.stringify({ source: deploy.message, context, translation: "Wrong message" }),
+        [recordPath("es", valid.hash)]: JSON.stringify(valid),
+        [recordPath("es", note.hash)]: JSON.stringify({ ...record(deploy.message, "Wrong message", context), hash: note.hash }),
       } },
     })
     expect(await readRevisionRecords(await store.workspace.history.open(revision.id), ["es"])).toEqual({ es: { [id]: valid } })
@@ -118,8 +119,8 @@ describe("Workspace records", () => {
       ref: "published",
       ifHead: null,
       changes: { put: {
-        [recordPath("es", note.id)]: "{",
-        [recordPath("es", deploy.id)]: JSON.stringify({ source: deploy.message, translation: "Primera" }),
+        [recordPath("es", note.hash)]: "{",
+        [recordPath("es", deploy.hash)]: JSON.stringify(record(deploy.message, "Primera")),
       } },
     })
     const onError = vi.fn()
@@ -138,7 +139,7 @@ describe("Workspace records", () => {
     const second = await store.workspace.history.commit({
       ref: "published",
       ifHead: first.id,
-      changes: { put: { [recordPath("es", deploy.id)]: JSON.stringify({ source: deploy.message, translation: "Segunda" }) } },
+      changes: { put: { [recordPath("es", deploy.hash)]: JSON.stringify(record(deploy.message, "Segunda")) } },
     })
     await live.refresh()
     expect(live.revision).toBe(second.id)
@@ -150,7 +151,7 @@ describe("Workspace records", () => {
 describe("forced Workspace refreshes", () => {
   it("reads the newly published head after an in-flight refresh captured the old head", async () => {
     const store = memoryWorkspace()
-    const put = (translation: string) => ({ [recordPath("es", deploy.id)]: JSON.stringify({ source: deploy.message, translation }) })
+    const put = (translation: string) => ({ [recordPath("es", deploy.hash)]: JSON.stringify(record(deploy.message, translation)) })
     const first = await store.workspace.history.commit({ ref: "published", ifHead: null, changes: { put: put("Primera") } })
     const entered = deferred()
     const release = deferred()
@@ -202,16 +203,58 @@ function setup(store = memoryWorkspace()) {
 }
 
 describe("translations in a Workspace", () => {
+  it.each(["machine", "edited", "verified"] as const)("exchanges Diglot records with the file store and saves %s translations", async (review) => {
+    const root = await mkdtemp(join(tmpdir(), "i18n-workspace-"))
+    try {
+      const { store, request } = setup()
+      const source = "Payment received"
+      const context = "checkout"
+      const id = messageId(source, context)
+      const original = record(source, "Pago recibido", context)
+      const path = recordPath("es", original.hash)
+      await writeRecord(root, "es", original)
+      await store.workspace.history.commit({
+        ref: "published",
+        ifHead: null,
+        changes: { put: { [path]: await readFile(join(root, path), "utf8") } },
+      })
+      const translations = useTranslations()
+      expect((await translations.list("es"))[1]).toEqual({ [id]: original })
+      const render = () => translate({ id, message: source })
+      expect(await request(render)).toBe("Pago recibido")
+
+      const [error, saved] = await translations.save({ locale: "es", source, context, translation: "Pago hecho", review, by: "ana" })
+      expect(error).toBeUndefined()
+      const view = await store.workspace.history.open(saved!.revision)
+      const contents = await view.readFile(path, { encoding: "utf8" })
+      const savedRecord = parseRecord(JSON.parse(contents))
+      expect(savedRecord).toMatchObject({ hash: original.hash, salt: context, text: "Pago hecho", origin: review === "machine" ? "mt" : "human", review: review === "machine" ? "none" : review })
+      await mkdir(dirname(join(root, path)), { recursive: true })
+      await writeFile(join(root, path), contents)
+      expect(await readRecords(root, "es")).toEqual({ records: { [id]: savedRecord }, problems: [] })
+      await translations.publish()
+      expect(await request(render)).toBe("Pago hecho")
+
+      await translations.save({ locale: "es", source, context, translation: "" })
+      await translations.publish()
+      expect((await translations.list("es"))[1]?.[id]).toMatchObject({ text: "Pago hecho", review: "rejected" })
+      expect(await request(render)).toBe(source)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it.each(["deleted", "malformed", "empty"])("replaces the detecting request's catalog when published records are %s", async (change) => {
     const { store, request } = setup()
-    const extra = { id: messageId("Live only message"), message: "Live only message" }
-    const paths = [recordPath("es", deploy.id), recordPath("es", extra.id)]
+    const extra = { hash: messageSegment("Live only message").hash, id: messageId("Live only message"), message: "Live only message" }
+    const paths = [recordPath("es", deploy.hash), recordPath("es", extra.hash)]
     const first = await store.workspace.history.commit({
       ref: "published",
       ifHead: null,
       changes: { put: {
-        [paths[0]!]: JSON.stringify({ source: deploy.message, translation: "Publica tu agente" }),
-        [paths[1]!]: JSON.stringify({ source: extra.message, translation: "Solo en vivo" }),
+        [paths[0]!]: JSON.stringify(record(deploy.message, "Publica tu agente")),
+        [paths[1]!]: JSON.stringify(record(extra.message, "Solo en vivo")),
       } },
     })
     const render = () => [translate(deploy), translate(extra), translate(note)]
@@ -221,8 +264,8 @@ describe("translations in a Workspace", () => {
       ref: "published",
       ifHead: first.id,
       changes: change === "deleted" ? { delete: paths } : { put: {
-        [paths[0]!]: change === "malformed" ? "{" : JSON.stringify({ source: deploy.message, translation: "" }),
-        [paths[1]!]: change === "malformed" ? "{" : JSON.stringify({ source: extra.message, translation: "" }),
+        [paths[0]!]: change === "malformed" ? "{" : JSON.stringify(record(deploy.message, "")),
+        [paths[1]!]: change === "malformed" ? "{" : JSON.stringify(record(extra.message, "")),
       } },
     })
     const fallback = ["Despliega tu agente", extra.message, "Nota del servidor"]
@@ -242,7 +285,7 @@ describe("translations in a Workspace", () => {
     expect(saved!.id).toBe(deploy.id)
     expect(await request(() => translate(deploy)), "a draft does not change the site").toBe("Despliega tu agente")
     const [, draft] = await translations.list("es", { ref: "draft" })
-    expect(draft![deploy.id]).toMatchObject({ source: "Deploy your agent", translation: "Publica tu agente", review: "edited", by: "ana" })
+    expect(draft![deploy.id]).toMatchObject({ source: "Deploy your agent", text: "Publica tu agente", origin: "human", review: "edited", by: "ana" })
     expect((await translations.list("es"))[1]).toEqual({})
 
     expect(await translations.publish()).toEqual({ revision: expect.any(String), published: 1 })
@@ -295,7 +338,7 @@ describe("translations in a Workspace", () => {
   it.each(["list", "readFile"] as const)("keeps every catalog and the revision when a revision %s fails", async (method) => {
     const store = memoryWorkspace()
     const put = (translation: string) => Object.fromEntries(["es", "fr"].map(locale => [
-      recordPath(locale, deploy.id), JSON.stringify({ source: deploy.message, translation }),
+      recordPath(locale, deploy.hash), JSON.stringify(record(deploy.message, translation)),
     ]))
     const first = await store.workspace.history.commit({ ref: "published", ifHead: null, changes: { put: put("Primera") } })
     const onError = vi.fn()
@@ -428,6 +471,22 @@ describe("the browser with a Workspace", () => {
 })
 
 describe("missing translations for Agents", () => {
+  const richTextChoices = (count: number, branching: boolean) => Array.from({ length: count }, (_, index) =>
+    `{choice${index}, select, one {${branching ? "<0/>" : "<0/><1/>"}} other {${branching ? "<1/>" : "<0/><1/>"}}}`).join(" ")
+
+  it.each(["source", "translation", "both"] as const)("bounds rich-text branch expansion in the %s", async (side) => {
+    const store = memoryWorkspace()
+    installI18nServer({ hooks: { hook: () => undefined } }, {
+      config,
+      messages: {},
+      current: () => undefined,
+      workspace: { name: "translations", open: () => store.workspace, clientIds: null, interval: 0 },
+    })
+    const [error] = await useTranslations().save({ locale: "es", source: richTextChoices(40, side !== "translation"), translation: richTextChoices(40, side !== "source") })
+    expect(error).toMatchObject({ code: "I18N_INVALID_TRANSLATION", why: expect.stringContaining("256") })
+    expect(store.heads.size).toBe(0)
+  })
+
   it.each([
     ["Click <0>here</0>", "Haz clic <0>aquí"],
     ["Click <0>here</0>", "Haz clic aquí</0>"],
@@ -458,6 +517,8 @@ describe("missing translations for Agents", () => {
     ["Click <0><1>here</1></0>", "Haz clic <0><1>aquí</1></0>"],
     ["{count, plural, one {<0>Item</0>} other {<0>Items</0>}}", "{count, plural, one {<0>Artículo</0>} many {<0>Artículos</0>} other {<0>Artículos</0>}}"],
     ["<0>{count, plural, one {Item} other {Items}}</0>", "{count, plural, one {<0>Artículo} other {<0>Artículos}}</0>"],
+    [richTextChoices(8, true), richTextChoices(8, true)],
+    [richTextChoices(40, false), richTextChoices(40, false)],
   ])("saves valid rich-text tags across ICU branches: %s → %s", async (source, translation) => {
     const store = memoryWorkspace()
     installI18nServer({ hooks: { hook: () => undefined } }, {
@@ -470,15 +531,61 @@ describe("missing translations for Agents", () => {
     const [error] = await translations.save({ locale: "es", source, translation })
     expect(error).toBeUndefined()
     const [, drafts] = await translations.list("es", { ref: "draft" })
-    expect(drafts).toMatchObject({ [messageId(source)]: { source, translation } })
+    expect(drafts).toMatchObject({ [messageId(source)]: { source, text: translation } })
+  })
+
+  it.each([
+    ["Hello {name}", "Hola {name}"],
+    ["Click <0>here</0>", "Haz clic <0>aquí</0>"],
+    ["{count, plural, one {Item} other {Items}}", "{count, plural, one {Artículo} other {Artículos}}"],
+  ])("clears translations with ICU arguments or rich-text tags: %s", async (source, translation) => {
+    const store = memoryWorkspace()
+    installI18nServer({ hooks: { hook: () => undefined } }, {
+      config,
+      messages: {},
+      current: () => undefined,
+      workspace: { name: "translations", open: () => store.workspace, clientIds: null, interval: 0 },
+    })
+    const translations = useTranslations()
+    expect((await translations.save({ locale: "es", source, translation }))[0]).toBeUndefined()
+    await translations.publish()
+    expect((await translations.save({ locale: "es", source, translation: "" }))[0]).toBeUndefined()
+    await translations.publish()
+    const [, published] = await translations.list("es")
+    expect(published?.[messageId(source)]).toMatchObject({ text: translation, review: "rejected" })
+  })
+
+  it("does not count rejected records as translations", async () => {
+    const store = memoryWorkspace()
+    installI18nServer({ hooks: { hook: () => undefined } }, {
+      config,
+      messages: {},
+      current: () => undefined,
+      workspace: {
+        name: "translations",
+        open: () => store.workspace,
+        clientIds: null,
+        interval: 0,
+        sources: { [deploy.id]: { message: deploy.message, hash: deploy.hash, origins: [] } },
+      },
+    })
+    const translations = useTranslations()
+    await translations.save({ locale: "es", source: deploy.message, translation: "Despliega tu agente" })
+    await translations.publish()
+    await translations.save({ locale: "es", source: deploy.message, translation: "" })
+    expect(await translations.status()).toEqual([{ locale: "es", messages: 1, published: 1, drafted: 0, missing: 0 }])
+    expect((await translations.missing("es"))[1]?.total).toBe(0)
+    await translations.publish()
+    expect(await translations.status()).toEqual([{ locale: "es", messages: 1, published: 0, drafted: 0, missing: 1 }])
+    expect((await translations.missing("es"))[1]?.items).toEqual([{ id: deploy.id, source: deploy.message, origins: [] }])
   })
 
   it("lists what a locale lacks, with the old translation of a changed message, and refuses broken translations", async () => {
     const store = memoryWorkspace()
     const sources = {
-      [messageId("Search all agents")]: { message: "Search all agents", origins: ["src/App.vue:4"] },
-      [deploy.id]: { message: deploy.message, origins: ["src/App.vue:3"] },
-      [messageId("{count, plural, one {Item} other {Items}}")]: { message: "{count, plural, one {Item} other {Items}}", origins: ["src/List.vue:2"] },
+      [messageId("Search all agents")]: { message: "Search all agents", hash: messageSegment("Search all agents").hash, origins: ["src/App.vue:4"] },
+      [deploy.id]: { message: deploy.message, hash: deploy.hash, origins: ["src/App.vue:3"] },
+      [messageId("{count, plural, one {Item} other {Items}}")]: { message: "{count, plural, one {Item} other {Items}}", hash: messageSegment("{count, plural, one {Item} other {Items}}").hash, origins: ["src/List.vue:2"] },
     }
     installI18nServer({ hooks: { hook: () => undefined } }, {
       config,

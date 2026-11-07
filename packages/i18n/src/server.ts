@@ -1,3 +1,5 @@
+import { createRecord } from "@diglot/core"
+import { serialiseRecord } from "@diglot/store/runtime"
 import { setupI18n } from "@lingui/core"
 import { compileMessage } from "@lingui/message-utils/compileMessage"
 import { generateMessageId } from "@lingui/message-utils/generateMessageId"
@@ -6,17 +8,17 @@ import { i18nErrorDiagnostics } from "./errors.ts"
 import { findPreviousTranslations } from "./lineage.ts"
 import { translationProblem } from "./placeholders.ts"
 import { createLiveTranslations, draftRef, publishedRef, readRevisionRecords, recordChanges } from "./live.ts"
-import { recordPath } from "./record-format.ts"
+import { isVisible, messageSegment, recordPath } from "./record-format.ts"
 import { configureI18n, resolveRequestLocale, setI18nScope } from "./runtime.ts"
 
 import type { I18n, Messages } from "@lingui/core"
 import type { Result } from "@vite-hub/runtime"
 import type { LiveTranslations, TranslationsWorkspace, WritableTranslationsWorkspace } from "./live.ts"
 import type { SourceMessages } from "./manifest.ts"
-import type { TranslationRecord, TranslationRecords, TranslationReview } from "./record-format.ts"
+import type { TranslationRecords } from "./record-format.ts"
 import type { I18nRuntimeConfig } from "./runtime.ts"
 
-export type { TranslationRecord, TranslationRecords, TranslationReview } from "./record-format.ts"
+export type { TranslationRecord, TranslationRecords } from "./record-format.ts"
 export type { TranslationsWorkspace, WritableTranslationsWorkspace } from "./live.ts"
 export type { SourceMessage, SourceMessages } from "./manifest.ts"
 
@@ -155,6 +157,9 @@ export async function i18nCatalogResponse(request: Request): Promise<Response> {
   return new Response(JSON.stringify(body), { headers: { ...catalogHeaders, etag } })
 }
 
+/** The review state accepted by `save()`. Machine translations use Diglot's `mt` origin and `none` review. */
+export type TranslationReview = "machine" | "edited" | "verified"
+
 export interface SaveTranslationInput {
   locale: string
   /** The source text, as the code writes it. */
@@ -232,7 +237,10 @@ export function useTranslations(): Translations {
   const drafts = async () => {
     const workspace = writable(state)
     const [published, draft] = await Promise.all([recordsAt(workspace, publishedRef, translated), recordsAt(workspace, draftRef, translated)])
-    return { published, draft }
+    const visible = (records: Record<string, TranslationRecords>) => Object.fromEntries(
+      Object.entries(records).map(([locale, messages]) => [locale, Object.fromEntries(Object.entries(messages).filter(([, record]) => isVisible(record)))]),
+    )
+    return { published: visible(published), draft: visible(draft) }
   }
 
   return {
@@ -268,7 +276,7 @@ export function useTranslations(): Translations {
           source: source.message,
           ...(source.context ? { context: source.context } : {}),
           origins: source.origins,
-          ...(carried ? { previous: { source: carried.record.source, translation: carried.record.translation } } : {}),
+          ...(carried ? { previous: { source: carried.record.source, translation: carried.record.text } } : {}),
         }
       })
       return [undefined, { items, total: ids.length, cursor: start + limit < ids.length ? page.at(-1)! : null }]
@@ -285,23 +293,33 @@ export function useTranslations(): Translations {
     async save(input) {
       const entry = match(input.locale)
       if (!entry) return [unknown(input.locale), undefined]
-      const problem = translationProblem(input.source, input.translation)
+      // An empty translation clears the record instead of replacing its text.
+      const problem = input.translation === "" ? undefined : translationProblem(input.source, input.translation)
       if (problem) return [i18nErrorDiagnostics.I18N_INVALID_TRANSLATION({ problem }), undefined]
       const workspace = writable(state)
       const id = generateMessageId(input.source, input.context)
-      const record: TranslationRecord = {
-        source: input.source,
-        ...(input.context ? { context: input.context } : {}),
-        translation: input.translation,
-        review: input.review ?? "edited",
-        updatedAt: new Date().toISOString(),
-        ...(input.by ? { by: input.by } : {}),
-      }
       const head = await workspace.history.head({ ref: draftRef })
+      const draft = head ? await readRevisionRecords(await workspace.history.open(head.id), [entry]) : {}
+      const current = draft[entry]?.[id] ?? (await recordsAt(workspace, publishedRef, [entry]))[entry]?.[id]
+      const at = new Date().toISOString()
+      const by = input.by ?? current?.by ?? ""
+      // Diglot rejects empty text. Clearing a translation uses its rejected state to restore the fallback.
+      const review = input.translation === "" ? "rejected" : input.review === "machine" ? "none" : input.review ?? "edited"
+      const record = createRecord({
+        ...current,
+        segment: messageSegment(input.source, input.context),
+        text: input.translation || current?.text || input.source,
+        origin: input.review === "machine" ? "mt" : "human",
+        review,
+        updatedAt: at,
+        ...(input.by ? { by: input.by } : {}),
+        verifiedBy: review === "verified" ? { by, at } : undefined,
+        rejectedBy: review === "rejected" ? { by, at } : undefined,
+      })
       const revision = await workspace.history.commit({
         ref: draftRef,
         ifHead: head?.id ?? null,
-        changes: { put: { [recordPath(entry, id)]: `${JSON.stringify(record, null, 2)}\n` } },
+        changes: { put: { [recordPath(entry, record.hash)]: serialiseRecord(record) } },
         message: `Translate ${id} to ${entry}`,
       })
       return [undefined, { id, revision: revision.id }]

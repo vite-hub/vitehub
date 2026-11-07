@@ -29,8 +29,10 @@ export function messagePlaceholders(message: string): string[] {
   return placeholders(compileMessageOrThrow(message))
 }
 
-/** Tag sequences for each possible rendered ICU branch. Equal branches count once. */
-function tagPaths(message: CompiledMessage): Set<string> {
+const maxTagPaths = 256
+
+/** Tag sequences for each rendered ICU branch, bounded before further expansion. Equal branches count once. */
+function tagPaths(message: CompiledMessage): Set<string> | undefined {
   let paths = new Set([""])
   for (const token of message) {
     let choices: Set<string>
@@ -40,10 +42,25 @@ function tagPaths(message: CompiledMessage): Set<string> {
     else {
       const format = token[2]
       if (!format || typeof format !== "object") continue
-      choices = new Set(Object.entries(format).flatMap(([key, choice]) =>
-        key !== "offset" && Array.isArray(choice) ? [...tagPaths(choice as CompiledMessage)] : []))
+      choices = new Set()
+      for (const [key, choice] of Object.entries(format)) {
+        if (key === "offset" || !Array.isArray(choice)) continue
+        const branches = tagPaths(choice as CompiledMessage)
+        if (!branches) return undefined
+        for (const branch of branches) {
+          choices.add(branch)
+          if (choices.size > maxTagPaths) return undefined
+        }
+      }
     }
-    paths = new Set([...paths].flatMap(path => [...choices].map(choice => path + choice)))
+    const next = new Set<string>()
+    for (const path of paths) {
+      for (const choice of choices) {
+        next.add(path + choice)
+        if (next.size > maxTagPaths) return undefined
+      }
+    }
+    paths = next
   }
   return paths
 }
@@ -54,6 +71,9 @@ function tagSignature(path: string): string {
 
 function richTextProblem(source: CompiledMessage, translation: CompiledMessage): string | undefined {
   const actual = tagPaths(translation)
+  if (!actual) return `It must have at most ${maxTagPaths} distinct numeric rich-text tag sequences across ICU branches.`
+  const expected = tagPaths(source)
+  if (!expected) return `The source must have at most ${maxTagPaths} distinct numeric rich-text tag sequences across ICU branches.`
   for (const path of actual) {
     const stack: string[] = []
     for (const match of path.matchAll(/<(\/?)(\d+)(\/?)>/g)) {
@@ -64,7 +84,7 @@ function richTextProblem(source: CompiledMessage, translation: CompiledMessage):
     }
     if (stack.length) return "It must have balanced numeric rich-text tags."
   }
-  const expectedSignatures = [...new Set([...tagPaths(source)].map(tagSignature))].sort()
+  const expectedSignatures = [...new Set([...expected].map(tagSignature))].sort()
   const actualSignatures = [...new Set([...actual].map(tagSignature))].sort()
   if (expectedSignatures.join() !== actualSignatures.join()) return "It must keep each numeric rich-text tag occurrence of the source."
   return undefined

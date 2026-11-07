@@ -1,7 +1,7 @@
 import { findPreviousTranslations } from "./lineage.ts"
 import { recordsRoot } from "./lingui.ts"
 import { scanMessages } from "./manifest.ts"
-import { readRecords } from "./records.ts"
+import { isVisible, readRecords } from "./records.ts"
 
 import type { LinguiConfigNormalized } from "@lingui/conf"
 import type { SourceMessages } from "./manifest.ts"
@@ -15,9 +15,9 @@ export interface I18nLocaleStatus {
   folder: string
   /** Messages in the code. */
   messages: number
-  /** Messages with a nonempty translation. The source locale counts every message as translated. */
+  /** Messages with a translation that readers see. The source locale counts every message as translated. */
   translated: number
-  /** Messages that show the source text in this locale. */
+  /** Messages that show the source text in this locale: no record, a rejected record, or a record that fails validation. */
   missing: number
   /** Missing messages whose source text changed a little. Their old translation is a starting point. */
   changed: number
@@ -43,7 +43,10 @@ export async function inspectI18n(config: LinguiConfigNormalized): Promise<I18nS
     const source = locale === config.sourceLocale
     const read = source ? { records: {}, problems: [] } : await readRecords(root, locale)
     records[locale] = read.records
-    const translated = source ? ids.length : ids.filter(id => !!read.records[id]?.translation).length
+    const translated = source ? ids.length : ids.filter((id) => {
+      const record = read.records[id]
+      return !!record && isVisible(record)
+    }).length
     return {
       locale,
       source,
