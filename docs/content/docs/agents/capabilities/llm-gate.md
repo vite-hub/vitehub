@@ -1,6 +1,6 @@
 ---
 title: LLM gate
-description: Allow or reject an Agent Invocation with a model decision before the Agent Driver runs.
+description: Allow or reject an Agent Invocation with a TypeSafe Jev decision before the Agent Driver runs.
 navigation.title: LLM gate
 navigation.order: 280
 navigation.group: Capabilities
@@ -9,7 +9,7 @@ icon: i-lucide-shield-alert
 
 `llmGate()` classifies the request into one allow or reject category before the Agent Driver runs.
 It adds no model-facing tool. When the category is a reject category, it stops the Agent Invocation with code `LLM_GATE_REJECTED`.
-The decision uses one AI SDK model call, or one TypeSafe Jev request for an [ask Driver](/docs/agents/agent-drivers#use-an-ask-driver) Agent. No Server Primitive is involved.
+By default, TypeSafe Jev decides through a [Decisions](/docs/decisions) group with `infer: true`. Set `model` to decide with a chat model instead. No Server Primitive is involved.
 
 ## Configure the gate
 
@@ -49,8 +49,8 @@ llmGate({
 `llmGate()` runs in the input phase, before the Agent Driver.
 
 1. It reads the latest user text: the string `prompt`, or else the text of the latest user message.
-2. It builds a classifier prompt from your `prompt` text, the categories (each description gets an `ALLOW:` or `REJECT:` prefix), the recent history when `history` is set, and the user text.
-3. It resolves the model and asks for a structured object with `allowed`, `category`, and optional `confidence` (0 to 1) and `reason`.
+2. Each category description gets an `ALLOW:` or `REJECT:` prefix. Without `model`, it asks Jev which category fits the text best, through `gateway`. See [Jev decisions](#jev-decisions).
+3. With `model`, it builds a classifier prompt from your `prompt` text, the categories, the recent history when `history` is set, and the user text. It asks the model for a structured object with `allowed`, `category`, and optional `confidence` (0 to 1) and `reason`.
 4. It validates that `category` is a configured key. ViteHub sets `allowed` from the category group, not from the model output.
 5. It stores the decision as the Invocation context value `llm-gate` (or your `id`) and provides it as a finish extension under the same id.
 6. If the category is a reject category, it throws `ViteHubError` with code `LLM_GATE_REJECTED`. The Agent Driver does not run.
@@ -67,19 +67,19 @@ HTTP and Invocation clients receive a public error instead. The HTTP status is `
 
 ## Jev decisions
 
-An ask Driver Agent sends the gate to TypeSafe Jev when the Capability has no `model` option.
-It asks one `ask.choice()` question with every category. Jev accepts 2 to 255 choices.
-The state is the Invocation `data` when a caller sets it. Otherwise it is `{ request, history? }` from the latest user text and the `history` option.
+Jev decides when the Capability has no `model` option, on every Agent Driver.
+Every category becomes an option of one Decisions group with `multiple: false` and `infer: true`. Jev accepts 2 to 255 categories.
+The text is the Invocation `data` as JSON when a caller sets it. Otherwise it is the latest user text, after the recent history when `history` is set. Jev reads the last 16,000 characters.
 
 The decision has `confidence` and `probabilities`, a map from category key to probability. Jev decisions have no `reason`.
-The request goes through the `gateway` option, an [AI gateway](/docs/agents/ai-gateways) such as `cloudflare()`, or through `typesafe()`, which reads `TYPESAFE_API_KEY`.
+The request goes through the `gateway` option, an [AI gateway](/docs/agents/ai-gateways) such as `vercel()` or `cloudflare()`, or through `typesafe()`, which reads `TYPESAFE_API_KEY`.
 
 ## Requirements
 
 - At least one allow category and one reject category.
 - Category keys must be stable identifiers: a letter first, then letters, digits, `-`, `_`, or `.`.
-- A model. Model-backed Agents use the Agent model. Provider-backed and custom-run-backed Agents do not expose an Agent model to Capabilities, so set `model`. Without a model, the invocation fails with "requires a model option or an agent model".
-- For Jev decisions: the `advocaat` package and the key of the gateway (`TYPESAFE_API_KEY` for the default `typesafe()`). See [Use an ask Driver](/docs/agents/agent-drivers#use-an-ask-driver).
+- For Jev decisions: the `advocaat` package and the key of the gateway (`TYPESAFE_API_KEY` for the default `typesafe()`, `AI_GATEWAY_API_KEY` for `vercel()`). See [Use an ask Driver](/docs/agents/agent-drivers#use-an-ask-driver).
+- For chat model decisions: a `model`.
 
 ## Security and approval
 
@@ -93,10 +93,10 @@ It does not attach, remove, or grant Capabilities. Later behavior must read the 
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Uses the Agent model or `model`. Runs before model execution. |
-| Provider-backed | Requires `model`. Runs before provider execution; rejected requests do not start the provider. |
-| Custom-run-backed | Requires `model`. Runs before `driver.run`; rejected requests do not reach custom code. |
-| Ask-backed | Without `model`, asks Jev one `ask.choice()` question with every category. With `model`, uses that model. Rejected requests do not reach the Driver. |
+| Model-backed | Jev, or `model`. Runs before model execution. |
+| Provider-backed | Jev, or `model`. Runs before provider execution; rejected requests do not start the provider. |
+| Custom-run-backed | Jev, or `model`. Runs before `driver.run`; rejected requests do not reach custom code. |
+| Ask-backed | Jev, or `model`. Rejected requests do not reach the Driver. |
 
 ## Verify the gate
 
@@ -110,10 +110,11 @@ It does not attach, remove, or grant Capabilities. Later behavior must read the 
 | --- | --- | --- | --- |
 | `allow` | `Record<string, string \| { label?: string; description?: string }>` | required | Allowed categories. The description falls back to `label`, then the key. |
 | `reject` | `Record<string, string \| { label?: string; description?: string }>` | required | Rejected categories. Same shape as `allow`. |
+| `gateway` | `AiGateway` | `typesafe()` | Gateway of the Jev decision. Ignored when `model` is set. |
 | `history` | `boolean \| number` | `false` | Include recent messages in the decision. `true` uses the last 10. |
 | `id` | `string` | `"llm-gate"` | Capability id, Invocation context key, and finish extension key. |
 | `message` | `string \| (decision) => string` | `"[vitehub] <id> rejected the request."` | Message of the thrown `ViteHubError`. Not sent to HTTP clients. |
-| `model` | `AgentModelResolver` | Agent model, or Jev for ask Driver Agents | Model used for the decision. |
+| `model` | `AgentModelResolver` | none | A chat model that decides instead of Jev. Pass the Agent model to decide with it. |
 | `prompt` | `string` | none | Text placed before the generated classifier task. |
 
 ## Related pages

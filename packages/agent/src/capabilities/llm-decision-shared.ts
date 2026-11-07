@@ -1,4 +1,4 @@
-import { ask } from "@vite-hub/gateways"
+import { defineChoices } from "@vite-hub/decisions"
 import { getMessageText } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { askJev } from "../internal/ask-runtime.ts"
@@ -147,31 +147,50 @@ export interface JevDecision {
   probabilities: Record<string, number>
 }
 
+/** Most characters of request text in one Jev decision. A Jev request must stay below 30,000 bytes. */
+const jevTextLimit = 16_000
+
+/** The text that Jev reads: the Invocation `data` as JSON when a caller sets it, else the recent history and the latest user text. */
+function decisionText(context: AgentCapabilityRuntimeContext, history: boolean | number | undefined): string {
+  const input = context.input.get()
+  const messages = context.input.messages()
+  // `data` is part of the Agent Run Input once `defineAgent({ data })` is available. Read it when a caller sets it.
+  if ("data" in input && input.data !== undefined) return JSON.stringify(input.data)
+  const recent = renderHistory(messages, history)
+  return [recent && `Recent conversation:\n${recent}`, `User request:\n${latestUserText(input.prompt, messages)}`].filter(Boolean).join("\n\n")
+}
+
 /**
- * Decides with TypeSafe Jev when the Agent uses `driver.ask` and the Capability sets no `model`.
- * Returns `undefined` to keep the chat model path. Jev returns probabilities, not a reason.
+ * Decides with TypeSafe Jev through a Decisions group that infers one choice. This is the default for every Agent Driver.
+ * Returns `undefined` when the Capability sets a `model`, to keep the chat model path. Jev returns probabilities, not a reason.
  */
 export async function jevDecision(
   context: AgentCapabilityRuntimeContext,
   options: { gateway?: AiGateway<{ ask: true }>, history?: boolean | number, model?: unknown, prompt?: string },
-  decision: { choices: NormalizedLlmDecisionChoice[], task: string },
+  decision: { choices: NormalizedLlmDecisionChoice[], label: string, task: string },
 ): Promise<JevDecision | undefined> {
-  if (options.model !== undefined || context.driver?.kind !== "ask") return
-  const [onlyChoice] = decision.choices
-  if (onlyChoice && decision.choices.length === 1) {
-    return { choice: onlyChoice.key, confidence: 1, probabilities: { [onlyChoice.key]: 1 } }
-  }
-  const input = context.input.get()
-  const messages = context.input.messages()
-  const history = renderHistory(messages, options.history)
-  // `data` is part of the Agent Run Input once `defineAgent({ data })` is available. Read it when a caller sets it.
-  const state = "data" in input && input.data !== undefined
-    ? input.data
-    : { request: latestUserText(input.prompt, messages), ...(history ? { history } : {}) }
-  const criteria = Object.fromEntries(decision.choices.map(choice => [choice.key, choice.description]))
-  const instructions = [options.prompt, decision.task].filter(Boolean).join("\n\n")
-  const { decision: answer } = await askJev({ abortSignal: context.abortSignal, event: { context }, ...(options.gateway ? { gateway: options.gateway } : {}) }, state, {
-    decision: ask.choice(instructions, criteria),
+  if (options.model !== undefined) return
+  const request = { abortSignal: context.abortSignal, event: { context }, ...(options.gateway ? { gateway: options.gateway } : {}) }
+  const choices = defineChoices({
+    gateway: { ask: async (state, questions) => await askJev(request, state, questions) },
+    groups: {
+      decision: {
+        hints: decision.task,
+        infer: true,
+        label: decision.label,
+        multiple: false,
+        options: decision.choices.map(choice => ({ description: choice.description, label: choice.key, value: choice.key })),
+      },
+    },
+    ...(options.prompt ? { hints: options.prompt } : {}),
+    limits: { options: 255, text: jevTextLimit, totalOptions: 255 },
+    // A route or gate always records its most likely choice.
+    thresholds: { option: 0 },
   })
-  return { choice: answer.choice, confidence: answer.confidence, probabilities: { ...answer.probabilities } }
+  const [error, selection] = await choices.resolve(decisionText(context, options.history).slice(-jevTextLimit))
+  if (error) throw error
+  const { confidence, ranked } = selection.decision
+  const [best] = ranked
+  if (!best) throw agentDiagnostics.AGENT_R0108({ message: "[vitehub] A Jev decision requires at least one choice." })
+  return { choice: best.value, confidence, probabilities: Object.fromEntries(ranked.map(item => [item.value, item.probability])) }
 }
