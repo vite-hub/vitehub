@@ -2,7 +2,7 @@
 title: Configure a docs site
 description: Organize sections, pick a layout per page, turn the navigation and the outline on or off, change the theme, replace components, and add Markdown blocks.
 navigation.title: Configure
-navigation.order: 3
+navigation.order: 4
 icon: i-lucide-sliders-horizontal
 ---
 
@@ -27,7 +27,9 @@ content/
 - Each folder in `content/docs/` is a section: one entry in the rail and one page list in the sidebar. A site with three sections or fewer, or with no section icons, has no rail. Its sidebar lists every section with its pages.
 - `index.md` is the page of its folder. `content/docs/index.md` is the page at `/docs`. Without it, `/docs` is not found, and the Docs links open the first section.
 - Files outside `content/docs/`, such as `about.md`, are plain articles under the site header, without the sidebar.
-- `dir` changes the content folder, and `base` changes the `/docs` prefix.
+- A page's URL is its path in the folder. Without a `content/docs/` folder, the docs are the whole site: `content/index.md` is `/`, and each folder in `content/` is a section.
+- `dir` changes the content folder, and `base` sets the URL prefix of the sections when the default does not fit.
+- In an app with its own pages, put the docs in `content/docs/` only. See [Add docs to a Nuxt app](/docs/docs-site/nuxt-app).
 
 ### Sections and categories
 
@@ -252,6 +254,8 @@ The theme uses Geist, black, white, and zinc, square corners, hairline borders, 
 ```
 
 `--vh-panel-width` sets the width of the page sidebar, and the Nuxt UI `--ui-*` variables set the colors.
+
+In an app with its own `app.vue`, the theme applies to the docs pages only, and the app's `app.config.ts` stays as written. The docs pages then use the app's Nuxt UI colors. To set a variable on the docs pages only, use the `:root.vh-docs` selector. See [Add docs to a Nuxt app](/docs/docs-site/nuxt-app#what-the-module-changes-in-your-app).
 
 ### Icons
 
