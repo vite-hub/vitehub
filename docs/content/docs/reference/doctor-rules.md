@@ -469,7 +469,7 @@ Read [Blob server API](/docs/blob/server-api#use-with-other-schema-libraries).
 
 A Runtime Helper gets a literal name that matches no Definition that ViteHub discovers. The call fails only when it runs, for example with `QUEUE_DEFINITION_NOT_FOUND`.
 
-The rule checks the first argument of `runQueue()`, `deferQueue()`, `getQueue()`, `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows, and Workflows that the same file registers with `createWorkflow(name, handler)`, `createWorkflow({ name, handler })`, or an Agent `runtime: workflow(name)`. `useDatabase('default')` is always accepted. The rule does not check `runSchedule(name, { registry })`, which reads its own registry, and it does not see Workflows that another file registers with `createWorkflow()`.
+The rule checks the first argument of `runQueue()`, `deferQueue()`, `getQueue()`, `runWorkflow()`, `deferWorkflow()`, `getWorkflowRun()`, `cancelWorkflow()`, `useDatabase()`, `useChannel()`, `runBrowser()`, `runSandboxTask()`, `runSchedule()`, `useConnection()`, and `useAgent()` from `vite-hub/agent/vue`. Workflow names include Agents that run as Workflows, and Workflows that the same file registers with `createWorkflow(name, handler)`, `createWorkflow({ name, handler })`, or an Agent `runtime: workflow(name)`. `useDatabase('default')` is always accepted. The rule does not see Workflows that another file registers with `createWorkflow()`.
 
 ```ts [server/api/signup.post.ts]
 import { runQueue } from 'vite-hub/queue'

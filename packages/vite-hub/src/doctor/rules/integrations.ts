@@ -417,7 +417,7 @@ const nuxtHubImport = /^(?:hub:(?:db(?::schema)?|kv|blob)|@nuxthub\/.+)$/
 const nuxtHubHelpers = new Map([
   ["hubAI", "ViteHub has no AI binding helper. Call the AI SDK from a route or an Agent."],
   ["hubBlob", "Use `blob` from `vite-hub/blob`. Its methods return `[error, value]` tuples."],
-  ["hubDatabase", "Use the Drizzle `db` from `vite-hub/database/drizzle`."],
+  ["hubDatabase", "Use the Drizzle `db` from `vite-hub/database`."],
   ["hubKV", "Use `kv` from `vite-hub/kv`. Its methods return `[error, value]` tuples."],
 ])
 
