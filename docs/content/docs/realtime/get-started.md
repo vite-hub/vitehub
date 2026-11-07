@@ -1,5 +1,4 @@
 ---
-
 title: Create your first collaborative room
 description: Connect two TipTap editors to the same document and verify synchronization.
 layout: tutorial
@@ -8,21 +7,29 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Open the same document in two browser tabs and edit it from either tab. Realtime synchronizes the editors through a shared room. A Workspace supplies the file and receives each save.
+You open the same document in two browser tabs. When you type in one tab, the text shows in the other tab. ViteHub also saves the document as a Markdown file.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application that uses Vue and TypeScript. Run the commands from its root. This example uses in-memory room and Workspace stores. Restarting the server loses their state. The room is public during this local check; enable Auth before admitting private documents.
+You need:
 
-::tutorial-step{title="Configure Realtime"}
-## Configure Realtime
+- Node.js 22.22 or newer
+- pnpm
+- a Vite app that uses Vue and TypeScript. Run every command from its root folder.
+
+You do not need a cloud account or a database.
+
+::tutorial-step{title="Install"}
+## Install
+
+Install the packages:
 
 ```bash [commands/install]
 pnpm add vite-hub @vite-hub/realtime @vite-hub/workspace @tiptap/vue-3 h3
 pnpm add -D nitro
 ```
 
-Enable Workspace and Realtime. The memory authority is suitable for local
-development and a single-process Node server. Keep the Vue plugin from your
-application; Nitro consumes the generated WebSocket route configuration.
+`@vite-hub/realtime` syncs the editors. `@vite-hub/workspace` stores the Markdown file. `@tiptap/vue-3` is the text editor. `nitro` and `h3` run the server that the tabs connect to.
+
+Add the `vitehub` plugin to `vite.config.ts`. Keep the `vue()` plugin that your app already has.
 
 ```ts [vite.config.ts]
 import vue from '@vitejs/plugin-vue'
@@ -41,10 +48,16 @@ export default defineConfig({
 })
 ```
 
-Create a Realtime Definition under `server/realtime`. Its name comes from the
-relative file path, so this file defines `docs`.
+- `preset: 'node'` builds the app for a plain Node.js server.
+- `realtime: { authority: 'memory' }` turns on Realtime. The authority is the place that keeps the live state of each room. A room is the shared session that all tabs of one document join. `memory` keeps rooms in the server process. It works only on one Node.js server.
+- `workspace: true` turns on Workspace. A Workspace is a folder of files that the server can read and write.
 
-`document.workspace` names the Workspace that stores the Markdown file. The room name and file path together identify the shared document.
+::
+
+::tutorial-step{title="Create the room and the folder"}
+## Create the room and the folder
+
+Create `server/realtime/docs.ts`. ViteHub reads each file in `server/realtime/` as one type of room, and uses the file name as its name. This file creates `docs`.
 
 ```ts [server/realtime/docs.ts]
 import { defineRealtime } from 'vite-hub/realtime'
@@ -57,8 +70,10 @@ export default defineRealtime({
 })
 ```
 
-Add the writable Workspace referenced by the Realtime Definition. This memory
-store matches the local, single-process setup above.
+- `document: { workspace: 'docs' }` saves each document as a file in the `docs` Workspace. The room name and the file path together point to one document.
+- `history.checkpoint.message` is the message of each saved version in the history.
+
+Create `server/workspaces/docs.ts`. This is the `docs` Workspace that the room saves to:
 
 ```ts [server/workspaces/docs.ts]
 import { defineWorkspace } from 'vite-hub/workspace'
@@ -71,16 +86,18 @@ export default defineWorkspace({
 })
 ```
 
-Set `auth: true` on the Realtime Definition when every WebSocket and checkpoint
-request must have a valid ViteHub Auth session. Connections are public when
-`auth` is omitted.
+- `store: { provider: 'memory' }` keeps the files in the server process.
+- `rules` lets the server write every file (`/**`) as Markdown.
+
+> [!NOTE]
+> The room and the Workspace both keep data in memory. When you restart the server, you lose the documents. For data that stays after a restart, see [Configure](/docs/realtime/configure#choose-a-room-authority).
 
 ::
 
 ::tutorial-step{title="Connect a TipTap editor"}
 ## Connect a TipTap editor
 
-Both tabs must use the same Definition and path. The composable supplies TipTap's collaboration extensions and connection state.
+Create `src/composables/useDocumentEditor.ts`. `useRealtimeTiptap()` connects to the `docs` room and opens the file `guides/getting-started.md`. It gives TipTap the extensions that sync the text, and it gives you the connection status.
 
 ```ts [src/composables/useDocumentEditor.ts]
 import { useEditor } from '@tiptap/vue-3'
@@ -97,7 +114,7 @@ export function useDocumentEditor() {
 }
 ```
 
-Replace the scaffold's root view with this component. Destructure the status refs so Vue unwraps them in the template. The status line makes connection problems visible before you test typing. `useEditor()` disposes the editor when the component unmounts.
+Replace `src/App.vue` with this component. It shows the editor and a status line. The status line tells you if the connection fails before you start to type.
 
 ```vue [src/App.vue]
 <script setup lang="ts">
@@ -119,32 +136,38 @@ const { status, synced } = realtime
 </template>
 ```
 
-The composable connects to the generated WebSocket route. This room is public, so any client that can reach it can join. A presence label is not verified identity. Configure [Auth](/docs/auth) and set `auth: true` before using the room for private documents.
+`const { status, synced } = realtime` takes the two status values out of `realtime`, so the template can show them directly.
+
+> [!NOTE]
+> This room is public. Any client that can reach the server can join it and edit. To allow only signed-in users, configure [Auth](/docs/auth) and set `auth: true` in `server/realtime/docs.ts`.
+
 ::
 
-::tutorial-step{title="Verify synchronization"}
-## Verify synchronization
+::tutorial-step{title="Type in two tabs"}
+## Type in two tabs
 
-Start the server and leave it running:
+Start the dev server and keep it running:
 
 ```bash [commands/dev]
 pnpm vite dev
 ```
 
-Open the local URL printed by Vite in two browser tabs. Both tabs should show
-`Realtime: connected, Document synced`. Click the editor below the status in
-one tab and type a sentence; it should appear in the other tab. Edit from the
-second tab and verify that the first updates too. Both editors use the same
-`docs` Definition and `guides/getting-started.md` document path.
+Open the local URL that Vite prints in two browser tabs. Both tabs show `Realtime: connected, Document synced`. This proves that both tabs joined the room.
 
-Room updates synchronize the editors immediately. Realtime writes the Markdown
-file to the Workspace 2 seconds after the last edit, at most every 10 seconds
-while you keep typing, and when the last tab closes. `realtime.history.checkpoint()`
-also commits it to Workspace history. Both the room authority and Workspace
-store in this tutorial are in memory, so restarting the server loses their
-state. Use a durable setup before relying on documents surviving a restart.
+Click the editor in one tab and type a sentence. The sentence shows in the other tab. Then type in the second tab. The first tab updates too. This proves that the room syncs the editors in both directions.
 
-To show who else is editing and whether the room is connected and saved, replace
-the status line with the parts in the
-[Collaborative Editor](/docs/ui/blocks/collaborative-editor) block.
+The tabs sync at once. The Markdown file saves later:
+
+- 2 seconds after you stop typing
+- at most every 10 seconds while you type
+- when you close the last tab
+
+`realtime.history.checkpoint()` also saves the file as a version in the Workspace history.
+
 ::
+
+## Next steps
+
+- [Collaborative Editor](/docs/ui/blocks/collaborative-editor): show who else is editing, and whether the room is connected and saved.
+- [Configure](/docs/realtime/configure): choose a room authority that keeps data after a restart.
+- [Server API](/docs/realtime/server-api#identity-and-authorization): check who can join a room.

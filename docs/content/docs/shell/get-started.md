@@ -1,5 +1,4 @@
 ---
-
 title: Run your first Shell command
 description: Search a read-only Workspace with Just Bash and inspect the command output.
 layout: tutorial
@@ -8,21 +7,31 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Search a Markdown file with `rg` and return the matching line from a server route. The route creates a file in a memory Workspace, then gives Shell read-only access to that file tree. You will check both the command's exit code and its output.
+You write an API route that runs one shell command, `rg auth .`, on a Markdown file. The route returns the matching line and the command's exit code.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. The Just Bash provider runs the commands you allow against the supplied filesystem. Use [Sandbox](/docs/sandbox) when you need provider-managed isolation for external programs.
+You need:
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+- Node.js 22.22 or newer
+- pnpm
+- a Vite app. Run every command from its root folder.
 
-Install Shell and Workspace. Only Workspace needs a discovery plugin in this example; the route creates Shell directly.
+You do not need a cloud account, a container, or a real shell on the server.
+
+::tutorial-step{title="Install"}
+## Install
+
+Install the packages:
 
 ```bash [commands/install]
 pnpm add @vite-hub/shell @vite-hub/workspace nitro h3
 pnpm add -D vite
 ```
 
-Register Workspace discovery in `vite.config.ts`:
+- `@vite-hub/shell` runs the command.
+- `@vite-hub/workspace` holds the file that the command searches. A Workspace is a folder of files that the server can read and write.
+- `nitro` and `h3` serve the API route. `vite` runs the dev server.
+
+Add the plugins to `vite.config.ts`. `hubWorkspace()` finds the files in `server/workspaces/`. Shell does not need a plugin, because the route creates it.
 
 ```ts [vite.config.ts]
 import { hubWorkspace } from '@vite-hub/workspace/vite'
@@ -34,7 +43,7 @@ export default defineConfig({
 })
 ```
 
-Create a writable memory Workspace for the local fixture:
+Create `server/workspaces/docs.ts`. This is the `docs` Workspace. ViteHub uses the file name as its name.
 
 ```ts [server/workspaces/docs.ts]
 import { defineWorkspace } from '@vite-hub/workspace'
@@ -47,12 +56,15 @@ export default defineWorkspace({
 })
 ```
 
+- `store: { provider: 'memory' }` keeps the files in the server process. A restart deletes them.
+- `rules` lets the server write every file (`/**`) as Markdown.
+
 ::
 
 ::tutorial-step{title="Run one command"}
 ## Run one command
 
-`rg auth .` searches for `auth` in the mounted tree. The command policy permits one call, caps its output, and applies a timeout. The filesystem adapter denies writes even though the route created the fixture with write access.
+Create `server/api/search-docs.get.ts`. The route writes a `README.md` file to the Workspace. Then it runs `rg auth .`, which searches all files in the current folder for the word `auth`.
 
 ```ts [server/api/search-docs.get.ts]
 import { defineEventHandler } from 'h3'
@@ -83,26 +95,30 @@ export default defineEventHandler(async () => {
 })
 ```
 
-Only `pwd`, `ls`, `cat`, and `rg` are available to this provider, and it has no network access.
+- `policy` limits the shell. It allows one command (`maxShellCalls: 1`), keeps at most 10,000 characters of output, and stops after 30 seconds.
+- `createJustBashProvider()` runs commands in Just Bash. Just Bash runs Bash commands inside the Node.js process, on a virtual file system. It does not start a real shell.
+- `commands` allows only `pwd`, `ls`, `cat`, and `rg`. The commands have no network access.
+- `createReadonlyWorkspaceFs()` gives the shell the Workspace files as read-only. The route can write files, but the command cannot.
+- `cwd: workspaceMountPoint` starts the command in the folder where the Workspace files are.
 
 ::
 
-::tutorial-step{title="Run and check the result"}
-## Run and check the result
+::tutorial-step{title="Call the route"}
+## Call the route
 
-Start Vite and call the route:
+Start the dev server:
 
 ```bash [commands/start]
 pnpm vite dev
 ```
 
-Keep the server running. In another terminal, run:
+Keep the server running. Open a second terminal and call the route:
 
 ```bash [commands/request]
 curl http://localhost:5173/api/search-docs
 ```
 
-The response contains a successful observation:
+You see:
 
 ```json [output/response.json]
 {
@@ -112,6 +128,12 @@ The response contains a successful observation:
 }
 ```
 
-Read [Server API](/docs/shell/server-api) for sessions and command analysis,
-then [Configuration](/docs/shell/configure) for provider boundaries and policy.
+`exitCode: 0` means that the command finished without an error. `stdout` shows that `rg` found `auth` on line 1 of `README.md`. This proves that the shell can read the Workspace file.
+
 ::
+
+## Next steps
+
+- [Server API](/docs/shell/server-api): keep a shell session open, and check a command before you run it.
+- [Configure](/docs/shell/configure): set what each provider can reach, and change the limits.
+- [Sandbox](/docs/sandbox): run real programs on a separate, isolated machine.

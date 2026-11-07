@@ -8,14 +8,20 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Upload `hello.txt`, then fetch its contents in a separate request. The upload returns object metadata. The read returns `Hello from ViteHub` from storage.
+You add two API routes to your app. One saves a text file, and one reads it back. At the end, `curl` prints `Hello from ViteHub` from storage.
 
-Start with the working app from [Installation](/docs/getting-started/installation). Use its Node.js, pnpm, Vite, Nitro, and H3 setup, and run commands from the app root. The Node preset uses the local `fs` driver under `.vitehub/data/blob`. No provider account is required.
+You need:
+
+- Node.js 22.22 or newer
+- pnpm
+- the app from [Installation](/docs/getting-started/installation). Run all commands from its root folder.
+
+You do not need a cloud account. On your computer, Blob saves files in the `.vitehub/data/blob` folder.
 
 ::tutorial-step{title="Enable Blob"}
 ## Enable Blob
 
-Add `blob: true` to the existing `vitehub()` options in `vite.config.ts`. Keep any other enabled features and plugins.
+Add `blob: true` to the `vitehub()` options in `vite.config.ts`. Keep the other features and plugins of your app.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -27,14 +33,16 @@ export default defineConfig({
 })
 ```
 
-If you chose Nuxt in Installation, add `blob: true` to the options of the existing `vite-hub/nuxt` module. The routes below also work there. They use explicit H3 imports and upload a plain text request body.
+`preset: 'node'` tells ViteHub that the app runs on a Node.js server. With this preset, Blob keeps files on your disk.
+
+If you use Nuxt, add `blob: true` to the options of the `vite-hub/nuxt` module. The routes below work in Nuxt too.
 
 ::
 
 ::tutorial-step{title="Accept a text upload"}
 ## Accept a text upload
 
-Create `server/api/files.post.ts`. Nitro maps it to `POST /api/files`. This tutorial stores a UTF-8 text body at the fixed pathname `hello.txt`; another upload replaces it.
+Create `server/api/files.post.ts`. The file name makes it the `POST /api/files` route. The route saves the request body as `hello.txt`. A second upload replaces the first one.
 
 ```ts [server/api/files.post.ts]
 import { createError, defineEventHandler, readRawBody } from 'h3'
@@ -58,14 +66,14 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`blob.put()` returns `[error, object]`. The object describes the stored bytes. This route returns just the fields used in the check below.
+`blob.put()` saves the file. It returns `[error, object]`. If the save fails, `error` is set. If it works, `object` describes the saved file: its path, type, and size. The route returns only these three fields.
 
 ::
 
-::tutorial-step{title="Retrieve the file"}
-## Retrieve the file
+::tutorial-step{title="Read the file"}
+## Read the file
 
-Create `server/api/files.get.ts` to read `hello.txt` without writing it again.
+Create `server/api/files.get.ts`. It is the `GET /api/files` route, and it reads `hello.txt`.
 
 ```ts [server/api/files.get.ts]
 import { createError, defineEventHandler, setResponseHeader } from 'h3'
@@ -83,26 +91,26 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`blob.get()` returns `[error, Blob | null]`. The `Blob` holds the file body, and `.text()` reads it as UTF-8. A missing object returns `null`; the route turns it into a `404` response.
+`blob.get()` returns `[error, file]`. `file` is a standard `Blob`, and `.text()` reads its content as text. If no file has the name `hello.txt`, `file` is `null`, and the route sends a `404` response.
 
 ::
 
 ::tutorial-step{title="Run and check the result"}
 ## Run and check the result
 
-Start or restart the app after the config change:
+Start the app. If it already runs, restart it, so it reads the new config:
 
 ```bash [commands/start]
 pnpm dev
 ```
 
-In another terminal, create a file without a trailing newline:
+In another terminal, create a text file. `printf` does not add a new line at the end, so the file is exactly 18 bytes:
 
 ```bash [commands/file]
 printf 'Hello from ViteHub' > hello.txt
 ```
 
-Upload it as the request body:
+Send the file as the request body:
 
 ```bash [commands/request]
 curl -X POST http://localhost:3000/api/files \
@@ -110,25 +118,32 @@ curl -X POST http://localhost:3000/api/files \
   --data-binary @hello.txt
 ```
 
-The response reports the stored pathname, content type, and 18-byte size:
+You see:
 
 ```json [output/response.json]
 { "pathname": "hello.txt", "contentType": "text/plain", "size": 18 }
 ```
 
-Retrieve the bytes through the GET route:
+This proves that Blob saved all 18 bytes as `hello.txt`. Now read the file:
 
 ```bash [commands/read]
 curl http://localhost:3000/api/files
 ```
 
-The response body is:
+You see:
 
 ```text [output/file.txt]
 Hello from ViteHub
 ```
 
-The local store keeps the object after a restart. Repeat only the GET request after restarting `pnpm dev` to check it.
+This proves that the second request reads the file from storage. The file stays on disk when you stop the app. Restart `pnpm dev` and send only the GET request to check it.
 
-These routes are open local examples. Before exposing uploads to users, add access checks and upload limits. Continue with [Server API](/docs/blob/server-api#upload-files) for form uploads and [Hosts](/docs/blob/hosts) for storage shared across app instances.
+> [!NOTE]
+> Anyone who can reach these routes can upload and read files. Before real users can upload, add access checks and size limits.
+
 ::
+
+## Next steps
+
+- [Upload files](/docs/blob/server-api#upload-files): accept file uploads from an HTML form.
+- [Hosts](/docs/blob/hosts): keep files in cloud storage, such as Cloudflare R2 or S3, so every copy of your app sees the same files.

@@ -7,18 +7,27 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Add Comments to a Vite app with one plugin, and pin a comment on a page. Then let your team sign in with GitHub, and deploy the app on Node. You need no ViteHub app, no Database, and no login of your own.
+You add comments to the pages of a Vite app. At the end, you pin a comment on a page, your team signs in with GitHub to comment, and the app runs on a Node.js server.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. The last two steps also need a GitHub repository for the app, and a GitHub account that can create a GitHub App.
+You need:
+
+- Node.js 22.22 or newer
+- pnpm
+- a Vite app. Run all commands from its root folder.
+- for the last two steps: a GitHub repository for the app, and a GitHub account that can create a GitHub App
+
+You do not need a ViteHub app, a database server, or a sign-in system of your own.
 
 ::tutorial-step{title="Turn on Comments"}
 ## Turn on Comments
+
+Install the Comments package:
 
 ```bash [commands/install]
 pnpm add @vite-hub/comments
 ```
 
-Add the `comments()` plugin:
+Add the `comments()` plugin to `vite.config.ts`. `vue()` is the plugin of the example app. Keep the plugins of your own app.
 
 ```ts [vite.config.ts]
 import vue from '@vitejs/plugin-vue'
@@ -30,22 +39,26 @@ export default defineConfig({
 })
 ```
 
-There is nothing else to set up. `comments()` adds [Nitro](https://nitro.build) as the app's server, unless the app has it already, and adds these parts to it:
+You do not set up anything else. If your app has no server, `comments()` adds [Nitro](https://nitro.build) as its server. Then it adds these parts:
 
-- The Comments API at `/api/_vitehub/comments/`.
-- The overlay script, which pages load in comment mode.
-- A SQLite file for the threads, `.vitehub/data/comments.sqlite`. Comments opens it with Node's built-in `node:sqlite` and creates its tables, so there is no driver to install and no migration to run. The plugin adds a `.gitignore` next to it, so the threads you write on your computer stay out of Git.
+- the Comments API at `/api/_vitehub/comments/`
+- the overlay script, which draws the comment tools on top of your pages
+- a SQLite database file for the comments, `.vitehub/data/comments.sqlite`
+
+Comments opens the SQLite file with `node:sqlite`, which is part of Node.js, and creates its tables. You do not install a database driver or run a migration. The plugin also adds a `.gitignore` file next to the database file, so the comments that you write on your computer stay out of Git.
 
 ::
 
 ::tutorial-step{title="Pin a comment"}
 ## Pin a comment
 
+Start the dev server:
+
 ```bash [commands/start]
 pnpm vite dev
 ```
 
-Open `http://localhost:5173/?vitehub`. The `?vitehub` query turns on the ViteHub page tools, such as Comments. The ViteHub tools pill shows at the bottom of the page, with the Comments toolbar in it. The server also sets the `vitehub-tools` cookie, so other pages of the site keep comment mode until you select **×** in the pill.
+Open `http://localhost:5173/?vitehub`. `?vitehub` at the end of the URL turns on the ViteHub page tools. A small bar, the pill, shows at the bottom of the page, with the Comments toolbar in it. The server also sets the `vitehub-tools` cookie, so the other pages of the site stay in comment mode. To leave comment mode, select **×** in the pill.
 
 1. Press <kbd>C</kbd>, or select **Comment** in the toolbar. As a guest, type your name first. The browser keeps it for the next pages.
 2. Click a heading on the page. A comment box opens at that point.
@@ -54,16 +67,19 @@ Open `http://localhost:5173/?vitehub`. The `?vitehub` query turns on the ViteHub
 5. Type `@` in a reply. The list shows the people that you may mention there. As a guest it is empty: nobody can mention a guest. After your team signs in, in the next step, `@` suggests the people who commented before, and the server checks each mention.
 6. Select **Resolve**, the check mark on the thread. The pin goes away. Open the thread list from the toolbar and select **Resolved** to see it again.
 
-On the dev server, anyone may comment as a guest under a name they type. A production build lets in only the people that you choose. The next step lets in everyone who can push to the repository.
+Make the window smaller or larger. The pin stays on the heading, because Comments saves its position relative to the heading, not to the window. Then stop the dev server and start it again. The thread is still there. This proves that Comments saved it in the SQLite file.
 
-Resize the window. The pin stays on the heading, because it is stored relative to the element, not to the window. Stop the dev server and start it again: the thread is still there, in the SQLite file.
+> [!NOTE]
+> On the dev server, anyone can comment as a guest, with a name that they type. A production build lets in only the people that you choose. The next step lets in everyone who can push to the repository.
 
 ::
 
 ::tutorial-step{title="Let your team sign in with GitHub"}
 ## Let your team sign in with GitHub
 
-Comments signs people in with a GitHub App. Anyone who can push to the app's repository may then comment. Other people see why they cannot.
+Comments uses a GitHub App to sign people in. Then anyone who can push to the app's repository can comment. Other people see a message that tells them why they cannot.
+
+Create the GitHub App:
 
 1. On GitHub, open **Settings**, **Developer settings**, **GitHub Apps**, then **New GitHub App**.
 2. Set **Callback URL** to `http://localhost:5173/api/_vitehub/comments/auth/callback/github`. Also add `http://localhost:3000/api/_vitehub/comments/auth/callback/github` for the production server below, and the URL of each deployed site, such as `https://staging.example.com/api/_vitehub/comments/auth/callback/github`. A GitHub App takes up to 10.
@@ -71,7 +87,10 @@ Comments signs people in with a GitHub App. Anyone who can push to the app's rep
 4. Copy the **Client ID**, and select **Generate a new client secret**.
 5. Select **Install App**, and install it on the app's repository.
 
-Comments reads three server variables. `VITEHUB_SECRET` encrypts the session cookies. It must be at least 32 characters, and the same on every server.
+Put three variables in a `.env` file. The server reads them when it starts.
+
+- `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET` are the values from step 4.
+- `VITEHUB_SECRET` encrypts the session cookies. It must have 32 or more characters, and it must be the same on every server. The command `openssl rand -base64 32` makes one.
 
 ```bash [.env]
 VITEHUB_GITHUB_CLIENT_ID=Iv23li...
@@ -79,14 +98,14 @@ VITEHUB_GITHUB_CLIENT_SECRET=...
 VITEHUB_SECRET=   # openssl rand -base64 32
 ```
 
-Comments also needs to know the repository. It reads it from the `origin` remote of the Git checkout when you build, or from your CI or host. See [Sign in with GitHub](/docs/comments/configure#sign-in-with-github) for the variables it reads.
+Comments also needs the name of the repository. When you build, it reads the `origin` remote of your Git folder, or the variables of your CI or host. See [Sign in with GitHub](/docs/comments/configure#sign-in-with-github) for the variables that it reads.
 
 ::
 
 ::tutorial-step{title="Deploy on Node"}
 ## Deploy on Node
 
-A production build keeps threads in a database that you point it to. With a Turso database or Cloudflare D1, set its variable or binding and you are done: see [Choose the Database](/docs/comments/configure#choose-the-database). On Node, the simplest is a SQLite file:
+A production build keeps comments in a database that you choose. On a Node.js server, a SQLite file is the easiest. Set the `database` option:
 
 ```ts [node/vite.config.ts]
 export default defineConfig({
@@ -94,7 +113,9 @@ export default defineConfig({
 })
 ```
 
-The path is relative to the directory that the server starts in. Build the app and start the server:
+The path starts from the folder where you start the server. For a Turso database or Cloudflare D1, see [Choose the Database](/docs/comments/configure#choose-the-database).
+
+Build the app and start the server. `--env-file=.env` loads the variables from the last step:
 
 ```bash [commands/deploy]
 pnpm vite build
@@ -108,14 +129,15 @@ Open `http://localhost:3000/?vitehub`.
 3. Pin a comment. It shows your GitHub name and picture.
 4. Select your picture in the toolbar to sign out.
 
-The session is an encrypted cookie that lasts 7 days, so the server stores no users and no sessions. Comments asks GitHub again every 5 minutes whether each person can still push.
+This proves that GitHub sign-in works in the production build. The session is an encrypted cookie that lasts 7 days, so the server keeps no users and no sessions. Every 5 minutes, Comments asks GitHub again if each person can still push.
 
-On a server, keep `data/comments.sqlite` on a disk that survives deploys, such as a Docker volume. Hosts without such a disk, such as Cloudflare Workers, Vercel, and Netlify, keep threads in [D1 or a Turso database](/docs/comments/configure#choose-the-database) instead. See [Hosts](/docs/comments/hosts).
+> [!NOTE]
+> On a server, keep `data/comments.sqlite` on a disk that a new deploy does not delete, such as a Docker volume. Cloudflare Workers, Vercel, and Netlify have no such disk. On these hosts, keep comments in [D1 or a Turso database](/docs/comments/configure#choose-the-database). See [Hosts](/docs/comments/hosts).
 
 ::
 
 ## Next steps
 
-- [Add presence and edits with ViteHub](/docs/comments/with-vite-hub): see each other's cursors, and edit Content text in place.
-- [Configure](/docs/comments/configure): who may comment, mentions, notifications, and posting threads to the pull request of a preview.
-- [Hosts](/docs/comments/hosts): what each host supports.
+- [Add presence and edits with ViteHub](/docs/comments/with-vite-hub): see the cursors of other people, and edit page text in place.
+- [Configure](/docs/comments/configure): choose who can comment, and set up mentions, notifications, and comments on the pull request of a preview.
+- [Hosts](/docs/comments/hosts): see what each host supports.

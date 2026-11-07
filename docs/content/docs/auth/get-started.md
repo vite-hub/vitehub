@@ -7,21 +7,31 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Create a user with an email and password, then read their session using the cookie returned by sign-up. ViteHub discovers your Auth Definition; Better Auth handles the sign-up and session endpoints.
+You add sign-up and sign-in to a Vite app. At the end, you create a user with `curl` and read that user's session back with the cookie that sign-up gave you.
 
-You need Node.js 22.18 or newer, pnpm, and a Vite application. Run the commands from its root. This example uses an in-memory store, so restarting the server removes its users and sessions. Keep users in a database with [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) before using this setup in production.
+You need:
+
+- Node.js 22.18 or newer
+- pnpm
+- a Vite app. Run all commands from its root folder.
+
+You do not need a database or an account with an auth provider.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install Auth and Better Auth, then register discovery in your existing Vite config. Keep the app's other plugins.
+Install the packages:
 
 ```bash [commands/install]
 pnpm add @vite-hub/auth @vite-hub/runtime better-auth h3
 pnpm add -D vite
 ```
 
-Register the Auth integration:
+- `@vite-hub/auth` connects auth to your app.
+- `better-auth` does the real work: sign-up, sign-in, and sessions.
+- `@vite-hub/runtime` and `h3` run the server routes.
+
+Add the Auth plugin to your Vite config. Keep the other plugins of your app.
 
 ```ts [vite.config.ts]
 import { hubAuth } from '@vite-hub/auth/vite'
@@ -32,14 +42,14 @@ export default defineConfig({
 })
 ```
 
+`hubAuth()` finds your auth file and adds its routes to the app.
+
 ::
 
-::tutorial-step{title="Define Auth"}
-## Define Auth
+::tutorial-step{title="Write the auth file"}
+## Write the auth file
 
 Create `server/auth.ts`:
-
-`emailAndPassword.enabled` turns on the endpoints used below. You do not need to write sign-up or session routes yourself.
 
 ```ts [server/auth.ts]
 import { defineAuth } from '@vite-hub/auth'
@@ -50,23 +60,23 @@ export default defineAuth({
 })
 ```
 
-ViteHub discovers the definition and mounts Better Auth at `/api/auth/**`.
+- `defineAuth()` takes the same options as Better Auth.
+- `emailAndPassword.enabled` turns on sign-up and sign-in with an email and a password.
+
+The plugin adds the Better Auth routes under `/api/auth/`. You do not write sign-up or session routes yourself.
 
 ::
 
-::tutorial-step{title="Create and verify one session"}
-## Create and verify one session
+::tutorial-step{title="Sign up and read the session"}
+## Sign up and read the session
 
-Start the dev server. Sign up with an email and password, saving the session
-cookie for the second request:
+Start the dev server:
 
 ```bash [commands/start]
 pnpm vite dev
 ```
 
-Keep the server running. In another terminal, run:
-
-`-c cookies.txt` saves the response cookie in a local file. The password below is example data; use a different password for a real account.
+Keep the server running. Open another terminal and sign up a user. `-c cookies.txt` saves the cookie from the response in a local file. The password is example data. Use a different password for a real account.
 
 ```bash [commands/sign-up]
 curl -i -c cookies.txt -X POST http://localhost:5173/api/auth/sign-up/email \
@@ -74,17 +84,23 @@ curl -i -c cookies.txt -X POST http://localhost:5173/api/auth/sign-up/email \
   -d '{"name":"Ada Lovelace","email":"ada@example.com","password":"correct-horse-battery-staple"}'
 ```
 
-A successful response is `200` and includes a user, a session, and a
-`set-cookie` header. Read the session back with the saved cookie:
+You see status `200`, the new user, a session, and a `set-cookie` header. This proves that the sign-up route works and that the user is signed in.
+
+Now send the saved cookie back with `-b cookies.txt`:
 
 ```bash [commands/session]
 curl -i -b cookies.txt http://localhost:5173/api/auth/get-session
 ```
 
-The JSON response includes the signed-in user and session expiry. The default
-store is for discovery and local checks, not durable production sessions. Use
-[`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) to keep
-users in the app Database, or use [Sessions without a database](/docs/auth/configure#sessions-without-a-database)
-for social sign-in only. Read [Server API](/docs/auth/server-api) for route
-guards.
+The JSON response shows the signed-in user and the time the session ends. This proves that the server knows the user from the cookie alone.
+
+> [!NOTE]
+> This example keeps users and sessions in memory. When you restart the server, they are gone. Before you use it in production, keep users in a database with [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database).
+
 ::
+
+## Next steps
+
+- [Keep users in the app Database](/docs/auth/configure#keep-users-in-the-app-database): keep users and sessions after a restart.
+- [Sessions without a database](/docs/auth/configure#sessions-without-a-database): use social sign-in only, with no database.
+- [Server API](/docs/auth/server-api): protect your routes so only signed-in users can use them.
