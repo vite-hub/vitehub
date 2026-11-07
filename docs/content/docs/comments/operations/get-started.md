@@ -123,9 +123,9 @@ export const comments = createCommentsClient({
 
 The same `server/comments.ts` also runs the overlay. The overlay lets people comment on any spot of a page.
 
-The overlay does not use the `local` user of `vite dev`. Without sign-in, `authorize` gets `user: null`, like a guest. The policy above refuses guests, so the overlay does not show. To try it on your computer, let guests in while you test:
+The overlay does not use the `local` user of `vite dev`. Without sign-in, `authorize` gets `user: null`, like a guest. The policy above refuses guests, so the overlay does not show. To try it on your computer, replace `server/comments.ts` with this version, which lets guests in while you test:
 
-```ts [server/comments.ts]
+```ts [local-test/server/comments.ts]
 import { defineComments } from 'vite-hub/comments'
 
 export default defineComments({
