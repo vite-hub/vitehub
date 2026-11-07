@@ -1,3 +1,6 @@
+import { createRequire } from "node:module"
+import { join } from "node:path"
+
 import { toJsonSchema } from "@valibot/to-json-schema"
 
 import { CodemodError } from "../types.ts"
@@ -21,8 +24,108 @@ function isValibotSchema(value: unknown): value is BaseSchema<unknown, unknown, 
   return isRecord(value) && value.kind === "schema" && isRecord(value["~standard"]) && value["~standard"].vendor === "valibot"
 }
 
-/** Converts a Standard Schema to the JSON Schema of its input, the shape that host values must have. */
-export async function schemaToJsonSchema(schema: unknown): Promise<JsonObject> {
+function zod3Definition(schema: unknown): JsonObject | undefined {
+  return isRecord(schema) && isRecord(schema._def) && typeof schema._def.typeName === "string" ? schema._def : undefined
+}
+
+function zod3OptionalInput(schema: unknown): boolean {
+  const definition = zod3Definition(schema)
+  if (!definition) return false
+  switch (definition.typeName) {
+    case "ZodOptional":
+    case "ZodDefault": return true
+    case "ZodEffects": return zod3OptionalInput(definition.schema)
+    case "ZodPipeline": return zod3OptionalInput(definition.in)
+    case "ZodBranded": return zod3OptionalInput(definition.type)
+    case "ZodNullable":
+    case "ZodReadonly": return zod3OptionalInput(definition.innerType)
+    default: return false
+  }
+}
+
+/** Converts a Zod 3 schema, which has no JSON Schema output of its own, to the JSON Schema of its input. */
+function zod3ToJsonSchema(schema: unknown): JsonObject {
+  const definition = zod3Definition(schema)
+  if (!definition) return {}
+  const checks = Array.isArray(definition.checks) ? definition.checks.filter(isRecord) : []
+  switch (definition.typeName) {
+    case "ZodString": {
+      const node: JsonObject = { type: "string" }
+      for (const check of checks) {
+        if (check.kind === "url") node.format = "uri"
+        else if (check.kind === "email" || check.kind === "uuid") node.format = check.kind
+        else if (check.kind === "min" && typeof check.value === "number") node.minLength = check.value
+        else if (check.kind === "max" && typeof check.value === "number") node.maxLength = check.value
+        else if (check.kind === "length" && typeof check.value === "number") node.minLength = node.maxLength = check.value
+        else if (check.kind === "regex" && check.regex instanceof RegExp) node.pattern = check.regex.source
+      }
+      return node
+    }
+    case "ZodNumber": {
+      const node: JsonObject = { type: checks.some(check => check.kind === "int") ? "integer" : "number" }
+      for (const check of checks) {
+        if (check.kind === "min" && typeof check.value === "number") node[check.inclusive === false ? "exclusiveMinimum" : "minimum"] = check.value
+        if (check.kind === "max" && typeof check.value === "number") node[check.inclusive === false ? "exclusiveMaximum" : "maximum"] = check.value
+      }
+      return node
+    }
+    case "ZodBoolean": return { type: "boolean" }
+    case "ZodEnum": return Array.isArray(definition.values) ? { type: "string", enum: definition.values } : {}
+    case "ZodNativeEnum": {
+      const values = definition.values
+      if (!isRecord(values)) return {}
+      // Numeric TypeScript enums also contain reverse mappings from numbers to member names.
+      return { enum: Object.values(values).filter(value => (typeof value === "string" || typeof value === "number") && typeof values[value] !== "number") }
+    }
+    case "ZodLiteral": return { const: definition.value }
+    case "ZodOptional": return zod3ToJsonSchema(definition.innerType)
+    case "ZodNullable": return { anyOf: [zod3ToJsonSchema(definition.innerType), { type: "null" }] }
+    case "ZodDefault": {
+      const node = zod3ToJsonSchema(definition.innerType)
+      try {
+        const value: unknown = typeof definition.defaultValue === "function" ? Reflect.apply(definition.defaultValue, undefined, []) : undefined
+        if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") node.default = value
+      }
+      catch {}
+      return node
+    }
+    case "ZodEffects": return zod3ToJsonSchema(definition.schema)
+    case "ZodPipeline": return zod3ToJsonSchema(definition.in)
+    case "ZodBranded":
+    case "ZodReadonly":
+    case "ZodCatch": return zod3ToJsonSchema(definition.innerType ?? definition.type)
+    case "ZodUnion": return { anyOf: (Array.isArray(definition.options) ? definition.options : []).map(zod3ToJsonSchema) }
+    case "ZodArray": return { type: "array" }
+    case "ZodObject": {
+      const shape: unknown = typeof definition.shape === "function" ? Reflect.apply(definition.shape, undefined, []) : definition.shape
+      if (!isRecord(shape)) return { type: "object" }
+      const required = Object.entries(shape).filter(([, child]) => !zod3OptionalInput(child)).map(([key]) => key)
+      return { type: "object", properties: Object.fromEntries(Object.entries(shape).map(([key, child]) => [key, zod3ToJsonSchema(child)])), required }
+    }
+    default: return {}
+  }
+}
+
+/** Zod 4 before 4.2 has no converter on the schema, but the package exports `toJSONSchema()`. Use the app's copy. */
+function zodPackageJsonSchema(schema: unknown, cwd: string | undefined): JsonObject | undefined {
+  if (!cwd || !zodDefinition(schema)) return undefined
+  try {
+    const zod: unknown = createRequire(join(cwd, "package.json"))("zod")
+    const convert = isRecord(zod) ? zod.toJSONSchema : undefined
+    if (typeof convert !== "function") return undefined
+    const output: unknown = Reflect.apply(convert, zod, [schema, { io: "input", unrepresentable: "any" }])
+    return isRecord(output) ? output : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+/**
+ * Converts a Standard Schema to the JSON Schema of its input, the shape that host values must have. `cwd` lets
+ * the converter load the app's own Zod for Zod 4 versions before 4.2.
+ */
+export async function schemaToJsonSchema(schema: unknown, cwd?: string): Promise<JsonObject> {
   const standard = isRecord(schema) ? schema["~standard"] : undefined
   if (!isRecord(schema) || !isRecord(standard)) {
     throw new CodemodError("The $schema is not a Standard Schema. Use a Valibot, Zod, or ArkType schema.")
@@ -42,6 +145,9 @@ export async function schemaToJsonSchema(schema: unknown): Promise<JsonObject> {
   if (isValibotSchema(schema)) {
     return Object.fromEntries(Object.entries(toJsonSchema(schema, { errorMode: "ignore" })))
   }
+  if (zod3Definition(schema)) return zod3ToJsonSchema(schema)
+  const fromPackage = zodPackageJsonSchema(schema, cwd)
+  if (fromPackage) return fromPackage
   const arkConverter = schema.toJsonSchema
   if (typeof arkConverter === "function") {
     try {
@@ -52,7 +158,7 @@ export async function schemaToJsonSchema(schema: unknown): Promise<JsonObject> {
       nativeError = error
     }
   }
-  throw new CodemodError(`Cannot convert the ${vendor} $schema to JSON Schema${nativeError ? `: ${errorText(nativeError)}` : ""}. Zod 4.2 or newer, Valibot 1, and ArkType 2 are supported.`)
+  throw new CodemodError(`Cannot convert the ${vendor} $schema to JSON Schema${nativeError ? `: ${errorText(nativeError)}` : ""}. Zod 3, Zod 4.2 or newer, Valibot 1, and ArkType 2 are supported.`)
 }
 
 // Valibot validations that @valibot/to-json-schema writes as JSON Schema keywords. Other actions are reported.
@@ -122,11 +228,51 @@ function zodIssues(schema: unknown, path: string[], issues: Map<string, string[]
   }
 }
 
+// Checks that zod3ToJsonSchema writes as JSON Schema keywords. Other checks need follow-ups.
+const zod3JsonChecks = new Set(["url", "email", "uuid", "min", "max", "length", "regex", "int"])
+
+function zod3Issues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
+  const definition = zod3Definition(schema)
+  if (!definition) return
+  for (const check of Array.isArray(definition.checks) ? definition.checks : []) {
+    if (!isRecord(check) || typeof check.kind !== "string") continue
+    if (["trim", "toLowerCase", "toUpperCase"].includes(check.kind)) addIssue(issues, path, `a Zod ${check.kind} transform`)
+    else if (!zod3JsonChecks.has(check.kind)) addIssue(issues, path, `the Zod ${check.kind} check`)
+  }
+  const type = definition.typeName
+  if (type === "ZodEffects") {
+    const effect = isRecord(definition.effect) ? definition.effect.type : undefined
+    addIssue(issues, path, effect === "refinement" ? "a Zod refinement" : effect === "preprocess" ? "a Zod preprocess" : "a Zod transform")
+    zod3Issues(definition.schema, path, issues)
+  }
+  else if (type === "ZodPipeline") {
+    addIssue(issues, path, "a Zod pipe")
+    zod3Issues(definition.in, path, issues)
+  }
+  else if (type === "ZodObject") {
+    const shape: unknown = typeof definition.shape === "function" ? Reflect.apply(definition.shape, undefined, []) : definition.shape
+    if (isRecord(shape)) for (const [key, child] of Object.entries(shape)) zod3Issues(child, [...path, key], issues)
+  }
+  else if (type === "ZodLazy" || type === "ZodAny" || type === "ZodUnknown") {
+    addIssue(issues, path, `a Zod ${type.slice(3).toLowerCase()} schema`)
+  }
+  else if (type === "ZodBranded") {
+    zod3Issues(definition.type, path, issues)
+  }
+  else if (definition.innerType) {
+    zod3Issues(definition.innerType, path, issues)
+  }
+  if ((type === "ZodBoolean") && definition.coerce === true) {
+    addIssue(issues, path, "z.coerce.boolean(), which turned every non-empty value, even \"false\", into true (Env reads true and false)")
+  }
+}
+
 /** Rules that JSON Schema cannot hold, such as transforms and custom checks, by dotted path. `""` is the schema root. */
 export function schemaIssues(schema: unknown): Map<string, string[]> {
   const issues = new Map<string, string[]>()
   if (isValibotSchema(schema)) valibotIssues(schema, [], issues)
   else if (zodDefinition(schema)) zodIssues(schema, [], issues)
+  else if (zod3Definition(schema)) zod3Issues(schema, [], issues)
   return issues
 }
 
@@ -162,7 +308,8 @@ type Leaf =
   | { kind: "enum", values: string[], nullable: boolean }
   | { kind: "array" | "object" | "union" | "unknown", values?: undefined, nullable: boolean }
 
-function describeLeaf(root: JsonObject, input: JsonObject): Leaf & { node: JsonObject } {
+/** The Env kind of one JSON Schema node, with `null` folded into `nullable`. */
+export function describeLeaf(root: JsonObject, input: JsonObject): Leaf & { node: JsonObject } {
   let node = resolveReference(root, input)
   let nullable = false
   const variants = Array.isArray(node.anyOf) ? node.anyOf : Array.isArray(node.oneOf) ? node.oneOf : undefined
@@ -198,7 +345,8 @@ function describeLeaf(root: JsonObject, input: JsonObject): Leaf & { node: JsonO
 
 const safeIntegerBound = Number.MAX_SAFE_INTEGER
 
-function constraintNotes(leaf: Leaf & { node: JsonObject }): string[] {
+/** JSON Schema rules of a leaf that Env does not keep, as phrases such as "minimum length 1". */
+export function constraintNotes(leaf: Leaf & { node: JsonObject }): string[] {
   const node = leaf.node
   const notes: string[] = []
   if (typeof node.format === "string") notes.push(`the ${node.format === "uri" || node.format === "url" ? "URL" : node.format} format`)
@@ -217,7 +365,8 @@ function constraintNotes(leaf: Leaf & { node: JsonObject }): string[] {
   return notes
 }
 
-function coerceDefault(value: LiteralValue, field: Pick<EnvField, "kind" | "values">): LiteralValue | undefined {
+/** Converts a literal to the field kind, or returns `undefined` when it does not fit. */
+export function coerceDefault(value: LiteralValue, field: Pick<EnvField, "kind" | "values">): LiteralValue | undefined {
   if (field.kind === "number") {
     if (typeof value === "number") return value
     const parsed = typeof value === "string" && value.trim() ? Number(value) : Number.NaN
@@ -284,11 +433,6 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
       return
     }
     const kind = leaf.kind === "integer" ? "number" : leaf.kind
-    if (runtimeValue?.processEnv?.operator === "||") {
-      plan.unmigrated.push(label)
-      follow(`runtimeConfig.${label} uses process.env.${runtimeValue.processEnv.name} || a fallback. It stays in runtimeConfig without validation to preserve the empty-string fallback. Migrate it by hand with an Env source that skips empty values.`, { runtimeConfig: label })
-      return
-    }
     const field: EnvField = {
       section,
       configPath,
@@ -322,7 +466,9 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
       if (runtimeValue.processEnv.fallback !== undefined) {
         defaultValue = coerceDefault(runtimeValue.processEnv.fallback, field)
       }
-      follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when Nuxt loaded the config. Env now reads ${field.variable}, then ${runtimeValue.processEnv.name}, ${section === "public" ? "during the build" : "when the server runs"}.`, { env: field })
+      // `||` also falls back for an empty value. An Env source with skipEmpty does the same.
+      if (runtimeValue.processEnv.operator === "||") field.skipEmpty = true
+      follow(`runtimeConfig.${label} read process.env.${runtimeValue.processEnv.name} when Nuxt loaded the config. Env now reads ${field.variable === runtimeValue.processEnv.name ? field.variable : `${field.variable}, then ${runtimeValue.processEnv.name}`}, ${section === "public" ? "during the build" : "when the server runs"}${field.skipEmpty ? ", and skips empty values as || did" : ""}.`, { env: field })
     }
     else if (runtimeValue?.expression) {
       follow(`runtimeConfig.${label} is computed (${runtimeValue.expression}). It was not kept as a default. Set ${field.variable} or add a default by hand.`, { env: field })
