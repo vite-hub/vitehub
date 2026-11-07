@@ -149,7 +149,7 @@ const detailed = defineAgent({
 })
 ```
 
-Use `extends: [notes, options]` when options belong beside the selected host, for example `defineAgent({ extends: [notes, { format: 'detailed' }] })`. The named block and tuple can be combined; tuple values take precedence when both provide the same key. The legacy `extends` plus `options` form remains available, but a definition cannot mix it with a named block or tuple.
+Use `extends: [notes, options]` when options belong beside the selected preset, for example `defineAgent({ extends: [notes, { format: 'detailed' }] })`. The named block and tuple can be combined; tuple values take precedence when both provide the same key. The legacy `extends` plus `options` form remains available, but a definition cannot mix it with a named block or tuple.
 
 ## Option defaults and overrides
 
@@ -157,7 +157,7 @@ Use `extends: [notes, options]` when options belong beside the selected host, fo
 
 Child values replace parent values, including `false`, empty arrays, and callbacks. Arrays never concatenate. Nested values with required methods, including class instances, require complete replacements. Omitted or `undefined` values retain their defaults.
 
-Annotate optional fields and literal unions in the defaults to describe accepted configuration. TypeScript checks options against the selected host. Validate untyped input in `configure`.
+Annotate optional fields and literal unions in the defaults to describe accepted configuration. TypeScript checks options against the selected preset. Validate untyped input in `configure`.
 
 `configure` runs synchronously when defining or extending the Agent. Return a normal Agent Definition and keep this callback free of network calls and other side effects.
 

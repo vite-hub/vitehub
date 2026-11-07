@@ -42,7 +42,7 @@ const model = languageModel(openrouter(), 'google/gemini-3-flash')
 const { text } = await generateText({ model, prompt: 'What is a Server Primitive?' })
 ```
 
-Change the host to change the provider. The model ID is the ID that the gateway uses, such as `openai/gpt-5` on OpenRouter or `llama3.3` on Ollama.
+Change the preset to change the provider. The model ID is the ID that the gateway uses, such as `openai/gpt-5` on OpenRouter or `llama3.3` on Ollama.
 
 The `api` option selects the model API. The type accepts only the APIs that the gateway serves:
 
@@ -95,7 +95,7 @@ The answer types come from the questions. [Use an ask Driver](/docs/agents/agent
 | `anthropic()` | | `https://api.anthropic.com` | | | `ANTHROPIC_API_KEY` |
 | `typesafe()` | | | | `jev-latest` at `https://api.typesafe.ai` | `TYPESAFE_API_KEY`, `TYPESAFE_DEFAULT_MODEL` |
 
-The type of a preset lists what it serves. `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so `driver: codexDriver({ gateway: anthropic() })` is a type error, and so is `languageModel(typesafe(), ...)`. `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. The other hosts have no `ask()`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward model APIs only, not TypeSafe's `/v1/systemone`.
+The type of a preset lists what it serves. `AiGateway<{ routes: "codex" }>` accepts only gateways with a Codex URL, so `driver: codexDriver({ gateway: anthropic() })` is a type error, and so is `languageModel(typesafe(), ...)`. `vercel()`, `typesafe()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. The other presets have no `ask()`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, Anthropic, and the Cloudflare OpenAI-compatible endpoint forward model APIs only, not TypeSafe's `/v1/systemone`.
 
 `cloudflareAccess()` returns the `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers for a gateway behind Cloudflare Access, from `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. Pass it as `headers`, for example `cliproxy({ headers: cloudflareAccess() })`.
 
