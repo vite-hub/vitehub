@@ -89,7 +89,10 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
   runtime: AgentRuntimeName
 }
 
-/** Runtime Context that a caller passes to `runAgent()`. ViteHub creates a fresh memo cache when `memo` is absent. */
+/**
+ * Runtime Context that a caller passes to `runAgent()`, `streamAgent()`, and `startAgentInvocation()`.
+ * ViteHub creates a fresh memo cache for the Invocation when `memo` is absent.
+ */
 export type AgentRuntimeContextInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Omit<AgentRuntimeContext<TRuntimeConfig>, "memo"> & Partial<Pick<AgentRuntimeContext<TRuntimeConfig>, "memo">>
 

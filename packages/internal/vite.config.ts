@@ -23,6 +23,7 @@ export default defineConfig({
       "src/dev-token.ts",
       "src/dispatch.ts",
       "src/env.ts",
+      "src/features.ts",
       "src/http-request.ts",
       "src/inspect.ts",
       "src/object.ts",

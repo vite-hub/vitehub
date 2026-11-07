@@ -8,6 +8,20 @@
 
 `@vite-hub/workspace` gives agents and server code a file-system context they can read, diff, and, when opened in write mode, update.
 
+## File access without Agent tools
+
+Use `useWorkspaceFiles()` from `@vite-hub/workspace/files` for file, history, and Content operations that do not need Agent tools. It accepts the same name, mode, and definition options as `useWorkspace()`, and returns the same facade without `tools`. This entry skips constructing and loading Agent tools, including when Workspace is external to a consumer bundle.
+
+```ts
+import { useWorkspaceFiles } from "@vite-hub/workspace/files"
+
+const workspace = useWorkspaceFiles("docs", { mode: "write" })
+await workspace.fs.writeFile("guide.md", "# Guide\n")
+await workspace.history.checkpoint({ message: "Update guide" })
+```
+
+Use `useWorkspace()` when you need `workspace.tools`.
+
 ## Install
 
 ```sh
@@ -416,6 +430,10 @@ The `vercel-blob` Store keeps Workspace files under `_vitehub/workspaces/<worksp
 The optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, nests below
 `_vitehub/workspaces/`, so ViteHub owns every Workspace object. A prefix accepts
 letters, numbers, underscores, dashes, and single slashes.
+
+Without a `store`, a production build selects `vercel-blob` when the project has
+`BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN`. With `BLOB_STORE_ID`, the store uses
+Vercel OIDC, as `@vite-hub/blob` does. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`.
 
 Vercel Blob writes preserve file bytes and JSON attributes in separate objects. Same-path writes and removals are serialized across Store instances in one process, including failed-write recovery. Readers are not isolated from in-progress writes. Coordinate access across processes or hosts when they share a Workspace; this adapter does not provide distributed transactions. Use the Blob + Database Store when you need atomic publication across replicas.
 

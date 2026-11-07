@@ -18,7 +18,7 @@ Framework and provider integrations create Runtime Context in the generated rout
 | Value | Used for |
 | --- | --- |
 | `runtime` and `platform` | Identifying the active runtime and platform. |
-| `memo` | Resolve one value once during the current execution. `runAgent()` creates a fresh cache when the context has none. |
+| `memo` | Resolve one value once during the current execution. `runAgent()`, `streamAgent()`, and `startAgentInvocation()` create a fresh cache when the context has none. |
 | `waitUntil` and `flushWaitUntil` | Register background work and wait for it to finish. Host support controls work after the response. |
 | Provider context | Reading trusted host resources such as bindings. |
 | `trace` and `traceLog` | Keeping trace identity and recording structured events. |
@@ -96,6 +96,13 @@ export default defineEventHandler((event) => {
 
 For an event that Nitro did not create, such as in a test, call
 `installStandardContext(event)` from `vite-hub/runtime/h3` first.
+`getStandardContext(event)` returns `event["~standard"]` and sets it first when
+it is missing. ViteHub primitives such as `requireRateLimit()` and
+`useServerEnv()` read request events through it, so they work in an H3 app that
+does not use the ViteHub Vite plugin. The `ViteHubContext` type comes from
+`vite-hub/runtime` and does not load H3 types. In a ViteHub app, the generated
+`.vitehub/types.d.ts` adds `~standard` to `H3Event`. An H3 app without the
+ViteHub Vite plugin adds it with `import type {} from 'vite-hub/runtime/h3'`.
 
 ### Background work and cleanup
 

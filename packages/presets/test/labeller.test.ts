@@ -113,6 +113,18 @@ describe("labeller preset", () => {
     expect(calls).toEqual(["label:Receipts"])
   })
 
+  it("still labels when an extension adds its own finish hook", async () => {
+    const calls: string[] = []
+    const message = { channel: "gmail", label: async (name: string) => { calls.push(`label:${name}`) } }
+    const extension = defineAgent({
+      extends: configured({ rules: { receipt: { subject: "invoice", label: "Receipts" } } }),
+      hooks: { "agent:finish": () => { calls.push("extension") } },
+    })
+    const finish = extension.hooks?.["agent:finish"] as unknown as (event: { message: unknown, result: unknown }) => Promise<void>
+    await finish({ message, result: { label: "Receipts", rule: "receipt" } })
+    expect(calls).toEqual(["label:Receipts", "extension"])
+  })
+
   it("rejects label colors outside Gmail's palette when the Agent is defined", () => {
     expect(configured().options.hideUnmanagedLabels).toBe(false)
     expect(() => configured({ labels: { Work: { color: { textColor: "#FFFFFF", backgroundColor: "#4A86E8" } } } })).not.toThrow()

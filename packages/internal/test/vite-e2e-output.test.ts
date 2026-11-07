@@ -253,6 +253,58 @@ describe("unified vite e2e hosted outputs", () => {
     ]))
   }, 90_000)
 
+  it("names every Cloudflare resource after the live-smoke scratch prefix", async () => {
+    const prefix = "vitehub-smoke-123"
+    const scratchEnv = {
+      BLOB_BUCKET_NAME: prefix,
+      VITEHUB_CLOUDFLARE_WORKER_NAME: prefix,
+      VITEHUB_CLOUDFLARE_WORKFLOW_NAME: `${prefix}-welcome`,
+      VITEHUB_D1_ANALYTICS_DATABASE_NAME: `${prefix}-analytics`,
+      VITEHUB_D1_DATABASE_NAME: `${prefix}-db`,
+      VITEHUB_HOSTING: "cloudflare",
+      VITEHUB_KV_NAMESPACE_NAME: `${prefix}-kv`,
+      VITEHUB_QUEUE_NAME_PREFIX: `${prefix}-`,
+      VITEHUB_VITE_MODE: "e2e",
+    }
+    const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-cf-scratch-")
+
+    await withEnv({ ...scratchEnv, KV_NAMESPACE_ID: "" }, async () => {
+      const config = await resolveConfig({ root: rootDir }, "serve", "development")
+      const stepIds = (await collectViteHubCliContribution(config.plugins)).provision.map(step => step.id)
+      expect(stepIds).toEqual(expect.arrayContaining(["blob:cloudflare-r2", "database:cloudflare-d1", "kv:cloudflare-kv", "queue:cloudflare-queues"]))
+    })
+
+    await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+    await writeFile(join(rootDir, ".vitehub", "provision.json"), `${JSON.stringify({
+      cloudflare: {
+        d1: { analytics: "analytics-d1-id", primary: "primary-d1-id" },
+        kv: { default: "scratch-kv-id" },
+      },
+    }, null, 2)}\n`)
+    const { KV_NAMESPACE_ID: _kvNamespaceId, ...env } = process.env
+    await execFileAsync(process.execPath, [vp, "build"], {
+      cwd: rootDir,
+      env: {
+        ...env,
+        ...scratchEnv,
+        TURSO_AUTH_TOKEN: "token",
+        TURSO_DATABASE_URL: "libsql://db.example.turso.io",
+      },
+      maxBuffer: execMaxBuffer,
+    })
+
+    const cloudflareConfig = JSON.parse(await readFile(join(rootDir, "dist", "vite", "wrangler.json"), "utf8"))
+    expect(cloudflareConfig.name).toBe(prefix)
+    expect(cloudflareConfig.kv_namespaces).toEqual([{ binding: "KV", id: "scratch-kv-id" }])
+    expect(cloudflareConfig.r2_buckets).toContainEqual({ binding: "BLOB", bucket_name: prefix })
+    expect(cloudflareConfig.d1_databases.map((database: { database_name: string }) => database.database_name).sort()).toEqual([`${prefix}-analytics`, `${prefix}-db`])
+    const scratchQueue = `${prefix}-queue--77656c636f6d652d656d61696c`
+    expect(cloudflareConfig.queues.producers).toEqual([expect.objectContaining({ queue: scratchQueue })])
+    expect(cloudflareConfig.queues.consumers).toEqual([expect.objectContaining({ queue: scratchQueue })])
+    expect(cloudflareConfig.workflows).toEqual([expect.objectContaining({ name: `${prefix}-welcome` })])
+    expect(cloudflareConfig.containers).toContainEqual(expect.objectContaining({ name: `${prefix}-sandbox` }))
+  }, 90_000)
+
   it("keeps the vercel artifact unified while preserving queue server outputs", async () => {
     const rootDir = await createPlaygroundCopy("vitehub-internal-vite-e2e-vercel-")
 
