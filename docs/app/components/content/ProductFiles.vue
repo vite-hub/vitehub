@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // `::product-files` shows example code as a project file tree. Each child code block names its file
 // with a path, such as ```ts [server/workspaces/docs.ts]```. The tree lists folders first, like an
-// editor, and the first code block opens first.
+// editor, and the first code block opens first. In a narrow panel, such as a hero beside its copy, the
+// tree becomes one row of file tabs above the code, so the code keeps the width.
 import type { VNode } from "vue";
 
 const slots = defineSlots<{ default?: () => VNode[] }>();
@@ -23,10 +24,11 @@ const files = computed(() =>
 
 const rows = computed(() => buildFileTree(files.value.map((file) => file.path)));
 
-// The file rows are tabs. Arrow keys move through them in tree order, like a vertical tab list.
+// The file rows are tabs. Arrow keys move through them in tree order. The tree is a column or a row,
+// depending on the panel width, so both arrow pairs work.
 function onTreeKeydown(event: KeyboardEvent) {
   const order = rows.value.flatMap((row) => (row.kind === "file" ? [row.index] : []));
-  const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
+  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
   const target = event.key === "Home" ? order[0] : event.key === "End" ? order.at(-1)
     : step ? order[(order.indexOf(selected.value) + step + order.length) % order.length] : undefined;
   if (target === undefined) return;
@@ -37,8 +39,9 @@ function onTreeKeydown(event: KeyboardEvent) {
 </script>
 
 <template>
+  <div class="vh-files-frame">
   <div class="vh-files">
-    <div ref="tree" class="vh-files-tree" role="tablist" aria-orientation="vertical" aria-label="Example files" @keydown="onTreeKeydown">
+    <div ref="tree" class="vh-files-tree" role="tablist" aria-label="Example files" @keydown="onTreeKeydown">
       <template v-for="row in rows" :key="row.path">
         <div v-if="row.kind === 'folder'" class="vh-files-row is-folder" role="presentation" :style="{ '--depth': row.depth }">
           <UIcon name="i-lucide-folder-open" class="size-3.5 shrink-0" aria-hidden="true" />
@@ -80,13 +83,20 @@ function onTreeKeydown(event: KeyboardEvent) {
       </div>
     </div>
   </div>
+  </div>
 </template>
 
 <style scoped>
+/* The panel width, not the viewport, decides where the tree goes. */
+.vh-files-frame {
+  container-type: inline-size;
+}
+
 /* One framed panel, like a small editor: the tree on a tinted pane, the code under a header with its path. */
 .vh-files {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
   border: 1px solid var(--ui-border);
   border-radius: calc(var(--ui-radius) * 3);
@@ -96,43 +106,70 @@ function onTreeKeydown(event: KeyboardEvent) {
     0 12px 32px -16px rgb(0 0 0 / 0.16);
 }
 
-/* The tree column fits its longest name, so file names never truncate. The code takes the rest and scrolls. */
 @media (min-width: 40rem) {
   .vh-files {
     height: 26rem;
-    grid-template-columns: max-content minmax(0, 1fr);
   }
 }
 
+/* Narrow panels: the files are one row of tabs. The path header names the folder. */
 .vh-files-tree {
   display: flex;
-  min-width: 9rem;
-  flex-direction: column;
-  overflow-y: auto;
+  overflow-x: auto;
   border-bottom: 1px solid var(--ui-border);
   background: var(--ui-bg-muted);
-  padding: 0.5rem 0.25rem;
+  padding: 0.25rem;
   font-family: var(--font-mono);
   font-size: 0.75rem;
   white-space: nowrap;
+  scrollbar-width: none;
 }
 
-@media (min-width: 40rem) {
+.vh-files-row.is-folder {
+  display: none;
+}
+
+/* Wide panels: the tree column fits its longest name, so file names never truncate. The code takes the rest. */
+@container (min-width: 44rem) {
+  .vh-files {
+    grid-template-columns: max-content minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
   .vh-files-tree {
+    min-width: 9rem;
+    flex-direction: column;
+    overflow: hidden auto;
     border-right: 1px solid var(--ui-border);
     border-bottom: 0;
+    padding: 0.5rem 0.25rem;
+  }
+
+  .vh-files-row.is-folder {
+    display: flex;
+  }
+
+  .vh-files-code {
+    grid-area: 1 / 2;
   }
 }
 
 .vh-files-row {
   display: flex;
   min-height: 1.75rem;
+  flex: none;
   align-items: center;
   gap: 0.4375rem;
   border-radius: var(--ui-radius);
-  padding-inline: calc(0.375rem + var(--depth) * 0.75rem) 0.375rem;
+  padding-inline: 0.5rem;
   color: var(--ui-text-muted);
   text-align: start;
+}
+
+@container (min-width: 44rem) {
+  .vh-files-row {
+    padding-inline: calc(0.375rem + var(--depth) * 0.75rem) 0.375rem;
+  }
 }
 
 .vh-files-row.is-folder {
@@ -170,12 +207,6 @@ function onTreeKeydown(event: KeyboardEvent) {
 
 .vh-files-code[data-state="inactive"] {
   display: none;
-}
-
-@media (min-width: 40rem) {
-  .vh-files-code {
-    grid-area: 1 / 2;
-  }
 }
 
 /* The header lines up with the first tree row. */
