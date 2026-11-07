@@ -147,8 +147,24 @@ export interface JevDecision {
   probabilities: Record<string, number>
 }
 
-/** Most characters of request text in one Jev decision. A Jev request must stay below 30,000 bytes. */
+/** Most UTF-8 bytes of JSON-encoded request text in one Jev decision. The whole Jev shared state must stay below 30,000 bytes. */
 const jevTextLimit = 16_000
+
+const utf8 = new TextEncoder()
+
+/** The end of `text` that fits in `limit` bytes once JSON-encoded, cut on a code point boundary. */
+function lastBytes(text: string, limit: number): string {
+  const points = Array.from(text)
+  let size = 0
+  let start = points.length
+  while (start > 0) {
+    const next = utf8.encode(JSON.stringify(points[start - 1])).byteLength - 2
+    if (size + next > limit) break
+    size += next
+    start--
+  }
+  return points.slice(start).join("")
+}
 
 /** The text that Jev reads: the Invocation `data` as JSON when a caller sets it, else the recent history and the latest user text. */
 function decisionText(context: AgentCapabilityRuntimeContext, history: boolean | number | undefined): string {
@@ -187,7 +203,7 @@ export async function jevDecision(
     // A route or gate always records its most likely choice.
     thresholds: { option: 0 },
   })
-  const [error, selection] = await choices.resolve(decisionText(context, options.history).slice(-jevTextLimit))
+  const [error, selection] = await choices.resolve(lastBytes(decisionText(context, options.history), jevTextLimit))
   if (error) throw error
   const { confidence, ranked } = selection.decision
   const [best] = ranked

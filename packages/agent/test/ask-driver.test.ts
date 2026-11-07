@@ -341,6 +341,20 @@ describe("Jev decisions", () => {
     expect(askJev).toHaveBeenCalledOnce()
   })
 
+  it("keeps the end of non-ASCII request text within the Jev byte budget", async () => {
+    const agent = defineAgent({
+      capabilities: [llmRoute({ choices: { billing: "Invoices and payments.", support: "Other help." }, id: "route" })],
+      driver: { run: context => context.context.get("route") },
+    })
+
+    await runAgent(agent, runtime(), { prompt: `${"😀".repeat(12_000)}end` })
+    const [state] = askJev.mock.calls[0]!
+    const query = (state as { query: string }).query
+    expect(new TextEncoder().encode(JSON.stringify(query)).byteLength).toBeLessThanOrEqual(16_002)
+    expect(query.endsWith("😀end")).toBe(true)
+    expect(query).not.toMatch(/^[\uDC00-\uDFFF]/)
+  })
+
   it("splits large question sets into bounded requests and preserves key order", async () => {
     const questions = Object.fromEntries(Array.from({ length: 4 }, (_, index) => [
       `question-${index}`,
