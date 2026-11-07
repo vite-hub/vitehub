@@ -4,11 +4,11 @@ import { describe, expect, it } from "vitest";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const uiDocsRoot = resolve(docsRoot, "content/docs/ui");
-const examplesRoot = resolve(docsRoot, "app/components/content/examples");
+const examplesRoot = resolve(docsRoot, "app/examples");
 // The shared docs shell ships with @vite-hub/docs.
 const packageRoot = resolve(docsRoot, "../packages/docs");
 const packageApp = resolve(packageRoot, "runtime/app");
-const previewPattern = /^::component-preview\{name="([A-Za-z]+)"[^}]*\}$/gm;
+const previewPattern = /^::example\{name="([A-Za-z]+)"[^}]*\}$/gm;
 
 function markdownFiles(root: string): string[] {
   return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
@@ -56,7 +56,7 @@ describe("UI documentation", () => {
   it("gives every component page the shadcn/ui section order", () => {
     const sections = ["## Installation", "## Usage", "## Accessibility", "## API Reference"];
     for (const page of componentPages) {
-      const firstPreview = page.source.indexOf("::component-preview{");
+      const firstPreview = page.source.indexOf("::example{");
       expect(firstPreview, `${page.name} should open with a live preview`).toBeGreaterThan(0);
       let previous = firstPreview;
       for (const section of sections) {
@@ -72,7 +72,7 @@ describe("UI documentation", () => {
   it("gives every block page a full-width, resettable preview", () => {
     expect(blockPages.length).toBeGreaterThanOrEqual(2);
     for (const page of blockPages) {
-      expect(page.source, page.name).toMatch(/::component-preview\{name="[A-Za-z]+Block" flush reset\}/);
+      expect(page.source, page.name).toMatch(/::example\{name="[A-Za-z]+Block" flush reset height=\d+\}/);
       expect(page.source, page.name).toContain("navigation.group: Blocks");
     }
   });
@@ -96,24 +96,13 @@ describe("UI documentation", () => {
     }
   });
 
-  it("renders previews with a live stage and the running source", () => {
-    const preview = readFileSync(
-      resolve(docsRoot, "app/components/content/ComponentPreview.vue"),
-      "utf8",
-    );
+  it("renders previews with the docs package's ::example", () => {
+    const example = readFileSync(resolve(packageApp, "components/content/Example.vue"), "utf8");
 
-    expect(preview).toContain('import.meta.glob("./examples/*.vue")');
-    expect(preview).toContain('query: "?raw"');
-    expect(preview).toContain("Live example");
-    expect(preview).toContain('class="component-preview-source border-t border-default"');
-    expect(preview).not.toContain('role="tablist"');
-    expect(preview).not.toContain('role="tab"');
-    // The source highlights once on the server and reaches the client in the payload.
-    expect(preview).toContain('highlightCodeLines(source, "vue")');
-    expect(preview).toContain('<ProsePre language="vue" :code="source"');
-    expect(preview).toContain('@click="copy(source)"');
-    expect(preview).toContain('<component :is="example" :key="resetKey" />');
-    expect(preview).not.toContain("<code>{{ source }}</code>");
+    // The package shows each file of app/examples beside the source its parser highlighted.
+    expect(existsSync(resolve(docsRoot, "app/components/content/ComponentPreview.vue"))).toBe(false);
+    expect(example).toContain('import examples from "#docs/examples"');
+    expect(example).toContain('<component :is="live" :key="mounts" />');
   });
 
   it("loads previews through the public Nuxt module", () => {

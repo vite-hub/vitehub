@@ -10,7 +10,7 @@ icon: i-lucide-blocks
 
 The parts come from [comark-chat](https://comark-ui.onmax.me/chat), which renders the same message in Vue, React, and Svelte. ViteHub adds its `Markdown`, with math and the typeset styles, its image preview, and its colors.
 
-::component-preview{name="MessagePartsExample"}
+::example{name="MessagePartsExample" height=18}
 ::
 
 ## Installation
@@ -74,21 +74,21 @@ File and source links open only `http:` and `https:` URLs. A `data:` file URL is
 
 A tool part shows Running in the `input-streaming`, `input-available`, and `approval-responded` states, and Needs approval in `approval-requested`. It shows Failed in `output-error` and Denied in `output-denied`. A finished tool shows only its title. The body shows the input, then the output, then the error text, when each one exists.
 
-::component-preview{name="MessagePartsToolStatesExample"}
+::example{name="MessagePartsToolStatesExample" height=16}
 ::
 
 ## Typed Data Parts
 
 Render application data parts, for example `data-deploy`, through the `fallback` slot.
 
-::component-preview{name="MessagePartsDataExample"}
+::example{name="MessagePartsDataExample" height=8}
 ::
 
 ## Files and Sources
 
 Images open an expanded preview. Other files are links, and a named `data:` file downloads. Source URLs open in a new tab.
 
-::component-preview{name="MessagePartsFilesExample"}
+::example{name="MessagePartsFilesExample" height=18}
 ::
 
 ## Accessibility

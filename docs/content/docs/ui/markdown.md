@@ -8,7 +8,7 @@ icon: i-ph-markdown-logo-light
 
 `Markdown` renders Markdown strings and parsed Content pages with Comark UI components and document styles already configured. Use it for authored pages and assistant text. Streaming strings also use the `vh-typeset vh-typeset-chat` styles. Spacing comes from the start of each block, so the layout stays stable while streamed text appends new nodes.
 
-::component-preview{name="MarkdownExample"}
+::example{name="MarkdownExample" height=8}
 ::
 
 ## Installation
@@ -65,14 +65,14 @@ There is no separate Comark install, preset, component map, or stylesheet. `comp
 
 Set `streaming` while text arrives. A formula without its closing delimiter stays text until the delimiter arrives.
 
-::component-preview{name="MarkdownStreamingExample" reset}
+::example{name="MarkdownStreamingExample" reset height=22}
 ::
 
 ## Math
 
 For string values, `Markdown` loads KaTeX with the first formula. Use `$...$` or `\(...\)` for inline formulas and `$$...$$` or `\[...\]` for display formulas.
 
-::component-preview{name="MarkdownMathExample"}
+::example{name="MarkdownMathExample" height=14}
 ::
 
 - Start a display formula at the beginning of a line. Its closing delimiter must end the line.
@@ -86,7 +86,7 @@ Parsed Content pages keep the math nodes produced by their parser, including pre
 
 Images render as compact thumbnails. Select one to open it at its full aspect ratio. Press Escape or select the close button to return. The dialog also links to the original image.
 
-::component-preview{name="MarkdownImageExample"}
+::example{name="MarkdownImageExample" height=24}
 ::
 
 ## Custom components
