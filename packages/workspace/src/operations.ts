@@ -146,7 +146,7 @@ const commit = defineWorkspaceOperation<{ delete?: string[], ifHead: string | nu
 function formatStale(result: WorkspaceStaleList): string {
   if (!result.head) return `Ref ${result.ref} has no revisions.\n`
   if (!result.stale.length) return `No stale derived files on ${result.ref}.\n`
-  return `${table([["PATH", "SOURCE", "REASON"], ...result.stale.map(file => [file.path, file.derivedFrom.path, file.reason])])}\n`
+  return `${table([["PATH", "SOURCE", "REASON", "SOURCE DIGEST"], ...result.stale.map(file => [file.path, file.derivedFrom.path, file.reason, file.sourceDigest ?? "-"])])}\nWrite SOURCE DIGEST as derivedFrom.digest after you update a file.\n`
 }
 
 const stale = defineWorkspaceOperation<{ ref?: string, workspace: string }, WorkspaceStaleList>({

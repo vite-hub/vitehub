@@ -187,6 +187,7 @@
     "nostics": "catalog:runtime",
     "ofetch": "catalog:unjs",
     "valibot": "catalog:runtime",
+    "yaml": "catalog:tooling",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/database": "workspace:*",

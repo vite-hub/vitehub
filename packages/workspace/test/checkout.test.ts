@@ -376,6 +376,93 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect((await local.status())[0]!.stale).toEqual([])
   })
 
+  it.each([
+    { dir: "content", linked: "content", target: "" },
+    { dir: "parent/content", linked: "parent", target: "content" },
+  ])("refuses a linked $linked with an unchanged remote head", async ({ dir, linked, target }) => {
+    const remoteApp = await app()
+    const head = await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const local = await project(remoteApp.fetch, "linked-root")
+    expect((await local.run("pull", "content", "--dir", dir, "--ref", "draft", "--url", remote)).code).toBe(0)
+    const outside = await tempDir("outside-root")
+    await mkdir(join(outside, target), { recursive: true })
+    await writeFile(join(outside, target, "secret.md"), "keep\n")
+    await rm(join(local.rootDir, linked), { recursive: true })
+    await symlink(outside, join(local.rootDir, linked))
+
+    expect((await local.run("push")).stderr).toContain("WORKSPACE_CHECKOUT_SYMLINK")
+    expect((await local.run("pull")).stderr).toContain("WORKSPACE_CHECKOUT_SYMLINK")
+    await expect(local.status()).rejects.toMatchObject({ code: "WORKSPACE_CHECKOUT_SYMLINK" })
+    expect(remoteApp.calls).not.toContain("workspace.commit")
+    expect((await remoteApp.history.head({ ref: "draft" }))?.id).toBe(head.id)
+    expect(await readFile(join(outside, target, "secret.md"), "utf8")).toBe("keep\n")
+  })
+
+  it("leaves ignored paths out of pulls, status, and pushes, including older lock entries", async () => {
+    const remoteApp = await app()
+    const ignored = ["node_modules/pkg/index.js", "nested/node_modules/pkg/index.js", ".DS_Store", "nested/.DS_Store"]
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One."), ...Object.fromEntries(ignored.map(path => [path, "remote\n"])) } })
+    const local = await project(remoteApp.fetch, "ignored")
+    await local.write(ignored[0]!, "local dependency\n")
+
+    const pulled = await local.json("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+
+    expect(pulled.code).toBe(0)
+    expect(pulled.value[0].files).toEqual([{ action: "added", path: "posts/hello.md" }])
+    expect(Object.keys((await local.lock()).workspaces.content.files)).toEqual(["posts/hello.md"])
+    expect(await local.read(ignored[0]!)).toBe("local dependency\n")
+    for (const path of ignored.slice(1)) expect(await local.exists(path)).toBe(false)
+
+    const head = await remoteApp.edit({ put: Object.fromEntries(ignored.map(path => [path, "updated remote\n"])) })
+    const lockBefore = await readFile(join(local.rootDir, "vitehub.lock"), "utf8")
+    const dry = await local.json("pull", "--dry-run")
+    expect(dry.value[0].remoteChanges).toEqual([])
+    expect(await readFile(join(local.rootDir, "vitehub.lock"), "utf8")).toBe(lockBefore)
+    expect((await local.run("push")).stdout).toContain("nothing to push")
+    expect((await remoteApp.history.head({ ref: "draft" }))?.id).toBe(head.id)
+    expect((await local.run("pull", "--theirs", ignored[0]!)).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(await local.read(ignored[0]!)).toBe("local dependency\n")
+
+    // Locks written before ignored remote paths were excluded must not turn them into deletions.
+    const lock = await local.lock()
+    for (const path of ignored) lock.workspaces.content.files[path] = "sha256-previous"
+    lock.workspaces.content.conflicts = ignored
+    await writeFile(join(local.rootDir, "vitehub.lock"), JSON.stringify(lock))
+    expect((await local.status())[0]!.local).toEqual({ added: [], conflicted: [], deleted: [], modified: [] })
+    await local.write("posts/hello.md", post("Hello", "Local."))
+    const pushed = await local.json("push")
+    expect(pushed.code).toBe(0)
+    expect(pushed.value[0].pushed).toEqual(["posts/hello.md"])
+    for (const path of ignored) expect(await remoteApp.read(path)).toBe("updated remote\n")
+  })
+
+  it.each([
+    { first: "content", second: "content" },
+    { first: "content", second: "content/../content" },
+    { first: "content", second: "content/nested" },
+    { first: "content/nested", second: "content" },
+  ])("rejects overlapping checkout folders $first and $second", async ({ first, second }) => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "hello.md": "Hello\n" } })
+    const local = await project(remoteApp.fetch, "overlap")
+    expect((await local.run("pull", "content", "--dir", first, "--ref", "draft", "--url", remote)).code).toBe(0)
+    const calls = remoteApp.calls.length
+    const lockBefore = await readFile(join(local.rootDir, "vitehub.lock"), "utf8")
+
+    expect((await local.run("pull", "other", "--dir", second, "--url", remote)).stderr).toContain("WORKSPACE_CHECKOUT_OVERLAP")
+    expect(remoteApp.calls).toHaveLength(calls)
+    expect(await readFile(join(local.rootDir, "vitehub.lock"), "utf8")).toBe(lockBefore)
+
+    // Loading an edited lock must reject the same overlap before scanning or contacting either Workspace.
+    const lock = await local.lock()
+    lock.workspaces.other = { ...lock.workspaces.content, dir: second }
+    await writeFile(join(local.rootDir, "vitehub.lock"), JSON.stringify(lock))
+    await expect(local.status()).rejects.toMatchObject({ code: "WORKSPACE_CHECKOUT_OVERLAP" })
+    expect((await local.run("push")).stderr).toContain("WORKSPACE_CHECKOUT_OVERLAP")
+    expect((await local.run("pull")).stderr).toContain("WORKSPACE_CHECKOUT_OVERLAP")
+    expect(remoteApp.calls).toHaveLength(calls)
+  })
+
   it("asks for --dir on the first pull and refuses a folder outside the project", async () => {
     const remoteApp = await app()
     const local = await project(remoteApp.fetch, "options")

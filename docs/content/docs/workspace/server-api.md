@@ -195,11 +195,15 @@ The commands call two operations of the app, which the Console section `workspac
 | `workspace.changes` `{ workspace, ref?, since?, content? }` | read | `{ head, files }`: each file that differs between revision `since` and the head of `ref`, with its content at the head and at `since`. Without `since`, every file of the head. `content: false` leaves the content out. |
 | `workspace.commit` `{ workspace, ref?, ifHead, put?, delete?, message? }` | write | `{ revision }`. `put` maps paths to `{ content, encoding: "utf8" \| "base64" }`. Write rules and validators run as for `history.commit()`. A moved head fails with `WORKSPACE_CONFLICT` and status 409. |
 
-The folder holds the Workspace root. `.git`, `.vitehub`, and `node_modules` folders inside it are never part of the checkout. A push sends whole files and the operation call has a timeout of two minutes, so keep a checkout to text and media of a docs site or a translation catalog, not to large binaries.
+The folder holds the Workspace root. Checkout folders must be separate: they cannot share a folder or contain one another. Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components are excluded from pulls, status, and pushes; their remote files stay unchanged, and `--theirs` cannot select them.
+
+Commands reject existing symbolic links in the checkout folder and its ancestors inside the project. These checks do not isolate files from another process that can replace paths during an operation. Use an OS or container boundary for that isolation.
+
+A push sends whole files and the operation call has a timeout of two minutes, so keep a checkout to text and media of a docs site or a translation catalog, not to large binaries.
 
 ### Derived files
 
-A derived file, such as a translation, records the file it was made from and the SHA-256 of that file's bytes then. Put `derivedFrom` in the YAML frontmatter of Markdown, at the top of a YAML file, or as a top-level key of a JSON file:
+A derived file, such as a translation, records the file it was made from and the SHA-256 of that file's bytes then. Put `derivedFrom` in the YAML frontmatter of Markdown (`.md`, `.markdown`, `.mdx`), at the top of a YAML file (`.yaml`, `.yml`), or as a top-level key of a JSON file (`.json`). Other files have no lineage:
 
 ```md [docs/es/guide.md]
 ---
@@ -216,7 +220,7 @@ When the source changes, the derived file is stale. `vitehub status` lists the s
 pnpm vitehub workspace stale site --ref draft
 ```
 
-Each changed entry has `sourceDigest`, the digest of the source now. Update the file, then write that value as `derivedFrom.digest`. An entry with `reason: "missing"` names a source that is gone. `lineageDigest(bytes)`, `readDerivedFrom(path, bytes)`, and `staleDerivedFiles(files)` from `vite-hub/workspace/lineage` do the same checks in your code.
+Each changed entry has `sourceDigest`, the digest of the source now. The command prints it in the `SOURCE DIGEST` column. Update the file, then write that value as `derivedFrom.digest`. An entry with `reason: "missing"` names a source that is gone. `lineageDigest(bytes)`, `readDerivedFrom(path, bytes)`, and `staleDerivedFiles(files)` from `vite-hub/workspace/lineage` do the same checks in your code.
 
 To translate when the source changes, start your translator from a `write:after` hook. The hook runs after each commit, also for `vitehub push`:
 

@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto"
 
+import { parse as parseYaml } from "yaml"
+
 /** Where a derived file, such as a translation, came from: a Workspace path and the SHA-256 of its bytes then. */
 export interface WorkspaceDerivedFrom {
   path: string
@@ -22,40 +24,9 @@ export function lineageDigest(bytes: Uint8Array): string {
 }
 
 const frontmatter = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/
-const flow = /^derivedFrom:[ \t]*\{(.*)\}[ \t]*$/m
-const block = /^derivedFrom:[ \t]*\r?\n((?:[ \t]+\S.*(?:\r?\n|$))+)/m
+const markdown = new Set(["markdown", "md", "mdx"])
 
-function unquote(value: string): string {
-  const trimmed = value.trim()
-  return /^(["']).*\1$/.test(trimmed) ? trimmed.slice(1, -1) : trimmed
-}
-
-function fields(pairs: Iterable<string>): WorkspaceDerivedFrom | undefined {
-  const values = new Map<string, string>()
-  for (const pair of pairs) {
-    const separator = pair.indexOf(":")
-    if (separator > 0) values.set(pair.slice(0, separator).trim(), unquote(pair.slice(separator + 1)))
-  }
-  const path = values.get("path")
-  const digest = values.get("digest")
-  return path && digest ? { digest, path } : undefined
-}
-
-function fromYaml(source: string): WorkspaceDerivedFrom | undefined {
-  const inline = flow.exec(source)
-  if (inline) return fields(inline[1]!.split(","))
-  const nested = block.exec(source)
-  return nested ? fields(nested[1]!.split(/\r?\n/)) : undefined
-}
-
-function fromJson(source: string): WorkspaceDerivedFrom | undefined {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(source)
-  }
-  catch {
-    return undefined
-  }
+function derivedFrom(parsed: unknown): WorkspaceDerivedFrom | undefined {
   const value: unknown = Object(parsed) === parsed ? Reflect.get(Object(parsed), "derivedFrom") : undefined
   if (Object(value) !== value) return undefined
   const path: unknown = Reflect.get(Object(value), "path")
@@ -63,11 +34,23 @@ function fromJson(source: string): WorkspaceDerivedFrom | undefined {
   return typeof path === "string" && path && typeof digest === "string" && digest ? { digest, path } : undefined
 }
 
+function parsed(parse: (source: string) => unknown, source: string): WorkspaceDerivedFrom | undefined {
+  try {
+    return derivedFrom(parse(source))
+  }
+  catch {
+    return undefined
+  }
+}
+
 /**
- * Reads `derivedFrom` of a file: the YAML frontmatter of Markdown, a YAML file, or the top-level key of a JSON file.
+ * Reads `derivedFrom` of a file: the YAML frontmatter of Markdown (`.md`, `.markdown`, `.mdx`),
+ * a YAML file (`.yaml`, `.yml`), or the top-level key of a JSON file (`.json`).
  * Returns undefined for other files and for files without it.
  */
 export function readDerivedFrom(path: string, bytes: Uint8Array): WorkspaceDerivedFrom | undefined {
+  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase()
+  if (extension !== "json" && extension !== "yaml" && extension !== "yml" && !markdown.has(extension)) return undefined
   let text: string
   try {
     text = new TextDecoder("utf-8", { fatal: true }).decode(bytes)
@@ -75,11 +58,10 @@ export function readDerivedFrom(path: string, bytes: Uint8Array): WorkspaceDeriv
   catch {
     return undefined
   }
-  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase()
-  if (extension === "json") return fromJson(text)
-  if (extension === "yaml" || extension === "yml") return fromYaml(text)
+  if (extension === "json") return parsed(JSON.parse, text)
+  if (extension === "yaml" || extension === "yml") return parsed(parseYaml, text)
   const head = frontmatter.exec(text)
-  return head ? fromYaml(head[1]!) : undefined
+  return head ? parsed(parseYaml, head[1]!) : undefined
 }
 
 /** The derived files of a file set whose source changed or is gone, sorted by path. */

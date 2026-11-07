@@ -94,6 +94,25 @@ describe("workspace operations", { timeout: 30_000 }, () => {
     ])
   })
 
+  it("prints the source digest of each stale file, which the translator writes back as derivedFrom.digest", () => {
+    const text = format("stale", {
+      head: { id: "rev-1" },
+      ref: "draft",
+      stale: [
+        { derivedFrom: { digest: "sha256-old", path: "docs/en/guide.md" }, path: "docs/es/guide.md", reason: "changed", sourceDigest: "sha256-new" },
+        { derivedFrom: { digest: "sha256-old", path: "docs/en/old.md" }, path: "docs/es/old.md", reason: "missing" },
+      ],
+      workspace: "content",
+    })
+    const lines = text.trimEnd().split("\n")
+    expect(lines[0]).toMatch(/^PATH\s+SOURCE\s+REASON\s+SOURCE DIGEST$/)
+    expect(lines.slice(1, 3).map(line => line.split(/\s{2,}/))).toEqual([
+      ["docs/es/guide.md", "docs/en/guide.md", "changed", "sha256-new"],
+      ["docs/es/old.md", "docs/en/old.md", "missing", "-"],
+    ])
+    expect(lines[3]).toBe("Write SOURCE DIGEST as derivedFrom.digest after you update a file.")
+  })
+
   it("lists revisions across refs, newest first, with ref, author, message, and ISO time", async () => {
     const { ids } = await retainedDefinition(await tempRoot())
 
