@@ -172,7 +172,23 @@ await cachedRecaps.get('2026-07')
 
 ## Expose a typed Collection
 
-A Source describes where data comes from. A Collection describes the paginated object shape an application exposes to a client. For a discovered Drizzle database, let the database adapter own the keyset query:
+A Source describes where data comes from. A Collection describes the paginated object shape an application exposes to a client. For a discovered Drizzle database, let the database adapter own the keyset query. This example reads the `articles` table of the default Database:
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from 'vite-hub/database'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
+
+export default defineDatabase({
+  schema: {
+    articles: sqliteTable('articles', {
+      id: text('id').primaryKey(),
+      title: text('title').notNull(),
+      author: text('author').notNull(),
+      createdAt: integer('created_at').notNull(),
+    }),
+  },
+})
+```
 
 ```ts [server/collections/articles.ts]
 import { eq } from 'drizzle-orm'

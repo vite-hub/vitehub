@@ -14,6 +14,12 @@ Use the same SQLite Drizzle database that the app already uses, or a separate on
 
 This example keeps users and events in a discovered `auth` Database Definition. [`authDatabase('auth')`](/docs/auth/configure#keep-users-in-the-app-database) adds the Better Auth tables to it.
 
+```ts [server/databases/auth/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+
+export default defineDatabase({ name: 'auth', schema: {} })
+```
+
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from '@vite-hub/auth'
 import { authDatabase } from '@vite-hub/auth/database'

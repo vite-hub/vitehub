@@ -137,6 +137,23 @@ Nitro output includes `.vitehub/nitro/error-log.mjs`. It logs each unhandled req
 
 A task is a [Nitro task](https://nitro.build/docs/tasks) in `server/tasks/`. Use it for seeds, backfills, data repair, and one-off admin jobs. `vitehub()` registers each file with Nitro, so the app does not set `nitro.serverDir` or `nitro.experimental.tasks`.
 
+This seed task adds a row to the `notes` table of the default Database:
+
+```ts
+// server/databases/config.ts
+import { defineDatabase } from "vite-hub/database";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export default defineDatabase({
+  schema: {
+    notes: sqliteTable("notes", {
+      id: integer("id").primaryKey({ autoIncrement: true }),
+      title: text("title").notNull(),
+    }),
+  },
+});
+```
+
 ```ts
 // server/tasks/db/seed.ts
 import { useDatabase } from "vite-hub/database/drizzle";
