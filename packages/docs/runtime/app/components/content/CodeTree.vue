@@ -84,7 +84,9 @@ function onTreeKeydown(event: KeyboardEvent) {
           :tabindex="selected === row.index ? 0 : -1"
           @click="selected = row.index"
         >
-          <UIcon name="i-lucide-file" class="size-3.5 shrink-0" aria-hidden="true" />
+          <!-- The file's language icon, as in Nuxt UI code block headers. The box keeps the names aligned when a
+               file has no icon. -->
+          <span class="vh-files-icon" aria-hidden="true"><ProseCodeIcon :filename="row.path" /></span>
           <span><span v-if="folderOf(row.path)" class="vh-files-folder">{{ folderOf(row.path) }}</span>{{ row.name }}</span>
         </button>
       </template>
@@ -204,6 +206,19 @@ function onTreeKeydown(event: KeyboardEvent) {
 
 .vh-files-row.is-folder {
   color: var(--ui-text-dimmed);
+}
+
+.vh-files-icon {
+  display: grid;
+  width: 0.875rem;
+  height: 0.875rem;
+  flex: none;
+  place-items: center;
+}
+
+.vh-files-icon > * {
+  width: 100%;
+  height: 100%;
 }
 
 .vh-files-row.is-file {
