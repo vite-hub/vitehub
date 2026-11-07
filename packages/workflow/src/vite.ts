@@ -22,7 +22,7 @@ import type { ProviderDeploymentOutputGeneration, ProviderOutputCatalog } from "
 import type { Plugin as EsbuildPlugin } from "esbuild"
 import type { ProviderOutputEnvironmentOwner, ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { Plugin, ResolvedConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { workflowErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { discoverWorkflowDefinitions } from "./discovery.ts"
@@ -33,6 +33,7 @@ interface WorkflowNitroConfigOptions {
   projectRoot: string
   serverDirs?: string[]
   transformRegistry?: (code: string, id: string) => string | Promise<string>
+  viteConfig?: UserConfig
 }
 
 export type WorkflowVitePlugin = Plugin & Partial<Pick<ProviderOutputEnvironmentOwner, "nitro">> & {
@@ -435,19 +436,24 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         }
       },
       workflow: {
-        async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs, transformRegistry }: WorkflowNitroConfigOptions) {
-          return await createCloudflareWorkflowNitroConfig({
+        async createNitroConfig({ nitro, projectRoot, serverDirs: nitroServerDirs, transformRegistry, viteConfig }: WorkflowNitroConfigOptions) {
+          if (viteConfig && (Reflect.get(viteConfig, VITEHUB_NITRO_CONFIG_CONTEXT) === true || !normalizeHosting(internalOptions.hosting).includes("cloudflare"))) return nitro
+          const input = viteConfig ? { ...nitro, preset: nitro.preset ?? internalOptions.hosting } : nitro
+          const configured = await createCloudflareWorkflowNitroConfig({
             agentImportBase: internalOptions?.agentImportBase,
-            nitro,
+            nitro: input,
             rootDir: projectRoot,
             serverDirs: nitroServerDirs,
             includeUserAppEntry: internalOptions?.includeUserAppEntry,
-            workflow,
+            workflow: viteConfig ? viteConfig.workflow === undefined ? defaultWorkflow : viteConfig.workflow : workflow,
             workflowImportBase: internalOptions?.importBase,
             workspaceDependencyRuntimeImports: internalOptions?.workspaceDependencyRuntimeImports,
             workspaceImportBase: internalOptions?.workspaceImportBase,
             transformRegistry,
           })
+          if (configured === input) return nitro
+          if (viteConfig && nitro.preset === undefined) delete configured.preset
+          return configured
         },
         prepareScheduleRuntime,
       },
@@ -525,6 +531,10 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
         }
         const providerSources = discoverWorkflowProviderSources(config.root, workflowServerDirs)
         const outputs = resolveWorkflowProviderOutputs(workflowOptions, internalOptions?.hosting)
+        // Read this build's Nitro output instead of retaining an early provider decision across builds.
+        // SAFETY: createNitroConfig installs the named Rollup plugin when Nitro owns the Workflow classes.
+        const nitro = Reflect.get(config, "nitro") as { rollupConfig?: { plugins?: Array<{ name?: string }> } } | undefined
+        const cloudflareInNitro = nitro?.rollupConfig?.plugins?.some(plugin => plugin?.name === "vitehub-workflow-cloudflare-exports") ?? false
         // Only Provider Output bundles read retained sources, and a snapshot of every alias root is slow in large apps.
         const retainedSources = !outputs.cloudflare && !outputs.vercel ? { resolve: (path: string) => path } : await retainProviderOutputSources({
           artifactDir: resolve(artifactDir, "sources"),
@@ -565,6 +575,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
               artifacts,
               clientOutDir: resolve(config.root, config.build.outDir),
               bundleDefines: resolveViteHubBundleDefines(config),
+              cloudflareInNitro,
               hosting: internalOptions?.hosting,
               importBase: internalOptions?.importBase,
               providerImportAliases: retainedImportAliases,

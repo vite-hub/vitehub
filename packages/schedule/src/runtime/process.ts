@@ -13,7 +13,8 @@ import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunStore }
 export interface ProcessScheduleRuntimeOptions {
   /**
    * How far back, in milliseconds, the runtime runs due minutes that it did not check, such as minutes during a
-   * restart. It only catches up a Schedule that already has a run. Defaults to one hour. `0` disables it.
+   * restart. It catches up Schedules with a prior cron-triggered run, or indeterminate legacy history.
+   * Defaults to one hour. `0` disables it.
    */
   catchUpMs?: number
   /** Maximum number of Schedule runs at the same time. Defaults to `1`. */
@@ -25,7 +26,7 @@ export interface ProcessScheduleRuntimeOptions {
   onError?: (error: unknown) => void
   /** Static Schedule Definitions that this process runs on their cron. */
   registry: ScheduleDefinitionRegistry
-  /** Stores Schedule Runs. Catch-up after a restart reads the newest run of each Schedule from it. */
+  /** Stores Schedule Runs. Catch-up after a restart reads the newest cron-triggered run of each Schedule from it. */
   scheduleRunStore: ScheduleRunStore
 }
 
@@ -84,7 +85,8 @@ function createErrorReporter(onError: ProcessScheduleRuntimeOptions["onError"]):
 /**
  * Runs Static Schedule Definitions on their cron, in their `timeZone` (UTC by default), in this long-running process. It checks every minute, runs each
  * due minute once, and records each run in `scheduleRunStore`. After a restart it runs the minutes that no process
- * checked, within `catchUpMs`, for Schedules that already have a run. Call `close()` during host shutdown.
+ * checked, within `catchUpMs`, for Schedules with a prior cron-triggered run or indeterminate legacy history.
+ * Call `close()` during host shutdown.
  */
 export async function installProcessScheduleRuntime(options: ProcessScheduleRuntimeOptions): Promise<ScheduleRuntimeController> {
   const previousRegistry = getScheduleRuntimeRegistry()
@@ -109,8 +111,17 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
 
   const context: ProcessWakeContext = {
     async latestScheduledAt(scheduleId) {
-      const [run] = await options.scheduleRunStore.listRuns({ limit: 1, scheduleId })
-      return run?.scheduledAt
+      // Manual runs can use simulated times and must not move the cron catch-up cursor.
+      const [run] = await options.scheduleRunStore.listRuns({ scheduleId, idPrefix: "srun_static_", limit: 1 })
+      if (!run || run.id.startsWith("srun_static_")) return run?.scheduledAt
+      // Older custom stores may ignore idPrefix. Look for a cron run without loading their full history.
+      const limit = 100
+      const recent = await options.scheduleRunStore.listRuns({ scheduleId, limit })
+      const latest = recent.find(record => record.id.startsWith("srun_static_"))
+      if (latest) return latest.scheduledAt
+      // A full page cannot prove there is no earlier cron run. Check the configured window instead;
+      // deterministic static IDs deduplicate existing occurrences, including ones outside this page.
+      return recent.length < limit ? undefined : "unknown"
     },
     reportError,
     wake(input) {

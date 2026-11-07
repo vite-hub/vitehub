@@ -2321,7 +2321,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
       expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
-      expect(webhookRoute).toContain('workspaceRegistryEntry("support", agent0')
+      expect(webhookRoute).toContain('agentWorkspaceEntry("support", agent0')
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -3209,8 +3209,8 @@ export default defineAgent({
       expect(webhookRoute).toContain("function hasHostedWorkspaceStore(module: AgentRegistryModule)")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
-      expect(webhookRoute).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
-      expect(webhookRoute).toContain('workspaceRegistryEntry("audio-bitacora", agent0')
+      expect(webhookRoute).not.toContain("setWorkspaceRuntimeRegistry")
+      expect(webhookRoute).toContain('agentWorkspaceEntry("audio-bitacora", agent0')
       expect(webhookRoute).toContain('["audio-bitacora"]: {"name":"audio-bitacora","workspace":"audio-bitacora"}')
       expect(webhookRoute).not.toContain("withAgentDefaults")
       expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
@@ -3251,8 +3251,8 @@ export default defineAgent({
       expect(webhookRoute).toContain('import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"')
       expect(webhookRoute).toContain("process?.env?.BLOB_READ_WRITE_TOKEN")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
-      expect(webhookRoute).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
-      expect(webhookRoute).toContain('workspaceRegistryEntry("audio-bitacora", agent0')
+      expect(webhookRoute).not.toContain("setWorkspaceRuntimeRegistry")
+      expect(webhookRoute).toContain('agentWorkspaceEntry("audio-bitacora", agent0')
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -3353,10 +3353,10 @@ export default defineAgent({
 
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
-      expect(denoServer).toContain('import { registerWorkspace, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"')
+      expect(denoServer).toContain("setAgentWorkspaceDefinitions(Object.fromEntries([")
       expect(denoServer).toContain("workspaceAgentOwnsWorkspaceDefinition")
       expect(denoServer).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(agent0)")
-      expect(denoServer).toContain('workspaceRegistryEntry("support", agent0')
+      expect(denoServer).toContain('agentWorkspaceEntry("support", agent0')
       expect(denoServer).toContain("__vitehubAgentInstructions")
       expect(denoServer).toContain("content: colocatedInstructions")
       expect(denoServer).toContain("Symbol.for('vitehub.agent.colocatedSkills')")
@@ -3381,7 +3381,7 @@ export default defineAgent({
       expect(denoServer).toContain("return decoratedAgent as unknown as Agent")
       expect(denoServer).toContain(`${JSON.stringify(join(root, "server", "agents", "support", "workspace"))}, "Use support instructions.\\n", {`)
       expect(denoServer).not.toContain("Do not use workspace instructions.")
-      expect(denoServer).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
+      expect(denoServer).not.toContain("setWorkspaceRuntimeRegistry")
       expect(denoServer).not.toContain('"support": async ()')
     } finally {
       await rm(root, { force: true, recursive: true })
