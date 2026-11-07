@@ -369,9 +369,9 @@ After a first deploy, `.vitehub/link.json` gets the host project with `verified:
 
 ### Push the checkout folders
 
-When `vitehub.lock` has checkout folders, a production deploy also pushes them, as `vitehub push` does. The project must install `@vite-hub/workspace` or `vite-hub`, which read the lock. Without a lock, a checkout, or that package, the deploy does not push.
+When `vitehub.lock` has checkout folders, a production deploy also pushes them, as `vitehub push` does. The project must install `@vite-hub/workspace` or `vite-hub`, which read the lock. Without a lock or a checkout, the deploy does not push. Without that package, it does not push and prints one warning when the lock has checkout folders.
 
-1. Before the build, the command reads each folder without asking the remote. A file with unresolved conflicts stops the deploy with `SETUP_DEPLOY_CHECKOUT_CONFLICT`.
+1. Before the build, the command reads each folder without asking the remote. A file with unresolved conflicts stops the deploy with `SETUP_DEPLOY_CHECKOUT_CONFLICT`. An installed package that does not load stops it with `SETUP_DEPLOY_CHECKOUT_MODULE_FAILED`.
 2. After the deploy, it pushes each folder to the app that `remote` of its lock entry names. A folder without `remote` goes to the dev server, as with `vitehub push`.
 3. The push pulls first, so it can change `vitehub.lock` and files in the folders. The command lists those files. Commit them.
 
@@ -440,6 +440,10 @@ On Windows, the Deno secret has no stdin path. Set the variable in the host dash
 ### `SETUP_DEPLOY_CHECKOUT_CONFLICT`
 
 A checkout folder of `vitehub.lock` has a file with conflict markers or an open binary conflict. Nothing was built or deployed. Remove the markers, or run `vitehub resolve` for a binary file, then deploy again. `--no-push` deploys without the push. The command exits with `1`.
+
+### `SETUP_DEPLOY_CHECKOUT_MODULE_FAILED`
+
+The project installs `@vite-hub/workspace/checkout` or `vite-hub/workspace/checkout`, but the module does not load: it has a syntax error, a missing dependency, an error when it starts, or no `localCheckoutStatus` and `pushWorkspaces` exports. Nothing was built or deployed. Reinstall the dependencies and use the same version of the Workspace package as the CLI. `--no-push` deploys without the push. The command exits with `1`.
 
 ### `SETUP_DEPLOY_PUSH_FAILED`
 

@@ -211,20 +211,52 @@ describe("vitehub deploy with checkout folders in vitehub.lock", () => {
   })
 
   it("deploys as before without a lock, without a checkout, or without the Workspace package", async () => {
+    const warning = "[vitehub] vitehub.lock has checkout folders, but the deploy does not push them because the Workspace package is not installed. Install @vite-hub/workspace or vite-hub.\n"
     const projects = {
-      "an empty lock": { ...checkoutPackage, "vitehub.lock": JSON.stringify({ version: 1, workspaces: {} }) },
-      "no lock": checkoutPackage,
-      "no Workspace package": { "vitehub.lock": lock({ conflicts: ["guide.md"] }) },
+      "an empty lock": { files: { ...checkoutPackage, "vitehub.lock": JSON.stringify({ version: 1, workspaces: {} }) }, stderr: "" },
+      "no lock": { files: checkoutPackage, stderr: "" },
+      "no Workspace package": { files: { "vitehub.lock": lock({ conflicts: ["guide.md"] }) }, stderr: warning },
+      "a Workspace package without ./checkout": {
+        files: { "node_modules/@vite-hub/workspace/package.json": JSON.stringify({ exports: { ".": "./index.js" }, name: "@vite-hub/workspace", type: "module" }), "vitehub.lock": lock() },
+        stderr: warning,
+      },
+      "no Workspace package and an empty lock": { files: { "vitehub.lock": JSON.stringify({ version: 1, workspaces: {} }) }, stderr: "" },
     }
-    for (const [name, files] of Object.entries(projects)) {
-      const root = await builtProject("cloudflare", files)
+    for (const [name, project] of Object.entries(projects)) {
+      const root = await builtProject("cloudflare", project.files)
       const hosts = await fakeHosts(cloudflareEnv)
       const app = workspaceApp(hosts)
       const result = await runSetup<DeployJson>(["deploy", "--no-build", "--yes", "--json"], root, hosts.env, { fetch: app.fetch })
       expect(result.exitCode, name).toBe(0)
       expect(result.json, name).toEqual({ host: "cloudflare", schemaVersion: 1, url: "https://my-app.example.workers.dev", version: "version-1" })
+      expect(result.stderr.split("\n").filter(line => line.startsWith("[vitehub] vitehub.lock")).map(line => `${line}\n`).join(""), name).toBe(project.stderr)
       expect(app.requests, name).toEqual([])
     }
+  })
+
+  it.each([
+    ["a syntax error", "export const = 1\n", "SyntaxError"],
+    ["a missing dependency", "import \"vitehub-missing-dependency\"\nexport const localCheckoutStatus = () => undefined\n", "vitehub-missing-dependency"],
+    ["an error when it loads", "throw new Error(\"checkout init failed\")\n", "checkout init failed"],
+    ["no checkout functions", "export const other = 1\n", "does not export localCheckoutStatus and pushWorkspaces"],
+  ])("exits 1 before the build when the installed checkout module has %s", async (_name, source, message) => {
+    const root = await builtProject("cloudflare", { ...checkoutPackage, "node_modules/@vite-hub/workspace/checkout.js": source, "vitehub.lock": lock() })
+    const hosts = await fakeHosts(cloudflareEnv)
+    const app = workspaceApp(hosts)
+    const spawned: string[] = []
+    const spawn: ViteHubCliSpawn = async (command) => {
+      spawned.push(command)
+      return { exitCode: 0 }
+    }
+    const result = await runSetup<DeployJson>(["deploy", "--yes", "--json"], root, hosts.env, { fetch: app.fetch, spawn })
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(1)
+    expect(result.json.error?.code).toBe("SETUP_DEPLOY_CHECKOUT_MODULE_FAILED")
+    expect(result.json.error?.why).toContain(join(root, "node_modules/@vite-hub/workspace/checkout.js"))
+    expect(result.json.error?.why).toContain(message)
+    expect(spawned).toEqual([])
+    expect(await hosts.calls()).toEqual([])
+    expect(app.requests).toEqual([])
   })
 
   it("keeps --no-push in the rerun and documents it in --help", async () => {

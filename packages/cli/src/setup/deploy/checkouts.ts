@@ -58,20 +58,59 @@ function isCheckoutModule(value: unknown): value is CheckoutModule {
   return Object(value) === value && typeof Reflect.get(Object(value), "localCheckoutStatus") === "function" && typeof Reflect.get(Object(value), "pushWorkspaces") === "function"
 }
 
-/** The checkout module of the Workspace package that the project installs, if it has one. */
+/** The checkout module of the Workspace package. */
+const checkoutSpecifiers = ["@vite-hub/workspace/checkout", "vite-hub/workspace/checkout"]
+
+/** True when `specifier` itself does not resolve: the package is not installed, or it has no `./checkout` export. */
+function isNotInstalled(error: unknown, specifier: string): boolean {
+  const code = error instanceof Error ? Reflect.get(error, "code") : undefined
+  if (code === "ERR_PACKAGE_PATH_NOT_EXPORTED") return true
+  return code === "MODULE_NOT_FOUND" && error instanceof Error && error.message.includes(`'${specifier}'`)
+}
+
+/**
+ * The checkout module of the Workspace package that the project installs. Undefined only when no specifier resolves.
+ * A module that resolves but does not load stops the deploy, because a silent skip would deploy without the push.
+ */
 async function importCheckoutModule(root: string): Promise<CheckoutModule | undefined> {
   const require = createRequire(join(root, "package.json"))
-  for (const specifier of ["@vite-hub/workspace/checkout", "vite-hub/workspace/checkout"]) {
+  for (const specifier of checkoutSpecifiers) {
+    let file: string
+    try {
+      file = require.resolve(specifier)
+    }
+    catch (error: unknown) {
+      if (isNotInstalled(error, specifier)) continue
+      throw moduleFailure(specifier, specifier, error)
+    }
     let module: unknown
     try {
-      module = await import(pathToFileURL(require.resolve(specifier)).href)
+      module = await import(pathToFileURL(file).href)
     }
-    catch {
-      continue
+    catch (error: unknown) {
+      throw moduleFailure(specifier, file, error)
     }
-    if (isCheckoutModule(module)) return module
+    if (!isCheckoutModule(module)) throw moduleFailure(specifier, file, new TypeError("It does not export localCheckoutStatus and pushWorkspaces."))
+    return module
   }
   return undefined
+}
+
+function moduleFailure(specifier: string, file: string, error: unknown): SetupFailure {
+  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+  return new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CHECKOUT_MODULE_FAILED({ file, message, specifier }), setupExitCodes.error)
+}
+
+/** True when `vitehub.lock` lists at least one checkout folder. */
+async function lockHasCheckouts(root: string): Promise<boolean> {
+  try {
+    const lock: unknown = JSON.parse(await readLock(root) ?? "")
+    const workspaces = Object(lock) === lock ? Reflect.get(Object(lock), "workspaces") : undefined
+    return Object(workspaces) === workspaces && Object.keys(Object(workspaces)).length > 0
+  }
+  catch {
+    return false
+  }
 }
 
 /** The checkout folders that `vitehub deploy` pushes after a deploy. */
@@ -83,13 +122,17 @@ export interface DeployCheckouts {
 
 /**
  * Reads the checkout folders of `vitehub.lock` without asking the remote. Undefined when the project has no lock file,
- * no checkout, or no Workspace package to read them: then deploy does not push. Throws when a checkout has an open
+ * no checkout, or no Workspace package to read them: then deploy does not push. Without the package, a lock with
+ * checkouts gets one warning on `stderr`. Throws when the package does not load, or when a checkout has an open
  * conflict, because the push would refuse it after the deploy.
  */
-export async function readDeployCheckouts(root: string): Promise<DeployCheckouts | undefined> {
+export async function readDeployCheckouts(root: string, stderr: Pick<ViteHubCliContext["stderr"], "write">): Promise<DeployCheckouts | undefined> {
   if (!existsSync(join(root, lockFile))) return undefined
   const module = await importCheckoutModule(root)
-  if (!module) return undefined
+  if (!module) {
+    if (await lockHasCheckouts(root)) stderr.write("[vitehub] vitehub.lock has checkout folders, but the deploy does not push them because the Workspace package is not installed. Install @vite-hub/workspace or vite-hub.\n")
+    return undefined
+  }
   const statuses = await module.localCheckoutStatus(root)
   if (!statuses?.length) return undefined
   const conflicts = statuses.flatMap(status => status.local.conflicted.map(path => `${status.dir}/${path}`))

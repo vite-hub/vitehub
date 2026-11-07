@@ -265,7 +265,7 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   if (args.temporary) assertTemporary(host, args, credentials, project, context.env)
   else if (!credentials.ok && !vercelLogin) throw credentialsMissing(host, credentials, args)
   // A preview must not write the shared Workspace ref, so only a production deploy pushes.
-  const checkouts = args.push && !args.preview ? await readDeployCheckouts(project.root) : undefined
+  const checkouts = args.push && !args.preview ? await readDeployCheckouts(project.root, context.stderr) : undefined
 
   const interactive = !args.json && !!process.stdin.isTTY && !!process.stderr.isTTY
   if (!args.yes) {
