@@ -162,6 +162,9 @@ catalogs:
     '@lingui/format-po':
       specifier: 6.12.0
       version: 6.12.0
+    '@lingui/message-utils':
+      specifier: 6.12.0
+      version: 6.12.0
     '@lingui/vue':
       specifier: 6.12.0
       version: 6.12.0
@@ -2233,6 +2236,9 @@ importers:
       '@lingui/format-po':
         specifier: catalog:i18n
         version: 6.12.0
+      '@lingui/message-utils':
+        specifier: catalog:i18n
+        version: 6.12.0
       '@lingui/vue':
         specifier: catalog:i18n
         version: 6.12.0(@babel/core@7.29.7)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(vue@3.5.44(typescript@6.0.3))
@@ -2242,6 +2248,9 @@ importers:
       '@vue/compiler-sfc':
         specifier: ^3.5.44
         version: 3.5.44
+      magic-string:
+        specifier: ^0.30.21
+        version: 0.30.21
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'

@@ -261,7 +261,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     hosts: everywhere("nitro", "Nitro 3", "Requires Nitro 3 with request async context, or Nuxt 5. Nuxt 4 and Nitro 2 are unsupported."),
     id: "i18n",
     packages: ["@vite-hub/i18n"],
-    summary: "Source-text messages in Vue and server code, translated in the locale of each request.",
+    summary: "Messages with translation records for each locale and a locale for each request.",
     title: "I18n",
   }),
   kv: feature({
