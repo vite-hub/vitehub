@@ -67,7 +67,7 @@ export default defineConfig({
           language: "typescript",
           content: `export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
-  vitehub: { schedule: true },
+  vitehub: { preset: "cloudflare", schedule: true },
 })`,
         },
         definition,
