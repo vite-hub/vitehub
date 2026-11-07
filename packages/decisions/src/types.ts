@@ -1,4 +1,4 @@
-import type { AiGatewayAsk } from "@vite-hub/gateways"
+import type { AiGatewayAsk, askWithModel } from "@vite-hub/gateways"
 import type { Diagnostic } from "nostics"
 
 /** The value that you map back to your data. It must be unique within its group. */
@@ -57,12 +57,14 @@ export interface ChoicesThresholds {
 }
 
 export interface ChoicesDefinition<TGroups extends ChoiceGroups> {
-  /** Where the questions go. Use a gateway that has `ask()`, such as `typesafe()` or `vercel()` from `vite-hub/gateways`. */
-  gateway: { ask: AiGatewayAsk }
+  /** Asks TypeSafe Jev, or any object with `ask()`: `typesafe()`, `vercel()`, or `cloudflare()` from `vite-hub/gateways`. Set `gateway` or `model`. */
+  gateway?: { ask: AiGatewayAsk }
   groups: TGroups
   /** Tells the model what the options are about. It is added to every question. */
   hints?: string
   limits?: Partial<ChoicesLimits>
+  /** Asks any AI SDK model instead of Jev, such as `openai("gpt-5.1-mini")`. It needs the `ai` package. Set `gateway` or `model`. */
+  model?: Parameters<typeof askWithModel>[0]
   /** A label for logs and the CLI. It never connects anything. */
   name?: string
   thresholds?: ChoicesThresholds
