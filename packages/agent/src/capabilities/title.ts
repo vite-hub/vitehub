@@ -676,7 +676,7 @@ function withTitleReadableStreamParallel<T>(
   getText: (value: T) => string = () => "",
   isTerminal: (value: T) => boolean = () => false,
   fallback?: StreamFallback<T>,
-  options: { clearInitialTitle?: () => T, initialTitle?: string, isFailureTerminal?: (value: T) => boolean, waitForStart?: boolean } = {},
+  options: { clearInitialTitle?: () => T, initialTitle?: MaybePromise<string | undefined>, isFailureTerminal?: (value: T) => boolean, waitForStart?: boolean } = {},
 ): AsyncIterable<T> & ReadableStream<T> {
   let reader: ReadableStreamDefaultReader<T> | undefined
   let fallbackIterator: AsyncIterator<T> | undefined
@@ -728,9 +728,13 @@ function withTitleReadableStreamParallel<T>(
       if (cancelled || closed) return
       if (initialTitlePending) {
         initialTitlePending = false
-        initialTitleEmitted = true
-        controller.enqueue(renderTitle(options.initialTitle!))
-        return
+        const initialTitle = await options.initialTitle
+        if (cancelled) return
+        if (initialTitle) {
+          initialTitleEmitted = true
+          controller.enqueue(renderTitle(initialTitle))
+          return
+        }
       }
       reader ??= result.getReader()
       streamNext ??= reader.read()
@@ -792,8 +796,12 @@ function withTitleReadableStreamParallel<T>(
             if (failureTerminal) titlePending = false
             if (initialTitlePending && isTerminal(next.value.value)) {
               initialTitlePending = false
-              initialTitleEmitted = true
-              controller.enqueue(renderTitle(options.initialTitle!))
+              const initialTitle = await options.initialTitle
+              if (cancelled) return
+              if (initialTitle) {
+                initialTitleEmitted = true
+                controller.enqueue(renderTitle(initialTitle))
+              }
             }
             if (!deferredTitle && titlePending && titleNext && isTerminal(next.value.value) && !failureTerminal) {
               const resolvedTitle = await titleNext
@@ -932,7 +940,7 @@ function withTitleTextStream(result: AsyncIterable<string>, title: TitleResoluti
 function withTitleUiMessageStream(
   result: ReadableStream<unknown>,
   title: TitleResolution,
-  provisionalTitle?: string,
+  provisionalTitle?: MaybePromise<string | undefined>,
 ): ReadableStream<unknown> {
   return withTitleReadableStreamParallel(
     result,
@@ -1016,7 +1024,7 @@ function cloneStreamTextResult<T extends { fullStream?: AsyncIterable<unknown>, 
 function titleUiMessageStreamOverride(
   toUIMessageStream: ToUIMessageStream | undefined,
   title: TitleResolution,
-  provisionalTitle?: string,
+  provisionalTitle?: MaybePromise<string | undefined>,
 ) {
   return toUIMessageStream
     ? {
@@ -1304,7 +1312,12 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           && establishedTitle === undefined
           && !options.when
           && shouldRunForTrigger(options.trigger, agentTriggerId(context))
-          ? heuristicTitle(stripChatEntityMarkup(preparedInput.text), options.maxLength ?? 39, options.fallback ?? "Untitled")
+          // History may omit the established title; the delivery claim still governs provisional output.
+          ? Promise.resolve(getChannelDeliveryAttempt())
+              .then(attempt => attempt.deliver
+                ? heuristicTitle(stripChatEntityMarkup(preparedInput.text), options.maxLength ?? 39, options.fallback ?? "Untitled")
+                : undefined)
+              .catch(() => undefined)
           : undefined
         if (isStreamTextResult(result)) {
           const toUIMessageStream = result.toUIMessageStream?.bind(result)

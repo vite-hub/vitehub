@@ -9210,7 +9210,7 @@ describe("agent message protocol", () => {
     await reader.cancel()
   })
 
-  it.each([false, true])("preserves an established UI title when once-per-thread delivery was already claimed, journal: %s", async (journaled) => {
+  it.each([[false, false], [false, true], [true, false], [true, true]])("preserves an established UI title when once-per-thread delivery was already claimed, journal: %s, history: %s", async (journaled, withHistory) => {
     const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
     const invocations = defineAgentInvocations({ metadataContent: ["vitehub.session.title"], store: createMemoryAgentInvocationStore() })
     const { defineAgent, defineCapability, streamAgent } = await import("../src/index.ts")
@@ -9241,12 +9241,12 @@ describe("agent message protocol", () => {
           }),
         }) },
     })
+    const establishedMessage = createMessage({
+      parts: [{ data: { title: "Critical Overstock", type: "title" }, id: "title", type: "data-title" }],
+      role: "assistant",
+    })
     const messages = [
-      createMessage({ role: "user", text: "Explain critical overstock" }),
-      createMessage({
-        parts: [{ data: { title: "Critical Overstock", type: "title" }, id: "title", type: "data-title" }],
-        role: "assistant",
-      }),
+      ...(withHistory ? [createMessage({ role: "user", text: "Explain critical overstock" }), establishedMessage] : []),
       createMessage({ role: "user", text: "Existing thread title" }),
     ]
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -9265,6 +9265,7 @@ describe("agent message protocol", () => {
     expect(events).not.toContainEqual(expect.objectContaining({ type: "data-title" }))
     const { createAgentChatData } = await import("../src/messages.ts")
     expect(createAgentChatData([
+      ...establishedMessage.parts,
       ...messages.flatMap(message => message.parts),
       ...events,
     ]).get("title", "title")).toBe("Critical Overstock")
