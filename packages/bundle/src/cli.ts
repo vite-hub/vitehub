@@ -108,7 +108,7 @@ function runReport(args: string[], context: ViteHubCliContext): number {
       "packages and folders. Needs a build with `bundle: true` in vitehub(). No dev server needed.",
       "",
       "With --against, it compares the last build with a saved report: the bytes of each side and of its startup",
-      "code, and the groups that grew, shrank, appeared, or went away. Save the report before the change:",
+      "code, and the groups that grew, shrank, were added, or were removed. Save the report before the change:",
       "",
       "  vitehub bundle --json > .vitehub/bundle-before.json",
       "  # change the code, then run the production build again",
