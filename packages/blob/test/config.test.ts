@@ -176,7 +176,7 @@ describe("blob config", () => {
       env: { BLOB_READ_WRITE_TOKEN: "build-token" },
     })
 
-    expect(config?.store).toEqual({ access: "public", driver: "vercel-blob", token: "********" })
+    expect(config?.store).toEqual({ access: "public", driver: "vercel-blob", token: "********", tokenFromConfig: true })
     if (config?.store.driver !== "vercel-blob") throw new Error("Expected a Vercel Blob store.")
     expect(resolveRuntimeVercelBlobStore(config.store, {
       BLOB_READ_WRITE_TOKEN: "runtime-token",
@@ -187,6 +187,24 @@ describe("blob config", () => {
     expect(normalizeBlobOptions({ driver: "vercel-blob", token: "store-token" }, {
       env: { BLOB_READ_WRITE_TOKEN: "default-token" },
     })?.store).toEqual({ access: "public", driver: "vercel-blob", token: "store-token" })
+  })
+
+  it.each(["single", "named"] as const)("keeps a masked configured token ahead of OIDC in a %s Vercel Blob store", (form) => {
+    const store = { driver: "vercel-blob", token: "build-token" } as const
+    const config = normalizeBlobOptions(form === "named" ? { stores: { default: store } } : store, {
+      env: { BLOB_READ_WRITE_TOKEN: "build-token", BLOB_STORE_ID: "oidc-store" },
+    })
+    if (config?.store.driver !== "vercel-blob") throw new Error("Expected a Vercel Blob store.")
+    const serialized = JSON.stringify(config.store)
+    expect(serialized).not.toContain("build-token")
+    const runtimeStore: typeof config.store = JSON.parse(serialized)
+
+    expect(resolveRuntimeVercelBlobStore(runtimeStore, {
+      BLOB_READ_WRITE_TOKEN: "runtime-token",
+      BLOB_STORE_ID: "oidc-store",
+    })).toEqual({ access: "public", driver: "vercel-blob", token: "runtime-token" })
+    expect(() => resolveRuntimeVercelBlobStore(runtimeStore, { BLOB_STORE_ID: "oidc-store" }))
+      .toThrow(expect.objectContaining({ code: "BLOB_C0009", message: expect.stringContaining("`BLOB_READ_WRITE_TOKEN`") }))
   })
 
   it("defaults Netlify hosting to Netlify Blobs", () => {
@@ -514,6 +532,39 @@ describe("blob config", () => {
     })
   })
 
+  it("uses Vercel OIDC when the project has BLOB_STORE_ID", () => {
+    const config = normalizeBlobOptions({ access: "private", driver: "vercel-blob" }, {
+      env: { BLOB_READ_WRITE_TOKEN: "secret-token", BLOB_STORE_ID: "store_1" },
+    })
+    if (config?.store.driver !== "vercel-blob") throw new Error("Expected a Vercel Blob store.")
+    const store = config.store
+
+    expect(resolveRuntimeVercelBlobStore(store, { BLOB_STORE_ID: "store_1" })).toEqual({ access: "private", driver: "vercel-blob" })
+    expect(resolveRuntimeVercelBlobStore(store, { BLOB_READ_WRITE_TOKEN: "secret-token", BLOB_STORE_ID: "store_1" }))
+      .toEqual({ access: "private", driver: "vercel-blob" })
+  })
+
+  it("keeps a configured Vercel token over OIDC", () => {
+    expect(resolveRuntimeVercelBlobStore({ access: "public", driver: "vercel-blob", token: "store-token" }, { BLOB_STORE_ID: "store_1" }))
+      .toEqual({ access: "public", driver: "vercel-blob", token: "store-token" })
+  })
+
+  it("names both Vercel Blob credentials when neither exists", () => {
+    expect(() => resolveRuntimeVercelBlobStore({ access: "public", driver: "vercel-blob", token: "********" }, {}))
+      .toThrow(expect.objectContaining({
+        code: "BLOB_C0009",
+        message: expect.stringContaining("`BLOB_STORE_ID`, or set `BLOB_READ_WRITE_TOKEN`"),
+      }))
+  })
+
+  it("infers Vercel Blob from BLOB_STORE_ID", () => {
+    expect(normalizeBlobOptions({}, { env: { BLOB_STORE_ID: "store_1" } })?.store).toEqual({
+      access: "public",
+      driver: "vercel-blob",
+      token: "********",
+    })
+  })
+
   it("rehydrates the Vercel token at runtime", () => {
     expect(resolveRuntimeVercelBlobStore({
       access: "public",
@@ -594,7 +645,7 @@ describe("blob config", () => {
     }, "vercel")
 
     expect(logger.error).toHaveBeenCalledWith(
-      "Vercel hosting requires Vercel Blob-backed storage. Set `BLOB_READ_WRITE_TOKEN`.",
+      "Vercel hosting requires Vercel Blob-backed storage. Connect a Blob store to the project (`BLOB_STORE_ID`) or set `BLOB_READ_WRITE_TOKEN`.",
     )
   })
 
@@ -616,7 +667,7 @@ describe("blob config", () => {
     }), "vercel")
 
     expect(logger.error).toHaveBeenCalledWith(
-      "Vercel hosting requires Vercel Blob-backed storage. Set `BLOB_READ_WRITE_TOKEN`.",
+      "Vercel hosting requires Vercel Blob-backed storage. Connect a Blob store to the project (`BLOB_STORE_ID`) or set `BLOB_READ_WRITE_TOKEN`.",
     )
   })
 
@@ -651,5 +702,88 @@ describe("blob config", () => {
     for (const store of stores) {
       expect(normalizeBlobOptions(store)?.store.driver).toBe(store.driver)
     }
+  })
+})
+
+describe("blob config in vite dev", () => {
+  const env = { BLOB_STORE_ID: "store_1", BLOB_READ_WRITE_TOKEN: "secret-token" }
+
+  it.each([
+    ["BLOB_READ_WRITE_TOKEN", { BLOB_READ_WRITE_TOKEN: "secret-token" }, undefined],
+    ["BLOB_STORE_ID", { BLOB_STORE_ID: "store_1" }, undefined],
+    ["the Vercel preset", {}, "vercel"],
+  ] as const)("keeps a store that %s picks on the local fs store", (_source, storeEnv, hosting) => {
+    expect(normalizeBlobOptions(undefined, { dev: true, env: storeEnv, hosting })).toEqual({
+      store: { base: ".vitehub/data/blob", driver: "fs" },
+    })
+  })
+
+  it("uses the hosted store with remote: true", () => {
+    expect(normalizeBlobOptions({ remote: true }, { dev: true, env })?.store).toEqual({
+      access: "public",
+      driver: "vercel-blob",
+      remote: true,
+      token: "********",
+    })
+  })
+
+  it("keeps an explicit driver without remote", () => {
+    expect(normalizeBlobOptions({ driver: "vercel-blob" }, { dev: true, env })?.store).toEqual({
+      access: "public",
+      driver: "vercel-blob",
+      token: "********",
+    })
+  })
+
+  it("treats a driver that vitehub() picks from the preset like an inferred store", () => {
+    expect(normalizeBlobOptions({ driver: "vercel-blob" }, { dev: true, env, presetDriver: true })?.store).toEqual({ base: ".vitehub/data/blob", driver: "fs" })
+    expect(normalizeBlobOptions({ bucketName: "app-blob", driver: "cloudflare-r2" }, { dev: true, env: {}, presetDriver: true })?.store).toMatchObject({
+      bucketName: "app-blob",
+      localFallback: { base: ".vitehub/data/blob", driver: "fs" },
+    })
+    expect(normalizeBlobOptions({ driver: "vercel-blob", remote: true }, { dev: true, env, presetDriver: true })?.store).toMatchObject({ driver: "vercel-blob", remote: true })
+  })
+
+  it("adds the local fs store as the fallback of the Cloudflare preset", () => {
+    expect(normalizeBlobOptions(undefined, { dev: true, env: {}, hosting: "cloudflare" })?.store).toEqual({
+      binding: "BLOB",
+      driver: "cloudflare-r2",
+      localFallback: { base: ".vitehub/data/blob", driver: "fs" },
+    })
+  })
+
+  it("applies remote per named store", () => {
+    const config = normalizeBlobOptions({
+      stores: {
+        default: { driver: "fs" },
+        media: { driver: "vercel-blob", remote: true },
+      },
+    }, { dev: true, env })
+
+    expect(config?.stores?.media).toMatchObject({ driver: "vercel-blob", remote: true })
+    expect(config?.stores?.default).toEqual({ base: ".vitehub/data/blob", driver: "fs" })
+  })
+
+  it("ignores remote in builds", () => {
+    expect(normalizeBlobOptions({ remote: true }, { env })).toEqual(normalizeBlobOptions(undefined, { env }))
+    expect(normalizeBlobOptions({ remote: false }, { env })?.store.driver).toBe("vercel-blob")
+    expect(normalizeBlobOptions({ remote: true }, { env: {}, hosting: "cloudflare" })?.store).toEqual({ binding: "BLOB", driver: "cloudflare-r2" })
+  })
+
+  it("rejects a remote value that is not a boolean", () => {
+    expect(() => normalizeBlobOptions({ remote: "yes" as unknown as boolean })).toThrow(expect.objectContaining({
+      code: "BLOB_C0017",
+      message: expect.stringContaining("`blob.remote` must be true or false. Received \"yes\"."),
+    }))
+    expect(() => normalizeBlobOptions({ stores: { default: { driver: "s3", bucket: "assets", remote: 1 as unknown as boolean } } })).toThrow(expect.objectContaining({
+      code: "BLOB_C0017",
+      message: expect.stringContaining("`blob.stores.default.remote`"),
+    }))
+  })
+
+  it("rejects remote: true on a local fs store", () => {
+    expect(() => normalizeBlobOptions({ driver: "fs", remote: true })).toThrow(expect.objectContaining({ code: "BLOB_C0018" }))
+    expect(() => normalizeBlobOptions({ remote: true }, { dev: true, env: {} })).toThrow(expect.objectContaining({ code: "BLOB_C0018" }))
+    expect(normalizeBlobOptions({ remote: true }, { env: {} })?.store.driver).toBe("fs")
   })
 })

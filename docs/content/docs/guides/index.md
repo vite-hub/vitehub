@@ -15,6 +15,14 @@ in ViteHub and call the server API from application code.
 - [Deploy the same Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel).
 - [Choose a TypeScript Agent framework](/docs/guides/typescript-agent-frameworks).
 - [Compare ViteHub with other tools](/docs/compare).
+- [Run the Claude Agent SDK in production](/docs/guides/claude-agent-sdk).
+- [Run the Codex SDK in production](/docs/guides/codex-sdk).
+
+## Build a chat bot
+
+- [Build an AI Slack bot](/docs/guides/slack-ai-bot).
+- [Build an AI Discord bot](/docs/guides/discord-ai-bot).
+- [Build an AI Telegram bot](/docs/guides/telegram-ai-bot).
 
 ## Connect a database
 
@@ -41,6 +49,11 @@ in ViteHub and call the server API from application code.
 ## Add sign-in
 
 - [Run Better Auth on Cloudflare Workers and D1](/docs/guides/better-auth-cloudflare).
+
+## Learn the concepts
+
+- [Rate limiting vs throttling, and the four rate limiting algorithms](/docs/guides/rate-limiting-algorithms).
+- [Durable execution: steps, retries, replay, and idempotency](/docs/guides/durable-execution).
 
 Provider access, prices, quotas, and deployment limits belong to each service.
 Check the [support matrix](/docs/frameworks-hosts/support-matrix) for the proof

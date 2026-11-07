@@ -28,6 +28,24 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: "`ttl` must be a positive number of seconds within the safe integer range.",
       fix: "Pass the TTL in seconds, for example `kv.increment('attempts', 60)`.",
     },
+    KV_KEY_TOO_LONG: {
+      why: ({ bytes, limit }: { bytes: number, limit: number }) => `The key is ${bytes} bytes in UTF-8. Cloudflare KV accepts keys of at most ${limit} bytes.`,
+      fix: "Use a shorter key. To keep a long identifier, store a hash of it as the key.",
+    },
+    KV_METADATA_TOO_LARGE: {
+      why: ({ bytes, limit }: { bytes: number, limit: number }) => `The metadata is ${bytes} bytes as JSON. Cloudflare KV accepts metadata of at most ${limit} bytes.`,
+      fix: "Keep only small fields in `metadata`, and put the other data in the value.",
+    },
+    KV_TTL_TOO_SHORT: {
+      why: ({ minimum, option = "expirationTtl", ttl }: { minimum: number, option?: "expiration" | "expirationTtl", ttl: number }) => option === "expiration"
+        ? `\`expiration\` is ${ttl} seconds from now. Cloudflare KV needs at least ${minimum} seconds.`
+        : `\`expirationTtl\` is ${ttl} seconds. Cloudflare KV needs at least ${minimum} seconds.`,
+      fix: "Pass `expirationTtl: 60` or more, an `expiration` at least 60 seconds in the future, or `ttl`, which ViteHub raises to 60 seconds on Cloudflare KV.",
+    },
+    KV_VALUE_TOO_LARGE: {
+      why: ({ bytes, limit }: { bytes: number, limit: number }) => `The value is ${bytes} bytes. Cloudflare KV accepts values of at most ${limit} bytes (25 MiB).`,
+      fix: "Store large files in Blob, and keep the Blob pathname in KV.",
+    },
     KV_OPERATION_FAILED: {
       why: ({ operation, store }: { operation: KVOperation, store: string }) => `kv.${operation}() failed on the "${store}" store.`,
       fix: "Read `error.cause` for the provider error. Retry when the provider is available again.",
@@ -57,6 +75,10 @@ export const kvErrorDiagnostics = /*#__PURE__*/ defineErrors({
     KV_INVALID_DRIVER: {
       why: ({ driver }: { driver: string }) => `\`kv.driver\` ${driver} is not a KV driver.`,
       fix: "Set `kv.driver` to \"cloudflare-kv-binding\", \"deno-kv\", \"upstash\", or \"fs-lite\".",
+    },
+    KV_INVALID_STORE_MODE: {
+      why: ({ mode }: { mode: string }) => `\`kv.store()\` mode ${mode} is not "read" or "write".`,
+      fix: "Pass `{ mode: 'read' }` for a read-only handle, or omit `mode` for a writable one.",
     },
     KV_MISSING_DEFAULT_STORE: {
       why: "`kv.stores.default` is missing.",

@@ -35,7 +35,7 @@ Configuration errors throw instead. They mean that the code or the deployment mu
 | `QUEUE_PROVIDER_FAILED` | Every send method | `getQueue()`, when the client cannot start |
 | `QUEUE_PROVIDER_INVALID_RESPONSE` | Vercel `send()`, `runQueue()` | |
 | `QUEUE_UNSUPPORTED_OPTION` | Every send method | |
-| `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_PROVIDER_MISMATCH`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
+| `QUEUE_BINDING_NOT_FOUND`, `QUEUE_DEFINITION_LOAD_FAILED`, `QUEUE_DEFINITION_NOT_FOUND`, `QUEUE_DISABLED`, `QUEUE_INVALID_BINDING`, `QUEUE_LOCAL_MODE_MISMATCH`, `QUEUE_MISSING_QUEUE`, `QUEUE_MISSING_REGION`, `QUEUE_MISSING_TOPIC`, `QUEUE_PROVIDER_MISMATCH`, `QUEUE_RUNTIME_NOT_INSTALLED`, `QUEUE_VERCEL_SDK_INVALID`, `QUEUE_VERCEL_SDK_UNAVAILABLE` | | When an operation starts |
 | `QUEUE_BINDING_CONFLICT`, `QUEUE_CRYPTO_UNAVAILABLE`, `QUEUE_DEFINITIONS_CHANGED`, `QUEUE_INVALID_CONFIG`, `QUEUE_INVALID_DEFINITION`, `QUEUE_INVALID_NAME`, `QUEUE_INVALID_PROVIDER`, `QUEUE_MISSING_PROVIDER`, `QUEUE_NAME_COLLISION`, `QUEUE_PLUGIN_INCOMPATIBLE`, `QUEUE_PROVISION_FAILED` | | At define time, when Vite reads the config, or during the build |
 
 ### Errors in a Queue handler
@@ -69,7 +69,7 @@ The provider does not support an enqueue option. Cloudflare does not support `id
 
 ### QUEUE_BINDING_NOT_FOUND
 
-The Cloudflare client has no binding, or the request env does not have the generated binding. `error.why` names the binding when it is a valid identifier. The Vite and Nuxt dev servers of a Cloudflare app have no Cloudflare Queue delivery, so this error is expected there. Run the built Worker with `wrangler dev`, or deploy it. In a deployed Worker, add the binding to the Worker configuration.
+The Cloudflare client has no binding, or the request env does not have the generated binding. `error.why` names the binding when it is a valid identifier. Run the Worker that `vite build` writes, with `wrangler dev` or a deployment, so its configuration has the generated binding. A custom Worker configuration must keep that binding. The Vite and Nuxt dev servers run Queue jobs with the local provider and need no binding, but a direct Cloudflare client from `createQueueClient()` still needs one there.
 
 ### QUEUE_DEFINITION_LOAD_FAILED
 
@@ -86,6 +86,10 @@ The Vite config sets `queue: false`, or Queue is not configured in this runtime.
 ### QUEUE_INVALID_BINDING
 
 The Cloudflare binding does not have `send()` and `sendBatch()`. Pass a Queue producer binding.
+
+### QUEUE_LOCAL_MODE_MISMATCH
+
+One process shares one local engine per directory. Clients that request different development error disclosure modes cannot share it. Direct clients from `createQueueClient()` always redact plain handler errors. Use `getQueue()` to share the generated dev runtime, or give the direct client a separate `base` directory.
 
 ### QUEUE_MISSING_QUEUE
 
@@ -163,10 +167,10 @@ The `hubQueue()` plugin in the Vite config does not expose the Queue Nitro confi
 
 ## Local delivery
 
-The local provider is the Queue Provider of the Node preset. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer.
+The local provider is the Queue Provider of the Node preset. It runs in the server process, so it works with `node .output/server/index.mjs`, in Docker, in `vite dev`, and in a StackBlitz WebContainer. In `vite dev`, a Cloudflare or Vercel app uses it too, with the rules of [Dev delivery](#dev-delivery).
 
 - `runQueue()` writes the job to a file in `.vitehub/data/queue` and returns. The server process then runs the Queue Definition.
-- A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or after a Queue error that a retry cannot fix, the job becomes a dead job. A dead job stays in its file with the last error, and `vitehub queue list` counts it. The provider keeps the 100 newest dead jobs of each Queue Definition and deletes older ones. `vitehub queue list` shows this limit as `deadLimit`. Delete a file to remove a dead job earlier.
+- A failed job runs again after 1, 2, and 4 seconds. After 4 attempts, or after a Queue error that a retry cannot fix, the job becomes a dead job. A dead job stays in its file with the last error, and `vitehub queue list` counts it. The provider keeps the 100 newest dead jobs of each Queue Definition and deletes older ones. `vitehub queue list` shows this limit as `deadLimit`. `vitehub queue jobs retry <message-id>` runs a dead job again, and `vitehub queue jobs clear --state dead` removes the dead jobs.
 - The attempt count is written before the handler runs. When the process stops during a handler, the job runs again after the restart with the next attempt number. When the process stopped during the fourth attempt, the job becomes a dead job and does not run again, so a handler that crashes the process cannot run on every restart.
 - Delivery is at least once. A successful handler can run again after a restart if the process stops before completion is saved, or if both deleting the job and saving its completed state fail. Make handler side effects idempotent.
 - `delaySeconds` survives a restart. `idempotencyKey` returns the message ID of a pending or running job with the same key, also for two sends at the same time. A dead job does not hold its key, so a new send with that key runs.
@@ -174,7 +178,36 @@ The local provider is the Queue Provider of the Node preset. It runs in the serv
 - `concurrency` limits the jobs of one Queue Definition that run at the same time. The default is 1. `onError` and `callbackOptions` are Cloudflare and Vercel options, and the local provider does not call them.
 - The jobs survive a restart on the same host and the same disk. They are lost with an ephemeral container filesystem, and another host does not see them. Mount `.vitehub/data` as a volume in Docker. Run one server process per directory. The provider has no lock between processes, so two processes on one directory can run the same job at the same time. Use Cloudflare or Vercel for more than one server.
 
+## Dev delivery
+
+In `vite dev` and `nuxt dev`, every app runs its Queue jobs in the dev server with the local provider, whatever the provider of the build. The dev server stores the jobs in `.vitehub/data/queue` of the project and follows the documented defaults of the provider of the build. The build output does not change.
+
+| Rule | Cloudflare | Vercel | Local |
+| --- | --- | --- | --- |
+| Attempts | 4 (`max_retries` 3) | No limit until the job expires | 4 |
+| Retry delay | None | 60 seconds (`retryAfterSeconds`) | 1, 2, then 4 seconds |
+| Largest `delaySeconds` | 86400 (24 hours) | 604800 (7 days) | No limit |
+| Retention | None | `retentionSeconds` from 60 to 604800, default 86400 | None |
+| Largest payload | 128 KB of JSON | 100 MB of JSON | No limit |
+| Largest `sendBatch()` | 100 jobs, 256 KB | 100 jobs | No limit |
+| Rejected options | `idempotencyKey`, `region`, `retentionSeconds` | `contentType` | `contentType`, `region`, `retentionSeconds` |
+
+The rules come from the [Cloudflare Queues limits](https://developers.cloudflare.com/queues/platform/limits/), [Cloudflare batching and retries](https://developers.cloudflare.com/queues/configuration/batching-retries/), the [Vercel Queues concepts](https://vercel.com/docs/queues/concepts), and the [Vercel Queues limits](https://vercel.com/docs/queues/pricing#limits). A broken limit fails the send with [`QUEUE_PROVIDER_FAILED`](#queue_provider_failed), and `error.cause` names the limit. A rejected option fails with [`QUEUE_UNSUPPORTED_OPTION`](#queue_unsupported_option) and names the provider of the build, as on the host.
+
+Dev does not emulate these parts of the host:
+
+- It runs one job at a time per Queue Definition, up to `concurrency`. It has no Cloudflare batches, `max_batch_size`, or `max_batch_timeout`.
+- It does not call `onError` or `callbackOptions`. A failed handler retries by the rules above, and a [Queue error that a retry cannot fix](#errors-in-a-queue-handler) makes the job dead at once.
+- It keeps a dead job, so you can inspect it and run it again. Cloudflare deletes it or moves it to a dead-letter queue. Vercel deletes a job when it expires.
+- The handler gets a JSON copy of the payload. Cloudflare `contentType: 'v8'` can send values that JSON cannot, such as a `Map`. Dev measures the payload as JSON, not in the provider encoding.
+- `idempotencyKey` deduplicates only while a job is pending or running. Vercel deduplicates for the retention, up to 24 hours.
+- `getQueue()` returns the local client, so `client.provider` is `'local'`.
+
+`vitehub queue jobs list|show|retry|clear` and the Console read the stored jobs through the `queue.jobs-*` operations. In `vite dev`, a handler that throws a plain `Error` reports its message and stack, and `jobs show` prints both. A production server reports `Queue Delivery failed.`, because a message can hold private data. Throw a `ViteHubError` to keep a code and a message there. On Cloudflare and Vercel, the job commands fail with `QUEUE_JOBS_UNAVAILABLE`, because those providers do not let the app read the queue. A missing message ID fails with `QUEUE_JOB_NOT_FOUND`, and a job that runs now fails `retry` with `QUEUE_JOB_RUNNING`.
+
 ## Production checks
+
+When a production local server reopens jobs stored by `vite dev`, it redacts stored errors without a code. Queue errors and `ViteHubError` keep their code and message.
 
 - A successful `runQueue()` means that the provider accepted the job. Track handler results in your own storage, or use [Workflows](/docs/workflows) when the caller needs run status.
 - Providers can deliver a job more than once. Make handlers safe to run again after a partial side effect.

@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { createDriver } from "../src/drivers/fs.ts"
 import { createBlobStorage } from "../src/storage.ts"
-import { h3V1Event } from "./h3-v1-event.ts"
 
 import type { BlobMultipartEvent, BlobResult, BlobStorage } from "../src/types.ts"
 
@@ -74,9 +73,14 @@ describe("handleUpload", () => {
   })
 })
 
-describe("uploads from H3 1 events", () => {
-  it("stores the files of a Nuxt 4 event, whose `req` is the Node request", async () => {
-    const event = await h3V1Event(new Request("http://localhost/api/files", { body: formData([new File(["one"], "one.txt", { type: "text/plain" })]), method: "POST" }))
+describe("uploads from host Standard Context events", () => {
+  const hostEvent = (req: Request, params?: Record<string, string>) => ({
+    "~standard": { vendor: "test", req, res: {} },
+    context: { params },
+  })
+
+  it("stores files from the Standard Context request", async () => {
+    const event = hostEvent(new Request("http://localhost/api/files", { body: formData([new File(["one"], "one.txt", { type: "text/plain" })]), method: "POST" }))
 
     const objects = ok(await storage.handleUpload(event))
 
@@ -84,18 +88,18 @@ describe("uploads from H3 1 events", () => {
     expect(await (ok(await storage.get("one.txt")))?.text()).toBe("one")
   })
 
-  it("serves every multipart action from a Nuxt 4 event", async () => {
+  it("serves multipart actions from the Standard Context request", async () => {
     const event = (action: string, init: RequestInit & { query?: Record<string, string> }) =>
-      h3V1Event(multipartRequest(action, "videos/clip.bin", init), { action, pathname: "videos/clip.bin" })
-    const created = ok(await storage.handleMultipartUpload(await event("create", { body: JSON.stringify({ contentType: "video/mp4" }), method: "POST" })))
+      hostEvent(multipartRequest(action, "videos/clip.bin", init), { action, pathname: "videos/clip.bin" })
+    const created = ok(await storage.handleMultipartUpload(event("create", { body: JSON.stringify({ contentType: "video/mp4" }), method: "POST" })))
     if (created.action !== "create") throw new Error("Expected a create result.")
-    const uploaded = ok(await storage.handleMultipartUpload(await event("upload", { body: "part", method: "PUT", query: { partNumber: "1", uploadId: created.uploadId } })))
+    const uploaded = ok(await storage.handleMultipartUpload(event("upload", { body: "part", method: "PUT", query: { partNumber: "1", uploadId: created.uploadId } })))
     if (uploaded.action !== "upload") throw new Error("Expected an upload result.")
-    const completed = ok(await storage.handleMultipartUpload(await event("complete", { body: JSON.stringify({ parts: [uploaded.part] }), method: "POST", query: { uploadId: created.uploadId } })))
+    const completed = ok(await storage.handleMultipartUpload(event("complete", { body: JSON.stringify({ parts: [uploaded.part] }), method: "POST", query: { uploadId: created.uploadId } })))
 
     expect(completed).toMatchObject({ action: "complete", object: { pathname: "videos/clip.bin" } })
     expect(await (ok(await storage.get("videos/clip.bin")))?.text()).toBe("part")
-    await expect(storage.handleMultipartUpload(await event("upload", { body: "part", method: "POST", query: { partNumber: "1", uploadId: created.uploadId } })))
+    await expect(storage.handleMultipartUpload(event("upload", { body: "part", method: "POST", query: { partNumber: "1", uploadId: created.uploadId } })))
       .rejects.toMatchObject({ statusCode: 405 })
   })
 })

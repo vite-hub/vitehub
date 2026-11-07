@@ -10,6 +10,8 @@ export interface DocsPage {
   path: string
   /** File path relative to the content directory, such as `docs/kv/get-started.md`. */
   file: string
+  /** Server asset namespace of a mapped content source. Omitted for the default content directory. */
+  source?: string
   /** Label in navigation: `navigation.title`, else `title`. */
   title: string
   /** The `title` field, for the page heading. */
@@ -46,6 +48,10 @@ export interface DocsSection {
   description: string | null
   icon: string | null
   category: string | null
+  /** Rail group from `.navigation.yml`. The `groups` option can also place the section in a group. */
+  group: string | null
+  /** Whether the page groups of the sidebar start folded, from `fold` in `.navigation.yml`. */
+  fold: boolean
   related: string[]
   order: number
   pages: DocsPage[]

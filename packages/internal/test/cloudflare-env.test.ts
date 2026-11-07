@@ -5,6 +5,7 @@ import {
   getActiveCloudflareBinding,
   getActiveCloudflareEnv,
   getCloudflareEnv,
+  installCloudflareRequestEnv,
   resolveWaitUntil,
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
@@ -13,6 +14,18 @@ import {
 afterEach(() => clearActiveCloudflareEnv())
 
 describe("Cloudflare environment context", () => {
+  it("installs the env of a request event, then the fallback, and keeps the active env without either", () => {
+    const request = { KV: "request" }
+    const fallback = { KV: "module" }
+    installCloudflareRequestEnv({ req: { runtime: { cloudflare: { env: request } } } }, fallback)
+    expect(getActiveCloudflareEnv()).toBe(request)
+    installCloudflareRequestEnv({}, fallback)
+    expect(getActiveCloudflareEnv()).toBe(fallback)
+    // A Node dev runner gives no env.
+    installCloudflareRequestEnv({ req: { runtime: { name: "node" } } })
+    expect(getActiveCloudflareEnv()).toBe(fallback)
+  })
+
   it("does not expose inherited environment bindings", () => {
     const env = Object.create({ BUCKET: "inherited-bucket" }) as Record<string, unknown>
     setActiveCloudflareEnv(env)

@@ -3,6 +3,7 @@ import { drizzle as drizzleD1 } from "drizzle-orm/d1"
 
 import { resolveConfigValue } from "../config-value.ts"
 import { createCloudflareD1HttpResolver } from "./d1-http.ts"
+import { checkD1Limits, checkLibsqlD1Limits } from "./d1-limits.ts"
 import { useD1Session } from "./d1-sessions.ts"
 import { keepOwnClient, trackD1Database, trackLibsqlClient } from "./request-stats.ts"
 
@@ -56,8 +57,18 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
   let libsqlInstanceToken: string | undefined
   let libsqlInstanceUrl: string | undefined
   let libsqlClient: LibsqlClient | undefined
+  let remoteNoticeShown = false
 
   function getDb() {
+    if (config.remote) {
+      if (!remoteNoticeShown) {
+        remoteNoticeShown = true
+        const databaseId = resolveConfigValue(config.cloudflare?.databaseId)?.trim()
+        console.warn(`[vitehub] Database "${config.name}" is remote: \`vite dev\` queries the real D1 database${databaseId ? ` ${databaseId}` : ""} over HTTP. Writes change real data.`)
+      }
+      return getD1HttpDb()
+    }
+
     const bindingName = config.cloudflare?.binding
     const d1Binding = bindingName
       ? getActiveCloudflareBinding<D1DatabaseLike>(bindingName)
@@ -70,7 +81,7 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
         return cached
       }
 
-      const instance = keepOwnClient(drizzleD1(trackD1Database(client), {
+      const instance = keepOwnClient(drizzleD1(checkD1Limits(trackD1Database(client)), {
         casing: config.drizzle.casing,
         schema,
       }), client) as RuntimeDrizzleDatabase<TSchema>
@@ -99,7 +110,8 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
       // SAFETY: The injected libSQL adapters expose the same Drizzle database contract as the runtime schema generic.
       instance = keepOwnClient(Object(options.libsql.drizzle({
         casing: config.drizzle.casing,
-        client: trackLibsqlClient(client),
+        // Local SQLite stands in for the D1 binding in a dev server for Cloudflare, so it rejects what D1 rejects.
+        client: trackLibsqlClient(config.cloudflare && config.localLimits === "d1" ? checkLibsqlD1Limits(client) : client),
         schema,
       })), client) as RuntimeDrizzleDatabase<TSchema>
     }

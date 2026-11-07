@@ -59,7 +59,7 @@ function legacyEvent(route: string, method: "GET" | "POST", request: LegacyReque
     signal: context.request?.signal,
   })
   // An omitted RPC body is already decoded; Fetch's empty-body JSON parser would reject it.
-  if (method === "POST" && request.body === undefined) req.json = async () => undefined
+  if (method === "POST" && request.body === undefined) Object.defineProperty(req, "json", { value: async () => undefined })
   const event: ConsoleRequestEvent = {
     env: context.env,
     context: Object.keys(params).length ? { params } : undefined,
@@ -297,6 +297,16 @@ const mediaAction = defineConsoleOperation({
   section: input => input.section,
 })
 
+const projectGet = defineConsoleOperation({
+  cli: { command: "info", namespace: "project" },
+  description: "Read the project: its name, the vite-hub version, and the sections and operations that this access may use.",
+  input: v.strictObject({}),
+  kind: "read",
+  name: "project.get",
+  run: async (_input, context) => (await import("./project.ts")).readConsoleProject(context.access),
+  section: false,
+})
+
 const searchQuery = defineConsoleOperation({
   cli: { namespace: "search", command: "query", positional: ["search"] },
   description: "Search the Agent Invocations of the Console.",
@@ -385,6 +395,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   invocationsWorkspace,
   logsList,
   mediaAction,
+  projectGet,
   searchQuery,
   sectionsList,
   skillsInspect,

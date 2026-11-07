@@ -88,6 +88,8 @@ function parseBlobListResponse(value: unknown): BlobListResult {
 }
 
 type VercelBlobModule = {
+  // The SDK maps the Vercel Blob API code `not_found` to this class. Its `name` stays "Error".
+  BlobNotFoundError: abstract new (...args: never[]) => Error
   del(key: string, options?: { token?: string }): Promise<void>
   get(key: string, options: { access: "private" | "public", token?: string, useCache?: boolean, headers?: Record<string, string> }): Promise<{
     blob: { contentType: string, size: number }
@@ -107,13 +109,6 @@ type VercelBlobModule = {
     contentType?: string
     token?: string
   }): Promise<unknown>
-}
-
-function isMissingBlobError(error: unknown) {
-  return error instanceof Error && (
-    error.name === "BlobNotFoundError"
-    || /requested blob does not exist/i.test(error.message)
-  )
 }
 
 function joinBlobPath(...parts: string[]) {
@@ -138,6 +133,9 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
   const blob = await importVercelBlobPeer()
   const access = options.access || "private"
   return {
+    isMissing(error: unknown): boolean {
+      return error instanceof blob.BlobNotFoundError
+    },
     async delete(key: string): Promise<void> {
       await blob.del(key, auth(options))
     },
@@ -165,7 +163,7 @@ async function createVercelBlobClient(options: VercelBlobWorkspaceStoreOptions) 
     },
     async head(key: string): Promise<BlobListItem | undefined> {
       const result = await blob.head(key, auth(options)).catch((error: unknown) => {
-        if (isMissingBlobError(error)) return undefined
+        if (error instanceof blob.BlobNotFoundError) return undefined
         throw error
       })
       if (!result) return undefined
@@ -291,7 +289,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
         }
         else {
           await client.delete(attributesKey).catch((error: unknown) => {
-            if (!isMissingBlobError(error)) throw error
+            if (!client.isMissing(error)) throw error
           })
         }
       }

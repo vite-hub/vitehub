@@ -24,7 +24,9 @@ The outbox records:
 
 The outbox stores the effective recipients and subject of a single personalization. Messages appear as Sending while the provider is pending, in submission order.
 
-By default the outbox records the message and then sends it through the provider, because development sends are real deliveries. Set `deliver: false` to record messages without a provider request. In this mode `email.send()` returns an `outbox-<n>` id with `driver: 'outbox'`, and ViteHub does not resolve the provider options.
+By default a dev send stays in the outbox. The provider gets no request, `email.send()` returns an `outbox-<n>` id with `driver: 'outbox'`, and ViteHub does not resolve the provider options. So a signup flow that you test in `vite dev` sends no real email.
+
+Set `remote: true` in the Email config to send real email from `vite dev`. The outbox records each message and then sends it through the provider. The first send prints `` [vitehub] Email is remote: `vite dev` sends real email through resend. `` Builds ignore `remote`, so the build output does not change.
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
@@ -36,7 +38,8 @@ export default defineConfig({
     email: {
       driver: 'resend',
       options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },
-      outbox: { deliver: false, limit: 100 },
+      remote: true,
+      outbox: { limit: 100 },
     },
   })],
 })
@@ -44,10 +47,10 @@ export default defineConfig({
 
 | Option | Type | Default | Behavior |
 | --- | --- | --- | --- |
-| `outbox.deliver` | `boolean` | `true` | `true` sends each message through the provider after it records the message. `false` records messages only. |
+| `remote` | `boolean` | `false` | `true` sends each dev message through the provider after the outbox records it. `false` keeps dev sends in the outbox. |
 | `outbox.limit` | `number` | `50` | Number of messages to keep, from 1 to 1000. The outbox removes the oldest message first. |
 
-Set `outbox: false` to disable the outbox. Each Development Server has a separate outbox identity. A restart creates a fresh outbox. The outbox redacts header and metadata values with secret names, and credentials in delivery errors. It keeps message bodies as the application rendered them.
+Set `outbox: false` to disable the outbox. A dev send then goes straight to the provider, so `outbox: false` needs `remote: true`. Without it, `vite dev` fails with [`EMAIL_REMOTE_REQUIRED`](/docs/email/limits-and-errors#email_remote_required). Each Development Server has a separate outbox identity. A restart creates a fresh outbox. The outbox redacts header and metadata values with secret names, and credentials in delivery errors. It keeps message bodies as the application rendered them.
 
 Inspect the outbox with the [CLI](/docs/development/cli#inspect-the-email-development-outbox) or in the [Console](/docs/development/console) **Email** section:
 
