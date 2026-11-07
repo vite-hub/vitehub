@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs"
+import { posix } from "node:path"
 
 import type { BundleGroupKind } from "./types.ts"
 
@@ -22,20 +23,24 @@ export function moduleId(id: string, root: string, packages: Map<string, string 
     if (!rest.startsWith(".")) return `node_modules/${rest}`
   }
   const withinRoot = windows ? clean.toLowerCase().startsWith(`${rootPath.toLowerCase()}/`) : clean.startsWith(`${rootPath}/`)
-  const workspace = clean.match(/^(.*\/packages\/[^/]+)\/dist\/(.+)$/)
-  if (workspace && !withinRoot) {
-    const dir = workspace[1]!
-    if (!packages.has(dir)) {
-      let name: string | undefined
-      try {
-        const manifest: unknown = JSON.parse(readFileSync(`${dir}/package.json`, "utf8"))
-        if (manifest && typeof manifest === "object" && typeof Reflect.get(manifest, "name") === "string") name = Reflect.get(manifest, "name")
+  if (!withinRoot) {
+    let dir = posix.dirname(clean)
+    while (dir !== ".") {
+      if (!packages.has(dir)) {
+        let name: string | undefined
+        try {
+          const manifest: unknown = JSON.parse(readFileSync(`${dir}/package.json`, "utf8"))
+          if (manifest && typeof manifest === "object" && typeof Reflect.get(manifest, "name") === "string") name = Reflect.get(manifest, "name")
+        }
+        catch { /* An unknown outside file keeps its absolute path. */ }
+        packages.set(dir, name)
       }
-      catch { /* An unknown outside file keeps its absolute path. */ }
-      packages.set(dir, name)
+      const name = packages.get(dir)
+      if (name) return `node_modules/${name}/${posix.relative(dir, clean)}`
+      const parent = posix.dirname(dir)
+      if (parent === dir) break
+      dir = parent
     }
-    const name = packages.get(dir)
-    if (name) return `node_modules/${name}/dist/${workspace[2]}`
   }
   return withinRoot ? clean.slice(rootPath.length + 1) : clean
 }

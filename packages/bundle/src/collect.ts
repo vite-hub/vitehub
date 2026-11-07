@@ -98,14 +98,16 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
   }
   const ids = new Map<string, string>()
   const packages = new Map<string, string | undefined>()
+  const isEntry = (id: string, chunk: OutputChunkLike) => options.getModuleInfo(id)?.isEntry ?? chunk.facadeModuleId === id
   for (const chunk of chunks) {
-    for (const [id, module] of Object.entries(chunk.modules)) if (module.renderedLength > 0) ids.set(id, moduleId(id, options.root, packages))
+    // Entry facades can render no code while still providing the root of the import graph.
+    for (const [id, module] of Object.entries(chunk.modules)) if (module.renderedLength > 0 || isEntry(id, chunk)) ids.set(id, moduleId(id, options.root, packages))
   }
   const edges = createEdgeReader(ids, options.getModuleInfo)
 
   const rows: BundleChunk[] = chunks.map((chunk) => {
     const bytes = Buffer.byteLength(chunk.code)
-    const entries = Object.entries(chunk.modules).filter(([, module]) => module.renderedLength > 0)
+    const entries = Object.entries(chunk.modules).filter(([id]) => ids.has(id))
     // `page.vue` and `page.vue?vue&type=script` become one module.
     const merged = new Map<string, { rendered: number, imports: Set<string>, dynamicImports: Set<string>, entry: boolean }>()
     for (const [raw, module] of entries) {
@@ -115,7 +117,7 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
       row.rendered += module.renderedLength
       for (const next of out.imports) row.imports.add(next)
       for (const next of out.dynamicImports) row.dynamicImports.add(next)
-      row.entry ||= options.getModuleInfo(raw)?.isEntry ?? chunk.facadeModuleId === raw
+      row.entry ||= isEntry(raw, chunk)
       merged.set(id, row)
     }
     const shares = allocateBytes([...merged.values()].map(row => row.rendered), bytes)
