@@ -4,6 +4,7 @@ import { useDatabase } from "vite-hub/database/drizzle"
 import { email } from "vite-hub/email/server"
 import { kv } from "vite-hub/kv"
 import { runQueue } from "vite-hub/queue"
+import { runWorkflow } from "vite-hub/workflow"
 
 export default defineHandler(async (event) => {
   const body = await readBody<{ email?: unknown }>(event)
@@ -23,6 +24,8 @@ export default defineHandler(async (event) => {
 
   const [queueError] = await runQueue("welcome", { userId: user.id }, { delaySeconds: 86_400 })
   if (queueError) throw queueError
+
+  await runWorkflow("onboarding", { userId: user.id })
 
   return user
 })

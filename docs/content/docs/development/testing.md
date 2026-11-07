@@ -1,12 +1,12 @@
 ---
 title: Testing
-description: Test server routes that use KV, Blob, Database, Queue, Email, Rate Limit, Server Env, and Agent Channels, with no mocks and no provider account.
+description: Test server routes that use KV, Blob, Database, Queue, Workflow, Schedule, Email, Rate Limit, Server Env, and Agent Channels, with no mocks and no provider account.
 navigation.order: 34
 navigation.group: Proof and recovery
 icon: i-lucide-flask-conical
 ---
 
-`vite-hub/test` runs your server code in Vitest against local backends. A route test calls the real route. It writes real Database rows and KV keys, and you read the emails and Queue jobs that it sent. You need no `vi.mock()` and no provider account.
+`vite-hub/test` runs your server code in Vitest against local backends. A route test calls the real route. It writes real Database rows and KV keys, and you read the emails, Queue jobs, and Workflow runs that it sent. You need no `vi.mock()` and no provider account.
 
 ## Set up a test file
 
@@ -70,15 +70,40 @@ If you keep a separate `vitest.config.ts`, add the same `vitehub()` plugin there
 | Blob | An `fs` store in a folder under `.vitehub/test` | `blob.get()`, `blob.list()` |
 | Database | In-memory SQLite with the migrations of each Definition | `useDatabase(name).db` |
 | Queue | A list of the jobs that `runQueue()`, `deferQueue()`, and `getQueue()` sent. No handler runs. | `hub.jobs` |
+| Workflow | A list of the runs that `runWorkflow()`, `deferWorkflow()`, and Workflow handles started. No handler runs. A second start with the same run id returns the first run. | `hub.workflows`, `getWorkflowRun()` |
+| Schedule | `hub.runSchedule()` runs a Definition once, with a run record in memory. No cron fires in a test. | The returned run record |
 | Email | A list of the messages that `email.send()` accepted. No provider runs. | `hub.emails` |
 | Rate Limit | Memory counters, also when the host is Cloudflare. A request without a client address counts as one client. | `checkRateLimit()` |
 | Server Env | The values of `hub.setEnv()`, read before `process.env` | `useServerEnv()` |
 
-`reset()` deletes the test folders, closes the databases, empties both lists, and clears the `setEnv()` values. The configured drivers are not used: a test never writes to `.vitehub/data` or to a provider.
+`reset()` deletes the test folders, closes the databases, empties the lists, and clears the `setEnv()` values. The configured drivers are not used: a test never writes to `.vitehub/data` or to a provider.
 
 Database applies the Drizzle Kit migrations in the Definition's migrations folder, such as `server/databases/migrations/`. Run `vitehub db generate` after a schema change, as for `vite dev`. Postgres Definitions keep their own connection in tests.
 
 To run a Queue handler, import its Definition and call the handler with a job from `hub.jobs`.
+
+## Run a Schedule
+
+Import the Schedule Definition and pass it to `hub.runSchedule()`. The handler runs as if its cron fired at `scheduledAt`, with the test backends of the other Primitives. The promise resolves after the work that the handler starts with `waitUntil()`, and rejects with the handler's error.
+
+```ts [test/reset-signups.test.ts]
+import { expect, test } from 'vitest'
+import { kv } from 'vite-hub/kv'
+import { setupViteHubTest } from 'vite-hub/test'
+
+import resetSignups from '../server/schedules/reset-signups'
+
+const hub = setupViteHubTest()
+
+test('the nightly Schedule resets the counter', async () => {
+  await kv.set('signups', 3)
+
+  const run = await hub.runSchedule(resetSignups, { scheduledAt: new Date('2026-11-08T00:00:00Z') })
+
+  expect(run.status).toBe('succeeded')
+  expect(await kv.get('signups')).toEqual([undefined, null])
+})
+```
 
 ## Deliver a Channel message to an Agent
 
@@ -102,7 +127,7 @@ test('a Telegram message starts a run', async () => {
 })
 ```
 
-The Channel adapter still calls the provider API for replies and files, so stub `fetch` for those calls, or give the Agent a test model. Only a test that calls `deliverChannel()` loads `@vite-hub/agent`.
+The Channel adapter still calls the provider API for replies and files, so stub `fetch` for those calls, or give the Agent a test model. Only a test that calls `deliverChannel()` loads `@vite-hub/agent`, and only a test that calls `runSchedule()` loads `@vite-hub/schedule`.
 
 ## API
 
@@ -118,6 +143,8 @@ The Channel adapter still calls the provider API for replies and files, so stub 
 | `setEnv(values)` | Sets Server Env values until the next reset. `undefined` removes a value. |
 | `emails` | Messages that `email.send()` accepted during the current test. |
 | `jobs` | Queue jobs as `{ queue, payload, options, id }`, in send order. |
+| `workflows` | Workflow runs as `{ workflow, payload, id, deferred, status }`, in start order. |
+| `runSchedule(definition, options?)` | Runs a Schedule Definition once and returns its run record. `options.scheduledAt` (default now) and `options.name` (default `schedule`) shape the run. |
 | `deliverChannel(agent, channel, body, options?)` | Sends one webhook delivery and waits for its work. `options.headers` and `options.agentName` (default `agent`) shape the request. A string or bytes body goes as is; any other body goes as JSON. |
 
 `vite-hub/test` loads no Primitive. Each Primitive switches to its test backend only when your code calls it, so a test pays only for the features that the app uses.

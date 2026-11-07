@@ -2,6 +2,7 @@ import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import type { DeliverChannelOptions, deliverChannel as deliverAgentChannel } from "@vite-hub/agent/test"
 import type { EmailMessage } from "@vite-hub/email"
+import type { ScheduleDefinition, ScheduleRunRecord } from "@vite-hub/schedule"
 
 export type { DeliverChannelOptions }
 
@@ -18,16 +19,39 @@ export interface ViteHubTestJob {
   queue: string
 }
 
+/** One Workflow run that the app started during the current test. */
+export interface ViteHubTestWorkflowRun {
+  deferred: boolean
+  id: string
+  payload: unknown
+  status: "queued" | "cancelled"
+  workflow: string
+}
+
+export interface RunScheduleTestOptions {
+  /** The Schedule name in the run record. Defaults to `schedule`. */
+  name?: string
+  /** The time the handler receives as `scheduledAt`, as if the cron fired then. Defaults to now. */
+  scheduledAt?: Date
+}
+
 export interface ViteHubTest {
   /** Messages that `email.send()` accepted during the current test. No provider runs. */
   readonly emails: readonly EmailMessage[]
   /** Jobs that `runQueue()`, `deferQueue()`, and Queue clients sent during the current test. No handler runs. */
   readonly jobs: readonly ViteHubTestJob[]
+  /** Runs that `runWorkflow()`, `deferWorkflow()`, and Workflow handles started during the current test. No handler runs. */
+  readonly workflows: readonly ViteHubTestWorkflowRun[]
   /**
    * Sends one webhook delivery to a Channel of an Agent, as the provider would, and waits for the work that it starts.
    * Pass the header that the Channel checks, such as `x-telegram-bot-api-secret-token`, in `options.headers`.
    */
   deliverChannel: (...input: Parameters<typeof deliverAgentChannel>) => Promise<Response>
+  /**
+   * Runs a Schedule Definition once, as its cron would, and waits for the work that it starts with `waitUntil()`.
+   * Returns the run record. A handler error rejects the promise.
+   */
+  runSchedule: (definition: ScheduleDefinition, options?: RunScheduleTestOptions) => Promise<ScheduleRunRecord>
   /** Empties every in-memory backend and clears the `setEnv()` values. Call it in `beforeEach`. */
   reset: () => Promise<void>
   /** Sets Server Env values until the next reset. `undefined` removes a value. They win over `process.env`. */
@@ -35,19 +59,37 @@ export interface ViteHubTest {
 }
 
 /**
- * Turns on test mode for this test file. KV, Blob, Database, Queue, Email, and Rate Limit then use local backends that
+ * Turns on test mode for this test file. KV, Blob, Database, Queue, Workflow, Email, and Rate Limit then use local backends that
  * `reset()` empties, so a test runs the app's own server code with no mocks and no provider account.
  */
 export function setupViteHubTest(options: ViteHubTestOptions = {}): ViteHubTest {
   const mode = enableViteHubTestMode(options)
+  let scheduleRuns = 0
   return {
     // Email and Queue store their test state under these keys in test mode.
     get emails() { return mode.peek<{ messages: EmailMessage[] }>("email")?.messages ?? [] },
     get jobs() { return mode.peek<ViteHubTestJob[]>("queue") ?? [] },
+    get workflows() { return mode.peek<ViteHubTestWorkflowRun[]>("workflow") ?? [] },
     async deliverChannel(...input) {
       // Only a test that drives an Agent loads the Agent package.
       const { deliverChannel } = await import("@vite-hub/agent/test")
       return await deliverChannel(...input)
+    },
+    async runSchedule(definition, options = {}) {
+      // Only a test that runs a Schedule loads the Schedule package.
+      const { createMemoryScheduleRunStore, executeSchedule } = await import("@vite-hub/schedule/runtime")
+      const name = options.name ?? "schedule"
+      // Each call is its own run, so a test can run the same occurrence twice.
+      const runIdSuffix = `test${++scheduleRuns}`
+      return await executeSchedule({
+        definition,
+        runIdSuffix,
+        runStore: mode.backend("schedule", createMemoryScheduleRunStore),
+        scheduleId: name,
+        source: "manual",
+        ...(options.scheduledAt ? { scheduledAt: options.scheduledAt } : {}),
+        target: name,
+      })
     },
     reset: () => mode.reset(),
     setEnv(values) {

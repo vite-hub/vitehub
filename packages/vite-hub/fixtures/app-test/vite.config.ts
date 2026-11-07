@@ -15,6 +15,8 @@ export default defineConfig({
     kv: true,
     preset: "node",
     queue: true,
+    schedule: true,
+    workflow: true,
   })],
   test: { environment: "node" },
 })

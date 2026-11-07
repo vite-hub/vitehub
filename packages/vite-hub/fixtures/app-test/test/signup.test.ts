@@ -5,6 +5,7 @@ import { kv } from "vite-hub/kv"
 import { setupViteHubTest } from "vite-hub/test"
 
 import signup from "../server/api/signup.post.ts"
+import resetSignups from "../server/schedules/reset-signups.ts"
 
 const hub = setupViteHubTest()
 const app = new H3().post("/api/signup", signup)
@@ -22,7 +23,7 @@ function post(email: string) {
   }))
 }
 
-test("signup saves the user, counts it, sends the welcome email, and queues the follow-up", async () => {
+test("signup saves the user, counts it, sends the welcome email, queues the follow-up, and starts the onboarding", async () => {
   const response = await post("ada@example.com")
 
   expect(response.status).toBe(200)
@@ -34,6 +35,7 @@ test("signup saves the user, counts it, sends the welcome email, and queues the 
   expect(await kv.get("signups")).toEqual([undefined, 1])
   expect(hub.emails).toEqual([{ from: "hello@example.com", subject: "Welcome", text: "Thanks for signing up.", to: "ada@example.com" }])
   expect(hub.jobs).toMatchObject([{ options: { delaySeconds: 86_400 }, payload: { userId: 1 }, queue: "welcome" }])
+  expect(hub.workflows).toMatchObject([{ payload: { userId: 1 }, status: "queued", workflow: "onboarding" }])
 })
 
 test("each test starts with empty storage", async () => {
@@ -42,7 +44,18 @@ test("each test starts with empty storage", async () => {
   expect(await kv.get("signups")).toEqual([undefined, null])
   expect(hub.emails).toEqual([])
   expect(hub.jobs).toEqual([])
+  expect(hub.workflows).toEqual([])
 
   expect((await post("ada@example.com")).status).toBe(200)
   expect((await post("ada@example.com")).status).toBe(500)
+})
+
+test("the nightly Schedule resets the counter", async () => {
+  expect((await post("ada@example.com")).status).toBe(200)
+
+  const run = await hub.runSchedule(resetSignups, { scheduledAt: new Date("2026-11-08T00:00:00Z") })
+
+  expect(run.status).toBe("succeeded")
+  expect(await kv.get("signups")).toEqual([undefined, null])
+  expect(await kv.get("signups:reset-at")).toEqual([undefined, "2026-11-08T00:00:00.000Z"])
 })
