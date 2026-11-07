@@ -12,7 +12,9 @@ export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
 export { blobStoreMode, readonlyBlobStorage } from "./readonly.ts"
 
-import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobResult, BlobServeEvent, BlobServeResponseOptions, BlobStorage } from "./types.ts"
+import type { Result } from "@vite-hub/runtime"
+
+import type { BlobDriverAdapter, BlobDriverByteRange, BlobDriverMultipartUpload, BlobErrorCode, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobServeEvent, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { byteRangeBounds } from "./internal/byte-range.ts"
@@ -354,7 +356,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       throw blobErrorDiagnostics.BLOB_R0026({ message: "Named Blob stores are only available from the @vite-hub/blob runtime export." })
     },
   }
-  async function serveObject(event: BlobServeEvent, normalizedPath: string, options: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>> {
+  async function serveObject(event: BlobServeEvent, normalizedPath: string, options: BlobServeResponseOptions): Promise<Result<ReadableStream | null, BlobErrorCode>> {
     for (let attempt = 0; attempt < 3; attempt++) {
       const [error, payload] = await blobResult("serve", store, async () => {
         // A driver that streams reads the object, or the requested range of it, with its metadata in one call, and
@@ -539,7 +541,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       if (payload === false) continue
       return payload === undefined
         ? [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
-        : [null, payload]
+        : [undefined, payload]
     }
     return blobResult("serve", store, async () => {
       throw new Error("Blob changed repeatedly while preparing its response.")

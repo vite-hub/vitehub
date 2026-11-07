@@ -308,12 +308,21 @@ const [error, receipt] = await enqueueChannelTask('airtable', 'close-duplicate',
 })
 
 // Someone objected: drop the queued task.
-await cancelChannelTask('airtable', 'close-duplicate', { key: `duplicate-pair:${closeId}:${survivorId}` })
+const [cancelError, cancelled] = await cancelChannelTask('airtable', 'close-duplicate', { key: `duplicate-pair:${closeId}:${survivorId}` })
+if (cancelError) throw cancelError
 ```
 
 A later enqueue of the same trigger's task with the same `key` replaces a queued task that has not started. `cancelChannelTask()` drops that trigger's queued tasks with the `key` and returns how many it dropped. A task that has started keeps running. Use `prepare` to check live state when the task starts and return `ignored()` when the work is no longer needed.
 
-Tasks with the same name run one at a time. The Channel needs a declared webhook and a queue-capable state provider, such as SQLite or libSQL. When more than one trigger of the Channel declares the task, pass `trigger`. Both functions return `[error, result]`. The receipt has the queue `deliveryId`, the Invocation `runId` and the `notBefore` time.
+Tasks with the same name run one at a time. The Channel needs a declared webhook and a queue-capable state provider, such as SQLite or libSQL. When more than one trigger of the Channel declares the task, pass `trigger`. Both functions return a `Result` from `vite-hub/runtime`: `[error, undefined]` or `[undefined, result]`. The receipt has the queue `deliveryId`, the Invocation `runId` and the `notBefore` time. `error.code` is one of these:
+
+#### CHANNEL_TASK_FAILED
+
+The queue or the Agent State store failed while it queued or cancelled the task. `error.cause` keeps the original error. Retry when the store is available again.
+
+#### CHANNEL_TASK_REJECTED
+
+The call cannot run as written. No trigger declares the task, more than one does and `trigger` is missing, the Channel has no running webhook queue in this process, the `key` is empty, or `notBefore` and `delayMs` are invalid or both set. `error.why` names the problem.
 
 
 

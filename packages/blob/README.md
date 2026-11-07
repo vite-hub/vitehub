@@ -182,8 +182,8 @@ The JSON Schema `x-vitehub-blob` keyword tells a form to render a Blob picker. Z
 import { blob, responsiveImage } from "@vite-hub/blob"
 
 const [, record] = await blob.media.put("posts/cover.jpg", file, { alt: "Cover", focal: { x: 0.7, y: 0.4 } })
-await blob.media.update("posts/cover.jpg", { crops: { mobile: { aspect: "4:5" } } })
-await blob.media.move("posts/cover.jpg", "posts/2026/cover.jpg")
+const [updateError] = await blob.media.update("posts/cover.jpg", { crops: { mobile: { aspect: "4:5" } } })
+const [moveError] = await blob.media.move("posts/cover.jpg", "posts/2026/cover.jpg")
 
 const image = responsiveImage(record!, { sizes: "100vw", art: [{ media: "(max-width: 640px)", crop: "mobile" }] })
 // image.img: { src, srcset, sizes, width, height, alt, style }, image.sources: <picture> sources
@@ -219,7 +219,7 @@ await fetch(upload.url, {
 })
 ```
 
-Blob operations return `[error, value]`. Missing objects return `[null, null]` from `get()` and `head()`, including when a serving route is configured. Provider and storage failures use `ViteHubError` with a stable `BLOB_*` code, operation/store details, and the provider failure in `cause`. Invalid arguments, unknown stores, and unsupported signing capabilities throw Nostics diagnostics with package-owned `BLOB_C####`, `BLOB_B####`, or `BLOB_R####` codes. Catch these defects by code. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
+Blob operations return a `Result` from `@vite-hub/runtime`: `[error, undefined]` or `[undefined, value]`. Missing objects return `[undefined, null]` from `get()` and `head()`, including when a serving route is configured. Provider and storage failures return an error with a stable `BLOB_*` code, `why`, `fix`, `docs`, and the provider failure in `cause`. Invalid arguments, unknown stores, and unsupported signing capabilities throw Nostics diagnostics with package-owned `BLOB_C####`, `BLOB_B####`, or `BLOB_R####` codes. Catch these defects by code. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
 
 The returned headers are part of the request contract and must be sent unchanged. `createOnly` prevents overwriting an existing object when the driver can enforce a conditional upload.
 

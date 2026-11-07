@@ -152,9 +152,9 @@ const { appName } = usePublicEnv()
 
 ## VHUB0003
 
-**Destructure `[error, value]` results.** Rule `vitehub/destructure-result-tuples`.
+**Read `[error, value]` results.** Rule `vitehub/destructure-result-tuples`.
 
-Some Runtime Helpers return an `[error, value]` tuple and do not throw on failures. Code that uses the tuple as the value has two problems. A tuple is always truthy, so checks such as `if (await kv.has(key))` always pass. The error is lost.
+Some Runtime Helpers return an `[error, value]` tuple and do not throw on failures. Code that drops the tuple, or uses it as the value, loses the error. A statement such as `await runQueue('sync', input)` turns a failed send into silence. A tuple is always truthy, so checks such as `if (await kv.has(key))` always pass.
 
 The rule checks these calls:
 
@@ -163,10 +163,12 @@ The rule checks these calls:
 - `runQueue()`, `dynamicQueue.run()`, and `send()` and `sendBatch()` of a client from `getQueue()`
 - `send()` of a Channel from `useChannel()` or `createChannel()`
 - `callMcpTool()` from `vite-hub/agent/mcp`
+- `enqueueChannelTask()` and `cancelChannelTask()` from `vite-hub/agent/server`
 - `runAgent(agent, input)` from `vite-hub/agent`, and `runAgent(agent, input, { output: 'drained' })`
 
 It follows imports from `vite-hub/*` and `@vite-hub/*`, local aliases, and the helpers that Nuxt auto-imports into `server/`. It reports a result that code:
 
+- drops, as in a statement such as `await kv.set(key, value)` or `email.send(message)`
 - assigns to a name
 - tests in a condition, negates, or compares
 - reads a property from, iterates with `for...of`, spreads, or puts in a template literal or object property
@@ -193,7 +195,26 @@ export default defineEventHandler(async () => {
 })
 ```
 
-The rule accepts a statement that ignores the result, such as `await kv.set(key, value)`, a pattern such as `const [error] = await kv.del(key)`, a name that code later indexes or destructures, an index such as `(await blob.head(path))[0]`, and a tuple that a helper function returns to its caller. `runAgent(agent, context, input)` with a Runtime Context returns the value and throws, so the rule does not check it. Read [KV server API](/docs/kv/server-api) and [Blob server API](/docs/blob/server-api) for each method.
+```ts [server/utils/dispatch.ts]
+import { runQueue } from 'vite-hub/queue'
+
+export async function dispatchSync(connectionId: string) {
+  // Invalid: a failed send is silent.
+  await runQueue('sync', { connectionId })
+}
+```
+
+```ts [server/utils/dispatch.ts]
+import { runQueue } from 'vite-hub/queue'
+
+export async function dispatchSync(connectionId: string) {
+  // Valid
+  const [error] = await runQueue('sync', { connectionId })
+  if (error) throw error
+}
+```
+
+To ignore a failure on purpose, such as a best-effort cache write, write `void await kv.set(key, value)`. The rule accepts `void`, a pattern such as `const [error] = await kv.del(key)`, a name that code later indexes or destructures, an index such as `(await blob.head(path))[0]`, and a tuple that a helper function returns to its caller. It does not check tuples inside `Promise.all()`. `runAgent(agent, context, input)` with a Runtime Context returns the value and throws, so the rule does not check it. Read [KV server API](/docs/kv/server-api) and [Blob server API](/docs/blob/server-api) for each method.
 
 ## VHUB0004
 
@@ -475,10 +496,10 @@ The rule checks the first argument of `runQueue()`, `deferQueue()`, `getQueue()`
 import { runQueue } from 'vite-hub/queue'
 
 // Invalid: the file is server/queues/welcome-email.ts
-await runQueue('welcom-email', { email })
+const [typoError] = await runQueue('welcom-email', { email })
 
 // Valid
-await runQueue('welcome-email', { email })
+const [error] = await runQueue('welcome-email', { email })
 ```
 
 Doctor runs the discovery of each owner package. It does not check a kind that has no Definition files, because plugins can contribute Definitions that Doctor cannot see. It does not check names that are not string literals.
@@ -539,10 +560,10 @@ An Agent can extend an Agent from any file, so the rule checks `defineAgent()` o
 import { runQueue } from 'vite-hub/queue'
 
 // Invalid
-await runQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
+const [wrappedError] = await runQueue('welcome-email', { payload: { email }, delaySeconds: 60 })
 
 // Valid
-await runQueue('welcome-email', { email }, { delaySeconds: 60 })
+const [error] = await runQueue('welcome-email', { email }, { delaySeconds: 60 })
 ```
 
 The rule accepts a payload with a `payload` field and no option keys, because that is application data.

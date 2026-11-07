@@ -43,7 +43,7 @@ describe("Blob response transforms", () => {
   it("serves normal objects with private cache headers and their stored content type", async () => {
     const request = event()
     const [error, body] = await storage.serve(request, "private/original")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await new Response(body).text()).toBe("public:private-camera-data")
     expect(request.res.headers.get("content-type")).toBe("text/plain")
     expect(request.res.headers.get("cache-control")).toBe("private, no-cache")
@@ -120,7 +120,7 @@ describe("Blob response transforms", () => {
   it("accepts native HTTP request and response fields without an H3 event", async () => {
     const request = { req: new Request("https://example.test/photo"), res: { headers: new Headers(), status: 200 } }
     const [error, body] = await storage.serve(request, "private/original", options)
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await new Response(body).text()).toBe("public")
     const conditional = {
       req: new Request("https://example.test/photo", { headers: { "if-none-match": request.res.headers.get("etag")! } }),
@@ -140,7 +140,7 @@ describe("Blob response transforms", () => {
     const get = vi.spyOn(driver, "get")
     const request = event(undefined, "HEAD")
     const [error, body] = await storage.serve(request, "private/original")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     await body?.cancel()
     expect(request.res.headers.get("content-length")).toBe("26")
     expect(request.res.headers.get("content-type")).toBe("text/plain")
@@ -150,7 +150,7 @@ describe("Blob response transforms", () => {
   it("uses the derived size and type for transformed HEAD responses", async () => {
     const request = event(undefined, "HEAD")
     const [error, body] = await storage.serve(request, "private/original", options)
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     await body?.cancel()
     expect(request.res.headers.get("content-length")).toBe("6")
     expect(request.res.headers.get("content-type")).toBe("text/plain")
@@ -192,7 +192,7 @@ describe("Blob response transforms", () => {
     for (let count = 0; count < 2; count++) {
       const request = event()
       const [error, body] = await storage.serve(request, "private/original", options)
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(await new Response(body).text()).toBe("public")
       expect(request.res.headers.get("content-length")).toBe("6")
       expect(request.res.headers.get("content-type")).toBe("text/plain")
@@ -223,7 +223,7 @@ describe("Blob response transforms", () => {
     }
     expect.soft(run).toHaveBeenCalledOnce()
     const [error, variants] = await storage.media.variants("private/original")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(variants).toHaveLength(1)
     expect(variants?.[0]).toMatchObject({ contentType: "text/plain", key, size: 6 })
   })
@@ -237,7 +237,7 @@ describe("Blob response transforms", () => {
     const [, variants] = await storage.media.variants("private/original")
     expect(variants?.[0]?.size).toBe(new TextEncoder().encode(damaged).length)
     const [error, body] = await storage.serve(event(), "private/original", options)
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await new Response(body).text()).toBe("public")
     expect(run).toHaveBeenCalledTimes(2)
   })
@@ -331,7 +331,7 @@ describe("Blob response transforms", () => {
     for (const method of ["GET", "HEAD"]) {
       const request = event({ "if-none-match": `"other", W/${etag}` }, method)
       const [error, body] = await storage.serve(request, "private/original", options)
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(body).toBeNull()
       expect(request.res.status).toBe(304)
     }
@@ -395,7 +395,7 @@ describe("Blob response transforms", () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {})
     for (let count = 0; count < 2; count++) {
       const [error, body] = await storage.serve(event(), "private/original", options)
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(await new Response(body).text()).toBe("public")
     }
     expect(run).toHaveBeenCalledTimes(2)
@@ -511,7 +511,7 @@ describe("Blob response transforms", () => {
   it("shares an in-flight transformation between concurrent requests", async () => {
     const results = await Promise.all(Array.from({ length: 4 }, () => storage.serve(event(), "private/original", options)))
     for (const [error, body] of results) {
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(await new Response(body).text()).toBe("public")
     }
     expect(run).toHaveBeenCalledTimes(1)
@@ -573,7 +573,7 @@ describe("Blob response transforms", () => {
       cacheControl: "public, max-age=300",
       transform: { key: "failing", run() { throw new Error("private transform detail") } },
     })
-    expect(error).toMatchObject({ code: "BLOB_OPERATION_FAILED", details: { operation: "serve" } })
+    expect(error).toMatchObject({ code: "BLOB_OPERATION_FAILED", why: expect.stringMatching(/^The Blob serve operation failed on the ".+" store\.$/) })
     expect(error?.message).not.toContain("private transform detail")
     expect(request.res.headers.get("cache-control")).toBeNull()
     expect(request.res.headers.get("etag")).toBeNull()
@@ -613,7 +613,7 @@ describe("Blob response transforms", () => {
 
     const request = event()
     const [error, body] = await storage.serve(request, "private/original", options)
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await new Response(body).text()).toBe("public")
     expect(run).toHaveBeenCalledTimes(1)
     expect(request.res.headers.get("cache-control")).toBe(options.cacheControl)
@@ -624,7 +624,7 @@ describe("Blob response transforms", () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(driver, "put").mockRejectedValue(new Error("storage unavailable"))
     const [error, body] = await storage.serve(event(), "private/original", options)
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await new Response(body).text()).toBe("public")
     expect(warning).toHaveBeenCalledOnce()
   })
@@ -634,7 +634,7 @@ describe("Blob response transforms", () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(driver, "list").mockRejectedValue(new Error("cache listing unavailable"))
     const [error] = await storage.del("private/original")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(await driver.head("private/original")).toBeNull()
     expect(warning).toHaveBeenCalledOnce()
   })
@@ -652,7 +652,7 @@ describe("Blob byte ranges", () => {
   async function serve(headers?: Record<string, string>, method?: string, options?: Parameters<BlobStorage["serve"]>[2]) {
     const request = event(headers, method)
     const [error, body] = await storage.serve(request, "media/video.mp4", options)
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     return { request, text: await new Response(body).text() }
   }
 
@@ -821,7 +821,7 @@ describe("Blob streams on an R2 binding", () => {
     const storage = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }))
     const event = new H3Event(new Request("https://example.test/video", { headers }))
     const [error, body] = await storage.serve(event, "media/video.mp4")
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     return { event, text: await new Response(body).text() }
   }
 
