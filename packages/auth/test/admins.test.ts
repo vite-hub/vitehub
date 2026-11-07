@@ -1,0 +1,143 @@
+import { admin } from "better-auth/plugins"
+import { createAccessControl } from "better-auth/plugins/access"
+import { afterEach, describe, expect, it, vi } from "vitest"
+
+import { defineAuth } from "../src/index.ts"
+import { createAuthConsole } from "../src/console-runtime.ts"
+import { createAuthForRequest, resetAuth } from "../src/server.ts"
+
+const origin = "https://app.example.com"
+const github = { clientId: "client", clientSecret: "secret" }
+
+afterEach(() => {
+  vi.unstubAllEnvs()
+  vi.unstubAllGlobals()
+  resetAuth()
+})
+
+/** GitHub's token, user, and email endpoints, answering for one GitHub account. */
+function stubGitHub(account: { id: number, email: string }) {
+  const realFetch = globalThis.fetch
+  vi.stubGlobal("fetch", async (...args: Parameters<typeof fetch>) => {
+    const [input] = args
+    const url = new URL(input instanceof Request ? input.url : String(input))
+    if (url.href.startsWith("https://github.com/login/oauth/access_token")) return Response.json({ access_token: "token", token_type: "bearer", scope: "read:user,user:email" })
+    if (url.href === "https://api.github.com/user") return Response.json({ id: account.id, login: "owner", name: "Owner", email: account.email, avatar_url: "" })
+    if (url.href === "https://api.github.com/user/emails") return Response.json([{ email: account.email, primary: true, verified: true, visibility: "public" }])
+    return await realFetch(...args)
+  })
+}
+
+async function signUp(auth: ReturnType<typeof createAuthForRequest>, email: string) {
+  const response = await auth.handler(new Request(`${origin}/api/auth/sign-up/email`, {
+    body: JSON.stringify({ email, name: email, password: "correct-horse-battery" }),
+    headers: { "content-type": "application/json", origin },
+    method: "POST",
+  }))
+  expect(response.status).toBe(200)
+  const body: unknown = await response.json()
+  return (body as { user: { id: string, role?: string } }).user
+}
+
+/** Runs Better Auth's GitHub sign-in: the redirect, then the callback with GitHub's answers stubbed. */
+async function signInWithGitHub(auth: ReturnType<typeof createAuthForRequest>) {
+  const start = await auth.handler(new Request(`${origin}/api/auth/sign-in/social`, {
+    body: JSON.stringify({ provider: "github", callbackURL: "/" }),
+    headers: { "content-type": "application/json", origin },
+    method: "POST",
+  }))
+  expect(start.status).toBe(200)
+  const { url } = await start.json() as { url: string }
+  const state = new URL(url).searchParams.get("state")
+  const cookie = start.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+  const callback = await auth.handler(new Request(`${origin}/api/auth/callback/github?code=code&state=${state}`, { headers: { cookie } }))
+  expect(callback.status).toBe(302)
+  expect(callback.headers.get("location")).not.toContain("error")
+}
+
+async function roleOf(auth: ReturnType<typeof createAuthForRequest>, email: string) {
+  const context = await auth.$context
+  const found = await context.internalAdapter.findUserByEmail(email)
+  return found ? Reflect.get(found.user, "role") : undefined
+}
+
+describe("VITEHUB_ADMINS", () => {
+  it("gives the admin role to a listed GitHub account on its first sign-in", async () => {
+    vi.stubEnv("VITEHUB_ADMINS", "github:22072217")
+    stubGitHub({ id: 22072217, email: "owner@example.com" })
+    const auth = createAuthForRequest(defineAuth({ emailAndPassword: { enabled: true }, socialProviders: { github }, plugins: [admin()] }), new Request(origin))
+    await signInWithGitHub(auth)
+    expect(await roleOf(auth, "owner@example.com")).toBe("admin")
+  })
+
+  it("does not give the role to a password sign-up with the admin's email", async () => {
+    vi.stubEnv("VITEHUB_ADMINS", "github:22072217")
+    const auth = createAuthForRequest(defineAuth({ emailAndPassword: { enabled: true }, socialProviders: { github }, plugins: [admin()] }), new Request(origin))
+    expect((await signUp(auth, "owner@example.com")).role).toBe("user")
+  })
+
+  it("does not give the role to another GitHub account", async () => {
+    vi.stubEnv("VITEHUB_ADMINS", "github:22072217")
+    stubGitHub({ id: 1, email: "guest@example.com" })
+    const auth = createAuthForRequest(defineAuth({ socialProviders: { github }, plugins: [admin()] }), new Request(origin))
+    await signInWithGitHub(auth)
+    expect(await roleOf(auth, "guest@example.com")).toBe("user")
+  })
+
+  it("gives the role on the next sign-in when the entry is added later", async () => {
+    stubGitHub({ id: 22072217, email: "owner@example.com" })
+    const definition = defineAuth({ socialProviders: { github }, plugins: [admin()] })
+    const before = createAuthForRequest(definition, new Request(origin))
+    await signInWithGitHub(before)
+    expect(await roleOf(before, "owner@example.com")).toBe("user")
+    vi.stubEnv("VITEHUB_ADMINS", "github:22072217")
+    const after = createAuthForRequest(definition, new Request(origin))
+    await signInWithGitHub(after)
+    expect(await roleOf(after, "owner@example.com")).toBe("admin")
+  })
+
+  it("gives the role when a listed account is linked to an existing user, and keeps other roles", async () => {
+    vi.stubEnv("VITEHUB_ADMINS", "github:22072217")
+    const ac = createAccessControl({ user: ["list"] })
+    const roles = { owner: ac.newRole({ user: ["list"] }), editor: ac.newRole({}), member: ac.newRole({}) }
+    const auth = createAuthForRequest(defineAuth({ emailAndPassword: { enabled: true }, plugins: [admin({ ac, roles, adminRoles: ["owner"], defaultRole: "member" })] }), new Request(origin))
+    const user = await signUp(auth, "owner@example.com")
+    const context = await auth.$context
+    await context.internalAdapter.updateUser(user.id, { role: "member,editor" })
+    await context.internalAdapter.linkAccount({ providerId: "github", accountId: "22072217", userId: user.id })
+    expect(await roleOf(auth, "owner@example.com")).toBe("editor,owner")
+  })
+
+  it("shows the rule in the Auth Console", async () => {
+    vi.stubEnv("VITEHUB_ADMINS", "github:22072217, google:1094")
+    const auth = createAuthForRequest(defineAuth({ emailAndPassword: { enabled: true }, plugins: [admin()] }), new Request(origin))
+    const [error, description] = await createAuthConsole(auth).describe()
+    expect(error).toBeUndefined()
+    expect(description?.access).toContain("VITEHUB_ADMINS gives the admin role to github:22072217, google:1094 on sign-in.")
+  })
+
+  it("needs Better Auth's admin() plugin, which stores the role", () => {
+    vi.stubEnv("VITEHUB_ADMINS", "github:22072217")
+    expect(() => createAuthForRequest(defineAuth({ emailAndPassword: { enabled: true } }), new Request(origin))).toThrow(/AUTH_C0051|admin\(\)/)
+  })
+
+  it.each([
+    ["owner@example.com", /email/],
+    ["email:owner@example.com", /email/],
+    ["github:onmax", /numeric account id/],
+    ["github", /no provider or no account id/],
+  ])("refuses the entry %s", (entry, message) => {
+    vi.stubEnv("VITEHUB_ADMINS", entry)
+    expect(() => createAuthForRequest(defineAuth({ plugins: [admin()] }), new Request(origin))).toThrow(message)
+  })
+
+  it("refuses the removed VITEHUB_ADMIN_EMAILS", () => {
+    vi.stubEnv("VITEHUB_ADMIN_EMAILS", "owner@example.com")
+    expect(() => createAuthForRequest(defineAuth({ plugins: [admin()] }), new Request(origin))).toThrow(/AUTH_C0057|VITEHUB_ADMINS/)
+  })
+
+  it("changes nothing when the variable is not set", async () => {
+    const auth = createAuthForRequest(defineAuth({ emailAndPassword: { enabled: true }, plugins: [admin()] }), new Request(origin))
+    expect((await signUp(auth, "owner@example.com")).role).toBe("user")
+  })
+})
