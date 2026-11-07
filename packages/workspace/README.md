@@ -205,6 +205,25 @@ vitehub workspace show content draft posts/hello.md
 Add `--json` for machine-readable output. A Store without retained history
 fails with `WORKSPACE_R0069`.
 
+Work on one ref in a local folder, as with `git pull` and `git push`:
+
+```bash
+vitehub pull content --dir content --ref draft --url https://docs.example.com
+vitehub pull --dry-run    # local changes, and remote changes since the last pull
+vitehub push              # pull, then commit the local changes to `draft`
+```
+
+The first pull writes `vitehub.lock`: commit it. Pull merges text by line and writes
+Git conflict markers where both sides changed the same lines; push refuses until they
+are gone. The commands call the `workspace.changes` and `workspace.commit` operations.
+Checkout folders must be separate: they cannot share a folder or contain one another.
+Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components are excluded
+from pulls, status, and pushes; their remote files stay unchanged.
+Commands reject existing symbolic links in the checkout folder and its ancestors
+inside the project. These checks do not isolate files from another process that can
+replace paths during an operation. Use an OS or container boundary for that isolation.
+See [Work on a ref in a local folder](https://vitehub.dev/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
+
 ## JSON Collections
 
 Expose a JSON array stored in a Workspace file as a [Source Collection](https://vitehub.dev/docs/source/server-api#collections-over-an-array). `workspaceFile()` reads the file on every request and queries it in memory with `array()` from `@vite-hub/source`, so the browser gets bounded pages, `total`, and `facets` instead of the whole file.

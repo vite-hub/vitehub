@@ -4,8 +4,11 @@ import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { useWorkspaceFiles } from "../core/use.ts"
 import { workspaceHistoryDefaultLimit } from "../results.ts"
 
-import type { WorkspaceEntry, WorkspaceHistoryReader, WorkspaceRevision } from "../core/types.ts"
+import type { WorkspaceEntry, WorkspaceHistoryReader, WorkspaceRevision, WorkspaceRevisionView } from "../core/types.ts"
 import type {
+  WorkspaceChangedFile,
+  WorkspaceChanges,
+  WorkspaceCommitResult,
   WorkspaceHistoryContent,
   WorkspaceHistoryDetails,
   WorkspaceHistoryFile,
@@ -15,7 +18,7 @@ import type {
 } from "../results.ts"
 
 // Invalid paths, refs, cursors, and limits.
-const invalidRequestCodes = new Set(["WORKSPACE_PATH_INVALID", "WORKSPACE_R0070", "WORKSPACE_R0071"])
+const invalidRequestCodes = new Set(["WORKSPACE_HISTORY_INVALID", "WORKSPACE_PATH_INVALID", "WORKSPACE_R0070", "WORKSPACE_R0071"])
 
 /** A history read failure with its HTTP status. */
 class WorkspaceOperationError extends Error {
@@ -133,6 +136,121 @@ export interface WorkspaceShowInput {
   workspace: string
 }
 
+/** The input of `workspace.changes`. */
+export interface WorkspaceChangesInput {
+  /** Leave out the content of the files, for a check that only counts them. */
+  content?: boolean
+  ref?: string
+  /** The revision that the caller has. Null or missing: every file of the head. */
+  since?: string | null
+  workspace: string
+}
+
+/** The input of `workspace.commit`. */
+export interface WorkspaceCommitInput {
+  delete?: string[]
+  ifHead: string | null
+  message?: string
+  put?: Record<string, { content: string, encoding: "base64" | "utf8" }>
+  ref?: string
+  workspace: string
+}
+
+function decodeContent(file: { content: string, encoding: "base64" | "utf8" }): string | Uint8Array {
+  if (file.encoding === "utf8") return file.content
+  return Uint8Array.from(atob(file.content), character => character.charCodeAt(0))
+}
+
+/** The files of a revision by path, with the digest of each. */
+async function filesOf(view: WorkspaceRevisionView): Promise<Map<string, WorkspaceEntry>> {
+  const files = new Map<string, WorkspaceEntry>()
+  for (const entry of await view.list("", { recursive: true })) if (entry.type === "file") files.set(entry.path, entry)
+  return files
+}
+
+async function sameBytes(left: WorkspaceRevisionView, right: WorkspaceRevisionView, path: string, leftEntry: WorkspaceEntry, rightEntry: WorkspaceEntry): Promise<boolean> {
+  if (leftEntry.digest !== undefined && rightEntry.digest !== undefined) return leftEntry.digest === rightEntry.digest
+  const [a, b] = await Promise.all([left.readFile(path, { encoding: "binary" }), right.readFile(path, { encoding: "binary" })])
+  return a.length === b.length && a.every((byte, index) => byte === b[index])
+}
+
+async function readContent(view: WorkspaceRevisionView, path: string): Promise<Pick<WorkspaceHistoryContent, "content" | "encoding">> {
+  return encodeContent(await view.readFile(path, { encoding: "binary" }))
+}
+
+async function openOrMissing(history: WorkspaceHistoryReader, id: string): Promise<WorkspaceRevisionView> {
+  try {
+    return await history.open(id)
+  }
+  catch (error) {
+    if (errorCode(error) !== "WORKSPACE_NOT_FOUND") throw error
+    throw new WorkspaceOperationError("WORKSPACE_NOT_FOUND", 404, `The Workspace has no revision "${id}". Pull again without a base revision.`)
+  }
+}
+
+async function listChanges(workspace: string, history: WorkspaceHistoryReader, request: WorkspaceChangesInput): Promise<WorkspaceChanges> {
+  const ref = request.ref ?? "main"
+  const head = await history.head({ ref })
+  const result: WorkspaceChanges = { workspace, ref, head: head ? describeRevision(head) : null, files: [] }
+  const since = request.since ?? null
+  if (head?.id === since) return result
+  const headView = head ? await history.open(head.id) : undefined
+  const baseView = since === null ? undefined : await openOrMissing(history, since)
+  const headFiles = headView ? await filesOf(headView) : new Map<string, WorkspaceEntry>()
+  const baseFiles = baseView ? await filesOf(baseView) : new Map<string, WorkspaceEntry>()
+  const withContent = request.content !== false
+  for (const path of [...new Set([...headFiles.keys(), ...baseFiles.keys()])].sort()) {
+    const now = headFiles.get(path)
+    const before = baseFiles.get(path)
+    if (now && before && await sameBytes(baseView!, headView!, path, before, now)) continue
+    const file: WorkspaceChangedFile = { path, ...(now ? {} : { deleted: true }) }
+    if (withContent && now) file.head = await readContent(headView!, path)
+    if (withContent && before) file.base = await readContent(baseView!, path)
+    result.files.push(file)
+  }
+  return result
+}
+
+async function commitChanges(workspace: string, request: WorkspaceCommitInput): Promise<WorkspaceCommitResult> {
+  const put = Object.fromEntries(Object.entries(request.put ?? {}).map(([path, file]) => [path, decodeContent(file)]))
+  const remove = request.delete ?? []
+  if (!Object.keys(put).length && !remove.length) throw new WorkspaceOperationError("WORKSPACE_HISTORY_INVALID", 400, "The commit has no changes. Pass `put` or `delete`.")
+  const { history } = useWorkspaceFiles(workspace, { mode: "write" })
+  try {
+    const revision = await history.commit({
+      ref: request.ref ?? "main",
+      ifHead: request.ifHead,
+      changes: { put, delete: remove },
+      message: request.message ?? `Push ${Object.keys(put).length + remove.length} files`,
+    })
+    return { workspace, revision: describeRevision(revision) }
+  }
+  catch (error) {
+    if (errorCode(error) !== "WORKSPACE_CONFLICT") throw error
+    throw new WorkspaceOperationError("WORKSPACE_CONFLICT", 409, `Ref "${request.ref ?? "main"}" of Workspace "${workspace}" moved after revision ${request.ifHead ?? "(none)"}. Pull, then push again.`)
+  }
+}
+
+/** Lists the files that changed on a ref since a revision, with their content, for `vitehub pull`. */
+export async function runWorkspaceChanges(input: WorkspaceChangesInput): Promise<WorkspaceChanges> {
+  try {
+    return await listChanges(input.workspace, useWorkspaceFiles(input.workspace).history, input)
+  }
+  catch (error) {
+    throw describeFailure(input.workspace, error)
+  }
+}
+
+/** Commits files to a ref when its head is still `ifHead`, for `vitehub push`. Write rules and validators run. */
+export async function runWorkspaceCommit(input: WorkspaceCommitInput): Promise<WorkspaceCommitResult> {
+  try {
+    return await commitChanges(input.workspace, input)
+  }
+  catch (error) {
+    throw describeFailure(input.workspace, error)
+  }
+}
+
 /** Reads the retained history of one registered Workspace. It never writes. */
 export async function runWorkspaceOperation(operation: "history", input: WorkspaceHistoryInput): Promise<WorkspaceHistoryList>
 export async function runWorkspaceOperation(operation: "refs", input: { workspace: string }): Promise<WorkspaceHistoryRefs>
@@ -165,6 +283,6 @@ function describeFailure(workspace: string, error: unknown): WorkspaceOperationE
   if (code === "WORKSPACE_NOT_FOUND" && error instanceof Error && error.message.includes(`Workspace "${workspace}" is not registered.`)) {
     return new WorkspaceOperationError(code, 404, `Unknown Workspace: ${workspace}.`)
   }
-  const status = code === "WORKSPACE_NOT_FOUND" ? 404 : code && invalidRequestCodes.has(code) ? 400 : 500
+  const status = code === "WORKSPACE_NOT_FOUND" ? 404 : code === "WORKSPACE_CONFLICT" ? 409 : code && invalidRequestCodes.has(code) ? 400 : 500
   return new WorkspaceOperationError(code ?? "WORKSPACE_HISTORY_FAILED", status, redactInspectionText(error instanceof Error ? error.message : String(error)))
 }

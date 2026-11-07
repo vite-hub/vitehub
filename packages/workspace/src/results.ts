@@ -51,3 +51,28 @@ export interface WorkspaceHistoryDetails {
   /** The file at `path`. */
   file?: WorkspaceHistoryContent
 }
+
+/** A file that differs between two revisions of a ref, as `workspace.changes` reports it. */
+export interface WorkspaceChangedFile {
+  path: string
+  /** True when the head no longer has the file. */
+  deleted?: true
+  /** The file at the head. Missing when it was deleted, or when the call asked for no content. */
+  head?: Pick<WorkspaceHistoryContent, "content" | "encoding">
+  /** The file at the base revision, for a three-way merge. Missing when the file is new. */
+  base?: Pick<WorkspaceHistoryContent, "content" | "encoding">
+}
+
+export interface WorkspaceChanges {
+  workspace: string
+  ref: string
+  /** The head of the ref, or null when the ref has no revision yet. */
+  head: WorkspaceHistoryRevision | null
+  /** Files that changed since the base revision, sorted by path. Every file of the head without a base. */
+  files: WorkspaceChangedFile[]
+}
+
+export interface WorkspaceCommitResult {
+  workspace: string
+  revision: WorkspaceHistoryRevision
+}
