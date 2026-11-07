@@ -1,11 +1,10 @@
-import { consoleInvocationsFallbackKey, resolveConsoleInvocations } from "../../internal.ts"
+import { consoleInvocationsFallbackKey, markConsoleFixtureInvocations, resolveConsoleInvocations } from "../../internal.ts"
 import { agentInvocationsDisabledKey, resolveDefaultAgentInvocations } from "../../../_internal/agent/invocations.ts"
-import { installConsoleInvocations, type ConsoleD1Journal } from "./invocations.ts"
+import { installConsoleInvocations } from "./invocations.ts"
 import * as v from "valibot"
 import { markDiscoveredAgentName } from "@vite-hub/agent/server/internal"
 
 import type { AgentInput, AgentInvocations } from "@vite-hub/agent"
-import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { RuntimeCapabilities } from "@vite-hub/runtime"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
@@ -21,7 +20,7 @@ export type ConsoleAgentDefinitionEntry = {
 
 export type ConsoleAgentDefinitionInstallation =
   | { capabilities?: RuntimeCapabilities, invocations: AgentInvocations, projectRoot?: never }
-  | { capabilities?: RuntimeCapabilities, invocations?: never, invoke?: boolean, databaseUrl?: string, d1?: ConsoleD1Journal, observations?: AgentInvocationsOptions["observations"], projectRoot: string, retention?: AgentRetentionPolicy }
+  | { capabilities?: RuntimeCapabilities, invocations?: never, invoke?: boolean, projectRoot: string }
 
 type ConsoleAgentInvocations = AgentInvocations & {
   [consoleAgentDefinitionsKey]?: ReadonlyMap<string, AgentInput>
@@ -86,7 +85,11 @@ function resolveConsoleAgentInvocations(
   definitions: readonly ResolvedConsoleAgentDefinition[],
   installation: ConsoleAgentDefinitionInstallation,
 ): AgentInvocations {
-  if (installation.invocations) return installation.invocations
+  if (installation.invocations) {
+    // A journal that the Console supplies, as in fixture mode, replaces the app-wide journal of discovered Agents.
+    markConsoleFixtureInvocations(installation.invocations)
+    return installation.invocations
+  }
   const configured = [...new Set(definitions.flatMap(({ agent }) => {
     const journal = explicitAgentInvocations(agent) ?? defaultAgentInvocations(agent)
     return journal ? [journal] : []
@@ -94,7 +97,8 @@ function resolveConsoleAgentInvocations(
   if (configured.length > 1) {
     throw viteHubErrorDiagnostics.VITE_HUB_R0047({ message: "[vitehub] Console cannot inspect multiple Agent invocation journals. Configure one shared journal for the discovered Agent Definitions." })
   }
-  return installConsoleInvocations(installation.projectRoot, configured[0], installation.observations, installation.databaseUrl, installation.d1, installation.retention)
+  // Without an Agent journal, the Console reads the app-wide journal that ViteHub installs with the Console on or off.
+  return installConsoleInvocations(installation.projectRoot, configured[0])
 }
 
 export function installConsoleAgents(

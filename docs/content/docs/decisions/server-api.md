@@ -6,11 +6,11 @@ navigation.order: 4
 icon: i-lucide-server
 ---
 
-Import the server API from `vite-hub/decisions`. It runs wherever your server code runs. Pass it a gateway that has `ask()`, such as `typesafe()` or `vercel()` from `vite-hub/gateways`. See [AI gateways](/docs/agents/ai-gateways).
+Import the server API from `vite-hub/decisions`. It runs wherever your server code runs. Pass it a gateway that has `ask()`, such as `typesafe()` or `vercel()` from `vite-hub/gateways`, to ask TypeSafe Jev. Or pass any AI SDK `model`. See [AI gateways](/docs/agents/ai-gateways).
 
 ## Define choices
 
-`defineChoices()` takes a gateway and your groups. A wrong definition throws when you call it.
+`defineChoices()` takes a gateway or a model, and your groups. A wrong definition throws when you call it.
 
 ```ts [server/utils/forecast-choices.ts]
 import { defineChoices, toOptions } from "vite-hub/decisions"
@@ -36,12 +36,15 @@ export const forecast = defineChoices({
 
 | Setting | Meaning |
 | --- | --- |
-| `gateway` | An object with `ask()`. The key stays on the server. |
+| `gateway` | An object with `ask()`, such as `typesafe()` or `vercel()` for TypeSafe Jev. The key stays on the server. |
+| `model` | Any AI SDK model, such as `openai("gpt-5.1-mini")`, instead of `gateway`. It needs the `ai` package. Set `gateway` or `model`, not both. |
 | `groups` | One entry for each decision. The key names the group in the selection. |
 | `hints` | A short note for the model about your domain. It applies to every question. |
 | `name` | A label for logs and the CLI. It never connects anything. |
 | `limits` | Change the [limits](/docs/decisions/limits-and-errors#limits). |
 | `thresholds` | Change the [thresholds](/docs/decisions/concepts#thresholds). |
+
+Jev gives a probability for every option. A chat model gives one answer and how sure it is, so with `model` the other options share the rest of the probability. `ranked` is then less useful after its first entry. See [Ask with any model](/docs/agents/ai-gateways#ask-with-any-model).
 
 Each group takes these settings:
 

@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineAgent } from "../src/agent.ts"
 import { inputCommands } from "../src/agent/capabilities.ts"
+import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 import { console as consoleRuntime } from "../src/console/server.ts"
 
@@ -16,6 +17,7 @@ import type { AgentRuntimeContext } from "@vite-hub/agent"
 const channelDeliveryHandlers = Symbol.for("vitehub.agent.channelDeliveryHandlers")
 
 afterEach(() => {
+  installAgentInvocations({})
   vi.restoreAllMocks()
 })
 
@@ -37,6 +39,8 @@ describe("inputCommands({ debug })", () => {
   it("replies with the previous invocation of the same Agent and thread", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-debug-command-"))
     try {
+      // The default Agent journal records the runs. The Console reads it.
+      installAgentInvocations({ journal: { projectRoot } })
       installConsoleInvocations(projectRoot)
       const replies: unknown[] = []
       const chat = defineChannel("chat", {
