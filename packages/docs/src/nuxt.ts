@@ -264,8 +264,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     const stylesDir = join(nuxt.options.buildDir, "docs/styles")
     const comarkCss = comarkStylesheet()
     const comarkCssFile = `comark-${createHash("sha256").update(comarkCss).digest("hex").slice(0, 10)}.css`
-    mkdirSync(stylesDir, { recursive: true })
-    writeFileSync(join(stylesDir, comarkCssFile), comarkCss)
+    function writeComarkCss() {
+      mkdirSync(stylesDir, { recursive: true })
+      writeFileSync(join(stylesDir, comarkCssFile), comarkCss)
+    }
+    writeComarkCss()
+    // A production build empties the build directory before it starts, so the file is written again after that.
+    nuxt.hook("build:before", writeComarkCss)
     const config = publicConfig(options, nuxt.options.app.baseURL)
     if (config.github && !nuxt.options.dev) config.github.stars = await githubStars(config.github.repo)
     nuxt.options.runtimeConfig.public.docs = config

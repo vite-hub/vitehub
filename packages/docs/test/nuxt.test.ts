@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
@@ -100,6 +100,16 @@ describe("docs Nuxt setup", () => {
     expect(() => compiled[0]!()).not.toThrow()
     writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}docs/missing">Missing</a>`)
     expect(() => compiled[0]!()).toThrow(/no page or file/)
+  })
+
+  it("writes the comark-ui stylesheet again after a build empties the build directory", async () => {
+    const options = await setupDocs({})
+    const stylesDir = join(options.buildDir, "docs/styles")
+    const [file] = readdirSync(stylesDir)
+    expect(file).toMatch(/^comark-[0-9a-f]{10}\.css$/)
+    rmSync(join(options.buildDir, "docs"), { recursive: true, force: true })
+    for (const hook of hooks.get("build:before") ?? []) await hook()
+    expect(readdirSync(stylesDir)).toEqual([file])
   })
 
   it("reports a link to the MCP endpoint when the site turns MCP off", async () => {
