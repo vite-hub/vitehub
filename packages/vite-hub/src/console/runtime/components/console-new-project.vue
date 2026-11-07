@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { featureIds, features } from "@vite-hub/internal/features";
-import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 
 import type { FeatureId } from "@vite-hub/internal/features";
 import type { NewProjectFeature, NewProjectStack } from "../client/new-project";
@@ -158,6 +158,11 @@ onBeforeUnmount(() => clearTimeout(copiedTimer));
 function leave(): void {
   projects.navigate(projects.home);
 }
+
+// The page scrolls itself, so its heading takes focus on load: a screen reader starts at the title, and Page Down and
+// Space scroll the page before anything is clicked.
+const heading = useTemplateRef<HTMLElement>("heading");
+onMounted(() => heading.value?.focus({ preventScroll: true }));
 </script>
 
 <template>
@@ -173,14 +178,16 @@ function leave(): void {
     <form class="vitehub-new-project__layout" novalidate @submit.prevent="create">
       <main class="grid min-w-0 gap-10">
         <div class="grid gap-1.5">
-          <h1 class="vitehub-new-project__title">New project</h1>
+          <h1 ref="heading" class="vitehub-new-project__title" tabindex="-1">New project</h1>
           <p class="vitehub-new-project__text">
             Pick a host and the features. The Console prints the <code>vite-hub init</code> command for this stack. The address of this page holds the stack, so you can share it.
           </p>
         </div>
 
         <section>
+          <!-- UFormField links the field to its description only through the prop, so the prop stays next to the slot. -->
           <UFormField label="Folder name" name="dir" description="vite-hub init creates the app in this folder." :error="dirError">
+            <template #description><code class="vitehub-new-project__code">vite-hub init</code> creates the app in this folder.</template>
             <UInput
               id="new-project-dir"
               :model-value="stack.dir"
@@ -355,11 +362,21 @@ function leave(): void {
 </template>
 
 <style>
+/* The Console locks the page scroll, so this page scrolls itself. The padding keeps the content 72rem wide at most. */
 .vitehub-new-project {
-  margin: 0 auto;
-  max-width: 72rem;
-  min-height: 100dvh;
-  padding: 1rem 1.5rem 4rem;
+  height: 100dvh;
+  overflow-y: auto;
+  padding: 1rem max(1.5rem, calc((100% - 69rem) / 2)) 4rem;
+}
+
+.vitehub-new-project :is(button, a[href]):focus-visible {
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .vitehub-new-project :is(button:not([role="checkbox"], [role="radio"]), input:not([type="checkbox"], [type="radio"])) {
+    min-height: 44px;
+  }
 }
 
 .vitehub-new-project__bar {
@@ -392,6 +409,10 @@ function leave(): void {
   display: grid;
   gap: 1rem;
   padding: 1.25rem;
+}
+
+.vitehub-new-project__title:focus {
+  outline: none;
 }
 
 .vitehub-new-project__title {
