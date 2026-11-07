@@ -86,6 +86,7 @@
     "zod": "catalog:runtime"
   },
   "devDependencies": {
+    "@comark/html": "catalog:markdown-ui",
     "@comark/vue": "0.8.1",
     "@nuxt/ui": "catalog:nuxt",
     "@types/node": "catalog:tooling",
@@ -106,6 +107,7 @@
     "vue": "catalog:ui"
   },
   "peerDependencies": {
+    "@comark/html": "^0.8.1 || ^0.9.0",
     "@comark/vue": "^0.8.1 || ^0.9.0",
     "@nuxt/ui": "^4.11.0",
     "@vite-hub/agent": "workspace:*",

@@ -21,6 +21,7 @@
     "preview:cloudflare": "vp run build && vp dlx \"wrangler@4.147.0\" dev --config .output/server/wrangler.json"
   },
   "dependencies": {
+    "@comark/html": "catalog:markdown-ui",
     "@comark/vue": "0.8.1",
     "@nuxt/icon": "^2.5.1",
     "@nuxt/ui": "catalog:nuxt",

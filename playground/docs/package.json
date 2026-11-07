@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@ai-sdk/vue": "4.0.130",
+    "@comark/html": "catalog:markdown-ui",
     "@comark/vue": "0.8.1",
     "@iconify-json/lucide": "1.2.139",
     "@iconify-json/ph": "1.2.2",
