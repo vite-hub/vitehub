@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/bundle",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Bundle reports for ViteHub apps: client and server size, startup cost, and why each package is in the output.",
   "keywords": [
     "bundle",
