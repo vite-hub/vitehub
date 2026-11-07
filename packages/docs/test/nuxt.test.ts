@@ -113,6 +113,51 @@ describe("docs Nuxt setup", () => {
     expect(() => compiled[0]!()).toThrow(/\/mcp, which has no page or file/)
   })
 
+  it.each(["/", "/portal/"])("combines Docs and app link exclusions in the compiled output under %s", async (appBase) => {
+    const options = await setupDocs({ linkChecker: { excludeLinks: [`${appBase}blog/**`, new RegExp(`^${appBase}media/`)] } }, appBase)
+    Object.assign(options, { linkChecker: { excludeLinks: [`${appBase}badge.svg`] } })
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(publicDir)
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}blog/post">Post</a><img src="${appBase}media/icon.svg"><img src="${appBase}badge.svg">`)
+    const compiled: Array<() => void> = []
+    const nitro = { options: { output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    expect(() => compiled[0]!()).not.toThrow()
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}missing">Missing</a>`)
+    expect(() => compiled[0]!()).toThrow(/no page or file/)
+  })
+
+  it.each(["/", "/portal/"])("accepts server-rendered and Console links using Nitro's prerender policy under %s", async (appBase) => {
+    const options = await setupDocs({}, appBase)
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(publicDir)
+    const paths = ["blog", "blog/post", "changelog", "media/illustrations/edit-this-site-dark.svg", "feed.xml", "api/time", "dynamic/page", "_vitehub", "_vitehub/sign-in", "_vitehub/content", "_vitehub/comments"]
+    writeFileSync(join(publicDir, "index.html"), paths.map(path => `<a href="${appBase}${path}#intro">${path}</a>`).join(""))
+    const compiled: Array<() => void> = []
+    const nitro = {
+      options: {
+        output: { publicDir },
+        routeRules: { "/blog/**": { prerender: false, swr: 60 }, "/blog/static": { prerender: true }, "/dynamic/:slug": { prerender: false } },
+        prerender: { ignore: ["/changelog", "/media/**", /^\/feed\./g, (path: string) => path === "/api/time", "/_vitehub", `${appBase}_vitehub`] },
+      },
+      hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) },
+    }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    expect(() => compiled[0]!()).not.toThrow()
+    for (const path of ["blog/static", "blogger", "missing"]) {
+      writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}${path}">Missing</a>`)
+      expect(() => compiled[0]!()).toThrow(`links to ${appBase}${path}, which has no page or file`)
+    }
+    // An output file still provides fragment evidence, even for an otherwise dynamic route.
+    writeFileSync(join(publicDir, "changelog.html"), '<h2 id="intro">Changes</h2>')
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}changelog#missing">Missing fragment</a>`)
+    expect(() => compiled[0]!()).toThrow('no element with id "missing"')
+    // Console paths must have a serving policy; disabling the Console must not mask a broken link.
+    nitro.options.prerender.ignore = []
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}_vitehub">Console</a>`)
+    expect(() => compiled[0]!()).toThrow(/_vitehub, which has no page or file/)
+  })
+
   it("registers source assets, writes raw copies from the right directory and loads configured components", async () => {
     const dir = mkdtempSync(join(tmpdir(), "docs-sources-"));
     roots.push(dir);

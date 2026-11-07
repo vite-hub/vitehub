@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
+import { join, posix, relative, resolve, sep } from "node:path";
 
 import { ELEMENT_NODE, parse, walkSync } from "ultrahtml";
 
@@ -12,6 +12,8 @@ export interface DocsLinkCheckOptions {
   excludePages?: Array<string | RegExp>;
   /** Pages whose fragment holds application state rather than an element id. */
   ignoreFragments?: Array<string | RegExp>;
+  /** Accept missing output files for known server routes. Built files still have their fragments checked. */
+  isRuntimePath?: (pathname: string) => boolean;
   /** Application redirects that the route rules cannot describe, such as legacy host redirects. */
   redirect?: (url: URL) => string | undefined;
 }
@@ -34,7 +36,7 @@ export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number }
   const appBase = `/${(options.appBase ?? "/").replace(/^\/+|\/+$/g, "")}`.replace(/\/$/, "");
   const matches = (patterns: Array<string | RegExp> | undefined, value: string) =>
     patterns?.some((pattern) => {
-      if (typeof pattern === "string") return pattern === value;
+      if (typeof pattern === "string") return pattern === value || posix.matchesGlob(value, pattern);
       pattern.lastIndex = 0;
       return pattern.test(value);
     }) ?? false;
@@ -116,6 +118,7 @@ export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number }
       }
       const target = fileOf(url.pathname);
       if (!target) {
+        if (options.isRuntimePath?.(url.pathname)) continue;
         problems.add(`${path} links to ${url.pathname}, which has no page or file`);
         continue;
       }
