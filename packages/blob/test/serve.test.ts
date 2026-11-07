@@ -47,11 +47,23 @@ describe("Blob response transforms", () => {
     expect(request.res.headers.get("cache-control")).toBe("private, no-cache")
   })
 
+  it("sets the headers option and removes it when the object is not served", async () => {
+    const served = event()
+    const [error] = await storage.serve(served, "private/original", { headers: { "X-Frame-Options": "DENY" } })
+    expect(error).toBeNull()
+    expect(served.res.headers.get("x-frame-options")).toBe("DENY")
+
+    const missing = event()
+    const [notFound] = await storage.serve(missing, "private/missing", { headers: { "X-Frame-Options": "DENY" } })
+    expect(notFound?.code).toBe("BLOB_NOT_FOUND")
+    expect(missing.res.headers.has("x-frame-options")).toBe(false)
+  })
+
   it("serves H3 requests with cache validators, HEAD, and byte ranges", async () => {
     const app = new H3().all("/photo", async (event) => {
       const [error, body] = await storage.serve(event, "private/original")
       if (error) throw error
-      return body
+      return body ?? new Response(null, { status: 304 })
     })
     const fetch = (request: Request) => app.fetch(request)
     const response = await fetch(new Request("https://example.test/photo"))
@@ -109,18 +121,34 @@ describe("Blob response transforms", () => {
     expect(get).not.toHaveBeenCalled()
   })
 
-  it("accepts native HTTP request and response fields without an H3 event", async () => {
-    const request = { req: new Request("https://example.test/photo"), res: { headers: new Headers(), status: 200 } }
+  it("reads the request and writes the response through a host's Standard Context without an H3 event", async () => {
+    const host = (req: Request) => ({ "~standard": { vendor: "host", req, res: { headers: new Headers(), status: 200 } } })
+    const request = host(new Request("https://example.test/photo"))
     const [error, body] = await storage.serve(request, "private/original", options)
     expect(error).toBeNull()
     expect(await new Response(body).text()).toBe("public")
-    const conditional = {
-      req: new Request("https://example.test/photo", { headers: { "if-none-match": request.res.headers.get("etag")! } }),
-      res: { headers: new Headers(), status: 200 },
-    }
+    const conditional = host(new Request("https://example.test/photo", { headers: { "if-none-match": request["~standard"].res.headers.get("etag")! } }))
     const [, response] = await storage.serve(conditional, "private/original", options)
     expect(response).toBeNull()
-    expect(conditional.res.status).toBe(304)
+    expect(conditional["~standard"].res.status).toBe(304)
+  })
+
+  it.each(["missing", "read failure", "invalid pathname"])("restores caller headers after a failed serve: %s", async (failure) => {
+    const request = event()
+    request.res.headers.set("x-frame-options", "DENY")
+    request.res.headers.set("x-empty", "")
+    request.res.headers.set("x-caller", "preserved")
+    const cookies = ["session=original; Path=/; HttpOnly", "theme=dark; Expires=Wed, 01 Jan 2031 00:00:00 GMT; Path=/"]
+    for (const cookie of cookies) request.res.headers.append("set-cookie", cookie)
+    const previous = [...request.res.headers]
+    if (failure === "read failure") vi.spyOn(driver, "get").mockRejectedValue(new Error("storage unavailable"))
+    const result = storage.serve(request, failure === "missing" ? "missing.txt" : failure === "invalid pathname" ? "../private/original" : "private/original", {
+      headers: { "X-Frame-Options": "SAMEORIGIN", "x-frame-options": "SAMEORIGIN", "X-Empty": "configured", "X-Blob": "temporary", "Set-Cookie": "session=temporary; Path=/" },
+    })
+    if (failure === "invalid pathname") await expect(result).rejects.toThrow()
+    else expect((await result)[0]?.code).toBe(failure === "missing" ? "BLOB_NOT_FOUND" : "BLOB_OPERATION_FAILED")
+    expect([...request.res.headers]).toEqual(previous)
+    expect(request.res.headers.getSetCookie()).toEqual(cookies)
   })
 
   it.each(["size", "contentType"] as const)("reads the body for HEAD when metadata lacks %s", async (field) => {

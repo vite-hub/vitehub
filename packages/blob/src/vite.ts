@@ -165,6 +165,10 @@ function isGeneratedNitroRegistration(value: unknown, generatedPath: string): bo
 /** Merges the generated Blob registrations into the Nitro config. */
 function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean, root?: string): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
+  const externals = cloneNitroConfig(nitro.externals)
+  const inline = Array.isArray(externals.inline) ? externals.inline : []
+  // Generated file imports and package imports must share Nitro's bundled runtime.
+  nitro.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, blobPackageName])] }
   const plugin = root ? resolve(root, generatedNitroBlobPlugin) : generatedNitroBlobPlugin
   const middleware = root ? resolve(root, generatedNitroBlobMiddleware) : generatedNitroBlobMiddleware
   const serveHandler = root ? resolve(root, generatedBlobServeRouteHandler) : generatedBlobServeRouteHandler
@@ -265,12 +269,16 @@ function renderNitroBlobMiddleware(importBase = blobPackageName, workersModule =
           "import { env as vitehubEnv } from 'cloudflare:workers'",
         ]
       : []),
-    `import { installCloudflareRequestEnv } from '${importBase}/runtime/state'`,
+    `import { getRequestCloudflareEnv, setActiveCloudflareEnv } from '${importBase}/runtime/state'`,
     "",
-    "export default function vitehubBlobMiddleware(event: unknown) {",
-    workersModule
-      ? "  installCloudflareRequestEnv(event, vitehubEnv as unknown as Record<string, unknown>)"
-      : "  installCloudflareRequestEnv(event)",
+    "export default function vitehubBlobMiddleware(event: Parameters<typeof getRequestCloudflareEnv>[0]) {",
+    ...(workersModule
+      ? ["  const env = getRequestCloudflareEnv(event) ?? (vitehubEnv as unknown as Record<string, unknown>)", "  setActiveCloudflareEnv(env)"]
+      : [
+          "  // A Node dev runner has no Cloudflare env. Keep the active env as it is.",
+          "  const env = getRequestCloudflareEnv(event)",
+          "  if (env) setActiveCloudflareEnv(env)",
+        ]),
     "}",
     "",
   ].join("\n")
@@ -282,6 +290,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
     ?? (serve.authorize ? "private, no-cache" : "public, max-age=0, s-maxage=0")
   return [
+    // `serve()` reads the request through Standard Context.
     `import { blob, parseImageVariant } from '${importBase}'`,
     `import type { BlobStorage } from '${importBase}'`,
     ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
@@ -291,17 +300,12 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "type RouteEvent = ServeEvent & { context: { params?: Record<string, string | undefined> }, path: string }",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
-    ...(headers
-      ? [
-          `const responseHeaders = ${JSON.stringify(headers)}`,
-        ]
-      : []),
     "",
     "async function serveBlob(event: RouteEvent) {",
     "  const pathname = event.context.params?._ || ''",
     "  if (!pathname) return Response.json({ error: 'Blob not found.' }, { status: 404 })",
     "  // ?w=&h=&fit=&fmt=&q=&crop= selects an image variant. Invalid values are client errors.",
-    `  const options: { variant?: NonNullable<ReturnType<typeof parseImageVariant>>, cacheControl: string } = { cacheControl: ${JSON.stringify(cacheControl)} }`,
+    `  const options: { variant?: NonNullable<ReturnType<typeof parseImageVariant>>, cacheControl: string, headers?: Record<string, string> } = { cacheControl: ${JSON.stringify(cacheControl)}${headers ? `, headers: ${JSON.stringify(headers)}` : ""} }`,
     "  try {",
     "    const variant = parseImageVariant(new URL(event.path, 'http://localhost').searchParams)",
     "    if (variant) options.variant = variant",
@@ -309,25 +313,12 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "  catch (error) {",
     "    return Response.json({ error: error instanceof Error ? error.message : 'Invalid image variant' }, { status: 400 })",
     "  }",
-    ...(headers
-      ? [
-          "  const headers = event.res.headers",
-          "  for (const [name, value] of Object.entries(responseHeaders)) headers.set(name, value)",
-          "  const clearHeaders = () => { for (const name of Object.keys(responseHeaders)) headers.delete(name) }",
-        ]
-      : []),
-    "  try {",
-    "    const [error, stream] = await blob.store(storeName).serve(event, pathname, options)",
+    // `serve()` sets the configured headers and removes them again when it does not serve the object.
+    "  const [error, stream] = await blob.store(storeName).serve(event, pathname, options)",
     // `serve()` keeps the Cache-Control policy on the event, because H3 2 merges event headers over returned values.
     // It returns null only for a 304. H3 2 adds Content-Length: 0 to a null value, which is incorrect for an unchanged object.
-    "    if (!error) return stream ?? new Response(null, { status: 304 })",
-    "    if (error.code !== 'BLOB_NOT_FOUND') throw error",
-    "  }",
-    "  catch (error) {",
-    ...(headers ? ["    clearHeaders()"] : []),
-    "    throw error",
-    "  }",
-    ...(headers ? ["  clearHeaders()"] : []),
+    "  if (!error) return stream ?? new Response(null, { status: 304 })",
+    "  if (error.code !== 'BLOB_NOT_FOUND') throw error",
     "  return Response.json({ error: 'Blob not found.' }, { status: 404 })",
     "}",
     "",

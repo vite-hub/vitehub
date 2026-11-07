@@ -176,6 +176,7 @@ interface NitroOptions {
 }
 
 interface AgentDiscoveryOptions {
+  errors?: boolean
   siteUrl?: string
   source?: string
   siteName?: string
@@ -337,6 +338,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       },
     }
     const agentDiscoveryOptions: AgentDiscoveryOptions = defu(moduleOptions.agentDiscovery, discovery)
+    // Nuxt's inline HTML errors bypass Agent Discovery's Nitro Markdown error handler.
+    if (agentDiscoveryOptions.errors !== false) nuxt.options.experimental.inlineErrorRendering = false
     // A page outside the manifest has no Markdown twin, so by default only the manifest pages negotiate.
     if (!agentDiscoveryOptions.routes?.length) {
       const standalone = manifest.pages.map(page => page.path).filter(path => path !== "/")

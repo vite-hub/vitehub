@@ -119,6 +119,7 @@ vi.mock("../src/index.ts", () => ({ vitehub: mocks.vitehub }))
 
 import * as consoleAuthBuild from "../src/console/auth-build.ts"
 import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
+import { consoleVitePlugin } from "../src/console/vite.ts"
 import { consoleInvocationsRootIdentityRegistryKey } from "../src/console/internal.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
 import { unavailableServicesPlugin } from "../src/unavailable-services.ts"
@@ -1168,6 +1169,21 @@ describe("ViteHub Nuxt integration", () => {
 
     // CLI discovery resolves no Console access, so a plugin that it wrote would differ and rebuild the dev server.
     await expect(readFile(plugin, "utf8")).rejects.toThrow()
+    await discovery.runCloseHook()
+  })
+
+  it("tells replayed Vite plugins about CLI discovery, so the Console RPC plugin leaves the dev server's plugin alone", async () => {
+    const plugin = "/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"
+    await rm(plugin, { force: true })
+    // A Nuxt app without a `console` option still gets the Console RPC plugin for `vitehub <command>`.
+    mocks.vitehub.mockReturnValue([consoleVitePlugin({ rpcOnly: true })])
+    const discovery = createNuxt(true)
+    discovery.nuxt.options.vitehubCliDiscovery = true
+    await viteHubNuxtModule({ preset: "node" }, discovery.nuxt)
+    await discovery.runNitroConfigHook({})
+
+    // The running dev server watches this file. A CLI rewrite reloads its Nitro worker, which can read the file empty.
+    await expect(readFile(plugin, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     await discovery.runCloseHook()
   })
 
