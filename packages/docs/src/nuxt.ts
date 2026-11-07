@@ -394,16 +394,21 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       })
     }
 
-    // Tailwind scans the app; the docs components and the Markdown pages live outside it.
+    // Tailwind scans the app; the docs components and the Markdown pages live outside it. Nuxt UI's `#build/ui.css`
+    // lists the folders that Tailwind scans, so the docs folders go there. An app with its own `@import "@nuxt/ui"`
+    // then builds the docs classes in its one Tailwind build. A second build would put its utilities after the docs
+    // ones, so `flex` would win over `xl:hidden`. An app without one gets the Tailwind build of the docs.
+    const sources = [join(runtime, "app"), resolver.resolve("./theme.js"), contentDir].map(source => `@source "${source}";`).join("\n")
+    nuxt.hook("app:templates", (app) => {
+      const ui = app.templates.find(template => template.filename === "ui.css")
+      const getContents = ui?.getContents
+      if (ui && getContents) ui.getContents = async (data) => `${await getContents(data)}\n${sources}\n`
+    })
     nuxt.options.css.unshift(addTemplate({
       filename: "docs/docs.css",
       write: true,
       getContents: () => [
-        `@import "tailwindcss";`,
-        `@import "@nuxt/ui";`,
-        `@source "${join(runtime, "app")}";`,
-        `@source "${resolver.resolve("./theme.js")}";`,
-        `@source "${contentDir}";`,
+        ...importsNuxtUi(nuxt.options.css, nuxt.options.alias) ? [] : [`@import "tailwindcss";`, `@import "@nuxt/ui";`],
         `@import "${join(runtime, "theme/vercel.css")}";`,
         "",
       ].join("\n"),
@@ -595,6 +600,17 @@ function warnAppComponent(file: string): void {
   const source = readFileSync(file, "utf8")
   const missing = [/<(UApp|u-app)\b/.test(source) ? null : "`<UApp>`, which Nuxt UI needs for search, tooltips, and menus", /<(NuxtLayout|nuxt-layout)\b/.test(source) ? null : "`<NuxtLayout>`, which draws the docs navigation"].filter(Boolean)
   if (missing.length) useLogger("@vite-hub/docs").warn(`${file} has no ${missing.join(", and no ")}. Wrap \`<NuxtPage />\` in both, or remove app.vue to use the docs one.`)
+}
+
+/** Whether a stylesheet of the app imports Nuxt UI, and so starts a Tailwind build of its own. */
+function importsNuxtUi(css: ReadonlyArray<string | { src?: string }>, alias: Record<string, string>): boolean {
+  return css.some((entry) => {
+    const src = typeof entry === "string" ? entry : entry.src
+    if (!src?.endsWith(".css")) return false
+    const prefix = Object.keys(alias).filter(key => src.startsWith(`${key}/`)).sort((left, right) => right.length - left.length)[0]
+    const file = prefix ? join(alias[prefix]!, src.slice(prefix.length)) : src
+    return existsSync(file) && /@import\s+["']@nuxt\/ui["']/.test(readFileSync(file, "utf8"))
+  })
 }
 
 /** A module that this package depends on, by file path, so Nuxt finds it and transpiles its runtime. */

@@ -133,7 +133,7 @@ describe("docs in an existing app", () => {
     expect(options.app.head).toEqual({})
     expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = false\n")
     const layouts: Record<string, { file: string }> = {}
-    await callHook("app:templates", { layouts })
+    await callHook("app:templates", { layouts, templates: [] })
     expect(Object.keys(layouts).sort()).toEqual(["docs", "docs-article"])
     const appFile = join(app.srcDir, "app.vue")
     const resolved = { mainComponent: appFile, errorComponent: "/nuxt/dist/app/components/nuxt-error-page.vue" }
@@ -148,13 +148,31 @@ describe("docs in an existing app", () => {
     expect(options.app.head.titleTemplate).toBe("%s · Docs")
     expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = true\n")
     const layouts: Record<string, { file: string }> = {}
-    await callHook("app:templates", { layouts })
+    await callHook("app:templates", { layouts, templates: [] })
     expect(Object.keys(layouts).sort()).toEqual(["default", "docs"])
     // Nuxt's pages module turns the welcome page into its own app.vue before the docs module sees it.
     const resolved = { mainComponent: "/nuxt/dist/pages/runtime/app.vue", errorComponent: "/nuxt/dist/app/components/nuxt-error-page.vue" }
     await callHook("app:resolve", resolved)
     expect(resolved.mainComponent).toMatch(/runtime\/app\/app\.vue$/)
     expect(resolved.errorComponent).toMatch(/runtime\/app\/error\.vue$/)
+  })
+
+  it("builds the docs classes in the app's own Tailwind build when the app imports Nuxt UI", async () => {
+    const app = appWithDocs({ "docs/guide/index.md": "Guide" })
+    writeFileSync(join(app.srcDir, "main.css"), '@import "tailwindcss";\n@import "@nuxt/ui";\n')
+    const options = await setupDocs({ dir: app.dir }) as Awaited<ReturnType<typeof setupDocs>> & { css: string[], alias: Record<string, string> }
+    const docsCss = templates.get("docs/docs.css")!
+    expect(docsCss()).toContain('@import "tailwindcss";')
+    options.alias["~"] = app.srcDir
+    options.css.push("~/main.css")
+    expect(docsCss()).not.toContain("tailwindcss")
+    expect(docsCss()).toContain("theme/vercel.css")
+    const ui = { filename: "ui.css", getContents: async () => '@source "/app/**/*";' }
+    await callHook("app:templates", { layouts: {}, templates: [ui] })
+    const contents = await ui.getContents()
+    expect(contents).toContain('@source "/app/**/*";')
+    expect(contents).toContain(`@source "${app.dir}";`)
+    expect(contents).toMatch(/@source ".*runtime\/app";/)
   })
 
   it("prerenders the docs pages of an app without crawling the app's own pages", async () => {
