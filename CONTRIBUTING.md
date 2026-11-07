@@ -141,6 +141,19 @@ Every primitive follows one error contract. `@vite-hub/runtime` owns it: `Result
 
 `docs/content/docs/` has one folder per product. Each Server Primitive folder is one docs section with its own page panel and uses the same task lanes when the product has real content for them: `index.md` (the Overview: set `layout: landing` so it renders as a landing page with a hero and page cards beside the shared navigation), `get-started.md` (the Tutorial), `configure.md` (Guides), `server-api.md` (Reference), `agent-capability.md` when the primitive has an Agent Capability, `hosts.md` (Deploy), and `limits-and-errors.md` (Operate). Create a page only when the product has real content for it. Product-specific pages such as `env/bridge.md` come after the template pages. Sidebar groups combine related tasks under Learn, Build, and Deploy and operate. Each page still follows the Diátaxis model: a Tutorial teaches a first result, a Guide completes one task, Reference describes the contract, and Concepts explain choices. Set `navigation.kind` when a page needs a lane other than the standard page id mapping. `.navigation.yml` declares the section `title`, `icon`, `order`, catalog `category`, and `related` section ids. Every docs page shows the primitive rail. Set the section `icon` to a `@vite-hub/icons` icon, such as `i-vitehub-kv`, so the rail, the sidebar, and the Console show the same icon. Draw a missing icon in `packages/icons/svg/` first. The site runs on `@vite-hub/docs` (`packages/docs`): the shell, the page layouts, search, and the agent resources live there, and `docs/nuxt.config.ts` sets the ViteHub options under `docs`. Markdown blocks that only ViteHub uses live in `docs/app/components/content/`. Pages outside `docs/content/docs/`, such as `docs/content/about.md`, render at their own path. Agent-only Capabilities live under `agents/capabilities/`. Get started, the shared architecture overview, and AI resources live under `getting-started/`. Detailed concepts live with their owner package. Framework, development, and shared reference sections are reached from Get started and the catalog. When a page moves, add its old path to `docs/modules/vitehub-docs/redirects.ts` and update inbound links; `corepack pnpm exec vp run --filter vitehub-docs test:links` checks every internal link and anchor.
 
+### Write a get-started page
+
+Write for a developer who is new to the primitive and maybe new to the tool. Use ASD-STE100 language: short sentences, one instruction per sentence, active voice, and common words. Nuxt and evlog are the tone to match: tell the reader what to do, and say why in the same sentence.
+
+1. Start with one or two sentences about what the reader builds and what they see at the end.
+2. List what they need as bullets: the Node.js version, the package manager, the app they start from, and any account. Then say in one sentence what they do not need.
+3. Explain every command and every option the first time it appears. "`"type": "module"` tells Node.js that your files use `import` and `export`" helps. "Initialize an ESM package so Node can load the TypeScript modules" does not.
+4. Prefer a file the reader can read over a command that edits it, such as a `package.json` block over `pnpm pkg set`.
+5. After each output, say what it proves.
+6. End with `## Next steps`, one link per bullet, each with what the reader gets there.
+
+Use the product's words only after you explain them. Words such as Definition, occurrence, run store, or provider output mean nothing to a new reader. Put caveats, such as data that a restart deletes, in a `> [!NOTE]` after the step that they affect, not in the introduction. Follow the page yourself in an empty folder before you open the pull request.
+
 ### Content for agents
 
 Agents get each page as raw Markdown at `/raw/<page>.md`, in llms-full.txt, and through the docs MCP server. They get everything a human sees, plus agent-only blocks:
