@@ -2,7 +2,6 @@ import { resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
-import { isIncludedNitroPlugin } from "../nitro-plugin.ts"
 import { ownerModules } from "./owner-modules.ts"
 
 import type { Plugin, PluginOption, UserConfig } from "vite"
@@ -62,17 +61,8 @@ function selectedCmsPresetStore(config: CmsPresetConfig): "blob-database" | "git
   return cmsStore({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
 }
 
-/**
- * The nested list of Nitro plugins that `vitehub()` includes. Both cases build the same Nitro, so the list stays one
- * unit: its plugins keep the `apply` that steps aside for an app's own `nitro()`, and Nuxt can still find and drop them.
- */
-function isIncludedNitroList(option: unknown): option is Plugin[] {
-  return Array.isArray(option) && option.length > 0 && option.every(item => isPluginObject(item) && isIncludedNitroPlugin(item))
-}
-
 function flattenPluginOptions(option: unknown, plugins: unknown[]): unknown[] {
-  if (isIncludedNitroList(option)) plugins.push(option)
-  else if (Array.isArray(option)) for (const item of option) flattenPluginOptions(item, plugins)
+  if (Array.isArray(option)) for (const item of option) flattenPluginOptions(item, plugins)
   else if (option) plugins.push(option)
   return plugins
 }
@@ -157,17 +147,11 @@ function composeVariants(plain: unknown[], alt: unknown[], selects: (config: Cms
   const flushAlt = (until?: Plugin) => {
     while (altIndex < alt.length && alt[altIndex] !== until) {
       const option = alt[altIndex++]
-      // The plain list's Nitro serves both cases.
-      if (isIncludedNitroList(option)) continue
       if (!isPluginObject(option) || !paired.has(option)) merged.push(applyWhen(option, selects))
     }
     if (until) altIndex++
   }
   for (const option of plain) {
-    if (isIncludedNitroList(option)) {
-      merged.push(option)
-      continue
-    }
     const other = isPluginObject(option) ? pairs.get(option) : undefined
     if (!other || !isPluginObject(option)) {
       merged.push(applyWhen(option, config => !selects(config)))
