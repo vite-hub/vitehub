@@ -15,7 +15,7 @@ const policyKey: unique symbol = Symbol.for("vitehub.console.access")
 const openWarningKey: unique symbol = Symbol.for("vitehub.console.access.open-warning")
 // SAFETY: This module owns the process slot shared by separately bundled generated plugins and Console routes.
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy, [openWarningKey]?: true }
-const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "local", "open"])
+const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "local", "open", "token"])
 
 export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
 
@@ -46,9 +46,10 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   scope[policyKey] = Object.freeze({ ...policy })
   installOperationSectionResolver(async ({ user }) => {
     if (policy.mode === "local" || !policy.authorize) return "all"
-    // Agents have no browser request, so `authorize` gets one without headers and the user that the Actor stands for.
+    // Agents have no browser request and no token, so `authorize` gets a request without headers, `via: "agent"`, and
+    // the user that the Actor stands for. It never sees `via: "token"` here: that means a verified Console token.
     const request = new Request("http://vitehub.local/_vitehub/rpc/__call", { method: "POST" })
-    const result: unknown = await policy.authorize(user ? { request, user: user as ConsoleUser } : { request })
+    const result: unknown = await policy.authorize(user ? { request, user: user as ConsoleUser, via: "agent" } : { request, via: "agent" })
     if (result === true) return "all"
     return isRuntimeResponse(result) ? [] : consoleAuthorizedSections(result) ?? []
   })

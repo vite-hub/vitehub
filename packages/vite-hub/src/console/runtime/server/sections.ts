@@ -9,6 +9,7 @@ export { consoleConnectionsActor, consoleRealtimeAccess, resolveConsoleAppAuthId
 export { installConsoleAccess } from "./access-policy.ts"
 export { createConsoleAppAuthAccess, createConsoleAppAuthPages } from "../../auth-pages.ts"
 export { installConsolePageTool } from "./page-tool.ts"
+export { installConsoleOrigins } from "./cors.ts"
 export { installConsoleRuntime } from "./runtime.ts"
 export type { ConsoleRealtimeAccess, ConsoleRealtimeUser } from "./access.ts"
 export { installConsoleDevelopment } from "./development.ts"

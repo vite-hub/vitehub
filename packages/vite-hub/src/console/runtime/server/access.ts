@@ -6,6 +6,7 @@ import { consoleMountBase } from "../console-route.ts"
 import { consoleAuthorizedSections, installedConsoleAccessPolicy, isConsoleSignInPage } from "./access-policy.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { consoleMcpReadScope, consoleMcpWriteScope, markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
+import { checkConsoleToken } from "./console-token.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 
@@ -22,11 +23,13 @@ export { consoleOpenAccessWarning, installConsoleAccess, isConsoleSignInPage } f
  * - `local`: the development server only. Production requests fail closed.
  * - `auth`: a ViteHub Auth Session. `check` is built on `withAuthorization()`.
  * - `cloudflare-access`: the Cloudflare Access application token.
+ * - `token`: `Authorization: Bearer` with a token whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`. See `checkConsoleToken()`.
  * `impersonation: true` is `console.impersonation`. The Auth section can then start and stop impersonation.
  */
 export type ConsoleAccessPolicy =
   | { mode: "open", authorize?: ConsoleAuthorize, impersonation?: boolean, signInPage?: string }
   | { mode: "local" }
+  | { mode: "token", authorize?: ConsoleAuthorize }
   | {
     mode: "auth" | "cloudflare-access"
     authorize?: ConsoleAuthorize
@@ -270,6 +273,11 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   else if (policy.mode === "open") {
     // open access intentionally performs no authentication
   }
+  else if (policy.mode === "token") {
+    // The token is the only way in. A cookie or a session never counts.
+    const token = await checkConsoleToken(consoleRequest(event), event)
+    if (!token.ok) return token.response
+  }
   else {
     const bearer = policy.mode === "auth" && policy.oauth ? await verifyConsoleBearer(consoleRequest(event), event, policy.oauth, isConsoleDevelopmentRuntime()) : undefined
     // A token that fails is a rejection, not a fall back to the session: the client has to sign in again.
@@ -299,7 +307,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   }
   let sections: ConsoleAccess["sections"] = "all"
   if (policy.mode !== "local" && policy.authorize) {
-    const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
+    const request = consoleRequest(event)
+    const result: unknown = await policy.authorize(policy.mode === "token" ? { request, via: "token" } : user ? { request, user } : { request })
     if (isRuntimeResponse(result)) {
       authorizeResponses.add(result)
       return result
@@ -555,7 +564,7 @@ export async function consoleOperationAccess(context: OperationContext): Promise
   let allowed: ConsoleAccess["sections"] = "all"
   if (policy.mode !== "local" && policy.authorize) {
     const request = new Request("http://vitehub.local/_vitehub/rpc/__call", { method: "POST" })
-    const result = await policy.authorize({ request, ...(context.user ? { user: context.user } : {}) })
+    const result = await policy.authorize({ request, via: "agent", ...(context.user ? { user: context.user } : {}) })
     if (result !== true) {
       const sections = consoleAuthorizedSections(result)
       if (!sections?.length) throw consoleRequestError(403, "This user cannot use Console operations.")
