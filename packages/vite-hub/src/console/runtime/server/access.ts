@@ -494,9 +494,12 @@ export function consoleOperationGranted(access: ConsoleAccess, operation: AnyOpe
   return operationListed(access, operation, operation.readOnlyWhen ? undefined : operation)
 }
 
-/** Whether the access may call the operation: its section grants allow it, and an access token holds its scope. */
+/** Whether section grants and OAuth scopes offer calls of the operation. Each call checks its own kind again. */
 export function consoleOperationOffered(access: ConsoleAccess, operation: AnyOperation): boolean {
-  return consoleOperationGranted(access, operation) && (!access.scopes || access.scopes.includes(consoleOperationScope(operation)))
+  return consoleOperationGranted(access, operation) && (
+    !access.scopes || access.scopes.includes(consoleOperationScope(operation))
+    || (operation.readOnlyWhen !== undefined && access.scopes.includes(consoleMcpReadScope))
+  )
 }
 
 export function allowedConsoleSections(access: ConsoleAccess, available: readonly ConsoleSectionId[]): ConsoleSectionId[] {

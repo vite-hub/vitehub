@@ -224,6 +224,29 @@ describe("OAuth Console tokens", () => {
     await expect(write.json()).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", message: expect.stringContaining("vitehub:write") })
   })
 
+  it("offers mixed operations to a read-only token and checks the scope of each call", async () => {
+    const mixed = (["write", "destructive"] as const).map(kind => defineOperation({
+      ...save,
+      kind,
+      name: `fixture.${kind}preview`,
+      readOnlyWhen: ({ value }) => value === "",
+    }))
+    installConsoleOperations([{ operations: [greet, save, ...mixed], plugin: "fixture" }])
+    const { access_token } = await consoleTokens({ scope: "vitehub:read" })
+    const project = await rpc(access_token, "project.get", {})
+    expect(project.status).toBe(200)
+    const { value } = v.parse(v.object({ value: v.object({ operations: v.array(v.string()) }) }), await project.json())
+    expect(value.operations).toContain("fixture.greet")
+    expect(value.operations).not.toContain("fixture.save")
+    for (const operation of mixed) {
+      expect(value.operations).toContain(operation.name)
+      expect((await rpc(access_token, operation.name, { value: "" })).status).toBe(200)
+      const write = await rpc(access_token, operation.name, { value: "changed" })
+      expect(write.status).toBe(403)
+      expect(write.headers.get("www-authenticate")).toContain('error="insufficient_scope", scope="vitehub:write"')
+    }
+  })
+
   it("challenges a write-only token for the read scope", async () => {
     const { access_token } = await consoleTokens({ scope: "vitehub:write" })
     expect((await rpc(access_token, "fixture.save", { value: "x" })).status).toBe(200)
@@ -257,6 +280,21 @@ describe("OAuth Console tokens", () => {
     expect(response.status).toBe(403)
     expect(response.headers.get("www-authenticate")).toContain(`error="insufficient_scope", scope="vitehub:${kind}"`)
     expect(response.headers.get("access-control-allow-origin")).toBe(local)
+  })
+
+  it("rejects malformed Auth commands before challenging a read-only token for write scope", async () => {
+    installConsoleSections("console-oauth-auth-manage", ["auth"])
+    const { access_token } = await consoleTokens({ scope: "vitehub:read" })
+    for (const body of [{ action: "ban" }, { operation: "unknown" }]) {
+      const response = await authManageHandler({ req: new Request(`${app}/_vitehub/auth/manage`, {
+        body: JSON.stringify(body),
+        headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "origin": local, "x-vitehub-console": "1" },
+        method: "POST",
+      }) })
+      expect(response.status).toBe(400)
+      expect(response.headers.has("www-authenticate")).toBe(false)
+      await expect(response.json()).resolves.toMatchObject({ message: "Invalid Auth Console request." })
+    }
   })
 
   it.each(["deleted", "disabled"])("refuses a token after its issuing client is %s", async (state) => {

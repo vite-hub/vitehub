@@ -115,17 +115,20 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
   )
     throw consoleRequestError(403, "The Console request must use the same origin.");
   const input = await consoleRequestJSON(event);
-  const command = v.safeParse(read, input);
+  const command = v.safeParse(v.union([read, mutation, stop]), input);
+  if (!command.success)
+    return Response.json({ message: "Invalid Auth Console request." }, { status: 400 });
+  const { output } = command;
   // A missing OAuth scope gets the insufficient_scope challenge, so the Console can ask for the scope again. It is
   // checked before Better Auth opens, and apart from the section grant below.
-  const call = { kind: command.success ? "read" : "write" } as const;
+  const call = { kind: "operation" in output ? "read" : "write" } as const;
   if (!consoleScopesAllow(access, call))
-    return consoleScopeRejection(call, command.success ? "reading Auth data" : "changing Auth data");
+    return consoleScopeRejection(call, call.kind === "read" ? "reading Auth data" : "changing Auth data");
   const impersonation = consoleImpersonation();
   const api = getAuthConsoleForRequest(request, event, { impersonation });
   try {
-    if (command.success) {
-      const { operation, query, id, activity } = command.output;
+    if ("operation" in output) {
+      const { operation, query, id, activity } = output;
       if ((operation === "user" || operation === "organization") && !id)
         return Response.json({ message: "An id is required." }, { status: 400 });
       const [error, data] =
@@ -143,16 +146,12 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
       if (error) return failure(error);
       return Response.json(data, { headers: { "cache-control": "no-store" } });
     }
-    const action = v.safeParse(v.union([mutation, stop]), input);
-    if (!action.success)
-      return Response.json({ message: "Invalid Auth Console request." }, { status: 400 });
     // A read-only grant (`"auth:read"`) lists Auth data. It never changes it.
     if (!consoleAccessWrites(access, "auth"))
       return Response.json(
         { message: "This Console access can read Auth data but not change it." },
         { status: 403, headers: { "cache-control": "no-store" } },
       );
-    const { output } = action;
     if ((output.action === "impersonate" || output.action === "stopImpersonating") && !impersonation)
       return Response.json(
         { message: "Impersonation is off. Set console.impersonation to true to enable it." },
