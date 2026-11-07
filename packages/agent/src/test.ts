@@ -6,6 +6,7 @@ import { resolveAgentUsageRecord } from "./agent-output.ts"
 import { createAgentRuntimeContext } from "./runtime/context.ts"
 import { createTraceEventLog, deriveTraceRuns } from "@vite-hub/runtime"
 import { registerWorkspace } from "@vite-hub/workspace/test"
+import { createChannelWebhookRouteHandler } from "./server/route-handlers.ts"
 
 import type {
   AgentErrorHook,
@@ -29,6 +30,7 @@ import type {
   WorkspaceAgentDefinition,
 } from "./index.ts"
 import type { WorkspaceName } from "@vite-hub/workspace"
+import type { ViteAgentRouteRuntimeContext } from "./server/route-runtime.ts"
 import type { TraceEventLog, TraceRunView } from "@vite-hub/runtime"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 
@@ -426,4 +428,38 @@ export async function runAgentForTest<
   input: AgentRunInput<CALL_OPTIONS>,
 ): Promise<AgentTestRunResult> {
   return await createAgentTestRunner<TRuntimeConfig, CALL_OPTIONS>(agent, options).run(input)
+}
+
+export interface DeliverChannelOptions {
+  /** The Agent name in the webhook URL and in each run. Defaults to `agent`. */
+  agentName?: string
+  /** Request headers, such as the signature or secret header that the Channel checks. */
+  headers?: ConstructorParameters<typeof Headers>[0]
+}
+
+/**
+ * Sends one webhook delivery to a Channel of the Agent, as the provider would, and waits for the work that the delivery
+ * starts. Returns the webhook response. A string or bytes body goes as is; any other body goes as JSON.
+ */
+export async function deliverChannel(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  channel: string,
+  body: unknown,
+  options: DeliverChannelOptions = {},
+): Promise<Response> {
+  const agentName = options.agentName ?? "agent"
+  const headers = new Headers(options.headers)
+  const raw = typeof body === "string" || body instanceof Uint8Array ? body : JSON.stringify(body)
+  if (raw !== body && !headers.has("content-type")) headers.set("content-type", "application/json")
+  const url = `http://localhost/api/_vitehub/agents/${encodeURIComponent(agentName)}/webhooks/${encodeURIComponent(channel)}`
+  const tasks: Promise<unknown>[] = []
+  const response = await createChannelWebhookRouteHandler(agent)(new Request(url, { body: raw, headers, method: "POST" }), channel, {
+    agentName,
+    waitUntil(task) {
+      tasks.push(Promise.resolve(task))
+    },
+  })
+  // A task can start more tasks, so the loop reads the length again after each one.
+  for (let index = 0; index < tasks.length; index += 1) await tasks[index]
+  return response
 }

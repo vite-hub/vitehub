@@ -1,5 +1,6 @@
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { randomId } from "@vite-hub/internal/runtime/random"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { normalizeWorkflowOptions } from "../config.ts"
 import { createWorkflowError } from "../errors.ts"
@@ -7,6 +8,7 @@ import { createWorkflowError } from "../errors.ts"
 import { getWorkflowRuntimeAdapter } from "./adapters.ts"
 import { safeWorkflowName } from "./provider-operation.ts"
 import { getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefinition, registerInlineWorkflowDefinition, runWithWorkflowRuntimeEvent } from "./state.ts"
+import { getWorkflowTestRun, recordWorkflowTestRun } from "./test-client.ts"
 
 import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDeferOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
@@ -20,6 +22,11 @@ function getActiveWorkflowConfig(): ResolvedWorkflowOptions {
   }
 
   return config || normalizeWorkflowOptions(undefined, { hosting: "vercel" })!
+}
+
+/** The provider that test runs report: the configured one, or the default when Workflow has no config in the test. */
+function testWorkflowProvider(): ResolvedWorkflowOptions["provider"] {
+  return (getWorkflowRuntimeConfig() || normalizeWorkflowOptions(undefined, { hosting: "vercel" })!).provider
 }
 
 async function loadRequiredWorkflowDefinition(name: string) {
@@ -167,6 +174,9 @@ export async function runWorkflow<TPayload = unknown>(
   payload?: TPayload,
   options: WorkflowDeferOptions = {},
 ): Promise<WorkflowRun<TPayload, unknown>> {
+  // In app tests, every Workflow records its runs for `vite-hub/test` and needs no generated Definition.
+  const test = getViteHubTestMode()
+  if (test) return recordWorkflowTestRun(test, testWorkflowProvider(), { deferred: options.deferred === true, id: options.id || randomId("wrun"), name, payload })
   const config = getActiveWorkflowConfig()
 
   const id = options.id || randomId("wrun")
@@ -183,6 +193,8 @@ export async function runWorkflow<TPayload = unknown>(
 }
 
 export async function getWorkflowRun(name: string, id: string): Promise<WorkflowRun<unknown, unknown>> {
+  const test = getViteHubTestMode()
+  if (test) return getWorkflowTestRun(test, testWorkflowProvider(), name, id)
   const config = getActiveWorkflowConfig()
 
   return await getWorkflowRuntimeAdapter(config).get({
@@ -193,6 +205,8 @@ export async function getWorkflowRun(name: string, id: string): Promise<Workflow
 }
 
 export async function cancelWorkflow(name: string, id: string): Promise<WorkflowRun<unknown, unknown>> {
+  const test = getViteHubTestMode()
+  if (test) return getWorkflowTestRun(test, testWorkflowProvider(), name, id, true)
   const config = getActiveWorkflowConfig()
 
   await loadRequiredWorkflowDefinition(name)

@@ -1,4 +1,5 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import { normalizeQueueOptions } from "../config.ts"
 import { isQueueError, normalizePublicQueueIdentifier } from "../errors.ts"
@@ -6,6 +7,7 @@ import { resolveVercelQueueRegion } from "../internal/vercel-region.ts"
 import { getCloudflareQueueBindingName } from "../integrations/cloudflare.ts"
 import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 
+import { createTestQueueClient, recordQueueTestMessage } from "./test-client.ts"
 import { getOrCreateQueueClient, getQueueRuntimeClientFactory, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "../internal/runtime/state.ts"
 
 import type { Result } from "@vite-hub/runtime"
@@ -81,6 +83,9 @@ async function createNamedQueueClient(name: string): Promise<QueueClient> {
 }
 
 async function getDynamicQueue(name: string): Promise<QueueClient> {
+  // In app tests, every Queue records its jobs for `vite-hub/test` and needs no generated Definition.
+  const test = getViteHubTestMode()
+  if (test) return createTestQueueClient(test, name)
   // A disabled Queue loads no definitions, so say so first: QUEUE_DEFINITION_NOT_FOUND
   // would tell the developer to add a queue file that already exists.
   const config = getActiveQueueConfig()
@@ -115,6 +120,12 @@ async function runDynamicQueue(name: string, payload: unknown, options?: QueueEn
 }
 
 function deferDynamicQueue(name: string, payload: unknown, options?: QueueEnqueueOptions): void {
+  // Record the job before this call returns, so a test sees it without waiting for background work.
+  const test = getViteHubTestMode()
+  if (test) {
+    recordQueueTestMessage(test, name, payload, options)
+    return
+  }
   const request = getQueueRuntimeEvent()
   const task = async () => {
     const [error] = await runWithQueueRuntimeEvent(request, () => runDynamicQueue(name, payload, options))

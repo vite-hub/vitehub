@@ -6,6 +6,7 @@ import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-en
 import { normalizeKVOptions } from "../config.ts"
 import { kvKeyLimitCodes, kvResult, kvWriteLimitCodes } from "../errors.ts"
 import type { Result } from "@vite-hub/runtime"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 import type { KVErrorCode, KVOperation, KVStorage, KVStoreName, KVStoreOptions, ReadonlyKVStorage, ResolvedKVModuleOptions } from "../types.ts"
 import { createHostedKVStorage, type RuntimeStorage } from "./hosted-storage.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
@@ -74,6 +75,13 @@ async function resolveHostedConfig(): Promise<false | ResolvedKVModuleOptions | 
 }
 
 async function resolveStorage(name = "default") {
+  // In app tests, each store is a fresh fs-lite folder that the next reset deletes.
+  const test = getViteHubTestMode()
+  if (test) {
+    return await test.backend(`kv:${name}`, async () => createHostedKVStorage({
+      store: { base: await test.directory(`kv-${name}`), driver: "fs-lite" },
+    }, "default"), storage => storage.dispose())
+  }
   if (disposal) await disposal
   const existing = storagePromises.get(name)
   if (existing) return existing
