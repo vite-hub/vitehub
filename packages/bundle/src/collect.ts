@@ -1,5 +1,6 @@
 import { gzipSync } from "node:zlib"
 
+import { allocateBytes } from "./bytes.ts"
 import { moduleId } from "./groups.ts"
 
 import type { BundleChunk, BundleEnvironmentReport, BundleModule } from "./types.ts"
@@ -37,12 +38,15 @@ function isChunk(output: unknown): output is OutputChunkLike {
 }
 
 function relativeTo(root: string, path: string): string {
-  return path === root ? "." : path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path
+  const base = root.replace(/\\/g, "/").replace(/\/$/, "")
+  const normalized = path.replace(/\\/g, "/")
+  return normalized === base ? "." : normalized.startsWith(`${base}/`) ? normalized.slice(base.length + 1) : normalized
 }
 
 interface Edges {
   imports: Set<string>
   dynamicImports: Set<string>
+  complete: boolean
 }
 
 /**
@@ -55,8 +59,8 @@ function createEdgeReader(ids: ReadonlyMap<string, string>, getModuleInfo: Colle
   const visit = (raw: string, visiting: Set<string>): Edges => {
     const cached = through.get(raw)
     if (cached) return cached
-    const result: Edges = { imports: new Set(), dynamicImports: new Set() }
-    if (visiting.has(raw)) return result
+    const result: Edges = { imports: new Set(), dynamicImports: new Set(), complete: !visiting.has(raw) }
+    if (!result.complete) return result
     visiting.add(raw)
     const info = getModuleInfo(raw)
     const add = (next: string, dynamic: boolean) => {
@@ -66,13 +70,15 @@ function createEdgeReader(ids: ReadonlyMap<string, string>, getModuleInfo: Colle
         return
       }
       const nested = visit(next, visiting)
+      result.complete &&= nested.complete
       for (const found of nested.imports) (dynamic ? result.dynamicImports : result.imports).add(found)
       for (const found of nested.dynamicImports) result.dynamicImports.add(found)
     }
     for (const next of info?.importedIds ?? []) add(next, false)
     for (const next of info?.dynamicallyImportedIds ?? []) add(next, true)
     visiting.delete(raw)
-    through.set(raw, result)
+    // A recursive edge truncates this traversal. Another entry must be able to read it afresh.
+    if (result.complete) through.set(raw, result)
     return result
   }
   return raw => visit(raw, new Set())
@@ -99,7 +105,6 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
   const rows: BundleChunk[] = chunks.map((chunk) => {
     const bytes = Buffer.byteLength(chunk.code)
     const entries = Object.entries(chunk.modules).filter(([, module]) => module.renderedLength > 0)
-    const rendered = entries.reduce((sum, [, module]) => sum + module.renderedLength, 0)
     // `page.vue` and `page.vue?vue&type=script` become one module.
     const merged = new Map<string, { rendered: number, imports: Set<string>, dynamicImports: Set<string>, entry: boolean }>()
     for (const [raw, module] of entries) {
@@ -112,10 +117,11 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
       row.entry ||= options.getModuleInfo(raw)?.isEntry ?? chunk.facadeModuleId === raw
       merged.set(id, row)
     }
-    const modules: BundleModule[] = [...merged].map(([id, row]) => ({
+    const shares = allocateBytes([...merged.values()].map(row => row.rendered), bytes)
+    const modules: BundleModule[] = [...merged].map(([id, row], index) => ({
       id,
       // Minification and chunk glue change the size after rendering, so each module gets its share of the file.
-      bytes: rendered === 0 ? 0 : Math.round(row.rendered * bytes / rendered),
+      bytes: shares[index]!,
       imports: [...row.imports].filter(next => next !== id).sort(),
       dynamicImports: [...row.dynamicImports].filter(next => next !== id && !row.imports.has(next)).sort(),
       entry: row.entry,

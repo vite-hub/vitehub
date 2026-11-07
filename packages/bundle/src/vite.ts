@@ -1,10 +1,11 @@
+import { randomUUID } from "node:crypto"
 import { resolve } from "node:path"
 
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
 import { bundleCliContributor } from "./cli.ts"
 import { collectEnvironmentReport } from "./collect.ts"
-import { writeEnvironmentReport } from "./files.ts"
+import { readEnvironmentReports, writeEnvironmentReport } from "./files.ts"
 
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -29,39 +30,38 @@ interface OutputContext {
   getModuleInfo: (id: string) => ModuleInfoLike | null
 }
 
-interface BuildState {
-  id: string
-  /** `<environment>\0<outDir>` of the reports that this build already wrote. */
-  written: Set<string>
-}
+const outputsKey = Symbol.for("vitehub.bundle.outputs")
 
-const buildKey = Symbol.for("vitehub.bundle.build")
-
-/** One id for every environment that one process builds for a project, so the reader can join them. */
-function buildState(root: string): BuildState {
-  const builds = (Reflect.get(globalThis, buildKey) ?? new Map<string, BuildState>()) as Map<string, BuildState>
-  Reflect.set(globalThis, buildKey, builds)
-  const state = builds.get(root) ?? { id: new Date().toISOString(), written: new Set<string>() }
-  builds.set(root, state)
-  return state
+/** Vite and Nitro can observe the same output; only that output object is deduplicated. */
+function writtenOutputs(): WeakMap<object, Set<string>> {
+  const outputs = (Reflect.get(globalThis, outputsKey) ?? new WeakMap<object, Set<string>>()) as WeakMap<object, Set<string>>
+  Reflect.set(globalThis, outputsKey, outputs)
+  return outputs
 }
 
 function writeReport(context: OutputContext, bundle: Record<string, unknown>, options: { environment: string, outDir: string, root: string, side: "client" | "server" }): void {
   // Nitro's rootDir can end with a slash, and Vite's root can be Nuxt's srcDir. Both must name the same build.
   const root = resolve(options.root)
   const outDir = resolve(options.outDir)
-  const state = buildState(root)
+  const outputs = writtenOutputs()
+  const written = outputs.get(bundle) ?? new Set<string>()
   // In Nuxt 5, the Vite plugin and the Nitro module can both see the server build.
-  const key = `${options.environment}\0${outDir}`
-  if (state.written.has(key)) return
-  state.written.add(key)
+  const key = `${root}\0${options.environment}\0${outDir}`
+  if (written.has(key)) return
+  const reports = readEnvironmentReports(root)
+  // A repeated environment begins the next build. Later phases join the on-disk identity, even in another process.
+  const build = reports.some(report => report.environment === options.environment)
+    ? `${new Date().toISOString()}-${randomUUID()}`
+    : reports[0]?.build ?? `${new Date().toISOString()}-${randomUUID()}`
   writeEnvironmentReport(root, collectEnvironmentReport(bundle, {
     ...options,
-    build: state.id,
+    build,
     getModuleInfo: id => context.getModuleInfo(id),
     outDir,
     root,
   }))
+  written.add(key)
+  outputs.set(bundle, written)
 }
 
 /** Adds a Rolldown plugin to a Nitro build that bundles on its own, such as the server build of Nuxt 5. */

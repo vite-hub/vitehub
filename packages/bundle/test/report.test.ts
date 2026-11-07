@@ -60,6 +60,16 @@ function nuxtBuild(build = "2026-11-06T10:00:00.000Z") {
 }
 
 describe("module ids and groups", () => {
+  it("normalizes Windows app, dependency, workspace, and Nuxt template paths", () => {
+    const windowsRoot = "C:\\repo\\app\\"
+    expect(moduleId("C:/repo/app/server/api/hello.ts", windowsRoot)).toBe("server/api/hello.ts")
+    expect(moduleId("C:\\repo\\app\\node_modules\\.pnpm\\zod@4\\node_modules\\zod\\index.js?x", windowsRoot)).toBe("node_modules/zod/index.js")
+    expect(moduleId("C:/repo/packages/agent/dist/index.js", windowsRoot)).toBe("node_modules/@vite-hub/agent/dist/index.js")
+    expect(moduleId(`virtual:nuxt:${encodeURIComponent("C:/repo/app/.nuxt/routes.mjs")}`, windowsRoot)).toBe(".nuxt/routes.mjs")
+    expect(moduleGroup(moduleId("C:/repo/app/server/api/hello.ts", windowsRoot))).toEqual({ name: "server/api", kind: "app" })
+    expect(moduleGroup(moduleId("D:/shared/index.js", windowsRoot))).toEqual({ name: "outside the project", kind: "dependency" })
+  })
+
   it("names pnpm packages, workspace packages, generated output, and app folders", () => {
     expect(moduleId(`${root}/node_modules/.pnpm/@libsql+client@0.15.0/node_modules/@libsql/client/web.js?x`, root)).toBe("node_modules/@libsql/client/web.js")
     expect(moduleId("/repo/packages/agent/dist/index.js", root)).toBe("node_modules/@vite-hub/agent/dist/index.js")
@@ -80,6 +90,59 @@ describe("module ids and groups", () => {
 })
 
 describe("environment reports", () => {
+  it("normalizes Windows output folders so Nitro can place SSR modules", () => {
+    const windowsRoot = "C:\\repo\\app"
+    const ssr = collectEnvironmentReport({
+      "server.mjs": chunk("server.mjs", "ssr", { "C:/repo/app/pages/index.vue": 3 }),
+    }, { build: "b", environment: "ssr", side: "server", root: windowsRoot, outDir: `${windowsRoot}\\.nuxt\\dist\\server`, getModuleInfo: graph({}, []) })
+    const nitro = collectEnvironmentReport({
+      "index.mjs": chunk("index.mjs", "nitro", { "C:/repo/app/.nuxt/dist/server/server.mjs": 5 }),
+    }, { build: "b", environment: "nitro", side: "server", root: windowsRoot, outDir: `${windowsRoot}\\.output\\server`, getModuleInfo: graph({}, []) })
+    expect(ssr.outDir).toBe(".nuxt/dist/server")
+    expect(createBundleReport([ssr, nitro])!.server).toMatchObject({ bytes: 5, groups: [{ name: "pages", kind: "app", bytes: 5 }] })
+  })
+
+  it("combines all page entries and counts shared startup files once", () => {
+    const report = collectEnvironmentReport({
+      "one.js": chunk("one.js", "x", { "/app/one.js": 1 }, { entry: "/app/one.js", imports: ["shared.js"] }),
+      "two.js": chunk("two.js", "xx", { "/app/two.js": 2 }, { entry: "/app/two.js", imports: ["shared.js"] }),
+      "shared.js": chunk("shared.js", "xxx", { "/app/shared.js": 3 }),
+      "lazy.js": chunk("lazy.js", "xxxx", { "/app/lazy.js": 4 }),
+    }, { build: "b", environment: "client", side: "client", root, outDir: `${root}/dist`, getModuleInfo: graph({}, ["/app/one.js", "/app/two.js"]) })
+    expect(createBundleReport([report])!.client).toMatchObject({ bytes: 10, startup: { bytes: 6, chunks: 3 } })
+  })
+
+  it.each([2, 4])("preserves a %i-byte chunk when module shares need rounding", (bytes) => {
+    const report = collectEnvironmentReport({
+      "entry.js": chunk("entry.js", "x".repeat(bytes), { "/app/a.js": 1, "/app/b.js": 1, "/app/c.js": 1 }, { entry: "/app/a.js" }),
+    }, { build: "b", environment: "client", side: "client", root, outDir: `${root}/dist`, getModuleInfo: graph({}, ["/app/a.js"]) })
+    expect(report.chunks[0]!.modules.reduce((sum, module) => sum + module.bytes, 0)).toBe(bytes)
+    expect(createBundleReport([report])!.client!.groups.reduce((sum, group) => sum + group.bytes, 0)).toBe(bytes)
+  })
+
+  it("keeps static and dynamic closures through cycles of dropped modules", () => {
+    const first = "/app/first.js"
+    const second = "/app/second.js"
+    const a = "/app/a.js"
+    const b = "/app/b.js"
+    const target = "/app/node_modules/zod/index.js"
+    const lazy = "/app/lazy.js"
+    const report = collectEnvironmentReport({
+      "first.js": chunk("first.js", "x", { [first]: 1 }, { entry: first }),
+      "second.js": chunk("second.js", "xx", { [second]: 1, [target]: 1 }, { entry: second }),
+      "lazy.js": chunk("lazy.js", "x", { [lazy]: 1 }),
+    }, {
+      build: "b", environment: "client", side: "client", root, outDir: `${root}/dist`,
+      getModuleInfo: graph({ [first]: [a], [second]: [b], [a]: [b, target], [b]: [a] }, [first, second], { [a]: [lazy] }),
+    })
+    const secondModule = report.chunks.find(row => row.file === "second.js")!.modules.find(module => module.id === "second.js")!
+    expect(secondModule.imports).toEqual(["node_modules/zod/index.js"])
+    expect(secondModule.dynamicImports).toEqual(["lazy.js"])
+    // Remove the first entry to prove that the later traversal also has a usable chain.
+    const withoutFirst = { ...report, chunks: report.chunks.filter(row => row.file !== "first.js") }
+    expect(explainBundle([withoutFirst], "zod")[0]!.chain.map(step => step.id)).toEqual(["second.js", "node_modules/zod/index.js"])
+  })
+
   it("marks the static closure of the entry as startup and gives each module its share of the file", () => {
     const [client] = nuxtBuild()
     expect(client!.chunks.map(row => [row.file, row.startup])).toEqual([["entry.js", true], ["heavy.js", false], ["shared.js", true]])
@@ -110,6 +173,15 @@ describe("environment reports", () => {
 })
 
 describe("app report", () => {
+  it("preserves Nitro's bytes when replacing an opaque SSR module", () => {
+    const reports = nuxtBuild()
+    const ssr = reports.find(report => report.environment === "ssr")!
+    ssr.chunks[0]!.modules.forEach(module => { module.bytes = 1 })
+    const server = createBundleReport(reports)!.server!
+    expect(server.groups.reduce((sum, group) => sum + group.bytes, 0)).toBe(server.bytes)
+    expect(server.groups.reduce((sum, group) => sum + group.startupBytes, 0)).toBe(server.startup.bytes)
+  })
+
   it("joins the SSR output into the server and scales it to the bytes Nitro wrote", () => {
     const report = createBundleReport(nuxtBuild())!
     expect(report.server!.environments).toEqual(["nitro", "ssr"])
@@ -188,6 +260,7 @@ describe("files and CLI", () => {
     expect(summary.code).toBe(0)
     expect(summary.stdout).toContain("Server: 1.1 kB of JavaScript in 2 files")
     expect(summary.stdout).toContain("@libsql/client (dependency)")
+    expect(summary.stdout).toContain("Combined startup across all page entries; shared files count once.")
     expect(JSON.parse(run(dir, ["--json"]).stdout)).toMatchObject({ schemaVersion: 1, client: { chunks: 3 } })
     const why = run(dir, ["why", "@libsql/client"])
     expect(why.stdout).toContain("Server: 400 B in @libsql/client, loads at startup.")

@@ -25,7 +25,7 @@ The commands read `.vitehub/bundle/` and need no dev server. Development builds 
 
 ## What the report says
 
-- **Client and server.** Bytes and gzip bytes of the JavaScript that the build wrote, and the files that load at startup: the entry and every file that it imports statically. On the server, startup code runs before the first request. On the client, it loads with the first page.
+- **Client and server.** Bytes and gzip bytes of the JavaScript that the build wrote, and the files that load at startup: the entries and every file that they import statically. On the server, startup code runs before the first request. Client startup combines all page entries, counting shared files once; a single page can load less.
 - **Groups.** Each module counts toward one group: a ViteHub package (`@vite-hub/agent`, `vite-hub/console`), a framework package (`nitro`, `h3`, `vue`), a dependency, an app folder (`server/api`), or generated code (`.vitehub`, `#nitro/virtual`). A module gets its share of the bytes of the file it is in, so the groups add up to the file sizes.
 - **Why.** The shortest import chain from an entry to a package, a file, or a group.
 

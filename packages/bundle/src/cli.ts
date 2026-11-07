@@ -78,7 +78,7 @@ function runReport(args: string[], context: ViteHubCliContext): number {
   }
   const lines = [`Bundle of the build from ${report.build}`, ""]
   if (report.server) lines.push(...sideLines("Server", report.server, "This code loads before the server answers its first request."), "")
-  if (report.client) lines.push(...sideLines("Client", report.client, "This code loads with the first page."), "")
+  if (report.client) lines.push(...sideLines("Client", report.client, "Combined startup across all page entries; shared files count once."), "")
   lines.push("Run `vitehub bundle why <package|file>` to see why something is in the output.", "")
   context.stdout.write(lines.join("\n"))
   return 0

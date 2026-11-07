@@ -11,7 +11,7 @@ Use this when a task asks how big the app is, why the server starts slowly or hi
 `vitehub bundle` shows the client and the server separately. For each, it shows the JavaScript bytes, the gzip bytes, the startup code, and the largest groups. A group is a ViteHub package (`@vite-hub/agent`, `vite-hub/console`), a framework package, a dependency, an app folder (`server/api`), or generated code (`.vitehub`, `.nuxt`, `#nitro/virtual`). In Nuxt 5, the server part already contains the SSR build. Do not read Vite environments one by one.
 
 - **Server startup** is the code that loads before the first request: the entry and every file that it imports statically. It decides cold start time and Worker startup limits.
-- **Client startup** is the code that loads with the first page.
+- **Client startup** combines the startup code of all page entries, counting shared files once. A single page in a multi-page app can load less.
 
 ## Explain
 

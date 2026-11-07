@@ -4,23 +4,25 @@ const frameworkPackages = new Set(["@unhead/vue", "nuxt-nightly", "@vue/reactivi
 
 /** The root-relative id of a module. Dependencies become `node_modules/<package>/<file>`, wherever pnpm stores them. */
 export function moduleId(id: string, root: string): string {
-  const clean = id.replace(/\?.*$/, "").replace(/^\0/, "")
+  const clean = id.replace(/\\/g, "/").replace(/\?.*$/, "").replace(/^\0/, "")
+  const rootPath = root.replace(/\\/g, "/").replace(/\/$/, "")
   // Nuxt names its templates `virtual:nuxt:<encoded path>`.
   const nuxtTemplate = clean.match(/^virtual:nuxt:(.+)$/)
   if (nuxtTemplate) {
-    const path = decodeURIComponent(nuxtTemplate[1]!)
-    return path.startsWith("/") ? moduleId(path, root) : path
+    return moduleId(decodeURIComponent(nuxtTemplate[1]!), rootPath)
   }
-  if (!clean.startsWith("/")) return clean
+  const windows = /^[a-z]:\//i.test(clean)
+  if (!clean.startsWith("/") && !windows) return clean
   const nodeModules = clean.lastIndexOf("/node_modules/")
   if (nodeModules >= 0) {
     const rest = clean.slice(nodeModules + "/node_modules/".length)
     // `node_modules/.cache` holds generated output, such as a Nuxt buildDir, not a package.
     if (!rest.startsWith(".")) return `node_modules/${rest}`
   }
+  const withinRoot = windows ? clean.toLowerCase().startsWith(`${rootPath.toLowerCase()}/`) : clean.startsWith(`${rootPath}/`)
   const workspace = clean.match(/\/packages\/([^/]+)\/dist\/(.+)$/)
-  if (workspace && !clean.startsWith(`${root}/`)) return `node_modules/${workspace[1] === "vite-hub" ? "vite-hub" : `@vite-hub/${workspace[1]}`}/dist/${workspace[2]}`
-  return clean.startsWith(`${root}/`) ? clean.slice(root.length + 1) : clean
+  if (workspace && !withinRoot) return `node_modules/${workspace[1] === "vite-hub" ? "vite-hub" : `@vite-hub/${workspace[1]}`}/dist/${workspace[2]}`
+  return withinRoot ? clean.slice(rootPath.length + 1) : clean
 }
 
 function packageName(path: string): string {
@@ -46,9 +48,9 @@ export function moduleGroup(id: string): { name: string, kind: BundleGroupKind }
   }
   // `#nitro/virtual/handlers` becomes `#nitro/virtual`, `virtual:vitehub-routes` stays as it is.
   if (id.startsWith("#")) return { name: id.split("/").slice(0, 2).join("/"), kind: "generated" }
+  if (id.startsWith("/") || /^[a-z]:\//i.test(id)) return { name: "outside the project", kind: "dependency" }
   if (/^[\w-]+:/.test(id)) return { name: id.split("/")[0]!, kind: "generated" }
   if (!id.includes("/") && !id.includes(".")) return { name: "virtual", kind: "generated" }
-  if (id.startsWith("/")) return { name: "outside the project", kind: "dependency" }
   const top = id.split("/")[0]!
   if (top === ".vitehub" || top === ".nuxt" || top === ".nitro" || top === ".output") return { name: top, kind: "generated" }
   const parts = id.split("/")

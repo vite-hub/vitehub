@@ -1,3 +1,4 @@
+import { allocateBytes } from "./bytes.ts"
 import { moduleGroup } from "./groups.ts"
 
 import type { BundleChainStep, BundleEnvironmentReport, BundleExplanation, BundleGroup, BundleModule, BundleReport, BundleSide } from "./types.ts"
@@ -50,8 +51,9 @@ function placedModules(outer: readonly BundleEnvironmentReport[], all: readonly 
           placed.push({ ...module, environment: report.environment, startup: chunk.startup })
           continue
         }
-        for (const part of sourceChunk.modules) {
-          placed.push({ ...part, bytes: Math.round(part.bytes * module.bytes / total), environment: source.report.environment, startup: chunk.startup })
+        const shares = allocateBytes(sourceChunk.modules.map(part => part.bytes), module.bytes)
+        for (const [index, part] of sourceChunk.modules.entries()) {
+          placed.push({ ...part, bytes: shares[index]!, environment: source.report.environment, startup: chunk.startup })
         }
       }
     }
