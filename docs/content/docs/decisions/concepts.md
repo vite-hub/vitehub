@@ -80,8 +80,6 @@ selection?.project // { value: "console", confidence: 0.9, ranked: [...] }
 
 An `infer` group has no "none" answer, so add an option such as "Other" when nothing may fit. `value` is still `null` below the `option` threshold, and `ranked` keeps every option. The `supported` check covers only the groups that do not infer. When every group infers, it is not asked. A group with one option returns that option without a request.
 
-[`llmRoute()`](/docs/agents/capabilities/llm-route) and [`llmGate()`](/docs/agents/capabilities/llm-gate) use an `infer` group for their Jev decisions.
-
 ## Thresholds
 
 The model gives a probability for each answer. Two thresholds turn probabilities into decisions.
