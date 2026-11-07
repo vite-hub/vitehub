@@ -169,7 +169,7 @@ export type ChannelDefinition<TAdapter extends ChannelAdapter<never> = ChannelAd
 }
 
 export interface ChannelDefinitionRegistry {
-  [name: string]: () => Promise<{ default?: ChannelDefinition } | ChannelDefinition>
+  [name: string]: () => Promise<{ default?: ChannelDefinitionOptions } | ChannelDefinitionOptions>
 }
 
 export interface DiscoveredChannelDefinition {

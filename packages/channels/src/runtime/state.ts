@@ -2,7 +2,7 @@ import discoveredRegistry from "#vitehub/channels/registry"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { createChannel } from "../client.ts"
-import { isChannelDefinition } from "../definition.ts"
+import { defineChannel, isChannelDefinition, validateChannelDefinition } from "../definition.ts"
 
 import type { ChannelClient, ChannelDefinition, ChannelDefinitionRegistry } from "../types.ts"
 import type {
@@ -29,9 +29,14 @@ export async function loadChannelDefinition(name: string): Promise<ChannelDefini
   const registry = getRegistry()
   const entry = Object.hasOwn(registry, name) ? registry[name] : undefined
   if (!entry) return undefined
-  const loaded = await entry()
+  let loaded: unknown = await entry()
   if (isChannelDefinition(loaded)) return loaded
-  if (isPlainObject(loaded) && Object.hasOwn(loaded, "default") && isChannelDefinition(loaded.default)) return loaded.default
+  if (isPlainObject(loaded) && Object.hasOwn(loaded, "default")) loaded = loaded.default
+  if (isChannelDefinition(loaded)) return loaded
+  if (isPlainObject(loaded) && Object.hasOwn(loaded, "adapter")) {
+    validateChannelDefinition(loaded)
+    return defineChannel(loaded)
+  }
   return undefined
 }
 

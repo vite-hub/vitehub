@@ -1,18 +1,20 @@
 import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 
+import { discoverChannelDefinitions } from "@vite-hub/channels/vite"
 import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
-import { discoverServerChannelModules } from "@vite-hub/internal/definition-catalog"
+import { discoverServerChannelModules, mergeDefinitions } from "@vite-hub/internal/definition-catalog"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
 import type { Expression, Node } from "@vite-hub/internal/build/scan-module"
 
-/** A Channel module in `server/channels` that owns its webhook route without an Agent Definition. */
+/** A Channel module that owns its webhook route without an Agent Definition. */
 export interface StandaloneChannel {
   /** The Agent that hosts the Channel's webhook route, `channel-<name>`. It is not a public Agent Definition. */
   agent: string
   handler: string
-  /** The Channel name, from its path below `server/channels`, as for outbound Channels. */
+  /** The Channel name from the shared discovery catalog. */
   name: string
   /** `webhooks.path` values, then `webhooks.aliases` values. */
   paths: string[]
@@ -166,12 +168,13 @@ function readStandaloneChannelPaths(file: string, name: string): string[] | unde
 }
 
 /**
- * Finds the Channel modules in `server/channels` that default-export `defineChannel()` with a `webhooks.path`. Each
- * one gets its webhook routes without an Agent Definition. Names follow the outbound Channel rule: a folder with an
- * `index` module is one Channel named after the folder, and its other files are helpers.
+ * Finds inbound Channels through the shared Channel catalog, plus standalone Agent Channels in `server/channels`.
+ * Each one gets its webhook routes without an Agent Definition. A folder with an `index` module is one Channel
+ * named after the folder, and its other files are helpers.
  */
-export function discoverStandaloneChannels(serverDirs: string[]): StandaloneChannel[] {
-  return discoverServerChannelModules(serverDirs).flatMap((module) => {
+export function discoverStandaloneChannels(rootDir: string, serverDirs = [resolve(rootDir, "server")]): StandaloneChannel[] {
+  const modules = mergeDefinitions("channel", discoverServerChannelModules(serverDirs), discoverChannelDefinitions({ rootDir, serverDirs }))
+  return modules.flatMap((module) => {
     const paths = readStandaloneChannelPaths(module.handler, module.name)
     return paths ? [{ agent: `channel-${module.name}`, handler: module.handler, name: module.name, paths }] : []
   })

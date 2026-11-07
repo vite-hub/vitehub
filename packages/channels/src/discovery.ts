@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 
-import { objectProperties, scanModule, unwrapExpression } from "@vite-hub/internal/build/scan-module"
+import { objectProperties, scanModule, staticString, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
 import {
   createSuffixDefinitionSource,
   discoverDefinitions,
@@ -154,18 +154,27 @@ const channelModules = new Set(["vite-hub/channels", "@vite-hub/channels"])
 const webhookAdapterNames = new Set(["stripe", "webhook"])
 
 /**
- * Whether a Channel module receives webhooks: it imports `webhook()` or `stripe()` from `vite-hub/channels`. The
+ * Whether a Channel module receives webhooks: it imports `webhook()` or `stripe()`, also through a namespace. The
  * Agent package serves those webhooks, so the Vite plugin checks that it is on.
  */
 export function receivesChannelWebhooks(file: string): boolean {
   const module = scanModule(readFileSync(file, "utf8"), file)
   if (module.errors.length) return false
-  return module.program.body.some(statement => statement.type === "ImportDeclaration"
-    && statement.importKind !== "type"
-    && channelModules.has(statement.source.value)
-    && statement.specifiers.some(specifier => specifier.type === "ImportSpecifier"
-      && specifier.importKind !== "type"
-      && webhookAdapterNames.has(exportName(specifier.imported))))
+  const namespaces = new Set<string>()
+  for (const statement of module.program.body) {
+    if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || !channelModules.has(statement.source.value)) continue
+    for (const specifier of statement.specifiers) {
+      if (specifier.type === "ImportNamespaceSpecifier") namespaces.add(specifier.local.name)
+      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && webhookAdapterNames.has(exportName(specifier.imported))) return true
+    }
+  }
+  let receivesWebhooks = false
+  walk(module.program, (node) => {
+    if (node.type !== "MemberExpression" || node.object.type !== "Identifier" || !namespaces.has(node.object.name)) return
+    const name = node.computed ? staticString(node.property) : node.property.type === "Identifier" ? node.property.name : undefined
+    if (name && webhookAdapterNames.has(name)) receivesWebhooks = true
+  })
+  return receivesWebhooks
 }
 
 function discoverServerChannels(scanDirs: string[]): DiscoveredChannelDefinition[] {
