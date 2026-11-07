@@ -146,6 +146,15 @@ await content.publish({ expect: [{ collection: "settings", digest: draft.digest 
 await settings.get() // the published settings, also at /api/content/get/settings
 ```
 
+`documents({ path: "docs/{locale}/**/*.md", locales: ["en", "es"] })` keeps a document in several locales. The first locale is the source locale, and a document keeps its id in every locale: `guide` is `docs/en/guide.md` and `docs/es/guide.md`. `get()`, `raw()`, and `list()` take `locale`; without a translation, `get()` and `list()` return the source locale version with `fallback: true`. `save()`, `remove()`, and `restore()` take `{ locale }`, and a save in another locale records `derivedFrom: { path, digest }` of the source locale draft, as `@vite-hub/workspace/lineage` reads it. `status()` gives each source locale document `translations`, such as `{ es: "stale" }`: `current`, `stale` when the source changed since, or `missing`. `publish()` publishes every locale, and `publish({ expect })` entries take `locale`. A `url` pattern without `:locale` puts `/<locale>` before the URL of every locale but the source locale.
+
+```ts
+const docs = content.collection("docs")
+await docs.save("guide", { data: { title: "Guía" }, body: "Hola." }, { locale: "es" }) // records derivedFrom
+await docs.get("intro", { locale: "es" }) // { locale: "en", fallback: true, ... } without a translation
+await docs.status("guide") // { locale: "en", translations: { es: "current" }, ... }
+```
+
 Every save commits to the `draft` history ref; `publish()` copies selected documents to `published`. `/api/content/**` and the collection Comark instances serve `published`, except to a request with a valid preview cookie. Content registers a `write:validate` Workspace plugin, so every Workspace writer is validated on the collection paths: the `draft` ref accepts fields in progress, every other ref only valid documents. `save()` stores invalid fields and returns them as `issues`; `publish()` and `schedule()` refuse such drafts with `CONTENT_INVALID` naming each one. Saves of different documents retry over each other; `ifDigest` rejects a save when the same document changed. `publish({ expect })` publishes exactly the reviewed draft digests and throws `WORKSPACE_CONFLICT` when one changed, so confirm and approve flows use it. Listed documents carry `updatedAt`, when each last changed on the ref read. The runtime methods are trusted server API; surfaces such as the Console and Agent Capability check `content.can({ user, actor })` first, where `user` is the Auth user and `actor` is the Agent Actor, if any. Zod date fields project to `date-time` strings in `schema`; wrap Valibot fields in `toStandardJsonSchema()`, and Content warns once for each field whose JSON Schema is empty.
 
 ## Draft preview

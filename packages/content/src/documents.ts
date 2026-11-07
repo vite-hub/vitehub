@@ -46,7 +46,7 @@ export type ContentFormat = "markdown" | "json" | "yaml"
  */
 export type ContentDocumentUrl<TData = Record<string, unknown>> =
   | string
-  | ((document: { id: string, data: TData }) => string | null | undefined)
+  | ((document: { id: string, data: TData, locale?: string }) => string | null | undefined)
 
 export interface DocumentsOptions<TFields extends ContentFields> {
   /**
@@ -59,6 +59,13 @@ export interface DocumentsOptions<TFields extends ContentFields> {
    * (`content/news/launch.md` → `news/launch`), or the whole path without the extension when they share none.
    */
   path: string | readonly string[]
+  /**
+   * Locales of a translated collection, such as `['en', 'es']`. The first one is the source locale. The path marks the
+   * locale folder with `{locale}`, such as `docs/{locale}/**\/*.md`, so `guide` is `docs/en/guide.md` in English and
+   * `docs/es/guide.md` in Spanish. Reads and writes take a `locale`, and a translation records the source version it
+   * was made from as `derivedFrom`.
+   */
+  locales?: readonly string[]
   /** Document fields: frontmatter for Markdown, the whole object for JSON and YAML. A Markdown body is always `body`. */
   fields: TFields
   /**
@@ -191,6 +198,10 @@ export interface DocumentsDefinition<TFields extends ContentFields = ContentFiel
   readonly kind: "documents"
   /** Name of one document from `label: { singular }`, when the definition sets one. */
   readonly singularLabel?: string
+  /** Locales from `locales`, source locale first. `paths` then lists the globs of each locale in this order. */
+  readonly locales?: readonly string[]
+  /** The globs with `{locale}`, as the definition wrote them, when the collection has locales. */
+  readonly localePaths?: readonly string[]
   readonly search?: ReadonlyArray<string>
   readonly components?: Readonly<Record<string, DocumentComponent>>
 }
@@ -240,20 +251,29 @@ export function documents<const TFields extends ContentFields>(options: Document
     }
   }
   const display = globs.join(", ")
-  const compiled = compileDocumentsPath(globs)
+  const locales = localesOption(display, globs, options.locales)
+  const concrete = locales ? locales.flatMap(locale => localeGlobs(globs, locale)) : globs
+  const compiled = compileDocumentsPath(concrete)
   const fields = definitionFields("documents", display, options.fields)
+  if (locales && Object.hasOwn(fields, "derivedFrom")) {
+    throw invalidDefinition(`documents(${JSON.stringify(display)}) has locales, so derivedFrom is the reserved key where a translation records its source. Rename the field.`)
+  }
   if (options.search !== undefined && (!Array.isArray(options.search) || options.search.some(field => String(field) !== field))) {
     throw invalidDefinition(`documents(${JSON.stringify(display)}) search must be a list of field names.`)
   }
-  assertUrl("documents", display, options.url, options.fields)
+  assertUrl("documents", display, options.url, options.fields, locales !== undefined)
   const definition: { -readonly [K in keyof DocumentsDefinition<TFields>]: DocumentsDefinition<TFields>[K] } = {
     [collectionDefinition]: true,
     kind: "documents",
     fields,
     format: compiled.format,
     path: display,
-    paths: [...globs],
+    paths: [...concrete],
     editing: editingOptions("documents", display, options.editing),
+  }
+  if (locales) {
+    definition.locales = locales
+    definition.localePaths = [...globs]
   }
   if (options.search) definition.search = [...options.search]
   if (options.components !== undefined) definition.components = documentComponents(display, options.components)
@@ -264,6 +284,43 @@ export function documents<const TFields extends ContentFields>(options: Document
   const titleField = titleFieldOption("documents", display, options.titleField, options.fields)
   if (titleField) definition.titleField = titleField
   return definition
+}
+
+const localeTag = /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/
+
+/** Check `locales` against the globs: a list of locale tags, and `{locale}` once in the folder part of every glob. */
+function localesOption(display: string, globs: readonly string[], value: unknown): readonly string[] | undefined {
+  const where = `documents(${JSON.stringify(display)})`
+  if (value === undefined) {
+    if (globs.some(glob => glob.includes("{locale}"))) throw invalidDefinition(`${where} path uses {locale}, so it needs locales, such as locales: ['en', 'es'].`)
+    return
+  }
+  if (!Array.isArray(value) || !value.length || value.some(locale => String(locale) !== locale || !localeTag.test(locale))) {
+    throw invalidDefinition(`${where} locales must be a non-empty list of locale tags, such as ['en', 'es']. The first one is the source locale.`)
+  }
+  if (new Set(value).size !== value.length) throw invalidDefinition(`${where} locales ${JSON.stringify(value)} list a locale twice.`)
+  for (const glob of globs) {
+    const segments = glob.replace(/^\.?\/+/, "").split("/")
+    const at = segments.indexOf("{locale}")
+    const wildcard = segments.findIndex(segment => /[*?]/.test(segment))
+    if (at < 0 || segments.lastIndexOf("{locale}") !== at || at > wildcard || segments.some((segment, index) => index !== at && segment.includes("{locale}"))) {
+      throw invalidDefinition(`${where} path ${JSON.stringify(glob)} must have {locale} once, as a whole folder before the first wildcard, such as 'docs/{locale}/**/*.md'.`)
+    }
+  }
+  // Ids are the path below the folder that the globs share, so that folder must include the locale folder.
+  const folders = globs.map((glob) => {
+    const segments = glob.replace(/^\.?\/+/, "").split("/")
+    return segments.slice(0, segments.findIndex(segment => /[*?]/.test(segment))).join("/")
+  })
+  if (!commonBase(folders).split("/").includes("{locale}")) {
+    throw invalidDefinition(`${where} paths must share the folder that holds {locale}, such as 'docs/{locale}/guides/*.md' and 'docs/{locale}/blog/*.md', so a document keeps its id in every locale.`)
+  }
+  return Object.freeze([...value])
+}
+
+/** The globs of one locale: `{locale}` replaced by the locale tag. */
+export function localeGlobs(globs: readonly string[], locale: string): string[] {
+  return globs.map(glob => glob.replace("{locale}", locale))
 }
 
 function labelOption(helper: string, path: string, value: unknown, plural: boolean): Partial<ContentLabel> | undefined {
@@ -384,31 +441,41 @@ function editingOptions(helper: string, path: string, editing: unknown): { reado
 
 const urlToken = /:([A-Za-z_$][\w$]*)/g
 
-function assertUrl(helper: string, path: string, url: unknown, fields: ContentFields): void {
+function assertUrl(helper: string, path: string, url: unknown, fields: ContentFields, localized = false): void {
   if (url === undefined || url instanceof Function) return
   if (String(url) !== url || !url.startsWith("/") || url.startsWith("//")) {
     throw invalidDefinition(`${helper}(${JSON.stringify(path)}) url must be a function or a path pattern that starts with /, such as '/blog/:id'.`)
   }
   for (const [, name] of url.matchAll(urlToken)) {
+    if (name === "locale" && localized) continue
     if (name !== "id" && !Object.hasOwn(fields, name!)) {
-      throw invalidDefinition(`${helper}(${JSON.stringify(path)}) url ${JSON.stringify(url)} uses :${name}, which is neither :id nor a field.`)
+      throw invalidDefinition(`${helper}(${JSON.stringify(path)}) url ${JSON.stringify(url)} uses :${name}, which is neither :id${localized ? ", :locale," : ""} nor a field.`)
     }
   }
 }
 
-/** Whether `url` is a pattern whose only placeholder is `:id`, so a document's URL needs no read of the document. */
+/** Whether `url` is a pattern whose only placeholders are `:id` and `:locale`, so a document's URL needs no read of the document. */
 export function contentUrlNeedsOnlyId(url: ContentDocumentUrl<any>): boolean {
-  return String(url) === url && [...url.matchAll(urlToken)].every(([, name]) => name === "id")
+  return String(url) === url && [...url.matchAll(urlToken)].every(([, name]) => name === "id" || name === "locale")
 }
 
 /**
  * Resolve the public URL of a document from its definition, or null when it has none. Pattern values are encoded per
- * path segment, so an id such as `2026/hello` keeps its slash.
+ * path segment, so an id such as `2026/hello` keeps its slash. In a collection with locales, `:locale` is the locale
+ * of the document; a pattern without `:locale` puts `/<locale>` before the URL of every locale but the source locale.
  */
-export function contentDocumentUrl(url: ContentDocumentUrl<any> | undefined, document: { id: string, data: Record<string, unknown> }): string | null {
+export function contentDocumentUrl(
+  url: ContentDocumentUrl<any> | undefined,
+  document: { id: string, data: Record<string, unknown>, locale?: string },
+  sourceLocale?: string,
+): string | null {
   if (url === undefined) return null
+  if (String(url) === url && document.locale !== undefined && !url.includes(":locale") && document.locale !== sourceLocale) {
+    const resolved = contentDocumentUrl(url, { id: document.id, data: document.data })
+    return resolved === null ? null : `/${document.locale}${resolved === "/" ? "" : resolved}`
+  }
   if (url instanceof Function) {
-    const result: unknown = url({ id: document.id, data: document.data })
+    const result: unknown = url(document.locale === undefined ? { id: document.id, data: document.data } : { id: document.id, data: document.data, locale: document.locale })
     if (result === null || result === undefined) return null
     if (String(result) !== result || !result.startsWith("/") || result.startsWith("//")) {
       throw invalidDefinition(`Content url() must return a path that starts with /, or null, received ${JSON.stringify(result)} for ${JSON.stringify(document.id)}.`)
@@ -417,7 +484,7 @@ export function contentDocumentUrl(url: ContentDocumentUrl<any> | undefined, doc
   }
   let missing = false
   const resolved = url.replace(urlToken, (_match, name: string) => {
-    const value = name === "id" ? document.id : document.data[name]
+    const value = name === "id" ? document.id : name === "locale" && document.locale !== undefined ? document.locale : document.data[name]
     if (String(value) !== value && !Number.isFinite(value)) {
       missing = true
       return ""

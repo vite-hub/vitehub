@@ -137,6 +137,7 @@ export type {
 export type {
   AnyContentCollection,
   ContentCollection,
+  ContentDerivedFrom,
   ContentDocument,
   ContentDocumentState,
   ContentDocumentStatus,
@@ -159,6 +160,8 @@ export type {
   ContentRevisionsResult,
   ContentSaveInput,
   ContentSingleton,
+  ContentStatusOptions,
+  ContentTranslationState,
   ContentWriteOptions,
 } from "./collections-types.ts"
 

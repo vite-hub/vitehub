@@ -5,6 +5,7 @@ import { array, defineCollection } from "@vite-hub/source"
 import { ViteHubError } from "@vite-hub/runtime"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 import { isWorkspaceConflict, registerWorkspacePlugin, resolveWorkspaceStoreTarget, useWorkspaceFiles } from "@vite-hub/workspace/files"
+import { lineageDigest, readDerivedFrom } from "@vite-hub/workspace/lineage"
 
 import {
   comarkJsonSchema,
@@ -15,6 +16,7 @@ import {
   contentInvalid,
   contentInvalidDocuments,
   fieldsJsonSchema,
+  localeGlobs,
   normalizeFrontmatter,
   parseDocumentFile,
   renderDocumentFile,
@@ -106,7 +108,30 @@ export interface ContentDocument<TData = Record<string, unknown>> {
    * `schedule()` refuse the document with `CONTENT_INVALID` until they are fixed. Absent when the document validates.
    */
   issues?: ContentFieldIssue[]
+  /** The locale of this version, in a collection with `locales`. With `fallback`, it is the source locale. */
+  locale?: string
+  /** Set when the requested locale has no translation of the document, so the read returned the source locale version. */
+  fallback?: true
+  /** The source version that this document was made from, such as the source locale version of a translation. */
+  derivedFrom?: ContentDerivedFrom
 }
+
+/**
+ * Where a derived document, such as a translation, came from: the Workspace path of its source and the digest of the
+ * source bytes then, `sha256-` and the hex SHA-256. It is the `derivedFrom` of `@vite-hub/workspace/lineage`.
+ */
+export interface ContentDerivedFrom {
+  path: string
+  digest: string
+}
+
+/**
+ * How a translation compares with its source locale document on the draft:
+ * - `current`: its `derivedFrom` names the source version on the draft.
+ * - `stale`: the source changed since, or the translation has no `derivedFrom`.
+ * - `missing`: the locale has no translation of the document.
+ */
+export type ContentTranslationState = "current" | "stale" | "missing"
 
 /** A listed document. `list()` leaves out the body; read it with `get()`. */
 export type ContentDocumentSummary<TData = Record<string, unknown>> = Omit<ContentDocument<TData>, "body">
@@ -123,6 +148,8 @@ export interface ContentRawDocument {
   digest: string
   /** History revision the file was read from. */
   revision: string
+  /** The locale of the file, in a collection with `locales`. */
+  locale?: string
 }
 
 export interface ContentReadOptions {
@@ -130,6 +157,11 @@ export interface ContentReadOptions {
   ref?: ContentRef
   /** Read from one history revision instead of a ref head, for example one returned by `revisions()`. */
   revision?: string
+  /**
+   * The locale to read in a collection with `locales`. Defaults to the source locale. `get()` returns the source locale
+   * version with `fallback: true` when the locale has no translation; `raw()` returns null.
+   */
+  locale?: string
   signal?: AbortSignal
 }
 
@@ -153,6 +185,11 @@ export interface ContentListOptions<TData = Record<string, unknown>> {
   limit?: number
   /** `nextCursor` from the previous page. A cursor from another revision or query is rejected as stale. */
   cursor?: string
+  /**
+   * The locale to list in a collection with `locales`. Defaults to the source locale. A document without a translation
+   * in this locale is listed in the source locale with `fallback: true`.
+   */
+  locale?: string
   signal?: AbortSignal
 }
 
@@ -172,6 +209,12 @@ export interface ContentSaveInput<TInput = Record<string, unknown>> {
   data: TInput
   /** Markdown body. Defaults to an empty body. JSON and YAML documents have no body and reject a non-empty one. */
   body?: string
+  /**
+   * The source version this document was made from, stored as the `derivedFrom` key of the file. A save in a locale
+   * other than the source locale fills it in with the source locale version on the draft, so pass it only to record
+   * another source, or to keep the `derivedFrom` of the document you read when your edit is not a new translation.
+   */
+  derivedFrom?: ContentDerivedFrom
 }
 
 export interface ContentWriteOptions {
@@ -200,6 +243,8 @@ export interface ContentWriteOptions {
    * `CONTENT_LEASE_HELD`, naming the holder, while another session holds a live lease.
    */
   lease?: "override"
+  /** The locale to write in a collection with `locales`. Defaults to the source locale. */
+  locale?: string
 }
 
 /**
@@ -213,6 +258,8 @@ export type ContentDocumentState = "draft" | "published" | "changed" | "deleted"
 export interface ContentDocumentStatus {
   collection: string
   id: string
+  /** The locale of the document, in a collection with `locales`. */
+  locale?: string
   state: ContentDocumentState
   /** Digest on the `draft` ref, or null when the draft has no such document. Pass it to `publish({ expect })`. */
   draft: string | null
@@ -237,6 +284,16 @@ export interface ContentDocumentStatus {
     /** Digest of the version that the draft started from, or null when the draft added the document. */
     base: string | null
   }
+  /**
+   * How each other locale's translation compares with this source locale document on the draft, such as
+   * `{ es: 'stale', fr: 'missing' }`. Only source locale documents that exist on the draft have it.
+   */
+  translations?: Record<string, ContentTranslationState>
+}
+
+export interface ContentStatusOptions {
+  /** The locale to compare in a collection with `locales`. Defaults to the source locale. */
+  locale?: string
 }
 
 /** One document `publish({ expect })` must find on the draft before it publishes it. */
@@ -245,6 +302,8 @@ export interface ContentPublishExpectation {
   collection: string
   /** Document id. Omit it for a singleton defined with `singleton()`. */
   id?: string
+  /** The locale of the document in a collection with `locales`. Defaults to the source locale. */
+  locale?: string
   /** The draft digest that was reviewed, from `status()` or `get({ ref: 'draft' })`. `null` expects the document deleted on the draft. */
   digest: string | null
 }
@@ -270,6 +329,8 @@ export interface ContentPublishOptions<TCollection extends string = string> {
 export interface ContentPublishMismatch {
   collection: string
   id: string
+  /** The locale of the document, in a collection with `locales`. */
+  locale?: string
   /** The digest the caller expected. */
   expected: string | null
   /** The current draft digest, or null when the draft has no such document. */
@@ -279,6 +340,8 @@ export interface ContentPublishMismatch {
 export interface ContentPublishedDocument {
   collection: string
   id: string
+  /** The locale of the document, in a collection with `locales`. */
+  locale?: string
   change: "add" | "update" | "delete"
 }
 
@@ -318,6 +381,8 @@ export interface ContentPublishResult {
 export interface ContentResolved<TName extends string = string> {
   collection: TName
   id: string
+  /** The locale of the page, in a collection with `locales`. Read the document with `get(id, { locale })`. */
+  locale?: string
 }
 
 export interface ContentResolveOptions {
@@ -334,6 +399,8 @@ export interface ContentRevisionsOptions {
   cursor?: string
   /** Internal upper bound for raw history entries inspected by this call. */
   scanLimit?: number
+  /** The locale of the document, in a collection with `locales`. Defaults to the source locale. */
+  locale?: string
 }
 
 export interface ContentRevisionsResult {
@@ -368,6 +435,8 @@ interface ContentCollectionInfo {
   readonly seo?: string
   /** How sessions edit documents together. `lease: false` comes from `editing: { lease: false }` in the definition. */
   readonly editing: { readonly lease: boolean }
+  /** Locales from the definition, source locale first. Absent when the collection has none. */
+  readonly locales?: readonly string[]
 }
 
 /** An editable collection of documents. It is also a read-only Collection over the `published` ref, or `draft` in a preview request. */
@@ -379,7 +448,7 @@ export interface ContentCollection<TFields extends ContentFields = ContentFields
   readonly singularLabel?: string
   /** The collection glob, such as `posts/**\/*.md`. A collection with several globs lists them, separated by a comma. */
   readonly path: string
-  /** Every glob of the collection, in definition order. */
+  /** Every glob of the collection, in definition order. A collection with `locales` lists the globs of each locale, source locale first. */
   readonly paths: readonly string[]
   /** Comark components that bodies may use, keyed by tag. Editors offer them in their insert menu. */
   readonly components: Readonly<Record<string, DocumentComponent>>
@@ -402,9 +471,12 @@ export interface ContentCollection<TFields extends ContentFields = ContentFields
   /** Save the version of a document from an earlier revision as the new draft. */
   restore(id: string, revision: string, options?: ContentWriteOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>>>
   /** Compare one document on `draft` and `published`. Null when it exists on neither. */
-  status(id: string): Promise<ContentDocumentStatus | null>
-  /** Compare every document on `draft` and `published`, sorted by id. */
-  status(): Promise<ContentDocumentStatus[]>
+  status(id: string, options?: ContentStatusOptions): Promise<ContentDocumentStatus | null>
+  /**
+   * Compare every document on `draft` and `published`, sorted by id. In a collection with `locales`, source locale
+   * documents also report the state of each translation in `translations`.
+   */
+  status(options?: ContentStatusOptions): Promise<ContentDocumentStatus[]>
 }
 
 /**
@@ -526,9 +598,18 @@ interface RefState {
  * because the file has no object of fields to edit.
  */
 type ParsedText =
-  | { data: Record<string, unknown>, body: string, issues?: undefined, malformed?: undefined }
-  | { data: Record<string, unknown>, body: string, issues: ContentFieldIssue[], malformed?: undefined }
-  | { data?: undefined, body?: undefined, issues: ContentFieldIssue[], malformed: true }
+  | { data: Record<string, unknown>, body: string, issues?: undefined, malformed?: undefined, derivedFrom?: ContentDerivedFrom }
+  | { data: Record<string, unknown>, body: string, issues: ContentFieldIssue[], malformed?: undefined, derivedFrom?: ContentDerivedFrom }
+  | { data?: undefined, body?: undefined, issues: ContentFieldIssue[], malformed: true, derivedFrom?: undefined }
+
+/** `derivedFrom` of stored fields, when it is `{ path, digest }` with two strings. */
+function derivedFromOf(fields: Record<string, unknown>): ContentDerivedFrom | undefined {
+  const value: unknown = fields.derivedFrom
+  if (value === null || Object(value) !== value) return
+  const path: unknown = Reflect.get(Object(value), "path")
+  const digest: unknown = Reflect.get(Object(value), "digest")
+  return String(path) === path && path && String(digest) === digest && digest ? { path, digest } : undefined
+}
 
 type IndexedDocument = ContentDocument<Record<string, unknown>>
 
@@ -618,8 +699,10 @@ function revisionDocuments(revision: WorkspaceRevision): unknown[] {
   return Array.isArray(documents) ? documents.filter(document => document !== null && Object(document) === document) : []
 }
 
-function revisionTouches(revision: WorkspaceRevision, collection: string, id: string): boolean {
-  return revisionDocuments(revision).some(document => Reflect.get(Object(document), "collection") === collection && Reflect.get(Object(document), "id") === id)
+/** Whether a Content revision changed one document. A document without `locale` in the metadata is in the source locale. */
+function revisionTouches(revision: WorkspaceRevision, collection: string, id: string, locale?: string, sourceLocale?: string): boolean {
+  return revisionDocuments(revision).some(document => Reflect.get(Object(document), "collection") === collection && Reflect.get(Object(document), "id") === id
+    && (Reflect.get(Object(document), "locale") ?? sourceLocale) === locale)
 }
 
 /**
@@ -716,6 +799,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   const defaultRef = options.defaultRef ?? (() => "published" as const)
   const previewFrame = options.previewFrame ?? (() => undefined)
   const texts = new BoundedCache<string>(32 * 1024 * 1024, text => text.length * 2)
+  const lineages = new BoundedCache<Promise<{ digest: string, derivedFrom?: ContentDerivedFrom }>>(10_000)
   const revisions = new BoundedCache<Promise<OpenedRevision>>(16)
   const publishListeners: Array<(collections: string[]) => Promise<void> | void> = []
   let historyPromise: Promise<WorkspaceRetainedHistory> | undefined
@@ -798,6 +882,17 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     return text
   }
 
+  /** The lineage digest of a file, and the `derivedFrom` it records, from its exact bytes as `workspace.stale` reads them. */
+  async function lineageOf(opened: OpenedRevision, path: string): Promise<{ digest: string, derivedFrom?: ContentDerivedFrom }> {
+    const digest = opened.files.get(path)
+    if (digest === undefined) throw contentErrorDiagnostics.CONTENT_R0004({ message: `[vitehub] Content could not find ${JSON.stringify(path)}.` })
+    return await memoize(lineages, `${path}\0${digest}`, async () => {
+      const bytes = await opened.view.readFile(path, { encoding: "binary" })
+      const derivedFrom = readDerivedFrom(path, bytes)
+      return derivedFrom ? { digest: lineageDigest(bytes), derivedFrom } : { digest: lineageDigest(bytes) }
+    })
+  }
+
   const updatedAtMaps = new BoundedCache<Promise<ReadonlyMap<string, string | null>>>(16)
 
   /** The folders that hold documents: the folder of each glob, without a folder inside another. "" is the Workspace root. */
@@ -829,7 +924,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const id: unknown = Reflect.get(Object(document), "id")
       if (!collection || String(id) !== id) return
       try {
-        paths.add(collection.pathFor(id))
+        paths.add(collection.pathFor(id, Reflect.get(Object(document), "locale")))
       }
       catch {
         return
@@ -1196,6 +1291,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   function createCollection(name: string, definition: ContentCollectionDefinition) {
     const single = definition.kind === "singleton" ? compileSingletonPath(definition.path) : undefined
     const compiled: CompiledDocumentsPath = single ?? compileDocumentsPath(definition.paths)
+    const locales = definition.kind === "documents" ? definition.locales : undefined
+    const sourceLocale = locales?.[0]
+    // Each locale has its own folder, so ids stay the same across locales.
+    const localeCompiled = new Map((locales ?? []).map(locale => [locale, compileDocumentsPath(localeGlobs(definition.kind === "documents" ? definition.localePaths ?? [] : [], locale))]))
     const format = compiled.format
     const fieldNames = new Set(Object.keys(definition.fields))
     const schema = fieldsJsonSchema(definition.fields)
@@ -1212,7 +1311,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         return documentId as string
       },
     }
-    const indexes = new BoundedCache<Promise<IndexedDocument[]>>(4)
+    const indexes = new BoundedCache<Promise<IndexedDocument[]>>(4 * (locales?.length ?? 1))
     const searchFields = ((definition.kind === "documents" ? definition.search : undefined) ?? [
       ...Object.keys(definition.fields).filter((field) => {
         const type = Reflect.get(Object(Reflect.get(Object(schema.properties), field)), "type")
@@ -1234,11 +1333,38 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       return fieldNames.has(field) ? `data.${field}` : field
     }
 
-    function idFor(path: string): string {
-      return path.slice(compiled.base.length, path.length - compiled.extension.length)
+    /**
+     * The locale a read or write takes: the source locale when omitted, and undefined in a collection without locales.
+     * An unknown locale throws `CONTENT_R0008`.
+     */
+    function localeOf(locale: unknown): string | undefined {
+      if (!locales) {
+        if (locale === undefined) return
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content collection ${JSON.stringify(name)} has no locales, so it takes no locale. Received ${JSON.stringify(locale)}.` })
+      }
+      if (locale === undefined) return sourceLocale
+      if (String(locale) !== locale || !locales.includes(locale)) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content collection ${JSON.stringify(name)} has the locales ${JSON.stringify(locales)}, received ${JSON.stringify(locale)}.` })
+      }
+      return locale
     }
 
-    function pathFor(id: unknown): string {
+    /** The compiled globs of one locale, or of the whole collection without locales. */
+    function compiledFor(locale: string | undefined): CompiledDocumentsPath {
+      return locale === undefined ? compiled : localeCompiled.get(locale) ?? compiled
+    }
+
+    /** The `locale` key of a read result, revision metadata, or status, in a collection with locales. */
+    function localeKey(locale: string | undefined): { locale?: string } {
+      return locale === undefined ? {} : { locale }
+    }
+
+    function idFor(path: string): string {
+      const own = [...localeCompiled.values()].find(entry => entry.match(path)) ?? compiled
+      return path.slice(own.base.length, path.length - own.extension.length)
+    }
+
+    function pathFor(id: unknown, requested?: unknown): string {
       if (single) {
         if (id !== single.id) {
           throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content singleton ${JSON.stringify(name)} has the id ${JSON.stringify(single.id)} (${single.path}). Omit the id, or pass ${JSON.stringify(single.id)}; received ${JSON.stringify(id)}.` })
@@ -1249,17 +1375,20 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         || id.split("/").some(segment => !segment || segment === "." || segment === "..")) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content document id must be a relative path such as "hello" or "2026/hello", received ${JSON.stringify(id)}.` })
       }
-      const path = `${compiled.base}${id}${compiled.extension}`
-      if (!compiled.match(path)) {
+      const own = compiledFor(localeOf(requested))
+      const path = `${own.base}${id}${own.extension}`
+      if (!own.match(path)) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content document ${JSON.stringify(id)} is outside collection ${JSON.stringify(name)} (${definition.path}).` })
       }
       return path
     }
 
-    function entries(files: ReadonlyMap<string, string>): Map<string, CollectionEntry> {
+    /** The documents of one locale, by id. Without locales, every document of the collection. */
+    function entries(files: ReadonlyMap<string, string>, locale: string | undefined = sourceLocale): Map<string, CollectionEntry> {
+      const own = compiledFor(locale)
       const result = new Map<string, CollectionEntry>()
       for (const [path, digest] of files) {
-        if (compiled.match(path)) result.set(idFor(path), { path, digest })
+        if (own.match(path)) result.set(path.slice(own.base.length, path.length - own.extension.length), { path, digest })
       }
       return result
     }
@@ -1267,9 +1396,11 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     async function parseText(text: string): Promise<ParsedText> {
       const file = parseDocumentFile(text, format)
       if ("issues" in file) return { issues: file.issues, malformed: true }
+      const derivedFrom = derivedFromOf(file.frontmatter)
+      const lineage = derivedFrom ? { derivedFrom } : {}
       const result = await validateFields(definition.fields, file.frontmatter)
-      if (result.issues) return { data: file.frontmatter, body: file.body, issues: result.issues }
-      return { data: result.data, body: file.body }
+      if (result.issues) return { data: file.frontmatter, body: file.body, issues: result.issues, ...lineage }
+      return { data: result.data, body: file.body, ...lineage }
     }
 
     async function parseEntry(opened: OpenedRevision, entry: CollectionEntry): Promise<ParsedText> {
@@ -1279,14 +1410,23 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     function documentOf(
       id: string,
       entry: CollectionEntry,
-      parsed: { data: Record<string, unknown>, body: string, issues?: ContentFieldIssue[] | undefined },
+      parsed: { data: Record<string, unknown>, body: string, issues?: ContentFieldIssue[] | undefined, derivedFrom?: ContentDerivedFrom | undefined },
       revision: WorkspaceRevision,
       updatedAt: string | null,
+      locale?: string,
     ): IndexedDocument {
-      const document: IndexedDocument = { collection: name, id, path: entry.path, data: { ...parsed.data }, body: parsed.body, digest: entry.digest, revision: revision.id, updatedAt }
+      const document: IndexedDocument = { collection: name, id, path: entry.path, data: { ...parsed.data }, body: parsed.body, digest: entry.digest, revision: revision.id, updatedAt, ...localeKey(locale) }
       if (parsed.issues?.length) document.issues = parsed.issues.map(issue => ({ ...issue, path: [...issue.path] }))
-      if (definition.url !== undefined) document.url = contentDocumentUrl(definition.url, document)
+      if (parsed.derivedFrom) document.derivedFrom = { ...parsed.derivedFrom }
+      if (definition.url !== undefined) document.url = contentDocumentUrl(definition.url, document, sourceLocale)
       return document
+    }
+
+    /** The source locale version of a document, read for a locale without a translation: its URL is the requested locale's. */
+    function fallbackOf(document: IndexedDocument, locale: string | undefined): IndexedDocument {
+      const result: IndexedDocument = { ...document, fallback: true }
+      if (definition.url !== undefined) result.url = contentDocumentUrl(definition.url, { ...document, ...localeKey(locale) }, sourceLocale)
+      return result
     }
 
     /** A draft lists work in progress with its issues. `published` and malformed files list only what validates. */
@@ -1294,12 +1434,12 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       return !parsed.malformed && (!parsed.issues || opened.revision.ref !== "published")
     }
 
-    async function index(opened: OpenedRevision): Promise<IndexedDocument[]> {
-      return await memoize(indexes, opened.revision.id, async () => {
+    async function index(opened: OpenedRevision, locale: string | undefined = sourceLocale): Promise<IndexedDocument[]> {
+      return await memoize(indexes, `${opened.revision.id}\0${locale ?? ""}`, async () => {
         const updated = await updatedAtMap(opened)
-        const documents = await mapLimit([...entries(opened.files)], 8, async ([id, entry]) => {
+        const documents = await mapLimit([...entries(opened.files, locale)], 8, async ([id, entry]) => {
           const parsed = await parseEntry(opened, entry)
-          if (listable(opened, parsed)) return documentOf(id, entry, parsed, opened.revision, updated.get(entry.path) ?? null)
+          if (listable(opened, parsed)) return documentOf(id, entry, parsed, opened.revision, updated.get(entry.path) ?? null, locale)
           // Listing skips a document that cannot be read as fields; get() reports why.
           console.warn(contentInvalid(name, id, entry.path, parsed.issues).message)
           return undefined
@@ -1327,6 +1467,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     /** The document of this collection that the current preview frame reads as a draft, for a read without `ref` or `revision`. */
     function framed(options: ContentReadOptions): { id: string, path: string, document?: { data: Record<string, unknown>, body?: string } } | undefined {
       if (options.ref !== undefined || options.revision !== undefined) return
+      // A preview frame shows the source locale version.
+      if (localeOf(options.locale) !== sourceLocale) return
       const frame = previewFrame()
       if (frame?.collection !== name) return
       try {
@@ -1350,7 +1492,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         try {
           const text = renderDocumentFile(inFieldOrder(normalizeFrontmatter(target.document.data)), format === "markdown" ? target.document.body ?? "" : "", format)
           const parsed = await parseText(text)
-          if (!parsed.malformed) return documentOf(target.id, { path: target.path, digest: await sha256(text) }, parsed, opened.revision, updatedAt)
+          if (!parsed.malformed) return documentOf(target.id, { path: target.path, digest: await sha256(text) }, parsed, opened.revision, updatedAt, sourceLocale)
         }
         catch {
           // Fields that are not data render the stored draft.
@@ -1360,18 +1502,25 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (digest === undefined) return null
       const entry = { path: target.path, digest }
       const parsed = await parseEntry(opened, entry)
-      return listable(opened, parsed) ? documentOf(target.id, entry, parsed, opened.revision, updatedAt) : null
+      return listable(opened, parsed) ? documentOf(target.id, entry, parsed, opened.revision, updatedAt, sourceLocale) : null
     }
 
     async function list(options: ContentListOptions = {}): Promise<ContentPage> {
+      const locale = localeOf(options.locale)
       const state = await refState(assertRef(options.ref, defaultRef()))
-      const stored = state.opened ? await index(state.opened) : []
+      let stored = state.opened ? await index(state.opened, locale) : []
+      if (state.opened && locale !== sourceLocale) {
+        // Documents without a translation list in the source locale.
+        const translated = new Set(stored.map(item => item.id))
+        const fallbacks = (await index(state.opened, sourceLocale)).filter(item => !translated.has(item.id)).map(item => fallbackOf(item, locale))
+        stored = [...stored, ...fallbacks].sort((left, right) => left.id.localeCompare(right.id))
+      }
       const target = framed(options)
       const draftItem = target && await frameDraft(target)
       const items = target
         ? [...stored.filter(item => item.id !== target.id), ...draftItem ? [draftItem] : []].sort((left, right) => left.id.localeCompare(right.id))
         : stored
-      const digest = `${name}:${state.revision?.id ?? "empty"}${target ? `:${target.id}@${draftItem?.digest ?? "none"}` : ""}`
+      const digest = `${name}:${locale ? `${locale}:` : ""}${state.revision?.id ?? "empty"}${target ? `:${target.id}@${draftItem?.digest ?? "none"}` : ""}`
       const listed = defineCollection({
         source: array(() => ({ digest, items }), {
           defaultLimit: listDefaultLimit,
@@ -1399,32 +1548,45 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     }
 
     async function get(id: string, options: ContentReadOptions = {}): Promise<IndexedDocument | null> {
-      const path = pathFor(id)
+      const locale = localeOf(options.locale)
+      const path = pathFor(id, locale)
       const target = framed(options)
       if (target?.path === path) return await frameDraft(target)
       const opened = await openFor("get", options)
-      const digest = opened?.files.get(path)
-      if (!opened || digest === undefined) return null
+      if (!opened) return null
+      if (opened.files.has(path)) return await read(opened, id, locale)
+      // A locale without a translation reads the source locale version.
+      if (locale === sourceLocale) return null
+      const source = await read(opened, id, sourceLocale)
+      return source && fallbackOf(source, locale)
+    }
+
+    async function read(opened: OpenedRevision, id: string, locale: string | undefined): Promise<IndexedDocument | null> {
+      const path = pathFor(id, locale)
+      const digest = opened.files.get(path)
+      if (digest === undefined) return null
       const entry = { path, digest }
       const parsed = await parseEntry(opened, entry)
       if (parsed.malformed || (parsed.issues && opened.revision.ref === "published")) throw contentInvalid(name, id, path, parsed.issues)
-      return documentOf(id, entry, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null)
+      return documentOf(id, entry, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null, locale)
     }
 
     async function raw(id: string, options: ContentReadOptions = {}): Promise<ContentRawDocument | null> {
-      const path = pathFor(id)
+      const locale = localeOf(options.locale)
+      const path = pathFor(id, locale)
       const opened = await openFor("raw", options)
       const digest = opened?.files.get(path)
       if (!opened || digest === undefined) return null
-      return { collection: name, id, path, text: await readText(opened, path), digest, revision: opened.revision.id }
+      return { collection: name, id, path, text: await readText(opened, path), digest, revision: opened.revision.id, ...localeKey(locale) }
     }
 
     async function commitDocument(
       id: string,
       path: string,
-      change: { text: string, digest: string, data: Record<string, unknown>, body: string, issues?: ContentFieldIssue[] | undefined } | { delete: true },
+      change: { text: string, digest: string, data: Record<string, unknown>, body: string, issues?: ContentFieldIssue[] | undefined, derivedFrom?: ContentDerivedFrom | undefined } | { delete: true },
       writeOptions: ContentWriteOptions,
       action: "save" | "remove" | "restore",
+      locale: string | undefined,
     ): Promise<IndexedDocument | undefined> {
       if (writeOptions.ifDigest !== undefined && writeOptions.ifDigest !== null && String(writeOptions.ifDigest) !== writeOptions.ifDigest) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content ifDigest must be a digest string or null." })
@@ -1438,9 +1600,12 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (writeOptions.lease !== undefined && writeOptions.lease !== "override") {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content write lease must be 'override' or omitted." })
       }
-      const metadata = writeMetadata(writeOptions.metadata, { action, documents: [{ collection: name, id }] })
-      const message = writeOptions.message ?? `${action[0]!.toUpperCase()}${action.slice(1)} ${name}/${id}`
-      if (writeOptions.lease !== "override") {
+      const documents = [{ collection: name, id, ...localeKey(locale) }]
+      const metadata = writeMetadata(writeOptions.metadata, { action, documents })
+      const message = writeOptions.message ?? `${action[0]!.toUpperCase()}${action.slice(1)} ${name}/${id}${locale !== sourceLocale ? ` (${locale})` : ""}`
+      // Edit leases and live rooms belong to the source locale document. A translation has no editor session yet.
+      const translation = locale !== sourceLocale
+      if (writeOptions.lease !== "override" && !translation) {
         // A write is checked once before it commits. `ifDigest` still guards the bytes; the lease guards who writes.
         const holder = await sessions.holder(sessionCollection, id, writeOptions.session)
         if (holder) throw contentLeaseHeld(name, id, holder)
@@ -1489,7 +1654,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         if (!("delete" in change) && current === change.digest && opened && writeOptions.ifPublishedDigest === undefined) {
           // Unchanged content keeps the current draft revision.
           const parsed = await parseEntry(opened, { path, digest: current })
-          if (!parsed.malformed) return documentOf(id, { path, digest: current }, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null)
+          if (!parsed.malformed) return documentOf(id, { path, digest: current }, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null, locale)
         }
         try {
           const release = await acquireMutation()
@@ -1503,15 +1668,17 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
               ...(!head && base && baseRef !== undefined ? { startFrom: base.id } : {}),
               changes: "delete" in change ? { delete: [path] } : { put: { [path]: change.text } },
               message,
-              metadata: recorded ? writeMetadata(writeOptions.metadata, { action, documents: [{ collection: name, id }], ...recorded }) : metadata,
+              metadata: recorded ? writeMetadata(writeOptions.metadata, { action, documents, ...recorded }) : metadata,
             })
           }
           finally { release() }
-          if (writeOptions.session !== undefined) await sessions.renew(sessionCollection, id, writeOptions.session)
-          await refreshLiveRoom(id, writeOptions.session)
+          if (!translation) {
+            if (writeOptions.session !== undefined) await sessions.renew(sessionCollection, id, writeOptions.session)
+            await refreshLiveRoom(id, writeOptions.session)
+          }
           if ("delete" in change) return
           texts.set(change.digest, change.text)
-          return documentOf(id, { path, digest: change.digest }, change, revision, revision.createdAt)
+          return documentOf(id, { path, digest: change.digest }, change, revision, revision.createdAt, locale)
         }
         catch (error) {
           // Another document moved the draft head. Retry unless this document changed, which the digest check catches.
@@ -1538,7 +1705,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     }
 
     async function save(id: string, input: ContentSaveInput, writeOptions: ContentWriteOptions = {}): Promise<IndexedDocument> {
-      const path = pathFor(id)
+      const locale = localeOf(writeOptions.locale)
+      const path = pathFor(id, locale)
       if (input === null || Object(input) !== input) throw contentInvalid(name, id, path, [{ message: "save() requires { data, body }.", path: [] }])
       const body = input.body === undefined ? "" : input.body
       if (String(body) !== body) throw contentInvalid(name, id, path, [{ message: "body must be a Markdown string.", path: ["body"] }])
@@ -1552,6 +1720,16 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       catch (cause) {
         throw contentInvalid(name, id, path, [{ message: cause instanceof Error ? cause.message : String(cause), path: [] }])
       }
+      if (input.derivedFrom !== undefined) {
+        const derivedFrom = derivedFromOf({ derivedFrom: input.derivedFrom })
+        if (!derivedFrom) throw contentInvalid(name, id, path, [{ message: "derivedFrom must be { path, digest } with the Workspace path of the source and its digest.", path: ["derivedFrom"] }])
+        frontmatter.derivedFrom = derivedFrom
+      }
+      else if (locale !== sourceLocale && !derivedFromOf(frontmatter)) {
+        // A translation records the source locale version it was made from, so a later source change marks it stale.
+        const source = await sourceVersion(id)
+        if (source) frontmatter.derivedFrom = source
+      }
       // Drafts accept fields in progress. The issues come back with the document, and publish() refuses it until they are fixed.
       const validated = await validateFields(definition.fields, frontmatter)
       // Fields are stored in definition order, then other keys, so the same values give the same bytes from any writer.
@@ -1559,19 +1737,31 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       // Read the stored text back so `body` and `data` match what get() returns.
       const stored = parseDocumentFile(text, format)
       if ("issues" in stored) throw contentInvalid(name, id, path, stored.issues)
+      const derivedFrom = derivedFromOf(stored.frontmatter)
+      const lineage = derivedFrom ? { derivedFrom } : {}
       const change = validated.issues
-        ? { text, digest: await sha256(text), data: stored.frontmatter, body: stored.body, issues: validated.issues }
-        : { text, digest: await sha256(text), data: validated.data, body: stored.body }
+        ? { text, digest: await sha256(text), data: stored.frontmatter, body: stored.body, issues: validated.issues, ...lineage }
+        : { text, digest: await sha256(text), data: validated.data, body: stored.body, ...lineage }
       // SAFETY: A put always returns the stored document.
-      return (await commitDocument(id, path, change, writeOptions, "save"))!
+      return (await commitDocument(id, path, change, writeOptions, "save", locale))!
+    }
+
+    /** The source locale version of a document on the draft, as a translation records it, or undefined when it has none. */
+    async function sourceVersion(id: string): Promise<ContentDerivedFrom | undefined> {
+      const opened = (await refState("draft")).opened
+      const path = pathFor(id, sourceLocale)
+      if (!opened?.files.has(path)) return
+      return { path, digest: (await lineageOf(opened, path)).digest }
     }
 
     async function remove(id: string, writeOptions: ContentWriteOptions = {}): Promise<void> {
-      await commitDocument(id, pathFor(id), { delete: true }, writeOptions, "remove")
+      const locale = localeOf(writeOptions.locale)
+      await commitDocument(id, pathFor(id, locale), { delete: true }, writeOptions, "remove", locale)
     }
 
     async function restore(id: string, revision: string, writeOptions: ContentWriteOptions = {}): Promise<IndexedDocument> {
-      const path = pathFor(id)
+      const locale = localeOf(writeOptions.locale)
+      const path = pathFor(id, locale)
       const opened = await openRevision(String(revision))
       if (!opened.files.has(path)) throw contentNotFound(name, id)
       const text = await readText(opened, path)
@@ -1579,17 +1769,29 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       // An earlier version with invalid fields restores as a draft in progress; a file that cannot be parsed does not.
       if (parsed.malformed) throw contentInvalid(name, id, path, parsed.issues)
       // SAFETY: A put always returns the stored document.
-      return (await commitDocument(id, path, { text, digest: opened.files.get(path)!, data: parsed.data, body: parsed.body, issues: parsed.issues }, writeOptions, "restore"))!
+      return (await commitDocument(id, path, { text, digest: opened.files.get(path)!, data: parsed.data, body: parsed.body, issues: parsed.issues, derivedFrom: parsed.derivedFrom }, writeOptions, "restore", locale))!
     }
 
-    function status(id: string): Promise<ContentDocumentStatus | null>
-    function status(): Promise<ContentDocumentStatus[]>
-    async function status(id?: string): Promise<ContentDocumentStatus | ContentDocumentStatus[] | null> {
-      if (id !== undefined) pathFor(id)
+    /** How the translation of a document in one locale compares with its source locale version on the draft. */
+    async function translationState(opened: OpenedRevision, id: string, locale: string): Promise<ContentTranslationState> {
+      const path = pathFor(id, locale)
+      if (!opened.files.has(path)) return "missing"
+      const { derivedFrom } = await lineageOf(opened, path)
+      if (!derivedFrom || !opened.files.has(derivedFrom.path)) return "stale"
+      return (await lineageOf(opened, derivedFrom.path)).digest === derivedFrom.digest ? "current" : "stale"
+    }
+
+    function status(id: string, options?: ContentStatusOptions): Promise<ContentDocumentStatus | null>
+    function status(options?: ContentStatusOptions): Promise<ContentDocumentStatus[]>
+    async function status(first?: string | ContentStatusOptions, second?: ContentStatusOptions): Promise<ContentDocumentStatus | ContentDocumentStatus[] | null> {
+      const id = hasRuntimeType(first, "string") ? first : undefined
+      const statusOptions: unknown = id === undefined ? first : second
+      const locale = localeOf(statusOptions !== null && Object(statusOptions) === statusOptions ? Reflect.get(Object(statusOptions), "locale") : undefined)
+      if (id !== undefined) pathFor(id, locale)
       const [draft, published, scheduled, pending] = await Promise.all([refState("draft"), refState("published"), schedules.documentSchedules(), pendingPublishes()])
       const bases = (await history().then(retained => retained.forksFrom?.("draft"))) === undefined ? undefined : await trackedDraftBases(draft.revision, published.opened)
-      const draftEntries = draft.opened ? entries(draft.opened.files) : new Map<string, CollectionEntry>()
-      const publishedEntries = published.opened ? entries(published.opened.files) : new Map<string, CollectionEntry>()
+      const draftEntries = draft.opened ? entries(draft.opened.files, locale) : new Map<string, CollectionEntry>()
+      const publishedEntries = published.opened ? entries(published.opened.files, locale) : new Map<string, CollectionEntry>()
       // Issue counts of the drafts, from the parse cache that list() shares.
       const issueCounts = new Map<string, number>()
       const counted = id === undefined ? [...draftEntries] : draftEntries.has(id) ? [[id, draftEntries.get(id)!] as const] : []
@@ -1602,7 +1804,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (bases && draft.revision) {
         const ids = id === undefined ? new Set([...draftEntries.keys(), ...publishedEntries.keys()]) : new Set([id])
         await mapLimit([...ids], 8, async (documentId) => {
-          const path = pathFor(documentId)
+          const path = pathFor(documentId, locale)
           const publishedDigest = publishedEntries.get(documentId)?.digest
           if (!Object.hasOwn(bases, path) || (draftEntries.get(documentId)?.digest ?? null) === (publishedDigest ?? null)) return
           if ((publishedDigest ?? null) === bases[path]) return
@@ -1610,25 +1812,39 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           conflicts.set(documentId, bases[path] ?? null)
         })
       }
+      // The translation states of each source locale document on the draft.
+      const translations = new Map<string, Record<string, ContentTranslationState>>()
+      if (locales && locale === sourceLocale && draft.opened) {
+        const opened = draft.opened
+        const ids = id === undefined ? [...draftEntries.keys()] : draftEntries.has(id) ? [id] : []
+        await mapLimit(ids, 8, async (documentId) => {
+          const states: Record<string, ContentTranslationState> = {}
+          for (const other of locales.slice(1)) states[other] = await translationState(opened, documentId, other)
+          translations.set(documentId, states)
+        })
+      }
       const statusOf = (documentId: string): ContentDocumentStatus | null => {
         const draftDigest = draftEntries.get(documentId)?.digest ?? null
         const publishedDigest = publishedEntries.get(documentId)?.digest ?? null
         if (draftDigest === null && publishedDigest === null) return null
         // A document that only `published` changed is not a change of the draft: publish() leaves it alone.
-        const publishedOnly = bases !== undefined && draftDigest !== publishedDigest && !Object.hasOwn(bases, pathFor(documentId))
+        const publishedOnly = bases !== undefined && draftDigest !== publishedDigest && !Object.hasOwn(bases, pathFor(documentId, locale))
         const state: ContentDocumentState = publishedOnly
           ? publishedDigest === null ? "deleted" : "published"
           : draftDigest === null
             ? "deleted"
             : publishedDigest === null ? "draft" : draftDigest === publishedDigest ? "published" : "changed"
-        const status: ContentDocumentStatus = { collection: name, id: documentId, state, draft: draftDigest, published: publishedDigest }
+        const status: ContentDocumentStatus = { collection: name, id: documentId, ...localeKey(locale), state, draft: draftDigest, published: publishedDigest }
         const issues = issueCounts.get(documentId)
         if (issues) status.issues = issues
-        const schedule = scheduled.get(contentScheduleKey(name, documentId))
+        // Schedules publish source locale documents.
+        const schedule = locale === sourceLocale ? scheduled.get(contentScheduleKey(name, documentId)) : undefined
         if (schedule) status.schedule = schedule
-        const pullRequest = pending.get(pathFor(documentId))
+        const pullRequest = pending.get(pathFor(documentId, locale))
         if (pullRequest) status.pullRequest = pullRequest
         if (conflicts.has(documentId)) status.conflict = { base: conflicts.get(documentId) ?? null }
+        const states = translations.get(documentId)
+        if (states) status.translations = states
         return status
       }
       if (id !== undefined) return statusOf(id)
@@ -1694,7 +1910,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     else {
       const components = (definition.kind === "documents" ? definition.components : undefined) ?? {}
       const singularLabel = definition.kind === "documents" ? definition.singularLabel : undefined
-      collection = { ...shared, kind: "documents", path: definition.path, paths: definition.paths, components, ...(singularLabel ? { singularLabel } : {}), get, raw, save, remove, restore, status }
+      collection = { ...shared, kind: "documents", path: definition.path, paths: definition.paths, components, ...(singularLabel ? { singularLabel } : {}), ...(locales ? { locales } : {}), get, raw, save, remove, restore, status }
     }
 
     let warnedUrl = false
@@ -1703,20 +1919,29 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
      * The app path and id of each document on one revision, for `resolve()`. Without `url`, or with a pattern of `:id`
      * alone, the ids are enough; any other `url` reads the documents that `list()` reads.
      */
-    async function routes(opened: OpenedRevision): Promise<Array<[path: string, id: string]>> {
+    async function routes(opened: OpenedRevision): Promise<Array<[path: string, id: string, locale: string | undefined]>> {
       const url = definition.url
-      const found = [...entries(opened.files)]
+      // Every locale has a page for each document: its translation, or the source locale version as a fallback.
+      const source = entries(opened.files, sourceLocale)
+      const found = (locales ?? [undefined]).flatMap((locale) => {
+        const own = locale === sourceLocale ? source : entries(opened.files, locale)
+        const merged = new Map([...source, ...own])
+        return [...merged].map(([id, entry]) => ({ id, entry, locale }))
+      })
       const documents = url === undefined || contentUrlNeedsOnlyId(url)
-        ? found.map(([id]) => ({ id, data: {} }))
-        : (await mapLimit(found, 8, async ([id, entry]) => {
+        ? found.map(({ id, locale }) => ({ id, data: {}, ...localeKey(locale) }))
+        : (await mapLimit(found, 8, async ({ id, entry, locale }) => {
             const parsed = await parseEntry(opened, entry)
-            return listable(opened, parsed) ? { id, data: parsed.data } : undefined
+            return listable(opened, parsed) ? { id, data: parsed.data, ...localeKey(locale) } : undefined
           })).filter(document => document !== undefined)
-      const result: Array<[path: string, id: string]> = []
+      const result: Array<[path: string, id: string, locale: string | undefined]> = []
       for (const document of documents) {
         try {
-          const path = url === undefined ? defaultRoute(document.id) : contentDocumentUrl(url, document)
-          if (path !== null) result.push([path, document.id])
+          const route = defaultRoute(document.id)
+          const path = url === undefined
+            ? document.locale === undefined || document.locale === sourceLocale ? route : `/${document.locale}${route === "/" ? "" : route}`
+            : contentDocumentUrl(url, document, sourceLocale)
+          if (path !== null) result.push([path, document.id, document.locale])
         }
         catch (error) {
           // One document with a failing url does not hide the others.
@@ -1729,7 +1954,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       return result
     }
 
-    return { name, single, compiled, comarkSchema, collection, entries, idFor, parseEntry, parseText, pathFor, routes: single ? undefined : routes, sessionCollection }
+    return { name, single, compiled, comarkSchema, collection, entries, idFor, locales, localeOf, parseEntry, parseText, pathFor, routes: single ? undefined : routes, sessionCollection }
   }
 
   for (const [name, definition] of Object.entries(options.collections)) {
@@ -1747,6 +1972,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   interface PublishTarget {
     collection: CollectionRuntime
     id: string
+    /** The locale of the document, in a collection with locales. */
+    locale?: string
     path: string
     /** The digest `expect` requires on the draft. */
     digest?: string | null
@@ -1779,7 +2006,11 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const collection = requireCollection(Reflect.get(Object(entry), "collection"))
       // A singleton needs no id.
       const id: unknown = Reflect.get(Object(entry), "id") ?? collection.single?.id
-      const path = collection.pathFor(id)
+      const locale = collection.localeOf(Reflect.get(Object(entry), "locale"))
+      if (method === "schedule" && locale !== collection.locales?.[0]) {
+        throw invalidExpectation(`schedule() publishes source locale documents only. Publish the ${JSON.stringify(locale)} translation with publish({ expect }).`)
+      }
+      const path = collection.pathFor(id, locale)
       // SAFETY: pathFor() accepts only nonempty string ids.
       const documentId = id as string
       if (digest !== null && (String(digest) !== digest || !digest)) {
@@ -1787,13 +2018,13 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       }
       if (seen.has(path)) throw invalidExpectation(`${method}({ expect }) lists ${JSON.stringify(`${collection.name}/${documentId}`)} more than once.`)
       seen.add(path)
-      return { collection, id: documentId, path, digest }
+      return { collection, id: documentId, ...(locale === undefined ? {} : { locale }), path, digest }
     })
   }
 
   function mismatchError(method: string, mismatches: ContentPublishMismatch[]): ViteHubError {
-    const lines = mismatches.map(({ collection, id, actual }) =>
-      `- ${collection}/${id}: ${actual === null ? "deleted on the draft" : `draft is now ${actual.slice(0, 12)}`}`)
+    const lines = mismatches.map(({ collection, id, locale, actual }) =>
+      `- ${collection}/${id}${locale === undefined ? "" : ` (${locale})`}: ${actual === null ? "deleted on the draft" : `draft is now ${actual.slice(0, 12)}`}`)
     const outcome = method === "schedule" ? "schedule() scheduled nothing" : "publish() published nothing"
     return contentConflict(`[vitehub] Content changed on the draft after it was reviewed, so ${outcome}:\n${lines.join("\n")}`, {
       ref: "draft",
@@ -1829,9 +2060,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const draft = draftHead ? await openRevision(draftHead) : published
       if (expectations) {
         const mismatches: ContentPublishMismatch[] = []
-        for (const { collection, id, path, digest } of expectations) {
+        for (const { collection, id, locale, path, digest } of expectations) {
           const actual = draft?.files.get(path) ?? null
-          if (actual !== digest) mismatches.push({ collection: collection.name, id, expected: digest ?? null, actual })
+          if (actual !== digest) mismatches.push({ collection: collection.name, id, ...(locale === undefined ? {} : { locale }), expected: digest ?? null, actual })
         }
         if (mismatches.length) throw mismatchError("publish", mismatches)
       }
@@ -1842,14 +2073,22 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const targets: PublishTarget[] = expectations ?? []
       if (!expectations) {
         for (const collection of selected) {
-          const ids = publishOptions.ids ?? [...new Set([
-            ...collection.entries(draft.files).keys(),
-            ...(published ? collection.entries(published.files).keys() : []),
-          ])].sort()
-          for (const id of ids) {
-            const path = collection.pathFor(id)
-            if (!draft.files.has(path) && !published?.files.has(path)) throw contentNotFound(collection.name, id)
-            targets.push({ collection, id, path })
+          // A collection with locales publishes every locale of the documents, the source locale first.
+          for (const locale of collection.locales ?? [undefined]) {
+            const source = locale === collection.locales?.[0]
+            const ids = publishOptions.ids ?? [...new Set([
+              ...collection.entries(draft.files, locale).keys(),
+              ...(published ? collection.entries(published.files, locale).keys() : []),
+            ])].sort()
+            for (const id of ids) {
+              const path = collection.pathFor(id, locale)
+              if (!draft.files.has(path) && !published?.files.has(path)) {
+                // A document with no translation in this locale has nothing to publish there.
+                if (source) throw contentNotFound(collection.name, id)
+                continue
+              }
+              targets.push({ collection, id, ...(locale === undefined ? {} : { locale }), path })
+            }
           }
         }
       }
@@ -1860,7 +2099,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const moved: ContentPublishMismatch[] = []
       // On a Store whose draft is a branch of its own, missing metadata must not disable publish protection.
       const bases = (await retained.forksFrom?.("draft")) === undefined ? undefined : await trackedDraftBases(draftHead, published)
-      for (const { collection, id, path } of targets) {
+      for (const { collection, id, locale, path } of targets) {
+        const localized = locale === undefined ? {} : { locale }
         const draftDigest = draft.files.get(path)
         const publishedDigest = published?.files.get(path)
         // Unchanged documents, and an expected deletion of a document that was never published, publish nothing.
@@ -1871,13 +2111,13 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           // Both sides changed it: refuse, so the edit on `published` is not overwritten or deleted.
           // The version on `published` may be the draft's own earlier publish, which the draft has since edited.
           if ((publishedDigest ?? null) !== bases[path] && !await draftHeld(path, publishedDigest, draftHead)) {
-            moved.push({ collection: collection.name, id, expected: bases[path] ?? null, actual: publishedDigest ?? null })
+            moved.push({ collection: collection.name, id, ...localized, expected: bases[path] ?? null, actual: publishedDigest ?? null })
             continue
           }
         }
         if (draftDigest === undefined) {
           remove.push(path)
-          documents.push({ collection: collection.name, id, change: "delete" })
+          documents.push({ collection: collection.name, id, ...localized, change: "delete" })
           continue
         }
         const bytes = await draft.view.readFile(path, { encoding: "binary" })
@@ -1888,7 +2128,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           continue
         }
         put[path] = bytes
-        documents.push({ collection: collection.name, id, change: publishedDigest === undefined ? "add" : "update" })
+        documents.push({ collection: collection.name, id, ...localized, change: publishedDigest === undefined ? "add" : "update" })
       }
       if (moved.length) {
         const lines = moved.map(({ collection, id, actual }) => `- ${collection}/${id}: ${actual === null ? "deleted on" : "changed on"} the published branch`)
@@ -1904,7 +2144,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const commitMetadata = writeMetadata(publishOptions.metadata, {
         action: "publish",
         draft: draftHead.id,
-        documents: documents.map(({ collection, id }) => ({ collection, id })),
+        documents: documents.map(({ collection, id, locale }) => ({ collection, id, ...(locale === undefined ? {} : { locale }) })),
         ...(schedule ? { schedule } : {}),
       })
       /** Commit the changes to `published`, or to a branch with a pull request into it. */
@@ -1927,8 +2167,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         }
         // A document that an open pull request already publishes is not published a second time.
         const pending = await pendingPublishes()
-        const clashes = documents.flatMap(({ collection, id }) => {
-          const request = pending.get(requireCollection(collection).pathFor(id))
+        const clashes = documents.flatMap(({ collection, id, locale }) => {
+          const request = pending.get(requireCollection(collection).pathFor(id, locale))
           return request ? [{ collection, id, ...request }] : []
         })
         if (clashes.length) {
@@ -1947,13 +2187,13 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           message: commitMessage,
           metadata: commitMetadata,
         }))
-        const lines = documents.map(({ collection, id, change }) => `- ${markdownCode(`${collection}/${id}`)} (${change})`)
+        const lines = documents.map(({ collection, id, locale, change }) => `- ${markdownCode(`${collection}/${id}${locale === undefined ? "" : ` (${locale})`}`)} (${change})`)
         let pullRequest
         try {
           pullRequest = await retained.openPullRequest({
             head: branch,
             base: "published",
-            reservation: { headPrefix: publishBranchPrefix, paths: documents.map(({ collection, id }) => requireCollection(collection).pathFor(id)) },
+            reservation: { headPrefix: publishBranchPrefix, paths: documents.map(({ collection, id, locale }) => requireCollection(collection).pathFor(id, locale)) },
             title: pullRequestTitle(commitMessage),
             body: `${lines.join("\n")}\n\nMessage:\n\n${markdownFence(commitMessage)}\n\nPublished from the Content draft ${markdownCode(draftHead.id.slice(0, 7))}. The documents go live when this pull request merges.`,
             // Clean up a definitive refusal; unknown outcomes keep the branch for reconciliation.
@@ -2031,9 +2271,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const routes = new Map<string, ContentResolved>()
       for (const collection of collections.values()) {
         if (!collection.routes) continue
-        for (const [route, id] of await collection.routes(opened)) {
+        for (const [route, id, locale] of await collection.routes(opened)) {
           const key = normalizeRoute(route)
-          if (!routes.has(key)) routes.set(key, { collection: collection.name, id })
+          if (!routes.has(key)) routes.set(key, { collection: collection.name, id, ...(locale === undefined ? {} : { locale }) })
         }
       }
       return routes
@@ -2073,7 +2313,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   async function documentRevisions(collection: string, documentId: string | undefined, revisionOptions: ContentRevisionsOptions = {}): Promise<ContentRevisionsResult> {
     const runtime = requireCollection(collection)
     const id = documentId ?? runtime.single?.id
-    runtime.pathFor(id)
+    const locale = runtime.localeOf(revisionOptions.locale)
+    runtime.pathFor(id, locale)
     // SAFETY: pathFor() accepts only nonempty string ids.
     const touched = id as string
     const retained = await history()
@@ -2083,10 +2324,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content revisions() limit must be an integer from 1 to 100." })
       }
-      const page = await retained.list({ ref: "published", path: runtime.pathFor(touched), limit, cursor: revisionOptions.cursor })
+      const page = await retained.list({ ref: "published", path: runtime.pathFor(touched, locale), limit, cursor: revisionOptions.cursor })
       return { revisions: page.revisions, ...(page.cursor ? { cursor: page.cursor } : {}), scanned: page.revisions.length }
     }
-    return await scanRevisions(revisionOptions, revision => revisionTouches(revision, runtime.name, touched))
+    return await scanRevisions(revisionOptions, revision => revisionTouches(revision, runtime.name, touched, locale, runtime.locales?.[0]))
   }
 
   /** Revisions that Content wrote for documents of a defined collection, such as saves and publishes. */
