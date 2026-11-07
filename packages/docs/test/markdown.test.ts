@@ -4,7 +4,7 @@ import { textContent } from "comark/utils"
 
 import { createDocsParser, docsSearchSections } from "../src/markdown.ts"
 
-import type { Node as ComarkNode } from "comark"
+import type { ComarkPlugin, Node as ComarkNode } from "comark"
 
 const parse = createDocsParser()
 
@@ -119,6 +119,35 @@ describe("comark-ui blocks", () => {
     const { nodes } = await parse("::tabs\n:::tabs-item{label=\"npm\"}\nnpm i\n:::\n:::tabs-item{label=\"pnpm\"}\npnpm add\n:::\n::\n")
 
     expect(find(nodes, "tabs")?.[1]).toMatchObject({ labels: ["npm", "pnpm"] })
+  })
+
+  it.each(["md", "markdown", "mdc", "comark"])("renders an example's %s source with the default parser", async (language) => {
+    const { nodes } = await parse(`::examples\n:::example{label="Note" play="/play"}\n\`\`\`${language}\n> [!NOTE]\n> Keep a backup.\n\`\`\`\n:::\n::\n`)
+    const example = find(nodes, "example")
+    const preview = find(nodes, "example-preview")
+
+    expect(example?.[1]).toMatchObject({ label: "Note", play: "/play" })
+    expect(example?.[2]).toBe(preview)
+    expect(find([preview!], "github-callout")?.[1]).toMatchObject({ type: "note" })
+    expect(find([preview!], "pre")).toBeUndefined()
+    const source = example?.[3] as ComarkNode
+    expect(find([source], "pre")?.[1]).toMatchObject({ language })
+    expect(JSON.stringify(source)).toContain("Keep a backup.")
+  })
+
+  it.each(["site-examples", "docs-examples"])("preserves a preview supplied by the site's %s plugin", async (name) => {
+    const plugin: ComarkPlugin = {
+      name,
+      post({ tree }) {
+        find(tree.nodes, "example")?.splice(2, 0, ["example-preview", {}, ["p", {}, "Site preview"]])
+      },
+    }
+    const { nodes } = await createDocsParser({ plugins: [plugin] })("::example\n```md\nSource\n```\n::\n")
+    const example = find(nodes, "example")
+
+    expect(example).toHaveLength(4)
+    expect(example?.[2]).toEqual(["example-preview", {}, ["p", {}, "Site preview"]])
+    expect(find([example?.[3] as ComarkNode], "pre")?.[1]).toMatchObject({ language: "md" })
   })
 
   it("keeps the site's plugin when it has a built-in name", async () => {
