@@ -293,7 +293,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       if (!await driver.head(pathname)) throw error
       const status = isRecord(error) ? error.status : undefined
       const code = isRecord(error) ? error.code : undefined
-      // Vercel Blob reports a refused overwrite only in its message.
+      // provider-message-match: Vercel Blob reports a refused overwrite as a plain BlobError with only a message.
       const exists = error instanceof Error && /already exists/i.test(error.message)
       if (!exists && status !== 409 && status !== 412 && code !== "BLOB_CONFLICT" && code !== "PRECONDITION_FAILED" && code !== "CONFLICT") throw error
       await driver.delete([pathname])
