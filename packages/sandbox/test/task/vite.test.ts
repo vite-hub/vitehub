@@ -12,12 +12,26 @@ import { build as viteBuild, type AliasOptions } from "vite"
 import type { SandboxTaskRegistryEntry } from "../../src/task/runtime/state.ts"
 
 const tempDirs: string[] = []
+const realpathMock = vi.hoisted(() => ({ windowsSeparators: false }))
 const runtimePreparationMock = vi.hoisted(() => ({
   // SAFETY: The test hook assigns this callback only after the hoisted mock has been initialized.
   afterPrepare: undefined as (() => Promise<void>) | undefined,
   // SAFETY: The test hook assigns this callback only after the hoisted mock has been initialized.
   beforePrepare: undefined as (() => Promise<void>) | undefined,
 }))
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...original,
+    async realpath(...args: Parameters<typeof original.realpath>) {
+      const path = await original.realpath(...args)
+      if (realpathMock.windowsSeparators && typeof path === "string" && basename(path) === ".runtime-generations")
+        return path.replaceAll("/", "\\")
+      return path
+    },
+  }
+})
 
 vi.mock("../../src/task/internal/runtime-preparation.ts", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../src/task/internal/runtime-preparation.ts")>()
@@ -113,6 +127,7 @@ async function createViteRoot(parentDir = tmpdir()) {
 }
 
 afterEach(async () => {
+  realpathMock.windowsSeparators = false
   runtimePreparationMock.afterPrepare = undefined
   runtimePreparationMock.beforePrepare = undefined
   await Promise.all(tempDirs.splice(0).map(root => rm(root, { recursive: true, force: true })))
@@ -1552,7 +1567,7 @@ describe("hubSandboxTask", () => {
     await expect(readFile(sandboxTaskAlias, "utf8")).resolves.toContain("setSandboxTaskRuntimeConfig")
   })
 
-  it("reloads server environments that still import a previous runtime generation", async () => {
+  it.each(["native", "Windows"])("reloads server environments that still import a previous runtime generation with %s realpath separators", async (separators) => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
     const plugin = hubSandboxTask({ provider: "vercel" })
@@ -1595,6 +1610,7 @@ describe("hubSandboxTask", () => {
 
     const definition = join(rootDir, "src/tools/release-notes.sandbox-task.ts")
     await writeFile(definition, "export default { run: async () => ({ message: 'updated' }) }\n")
+    realpathMock.windowsSeparators = separators === "Windows"
     await handleHotUpdate({
       file: definition,
       server: {

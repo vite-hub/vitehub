@@ -194,7 +194,7 @@ async function reloadStaleSandboxTaskGenerations(
   facadeFile: string,
 ) {
   // Vite keys modules by real path.
-  const generationsDir = await realpath(resolve(ensureGeneratedDir(rootDir, 'sandbox-task'), '.runtime-generations')).catch(() => undefined)
+  const generationsDir = await realpath(resolve(ensureGeneratedDir(rootDir, 'sandbox-task'), '.runtime-generations')).then(normalize).catch(() => undefined)
   const currentGeneration = generationsDir && await readSandboxTaskRuntimeGeneration(facadeFile, generationsDir)
   if (!generationsDir || !currentGeneration)
     return
