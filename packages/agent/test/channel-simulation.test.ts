@@ -4,6 +4,8 @@ import { join } from "node:path"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { getCloudflareWorkflowBindingName } from "@vite-hub/workflow"
+import { resetWorkflowRuntime, setWorkflowRuntimeConfig } from "@vite-hub/workflow/runtime/state"
 import { defineChannel, discord, slack, teams, telegram } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
 import { channelSimulationEnv, createSimulatedChatAdapter, isChannelSimulated } from "../src/internal/channel-simulation.ts"
@@ -90,6 +92,33 @@ describe("simulated chat Channels", () => {
     expect(polling.listener).toBeUndefined()
     expect(polling.webhooks).toBe(true)
     expect(telegram().webhooks).toMatchObject({ secretToken: false })
+  })
+
+  it.each([undefined, true])("keeps buffered replies in the request with an active Workflow (durable: %s)", async (durable) => {
+    const stateDir = await mkdtemp(join(tmpdir(), "vitehub-channel-simulation-workflow-"))
+    const state = Object.assign(createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` }), { workflowCustody: true })
+    const createBatch = vi.fn(async ([{ id }]: Array<{ id: string }>) => [{ id, status: async () => ({ status: "queued" }) }])
+    const run = vi.fn(() => "inline simulated reply")
+    const agent = defineAgent({
+      channels: { telegram: telegram({ messages: { durable, final: { delivery: "new-message" }, loading: { text: "Thinking" }, state } }) },
+      driver: { run },
+    })
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    try {
+      const response = await createChannelWebhookRouteHandler(agent)(chatRequest("telegram", "hi"), "telegram", {
+        agentIdentity: { name: "support" },
+        cloudflare: { env: { [getCloudflareWorkflowBindingName("support")]: { createBatch, get: vi.fn() } } },
+      })
+      expect(response.status).toBe(200)
+      expect(streamedText(await response.text())).toBe("Thinkinginline simulated reply")
+      expect(run).toHaveBeenCalledOnce()
+      expect(createBatch).not.toHaveBeenCalled()
+    }
+    finally {
+      resetWorkflowRuntime()
+      await state.disconnect()
+      await rm(stateDir, { force: true, recursive: true })
+    }
   })
 
   it.each([false, true])("skips custom webhook verification (registration array: %s)", async (array) => {
