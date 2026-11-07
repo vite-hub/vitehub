@@ -75,6 +75,29 @@ export function connectionNextStep(connection: Pick<ConnectionInspection, "crede
     : { kind: "connect", label: fresh ? "Connect" : "Reconnect" }
 }
 
+/** What needs attention on a Connection besides its status: pending approvals and missing scopes. */
+export interface ConnectionNotices {
+  /** The number of pending approvals plus missing scopes. */
+  readonly count: number
+  /** One line for each fact, such as `2 pending approvals`. */
+  readonly items: readonly string[]
+  /** The details tab that shows the first fact. */
+  readonly tab: "approvals" | "details"
+}
+
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`
+
+/** The notices of a Connection, or `undefined` when nothing needs attention. */
+export function connectionNotices(connection: Pick<ConnectionInspection, "scopes">, pendingApprovals = 0): ConnectionNotices | undefined {
+  const missing = connection.scopes.missing.length
+  const items = [
+    ...pendingApprovals > 0 ? [plural(pendingApprovals, "pending approval")] : [],
+    ...missing > 0 ? [plural(missing, "missing scope")] : [],
+  ]
+  if (!items.length) return undefined
+  return { count: pendingApprovals + missing, items, tab: pendingApprovals > 0 ? "approvals" : "details" }
+}
+
 /** A short label for a Connection activity action. Connection tokens are stored as Env credentials. */
 export function connectionActivityLabel(action: EnvActivity["action"]): string {
   return { grant: "Grant", inspect: "Inspect", preview: "Preview", replace: "Store token", resolve: "Retrieve token", revoke: "Revoke", use: "Call" }[action]

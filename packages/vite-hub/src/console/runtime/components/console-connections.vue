@@ -9,6 +9,7 @@ import {
   connectionCredentialLabel,
   connectionListSchema,
   connectionNextStep,
+  connectionNotices,
   connectionStatusTone,
   connectionStatusLabel,
   requestConnectionsManagement,
@@ -67,10 +68,11 @@ const columns: TableColumn<ConnectionInspection>[] = [
   { accessorKey: "name", header: "Connection" },
   { id: "credential", header: "Type" },
   { id: "status", header: "Status" },
-  { id: "account", header: "Account" },
+  // The account column gives up its width first and truncates, so the row stays on one line in a narrow page.
+  { id: "account", header: "Account", meta: { class: { td: "max-w-0 w-1/4" } } },
   { id: "action", header: "Action", meta: { class: { th: "sr-only", td: "w-px whitespace-nowrap text-right" } } },
 ];
-const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+const notices = (connection: ConnectionInspection) => connectionNotices(connection, pending.value.get(connection.name));
 
 function open(name: string, tab: DetailsTab = "details", keyForm = false) {
   selectedTab.value = tab;
@@ -186,6 +188,8 @@ export default defineConnection({
             :ui="{
               thead: 'bg-elevated/30',
               th: 'h-9 py-0 text-xs font-medium text-muted',
+              // Tall enough for an action button, so a row without one has the same height.
+              td: 'h-10',
               tr: 'group cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary',
             }"
           >
@@ -198,7 +202,7 @@ export default defineConnection({
               ></template
             >
             <template #credential-cell="{ row }"
-              ><span class="inline-flex items-center gap-1.5 text-xs text-muted"
+              ><span class="flex items-center gap-1.5 text-xs text-muted"
                 ><UIcon
                   :name="row.original.credential === 'api-key' ? 'i-lucide-key-round' : 'i-lucide-log-in'"
                   class="size-3.5 shrink-0"
@@ -206,30 +210,43 @@ export default defineConnection({
               ></template
             >
             <template #status-cell="{ row }"
-              ><div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              ><div class="flex items-center gap-2 whitespace-nowrap">
                 <ConsoleStatus
                   :label="connectionStatusLabel(row.original.status)"
                   :tone="connectionStatusTone(row.original.status)"
                 />
-                <ConsoleStatus
-                  v-if="row.original.scopes.missing.length"
-                  :label="plural(row.original.scopes.missing.length, 'missing scope')"
-                  tone="warning"
-                />
-                <UButton
-                  v-if="pending.get(row.original.name)"
-                  color="warning"
-                  :label="plural(pending.get(row.original.name) ?? 0, 'pending approval')"
-                  :aria-label="`Review ${plural(pending.get(row.original.name) ?? 0, 'pending approval')} for ${row.original.name}`"
-                  size="xs"
-                  variant="soft"
-                  @click.stop="open(row.original.name, 'approvals')"
-                /></div
+                <!-- Pending approvals and missing scopes stay on the status line as one count. The tooltip and the
+                accessible name list them; the button opens the tab that shows them. -->
+                <UTooltip
+                  v-if="notices(row.original)"
+                  :delay-duration="150"
+                  :content="{ side: 'top' }"
+                  :ui="{ content: 'h-auto' }"
+                >
+                  <UButton
+                    color="warning"
+                    icon="i-lucide-circle-alert"
+                    :label="String(notices(row.original)?.count)"
+                    :aria-label="`Review ${notices(row.original)?.items.join(' and ')} for ${row.original.name}`"
+                    class="h-5 gap-1 px-1.5 tabular-nums"
+                    size="xs"
+                    variant="soft"
+                    @click.stop="open(row.original.name, notices(row.original)?.tab)"
+                  />
+                  <template #content>
+                    <ul class="grid gap-0.5 py-1 text-xs">
+                      <li v-for="item in notices(row.original)?.items" :key="item">{{ item }}</li>
+                    </ul>
+                  </template>
+                </UTooltip></div
             ></template>
             <template #account-cell="{ row }"
-              ><span v-if="row.original.account" class="break-all text-xs text-muted">{{
-                row.original.account.email ?? row.original.account.id
-              }}</span></template
+              ><span
+                v-if="row.original.account"
+                class="block truncate text-xs text-muted"
+                :title="row.original.account.email ?? row.original.account.id"
+                >{{ row.original.account.email ?? row.original.account.id }}</span
+              ></template
             >
             <template #action-cell="{ row }"
               ><div class="flex items-center justify-end gap-2">
