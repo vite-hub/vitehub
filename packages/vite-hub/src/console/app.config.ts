@@ -147,13 +147,35 @@ export const consoleAppConfig = {
       actions: "mt-1",
     },
   },
+  // iOS zooms the page into a field whose text is smaller than 16px, so fields use 16px on touch screens.
   input: {
     defaultVariants: {
       size: "sm",
     },
     slots: {
+      base: "pointer-coarse:text-base",
       leadingIcon: "size-4 opacity-80",
       trailingIcon: "size-3.5 opacity-75",
+    },
+  },
+  textarea: {
+    slots: {
+      base: "pointer-coarse:text-base",
+    },
+  },
+  inputNumber: {
+    slots: {
+      base: "pointer-coarse:text-base",
+    },
+  },
+  inputTags: {
+    slots: {
+      base: "pointer-coarse:text-base",
+    },
+  },
+  inputMenu: {
+    slots: {
+      base: "pointer-coarse:text-base",
     },
   },
   pageCard: {
