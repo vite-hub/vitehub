@@ -73,14 +73,14 @@ async function readServerSession(): Promise<unknown> {
   }
 }
 
-/** True when a session exists. Uses the server's answer during server rendering and asks Better Auth in the browser. */
-async function signedIn(): Promise<boolean> {
+/**
+ * True when a session exists. On the server it answers from the session the plugin read, without awaiting, because
+ * Nuxt loses its request context after an `await` in plugin code. In the browser it asks Better Auth when needed.
+ */
+function signedIn(): boolean | Promise<boolean> {
   const { loggedIn } = useUserSession()
-  if (loggedIn.value) return true
-  if (!("window" in globalThis)) return false
-  const client = await loadAuthClient(authClient)
-  const result = await client.getSession()
-  return Boolean(result.data?.session)
+  if (loggedIn.value || !("window" in globalThis)) return loggedIn.value
+  return loadAuthClient(authClient).then(client => client.getSession()).then(result => Boolean(result.data?.session))
 }
 
 // Typed `unknown` because the package build cannot see Nuxt's plugin type. Nuxt only reads the value.
@@ -106,14 +106,20 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     })
 
     const redirects: AuthRedirects = useRuntimeConfig().public?.vitehubAuth?.redirects ?? {}
-    addRouteMiddleware("vitehub-auth", async (to: RouteLike) => {
+    addRouteMiddleware("vitehub-auth", (to: RouteLike) => {
       const meta = to.meta.auth
       if (meta === undefined || meta === false) return
       const mode = typeof meta === "string" ? meta : meta === true ? "user" : meta.only ?? "user"
       const redirectTo = typeof meta === "object" ? meta.redirectTo : undefined
-      const loggedIn = await signedIn()
-      if (mode === "guest") return loggedIn ? navigateTo(redirectTo ?? redirects.guest ?? "/") : undefined
-      if (!loggedIn) return navigateTo({ path: redirectTo ?? redirects.login ?? "/login", query: { redirect: to.fullPath } })
+      const decide = (loggedIn: boolean) => {
+        if (mode === "guest") return loggedIn ? navigateTo(redirectTo ?? redirects.guest ?? "/") : undefined
+        if (!loggedIn) return navigateTo({ path: redirectTo ?? redirects.login ?? "/login", query: { redirect: to.fullPath } })
+      }
+      const loggedIn = signedIn()
+      if (typeof loggedIn === "boolean") return decide(loggedIn)
+      // In the browser, keep the Nuxt app for the navigation after Better Auth answers.
+      const app = tryUseNuxtApp() as NuxtApp | undefined
+      return loggedIn.then(value => app ? app.runWithContext(() => decide(value)) : decide(value))
     }, { global: true })
   },
 })
