@@ -1,13 +1,21 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { matchLocale, parseAcceptLanguage, resolveI18nLocaleConfig } from "../src/locales.ts"
-import { getLocale, resolveRequestLocale, setLocale, translate } from "../src/runtime.ts"
+import { activateLocale, configureI18n, getI18n, getLocale, resolveBrowserLocale, resolveRequestLocale, setLocale, translate } from "../src/runtime.ts"
 import { installI18nServer } from "../src/server.ts"
 import { t } from "../src/index.ts"
 
 const config = resolveI18nLocaleConfig({ locales: ["en", "es", "pt-BR"] })
+
+function delayedCatalog() {
+  let resolve!: (catalog: { messages: { greeting: string } }) => void
+  const promise = new Promise<{ messages: { greeting: string } }>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
 
 describe("locale config", () => {
   it("takes the first locale as the source language", () => {
@@ -77,10 +85,73 @@ describe("server scope", () => {
       return translate({ id: "missing", message: "{count, plural, one {# agent} other {# agents}}", values: { count: 2 } })
     })).toBe("2 agents")
     process.env.NODE_ENV = nodeEnv
+    // Independent requests can change locale concurrently without superseding each other.
+    const switchRequest = (language: string) => {
+      const event = { req: new Request("http://app.test/"), context: {} }
+      return context.run(event, async () => {
+        for (const hook of hooks) hook(event)
+        await setLocale(language)
+        return `${getLocale()}:${translate({ id: "greeting", message: "Hello" })}`
+      })
+    }
+    expect(await Promise.all([switchRequest("es"), switchRequest("pt-BR")])).toEqual(["es:Hola", "pt-BR:Olá"])
   })
 })
 
 describe("runtime", () => {
+  it.each([
+    { cookie: "locale=es", languages: ["en"], locale: "es" },
+    { cookie: "", languages: ["es-MX"], locale: "es" },
+    { cookie: "", languages: ["fr"], locale: "en" },
+  ])("sets the initial document language to $locale for $cookie and $languages", async ({ cookie, languages, locale }) => {
+    configureI18n({ ...config, catalogs: { es: async () => ({ messages: { greeting: "Hola" } }) } })
+    const page = { cookie, documentElement: { lang: "en" } }
+    vi.stubGlobal("document", page)
+    vi.stubGlobal("navigator", { languages })
+    try {
+      // `createI18n()` initializes a Vite app with this browser selection and activation.
+      await activateLocale(getI18n(), resolveBrowserLocale(config))
+      expect(getLocale()).toBe(locale)
+      expect(translate({ id: "greeting", message: "Hello" })).toBe(locale === "es" ? "Hola" : "Hello")
+      expect(page.documentElement.lang).toBe(locale)
+      expect(page.cookie).toBe(cookie)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("keeps the latest locale selection when an earlier catalog loads last", async () => {
+    const spanish = delayedCatalog()
+    const portuguese = delayedCatalog()
+    configureI18n({
+      ...config,
+      catalogs: { es: () => spanish.promise, "pt-BR": () => portuguese.promise },
+    })
+    const page = { cookie: "", documentElement: { lang: "en" } }
+    vi.stubGlobal("document", page)
+    try {
+      const earlier = setLocale("es")
+      const latest = setLocale("pt-BR")
+      portuguese.resolve({ messages: { greeting: "Olá" } })
+      expect(await latest).toEqual([undefined, "pt-BR"])
+      expect(getLocale()).toBe("pt-BR")
+      const cookie = page.cookie
+      expect(cookie).toContain("locale=pt-BR;")
+      spanish.resolve({ messages: { greeting: "Hola" } })
+      const [error, locale] = await earlier
+      expect(locale).toBeUndefined()
+      expect(error).toMatchObject({ code: "I18N_LOCALE_SUPERSEDED", docs: "https://vitehub.dev/docs/i18n/limits-and-errors#i18n_locale_superseded" })
+      expect(getLocale()).toBe("pt-BR")
+      expect(translate({ id: "greeting" })).toBe("Olá")
+      expect(page.cookie).toBe(cookie)
+      expect(page.documentElement.lang).toBe("pt-BR")
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("returns an error result for a locale that the app does not configure", async () => {
     const [error, locale] = await setLocale("fr")
     expect(locale).toBeUndefined()

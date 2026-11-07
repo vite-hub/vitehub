@@ -208,6 +208,7 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
   let cloudflareQueues = true
   let configuredDefinitions: DiscoveredQueueDefinition[] = []
   let localDevelopment = false
+  let preview = false
   let nitroQueue: QueueModuleOptions | undefined = queue
   let nuxtConfiguredDefinitions: DiscoveredQueueDefinition[] | undefined
   let nuxtProjectRoot: string | undefined
@@ -293,7 +294,8 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
         },
       },
     },
-    config(config) {
+    config(config, env) {
+      preview = env?.isPreview === true
       queue = config.queue ?? options
       queueOptions.set(resolve(config.root || process.cwd()), queue)
       // SAFETY: Vite preserves this ViteHub server directory field on config, while UserConfig omits framework extensions.
@@ -320,7 +322,7 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
       const resolvedQueue = normalizeQueueOptions(queue, { hosting: nitroHosting })
       nitroQueue = resolvedQueue?.provider && nitroHosting && resolvedQueue.provider !== nitroHosting ? false : queue
       validatesNitroDefinitions = hasNitroConfigContext(config) && nitroQueue !== false
-      localDevelopment = config.command === "serve"
+      localDevelopment = config.command === "serve" && !preview
       await writeQueueNitroIntegration(config.root, nitroQueue, hosting, cloudflareQueues, configuredDefinitions, localDevelopment, internalOptions.importBase)
       buildStates.set(config, {
         configuredDefinitions,

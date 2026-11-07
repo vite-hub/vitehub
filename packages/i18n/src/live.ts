@@ -1,4 +1,5 @@
 import { compileMessage } from "@lingui/message-utils/compileMessage"
+import { generateMessageId } from "@lingui/message-utils/generateMessageId"
 
 import { idFromFileName, isRecord, recordPath } from "./record-format.ts"
 
@@ -43,13 +44,21 @@ export async function readRevisionRecords(view: RevisionView, locales: readonly 
   const result: Record<string, TranslationRecords> = {}
   await Promise.all(locales.map(async (locale) => {
     const records: TranslationRecords = {}
-    const entries = await view.list(locale).catch(() => [])
+    const entries = await view.list(locale)
     await Promise.all(entries.map(async (entry) => {
       const name = entry.path.slice(entry.path.lastIndexOf("/") + 1)
       const id = entry.type === "file" ? idFromFileName(name) : undefined
       if (!id) return
-      const value: unknown = JSON.parse(await view.readFile(recordPath(locale, id), { encoding: "utf8" }))
-      if (isRecord(value)) records[id] = value
+      // Store failures reject the revision; malformed record contents only skip this entry.
+      const contents = await view.readFile(recordPath(locale, id), { encoding: "utf8" })
+      let value: unknown
+      try {
+        value = JSON.parse(contents)
+      }
+      catch {
+        return
+      }
+      if (isRecord(value) && generateMessageId(value.source, value.context) === id) records[id] = value
     }))
     result[locale] = records
   }))
@@ -58,7 +67,9 @@ export async function readRevisionRecords(view: RevisionView, locales: readonly 
 
 function compile(records: TranslationRecords, only?: ReadonlySet<string>): Messages {
   const messages: Messages = {}
-  for (const [id, record] of Object.entries(records)) if (!only || only.has(id)) messages[id] = compileMessage(record.translation)
+  for (const [id, record] of Object.entries(records)) {
+    if (record.translation !== "" && (!only || only.has(id))) messages[id] = compileMessage(record.translation)
+  }
   return messages
 }
 
@@ -67,7 +78,7 @@ export interface LiveTranslationsOptions {
   workspace: () => TranslationsWorkspace | Promise<TranslationsWorkspace>
   locales: readonly string[]
   sourceLocale: string
-  /** The translations that the build embedded. The server uses them until it reads the Workspace, and when the read fails. */
+  /** The translations that the build embedded. Published records override these; messages without a record keep them. */
   snapshot: Readonly<Record<string, Messages>>
   /** IDs of the messages in browser code. The browser catalog route sends only these, or all with `null`. */
   clientIds: readonly string[] | null
@@ -85,7 +96,8 @@ export interface LiveTranslations {
   clientMessages(locale: string): Messages
   /**
    * Read the `published` head when the last read is older than `interval`. A new revision replaces the catalogs.
-   * Calls at the same time share one read. A failed read keeps the catalogs that the server has.
+   * Calls at the same time share one read. A forced refresh waits for any pending read, then reads again.
+   * A failed read keeps the catalogs that the server has.
    */
   refresh(options?: { force?: boolean }): Promise<void>
 }
@@ -111,7 +123,7 @@ export function createLiveTranslations(options: LiveTranslationsOptions): LiveTr
       // Before the first publish, the build snapshot stays.
       if (!head || head.id === revision) return
       const records = await readRevisionRecords(await workspace.history.open(head.id), translated)
-      server = Object.fromEntries(translated.map(locale => [locale, compile(records[locale] ?? {})]))
+      server = Object.fromEntries(translated.map(locale => [locale, { ...options.snapshot[locale], ...compile(records[locale] ?? {}) }]))
       client = Object.fromEntries(translated.map(locale => [locale, compile(records[locale] ?? {}, clientIds)]))
       revision = head.id
     }
@@ -135,7 +147,9 @@ export function createLiveTranslations(options: LiveTranslationsOptions): LiveTr
       }
       return client[locale] ?? {}
     },
-    refresh(refreshOptions) {
+    async refresh(refreshOptions) {
+      if (pending && refreshOptions?.force) await pending
+      // Forced calls waiting on the same read can share the next read.
       if (pending) return pending
       const now = Date.now()
       if (!refreshOptions?.force && now - checkedAt < interval) return Promise.resolve()

@@ -40,13 +40,14 @@ export function similarity(left: string, right: string): number {
   return total === 0 ? 0 : 2 * shared / total
 }
 
-/** Placeholders and tags. A translation with other placeholders does not fit. Invalid ICU fits nothing. */
-function placeholders(text: string): string {
+/** Placeholders such as `{name}` and tags such as `<0>`. A translation with other placeholders does not fit. */
+function placeholders(text: string): string | undefined {
   try {
     return messagePlaceholders(text).join()
   }
   catch {
-    return `invalid:${text}`
+    // An invalid ICU message cannot establish compatible placeholders.
+    return undefined
   }
 }
 
@@ -59,8 +60,10 @@ export function findPreviousTranslations(messages: SourceMessages, records: Tran
   const unused = Object.entries(records).filter(([id]) => !(id in messages))
   const candidates: Array<{ next: string } & PreviousTranslation> = []
   for (const [next, message] of missing) {
+    const signature = placeholders(message.message)
+    if (signature === undefined) continue
     for (const [id, record] of unused) {
-      if ((record.context ?? "") !== (message.context ?? "") || placeholders(record.source) !== placeholders(message.message)) continue
+      if ((record.context ?? "") !== (message.context ?? "") || placeholders(record.source) !== signature) continue
       const score = similarity(record.source, message.message)
       if (score >= threshold) candidates.push({ next, id, record, similarity: score })
     }

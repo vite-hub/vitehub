@@ -15,7 +15,7 @@ export interface I18nLocaleStatus {
   folder: string
   /** Messages in the code. */
   messages: number
-  /** Messages with a record. The source locale counts every message as translated. */
+  /** Messages with a nonempty translation. The source locale counts every message as translated. */
   translated: number
   /** Messages that show the source text in this locale. */
   missing: number
@@ -43,7 +43,7 @@ export async function inspectI18n(config: LinguiConfigNormalized): Promise<I18nS
     const source = locale === config.sourceLocale
     const read = source ? { records: {}, problems: [] } : await readRecords(root, locale)
     records[locale] = read.records
-    const translated = source ? ids.length : ids.filter(id => id in read.records).length
+    const translated = source ? ids.length : ids.filter(id => !!read.records[id]?.translation).length
     return {
       locale,
       source,

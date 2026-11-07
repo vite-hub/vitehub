@@ -12,7 +12,7 @@ export function compileMessages(records: TranslationRecords, sources?: SourceMes
   const messages: Messages = {}
   if (sources) for (const [id, source] of Object.entries(sources)) messages[id] = compileMessage(source.message)
   for (const [id, record] of Object.entries(records)) {
-    if (!sources || id in sources) messages[id] = compileMessage(record.translation)
+    if (record.translation !== "" && (!sources || id in sources)) messages[id] = compileMessage(record.translation)
   }
   return messages
 }
