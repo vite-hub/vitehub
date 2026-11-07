@@ -1,5 +1,11 @@
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
+import { readHostCredentialsFromEnv } from "./host-credentials.ts"
+import { classifyProviderFailure, cloudflareProductOfPath, readProviderErrorCodes } from "./provider-failure.ts"
 import { Diagnostic } from "nostics"
+
+import type { ProviderFailureKind, ProviderFailureSource } from "./provider-failure.ts"
+
+export type { ProviderFailureKind } from "./provider-failure.ts"
 export type ProvisionProvider = "cloudflare" | "vercel"
 
 export interface ProvisionLogger {
@@ -85,10 +91,9 @@ export interface CloudflareProvisionConfig {
 }
 
 export function resolveCloudflareProvisionConfig(env: Record<string, string | undefined>): CloudflareProvisionConfig | undefined {
-  const accountId = trimmedEnv(env.CLOUDFLARE_ACCOUNT_ID)
-  const token = trimmedEnv(env.CLOUDFLARE_API_TOKEN)
-  if (!accountId || !token) return
-  return { accountId, token }
+  const credentials = readHostCredentialsFromEnv("cloudflare", env)
+  if (!credentials?.accountId) return
+  return { accountId: credentials.accountId, token: credentials.token }
 }
 
 export interface VercelProvisionConfig {
@@ -97,9 +102,9 @@ export interface VercelProvisionConfig {
 }
 
 export function resolveVercelProvisionConfig(env: Record<string, string | undefined>): VercelProvisionConfig | undefined {
-  const token = trimmedEnv(env.VERCEL_TOKEN)
-  if (!token) return
-  return { token, teamId: trimmedEnv(env.VERCEL_TEAM_ID) ?? trimmedEnv(env.VERCEL_ORG_ID) }
+  const credentials = readHostCredentialsFromEnv("vercel", env)
+  if (!credentials) return
+  return { token: credentials.token, teamId: credentials.teamId }
 }
 
 export interface CloudflareEnvelope<T> {
@@ -140,19 +145,22 @@ export interface ProvisionRequest {
 
 export class ProvisionRequestError extends Diagnostic {
   readonly codes: readonly (number | string)[]
+  /** What the failure means. Match on this, not on the status or the message. */
+  readonly kind: ProviderFailureKind
   readonly status: number
 
-  constructor(method: string, path: string, status: number, codes: readonly (number | string)[] = []) {
+  constructor(method: string, path: string, status: number, codes: readonly (number | string)[], kind: ProviderFailureKind) {
     const suffix = codes.length ? ` Provider code${codes.length === 1 ? "" : "s"}: ${codes.join(", ")}.` : ""
     super({ code: "INTERNAL_R0013", docs: "https://vitehub.dev/docs/reference/diagnostics", why: `Provision request failed: ${method} ${path} (${status}).${suffix}` }, ProvisionRequestError)
     this.name = "ProvisionRequestError"
     this.codes = codes
+    this.kind = kind
     this.status = status
   }
 }
 
 // Minimal JSON REST client for provisioning. Uses the provided fetch; no SDK dependency.
-function createJsonClient(baseURL: string, headers: Record<string, string>, fetchImpl: typeof globalThis.fetch, baseQuery?: Record<string, string>): ProvisionRequest {
+function createJsonClient(source: (path: string) => ProviderFailureSource, baseURL: string, headers: Record<string, string>, fetchImpl: typeof globalThis.fetch, baseQuery?: Record<string, string>): ProvisionRequest {
   return async function request<T>(path: string, options: ProvisionRequestOptions | ParsedProvisionRequestOptions<T> = {}): Promise<unknown> {
     const url = new URL(`${baseURL}${path}`)
     const query = Object.hasOwn(options, "query") ? options.query : undefined
@@ -169,14 +177,9 @@ function createJsonClient(baseURL: string, headers: Record<string, string>, fetc
     }
     const response = await fetchImpl(url, init)
     if (!response.ok) {
-      const body = await response.json().catch(() => undefined) as {
-        error?: { code?: unknown }
-        errors?: Array<{ code?: unknown }>
-      } | undefined
-      const codes = [body?.error?.code, ...body?.errors?.map(error => error.code) ?? []]
-        .filter((code): code is number | string => typeof code === "number"
-          || (typeof code === "string" && /^[\w.-]{1,128}$/.test(code)))
-      throw new ProvisionRequestError(method ?? "GET", path, response.status, codes)
+      const codes = readProviderErrorCodes(await response.json().catch(() => undefined))
+      const kind = classifyProviderFailure(source(path), { codes, status: response.status }) ?? "unavailable"
+      throw new ProvisionRequestError(method ?? "GET", path, response.status, codes, kind)
     }
     const value: unknown = await response.json()
     const parse = ownParser(options)
@@ -192,6 +195,7 @@ export interface CloudflareProvisionRequest {
 // Keep provisioning HTTP local so the CLI does not grow a public CI abstraction.
 export function createCloudflareProvisionClient(config: CloudflareProvisionConfig, fetchImpl: typeof globalThis.fetch = globalThis.fetch): CloudflareProvisionRequest {
   const client = createJsonClient(
+    path => ({ host: "cloudflare", product: cloudflareProductOfPath(path) }),
     `https://api.cloudflare.com/client/v4/accounts/${config.accountId}`,
     { authorization: `Bearer ${config.token}` },
     fetchImpl,
@@ -248,14 +252,10 @@ export async function listCloudflarePages<T>(request: CloudflareProvisionRequest
 // Minimal Vercel REST client for provisioning. teamId is applied to every request as a query param.
 export function createVercelProvisionClient(config: VercelProvisionConfig, fetchImpl: typeof globalThis.fetch = globalThis.fetch): ProvisionRequest {
   return createJsonClient(
+    () => ({ host: "vercel" }),
     "https://api.vercel.com",
     { authorization: `Bearer ${config.token}` },
     fetchImpl,
     config.teamId ? { teamId: config.teamId } : undefined,
   )
-}
-
-function trimmedEnv(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  return trimmed ? trimmed : undefined
 }

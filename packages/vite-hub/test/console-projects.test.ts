@@ -49,6 +49,8 @@ describe("project URLs", () => {
     ["ftp://app.example.com", "Use an https:// URL"],
     ["https://user:secret@app.example.com", "Remove the user name and password"],
     ["https://exa mple.com", "is not a URL"],
+    // Chrome's URL parser encodes the space in the host instead of throwing, as Node's does.
+    ["comark ui", "is not a URL"],
   ])("rejects %j with a fix", (input, message) => {
     const result = normalizeProjectUrl(input)
     expect("error" in result && result.error).toContain(message)
@@ -193,7 +195,7 @@ describe("project.get probe", () => {
     expect(await probeConsoleProject(target, "wrong", { fetch: json(401, tokenRejection, { "www-authenticate": 'Bearer realm="vitehub-console", error="invalid_token"' }) })).toEqual({ kind: "token", rejected: true })
     // The server keeps only the hash of the token, so the fix names the hash variable and how to replace a lost token.
     expect(consoleProjectProblem({ kind: "token", rejected: true }, { consoleOrigin: "https://console.example.com", host: "app.example.com", url: "https://app.example.com" }).message)
-      .toBe("app.example.com refused this token. Use the token whose SHA-256 hash is in VITEHUB_CONSOLE_TOKEN_SHA256. If you lost it, create a new token and set its hash.")
+      .toBe("app.example.com refused this token. Use the token whose SHA-256 hash is in `VITEHUB_CONSOLE_TOKEN_SHA256`. If you lost it, create a new token and set its hash.")
   })
 
   it("tells OAuth and app sign-in apart from the token", async () => {
@@ -209,7 +211,7 @@ describe("project.get probe", () => {
     const probe = await probeConsoleProject(target, "secret", { fetch: async () => { throw new TypeError("Failed to fetch") } })
     expect(probe).toEqual({ kind: "unreachable" })
     expect(consoleProjectProblem({ kind: "unreachable" }, { consoleOrigin: "https://console.example.com", host: "app.example.com/portal", url: "https://app.example.com/portal" }).message)
-      .toBe("https://console.example.com is not in console.origins for app.example.com/portal. Add it and redeploy. The project may also be offline.")
+      .toBe("app.example.com/portal did not answer this Console. If the app is online, add https://console.example.com to its `console.origins` and redeploy.")
   })
 
   it("lets an abort through", async () => {
@@ -233,6 +235,13 @@ describe("project.get probe", () => {
     expect(await probeConsoleProject(target, undefined, { fetch: async () => new Response("Not found", { status: 404 }) })).toEqual({ kind: "missing" })
     const unset = await probeConsoleProject(target, "secret", { fetch: json(500, { code: "CONSOLE_TOKEN_NOT_CONFIGURED", message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set.", fix: "Set VITEHUB_CONSOLE_TOKEN_SHA256.", ok: false, status: 500 }) })
     expect(unset).toEqual({ kind: "failed", status: 500, message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set.", fix: "Set VITEHUB_CONSOLE_TOKEN_SHA256." })
+    // The fix stays its own field, so the Console shows it as its own paragraph.
+    if (unset.kind !== "failed") throw new Error("expected a failed probe")
+    expect(consoleProjectProblem(unset, { consoleOrigin: "https://console.example.com", host: "app.example.com", url: "https://app.example.com" })).toEqual({
+      title: "app.example.com answered with an error",
+      message: "console: { auth: \"token\" } needs VITEHUB_CONSOLE_TOKEN_SHA256 in the server environment, and it is not set.",
+      fix: "Set VITEHUB_CONSOLE_TOKEN_SHA256.",
+    })
   })
 })
 
@@ -280,7 +289,7 @@ describe("linking a project", () => {
     const { module, state } = await session(async () => { throw new TypeError("Failed to fetch") })
     expect(await module.linkConsoleProject("https://app.example.com")).toEqual({
       kind: "problem",
-      problem: { title: "Cannot reach app.example.com", message: "https://console.example.com is not in console.origins for app.example.com. Add it and redeploy. The project may also be offline." },
+      problem: { title: "Cannot reach app.example.com", message: "app.example.com did not answer this Console. If the app is online, add https://console.example.com to its `console.origins` and redeploy." },
     })
     expect(await module.linkConsoleProject("http://app.example.com")).toMatchObject({ kind: "problem", problem: { title: "Use HTTPS" } })
     expect(await module.linkConsoleProject("ftp://app.example.com")).toMatchObject({ kind: "problem", problem: { title: "Check the URL" } })

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { posix } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 
@@ -11,6 +11,8 @@ import {
   type CloudflareContainerExecProcess,
   type CloudflareSandboxFiles,
 } from "../src/internal/cloudflare-durable-object.ts";
+
+afterEach(() => vi.useRealTimers());
 
 class FileError extends Error {
   constructor(readonly code: string) {
@@ -202,6 +204,25 @@ describe("Cloudflare Sandbox Durable Object", () => {
 
     await session.close();
     expect(container.destroyed).toBe(1);
+  });
+
+  it("retries a completed deletion after its response is lost", async () => {
+    vi.useFakeTimers();
+    const { files, objects, runtime } = setup();
+    const session = await (await resolveSandbox({ runtime }, {})).open();
+    await session.files.write("/workspace/output", new TextEncoder().encode("data"));
+    const object = objects.get("Task-1")!;
+    const remove = object.deleteFile.bind(object);
+    const request = vi.spyOn(object, "deleteFile").mockImplementationOnce(async (path) => {
+      await remove(path);
+      throw Object.assign(new Error("Network connection lost."), { retryable: true });
+    });
+
+    const result = expect(session.files.remove("/workspace/output")).resolves.toBeUndefined();
+    await Promise.all([result, vi.runAllTimersAsync()]);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(files.has("/workspace/output")).toBe(false);
+    await session.close();
   });
 
   it("resolves relative file operations against /workspace", async () => {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, shallowRef, watch } from "vue";
+import { computed, ref, shallowRef, watch } from "vue";
 
 import type { ConsoleProjectProblem } from "../client/project-link";
 import { consoleTokenRefused } from "../client/project-link";
@@ -7,6 +7,7 @@ import type { ConsoleProjectTarget } from "../client/projects";
 import { consoleProjectsVolatileNote, linkConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import ConsoleProjectOAuth from "./console-project-oauth.vue";
+import ConsoleProjectProblemAlert from "./console-project-problem.vue";
 import ConsoleProjectToken from "./console-project-token.vue";
 
 const open = defineModel<boolean>("open", { required: true });
@@ -17,12 +18,29 @@ const busy = ref(false);
 const problem = shallowRef<ConsoleProjectProblem>();
 // After the project asks for a token, the dialog shows the token step for that project.
 const tokenStep = shallowRef<{ target: ConsoleProjectTarget, rejected: boolean }>();
+// One object per answer, so the token form can tell a new answer from a render.
+const tokenProblem = computed<ConsoleProjectProblem | undefined>(() => problem.value ?? (tokenStep.value?.rejected
+  ? { title: "The token is not correct", message: consoleTokenRefused(consoleProjectHost(tokenStep.value.target)) }
+  : undefined));
 // A project with `auth: "app"` signs the Console in on its own sign-in page.
 const oauthStep = shallowRef<{ target: ConsoleProjectTarget, resourceMetadata: string }>();
+// A touch screen keeps its keyboard closed until the person taps a field. There the dialog itself takes focus, so a
+// screen reader starts inside it and no button shows a focus ring.
 const autofocus = !("ontouchstart" in window);
+const content = autofocus ? {} : {
+  onOpenAutoFocus: (event: Event) => {
+    event.preventDefault();
+    if (event.target instanceof HTMLElement) event.target.focus({ preventScroll: true });
+  },
+};
+
+// The check that runs, so closing the dialog can drop its answer.
+let check: AbortController | undefined;
 
 watch(open, (value) => {
   if (value) return;
+  check?.abort();
+  check = undefined;
   url.value = "";
   problem.value = undefined;
   tokenStep.value = undefined;
@@ -38,8 +56,12 @@ async function link(token?: string): Promise<void> {
   if (busy.value) return;
   busy.value = true;
   problem.value = undefined;
+  // The answer to the last token does not describe this one.
+  if (tokenStep.value?.rejected) tokenStep.value = { target: tokenStep.value.target, rejected: false };
+  const current = check = new AbortController();
   try {
-    const result = await linkConsoleProject(tokenStep.value?.target.url ?? url.value, token);
+    const result = await linkConsoleProject(tokenStep.value?.target.url ?? url.value, token, current.signal);
+    if (current.signal.aborted) return;
     if (result.kind === "linked") {
       // The first project opens in place, so the dialog closes first.
       open.value = false;
@@ -52,6 +74,7 @@ async function link(token?: string): Promise<void> {
     busy.value = false;
   }
   catch {
+    if (current.signal.aborted) return;
     problem.value = { title: "Could not link the project", message: "The check stopped. Try again." };
     busy.value = false;
   }
@@ -67,11 +90,15 @@ function back(): void {
 <template>
   <UModal
     v-model:open="open"
-    :title="oauthStep ? `Sign in to ${consoleProjectHost(oauthStep.target)}` : tokenStep ? `Enter the Console token for ${consoleProjectHost(tokenStep.target)}` : 'Link project'"
-    :description="oauthStep ? 'This project uses the sign-in of the app.' : tokenStep ? 'The project uses auth: &quot;token&quot;.' : 'Open a ViteHub app in this Console. The app must list this Console in console.origins.'"
-    :dismissible="!busy"
-    :ui="{ content: 'sm:max-w-[440px]' }"
+    :title="oauthStep ? `Sign in to ${consoleProjectHost(oauthStep.target)}` : tokenStep ? 'Enter the Console token' : 'Link project'"
+    :content="content"
+    :ui="{ content: 'vitehub-project-dialog sm:max-w-[440px]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere] pointer-coarse:mt-3' }"
   >
+    <template #description>
+      <template v-if="oauthStep">{{ consoleProjectHost(oauthStep.target) }} signs you in on its own page.</template>
+      <template v-else-if="tokenStep">{{ consoleProjectHost(tokenStep.target) }} uses <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">auth: "token"</code>.</template>
+      <template v-else>Open a ViteHub app in this Console. The app must list this Console in <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">console.origins</code>.</template>
+    </template>
     <template #body>
       <div v-if="oauthStep" class="grid gap-3">
         <ConsoleProjectOAuth :target="oauthStep.target" :resource-metadata="oauthStep.resourceMetadata" />
@@ -80,7 +107,7 @@ function back(): void {
       <div v-else-if="tokenStep" class="grid gap-3">
         <ConsoleProjectToken
           :busy="busy"
-          :error="problem?.message ?? (tokenStep.rejected ? consoleTokenRefused(consoleProjectHost(tokenStep.target)) : undefined)"
+          :problem="tokenProblem"
           @submit="link"
         />
         <UButton color="neutral" variant="link" size="sm" class="justify-self-start px-0" icon="i-lucide-arrow-left" label="Use another URL" :disabled="busy" @click="back" />
@@ -91,7 +118,9 @@ function back(): void {
           name="url"
           description="The app origin, with its base path if it has one."
           :error="problem ? true : undefined"
+          :ui="{ error: 'mt-3' }"
         >
+          <!-- Read-only, not disabled, while the check runs, so the field keeps focus for the next try. -->
           <UInput
             v-model="url"
             type="url"
@@ -101,20 +130,34 @@ function back(): void {
             placeholder="https://app.example.com"
             class="w-full"
             :autofocus="autofocus"
-            :disabled="busy"
-            :aria-describedby="problem ? 'vitehub-project-link-problem' : undefined"
+            :readonly="busy"
           />
+          <template v-if="problem" #error>
+            <ConsoleProjectProblemAlert :problem="problem" />
+          </template>
         </UFormField>
-        <div v-if="problem" id="vitehub-project-link-problem" role="alert" class="flex gap-2 text-sm">
-          <UIcon name="i-lucide-circle-alert" class="mt-0.5 size-4 shrink-0 text-error" aria-hidden="true" />
-          <div class="grid gap-0.5">
-            <p class="font-medium text-highlighted">{{ problem.title }}</p>
-            <p class="text-pretty text-muted">{{ problem.message }}</p>
-          </div>
-        </div>
         <UButton type="submit" block :loading="busy" :label="busy ? 'Checking…' : 'Continue'" />
         <p v-if="!persistent" class="text-xs text-pretty text-muted">{{ consoleProjectsVolatileNote }}</p>
       </form>
     </template>
   </UModal>
 </template>
+
+<style>
+.vitehub-project-dialog :is(button, a[href]):focus-visible {
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .vitehub-project-dialog :is(button:not([role="checkbox"], [role="radio"]), input) {
+    min-height: 44px;
+  }
+
+  /* The tap area grows around the 28px button, so the X stays in line with the title. */
+  .vitehub-project-dialog [data-slot="close"] {
+    justify-content: center;
+    margin: -8px;
+    min-width: 44px;
+  }
+}
+</style>

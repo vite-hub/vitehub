@@ -114,13 +114,15 @@ export async function probeConsoleProject(
 
 /** What the Console says when a project refuses a token. The server keeps only a hash, so it cannot show the token. */
 export function consoleTokenRefused(host: string): string {
-  return `${host} refused this token. Use the token whose SHA-256 hash is in VITEHUB_CONSOLE_TOKEN_SHA256. If you lost it, create a new token and set its hash.`
+  return `${host} refused this token. Use the token whose SHA-256 hash is in \`VITEHUB_CONSOLE_TOKEN_SHA256\`. If you lost it, create a new token and set its hash.`
 }
 
 /** What the Console says about a probe that did not open the project. */
 export interface ConsoleProjectProblem {
   title: string
   message: string
+  /** What to do, when the project said so. The Console shows it under the message. */
+  fix?: string
 }
 
 /**
@@ -132,13 +134,13 @@ export function consoleProjectProblem(probe: Exclude<ConsoleProjectProbe, { kind
     case "token":
       return probe.rejected
         ? { title: "The token is not correct", message: consoleTokenRefused(context.host) }
-        : { title: `Enter the Console token for ${context.host}`, message: "The project uses auth: \"token\". Paste the token that you created for it." }
+        : { title: `Enter the Console token for ${context.host}`, message: "The project uses `auth: \"token\"`. Paste the token that you created for it." }
     case "oauth":
       return { title: `Sign in to ${context.host}`, message: `${context.host} signs Consoles in with OAuth. Sign in on ${context.host} and allow this Console.` }
     case "sign-in":
       return {
         title: `${context.host} cannot sign this Console in`,
-        message: `The project signs in through the app, but its Auth does not issue Console tokens. Add consoleMcpOAuth() to the app Auth, list ${context.consoleOrigin} in console.origins, and redeploy.`,
+        message: `The project signs in through the app, but its Auth does not issue Console tokens. Add \`consoleMcpOAuth()\` to the app Auth, list ${context.consoleOrigin} in \`console.origins\`, and redeploy.`,
       }
     case "protocol":
       return {
@@ -148,13 +150,15 @@ export function consoleProjectProblem(probe: Exclude<ConsoleProjectProbe, { kind
           : `This project runs an older vite-hub. This Console needs protocol ${consoleProjectProtocol}. Update vite-hub.`,
       }
     case "unreachable":
-      return { title: `Cannot reach ${context.host}`, message: `${context.consoleOrigin} is not in console.origins for ${context.host}. Add it and redeploy. The project may also be offline.` }
+      // The browser hides why a cross-origin request failed, so the message names both causes, the likely one last.
+      return { title: `Cannot reach ${context.host}`, message: `${context.host} did not answer this Console. If the app is online, add ${context.consoleOrigin} to its \`console.origins\` and redeploy.` }
     case "missing":
-      return { title: "No project found", message: `No ViteHub Console answers at ${context.url}. Check the URL, and check that the app sets console in vitehub().` }
+      return { title: "No project found", message: `No ViteHub Console answers at ${context.url}. Check the URL, and check that the app sets \`console\` in \`vitehub()\`.` }
     case "failed":
       return {
         title: probe.status === 403 ? "Access denied" : `${context.host} answered with an error`,
-        message: [probe.message ?? `The project answered with status ${probe.status}.`, probe.fix].filter(Boolean).join(" "),
+        message: probe.message ?? `The project answered with status ${probe.status}.`,
+        ...(probe.fix ? { fix: probe.fix } : {}),
       }
   }
 }
