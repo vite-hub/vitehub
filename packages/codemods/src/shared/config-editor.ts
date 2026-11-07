@@ -320,6 +320,36 @@ export interface ViteHubOptionsResult {
   presetNote?: string
 }
 
+/** The ViteHub deployment preset an app builds for, and the preset that `addViteHubOptions()` adds when the app sets none. */
+export interface PresetPlan {
+  /** The preset the app will build for, when the codemod can tell. */
+  preset?: string
+  /** The preset to add under `vitehub`. */
+  add?: string
+  note?: string
+}
+
+export function planPreset(config: NuxtConfigFile): PresetPlan {
+  const existingOptions = findProperty(config.root, "vitehub")
+  const existingPreset = existingOptions?.value.type === "ObjectExpression" ? findProperty(existingOptions.value, "preset") : undefined
+  const inlinePreset = hasInlinePreset(findViteHubEntry(config))
+  if (existingPreset || inlinePreset) {
+    const value = existingPreset ? literalValue(existingPreset.value) : undefined
+    return { preset: typeof value === "string" ? value : undefined }
+  }
+  const preset = nitroPreset(config)
+  if (preset.property && preset.value === undefined) {
+    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.preset, then run the codemod again.`)
+  }
+  if (preset.value) {
+    const mapped = nitroPresets[preset.value.trim().toLowerCase().replaceAll("_", "-")]
+    return mapped
+      ? { preset: mapped, add: mapped }
+      : { note: `nitro.preset "${preset.value}" has no ViteHub deployment preset. Set vitehub.preset to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.` }
+  }
+  return { preset: "node", add: "node", note: `ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.` }
+}
+
 /**
  * Adds `options` under `vitehub`, and a deployment preset when the app has none. Then inserts `rootEntries`
  * after the last root property that `removedRootProperties` does not hold.
@@ -328,25 +358,9 @@ export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, 
   const style = editor.style
   const rootEntries = [...input.rootEntries]
   const existingOptions = findProperty(config.root, "vitehub")
-  const existingPreset = existingOptions?.value.type === "ObjectExpression" ? findProperty(existingOptions.value, "preset") : undefined
-  const inlinePreset = hasInlinePreset(findViteHubEntry(config))
-  const preset = nitroPreset(config)
-  if (preset.property && preset.value === undefined && !inlinePreset && !existingPreset) {
-    throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.preset, then run the codemod again.`)
-  }
-  let vitehubPreset: string | undefined = "node"
-  let presetNote: string | undefined = `ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.`
-  if (preset.value) {
-    vitehubPreset = nitroPresets[preset.value.trim().toLowerCase().replaceAll("_", "-")]
-    presetNote = vitehubPreset
-      ? undefined
-      : `nitro.preset "${preset.value}" has no ViteHub deployment preset. Set vitehub.preset to "cloudflare", "deno", "netlify", "node", or "vercel" and remove nitro.preset.`
-  }
-  if (inlinePreset) {
-    vitehubPreset = undefined
-    presetNote = undefined
-  }
-
+  const planned = planPreset(config)
+  let vitehubPreset = planned.add
+  let presetNote = planned.note
   const unit = style.indent
   const baseIndent = config.root.properties[0] ? indentAt(config.code, start(config.root.properties[0])) : unit
   if (existingOptions) {
