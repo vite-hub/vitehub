@@ -67,7 +67,9 @@ export async function readRevisionRecords(view: RevisionView, locales: readonly 
 
 function compile(records: TranslationRecords, only?: ReadonlySet<string>): Messages {
   const messages: Messages = {}
-  for (const [id, record] of Object.entries(records)) if (!only || only.has(id)) messages[id] = compileMessage(record.translation)
+  for (const [id, record] of Object.entries(records)) {
+    if (record.translation !== "" && (!only || only.has(id))) messages[id] = compileMessage(record.translation)
+  }
   return messages
 }
 

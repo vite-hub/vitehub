@@ -202,7 +202,7 @@ function setup(store = memoryWorkspace()) {
 }
 
 describe("translations in a Workspace", () => {
-  it.each(["deleted", "malformed"])("replaces the detecting request's catalog when published records are %s", async (change) => {
+  it.each(["deleted", "malformed", "empty"])("replaces the detecting request's catalog when published records are %s", async (change) => {
     const { store, request } = setup()
     const extra = { id: messageId("Live only message"), message: "Live only message" }
     const paths = [recordPath("es", deploy.id), recordPath("es", extra.id)]
@@ -220,7 +220,10 @@ describe("translations in a Workspace", () => {
     await store.workspace.history.commit({
       ref: "published",
       ifHead: first.id,
-      changes: change === "deleted" ? { delete: paths } : { put: Object.fromEntries(paths.map(path => [path, "{"])) },
+      changes: change === "deleted" ? { delete: paths } : { put: {
+        [paths[0]!]: change === "malformed" ? "{" : JSON.stringify({ source: deploy.message, translation: "" }),
+        [paths[1]!]: change === "malformed" ? "{" : JSON.stringify({ source: extra.message, translation: "" }),
+      } },
     })
     const fallback = ["Despliega tu agente", extra.message, "Nota del servidor"]
     expect(await request(render), "the request that detects the revision removes stale messages").toEqual(fallback)
@@ -340,6 +343,34 @@ describe("useTranslations() without a Workspace", () => {
 })
 
 describe("the browser with a Workspace", () => {
+  it.each(["Despliega tu agente", deploy.message])("restores the browser fallback %s after a translation is cleared", async (fallback) => {
+    setup()
+    const translations = useTranslations()
+    await translations.save({ locale: "es", source: deploy.message, translation: "Publica tu agente" })
+    await translations.publish()
+    vi.stubGlobal("document", { cookie: "", documentElement: { lang: "en" } })
+    vi.stubGlobal("fetch", (url: string) => i18nCatalogResponse(new Request(`http://app.test${url}`)))
+    try {
+      configureI18n({
+        ...config,
+        live: "/_vitehub/i18n",
+        catalogs: { es: async () => ({ messages: { [deploy.id]: compileMessage(fallback) } }) },
+      })
+      await setLocale("es")
+      expect(getI18n()._(deploy)).toBe("Publica tu agente")
+
+      await translations.save({ locale: "es", source: deploy.message, translation: "" })
+      const { revision } = await translations.publish()
+      const response = await i18nCatalogResponse(new Request("http://app.test/_vitehub/i18n/es.json"))
+      expect(await response.json()).toEqual({ revision, messages: {} })
+      await setLocale("es")
+      expect(getI18n()._(deploy)).toBe(fallback)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("reports a superseded selection while its live catalog is still loading", async () => {
     const pending = deferred()
     const page = { cookie: "", documentElement: { lang: "en" } }
