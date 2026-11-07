@@ -63,12 +63,12 @@ Returns the message in the active locale. A message without a translation return
 ## plural, selectOrdinal, and select
 
 ```ts
-plural(count, { one: "# file", other: "# files" })
+plural(count, { 0: "No files", one: "# file", other: "# files" })
 selectOrdinal(place, { one: "#st", two: "#nd", few: "#rd", other: "#th" })
 select(role, { admin: "Admin", other: "Member" })
 ```
 
-`plural()` and `selectOrdinal()` take the forms `zero`, `one`, `two`, `few`, `many`, and `other`, and exact numbers such as `"0"`. `other` is required. `#` in a form is the number. Translators write the forms of their own language in the catalog.
+`plural()` and `selectOrdinal()` take the forms `zero`, `one`, `two`, `few`, `many`, and `other`, and exact numeric keys such as `0`. Write numeric keys without quotes. `other` is required. `#` in a form is the number. Translators write the forms of their own language in the catalog.
 
 `select()` takes one form for each value, and `other` for every other value.
 

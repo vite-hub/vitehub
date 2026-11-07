@@ -94,6 +94,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/browser/actions` | ViteHub Browser actions backed by Cloudflare Browser Run. |
 | `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Advanced raw CDP and Playwright Browser Session controllers. |
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
+| `vite-hub/bundle` | Read the bundle report of the last build: `readBundleReport()` and `explainBundleTarget()`. Re-exports `@vite-hub/bundle`. |
 | `vite-hub/channels` and `vite-hub/channels/server` | Outbound Channel Definitions with `defineOutboundChannel()` and discovered named delivery. |
 | `vite-hub/comments` | `defineComments()` for `server/comments.ts`, as the `comments` export or the default export. One definition runs the overlay, the Comments API, presence, MCP, and the [comment operations](/docs/comments/operations/get-started). |
 | `vite-hub/comments/anchor`, `vite-hub/comments/database`, `vite-hub/comments/realtime`, `vite-hub/comments/runtime`, and `vite-hub/comments/runtime/auth` | Pin anchors for the browser, the Comments tables, and the presence room, API handler, Nitro plugin, and Auth session reader that generated output imports. |
