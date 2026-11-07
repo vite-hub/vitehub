@@ -8,7 +8,6 @@ import {
   landingPrimitives,
   portabilityExamples,
 } from "../app/components/landing/content";
-import { primitiveScenes } from "../app/components/landing/primitive-scenes";
 import { primitiveLandings } from "../app/data/primitive-landings";
 
 const landingFiles = [
@@ -18,7 +17,6 @@ const landingFiles = [
   "Portability.vue",
   "AgentStory.vue",
   "Closing.vue",
-  "PrimitiveMotion.vue",
   "PrimitiveLines.vue",
   "content.ts",
 ];
@@ -161,9 +159,9 @@ describe("landing page", () => {
       "ui",
     ]);
     for (const primitive of landingPrimitives) {
-      expect(primitiveScenes).toHaveProperty(primitive.id);
       expect(primitive.to).toMatch(/^\/docs\//);
-      expect(primitive.icon).toMatch(/^i-(?:lucide|ph)-/);
+      // The ViteHub set, as in the docs sidebar and the Console.
+      expect(primitive.icon).toMatch(/^i-vitehub-/);
     }
     expect(portabilityExamples.map((example) => example.id)).toEqual([
       "storage",
@@ -192,21 +190,11 @@ describe("landing page", () => {
   });
 
   it("keeps reduced-motion and hidden install controls static", async () => {
-    const primitiveMotion = await readFile(
-      new URL("../app/components/landing/PrimitiveMotion.vue", import.meta.url),
-      "utf8",
-    );
-    const reducedMotion = primitiveMotion.slice(
-      primitiveMotion.indexOf("@media (prefers-reduced-motion: reduce)"),
-    );
     const installCommand = await readFile(
       new URL("../app/components/landing/InstallCommand.vue", import.meta.url),
       "utf8",
     );
 
-    expect(reducedMotion).toContain("animation: none;");
-    expect(primitiveMotion).toContain(".primitive-motion:not(.is-playing) .a {\n  animation-play-state: paused;");
-    expect(primitiveMotion).toContain("animation-iteration-count: infinite;");
     const primitives = await readFile(
       new URL("../app/components/landing/Primitives.vue", import.meta.url),
       "utf8",

@@ -3,7 +3,7 @@ title: File Tree
 description: "Render Pierre's path-first file tree from Vue, control its expanded and selected state, and keep it accessible."
 navigation.order: 39
 navigation.group: Agent work
-icon: i-ph-tree-structure-light
+icon: i-lucide-network
 ---
 
 `FileTree` turns a list of repository paths into an interactive `@pierre/trees` view with folders, search, selection, and Git status. Use it to browse a Workspace or the files that an Agent changed.

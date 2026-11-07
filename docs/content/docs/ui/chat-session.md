@@ -3,7 +3,7 @@ title: Chat Session
 description: Present an application-owned chat session with a title and the same AI SDK message contract.
 navigation.order: 25
 navigation.group: Chat
-icon: i-ph-chats-circle-light
+icon: i-lucide-messages-square
 ---
 
 `ChatSession` is the small shell around a saved conversation. It gives the Console a title, a `Chat` that fills the available space, and an optional footer for the prompt or session actions. AI SDK does not define a session schema, so `ViteHubUISession` stays small: an ID, messages, an optional title and timestamps, and your own metadata.

@@ -155,7 +155,7 @@ function resetExample() {
 
 <template>
   <div
-    class="component-preview not-prose my-6 overflow-hidden rounded-lg border border-default bg-default"
+    class="component-preview not-prose my-6 overflow-hidden rounded-(--vh-frame-radius) border border-default bg-default"
   >
     <div
       class="flex min-h-11 items-center justify-between gap-2 border-b border-default ps-1.5 pe-2 sm:pe-3"

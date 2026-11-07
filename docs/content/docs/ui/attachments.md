@@ -3,7 +3,7 @@ title: Attachments
 description: "Validate browser files, preview them, and convert them to AI SDK file parts."
 navigation.order: 40
 navigation.group: Utilities
-icon: i-ph-files-light
+icon: i-lucide-files
 ---
 
 `useAgentAttachments()` keeps raw `File` values with type, size, and count rules, and converts them to AI SDK `FileUIPart` values when you send. Use it when you build your own attachment UI or need validation before conversion. `PromptInput` already converts files on its own.

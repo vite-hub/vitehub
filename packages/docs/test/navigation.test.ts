@@ -364,6 +364,7 @@ describe("docs icons", () => {
     family: "i-ph-",
     page: "i-ph-file-light",
     section: "i-ph-folder-light",
+    stroke: 1.5,
   }
 
   it("prefers explicit maps, then aliases, then icons inside the family", () => {

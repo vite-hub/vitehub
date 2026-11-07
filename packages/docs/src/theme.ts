@@ -16,7 +16,7 @@ export function docsAppConfigUi(design: DocsThemeUi, current: DocsThemeUi | unde
 // color, and amber or green text on the callout background is below 4.5:1 contrast, so every callout uses body colors.
 const monochromeCallout = {
   base: [
-    "rounded-[10px] border-default bg-muted text-default dark:text-default [&>ul]:marker:text-muted",
+    "rounded-(--vh-frame-radius) border-default bg-muted text-default dark:text-default [&>ul]:marker:text-muted",
     "[&_code]:text-default dark:[&_code]:text-default [&_code]:border-default",
     "[&_a]:text-default [&_a]:hover:text-default [&_a]:focus-visible:text-default [&_a]:hover:border-default [&_a]:outline-inverted",
     "[&_a]:[&>code]:outline-inverted [&_a]:hover:[&>code]:border-default [&_a]:hover:[&>code]:text-default",
@@ -31,10 +31,10 @@ const monochromeCallout = {
  */
 export function docsUi(siteName: string): DocsThemeUi {
   return {
-    // Thin Phosphor icons for the color mode control, like the rest of the sidebar.
+    // Lucide icons for the color mode control, like the rest of the site.
     icons: {
-      light: "i-ph-sun-light",
-      dark: "i-ph-moon-light",
+      light: "i-lucide-sun",
+      dark: "i-lucide-moon",
     },
     colors: {
       primary: "neutral",
@@ -161,7 +161,7 @@ export function docsUi(siteName: string): DocsThemeUi {
         transition: false,
       },
       slots: {
-        modal: "vh-docs-search-modal w-[calc(100vw-1rem)] !max-w-[36rem] !h-auto rounded-[10px] border border-default shadow-none max-h-[calc(100dvh-1rem)] sm:max-h-[70vh]",
+        modal: "vh-docs-search-modal w-[calc(100vw-1rem)] !max-w-[36rem] !h-auto rounded-(--vh-frame-radius) border border-default shadow-none max-h-[calc(100dvh-1rem)] sm:max-h-[70vh]",
         input: "[&>input]:h-14 [&>input]:text-lg",
       },
     },
@@ -187,7 +187,7 @@ export function docsUi(siteName: string): DocsThemeUi {
       },
       callout: {
         slots: {
-          base: "rounded-[10px] border bg-muted",
+          base: "rounded-(--vh-frame-radius) border bg-muted",
         },
         variants: {
           color: {
@@ -224,7 +224,7 @@ export function docsUi(siteName: string): DocsThemeUi {
         },
       },
       tabsItem: {
-        base: "p-0 rounded-[10px] ring ring-default overflow-hidden",
+        base: "p-0 rounded-(--vh-frame-radius) ring ring-default overflow-hidden",
       },
       codeGroup: {
         slots: {
@@ -244,9 +244,9 @@ export function docsUi(siteName: string): DocsThemeUi {
         slots: {
           root: "relative my-5 group",
           // The copy button sits over the end of the header, so long file names wrap before it.
-          header: "flex items-center gap-1.5 border border-default bg-default border-b-0 relative rounded-t-[10px] ps-4 pe-12 py-2.5 text-[0.8125rem]",
+          header: "flex items-center gap-1.5 border border-default bg-default border-b-0 relative rounded-t-(--vh-frame-radius) ps-4 pe-12 py-2.5 text-[0.8125rem]",
           filename: "min-w-0 wrap-anywhere",
-          base: "group font-mono text-[0.8125rem]/6 border border-default bg-muted rounded-[10px] [[data-slot=header]+&]:rounded-t-none px-[0.9rem] py-[0.8rem] whitespace-pre-wrap wrap-break-word overflow-x-auto focus:outline-none",
+          base: "group font-mono text-[0.8125rem]/6 border border-default bg-muted rounded-(--vh-frame-radius) [[data-slot=header]+&]:rounded-t-none px-[0.9rem] py-[0.8rem] whitespace-pre-wrap wrap-break-word overflow-x-auto focus:outline-none",
           // Touch screens cannot reveal the hover-only copy button, so keep it visible and larger.
           copy: "pointer-coarse:opacity-100 pointer-coarse:size-9 pointer-coarse:justify-center pointer-coarse:top-[5px] pointer-coarse:end-[5px]",
         },

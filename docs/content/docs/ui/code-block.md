@@ -3,7 +3,7 @@ title: Code Block
 description: "Show code, terminal output, logs, and diffs with a header, line numbers, and a copy button."
 navigation.order: 15
 navigation.group: Parts
-icon: i-ph-code-light
+icon: i-lucide-code
 ---
 
 `CodeBlock` shows code, terminal output, logs, and diffs. It has a header with a title and actions, optional line numbers and wrapping, and line variants for diffs and highlights. `useHighlightedCode()` colors the lines with [Shiki](https://shiki.style). The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Code Block](https://ui.shadcn.com/docs/components/code-block).

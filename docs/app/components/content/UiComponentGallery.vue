@@ -12,6 +12,8 @@ const props = withDefaults(
 );
 
 // Read the generated docs manifest so the gallery follows the UI sidebar order and groups.
+// The sidebar icon of each page, so the gallery and the sidebar show the same set.
+const icons = useDocsIcons();
 const groups = computed(() => {
   const section = useDocsManifest().sections.find((candidate) => candidate.id === "ui");
   const grouped = new Map<string, NonNullable<typeof section>["pages"]>();
@@ -44,7 +46,7 @@ const groups = computed(() => {
             class="group flex items-center gap-3 py-3 transition-colors hover:bg-elevated/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-inverted sm:gap-4"
           >
             <span class="grid size-8 shrink-0 place-items-center border border-default bg-elevated/60 text-muted transition-colors group-hover:text-highlighted">
-              <UIcon :name="page.icon || 'i-ph-squares-four-light'" class="size-4" aria-hidden="true" />
+              <UIcon :name="icons.page(page)" class="size-4" aria-hidden="true" />
             </span>
             <span class="min-w-0 flex-1">
               <span class="block text-sm font-medium text-highlighted">{{ page.title }}</span>
@@ -52,7 +54,7 @@ const groups = computed(() => {
                 {{ page.description }}
               </span>
             </span>
-            <UIcon name="i-ph-arrow-right-light" class="size-4 shrink-0 text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-highlighted" aria-hidden="true" />
+            <UIcon name="i-lucide-arrow-right" class="size-4 shrink-0 text-dimmed transition-transform group-hover:translate-x-0.5 group-hover:text-highlighted" aria-hidden="true" />
           </NuxtLink>
         </li>
       </ul>

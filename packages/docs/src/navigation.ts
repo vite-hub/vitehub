@@ -21,7 +21,7 @@ export interface DocsIcons {
   /** Replacement per icon name. */
   aliases: Record<string, string>
   /**
-   * Icon prefix of the sidebar, such as `i-ph-`, or several prefixes, such as `["i-ph-", "i-vitehub-"]`. An icon outside
+   * Icon prefix of the sidebar, such as `i-lucide-`, or several prefixes, such as `["i-lucide-", "i-vitehub-"]`. An icon outside
    * them that `aliases` does not map shows the fallback icon, so the sidebar keeps one style. `""` or `[]` allows every icon.
    */
   family: string | string[]
@@ -29,6 +29,11 @@ export interface DocsIcons {
   page: string
   /** Icon of a section without one. */
   section: string
+  /**
+   * Stroke width of line icons that Iconify draws 2px wide, such as Lucide. The default `1.5` matches the ViteHub icon
+   * set. `false` keeps each icon as its set draws it.
+   */
+  stroke: number | false
 }
 
 /** One catalog row: the sections of one category, in rail order. */
@@ -281,6 +286,16 @@ export function docsSectionIcon(icons: DocsIcons, section: Pick<DocsSection, "id
 /** Rail icon of a section. Without a rail entry the rail shows the sidebar icon. */
 export function docsRailIcon(icons: DocsIcons, section: Pick<DocsSection, "id" | "icon">): string {
   return icons.rail[section.id] ?? docsSectionIcon(icons, section)
+}
+
+/**
+ * Draws a 2px line icon with `stroke` instead. @nuxt/icon passes only the icon body in its CSS mode, so the icon is
+ * recognized by its body: Lucide draws `stroke-width="2"` with round joins. Filled icons, such as brand logos, have no
+ * stroke and stay as they are.
+ */
+export function docsIconStroke(body: string, stroke: number): string {
+  if (!body.includes('stroke-linejoin="round"')) return body
+  return body.replaceAll('stroke-width="2"', `stroke-width="${stroke}"`)
 }
 
 /** URL of the raw Markdown twin of a page path, such as `/raw/docs/kv.md`. `/` has `/raw/index.md`. */
