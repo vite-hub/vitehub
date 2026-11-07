@@ -322,7 +322,7 @@ export function newProjectPrompt(stack: NewProjectStack, ticket: ConsolePendingL
     "",
     command,
     "",
-    `2. ${app ? "Build the app" : "Check the app"} with ViteHub. The docs are at https://vitehub.dev/llms.txt.`,
-    "3. Deploy the app. Then give me the link that the command printed. I open it in my browser to link the app.",
+    ...(app ? ["2. Build the app with ViteHub. The docs are at https://vitehub.dev/llms.txt."] : []),
+    `${app ? 3 : 2}. Deploy the app. Then give me the link that the command printed. I open it in my browser to link the app.`,
   ].join("\n")
 }

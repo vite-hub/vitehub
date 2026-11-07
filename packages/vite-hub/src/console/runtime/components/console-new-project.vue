@@ -70,6 +70,13 @@ const hostItems = newProjectHosts.map((host) => {
   return { value: host.id, label: host.label, description: count === featureIds.length ? "Every feature" : `${count} of ${featureIds.length} features` };
 });
 
+const search = useTemplateRef<{ inputRef?: HTMLInputElement }>("search");
+
+function clearSearch(): void {
+  query.value = "";
+  search.value?.inputRef?.focus();
+}
+
 function hostIcon(value: unknown): string | undefined {
   const host = newProjectHosts.find(entry => entry.id === value);
   return host && newProjectHostIcons[host.id];
@@ -276,6 +283,7 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
             </p>
           </div>
           <UInput
+            ref="search"
             v-model="query"
             type="search"
             icon="i-lucide-search"
@@ -286,9 +294,14 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
             spellcheck="false"
             data-1p-ignore
             data-lpignore="true"
-            class="w-full sm:max-w-xs"
+            class="vitehub-new-project__search w-full sm:max-w-xs"
+            :ui="{ trailing: 'pe-1' }"
             @keydown.esc="query && ($event.preventDefault(), query = '')"
-          />
+          >
+            <template v-if="query" #trailing>
+              <UButton color="neutral" variant="link" size="xs" icon="i-lucide-x" aria-label="Clear the search" @click="clearSearch" />
+            </template>
+          </UInput>
           <span class="sr-only" aria-live="polite">{{ query.trim() ? `${shownFeatures.length} ${shownFeatures.length === 1 ? "feature" : "features"}` : "" }}</span>
           <ul id="new-project-feature-list" class="grid gap-2 sm:grid-cols-2">
             <li v-for="row in shownFeatures" :id="`new-project-feature-${row.id}`" :key="row.id" class="grid">
@@ -299,7 +312,7 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
                 :model-value="row.state.kind !== 'off'"
                 :disabled="locked(row)"
                 :ui="{
-                  root: ['h-full items-start', row.support?.level === 'unsupported' && row.state.kind === 'off' ? 'opacity-60' : '', featureError(row.id) ? 'border-error has-data-[state=checked]:border-error' : ''],
+                  root: ['h-full items-start', row.support?.level === 'unsupported' && row.state.kind === 'off' ? 'opacity-60' : '', featureError(row.id) ? 'border-error has-data-[state=checked]:border-error not-has-disabled:has-focus-visible:border-error has-focus-visible:ring-error' : ''],
                   wrapper: 'grid gap-1',
                 }"
                 :aria-invalid="Boolean(featureError(row.id))"
@@ -324,7 +337,7 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
           </ul>
           <p v-if="!shownFeatures.length" class="vitehub-new-project__text">
             No feature matches “{{ query.trim() }}”.
-            <button type="button" class="font-medium text-highlighted underline underline-offset-2" @click="query = ''">Clear the search</button>
+            <button type="button" class="font-medium text-highlighted underline underline-offset-2" @click="clearSearch">Clear the search</button>
           </p>
         </section>
 
@@ -548,9 +561,14 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
   white-space: pre-wrap;
 }
 
+/* The prompt is prose with a command in it, so it wraps anywhere, even inside the long link key. */
 .vitehub-new-project__prompt {
-  max-height: 20rem;
-  overflow-y: auto;
+  overflow-wrap: anywhere;
+}
+
+/* The clear button of the search replaces the browser's own. */
+.vitehub-new-project__search input::-webkit-search-cancel-button {
+  appearance: none;
 }
 
 .vitehub-new-project__command span {

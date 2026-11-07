@@ -217,7 +217,10 @@ describe("newProjectPrompt", () => {
   })
 
   it("works without an idea, and not for a stack with problems", () => {
-    expect(newProjectPrompt(stack({ host: "node" }), ticket, " ")!.split("\n")[0]).toBe("Create a ViteHub app in the folder my-app.")
+    const plain = newProjectPrompt(stack({ host: "node" }), ticket, " ")!
+    expect(plain.split("\n")[0]).toBe("Create a ViteHub app in the folder my-app.")
+    expect(plain).not.toContain("llms.txt")
+    expect(plain.split("\n").at(-1)).toMatch(/^2\. Deploy the app\./)
     expect(newProjectPrompt(stack({ features: ["kv"] }), ticket, "x")).toBeUndefined()
   })
 })
