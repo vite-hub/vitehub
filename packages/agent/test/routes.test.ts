@@ -38,3 +38,10 @@ it.each(["/_vitehub/**", "/**"])("allows enclosing %s only for the reserved dev 
   expect(validateAgentStaticRoute("/_vitehub/agent/invocations/dev", [{ route }], "development invocation", "/_vitehub/agent")).toBe("/_vitehub/agent/invocations/dev")
   expect(() => validateAgentStaticRoute("/_vitehub/agent/invocations/dev", [{ route }])).toThrow(/route conflicts/)
 })
+
+// Nitro scans server/routes/[...path].get.ts as /:path(.*). Its router matches the static dev route first.
+it.each(["/:path(.*)", "/[...path]", "/**:path"])("allows the application fallback %s at the root only for the reserved dev route", (route) => {
+  expect(validateAgentStaticRoute("/_vitehub/agent/invocations/dev", [{ route }], "development invocation", "/_vitehub/agent")).toBe("/_vitehub/agent/invocations/dev")
+  expect(() => validateAgentStaticRoute("/_vitehub/agent/invocations/dev", [{ route }])).toThrow(/route conflicts/)
+  expect(() => validateAgentStaticRoute("/api/ready", [{ route }])).toThrow(/route conflicts/)
+})
