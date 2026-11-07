@@ -396,6 +396,7 @@ export const CommentComposer = defineComponent({
               accept: props.accept,
               "aria-label": labels[props.variant],
               attachments: attachmentsOn.value,
+              attachVariant: props.layout === "row" ? "ghost" : "outline",
               files: fileParts.value,
               filesDisabled: props.busy,
               filterFiles: (list: readonly File[]) => {

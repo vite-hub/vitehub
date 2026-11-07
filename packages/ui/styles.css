@@ -2553,17 +2553,6 @@
       order: 2;
     }
 
-    /* Attach is a quiet icon here, not an outlined button. Nuxt UI draws the outline with utility classes, which sit in
-       a later layer than this one, so only an important declaration here outranks them. */
-    & [data-slot="prompt-input-toolbar"] > button:not(:last-child) {
-      box-shadow: none !important;
-      color: var(--vh-muted) !important;
-
-      &:not(:hover, :focus-visible) {
-        background: transparent !important;
-      }
-    }
-
     /* The same focus as the bordered box: a faint edge and a soft halo. */
     & [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
       border-color: color-mix(in oklab, var(--vh-highlighted) 22%, transparent);

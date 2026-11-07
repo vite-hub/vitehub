@@ -946,4 +946,12 @@ describe("composer layout", () => {
     expect(box()).toBe("box");
     expect(box("row")).toBe("row");
   });
+
+  it("draws attach as a ghost icon in a row box and as an outlined button in a bordered one", () => {
+    const attach = (layout?: "row") =>
+      keep(mount(withState(() => h(CommentComposer, { autofocus: false, guard: false, layout })), { attachTo: document.body, global }))
+        .get('button[aria-label="Add attachment"]').attributes("variant");
+    expect(attach()).toBe("outline");
+    expect(attach("row")).toBe("ghost");
+  });
 });
