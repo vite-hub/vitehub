@@ -21,7 +21,7 @@ import { ChatSession } from "@vite-hub/ui";
 
 ## Usage
 
-```ts
+```ts fragment
 import { ChatSession, type ViteHubUISession } from "@vite-hub/ui";
 
 const session: ViteHubUISession = {
@@ -100,6 +100,8 @@ Other attributes go to the root `<section>`. It has a `data-session-id` attribut
 #### Types
 
 ```ts
+import type { UIMessage } from "ai"
+
 interface ViteHubUISession<Message extends UIMessage = UIMessage> {
   id: string;
   messages: readonly Message[];

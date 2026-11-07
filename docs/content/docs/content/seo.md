@@ -59,6 +59,7 @@ A Source `url` adds its documents to the [sitemap](#sitemap-and-robotstxt). Read
 `seo()` is a field like any other. Add it to the collections whose pages need their own search and social text:
 
 ```ts [server/content.ts]
+import { z } from 'zod'
 import { documents, image, seo } from 'vite-hub/content'
 
 const posts = documents({
@@ -122,7 +123,7 @@ The result includes `description`, `robots: noindex` when set, Open Graph `og:ti
 
 Turn on the routes in `defineContent()`:
 
-```ts [server/content.ts]
+```ts [server/content.ts] fragment
 export const content = defineContent({
   workspace: 'site',
   collections: { posts, home },

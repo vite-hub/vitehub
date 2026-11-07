@@ -12,7 +12,7 @@ Import the server API from `vite-hub/decisions`. It runs wherever your server co
 
 `defineChoices()` takes a gateway and your groups. A wrong definition throws when you call it.
 
-```ts [server/utils/forecast-choices.ts]
+```ts [server/utils/forecast-choices.ts] fragment
 import { defineChoices, toOptions } from "vite-hub/decisions"
 import { typesafe } from "vite-hub/gateways"
 
@@ -58,7 +58,7 @@ Each group takes these settings:
 
 Call `resolve()` in a route, a queue worker, or a test. It returns `[error, selection]` and never throws.
 
-```ts [server/api/forecast/choices.post.ts]
+```ts [server/api/forecast/choices.post.ts] fragment
 import { forecast } from "../../utils/forecast-choices"
 
 export default defineEventHandler(async (event) => {
@@ -70,7 +70,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-```ts
+```ts fragment
 selection.supplier // { include: ["nord"], exclude: ["vak"] }
 selection.chart // { value: "bar", confidence: 0.8, ranked: [{ value: "bar", probability: 0.8 }, ...] }
 ```
@@ -83,7 +83,7 @@ The route is yours. Auth, rate limits, and the context to pass belong there. Use
 
 An `options` function receives `context`. Annotate its parameter, and `resolve()` asks for the same type.
 
-```ts
+```ts fragment
 const sites = defineChoices({
   gateway: typesafe(),
   groups: {
@@ -104,7 +104,7 @@ Without a type on the parameter, `resolve()` asks for no context. With a type, T
 
 Pass a `signal` to stop the gateway request:
 
-```ts
+```ts fragment
 await forecast.resolve(text, { signal: AbortSignal.timeout(10_000) })
 ```
 
@@ -112,7 +112,7 @@ await forecast.resolve(text, { signal: AbortSignal.timeout(10_000) })
 
 `forecast.inspect(text)` returns `[error, plan]`. The plan has the state and the questions that `resolve()` would send. Nothing leaves your server. Use it in a test or when an answer looks wrong.
 
-```ts
+```ts fragment
 const [error, plan] = await forecast.inspect("nord parts except vak supply")
 plan.questions // one question for each option of a multiple group, one for each single group, and `supported`
 ```

@@ -82,6 +82,8 @@ ViteHub derives one deployment identity from the nearest `package.json` name, fa
 Blob, Agent, Auth, Database, Email, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace are opt-in. Enabling Agent also enables Workflow for discovered Agent Definitions; set `workflow: false` only when every Agent must stay inline:
 
 ```ts
+import { vitehub } from "vite-hub"
+
 vitehub({
   agent: true,
   blob: true,

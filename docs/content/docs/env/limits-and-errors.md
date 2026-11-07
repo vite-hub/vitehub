@@ -10,7 +10,7 @@ icon: i-lucide-circle-alert
 
 Env resolution failures use `ViteHubError` with closed, stable codes and JSON-safe context. The codes distinguish invalid declarations, synchronous access to provider-backed values, missing required values, invalid runtime values, and failed sources. Custom build source resolvers keep application-owned errors unchanged.
 
-```ts
+```ts fragment
 import { getViteHubErrorShape } from '@vite-hub/runtime'
 
 try {

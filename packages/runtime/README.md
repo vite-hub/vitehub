@@ -104,7 +104,7 @@ optional capability becomes data and a Nostics diagnostic; it never rejects the
 manifest or the invocation. The diagnostic callback is best effort and does not
 delay the checks.
 
-```ts
+```ts fragment
 import { startRuntimePreflight } from "@vite-hub/runtime"
 
 const preflight = startRuntimePreflight({
@@ -352,7 +352,7 @@ Do not import from `src`, `dist`, or ViteHub's `_internal` paths.
 
 `createWorkTracker({ store })` owns single-process work deduplication and durable park/retry checkpoints. The store exposes asynchronous `get(key)` and `set(key, checkpoint)` operations. The application supplies a meaningful state fingerprint and decides whether a completed run should park or retry.
 
-```ts
+```ts fragment
 import { createWorkTracker } from '@vite-hub/runtime'
 
 const work = createWorkTracker({ store, retryMs: 60_000, maxRetryMs: 3_600_000 })

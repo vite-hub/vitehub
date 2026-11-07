@@ -15,6 +15,7 @@ Records are JSON objects in the same store, so they work on every driver, includ
 `blob.media.put()` stores the object, reads its dimensions from the file header, hashes it, and writes its record.
 
 ```ts [server/api/media.post.ts]
+import { defineEventHandler } from 'h3'
 import { blob } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
@@ -69,6 +70,8 @@ A record looks like this:
 `media.get()` returns the record, or `null` when the object does not exist. When an object has no record, or its ETag changed because something overwrote it with `blob.put()`, `get()` reads the object again, keeps the alt text, caption, focal point, and crops, and stores the new record. So objects that you stored without `blob.media` also have records.
 
 ```ts
+import { blob } from 'vite-hub/blob'
+
 const [error, record] = await blob.media.get('posts/cover.jpg')
 
 await blob.media.update('posts/cover.jpg', {
@@ -86,6 +89,8 @@ await blob.media.update('posts/cover.jpg', {
 Folders are pathname prefixes. `media.list()` lists one folder level by default and hides ViteHub's `_vitehub/` folders.
 
 ```ts
+import { blob } from 'vite-hub/blob'
+
 const [, page] = await blob.media.list({ prefix: 'posts/' })
 // page.folders: ['posts/2026/'], page.items: MediaRecord[]
 
@@ -104,6 +109,8 @@ List items come from the stored records. An item whose object changed since its 
 Object stores have no rename. `media.move()` copies the object, its record, and its crop replacements, then deletes the originals and the cached variants of both pathnames.
 
 ```ts
+import { blob } from 'vite-hub/blob'
+
 const [error, record] = await blob.media.move('posts/cover.jpg', 'posts/2026/cover.jpg')
 // error.code === 'BLOB_CONFLICT' when the destination exists; pass { overwrite: true } to replace it
 await blob.media.remove('posts/2026/cover.jpg') // object, record, crops, and variants
@@ -136,7 +143,7 @@ Variants are cached under `_vitehub/derived/` like every [transformed object](/d
 
 In your own routes, pass the variant to `blob.serve()`:
 
-```ts
+```ts fragment
 import { blob, parseImageVariant } from '@vite-hub/blob'
 
 const [error, stream] = await blob.serve(event, pathname, {
@@ -157,6 +164,9 @@ const [error, stream] = await blob.serve(event, pathname, {
 Set `transformer: 'photon'` to make variants with WebAssembly on Workers and Node. See [Photon on Workers and Node](#photon-on-workers-and-node).
 
 ```ts [vite.config.ts]
+import { hubBlob } from '@vite-hub/blob/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubBlob()],
   blob: {
@@ -180,6 +190,9 @@ pnpm add @cf-wasm/photon
 ```
 
 ```ts [vite.config.ts]
+import { hubBlob } from '@vite-hub/blob/vite'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [hubBlob()],
   blob: {
@@ -217,7 +230,7 @@ A crop names an aspect ratio, such as a 4:5 image for narrow screens. Without an
 
 When a generated crop is not good enough, upload a replacement for that crop. ViteHub stores it under `_vitehub/media/crops/` and serves it for `?crop=mobile` at the same URL.
 
-```ts
+```ts fragment
 await blob.media.replaceCrop('posts/cover.jpg', 'mobile', portraitFile) // a new crop takes the file's aspect
 await blob.media.replaceCrop('posts/cover.jpg', 'mobile', null)         // back to cropping the original
 ```
@@ -228,7 +241,7 @@ Replacements must be JPEG, PNG, WebP, or AVIF images. They crop from their cente
 
 `responsiveImage()` from `@vite-hub/blob/media` turns a record into `<picture>` sources and `<img>` attributes. It is framework-neutral and safe to import in the browser.
 
-```ts [server/api/posts/[slug].get.ts]
+```ts [server/api/posts/[slug].get.ts] fragment
 import { blob, responsiveImage } from '@vite-hub/blob'
 
 export default defineEventHandler(async (event) => {
@@ -266,7 +279,7 @@ defineProps<{ image: ResponsiveImage }>()
 
 Preload the largest image above the fold with unhead:
 
-```ts
+```ts fragment
 useHead({
   link: [{ rel: 'preload', as: 'image', imagesrcset: cover.img.srcset, imagesizes: cover.img.sizes, fetchpriority: 'high' }],
 })
@@ -278,7 +291,7 @@ When you configure custom `blob.images.sizes`, pass the same values as `widths`.
 
 `image()` and `file()` references store `{ pathname, contentType, size }` and nothing else. Read alt text, dimensions, and crops from the record when you render:
 
-```ts
+```ts fragment
 const [, record] = await blob.media.get(entry.cover) // accepts the reference object
 ```
 

@@ -107,7 +107,7 @@ Vercel keeps its credentials in separate Server Env fields: `vercel.apiKey` read
 
 A value that you pass replaces its variable. Pass the values when the application stores the credentials, for example one key for each tenant:
 
-```ts
+```ts fragment
 import { cloudflare, typesafe, vercel } from '@vite-hub/gateways'
 
 typesafe({ apiKey: tenant.typesafeKey })

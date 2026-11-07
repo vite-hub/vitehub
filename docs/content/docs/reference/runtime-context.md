@@ -88,6 +88,8 @@ first time you read `req`. H3 sends the value that the handler returns as the bo
 setting `res.body` throws `RUNTIME_R0016`.
 
 ```ts [server/api/whoami.get.ts]
+import { defineEventHandler } from 'h3'
+
 export default defineEventHandler((event) => {
   const { req, runtime } = event['~standard']
   return { path: new URL(req.url).pathname, client: runtime?.clientAddress }

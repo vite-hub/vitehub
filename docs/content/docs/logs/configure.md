@@ -10,7 +10,7 @@ icon: i-lucide-logs
 
 Pass native Evlog options under `logs.evlog`:
 
-```ts
+```ts fragment
 logs: {
   evlog: {
     env: { service: 'checkout' },

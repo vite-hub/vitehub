@@ -28,7 +28,7 @@ A **group** is one decision, such as "which supplier" or "which chart". Each gro
 
 An **option** is one thing the person can pick. It has a `value` (your id), a `label` (what people call it), and optional `aliases` (codes, short names, other languages).
 
-```ts
+```ts fragment
 { value: "nord", label: "Nord Parts", aliases: ["nord"] }
 ```
 
@@ -38,13 +38,13 @@ The **selection** is the answer. It has one entry for each group. The shape depe
 
 A group with `multiple: true` (the default) can have many options. The text can include some and exclude others:
 
-```ts
+```ts fragment
 selection.supplier // { include: ["nord"], exclude: ["vak"] }
 ```
 
 A group with `multiple: false` has at most one option. You get the best value, how sure the model is, and every option ranked:
 
-```ts
+```ts fragment
 selection.chart // { value: "bar", confidence: 0.8, ranked: [{ value: "bar", probability: 0.8 }, { value: "line", probability: 0.1 }] }
 ```
 

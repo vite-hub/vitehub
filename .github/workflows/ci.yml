@@ -30,6 +30,7 @@ jobs:
       - windows-agent-credentials
       - node-22
       - docs
+      - docs-snippets
       - docs-deploy
       - verify-providers
     if: ${{ always() }}
@@ -411,6 +412,21 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  # Type-checks every TypeScript block of the docs and the package READMEs
+  # against the built packages. See docs/scripts/check-snippets.mjs.
+  docs-snippets:
+    name: docs snippets
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - run: vp run build
+      - run: vp run --filter vitehub-docs test:snippets
+
   # The docs site deploys from the verified bundle on every push to main. The Production environment holds the Cloudflare token.
   docs-deploy:
     name: docs deploy
@@ -424,6 +440,7 @@ jobs:
       - windows-agent-credentials
       - node-22
       - docs
+      - docs-snippets
       - verify-providers
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest

@@ -32,6 +32,8 @@ Workspace definition, Source Binding, rule, hook, store, sync, facade, and sessi
 For read-only inspection of an existing Workspace, pass `refresh: false`:
 
 ```ts
+import { useWorkspace } from 'vite-hub/workspace'
+
 const workspace = useWorkspace('docs', { refresh: false })
 ```
 
@@ -88,6 +90,8 @@ Each materialized Source reports its provider, cache disposition, revision, dura
 Use retained history to publish a complete folder and read earlier versions. It is available when the Store implements `history`, including the [Blob + Database Store](/docs/workspace/configure#blob-database-store).
 
 ```ts
+import { useWorkspace } from 'vite-hub/workspace'
+
 const workspace = useWorkspace('drop', { mode: 'write' })
 const base = await workspace.history.head()
 const revision = await workspace.history.commit({
@@ -120,7 +124,7 @@ A Workspace history has named refs. Each ref has its own head and timeline. Revi
 
 Drafts are the usual reason to add a ref. Save each edit to `draft`, then commit the chosen files to `published`:
 
-```ts
+```ts fragment
 const draft = await workspace.history.head({ ref: 'draft' })
 const saved = await workspace.history.commit({
   ref: 'draft',
@@ -175,7 +179,7 @@ Retained history requires access to the complete Workspace. A facade restricted 
 
 `registerWorkspacePlugin(workspace, plugin)` adds a `WorkspacePlugin` with `id`, `rules`, and `hooks` to a Workspace by name. Use it from a package that owns some paths in a Workspace it does not define, for example to validate documents before every write:
 
-```ts
+```ts fragment
 import { registerWorkspacePlugin } from '@vite-hub/workspace'
 
 registerWorkspacePlugin('content', {
