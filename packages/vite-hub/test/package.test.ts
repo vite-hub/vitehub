@@ -756,7 +756,7 @@ describe("framework package contract", () => {
     expect(consoleSearch).toContain(
       'resolveConsoleRouteName(route.name, "vitehub-console-invocation")',
     );
-    expect(consoleSearch).toContain('[{ id: "actions", items: [...props.actions ?? [], ...contentActions.value, ...themeActions.value], label: "Actions" }]');
+    expect(consoleSearch).toContain('[{ id: "actions", items: [...props.actions ?? [], ...contentActions.value, ...projectActions.value, ...themeActions.value], label: "Actions" }]');
     expect(consoleSearch).toContain('label: "Overview"');
     expect(consoleSearch).toContain('label: "Go to"');
     expect(consoleSearch).toContain("kbds: [...shortcut]");

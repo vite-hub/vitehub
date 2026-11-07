@@ -1271,7 +1271,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       invocationRootState,
       operationSections: devOperationsOnly ? consoleSections : undefined,
       // The dev-only RPC lists no sections, so it starts no Agent journal or other Console state.
-      sections: devOperationsOnly ? [] : consoleSections,
+      // Schedules is the exception: `vitehub schedule run` runs only the manual Schedules that its section installs.
+      sections: devOperationsOnly ? consoleSections.filter(section => section === "schedules") : consoleSections,
     })
     if (devOperationsOnly) consolePlugin.apply = "serve"
     plugins.push(consolePlugin)
