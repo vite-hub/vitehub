@@ -120,6 +120,30 @@ it("gives each same-millisecond mutation a strictly newer timestamp", async () =
   expect([created, replied, edited, resolved, reopened, deleted].map(thread => thread.updatedAt)).toEqual([1, 2, 3, 4, 5, 6])
 })
 
+it.each([1, 10])("orders a same-millisecond reply after resolution (created at %i)", async (createdAt) => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const message = { attachments: [], author: member, body: "First", id: "first", mentions: [], now: createdAt }
+  const created = await store.createThread({ ...message, anchor: { kind: "page" }, scope: "site", subject: page, threadId: "thread" })
+  const resolved = await store.setStatus(created.id, "resolved", member, 10)
+  const replied = await store.addMessage(created.id, { ...message, body: "Reply", id: "reply", now: 10 }, { allowResolved: true })
+
+  expect(replied).toMatchObject({ status: "resolved", resolvedAt: resolved.resolvedAt })
+  expect(replied.messages.filter(entry => entry.createdAt > replied.resolvedAt!).map(entry => entry.id)).toEqual(["reply"])
+})
+
+it.each([1, 10])("acknowledges every reply when resolving again in the same millisecond (created at %i)", async (createdAt) => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const message = { attachments: [], author: member, body: "First", id: "first", mentions: [], now: createdAt }
+  const created = await store.createThread({ ...message, anchor: { kind: "page" }, scope: "site", subject: page, threadId: "thread" })
+  await store.setStatus(created.id, "resolved", member, 10)
+  await store.addMessage(created.id, { ...message, body: "Reply", id: "reply", now: 10 }, { allowResolved: true })
+  const acknowledged = await store.setStatus(created.id, "resolved", member, 10)
+
+  expect(acknowledged.messages.filter(entry => entry.createdAt > acknowledged.resolvedAt!)).toEqual([])
+  const replied = await store.addMessage(created.id, { ...message, body: "Another reply", id: "another", now: 10 }, { allowResolved: true })
+  expect(replied.messages.filter(entry => entry.createdAt > replied.resolvedAt!).map(entry => entry.id)).toEqual(["another"])
+})
+
 function setup(comments: Comments, users?: CommentsPeople) {
   const store = createCommentsStore(drizzle(client))
   installCommentsRuntime({ definition: comments.options, store, ...(users ? { users } : {}) })
