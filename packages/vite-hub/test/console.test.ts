@@ -627,6 +627,7 @@ describe("Agent invocation console", () => {
           blob: "vite-hub/_internal/blob",
           console: "vite-hub/console/server",
           db: "vite-hub/database/drizzle",
+          i18n: "vite-hub/i18n/server",
           kv: "vite-hub/_internal/kv",
         },
         sections: ["agents"],
@@ -640,7 +641,8 @@ describe("Agent invocation console", () => {
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`import { blob as vitehubConsoleAgentBlob } from "vite-hub/_internal/blob"`)
       expect(generated).toContain(`import { agentDb as vitehubConsoleAgentDb } from "vite-hub/database/drizzle"`)
-      expect(generated).toContain(`capabilities: { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, kv: vitehubConsoleAgentKv }`)
+      expect(generated).toContain(`import { agentI18n as vitehubConsoleAgentI18n } from "vite-hub/i18n/server"`)
+      expect(generated).toContain(`capabilities: { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, i18n: vitehubConsoleAgentI18n, kv: vitehubConsoleAgentKv }`)
     }
     finally {
       await rm(root, { force: true, recursive: true })

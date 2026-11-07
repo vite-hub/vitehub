@@ -13,7 +13,7 @@ import { createLinguiConfig, recordsRoot } from "./lingui.ts"
 import { i18nErrorDiagnostics } from "./errors.ts"
 import { resolveI18nLocaleConfig } from "./locales.ts"
 import { transformMacros } from "./macros.ts"
-import { addMessage, extractFileMessages, manifestFile } from "./manifest.ts"
+import { addMessage, allMessages, extractFileMessages, manifestFile, scanMessages } from "./manifest.ts"
 import { readRecords } from "./records.ts"
 
 import type { LinguiConfigNormalized } from "@lingui/conf"
@@ -33,9 +33,10 @@ const resolvedCatalogModule = `\0${catalogModule}`
 /** A production catalog holds this string until the chunk renders. Then every message of the bundle is known. */
 const catalogMarker = (locale: string) => `__VITEHUB_I18N_CATALOG_${locale}__`
 const catalogMarkerRe = /"__VITEHUB_I18N_CATALOG_([\w-]+)__"/g
-const clientIdsModule = "virtual:vite-hub/i18n/client-ids"
-const resolvedClientIdsModule = `\0${clientIdsModule}`
+const buildMessagesModule = "virtual:vite-hub/i18n/build-messages"
+const resolvedBuildMessagesModule = `\0${buildMessagesModule}`
 const clientIdsMarker = "__VITEHUB_I18N_CLIENT_IDS__"
+const sourcesMarker = "__VITEHUB_I18N_SOURCES__"
 const generatedPlugin = ".vitehub/nitro/i18n/plugin.mjs"
 const generatedRoute = ".vitehub/nitro/i18n/catalog.mjs"
 /** The browser reads live catalogs from `<liveRoute>/<locale>.json`. */
@@ -71,7 +72,7 @@ function renderNitroPlugin(importBase: string, messagesFile: string, workspace: 
     `import { config, messages } from ${JSON.stringify(messagesFile)}`,
     ...(workspace
       ? [
-          `import { clientIds } from ${JSON.stringify(clientIdsModule)}`,
+          `import { clientIds, sources } from ${JSON.stringify(buildMessagesModule)}`,
           `import { useWorkspaceFiles } from ${JSON.stringify(workspaceImport)}`,
         ]
       : []),
@@ -85,7 +86,7 @@ function renderNitroPlugin(importBase: string, messagesFile: string, workspace: 
     "      catch { return undefined }",
     "    },",
     ...(workspace
-      ? [`    workspace: { name: ${JSON.stringify(workspace)}, open: mode => useWorkspaceFiles(${JSON.stringify(workspace)}, { mode }), clientIds },`]
+      ? [`    workspace: { name: ${JSON.stringify(workspace)}, open: mode => useWorkspaceFiles(${JSON.stringify(workspace)}, { mode }), clientIds, sources },`]
       : []),
     "  })",
     "})",
@@ -260,14 +261,19 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     resolveId(id) {
       if (id === clientModule) return resolvedClientModule
-      if (id === clientIdsModule) return resolvedClientIdsModule
+      if (id === buildMessagesModule) return resolvedBuildMessagesModule
       if (id.startsWith(catalogModule)) return `\0${id}`
     },
     async load(id) {
       if (!projectRoot || !locale) return
       if (id === resolvedClientModule) return renderClientModule(importBase, locale, Boolean(configured.workspace))
-      // The server sends the browser only the translations of browser messages. Development sends all of them.
-      if (id === resolvedClientIdsModule) return `export const clientIds = ${isBuild ? JSON.stringify(clientIdsMarker) : "null"}\n`
+      if (id === resolvedBuildMessagesModule) {
+        // The server sends the browser only the translations of browser messages, and lists the messages that a
+        // locale does not translate. A build fills both when the server chunk renders. Development sends every
+        // translation and reads the messages of the code when the server starts.
+        if (isBuild) return `export const clientIds = ${JSON.stringify(clientIdsMarker)}\nexport const sources = ${JSON.stringify(sourcesMarker)}\n`
+        return `export const clientIds = null\nexport const sources = ${JSON.stringify(lingui ? await scanMessages(lingui) : {})}\n`
+      }
       if (!id.startsWith(resolvedCatalogModule)) return
       const entry = locale.locales.find(candidate => candidate === id.slice(resolvedCatalogModule.length))
       if (!entry) return
@@ -316,12 +322,16 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       manifest.environments[this.environment.name] = sources
     },
     async renderChunk(code) {
-      if (code.includes(clientIdsMarker)) {
+      if (code.includes(clientIdsMarker) || code.includes(sourcesMarker)) {
         // The server builds after the browser, so every browser message is known here.
         const ids = [...browserEnvironments].flatMap(name => Object.keys(manifest.environments[name] ?? {}))
+        const values: Record<string, string> = {
+          [clientIdsMarker]: JSON.stringify([...new Set(ids)].sort()),
+          [sourcesMarker]: JSON.stringify(allMessages(manifest)),
+        }
         const output = new MagicString(code)
-        for (const match of code.matchAll(new RegExp(`"${clientIdsMarker}"`, "g"))) {
-          output.overwrite(match.index, match.index + match[0].length, JSON.stringify([...new Set(ids)].sort()))
+        for (const match of code.matchAll(new RegExp(`"(${clientIdsMarker}|${sourcesMarker})"`, "g"))) {
+          output.overwrite(match.index, match.index + match[0].length, values[match[1]!]!)
         }
         return { code: output.toString(), map: output.generateMap({ hires: "boundary" }) }
       }
