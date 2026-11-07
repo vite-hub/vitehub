@@ -41,7 +41,6 @@ import { disabledUpstashDriver, hasUpstashStore, upstashDriverSpecifier } from "
 import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
-import { isDefaultAgentJournal } from "./agent-invocations-setting.ts"
 import { devDefinesVitePlugin } from "./dev-defines-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
@@ -333,6 +332,7 @@ export interface ViteHubAgentOptions extends AgentModuleOptions {
    * Omit it, or pass `{ databaseUrl, observations, retention }`, for the default journal: local SQLite at
    * `.vitehub/data/agent-invocations.sqlite`, or the D1 binding of the default Database in a Cloudflare production build.
    * `"database"` uses the app's ViteHub Database. `"memory"` keeps records in the server process. `false` records no journal.
+   * Requires Nitro-hosted Agents. Netlify and `runtime: "deno"` require `false` and journals on each Agent Definition.
    */
   invocations?: AgentInvocationsDefault
 }
@@ -1086,13 +1086,13 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   const configuredAgent = options.agent && options.agent !== true ? options.agent : undefined
   const defaultInvocations = configuredAgent?.invocations
-  if (defaultInvocations !== false && !isDefaultAgentJournal(defaultInvocations)) {
-    const store = defaultInvocations === "database" || defaultInvocations === "memory" ? defaultInvocations : defaultInvocations.store
+  if (options.agent && defaultInvocations !== false) {
+    const store = typeof defaultInvocations === "object" ? defaultInvocations.store : defaultInvocations
     if (store === "database" && !options.database) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0131({ message: "[vitehub] agent.invocations \"database\" requires database. Set database in vitehub()." })
     }
     if (configuredAgent?.runtime === "deno" || plan.preset === "netlify") {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0132({ message: "[vitehub] agent.invocations requires Nitro-hosted Agents. Netlify and Deno Agent output are not supported. Set invocations on each Agent Definition." })
+      throw viteHubErrorDiagnostics.VITE_HUB_R0132({ message: "[vitehub] agent.invocations requires Nitro-hosted Agents. Netlify and Deno Agent output are not supported. Set agent.invocations to false and configure invocations on each Agent Definition." })
     }
   }
   assertFeatureSupported("browser", plan.preset, options)

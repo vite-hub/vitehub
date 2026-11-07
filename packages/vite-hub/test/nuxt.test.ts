@@ -1832,7 +1832,7 @@ describe("ViteHub Nuxt integration", () => {
   it("omits implicitly disabled Netlify Workflow from the Nuxt Console", async () => {
     const implicit = createNuxt(true)
 
-    await viteHubNuxtModule({ agent: true, console: { auth: false }, preset: "netlify" }, implicit.nuxt)
+    await viteHubNuxtModule({ agent: { invocations: false }, console: { auth: false }, preset: "netlify" }, implicit.nuxt)
     const implicitNitroConfig = nitroOptions(implicit.nuxt)
     await implicit.runNitroConfigHook(implicitNitroConfig)
 
@@ -1841,7 +1841,7 @@ describe("ViteHub Nuxt integration", () => {
 
     const explicit = createNuxt(true)
     await viteHubNuxtModule({
-      agent: true,
+      agent: { invocations: false },
       console: { auth: false },
       preset: "netlify",
       workflow: { provider: "vercel" },

@@ -290,4 +290,23 @@ describe("vitehub({ agent: { invocations } })", () => {
     expect(() => vitehub({ agent: { invocations: "memory" }, preset: "netlify" })).toThrow("requires Nitro-hosted Agents")
     expect(() => vitehub({ agent: { invocations: "memory", runtime: "deno" }, preset: "node" })).toThrow("requires Nitro-hosted Agents")
   })
+
+  it.each([
+    undefined,
+    {},
+    { retention: { maxAge: "14d" } },
+    { databaseUrl: "libsql://journal.example.com" },
+  ])("rejects the default journal %j on standalone Agent outputs", (invocations) => {
+    const error = expect.objectContaining({ code: "VITE_HUB_R0132" })
+    expect(() => vitehub({ agent: { invocations }, preset: "netlify" })).toThrow(error)
+    expect(() => vitehub({ agent: { invocations, runtime: "deno" }, preset: "node" })).toThrow(error)
+    expect(() => vitehub({ agent: { invocations }, preset: "deno" })).not.toThrow()
+  })
+
+  it("requires an explicit journal opt-out on standalone Agent outputs", () => {
+    expect(() => vitehub({ agent: true, preset: "netlify" })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0132" }))
+    expect(() => vitehub({ agent: { invocations: false }, preset: "netlify" })).not.toThrow()
+    expect(() => vitehub({ agent: { invocations: false, runtime: "deno" }, preset: "node" })).not.toThrow()
+    expect(() => vitehub({ preset: "netlify" })).not.toThrow()
+  })
 })
