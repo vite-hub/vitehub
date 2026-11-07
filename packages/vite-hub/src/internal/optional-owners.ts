@@ -14,6 +14,7 @@ export type OptionalOwnerPackage
   = | "@vite-hub/agent"
     | "@vite-hub/auth"
     | "@vite-hub/cms"
+    | "@vite-hub/codemods"
     | "@vite-hub/comments"
     | "@vite-hub/content"
     | "@vite-hub/database"
@@ -42,6 +43,8 @@ export const optionalFeaturePackages = {
   "content": ["@vite-hub/content"],
   // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
   "database": features.database.packages,
+  // `vitehub migrate` runs its codemods. Install it as a development dependency.
+  "migrate": ["@vite-hub/codemods"],
   "presets": ["@vite-hub/presets", "@vite-hub/agent"],
   "realtime": features.realtime.packages,
   "schedule": features.schedule.packages,

@@ -33,7 +33,7 @@ it.each(["default", "orders"])("preserves the %s Database alias through Nuxt pre
       "  modules: [hubDb()], nitro: { preset: 'node-server' },",
       "  hooks: {",
       "    'nitro:init': async (nitro) => {",
-      `      await writeFile(${JSON.stringify(aliasFile)}, JSON.stringify(nitro.options.alias['@vite-hub/database/drizzle']))`,
+      `      await writeFile(${JSON.stringify(aliasFile)}, JSON.stringify(nitro.options.alias['@vite-hub/database/runtime/registry']))`,
       "    },",
       "  },",
       "})",

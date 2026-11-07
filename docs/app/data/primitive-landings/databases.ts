@@ -15,7 +15,7 @@ export default defineDatabase({
 const query: PrimitiveProjectFile = {
   path: "server/utils/notes.ts",
   language: "typescript",
-  content: `import { useDatabase } from "@vite-hub/database/drizzle"
+  content: `import { useDatabase } from "@vite-hub/database"
 
 export async function readNotes() {
   const { db, schema } = useDatabase("default")

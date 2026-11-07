@@ -794,6 +794,10 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         return RESOLVED_SCHEDULE_REGISTRY_ID
       }
     },
+    transform(code) {
+      if (!code.includes("/* @vitehub-schedule-registry */")) return
+      return code.replace(/\/\* @vite-ignore \*\/\s*\/\* @vitehub-schedule-registry \*\/\s*[\w$]+/g, JSON.stringify(SCHEDULE_REGISTRY_ID))
+    },
     load(id) {
       if (id === RESOLVED_SCHEDULE_REGISTRY_ID) {
         return createRegistryContents()

@@ -77,7 +77,7 @@ Create `server/api/notes.post.ts`. Nitro maps this file to `POST /api/notes`. Th
 
 ```ts [server/api/notes.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ title?: unknown }>(event)
@@ -103,7 +103,7 @@ Create `server/api/notes.get.ts`. This route reads rows in ID order without chan
 
 ```ts [server/api/notes.get.ts]
 import { defineEventHandler } from 'h3'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 
 export default defineEventHandler(async () => {
   const { db, schema } = useDatabase('default')

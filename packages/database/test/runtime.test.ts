@@ -183,9 +183,11 @@ afterEach(async () => {
 })
 
 describe("drizzle runtime", () => {
-  it("loads the published drizzle subpath without a Vite virtual module", async () => {
+  it("loads the published root accessors without a Vite virtual module", async () => {
     const script = [
-      'const { databases, db, schema } = await import("@vite-hub/database/drizzle")',
+      'const { db, schema, useDatabase } = await import("@vite-hub/database")',
+      'const { databases } = await import("@vite-hub/database/runtime/registry")',
+      'try { useDatabase("default"); throw new Error("expected useDatabase to throw") } catch (error) { if (error.code !== "DATABASE_NOT_FOUND") throw error }',
       'if (JSON.stringify(schema) !== "{}") throw new Error("expected empty schema fallback")',
       'if (JSON.stringify(databases.default.schema) !== "{}") throw new Error("expected empty default database schema")',
       'try {',
@@ -205,9 +207,9 @@ describe("drizzle runtime", () => {
     runtimeDatabaseEntriesFactory = () => ({})
     vi.resetModules()
 
-    const { databases, db } = await import("../src/runtime/drizzle-runtime.ts")
+    const { getRuntimeDatabases } = await import("../src/runtime/drizzle-runtime.ts")
+    const { databases } = getRuntimeDatabases()
 
-    expect(db).toBe(databases.default.db)
     expect(databases.default.schema).toEqual({})
     expect(() => databases.default.db.run).toThrow(expect.objectContaining({ code: "DATABASE_DISABLED" }))
   })
@@ -219,11 +221,11 @@ describe("drizzle runtime", () => {
     const fetchMock = vi.fn()
     vi.stubGlobal("fetch", fetchMock)
 
-    const { databases, db, useDatabase } = await import("../src/drizzle.ts")
+    const { databases, useDatabase } = await import("../src/runtime/registry.ts")
 
-    expect(db).toBe(databases.default.db)
     expect((useDatabase as (name: string) => unknown)("analytics")).toBe(databases.analytics)
-    expect((useDatabase as (name: string) => unknown)("toString")).toBeUndefined()
+    expect(() => (useDatabase as (name: string) => unknown)("toString")).toThrow(expect.objectContaining({ code: "DATABASE_NOT_FOUND" }))
+    expect(() => (useDatabase as (name: string) => unknown)("missing")).toThrow('The database "missing" is not configured.')
 
     await databases.default.db.run(sql`
       create table if not exists notes (
@@ -251,7 +253,7 @@ describe("drizzle runtime", () => {
     runtimeState.dbPath = `file:${join(tempDir, "db.sqlite")}`
     runtimeState.analyticsDbPath = `file:${join(tempDir, "analytics.sqlite")}`
 
-    const { agentDb } = await import("../src/drizzle.ts")
+    const { agentDb } = await import("../src/runtime/registry.ts")
 
     await agentDb.exec("create table notes (id integer primary key, title text not null)")
     await agentDb.exec("insert into notes (id, title) values (1, 'agent note')")
@@ -296,7 +298,7 @@ describe("drizzle runtime", () => {
     const fetchMock = vi.fn(async (_input: Parameters<typeof fetch>[0], _init?: Parameters<typeof fetch>[1]) => createD1Response([[1, "page-view"]]))
     vi.stubGlobal("fetch", fetchMock)
 
-    const { databases } = await import("../src/runtime/drizzle-runtime.ts")
+    const { databases } = (await import("../src/runtime/drizzle-runtime.ts")).getRuntimeDatabases()
     await expect(databases.analytics.db.select().from(analyticsSchema.analyticsEvents)).resolves.toEqual([{ id: 1, name: "page-view" }])
 
     expect(fetchMock).toHaveBeenCalledOnce()
@@ -312,13 +314,13 @@ describe("drizzle runtime", () => {
     const binding = createFakeD1Binding()
     setActiveCloudflareEnv({ DB_ANALYTICS: binding })
 
-    const { databases } = await import("../src/runtime/drizzle-runtime.ts")
+    const { databases } = (await import("../src/runtime/drizzle-runtime.ts")).getRuntimeDatabases()
 
     expect((databases.analytics.db as { $client?: unknown }).$client).toBe(binding)
   })
 
   it("throws when a named database has neither an active binding nor a fallback URL", async () => {
-    const { databases } = await import("../src/runtime/drizzle-runtime.ts")
+    const { databases } = (await import("../src/runtime/drizzle-runtime.ts")).getRuntimeDatabases()
 
     expect(() => databases.analytics.db.run).toThrow("The database \"analytics\" has no connection. It needs a Cloudflare D1 binding or `connection.url`.")
   })

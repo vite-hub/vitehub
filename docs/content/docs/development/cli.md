@@ -60,6 +60,7 @@ Available namespaces:
   task        List and run Nitro tasks, such as server/tasks/seed.ts, in the running app.
   types       Generate ViteHub TypeScript declarations.
   decisions   List the Decisions of the app and run one with a text. Does not load the project config.
+  migrate     Rewrite the app for this ViteHub release. Does not load the project config.
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions and generated Provider Output.
   provision   Idempotently create missing provider resources.
@@ -120,6 +121,7 @@ Available namespaces:
 | `vitehub db export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
 | `vitehub db tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
 | `vitehub db rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
+| `vitehub migrate run` | Available | Codemods Package | Rewrite an app folder for this ViteHub release with the codemods of `@vite-hub/codemods`. `vitehub migrate` runs it on the current folder, and `--dry-run` prints the diffs. Install `@vite-hub/codemods` as a development dependency first. |
 | `vitehub kv list` | Available | KV Package | List the keys of one KV store, one page at a time. |
 | `vitehub kv get` | Available | KV Package | Print the value of one key. |
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
@@ -514,7 +516,7 @@ A Decision error prints `{ "error": { "code", "message" } }` and exits with stat
 A task is a [Nitro task](https://nitro.build/docs/tasks): one file in `server/tasks/` that default-exports `defineTask()`. Use tasks for seeds, backfills, data repair, and one-off admin jobs. `vitehub()` registers each file with Nitro and enables Nitro tasks, so you do not set `nitro.serverDir` or `nitro.experimental.tasks`. The task name is the path with `/` replaced by `:`, so `server/tasks/db/seed.ts` is `db:seed`.
 
 ```ts [server/tasks/db/seed.ts]
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 import { defineTask } from 'vite-hub/task'
 
 export default defineTask({

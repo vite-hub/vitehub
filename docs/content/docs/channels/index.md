@@ -32,7 +32,7 @@ icon: i-lucide-send
   ```
 
   ```ts [server/utils/slack.ts]
-  import { useServerEnv } from '#vitehub/env/server'
+  import { useServerEnv } from 'vite-hub/env'
 
   // Post to a Slack incoming webhook.
   // Declare the URL as a secret in vite.config.ts.

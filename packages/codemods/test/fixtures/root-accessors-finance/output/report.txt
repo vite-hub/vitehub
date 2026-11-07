@@ -1,0 +1,14 @@
+root-accessors: moved the accessor imports of 4 file(s) to the primitive roots
+Dry run: no files were written.
+
+Files to change (4):
+  server/auth.ts
+  server/database-migrate.ts
+  server/mailer/email.ts
+  server/schedules/daily.ts
+
+Manual follow-ups (0):
+  none
+
+Next steps:
+  - Run your typecheck. The generated types in `.vitehub/types/` type the new imports after `vite dev` or `vitehub types prepare`.

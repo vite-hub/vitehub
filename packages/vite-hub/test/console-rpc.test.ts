@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
-import { inspectServerEnv } from "@vite-hub/env"
+import { inspectServerEnv } from "@vite-hub/env/server"
 import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback } from "../src/console/internal.ts"
 

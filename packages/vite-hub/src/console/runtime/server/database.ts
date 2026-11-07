@@ -2,7 +2,7 @@ import { resolve } from "node:path"
 
 import { installConsoleDatabaseScope, resolveConsoleDatabase } from "../../internal.ts"
 
-import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
+import type { RuntimeDatabaseEntry } from "@vite-hub/database"
 import type { ConsoleDatabaseInspection } from "../../internal.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 

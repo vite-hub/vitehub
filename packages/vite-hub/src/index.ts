@@ -117,6 +117,8 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/channels": true,
   "@vite-hub/cli": false,
   "@vite-hub/cms": true,
+  // `vitehub migrate` tooling: generated server code never imports it.
+  "@vite-hub/codemods": false,
   "@vite-hub/comments": true,
   "@vite-hub/connections": true,
   "@vite-hub/content": true,
@@ -1179,7 +1181,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
 
   if (!options.database) {
     const databaseRuntimeImports = new Map<string, string>()
-    for (const specifier of ["vite-hub/database/drizzle", "@vite-hub/database/drizzle"]) {
+    for (const specifier of ["vite-hub/database", "@vite-hub/database", "@vite-hub/database/runtime/registry"]) {
       databaseRuntimeImports.set(specifier, specifier)
       // Vite applies the framework alias first, so resolveId can receive the facade path.
       const facade = frameworkProviderImportAliases[specifier]
@@ -1213,8 +1215,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     blob: blobEnabled ? `${generatedImportBase}/blob` : false,
     connections: options.connections ? "vite-hub/connections/agent" : false,
     console: configuredConsole ? "vite-hub/console/server" : false,
-    db: options.database ? "vite-hub/database/drizzle" : false,
-    email: "vite-hub/email/server",
+    db: options.database ? "@vite-hub/database/runtime/registry" : false,
+    email: "vite-hub/email",
     kv: `${generatedImportBase}/kv`,
   } satisfies Record<string, false | string>
 
@@ -1324,7 +1326,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires the Console. Set console: { auth: "app" }, console: { auth: { ... } }, or console: { auth: false }.' })
     }
     const { database: databaseName, ...connections } = options.connections === true ? {} : options.connections
-    const connectionsOptions: ConnectionsVitePluginOptions = { ...connections, database: "vite-hub/database/drizzle", ...(databaseName !== undefined ? { databaseName } : {}), importBase: "vite-hub/connections" }
+    const connectionsOptions: ConnectionsVitePluginOptions = { ...connections, database: "@vite-hub/database/runtime/registry", ...(databaseName !== undefined ? { databaseName } : {}), importBase: "vite-hub/connections" }
     // The Console actor module checks the Console or app Auth session in every management route.
     if (!connectionsOptions.actor && configuredConsole && consoleSections.includes("connections")) connectionsOptions.actor = consoleConnectionsActorId
     plugins.push(hubConnections(connectionsOptions))
@@ -1380,7 +1382,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       blob: "vite-hub/blob",
       contentClient: "vite-hub/content/client",
       database: "vite-hub/comments/database",
-      databases: "vite-hub/database/drizzle",
+      databases: "@vite-hub/database/runtime/registry",
       realtime: "vite-hub/comments/realtime",
       runtime: "vite-hub/comments/runtime",
     },
@@ -1461,7 +1463,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
       contentDatabase: "vite-hub/content/database",
-      database: "vite-hub/database/drizzle",
+      database: "@vite-hub/database/runtime/registry",
       workspace: "vite-hub/workspace",
     },
   }))

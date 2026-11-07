@@ -1,0 +1,17 @@
+{
+  "name": "vitehub-drop",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@vite-hub/auth": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/auth@03e8d1b57b7edc7c03924971902d13948df72216",
+    "@vite-hub/comments": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/comments@03e8d1b57b7edc7c03924971902d13948df72216",
+    "@vite-hub/content": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/content@03e8d1b57b7edc7c03924971902d13948df72216",
+    "@vite-hub/database": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/database@03e8d1b57b7edc7c03924971902d13948df72216",
+    "@vite-hub/realtime": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/realtime@03e8d1b57b7edc7c03924971902d13948df72216",
+    "@vite-hub/schedule": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/schedule@03e8d1b57b7edc7c03924971902d13948df72216",
+    "@vite-hub/ui": "https://pkg.pr.new/vite-hub/vitehub/@vite-hub/ui@03e8d1b57b7edc7c03924971902d13948df72216",
+    "drizzle-orm": "0.45.3",
+    "nuxt": "npm:nuxt-nightly@5.0.0-2610292252-da55a91",
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@03e8d1b57b7edc7c03924971902d13948df72216"
+  }
+}

@@ -21,6 +21,10 @@ export function defaultDatabaseNotConfiguredError(): Error {
   return databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: "default" })
 }
 
+export function databaseNotFoundError(name: string): Error {
+  return databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: name })
+}
+
 function requireDatabase(databases: Record<string, AgentDatabaseEntry>, name: string) {
   const entry = Object.hasOwn(databases, name) ? databases[name] : undefined
   if (!entry) throw databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: name })

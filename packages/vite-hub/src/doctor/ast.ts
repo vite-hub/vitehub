@@ -322,8 +322,8 @@ export function scopeIndex(ctx: RuleContext): ScopeIndex {
 const nuxtServerAutoImports = new Map<string, ImportOrigin>([
   ["kv", { source: "vite-hub/kv", name: "kv" }],
   ["blob", { source: "vite-hub/blob", name: "blob" }],
-  ["db", { source: "vite-hub/database/drizzle", name: "db" }],
-  ["schema", { source: "vite-hub/database/drizzle", name: "schema" }],
+  ["db", { source: "vite-hub/database", name: "db" }],
+  ["schema", { source: "vite-hub/database", name: "schema" }],
 ])
 
 export function isServerFile(path: string): boolean {

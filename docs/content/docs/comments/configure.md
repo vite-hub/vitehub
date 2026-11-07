@@ -414,7 +414,7 @@ export const comments = defineComments({
 
 ```ts [server/comments.ts]
 import { defineComments } from 'vite-hub/comments'
-import { email } from 'vite-hub/email/server'
+import { email } from 'vite-hub/email'
 import { findUserEmail } from './utils/users'
 
 export const comments = defineComments({

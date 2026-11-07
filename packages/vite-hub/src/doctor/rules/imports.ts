@@ -8,7 +8,9 @@ const generatedFile = /(?:^|\/)\.vitehub\//
 const generatedImport = /(?:^|\/)(?:\.vitehub|\.nuxt\/vitehub)(?:\/|$)/
 const internalImport = /^(?:vite-hub\/_internal|@vite-hub\/internal|@vite-hub\/[^/]+\/_?internal)(?:\/|$)/
 /** The `#vitehub/*` aliases that the import paths reference documents. Packages resolve others for generated code. */
-const publicAliases = /^#vitehub\/(?:env\/public|env\/server|auth\/server|schedule\/registry|emails\/.+)$/
+const publicAliases = /^#vitehub\/(?:auth\/server|emails\/.+|env\/public|schedule\/registry)$/
+/** Aliases whose exports moved to a primitive root. `vitehub/no-removed-apis` reports them. */
+const movedAliases = /^#vitehub\/env\/server$/
 
 export const noInternalImports: DoctorRule = createRule({
   meta: {
@@ -37,10 +39,10 @@ export const noInternalImports: DoctorRule = createRule({
             fix: "Import the public `vite-hub/*` path for this feature. The ViteHub import paths reference lists each one.",
           }), { range: ctx.range(node) })
         }
-        else if (specifier.startsWith("#vitehub/") && !publicAliases.test(specifier)) {
+        else if (specifier.startsWith("#vitehub/") && !publicAliases.test(specifier) && !movedAliases.test(specifier)) {
           ctx.report(diagnostics.VHUB0001({
             why: `\`${specifier}\` is a module that ViteHub generates for its own runtime code. Its exports can change in any release.`,
-            fix: "Import the public `vite-hub/*` path for this feature. The public aliases are `#vitehub/env/public`, `#vitehub/env/server`, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry`.",
+            fix: "Import the public `vite-hub/*` path for this feature. The public aliases are `#vitehub/env/public` for browser code, `#vitehub/auth/server`, `#vitehub/emails/<name>`, and `#vitehub/schedule/registry`.",
           }), { range: ctx.range(node) })
         }
       },
@@ -56,11 +58,11 @@ const serverOnlyAliases = new Set(["#vitehub/env/server", "#vitehub/auth/server"
 const serverOnlyModules = new Set([
   "agent", "agent/capabilities", "agent/channels", "agent/mcp",
   "blob", "browser", "browser/actions", "channels", "comments", "content",
-  "database/drizzle", "decisions",
+  "database", "decisions", "email",
   "env", "env/auth", "env/bridge", "env/database", "env/http", "env/provider", "env/seal", "env/secret",
   "forge", "gateways", "kv", "markdown-template/file", "queue", "rate-limit",
   "sandbox", "sandbox/ssh", "sandbox/task",
-  "schedule/runtime", "schedule/runtime/kv", "schedule/runtime/process",
+  "schedule", "schedule/runtime", "schedule/runtime/kv", "schedule/runtime/process",
   "workflow", "workspace", "workspace/runtime",
 ])
 const clientAppDirs = ["components", "composables", "layouts", "middleware", "pages", "plugins", "stores", "utils"]

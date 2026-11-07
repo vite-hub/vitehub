@@ -485,7 +485,7 @@ describe("contributed tables at runtime", () => {
     ].join("\n"))
     const queryFile = await writeProjectFile(rootDir, "server/query.ts", [
       "import { sql } from 'drizzle-orm'",
-      "import { useDatabase } from '@vite-hub/database/drizzle'",
+      "import { useDatabase } from '@vite-hub/database'",
       "export async function query() {",
       "  const { db, schema } = useDatabase('default')",
       "  await db.run(sql`create table if not exists history_refs (workspace text primary key, head text)`)",

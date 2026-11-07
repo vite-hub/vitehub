@@ -365,7 +365,7 @@ describe("hubDb", () => {
     })
     await mkdir(join(rootDir, "server"), { recursive: true })
     await writeFile(join(rootDir, "server", "query.ts"), [
-      "import { useDatabase } from '@vite-hub/database/drizzle'",
+      "import { useDatabase } from '@vite-hub/database'",
       "export const query = () => {",
       "  const { db, schema } = useDatabase('default')",
       "  return db.select().from(schema.notes)",
@@ -416,7 +416,7 @@ describe("hubDb", () => {
     const queryFile = join(rootDir, "server/query.ts")
     await writeFile(queryFile, [
       "import definition from './databases/config.ts'",
-      "import { useDatabase } from '@vite-hub/database/drizzle'",
+      "import { useDatabase } from '@vite-hub/database'",
       "import { runWithActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'",
       "export const query = (binding: unknown) => runWithActiveCloudflareEnv({ DB: binding }, async () => {",
       "  const { db, schema } = useDatabase('default')",
@@ -530,7 +530,7 @@ describe("hubDb", () => {
     const queryFile = join(rootDir, "server/query.ts")
     await writeFile(queryFile, [
       "import definition from './databases/config.ts'",
-      "import { useDatabase } from '@vite-hub/database/drizzle'",
+      "import { useDatabase } from '@vite-hub/database'",
       "import { runWithActiveCloudflareEnv } from '@vite-hub/internal/runtime/cloudflare-env'",
       "export const query = (binding: unknown) => runWithActiveCloudflareEnv({ HOST_DB: binding }, async () => {",
       "  const { db, schema } = useDatabase('default')",
@@ -1048,8 +1048,8 @@ describe("hubDb", () => {
     expect(databasesCode).toContain("\"server/databases/migrations\"")
     const generatedTypesFile = join(rootDir, ".vitehub/types/database.d.ts")
     const generatedTypes = await readFile(generatedTypesFile, "utf8")
-    expect(generatedTypes).toContain('declare module "@vite-hub/database/drizzle"')
-    expect(generatedTypes).toContain('declare module "vite-hub/database/drizzle"')
+    expect(generatedTypes).toContain('declare module "@vite-hub/database"')
+    expect(generatedTypes).toContain('declare module "vite-hub/database"')
     expect(generatedTypes).toContain("type DefaultDatabaseSchema = typeof database_0.schema")
     expect(generatedTypes).toContain('declare module "#vitehub/database/schema" {\n  interface DatabaseSchema extends DefaultDatabaseSchema {}')
 

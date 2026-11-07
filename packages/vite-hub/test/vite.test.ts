@@ -139,7 +139,7 @@ import { vitehub, type ViteHubOptions } from "../src/index.ts"
 import { isIncludedNitroPlugin } from "../src/nitro-plugin.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
-const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/bundle", "@vite-hub/cli", "@vite-hub/web-container"])
+const deniedGeneratedOwnerPackageNames = new Set(["@vite-hub/bundle", "@vite-hub/cli", "@vite-hub/codemods", "@vite-hub/web-container"])
 const generatedOwnerPackageCases = Object.keys({ ...frameworkPackageManifest.dependencies, ...frameworkPackageManifest.peerDependencies })
   .filter(name => name.startsWith("@vite-hub/"))
   .map(name => [name, deniedGeneratedOwnerPackageNames.has(name) ? "deny" : "resolve"] as const)
@@ -838,8 +838,8 @@ describe("vitehub", () => {
         blob: "vite-hub/_internal/blob",
         connections: false,
         console: false,
-        db: "vite-hub/database/drizzle",
-        email: "vite-hub/email/server",
+        db: "@vite-hub/database/runtime/registry",
+        email: "vite-hub/email",
         kv: "vite-hub/_internal/kv",
       },
       workflowImportBase: "vite-hub/_internal/workflow",

@@ -626,7 +626,7 @@ describe("Agent invocation console", () => {
         runtimeCapabilityImports: {
           blob: "vite-hub/_internal/blob",
           console: "vite-hub/console/server",
-          db: "vite-hub/database/drizzle",
+          db: "@vite-hub/database/runtime/registry",
           kv: "vite-hub/_internal/kv",
         },
         sections: ["agents"],
@@ -639,7 +639,7 @@ describe("Agent invocation console", () => {
 
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`import { blob as vitehubConsoleAgentBlob } from "vite-hub/_internal/blob"`)
-      expect(generated).toContain(`import { agentDb as vitehubConsoleAgentDb } from "vite-hub/database/drizzle"`)
+      expect(generated).toContain(`import { agentDb as vitehubConsoleAgentDb } from "@vite-hub/database/runtime/registry"`)
       expect(generated).toContain(`capabilities: { blob: vitehubConsoleAgentBlob, console: vitehubConsoleAgentConsole, db: vitehubConsoleAgentDb, kv: vitehubConsoleAgentKv }`)
     }
     finally {
@@ -1137,7 +1137,7 @@ describe("Agent invocation console", () => {
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).toContain(`import("vite-hub/console/definitions")`)
       expect(generated).toContain(`import("vite-hub/console/database")`)
-      expect(generated).toContain(`import("vite-hub/database/drizzle")`)
+      expect(generated).toContain(`import("@vite-hub/database/runtime/registry")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["databases"])`)
       expect(generated).toContain(`installConsoleDefinitions(${JSON.stringify(root)}, {"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"server/databases/config.ts","name":"default","source":"server-database-default"}],"kind":"definition-catalog"}}, `)

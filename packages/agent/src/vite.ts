@@ -264,8 +264,8 @@ const generatedAgentRuntimeCapabilityDefinitions: GeneratedAgentRuntimeCapabilit
   { importName: "connections", name: "connections", packageName: "@vite-hub/connections/server", pluginName: "@vite-hub/connections/vite" },
   { importName: "console", name: "console", packageName: "vite-hub/console/server", pluginName: "vite-hub/console" },
   { importName: "content", modulePath: contentDefinitionPath, name: "content", packageName: false, pluginName: "@vite-hub/source/vite" },
-  { importName: "agentDb", name: "db", packageName: "@vite-hub/database/drizzle", pluginName: "@vite-hub/database/vite" },
-  { importName: "email", name: "email", packageName: "@vite-hub/email/server", pluginName: "@vite-hub/email/vite" },
+  { importName: "agentDb", name: "db", packageName: "@vite-hub/database/runtime/registry", pluginName: "@vite-hub/database/vite" },
+  { importName: "email", name: "email", packageName: "@vite-hub/email", pluginName: "@vite-hub/email/vite" },
   { importName: "kv", name: "kv", packageName: "@vite-hub/kv", pluginName: "@vite-hub/kv/vite" },
 ]
 

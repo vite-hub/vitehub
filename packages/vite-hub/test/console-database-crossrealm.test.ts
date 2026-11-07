@@ -6,7 +6,7 @@ import consoleDatabaseHandlerRoute from "../src/console/runtime/server/database.
 import { installConsoleDatabase } from "../src/console/runtime/server/database.ts"
 import { allowed } from "./support/console-access.ts"
 
-import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
+import type { RuntimeDatabaseEntry } from "@vite-hub/database"
 
 const handler = allowed(consoleDatabaseHandlerRoute)
 const items = sqliteTable("items", { id: integer("id").primaryKey(), value: integer("value") })

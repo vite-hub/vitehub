@@ -71,7 +71,7 @@ async function buildNodeServer(root: string, options: DatabaseNuxtIntegrationOpt
   const entry = join(root, "server.mjs")
   await writeFile(entry, [
     ...(config.plugins ?? []).map(plugin => `import ${JSON.stringify(plugin)}`),
-    'import { useDatabase } from "@vite-hub/database/drizzle"',
+    'import { useDatabase } from "@vite-hub/database"',
     'const { db, schema } = useDatabase("default")',
     "console.log(JSON.stringify(await db.select().from(schema.users)))",
   ].join("\n"))

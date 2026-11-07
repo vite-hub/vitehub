@@ -18,7 +18,7 @@ ViteHub errors are Nostics diagnostics with `code`, `why`, `fix`, `docs`, and `c
 - A Cloudflare D1 HTTP error rejects the Drizzle query. Drizzle can wrap it, so read `error.cause` of the query error.
 
 ```ts [server/api/notes.get.ts]
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { useDatabase } from '@vite-hub/database'
 
 export default defineEventHandler(async () => {
   const { db, schema } = useDatabase('default')
@@ -85,7 +85,7 @@ One bound string or BLOB is larger than 2,000,000 bytes, the D1 limit. Store lar
 
 ### DATABASE_DISABLED
 
-Code imported `@vite-hub/database/drizzle`, but the runtime has no Database configuration. Add `hubDb()` to the Vite config, and do not set `database: false`.
+Code read `db` from `@vite-hub/database`, but the runtime has no Database configuration. Add `hubDb()` to the Vite config, and do not set `database: false`.
 
 ### DATABASE_INVALID_D1_HTTP_URL
 
@@ -109,7 +109,7 @@ The database uses D1 HTTP, and a value is missing at runtime: `cloudflare.databa
 
 ### DATABASE_NOT_FOUND
 
-`agentDb.database(name)` received a name that has no Database Definition. A query on a Named Database that has no runtime configuration also throws it.
+`useDatabase(name)`, or the Database Agent Capability, received a name that has no Database Definition. A query on a Named Database that has no runtime configuration also throws it.
 
 `useDatabase(name)` does not throw this error. For an unknown name it returns `undefined`, so `const { db } = useDatabase('typo')` fails with a `TypeError`. `useDatabase('default')` always returns an entry. Its `db` throws `DATABASE_DISABLED` when the app has no Default Database.
 

@@ -21,6 +21,29 @@ The command exits with `0` when the codemod completes, also when it reports foll
 | Codemod | Moves |
 | --- | --- |
 | `nuxt-safe-runtime-config` | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub Env through `vite-hub/nuxt` |
+| `root-accessors` | `db`, `schema`, `useDatabase`, `email`, `runSchedule`, and the Env accessors to the root of their primitive. `vitehub migrate` runs it. |
+
+## `root-accessors`
+
+ViteHub moved the accessors of four primitives to the root of the primitive. `root-accessors` rewrites the imports of an app:
+
+| Old import | New import |
+| --- | --- |
+| `db`, `schema`, `useDatabase`, `chunkParameters` from `vite-hub/database/drizzle` | `vite-hub/database` |
+| `email` from `vite-hub/email/server` | `vite-hub/email` |
+| `runSchedule` from `vite-hub/schedule/runtime` | `vite-hub/schedule`, and the `registry` option goes away |
+| `useServerEnv`, `deriveSecret`, `loadServerEnv`, and the other Server Env helpers from `#vitehub/env/server` | `vite-hub/env` |
+| `usePublicEnv` from `#vitehub/env/public`, in server code | `vite-hub/env` |
+
+The `@vite-hub/*` forms move to the same owner roots. An app that lists `@vite-hub/env` and not `vite-hub` gets `@vite-hub/env`. The codemod also rewrites `declare module` augmentations, `vi.mock()` paths, and dynamic `import()` paths, and joins a moved import with an existing import of the same path. It removes `import registry from '#vitehub/schedule/registry'` when `runSchedule()` was its only use.
+
+Browser code keeps `#vitehub/env/public`. The report lists what the codemod cannot move: `databases` and `agentDb`, which are no longer public, `useDatabase(name)?.` fallbacks, because `useDatabase()` now throws `DATABASE_NOT_FOUND` for an unknown name, and `imports` entries in `package.json` that map `#vitehub/env/*` by hand.
+
+```sh
+npx @vite-hub/codemods root-accessors [dir] [--dry-run]
+# or, with @vite-hub/codemods installed
+vitehub migrate [--dry-run]
+```
 
 ## `nuxt-safe-runtime-config`
 
@@ -29,7 +52,7 @@ The codemod reads one of the two schema sources of the module:
 - `safeRuntimeConfig.envSchema` points at a `.env.example` with `@env-spec` annotations. The codemod replaces it with `envSchema(new URL("./.env.example", import.meta.url), { prefix: "NUXT_" })` from `@vite-hub/env/vite`. With the `NUXT_` prefix, `NUXT_PUBLIC_*` keys become Public Env and other `NUXT_*` keys become Server Env, with the same names and variables. Server `paths` stay the same. Public Env is flat, so a nested public path falls back to its flat name.
 - `safeRuntimeConfig.$schema` is a Valibot, Zod, or ArkType schema, inline or in a module. The codemod converts it to JSON Schema and writes `env()`, `env.number()`, `env.boolean()`, and `env.enum()` declarations under `vitehub.env`. Each declaration reads its `NUXT_*` variable with `env.source()`. Literal `runtimeConfig` values, including empty strings, become defaults, and keys under `runtimeConfig.public` become Public Env with `mode: "build"`. Credential-like server names become `secret: true`.
 
-In both cases the codemod replaces `'nuxt-safe-runtime-config'` with `'vite-hub/nuxt'` in `modules`, removes `safeRuntimeConfig` and the migrated `runtimeConfig` keys, sets `vitehub.preset`, and swaps the package in `package.json`. It rewrites `useSafeRuntimeConfig()` to `useServerEnv()` from `#vitehub/env/server` in server files and to `usePublicEnv()` from `#vitehub/env/public` in app files.
+In both cases the codemod replaces `'nuxt-safe-runtime-config'` with `'vite-hub/nuxt'` in `modules`, removes `safeRuntimeConfig` and the migrated `runtimeConfig` keys, sets `vitehub.preset`, and swaps the package in `package.json`. It rewrites `useSafeRuntimeConfig()` to `useServerEnv()` from `vite-hub/env` in server files and to `usePublicEnv()` from `#vitehub/env/public` in app files.
 
 An existing `modules` property must be an array literal. If it is an expression such as `buildModules()`, or a root spread could supply an inherited list, the codemod stops without writing files; make the list explicit before retrying. A dynamic `nitro.preset` also stops the codemod unless a ViteHub preset is already explicit; use a string literal or set `vitehub.preset` before retrying. Consumed local layers inside the app are included in call-site migration. Local layers outside the app directory are left unchanged and named in the report for manual migration before using the migrated app.
 

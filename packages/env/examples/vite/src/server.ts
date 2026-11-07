@@ -1,7 +1,6 @@
 import { H3 } from "h3"
 
-import { usePublicEnv } from "#vitehub/env/public"
-import { useServerEnv } from "#vitehub/env/server"
+import { usePublicEnv, useServerEnv } from "@vite-hub/env"
 
 const app = new H3()
 

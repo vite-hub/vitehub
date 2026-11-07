@@ -27,6 +27,10 @@ catch (error) {
 
 Each code owns a fixed public message and bounded details. Source details use identifiers such as `git:branch`, `package.json`, `env`, `provider`, or `custom`; raw variable names, provider keys, package paths, labels, and provider diagnostics remain behind `cause`. `error.toJSON()` includes `code`, `message`, and `details`; it omits `cause`, which remains available only on the in-memory error. Invalid declaration helper calls and schema results use package-owned `ENV_R####` Nostics codes. Build integration defects use `ENV_B####` codes.
 
+### ENV_NOT_GENERATED
+
+`useServerEnv()`, `usePublicEnv()`, or another accessor of `vite-hub/env` ran outside a Vite build, for example in a plain `node` script or a test without the Vite plugin. The Env Vite plugin generates the registry that these accessors read. Run the code through `vite dev`, `vite build`, or a framework that uses them, with `vitehub()` and Env on.
+
 ## Production checks
 
 Public Env and Vite define values are visible to built client code. Put secrets only in Server Env with `secret: true`.

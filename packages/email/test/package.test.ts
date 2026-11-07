@@ -24,7 +24,6 @@ describe("@vite-hub/email package contract", () => {
       "./operations",
       "./package.json",
       "./runtime/console",
-      "./server",
       "./test",
       "./vite",
     ])

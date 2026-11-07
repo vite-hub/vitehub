@@ -170,7 +170,7 @@ export function hubWorkflow(options?: WorkflowModuleOptions, internalOptions: In
     const database = getProviderRuntimeModule(catalog, "database", provider, generation)
     const blob = getProviderRuntimeModule(catalog, "blob", provider, generation)
     return {
-      ...(database ? { "@vite-hub/database/drizzle": database } : {}),
+      ...(database ? { "@vite-hub/database/runtime/registry": database } : {}),
       ...(blob ? { "@vite-hub/blob": blob } : {}),
     }
   }

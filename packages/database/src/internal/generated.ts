@@ -216,7 +216,7 @@ function renderGeneratedDatabaseTypes(file: string, config: ResolvedDBViteConfig
     `      schema: ${schemaType(definition, index)}`,
     "    },",
   ])
-  const registryDeclarations = ["@vite-hub/database/drizzle", "vite-hub/database/drizzle"].flatMap(moduleName => [
+  const registryDeclarations = ["@vite-hub/database", "vite-hub/database"].flatMap(moduleName => [
     `declare module ${JSON.stringify(moduleName)} {`,
     "  interface DatabaseRegistry {",
     ...registryEntries,

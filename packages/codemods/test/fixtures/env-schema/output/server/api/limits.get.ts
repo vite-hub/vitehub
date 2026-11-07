@@ -1,4 +1,4 @@
-import { useServerEnv } from "#vitehub/env/server";
+import { useServerEnv } from "vite-hub/env";
 import { usePublicEnv } from "#vitehub/env/public";
 
 export default defineEventHandler(async (event) => {

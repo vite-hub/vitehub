@@ -30,7 +30,7 @@ describe("Nuxt hosted Database module preparation", () => {
       })
       const config = { alias: {} as Record<string, string>, preset }
       for (const hook of hooks) await hook(config)
-      const runtimeFile = config.alias["@vite-hub/database/drizzle"]!
+      const runtimeFile = config.alias["@vite-hub/database/runtime/registry"]!
       expect(runtimeFile).toBe(join(projectRoot, `.vitehub/database/${provider}-runtime.mjs`))
       const runtime = await readFile(runtimeFile, "utf8")
       expect(runtime).toContain("createHostedDrizzleDb(")
@@ -42,9 +42,9 @@ describe("Nuxt hosted Database module preparation", () => {
       expect(schema).toContain("databaseDefinition.schema")
       await expect(readFile(config.alias["#vitehub/database/definition-defaults"]!, "utf8")).resolves.toContain("export default")
 
-      const explicit = { alias: { "@vite-hub/database/drizzle": "/custom/database.mjs", "#vitehub/database/definition-defaults": "/custom/defaults.mjs" }, preset }
+      const explicit = { alias: { "@vite-hub/database/runtime/registry": "/custom/database.mjs", "#vitehub/database/definition-defaults": "/custom/defaults.mjs" }, preset }
       for (const hook of hooks) await hook(explicit)
-      expect(explicit.alias).toEqual({ "@vite-hub/database/drizzle": "/custom/database.mjs", "#vitehub/database/definition-defaults": "/custom/defaults.mjs" })
+      expect(explicit.alias).toEqual({ "@vite-hub/database/runtime/registry": "/custom/database.mjs", "#vitehub/database/definition-defaults": "/custom/defaults.mjs" })
     }
     finally {
       await rm(root, { force: true, recursive: true })

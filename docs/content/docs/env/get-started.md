@@ -43,7 +43,7 @@ export default defineConfig({
 ::tutorial-step{title="Read the value"}
 ## Read the value
 
-The generated alias gives the app a typed `appName` value. Import it through Vite; Node alone cannot resolve `#vitehub/env/public`.
+The generated alias gives the app a typed `appName` value. Import it through Vite; Node alone cannot resolve `#vitehub/env/public`. Server code can import `usePublicEnv()` from `vite-hub/env` instead.
 
 ```ts [src/app.ts]
 import { usePublicEnv } from '#vitehub/env/public'

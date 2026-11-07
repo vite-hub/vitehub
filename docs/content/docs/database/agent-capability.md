@@ -58,8 +58,8 @@ The guard rejects multi-statement input before the statement reaches the databas
 
 ## Requirements
 
-- Configure the Database primitive. Generated Agent routes pass `agentDb` from `@vite-hub/database/drizzle` to the Capability when the Database Vite integration (`hubDb()`) is active.
-- Without a `db` handle, the Capability imports `agentDb` from an installed `@vite-hub/database/drizzle` package. If that import fails, tool resolution fails and the Agent Driver does not receive Database tools.
+- Configure the Database primitive. Generated Agent routes pass the Database handle to the Capability when the Database Vite integration (`hubDb()`) is active.
+- Without a `db` handle, the Capability loads the Database runtime of an installed `@vite-hub/database` package. If that import fails, tool resolution fails and the Agent Driver does not receive Database tools.
 - The database handle must expose raw string `query()` for `db_query` and `exec()` for `db_exec`.
 - A `database` value other than `"default"` requires a handle that exposes `database()`. Otherwise the tools fail with `Database "<name>" is not available.`
 

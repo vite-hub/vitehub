@@ -11,8 +11,9 @@ icon: i-lucide-code-2
 | Import | Use |
 | --- | --- |
 | `defineDatabase` from `@vite-hub/database` | Declare a Database Definition. |
-| `useDatabase` from `@vite-hub/database/drizzle` | Select a generated Drizzle database and its schema by name. |
-| `chunkParameters` from `@vite-hub/database/drizzle` | Split values so each statement stays under the bound parameter limit of D1. |
+| `db`, `schema` from `@vite-hub/database` | The Drizzle database and schema of the default Database. |
+| `useDatabase` from `@vite-hub/database` | Select a generated Drizzle database and its schema by name. |
+| `chunkParameters` from `@vite-hub/database` | Split values so each statement stays under the bound parameter limit of D1. |
 | `hubDb` from `@vite-hub/database/vite` | Register database discovery, generated schema, and Nitro host bindings. |
 | `@vite-hub/database/config` | Resolve database config values and discovery config. |
 | `@vite-hub/database/cli` | Use the package-owned database CLI contribution. |
@@ -22,10 +23,10 @@ All Database Definition, integration, connection, Cloudflare D1, Drizzle, and ru
 
 ## Use it at runtime
 
-Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. For a name that has no Database Definition it returns `undefined`, so destructuring the result fails with a `TypeError`. Check the names with `vitehub inspect definitions --kind database`.
+Call `useDatabase()` from server code with the discovered database name. Use `default` for a Default Database. It returns the Drizzle client as `db` and the Definition schema as `schema`. For a name that has no Database Definition it throws [`DATABASE_NOT_FOUND`](/docs/database/limits-and-errors#database_not_found). Check the names with `vitehub inspect definitions --kind database`.
 
 ```ts [server/api/notes.get.ts]
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { useDatabase } from '@vite-hub/database'
 
 export default defineEventHandler(() => {
   const { db, schema } = useDatabase('default')
@@ -33,7 +34,7 @@ export default defineEventHandler(() => {
 })
 ```
 
-The ViteHub Vite Integration resolves `@vite-hub/database/drizzle` for server code that Nitro builds. Do not run files that import it with plain `node`. Run them through your Nitro server output.
+`db`, `schema`, and `useDatabase()` read the Databases that the ViteHub Vite Integration generates for server code that Nitro builds. Run them through your Nitro server output. In plain `node`, outside Vite, they find no Database.
 
 ### Use Named Databases
 
@@ -55,7 +56,7 @@ export default defineDatabase({
 ```
 
 ```ts [server/api/events.get.ts]
-import { useDatabase } from '@vite-hub/database/drizzle'
+import { useDatabase } from '@vite-hub/database'
 
 export default defineEventHandler(() => {
   const { db, schema } = useDatabase('analytics')
@@ -69,7 +70,7 @@ Cloudflare D1 binds at most 100 parameters in one statement. A longer `inArray()
 
 ```ts [server/utils/files.ts]
 import { and, eq, inArray } from 'drizzle-orm'
-import { chunkParameters, useDatabase } from '@vite-hub/database/drizzle'
+import { chunkParameters, useDatabase } from '@vite-hub/database'
 
 const { db, schema } = useDatabase('default')
 

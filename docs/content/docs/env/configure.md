@@ -51,7 +51,7 @@ Pass Integration Options to `hubEnv()`.
 | --- | --- | --- | --- |
 | `env.public` | Build | Yes | Browser-safe Public Env through `#vitehub/env/public`. |
 | `env.define` | Build transform | Yes in bundled code | Vite compile-time replacements. |
-| `env.server` | Server runtime | No | Server Env through `#vitehub/env/server`. |
+| `env.server` | Server runtime | No | Server Env through `useServerEnv()` from `vite-hub/env`. |
 
 ## Env Declaration options
 
@@ -92,7 +92,7 @@ export default defineConfig({
 ```
 
 ```ts [server/labeller.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 const { labeller } = useServerEnv()
 if (!labeller.dryRun && labeller.mode === 'send') {
@@ -230,7 +230,7 @@ On Cloudflare, a required secret is listed in the Wrangler config only when it a
 
 ## Provider output
 
-`hubEnv()` writes generated env modules under `.vitehub/env/` and ambient types under `.vitehub/types/`. Import `#vitehub/env/public` and `#vitehub/env/server` from application code, not generated file paths or integration virtual modules.
+`hubEnv()` writes generated env modules under `.vitehub/env/` and ambient types under `.vitehub/types/`. Import `useServerEnv()` and `usePublicEnv()` from `vite-hub/env` in server code and `#vitehub/env/public` in browser code, not generated file paths or integration virtual modules.
 
 Add the generated type directory to `tsconfig.json` when the app wants field-level types for generated Env access.
 

@@ -27,6 +27,16 @@
   "type": "module",
   "sideEffects": false,
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub/env/public": {
+      "types": "./dist/runtime/public-env.d.ts",
+      "default": "./dist/runtime/public-env.js"
+    },
+    "#vitehub/env/server": {
+      "types": "./dist/runtime/server-env.d.ts",
+      "default": "./dist/runtime/server-env.js"
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

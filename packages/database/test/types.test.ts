@@ -9,7 +9,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { CloudflareD1HttpConfig, DBModulePublicOptions } from "../src/index.ts"
 import type { DatabaseContribution, DatabaseUseContribution } from "../src/contributions.ts"
 
-type DrizzleModule = typeof import("../src/drizzle.ts")
+type DrizzleModule = typeof import("../src/runtime/registry.ts")
 
 describe("types", () => {
   it("allows static table names only on table contributions", () => {

@@ -14,15 +14,15 @@ icon: i-lucide-code-2
 | `getViteHubErrorShape` from `@vite-hub/runtime` | Inspect operational Env failures by `ENV_*` code. |
 | `hubEnv` from `@vite-hub/env/vite` | Register the Vite Integration. |
 | `defineEnvProvider` from `@vite-hub/env/provider` | Define a read-only runtime provider for external Env storage. |
-| `loadServerEnv` from `#vitehub/env/server` | Load one immutable Server Env snapshot, including provider-backed values. |
-| `describeServerEnv` from `#vitehub/env/server` | List declaration metadata without reading host values or calling providers. |
-| `inspectServerEnv` from `#vitehub/env/server` | Inspect status-only Server Env metadata without returning values. |
+| `loadServerEnv` from `@vite-hub/env` | Load one immutable Server Env snapshot, including provider-backed values. |
+| `describeServerEnv` from `@vite-hub/env` | List declaration metadata without reading host values or calling providers. |
+| `inspectServerEnv` from `@vite-hub/env` | Inspect status-only Server Env metadata without returning values. |
 | `isBlockingServerEnvEntry` from `@vite-hub/env` | Check whether an inspection entry makes `loadServerEnv()` fail. |
-| `usePublicEnv` from `#vitehub/env/public` | Read generated Public Env from browser-safe code. |
-| `useServerEnv` from `#vitehub/env/server` | Read generated Server Env from server code. |
-| `deriveSecret` from `#vitehub/env/server` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
+| `usePublicEnv` from `@vite-hub/env`, or from `#vitehub/env/public` in browser code | Read generated Public Env. |
+| `useServerEnv` from `@vite-hub/env` | Read generated Server Env from server code. |
+| `deriveSecret` from `@vite-hub/env` | Derive a purpose-specific secret from [`VITEHUB_SECRET`](/docs/env/app-secret). |
 | `SecretEnv` from `@vite-hub/env` or `@vite-hub/env/secret` | Represent Secret Env values that redact by default. |
-| `resolveServerEnv` from `@vite-hub/env` or `@vite-hub/env/server` | Resolve a server env registry manually. |
+| `resolveServerEnv` from `@vite-hub/env/server` | Resolve a server env registry manually. |
 | `openWorkflowEnv` from `@vite-hub/env` or `@vite-hub/env/presets` | Use the OpenWorkflow env preset. |
 | `typesafeEnv` from `@vite-hub/env` or `@vite-hub/env/presets` | Declare the Server Env of the [`typesafe()` AI gateway](/docs/agents/ai-gateways), which [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver), `llmGate()`, and `llmRoute()` use by default. |
 | `parseSchema` from `@vite-hub/env` or `@vite-hub/env/schema` | Parse Standard Schema-compatible values. |
@@ -40,7 +40,7 @@ export const appName = usePublicEnv().appName
 Use Server Env from server-only code. Secret Env values redact by default and require `unseal()` before a third-party SDK or request can receive the underlying string.
 
 ```ts [server/github.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 export async function listIssues() {
   const { github } = useServerEnv()
@@ -89,7 +89,7 @@ export default defineConfig({
 })
 ```
 
-The provider reads all requested keys once. It receives a frozen snapshot containing only literal and host-backed Server Env values, so a Kubernetes or Cloudflare secret can authenticate the external store without importing `#vitehub/env/server` recursively.
+The provider reads all requested keys once. It receives a frozen snapshot containing only literal and host-backed Server Env values, so a Kubernetes or Cloudflare secret can authenticate the external store without reading Server Env recursively.
 
 ```ts [server/env/credentials.ts]
 import { defineEnvProvider } from '@vite-hub/env/provider'
@@ -114,7 +114,7 @@ export default defineEnvProvider<{
 Call `loadServerEnv()` at the application operation boundary. Each call creates a new deeply frozen snapshot, deduplicates keys within that load, and does not cache values across loads. Rotation is visible to the next load while an in-flight operation keeps one coherent snapshot.
 
 ```ts [server/sources/private-repository.ts]
-import { loadServerEnv } from '#vitehub/env/server'
+import { loadServerEnv } from 'vite-hub/env'
 import { github } from 'vite-hub/workspace'
 
 export const privateRepository = github(async () => {

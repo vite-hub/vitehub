@@ -735,7 +735,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
   if (options.db) {
     const dbRuntimeFile = resolve(generatedDir, "database-runtime.mjs")
-    alias["@vite-hub/database/drizzle"] = dbRuntimeFile
+    alias["@vite-hub/database/runtime/registry"] = dbRuntimeFile
     runtimeWrites.push(writeFile(dbRuntimeFile, renderDbRuntimeModule(dbRuntimeFile, options.db), "utf8"))
   }
 

@@ -35,7 +35,7 @@ export default defineDatabase({
 
 ```ts
 // server/api/notes.get.ts
-import { useDatabase } from "@vite-hub/database/drizzle"
+import { useDatabase } from "@vite-hub/database"
 import { defineEventHandler } from "h3"
 
 export default defineEventHandler(() => {
@@ -55,7 +55,7 @@ export default defineConfig({
 })
 ```
 
-Cloudflare D1 binds at most 100 parameters in one statement. `chunkParameters(values, { per, reserved, limit })` from `@vite-hub/database/drizzle` splits values into arrays that fit one statement each: `per` is the parameters of one value (a Drizzle table counts its columns, for a multi-row insert), `reserved` the other parameters of the statement, and `limit` defaults to 100. It throws a `RangeError` when one value does not fit. A query to D1, through the binding or D1 HTTP, rejects with `DATABASE_D1_TOO_MANY_PARAMETERS` above 100 bound parameters, `DATABASE_D1_STATEMENT_TOO_LONG` above 100,000 bytes of SQL, and `DATABASE_D1_VALUE_TOO_LARGE` for a bound string or BLOB above 2,000,000 bytes ([D1 limits](https://developers.cloudflare.com/d1/platform/limits/)). When the build targets Cloudflare, `vite dev` runs the same checks on the local SQLite that stands in for D1.
+Cloudflare D1 binds at most 100 parameters in one statement. `chunkParameters(values, { per, reserved, limit })` from `@vite-hub/database` splits values into arrays that fit one statement each: `per` is the parameters of one value (a Drizzle table counts its columns, for a multi-row insert), `reserved` the other parameters of the statement, and `limit` defaults to 100. It throws a `RangeError` when one value does not fit. A query to D1, through the binding or D1 HTTP, rejects with `DATABASE_D1_TOO_MANY_PARAMETERS` above 100 bound parameters, `DATABASE_D1_STATEMENT_TOO_LONG` above 100,000 bytes of SQL, and `DATABASE_D1_VALUE_TOO_LARGE` for a bound string or BLOB above 2,000,000 bytes ([D1 limits](https://developers.cloudflare.com/d1/platform/limits/)). When the build targets Cloudflare, `vite dev` runs the same checks on the local SQLite that stands in for D1.
 
 The table shorthand covers inserts binding at most one parameter per column. The helper does not inspect row contents or SQL defaults. For SQL expressions with more bindings, supply a numeric `per` covering the maximum bindings of a whole row, including defaults: a one-column row containing `` sql`${first} || ${second}` `` needs `{ per: 2 }`.
 
@@ -78,9 +78,9 @@ await db.batch([
 ])
 ```
 
-Use `src/database.ts` or `server/databases/config.ts` for one default database. Use `src/<name>.database.ts` or `server/databases/<name>/config.ts` with the same `name` option when every database is named. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `@vite-hub/database/drizzle`. A project cannot mix a default Database Definition with Named Database Definitions. Without a Definition, the Vite integration uses one empty default Database (`@vite-hub/database/runtime/default-database`) with `database.connection` and migrations in `server/databases/migrations`. Pass `implicitDefault: true` to `resolveDBViteConfig()`, `discoverDatabaseDefinitions()`, or `inspectDatabaseDefinitions()` to resolve it the same way.
+Use `src/database.ts` or `server/databases/config.ts` for one default database. Use `src/<name>.database.ts` or `server/databases/<name>/config.ts` with the same `name` option when every database is named. Vite discovers those files, writes generated Drizzle artifacts, and lets server handlers import `db`, `schema`, and `useDatabase()` from `@vite-hub/database`. A project cannot mix a default Database Definition with Named Database Definitions. Without a Definition, the Vite integration uses one empty default Database (`@vite-hub/database/runtime/default-database`) with `database.connection` and migrations in `server/databases/migrations`. Pass `implicitDefault: true` to `resolveDBViteConfig()`, `discoverDatabaseDefinitions()`, or `inspectDatabaseDefinitions()` to resolve it the same way.
 
-`@vite-hub/database/drizzle` is resolved by the Vite integration for server code that Nitro builds. Nitro is the only host output. Plain `node` execution of files that import it is not a supported local runtime path.
+`db`, `schema`, and `useDatabase()` from `@vite-hub/database` read the Databases that the Vite integration generates for server code that Nitro builds. Nitro is the only host output. In plain `node`, outside Vite, `db` throws `DATABASE_DISABLED` and `useDatabase()` throws `DATABASE_NOT_FOUND`.
 
 Application code calls `useDatabase()` with the discovered name. Use `default` for a Default Database.
 

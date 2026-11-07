@@ -2187,7 +2187,7 @@ describe("ViteHub Nuxt integration", () => {
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).toContain(`import("vite-hub/console/definitions")`)
       expect(generated).toContain(`import("vite-hub/console/database")`)
-      expect(generated).toContain(`import("vite-hub/database/drizzle")`)
+      expect(generated).toContain(`import("@vite-hub/database/runtime/registry")`)
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env","databases"])`)
       expect(generated).toContain(`installConsoleDefinitions("/tmp/vitehub-nuxt", {"databases":{"definitions":[{"fields":[{"label":"Mode","value":"Default"},{"label":"Tables","value":"notes, users"}],"file":"custom-server/databases/config.ts","name":"default","source":"server-database-default"}],"kind":"definition-catalog"}}, `)
@@ -4469,7 +4469,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     )
     expect(nitroConfig).toMatchObject({
       alias: {
-        "@vite-hub/database/drizzle": "/tmp/vitehub-nuxt/.vitehub/database/cloudflare-runtime.mjs",
+        "@vite-hub/database/runtime/registry": "/tmp/vitehub-nuxt/.vitehub/database/cloudflare-runtime.mjs",
         "@vite-hub/database/runtime/state": databaseRuntimeState,
       },
     })
@@ -4551,8 +4551,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       { from: "#app", name: "useAppConfig" },
       { from: "vite-hub/kv", name: "kv" },
       { from: "vite-hub/blob", name: "blob" },
-      { from: "vite-hub/database/drizzle", name: "db" },
-      { from: "vite-hub/database/drizzle", name: "schema" },
+      { from: "vite-hub/database", name: "db" },
+      { from: "vite-hub/database", name: "schema" },
     ])
   })
 

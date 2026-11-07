@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { resolveServerEnv, SecretEnv, typesafeEnv } from "../src/index.ts"
+import { SecretEnv, typesafeEnv } from "../src/index.ts"
+import { resolveServerEnv } from "../src/server.ts"
 import { createRuntimeRegistry } from "../src/core/resolve.ts"
 import { describeServerEnv } from "../src/server.ts"
 

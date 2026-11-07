@@ -14,7 +14,7 @@ The package page documents what the API returns and which host resources it need
 ## Call the helper from server code
 
 ```ts [server/api/health.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 export function health() {
   const env = useServerEnv()

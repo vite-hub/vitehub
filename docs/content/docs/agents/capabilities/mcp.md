@@ -70,7 +70,7 @@ export default defineAgent({
 Optional servers do not need a conditional Capability array. Declare credentials that may be absent as optional in Server Env, for example `analyticsToken: env({ optional: true, secret: true })`, then resolve only the server whose credentials are available:
 
 ```ts [server/agents/support.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineAgent } from 'vite-hub/agent'
 import { mcp } from 'vite-hub/agent/capabilities'
 import { remoteMcpServer } from 'vite-hub/agent/mcp'

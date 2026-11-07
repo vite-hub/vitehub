@@ -142,7 +142,7 @@ Keep secret values outside the repository. Resolve them into Sandbox `env`, Home
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from '@vite-hub/agent'
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from '@vite-hub/env'
 
 export default defineAgent({
   sandbox: {

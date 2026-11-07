@@ -17,7 +17,7 @@ pnpm add @vite-hub/sandbox
 
 ```ts
 import { resolveSandbox } from "@vite-hub/sandbox";
-import { useServerEnv } from "#vitehub/env/server";
+import { useServerEnv } from "@vite-hub/env";
 
 const sandbox = await resolveSandbox({
   runtime: { kind: "trusted-host", stateRoot: "/var/lib/vitehub/sandboxes" },

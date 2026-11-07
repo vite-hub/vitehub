@@ -695,7 +695,7 @@ It needs app Auth with Better Auth's [admin plugin](https://www.better-auth.com/
 ```ts [server/auth.ts]
 import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
 import { authDatabase } from 'vite-hub/auth/database'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 import { admin } from 'better-auth/plugins'
 
 export default defineAuth(() => ({

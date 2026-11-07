@@ -25,7 +25,7 @@ function handleKind(r: Resolver, node: unknown, seen = new Set<unknown>()): Hand
   if (reference && reference.path.length === 0) {
     if (reference.module === "kv" && reference.name === "kv") return "kv"
     if (reference.module === "blob" && reference.name === "blob") return "blob"
-    if (reference.module === "email/server" && reference.name === "email") return "email"
+    if (reference.module === "email" && reference.name === "email") return "email"
   }
   if (reference?.module === "blob" && reference.name === "blob" && reference.path.length === 1 && reference.path[0] === "media") return "media"
   if (isNodeType(target, "MemberExpression") && target.computed !== true && isIdentifier(target.property, "media")) {

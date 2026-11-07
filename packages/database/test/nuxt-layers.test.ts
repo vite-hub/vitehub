@@ -129,7 +129,7 @@ describe("Database Definitions in Nuxt layers", () => {
     expect(runtime).toContain("db: createDefinitionRuntime({ ...definition_0, schema: schema_0 }, definitionDefaults),")
     expect(nitroConfig.alias).toEqual({
       "#vitehub/database/definition-defaults": join(app.appDir, ".nuxt/vitehub/database/definition-defaults.mjs"),
-      "@vite-hub/database/drizzle": join(app.appDir, ".nuxt/vitehub/database/local-runtime.mjs"),
+      "@vite-hub/database/runtime/registry": join(app.appDir, ".nuxt/vitehub/database/local-runtime.mjs"),
     })
   })
 
@@ -162,7 +162,7 @@ describe("Database Definitions in Nuxt layers", () => {
     for (const hook of hooks) await hook(nitroConfig)
 
     const runtimeFile = join(app.appDir, `.vitehub/database/${provider}-runtime.mjs`)
-    expect(nitroConfig.alias).toMatchObject({ "@vite-hub/database/drizzle": runtimeFile })
+    expect(nitroConfig.alias).toMatchObject({ "@vite-hub/database/runtime/registry": runtimeFile })
     const runtime = await import(pathToFileURL(runtimeFile).href) as { db: { query: Record<string, unknown> }, schema: Record<string, unknown> }
     expect(Object.keys(runtime.schema).toSorted()).toEqual(["posts", "users"])
     expect(Object.keys(runtime.db.query).toSorted()).toEqual(["posts", "users"])
@@ -188,7 +188,7 @@ describe("Database Definitions in Nuxt layers", () => {
     ])
     const route = join(app.appDir, "server/api/posts.ts")
     await writeModule(route, [
-      "import { db, useDatabase } from '@vite-hub/database/drizzle'",
+      "import { db, useDatabase } from '@vite-hub/database'",
       "export const findPosts = (): Promise<Array<{ id: number }>> => db.query.posts.findMany()",
       "export const userId: number = useDatabase('default').schema.users.$inferSelect.id",
       "// An untyped `db` would accept this table.",
@@ -205,7 +205,7 @@ describe("Database Definitions in Nuxt layers", () => {
     const nitroConfig: { alias: Record<string, string>, preset: string } = { alias: {}, preset }
     for (const hook of hooks["nitro:config"] ?? []) await hook(nitroConfig)
     if (dev) await writeGeneratedDatabaseArtifacts(resolveDBViteConfig(undefined, app.appDir, { serverDirs: app.serverDirs })!)
-    expect(nitroConfig.alias["@vite-hub/database/drizzle"]).toBe(join(app.appDir, runtimePath))
+    expect(nitroConfig.alias["@vite-hub/database/runtime/registry"]).toBe(join(app.appDir, runtimePath))
 
     // Nuxt 5 runs module hooks first, then writes each Nitro alias that has no path yet, with its `.mjs` extension.
     const paths: Record<string, string[]> = {}
@@ -239,9 +239,9 @@ describe("Database Definitions in Nuxt layers", () => {
       options: { ...app.options, dev: false },
     })
     const existing = ["/custom/database.d.ts"]
-    const paths: Record<string, string[]> = { "@vite-hub/database/drizzle": existing }
+    const paths: Record<string, string[]> = { "@vite-hub/database/runtime/registry": existing }
     for (const hook of hooks) await hook({ references: [], serverTsConfig: { compilerOptions: { paths } } })
-    expect(paths["@vite-hub/database/drizzle"]).toBe(existing)
+    expect(paths["@vite-hub/database/runtime/registry"]).toBe(existing)
   })
 
   it("lets the application set options and replace a layer table", async () => {

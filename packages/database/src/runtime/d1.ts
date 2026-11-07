@@ -22,3 +22,5 @@ export function createDefinitionRuntime<TSchema extends Record<string, unknown>>
 ) {
   return createHostedDrizzleDb(runtimeConfig(definition), definition.schema)
 }
+
+export const createConfiguredDatabase: typeof createHostedDrizzleDb = createHostedDrizzleDb

@@ -24,7 +24,7 @@ export function resolveMigrateOnStart(options: false | Pick<DatabaseIntegrationO
 
 interface RenderMigrateOnStartOptions extends MigrateOnStartSettings {
   /** Module that exports `useDatabase()` in the server build. */
-  drizzleImport: string
+  registryImport: string
   /** The resolved host, or the explicit preset when its host is unknown. */
   host: string | undefined
   /** Module that exports `migrateOnStart()`. */
@@ -41,7 +41,7 @@ export function renderMigrateOnStartPlugin(config: ResolvedDBViteConfig, options
     .map(name => ({ migrations: readStartMigrations(resolve(config.rootDir, config.databases[name]!.migrationsDir)), name }))
     .filter(database => database.migrations.length)
   return [
-    `import { useDatabase } from ${JSON.stringify(options.drizzleImport)}`,
+    `import { useDatabase } from ${JSON.stringify(options.registryImport)}`,
     `import { migrateOnStart } from ${JSON.stringify(options.runtimeImport)}`,
     "",
     "// Nitro imports plugins before it listens, so the server handles requests only after this finishes.",

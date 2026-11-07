@@ -25,7 +25,7 @@ Manual follow-ups (20):
   15. pages/index.vue:3 useRuntimeConfig() reads public.siteName, which moved to Env and is no longer in runtimeConfig. Read it with usePublicEnv() from #vitehub/env/public.
   16. server/api/info.get.ts:3 Reads the public object. Public Env is flat, so nested public groups do not exist. Read each field from usePublicEnv(), for example usePublicEnv().posthogHost. Then rewrite this useSafeRuntimeConfig() call by hand.
   17. server/utils/session.ts:14 useSafeRuntimeConfig() passes the config object on. Rewrite it by hand with useServerEnv() or usePublicEnv().
-  18. shared/config.ts:1 useSafeRuntimeConfig() in shared code runs on the server and in the app. Use useServerEnv() from #vitehub/env/server in server code and usePublicEnv() from #vitehub/env/public elsewhere.
+  18. shared/config.ts:1 useSafeRuntimeConfig() in shared code runs on the server and in the app. Use useServerEnv() from vite-hub/env in server code and usePublicEnv() from #vitehub/env/public elsewhere.
   19. server/utils/session.ts:4 useServerEnv().sessionPassword is secret, a SecretEnv<string>. Call .unseal() where this code needs the raw value.
   20. server/utils/session.ts:4 useServerEnv().webhook.signingSecret is secret, a SecretEnv<string>. Call .unseal() where this code needs the raw value.
 

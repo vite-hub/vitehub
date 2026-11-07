@@ -17,7 +17,7 @@ export default defineConfig({
       },
     ],
     deps: {
-      neverBundle: ["vite", "@vite-hub/agent/env-identity"],
+      neverBundle: ["vite", "@vite-hub/agent/env-identity", "#vitehub/env/public", "#vitehub/env/server"],
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
@@ -31,6 +31,8 @@ export default defineConfig({
       "src/internal/connections.ts",
       "src/database.ts",
       "src/presets.ts",
+      "src/runtime/public-env.ts",
+      "src/runtime/server-env.ts",
       "src/provider.ts",
       "src/schema.ts",
       "src/server.ts",
@@ -43,7 +45,7 @@ export default defineConfig({
       customExports(exports) {
         return normalizePackageExports(
           Object.fromEntries(
-            Object.entries(exports).map(([key, value]) => {
+            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/")).map(([key, value]) => {
               if (typeof value !== "string" || !value.endsWith(".js")) {
                 return [key, value];
               }

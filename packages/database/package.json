@@ -70,11 +70,6 @@
       "import": "./dist/connect/node.js",
       "default": "./dist/connect/node.js"
     },
-    "./drizzle": {
-      "types": "./dist/drizzle.d.ts",
-      "import": "./dist/drizzle.js",
-      "default": "./dist/drizzle.js"
-    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
@@ -114,6 +109,11 @@
       "types": "./dist/runtime/postgres.d.ts",
       "import": "./dist/runtime/postgres.js",
       "default": "./dist/runtime/postgres.js"
+    },
+    "./runtime/registry": {
+      "types": "./dist/runtime/registry.d.ts",
+      "import": "./dist/runtime/registry.js",
+      "default": "./dist/runtime/registry.js"
     },
     "./runtime/request-stats": {
       "types": "./dist/runtime/request-stats.d.ts",

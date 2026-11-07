@@ -44,7 +44,7 @@ icon: i-lucide-key-round
 
   ```ts [server/api/issues.get.ts]
   import { defineEventHandler } from 'h3'
-  import { useServerEnv } from '#vitehub/env/server'
+  import { useServerEnv } from 'vite-hub/env'
 
   export default defineEventHandler(async () => {
     const { github } = useServerEnv()
@@ -61,7 +61,7 @@ icon: i-lucide-key-round
 
   ```ts [server/api/publish.post.ts]
   import { defineEventHandler } from 'h3'
-  import { useServerEnv } from '#vitehub/env/server'
+  import { useServerEnv } from 'vite-hub/env'
 
   export default defineEventHandler(() => {
     // dryRun is a boolean, not the text "true"
@@ -103,7 +103,7 @@ icon: i-lucide-key-round
 ::agent-only{skill="env"}
 Use Env to declare public, build-time, server runtime, and secret values with typed accessors. Keep secret values out of source and client bundles.
 
-Use `#vitehub/env/public` in browser-safe code and `#vitehub/env/server` in server code. Provider-backed Env values are read through the declared provider and do not become public automatically.
+Import `useServerEnv()` and `usePublicEnv()` from `vite-hub/env` in server code, and `usePublicEnv()` from `#vitehub/env/public` in browser code. Provider-backed Env values are read through the declared provider and do not become public automatically.
 
 Prove missing, valid, and invalid values in the same host mode you will deploy. Inspect declaration metadata, never secret contents.
 ::

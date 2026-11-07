@@ -1167,8 +1167,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     blob: consoleBlobEnabled ? "vite-hub/_internal/blob" : false,
     connections: options.connections ? "vite-hub/connections/agent" : false,
     console: consoleOptions ? "vite-hub/console/server" : false,
-    db: options.database ? "vite-hub/database/drizzle" : false,
-    email: "vite-hub/email/server",
+    db: options.database ? "@vite-hub/database/runtime/registry" : false,
+    email: "vite-hub/email",
     kv: "vite-hub/_internal/kv",
   } satisfies Record<string, false | string>
   const consoleInvocationRootState = createConsoleInvocationRootState()
@@ -1753,7 +1753,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (!hasUpstashStore(kv)) alias[upstashDriverSpecifier] ??= disabledUpstashDriver
     if (effectiveKV) addNitroImports(config, "vite-hub/kv", ["kv"])
     if (options.blob) addNitroImports(config, "vite-hub/blob", ["blob"])
-    if (options.database) addNitroImports(config, "vite-hub/database/drizzle", ["db", "schema"])
+    if (options.database) addNitroImports(config, "vite-hub/database", ["db", "schema"])
     installGeneratedTypeScriptCompiler(config, join(nuxt.options.buildDir, "vitehub"))
   })
   if (options.agent) {

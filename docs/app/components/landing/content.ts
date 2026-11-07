@@ -360,7 +360,7 @@ export const portabilityExamples = [
     path: "server/api/notes.get.ts",
     code: [
       'import { defineEventHandler } from "h3"',
-      'import { useDatabase } from "vite-hub/database/drizzle"',
+      'import { useDatabase } from "vite-hub/database"',
       "",
       "export default defineEventHandler(() => {",
       '  const { db, schema } = useDatabase("default")',

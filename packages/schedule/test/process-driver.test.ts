@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineSchedule } from "../src/definition.ts"
 import { createProcessWakeDriver } from "../src/internal/process-wake-runtime.ts"
-import { runSchedule } from "../src/runtime/execute.ts"
+import { runScheduleFrom } from "../src/runtime/execute.ts"
 import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
 import { resetScheduleRuntime, setScheduleRunStore } from "../src/runtime/state.ts"
 import { createMemoryScheduleRunStore } from "../src/runtime/store.ts"
@@ -120,7 +120,7 @@ describe("Process Schedule Runtime", () => {
     setScheduleRunStore(scheduleRunStore)
     const handler = vi.fn()
     const registry = { reconcile: async () => defineSchedule("*/10 * * * *", handler, { manual: true }) }
-    const manual = await runSchedule("reconcile", { registry, scheduledAt })
+    const manual = await runScheduleFrom(registry, "reconcile", { scheduledAt })
     handler.mockClear()
 
     const controller = await installProcessScheduleRuntime({
@@ -149,7 +149,7 @@ describe("Process Schedule Runtime", () => {
     const handler = vi.fn()
     const registry = { reconcile: async () => defineSchedule("*/10 * * * *", handler, { manual: true }) }
     for (let index = 0; index < manualCount; index++) {
-      await runSchedule("reconcile", { registry, scheduledAt: "2026-10-17T15:00:00Z" })
+      await runScheduleFrom(registry, "reconcile", { scheduledAt: "2026-10-17T15:00:00Z" })
     }
     handler.mockClear()
 

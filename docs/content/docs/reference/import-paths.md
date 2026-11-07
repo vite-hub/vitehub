@@ -102,14 +102,14 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/connections/agent` and `vite-hub/connections/http` | Agent primitive handle, and the management and OAuth routes that the Console mounts. |
 | `vite-hub/sandbox` | Sandbox Definitions and built-in runtime selection for trusted-host, Crabbox, Cloudflare Sandbox, and Vercel Sandbox execution. |
 | `vite-hub/sandbox/ssh` | `sshLaunch` for provider Driver launch callbacks and `serveSsh` for a trusted SSH runner. |
-| `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated `useDatabase()` access. |
-| `vite-hub/env` | Env Declaration helpers and authoring types. |
+| `vite-hub/database` | Database Definitions, `db`, `schema`, and `useDatabase()`. |
+| `vite-hub/env` | Env Declaration helpers, `useServerEnv()`, `usePublicEnv()`, `loadServerEnv()`, `deriveSecret()`, and authoring types. |
 | `vite-hub/env/http` | Authenticated HTTP adapter for declared Env Bridge credentials. |
 | `vite-hub/env/auth` | Env Bridge authentication adapters |
 | `vite-hub/env/bridge` | Runtime credential replacement, scoped grants, and durable activity. |
 | `vite-hub/env/database` | Encrypted Env Bridge storage on ViteHub SQLite/Drizzle databases. |
 | `vite-hub/env/provider` | Define read-only runtime providers for application-owned external Env storage. |
-| `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email clients, configured runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
+| `vite-hub/email` and `vite-hub/email/markdown` | Email clients, the configured `email` handle, and Dynamic Markdown HTML with a composed Markdown text fallback. |
 | `vite-hub/env/presets` and `vite-hub/env/schema` | Reusable Env presets and schema helpers. |
 | `vite-hub/env/secret` and `vite-hub/env/server` | Secret declarations and server-only Env access. |
 | `vite-hub/env/seal` | AES-GCM `seal`, `unseal`, `importSealKey`, and `sealKeyId` in the Env Bridge database store format. |
@@ -125,7 +125,8 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
-| `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static Schedule Definitions, manual runs, and Schedule Run stores. |
+| `vite-hub/schedule` | Static Schedule Definitions and `runSchedule()`. |
+| `vite-hub/schedule/runtime` | Schedule Run stores and custom runtime wiring. |
 | `vite-hub/schedule/runtime/process` | Process Runtime that runs Static Schedules in a long-lived Node process. |
 | `vite-hub/schedule/runtime/kv` | ViteHub KV storage adapter for Schedule Runs. |
 | `vite-hub/shell` | Shell runtime and command analysis APIs. |
@@ -220,20 +221,18 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/docs/assistant` | Docs Package | `docsAssistant` and `docsRateLimit()`. It needs `@vite-hub/agent`. |
 | `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
 | `@vite-hub/email` | Email Package | Explicit clients, portable types, and normalized errors. |
-| `@vite-hub/email/server` | Email Runtime | Server-only configured `email` Runtime Helper. |
 | `@vite-hub/email/markdown` | Email Package | Dynamic Markdown composition into HTML and a composed Markdown text fallback. |
 | `@vite-hub/email/test` | Email Package | Isolated in-memory message capture for tests. |
 | `#vitehub/emails/<name>` | Email Package | Generated async renderer for a discovered `server/emails/**/*.md` template. |
-| `@vite-hub/database` and `@vite-hub/database/drizzle` | Database Package | Database Definition helpers and generated `useDatabase()` access to a Drizzle database and schema. |
-| `@vite-hub/env` | Env Package | Env Declaration helpers. |
+| `@vite-hub/database` | Database Package | Database Definition helpers, `db`, `schema`, and `useDatabase()` access to a Drizzle database and schema. |
+| `@vite-hub/env` | Env Package | Env Declaration helpers and the Server Env and Public Env accessors. |
 | `@vite-hub/env/auth` | Env Package | Env Bridge authentication adapters. |
 | `@vite-hub/env/http` | Env Package | Authenticated HTTP adapter for declared credentials. |
 | `@vite-hub/env/bridge` | Env Package | Runtime credential replacement, scoped grants, and durable activity. |
 | `@vite-hub/env/database` | Env Package | Encrypted SQLite/Drizzle storage for Env Bridge. |
 | `@vite-hub/env/provider` | Env Package | Define read-only runtime providers for application-owned external Env storage. |
 | `@vite-hub/env/seal` | Env Package | AES-GCM helpers in the Env Bridge database store format. |
-| `#vitehub/env/public` | Env Package | Generated Public Env access. |
-| `#vitehub/env/server` | Env Package | Generated Server Env access. |
+| `#vitehub/env/public` | Env Package | Generated Public Env access for browser code. Server code imports `usePublicEnv()` from `vite-hub/env`. |
 | `@vite-hub/kv` | KV Package | KV Runtime Helper. |
 | `@vite-hub/markdown-template` | Markdown Template Package | Portable Markdown rendering from template strings. |
 | `@vite-hub/markdown-template/file` | Markdown Template Package | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
@@ -251,10 +250,10 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/shell/workspace` | Shell Package | Read-only Workspace filesystem adapters and mount paths for Shell providers. |
 | `@vite-hub/ui`, `@vite-hub/ui/<name>`, and `@vite-hub/ui/headless` | UI Package | AI SDK-native Vue components, shadcn/ui parts, and headless message scrolling. |
 | `@vite-hub/sandbox/task` | Sandbox Package | Sandbox Task Definitions and `runSandboxTask()`. |
-| `@vite-hub/schedule` and `@vite-hub/schedule/runtime` | Schedule Package | Schedule Definition helpers, manual runs, and Schedule Run stores. |
+| `@vite-hub/schedule` and `@vite-hub/schedule/runtime` | Schedule Package | Schedule Definition helpers and `runSchedule()` in the root, Schedule Run stores in `/runtime`. |
+| `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for `installProcessScheduleRuntime()` in a custom Node process. |
 | `@vite-hub/schedule/runtime/kv` | Schedule Package | Explicit storage adapter; requires the optional `@vite-hub/kv` peer. |
 | `@vite-hub/schedule/runtime/process` | Schedule Package | Process Runtime that runs Static Schedules in a long-lived Node process. |
-| `#vitehub/schedule/registry` | Schedule Package | Generated static schedule registry for host bridges. |
 | `@vite-hub/workflow` | Workflow Package | Workflow Definition and run helpers. |
 | `@vite-hub/source` | Source Package | Source Definitions, loaders, and registry APIs. |
 | `@vite-hub/workflow/runtime/openworkflow-worker` | Workflow Package | OpenWorkflow-specific worker lifecycle helpers; install `openworkflow` explicitly. |

@@ -189,7 +189,7 @@ export default defineConnection({
 `fallback` gives a key from Server Env until an admin sets one. A sealed Server Env secret is unsealed:
 
 ```ts [server/connections/github.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 export default defineConnection({
   provider: apiKey({

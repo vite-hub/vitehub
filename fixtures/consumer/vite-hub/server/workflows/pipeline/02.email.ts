@@ -1,4 +1,4 @@
-import { email } from "vite-hub/email/server"
+import { email } from "vite-hub/email"
 
 export default async function send(value: unknown) {
   const [error] = await email.send({

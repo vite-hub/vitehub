@@ -253,7 +253,7 @@ ViteHub compares a `bearer` token in constant time, and the `Bearer` scheme is c
 
 ```ts [server/utils/prefect-channel.ts]
 import { defineChannel } from 'vite-hub/agent/channels'
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 export const prefect = defineChannel('prefect', {
   messages: false,

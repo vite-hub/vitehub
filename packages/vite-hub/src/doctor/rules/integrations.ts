@@ -476,7 +476,7 @@ export const noNuxtHubLeftovers: DoctorRule = createRule({
         if (!source || !nuxtHubImport.test(source.specifier)) return
         ctx.report(diagnostics.VHUB0032({
           why: `\`${source.specifier}\` is a NuxtHub import. ViteHub does not provide it.`,
-          fix: "Import `kv` from `vite-hub/kv`, `blob` from `vite-hub/blob`, and `useDatabase` from `vite-hub/database/drizzle`. Each KV and Blob method returns an `[error, value]` tuple.",
+          fix: "Import `kv` from `vite-hub/kv`, `blob` from `vite-hub/blob`, and `db` from `vite-hub/database`. Each KV and Blob method returns an `[error, value]` tuple.",
         }), { range: ctx.range(node) })
       },
     }
@@ -492,6 +492,11 @@ const removedPaths = new Map([
   ["vite-hub/content/presets/cms", { replacement: "vite-hub/cms", note: "The CMS has its own package." }],
   ["@vite-hub/content/presets/cms", { replacement: "@vite-hub/cms", note: "The CMS has its own package." }],
   ["vite-hub/schedule/runtime/driver", { replacement: "`defineSchedule()` from `vite-hub/schedule` in `server/schedules/`", note: "Runtime Schedules were removed." }],
+  ["vite-hub/database/drizzle", { replacement: "vite-hub/database", note: "`db`, `schema`, `useDatabase`, and `chunkParameters` moved to the Database root. `vitehub migrate` rewrites the import." }],
+  ["@vite-hub/database/drizzle", { replacement: "@vite-hub/database", note: "`db`, `schema`, `useDatabase`, and `chunkParameters` moved to the Database root. `vitehub migrate` rewrites the import." }],
+  ["vite-hub/email/server", { replacement: "vite-hub/email", note: "`email` moved to the Email root. `vitehub migrate` rewrites the import." }],
+  ["@vite-hub/email/server", { replacement: "@vite-hub/email", note: "`email` moved to the Email root. `vitehub migrate` rewrites the import." }],
+  ["#vitehub/env/server", { replacement: "vite-hub/env", note: "`useServerEnv()` and the other Server Env helpers moved to the Env root. `vitehub migrate` rewrites the import." }],
 ])
 
 /** Exports that ViteHub renamed, by module name from `vitehubModule()`. */

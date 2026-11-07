@@ -76,7 +76,7 @@ Replace the sender with a Resend-verified address and the recipient with an inbo
 
 ```ts [server/api/welcome.post.ts]
 import { defineEventHandler } from 'h3'
-import { email } from 'vite-hub/email/server'
+import { email } from 'vite-hub/email'
 
 export default defineEventHandler(async () => {
   const [error, sent] = await email.send({

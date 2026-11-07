@@ -1,0 +1,10 @@
+{
+  "name": "vitehub-finance",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "drizzle-orm": "0.45.4",
+    "nuxt": "npm:nuxt-nightly@5.0.0-2610292252-da55a91",
+    "vite-hub": "https://pkg.pr.new/vite-hub/vitehub/vite-hub@e445899"
+  }
+}

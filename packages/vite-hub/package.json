@@ -668,11 +668,6 @@
       "import": "./dist/database.js",
       "default": "./dist/database.js"
     },
-    "./database/drizzle": {
-      "types": "./dist/database/drizzle.d.ts",
-      "import": "./dist/database/drizzle.js",
-      "default": "./dist/database/drizzle.js"
-    },
     "./decisions": {
       "types": "./dist/decisions.d.ts",
       "import": "./dist/decisions.js",
@@ -717,11 +712,6 @@
       "types": "./dist/email/markdown.d.ts",
       "import": "./dist/email/markdown.js",
       "default": "./dist/email/markdown.js"
-    },
-    "./email/server": {
-      "types": "./dist/email/server.d.ts",
-      "import": "./dist/email/server.js",
-      "default": "./dist/email/server.js"
     },
     "./env": {
       "types": "./dist/env.d.ts",
@@ -1380,6 +1370,7 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/cms": "workspace:*",
+    "@vite-hub/codemods": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
@@ -1444,6 +1435,7 @@
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/cms": "workspace:*",
+    "@vite-hub/codemods": "workspace:*",
     "@vite-hub/comments": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
@@ -1520,6 +1512,9 @@
       "optional": true
     },
     "@vite-hub/cms": {
+      "optional": true
+    },
+    "@vite-hub/codemods": {
       "optional": true
     },
     "@vite-hub/comments": {

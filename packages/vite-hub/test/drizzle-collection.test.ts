@@ -23,7 +23,7 @@ let runtimeDatabase: object = {}
 
 // SAFETY: Vitest supports the virtual-module option at runtime before its public type includes it.
 ;(vi.mock as any)(
-  "@vite-hub/database/drizzle",
+  "@vite-hub/database/runtime/registry",
   () => ({
     databases: {},
     schema: collectionSchema,

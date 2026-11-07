@@ -80,7 +80,7 @@ Inspect env aliases through the stable import paths.
 The generated files are implementation details behind those imports.
 
 ```ts [server/config.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 
 const env = useServerEnv()
 ```

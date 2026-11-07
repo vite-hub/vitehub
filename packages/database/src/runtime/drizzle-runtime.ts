@@ -1,10 +1,5 @@
-import { drizzle as drizzleLibsql } from "drizzle-orm/libsql"
-
 import databaseEntries from "#vitehub/database/databases"
-
-import { createDrizzleSqliteAdapter } from "./drizzle-adapter.ts"
-import { createLocalSqliteClient } from "./local-client.ts"
-import { resolveLocalSqliteUrl } from "./local-url.ts"
+import { createConfiguredDatabase } from "#vitehub/database/definition-runtime"
 
 import type { ResolvedDrizzleDatabaseConfig, RuntimeDrizzleDatabase } from "../types.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
@@ -41,39 +36,36 @@ function createRuntimeDatabase<TSchema extends Record<string, unknown>>(
     return createMissingDatabaseProxy<TSchema>(name)
   }
 
-  return createDrizzleSqliteAdapter(config, schema, {
-    libsql: { createClient: createLocalSqliteClient, drizzle: drizzleLibsql as never },
-    missingConnection: "a Cloudflare D1 binding or `connection.url`",
-    requireRemoteUrl: false,
-    resolveLocalUrl: resolveLocalSqliteUrl,
-  })
+  return createConfiguredDatabase(config, schema)
 }
 
-const runtimeEntries = databaseEntries as unknown as Record<string, RuntimeDatabaseModule>
-
-// SAFETY: Each generated entry has a database and schema; the default entry is checked below.
-const resolvedDatabases = Object.fromEntries(
-  Object.entries(runtimeEntries).map(([name, entry]) => [
-    name,
-    {
-      db: entry.db ?? createRuntimeDatabase(entry.config, entry.schema, name),
-      schema: entry.schema,
-    } satisfies RuntimeDatabaseEntry<Record<string, unknown>>,
-  ]),
-) as Record<string, RuntimeDatabaseEntry<Record<string, unknown>>> & {
-  default: RuntimeDatabaseEntry<Record<string, unknown>>
+function resolveDatabases() {
+  const runtimeEntries = databaseEntries as unknown as Record<string, RuntimeDatabaseModule>
+  // SAFETY: Each generated entry has a database and schema; the default entry is added below.
+  const resolved = Object.fromEntries(
+    Object.entries(runtimeEntries).map(([name, entry]) => [
+      name,
+      {
+        db: entry.db ?? createRuntimeDatabase(entry.config, entry.schema, name),
+        schema: entry.schema,
+      } satisfies RuntimeDatabaseEntry<Record<string, unknown>>,
+    ]),
+  ) as Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
+  return {
+    configured: new Set(Object.keys(runtimeEntries)),
+    databases: {
+      ...resolved,
+      default: resolved.default ?? { db: createMissingDatabaseProxy("default"), schema: {} },
+    } as Record<string, RuntimeDatabaseEntry<Record<string, unknown>>> & { default: RuntimeDatabaseEntry<Record<string, unknown>> },
+  }
 }
 
-const defaultDatabaseEntry = resolvedDatabases.default || {
-  db: createMissingDatabaseProxy("default"),
-  schema: {},
-}
+let runtimeDatabases: ReturnType<typeof resolveDatabases> | undefined
 
-export const databases = {
-  ...resolvedDatabases,
-  default: defaultDatabaseEntry,
-} as Record<string, RuntimeDatabaseEntry<Record<string, unknown>>> & {
-  default: RuntimeDatabaseEntry<Record<string, unknown>>
+/**
+ * The runtime databases, resolved on first use. Database Definitions import this package, and the generated registry
+ * imports the Definitions, so the module must not read the registry while it loads.
+ */
+export function getRuntimeDatabases(): ReturnType<typeof resolveDatabases> {
+  return runtimeDatabases ??= resolveDatabases()
 }
-
-export const db = databases.default.db

@@ -6,12 +6,11 @@ export default defineConfig({
   pack: {
     tsconfig: "tsconfig.build.json",
     copy: [
-      { from: "src/drizzle-subpath.d.ts", rename: "drizzle-subpath.d.ts", to: "dist" },
       { from: "src/virtual-module.d.ts", rename: "virtual-module.d.ts", to: "dist" },
     ],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: ["vite", "esbuild", "postgres", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime"],
+      neverBundle: ["vite", "esbuild", "postgres", "@vite-hub/database/runtime/registry", "#vitehub/database/schema", "#vitehub/database/databases", "#vitehub/database/definition-defaults", "#vitehub/database/definition-runtime"],
       onlyBundle: false,
     },
     plugins: [{
@@ -27,7 +26,8 @@ export default defineConfig({
       "src/index.ts",
       "src/cli.ts",
       "src/config.ts",
-      "src/drizzle.ts",
+      // Its own module, so a Definition that the generated registry imports can call defineDatabase() first.
+      "src/definition.ts",
       "src/nuxt.ts",
       "src/virtual.ts",
       "src/vite.ts",
@@ -44,6 +44,7 @@ export default defineConfig({
       "src/runtime/hosted.ts",
       "src/runtime/migrate-on-start.ts",
       "src/runtime/postgres.ts",
+      "src/runtime/registry.ts",
       "src/runtime/request-stats.ts",
       "src/runtime/state.ts",
       "src/runtime/virtual-databases.ts",
@@ -53,7 +54,7 @@ export default defineConfig({
       customExports(exports) {
         return normalizePackageExports({
           ...Object.fromEntries(
-            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-") && key !== "./runtime/chunk-parameters"),
+            Object.entries(exports).filter(([key]) => !key.startsWith("./runtime/definition-") && key !== "./runtime/chunk-parameters" && key !== "./definition"),
           ),
           "./virtual": {
             types: "./dist/virtual.d.ts",

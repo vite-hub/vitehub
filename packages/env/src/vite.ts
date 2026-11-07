@@ -6,7 +6,9 @@ import { dirname, isAbsolute, relative, resolve, win32 } from "node:path"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { readViteHubSecret } from "@vite-hub/internal/secret"
 import {
+  createNoExternalAddition,
   createViteHubEnvImportAliases,
+  isServerEnvironment,
   resolveViteHubProjectRoot,
   VITEHUB_ENV_PUBLIC_ID,
   VITEHUB_ENV_SERVER_ID,
@@ -50,6 +52,8 @@ import type { Plugin, UserConfig } from "vite"
 import { envErrorDiagnostics } from "./error-diagnostics.ts"
 
 export const ENV_VITE_PLUGIN_NAME = "@vite-hub/env/vite"
+const envNoExternal = createNoExternalAddition("@vite-hub/env")
+
 export const ENV_PUBLIC_ID: typeof VITEHUB_ENV_PUBLIC_ID = VITEHUB_ENV_PUBLIC_ID
 export const ENV_SERVER_ID: typeof VITEHUB_ENV_SERVER_ID = VITEHUB_ENV_SERVER_ID
 
@@ -210,6 +214,11 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
     vitehub: {
       cli: () => createEnvCliContributor({ resolveProjectRoot }),
     },
+    // The Env root imports the generated modules, so the server bundles the package instead of loading it from Node.
+    configEnvironment(name, config) {
+      if (!isServerEnvironment(name, config)) return
+      return { resolve: { noExternal: envNoExternal(config.resolve?.noExternal) } }
+    },
     async config(config, env) {
       let developmentSecret: string | undefined
       let developmentSecretGenerated = false
@@ -351,6 +360,7 @@ async function prepareEnvGeneratedTypes(
         ]
       : []),
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports)),
+    writeFileIfChanged(envAccessorTypesPath(root), createEnvAccessorTypes(publicTypes, serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
     writeFileIfChanged(viteHubEnvDescriptionModulePath(root), createServerEnvDescriptionModule(serverRegistry)),
     writeFileIfChanged(viteHubEnvServerModuleTypesPath(root), createServerEnvModuleTypes(serverRegistry, runtimeImports)),
@@ -507,6 +517,7 @@ async function refreshEnvGeneratedFiles(
         ]
       : []),
     writeFileIfChanged(viteHubEnvAmbientTypesPath(root), createViteTypes(publicTypes, serverRegistry, runtimeImports)),
+    writeFileIfChanged(envAccessorTypesPath(root), createEnvAccessorTypes(publicTypes, serverRegistry, runtimeImports)),
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
     writeFileIfChanged(viteHubEnvDescriptionModulePath(root), createServerEnvDescriptionModule(serverRegistry)),
@@ -672,6 +683,32 @@ function createServerEnvModuleTypes(serverRegistry: EnvRuntimeRegistry, runtimeI
     `export function runWithServerEnv<T>(event: import(${JSON.stringify(runtimeImports.server)}).ViteHubContext | undefined, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal; access?: import(${JSON.stringify(runtimeImports.server)}).EnvAccessContext }): Promise<T>`,
     "",
   ].join("\n")
+}
+
+function envAccessorTypesPath(root: string): string {
+  return resolve(root, ".vitehub", "types", "env-accessors.d.ts")
+}
+
+/**
+ * Types `useServerEnv()` and `usePublicEnv()` of the Env root with the declared fields. The file is a module, so its
+ * `declare module` blocks augment the package instead of replacing it.
+ */
+function createEnvAccessorTypes(
+  publicTypes: Record<string, string>,
+  serverRegistry: EnvRuntimeRegistry,
+  runtimeImports: Required<EnvRuntimeImportSpecifiers>,
+): string {
+  const block = (moduleName: string) => [
+    `declare module ${JSON.stringify(moduleName)} {`,
+    "  interface PublicEnv {",
+    ...createPublicTypeFields(publicTypes, 4),
+    "  }",
+    "  interface ServerEnv {",
+    ...createServerTypeFields(serverRegistry, 4, `import(${JSON.stringify(runtimeImports.secret)}).SecretEnv`),
+    "  }",
+    "}",
+  ]
+  return [...block("@vite-hub/env"), ...block("vite-hub/env"), "", "export {}", ""].join("\n")
 }
 
 function createViteTypes(

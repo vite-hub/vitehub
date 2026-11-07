@@ -20,7 +20,7 @@ After the move, the same KV, Blob, and Database APIs are also available to
 | --- | --- | --- |
 | `kv` from `@nuxthub/kv` | `kv` from `vite-hub/kv` | Same method names. Methods return `[error, value]`. |
 | `blob` from `@nuxthub/blob` | `blob` from `vite-hub/blob` | Same core methods. Methods return `[error, value]`. |
-| `db` and `schema` from `@nuxthub/db` | `useDatabase()` from `vite-hub/database/drizzle` | Drizzle in both. ViteHub supports SQLite, libSQL, and Cloudflare D1. |
+| `db` and `schema` from `@nuxthub/db` | `db`, `schema`, and `useDatabase()` from `vite-hub/database` | Drizzle in both. ViteHub supports SQLite, libSQL, and Cloudflare D1. |
 | `hub.db: 'postgresql'` | `dialect: "postgresql"` | See [Postgres configuration](/docs/database/configure#define-a-postgres-database). The baseline steps below cover SQLite and D1. |
 | `hub.db: 'mysql'` | Not supported | Keep NuxtHub or Drizzle for MySQL. |
 | `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the preset's store. `cachedEventHandler` and `defineCachedFunction` keep working. |
@@ -172,7 +172,7 @@ Replace the `@nuxthub/db` import with `useDatabase()`. Queries do not change.
 
 ```diff [server/api/users.get.ts]
 -import { db, schema } from "@nuxthub/db"
-+import { useDatabase } from "vite-hub/database/drizzle"
++import { useDatabase } from "vite-hub/database"
 
  export default defineEventHandler(async () => {
 +  const { db, schema } = useDatabase("default")

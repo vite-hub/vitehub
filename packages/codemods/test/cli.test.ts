@@ -36,12 +36,13 @@ describe("codemods CLI", () => {
       const result = await cli(args)
       expect(result.code).toBe(0)
       expect(result.stdout).toContain("Usage: npx @vite-hub/codemods <codemod> [dir] [--dry-run]")
-      for (const codemod of codemods) expect(result.stdout).toContain(`  ${codemod.name}  ${codemod.description}\n`)
+      const width = Math.max(...codemods.map(codemod => codemod.name.length))
+      for (const codemod of codemods) expect(result.stdout).toContain(`  ${codemod.name.padEnd(width)}  ${codemod.description}\n`)
     }
   })
 
   it("rejects an unknown codemod or option", async () => {
-    expect(await cli(["nope"])).toMatchObject({ code: 1, stderr: expect.stringContaining("Unknown codemod \"nope\". Available: nuxt-safe-runtime-config.") })
+    expect(await cli(["nope"])).toMatchObject({ code: 1, stderr: expect.stringContaining("Unknown codemod \"nope\". Available: nuxt-safe-runtime-config, root-accessors.") })
     expect(await cli(["nuxt-safe-runtime-config", "--force"])).toMatchObject({ code: 1, stderr: expect.stringContaining("Unknown option --force.") })
   })
 

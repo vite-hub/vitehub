@@ -33,7 +33,7 @@ afterEach(() => {
 
 it("keeps the configured driver's lifecycle across sends", async () => {
   vi.doMock("#vitehub/email/definition", () => ({ default: definition }))
-  const { email } = await import("../src/server.ts")
+  const { email } = await import("../src/index.ts")
 
   await email.send(message)
   await email.send(message)
@@ -44,7 +44,7 @@ it("keeps the configured driver's lifecycle across sends", async () => {
 
 it("resolves a generated definition installed after the server module loads", async () => {
   vi.doMock("#vitehub/email/definition", () => ({ default: undefined }))
-  const { email } = await import("../src/server.ts")
+  const { email } = await import("../src/index.ts")
 
   ;(globalThis as Record<PropertyKey, unknown>)[Symbol.for("vitehub.email.definition")] = definition
 

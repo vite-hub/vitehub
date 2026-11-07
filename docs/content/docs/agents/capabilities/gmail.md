@@ -22,7 +22,7 @@ Use [`email()`](/docs/email/agent-capability) for application-owned transactiona
 Enable [Connections](/docs/connections/get-started#define-a-connection) and define a Connection with the `google()` preset. `gmail.readonly` covers search and read. `gmail.compose` covers drafts.
 
 ```ts [server/connections/google.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineConnection } from 'vite-hub/connections'
 import { google } from 'vite-hub/connections/google'
 

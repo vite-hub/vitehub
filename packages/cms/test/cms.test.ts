@@ -169,11 +169,11 @@ describe("resolving the cms preset resources", () => {
     const module = renderCmsWorkspaceModule({ ...usage, store: "blob-database", blob: "media", database: "audit", databaseReason: "option", workspace: "site" }, {
       blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
-      database: "vite-hub/database/drizzle",
+      database: "@vite-hub/database/runtime/registry",
       workspace: "vite-hub/workspace",
     })
-    expect(module).toContain("import { useDatabase } from \"vite-hub/database/drizzle\"")
-    expect(module).toContain("const database = useDatabase(\"audit\")?.db ?? new Proxy({}, {")
+    expect(module).toContain("import { databases } from \"@vite-hub/database/runtime/registry\"")
+    expect(module).toContain("const database = Object.hasOwn(databases, \"audit\") ? databases[\"audit\"].db : new Proxy({}, {")
     expect(module).toContain("blob: blob.store(\"media\"),")
     expect(module).toContain("workspace: \"site\",")
     expect(module).toContain("export const contentWorkspace = defineWorkspace({")
@@ -255,7 +255,7 @@ describe("hubCms()", () => {
     expect(workspaces).toEqual([{ definition: { export: "contentWorkspace", module }, name: "content", reason: "Stores the documents of the Content cms preset." }])
     const generated = await readFile(module, "utf8")
     expect(generated).toContain("import { blob } from \"vite-hub/blob\"")
-    expect(generated).toContain("import { useDatabase } from \"@vite-hub/database/drizzle\"")
+    expect(generated).toContain("import { databases } from \"@vite-hub/database/runtime/registry\"")
     expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([{ database: "default", definition: { export: "workspaceHistorySchema", module: "@vite-hub/workspace/blob-database" }, name: "content-history", reason: "Stores the history of Content documents." }, { database: "default", definition: { export: "contentSessionsSchema", module: "@vite-hub/content/database" }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." }])
   })
 
@@ -382,7 +382,7 @@ describe("the cms preset on the GitHub store", () => {
       return list.length ? { names: [...list].sort(), status: "ambiguous" as const } : { status: "none" as const }
     },
   })
-  const imports = { blob: "vite-hub/blob", blobDatabase: "vite-hub/workspace/blob-database", database: "vite-hub/database/drizzle", workspace: "vite-hub/workspace" }
+  const imports = { blob: "vite-hub/blob", blobDatabase: "vite-hub/workspace/blob-database", database: "@vite-hub/database/runtime/registry", workspace: "vite-hub/workspace" }
 
   it("reads the GitHub options as string literals", () => {
     expect(readCmsPresetUsage(githubSource("store: 'github', repo: 'onmax/docs', branch: 'main', draftBranch: 'cms/drafts', root: 'content', publish: 'commit', database: 'default'"), file, "/app", parseAst))
@@ -433,7 +433,7 @@ describe("the cms preset on the GitHub store", () => {
   it("renders a lazy GitHub Workspace module that denies writes outside the collections at the repository root", () => {
     const plan = resolveCmsPresetPlan({ file, options: { store: "github", repo: "onmax/docs", draftBranch: "cms/drafts" } }, choices([]), "/app")
     const module = renderCmsWorkspaceModule(plan, imports)
-    expect(module).toContain("const database = useDatabase(\"default\")?.db\n")
+    expect(module).toContain("const database = Object.hasOwn(databases, \"default\") ? databases[\"default\"].db : undefined\n")
     expect(module).toContain("provider: \"github\",")
     expect(module).toContain("repository: \"onmax/docs\",")
     expect(module).toContain("root: \"\",")

@@ -1,7 +1,7 @@
 import { sql, type SQL } from "drizzle-orm"
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core"
 import type { SQLiteRaw } from "drizzle-orm/sqlite-core/query-builders/raw"
-import { useDatabase } from "@vite-hub/database/drizzle"
+import { useDatabase } from "@vite-hub/database"
 import { trackD1Database } from "@vite-hub/database/runtime/request-stats"
 import { createD1AgentInvocationStore } from "@vite-hub/agent/invocations/d1"
 
@@ -144,9 +144,8 @@ export function createDatabaseAgentInvocationStore(options: DatabaseAgentInvocat
     ...storeOptions,
     async database() {
       // SAFETY: Generated registry types restrict database names; runtime lookup accepts any name and returns undefined when absent.
-      const entry = (useDatabase as (database: string) => { db: RuntimeDatabase } | undefined)(name)
-      if (!entry) throw new TypeError(`[vitehub] Database "${name}" is not configured.`)
-      const runtime = entry.db
+      // The journal Database name is a runtime string, so the generated registry cannot type it.
+      const runtime = (useDatabase as (database: string) => { db: RuntimeDatabase })(name).db
       // Runtime proxies can change drivers between requests; validate each operation before any writes.
       for (const rows of await runBatch(runtime, [sql`SELECT 1 AS vitehub_probe`])) statementResult(rows)
       const client = runtime.$client

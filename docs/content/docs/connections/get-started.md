@@ -67,7 +67,7 @@ The file name registers the Connection as `google`. The Google provider adds `op
 Create a read-only Gmail Connection. `api` selects the typed methods available to callers. The access rule allows server reads and denies writes.
 
 ```ts [server/connections/google.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineConnection } from 'vite-hub/connections'
 import { google } from 'vite-hub/connections/google'
 

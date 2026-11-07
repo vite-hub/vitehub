@@ -39,9 +39,9 @@ const generatedNitroRequestStatsMiddleware = ".vitehub/nitro/database/request-st
 const generatedNitroLocalDatabaseRuntime = "database/local-runtime.mjs"
 const generatedNitroMigrationsDir = ".vitehub/database/migrations"
 const databaseDefinitionDefaultsImport = "#vitehub/database/definition-defaults"
-const databaseDrizzleImport = "@vite-hub/database/drizzle"
+const databaseRegistryImport = "@vite-hub/database/runtime/registry"
 const databaseRuntimeDir = fileURLToPath(new URL("./runtime/", import.meta.url))
-const databaseDrizzleTypes = resolve(databaseRuntimeDir, "../../dist/drizzle.d.ts")
+const databaseRegistryTypes = resolve(databaseRuntimeDir, "../../dist/runtime/registry.d.ts")
 
 type NuxtModuleDependencies = Record<string, {
   defaults?: Record<string, unknown>
@@ -250,7 +250,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       hook("prepare:types", ({ serverTsConfig }) => {
         if (!serverTsConfig) return
         const paths = ensureRecord(ensureRecord(serverTsConfig, "compilerOptions"), "paths")
-        paths[databaseDrizzleImport] ??= [databaseDrizzleTypes]
+        paths[databaseRegistryImport] ??= [databaseRegistryTypes]
       })
       hook("nitro:config", async (config) => {
         // Vite plugins in the Nuxt config can contribute tables, as they do through `hubDb()` in a Vite app. Nuxt
@@ -441,7 +441,7 @@ async function installNitroLocalDatabaseRuntime(
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
   const defaultsFile = resolve(generatedRoot, "database/definition-defaults.mjs")
   const alias = isRecord(config.alias) ? config.alias : undefined
-  const existingAlias = alias?.[databaseDrizzleImport]
+  const existingAlias = alias?.[databaseRegistryImport]
   const customRegistry = !!existingAlias && existingAlias !== file
   if (customRegistry) {
     await rm(file, { force: true })
@@ -457,7 +457,7 @@ async function installNitroLocalDatabaseRuntime(
       if (alias?.[databaseDefinitionDefaultsImport] === defaultsFile) delete alias[databaseDefinitionDefaultsImport]
     }
     if (alias && existingAlias === file) {
-      delete alias[databaseDrizzleImport]
+      delete alias[databaseRegistryImport]
       if (!Object.keys(alias).length) delete config.alias
     }
     return
@@ -536,10 +536,10 @@ async function installNitroLocalDatabaseRuntime(
       ...imports,
       "",
       `const definitionDefaults = ${definitionDefaults}`,
-      ...schemas,
     ],
+    setup: schemas,
   }))
-  ensureRecord(config, "alias")[databaseDrizzleImport] = file
+  ensureRecord(config, "alias")[databaseRegistryImport] = file
   return runtime
 }
 
@@ -683,8 +683,8 @@ function mergeNitroDatabaseRuntimeAlias(
   if (!(databaseDefinitionDefaultsImport in alias)) {
     alias[databaseDefinitionDefaultsImport] = resolve(root, ".vitehub/database/definition-defaults.mjs")
   }
-  if (!(databaseDrizzleImport in alias)) {
-    alias[databaseDrizzleImport] = resolve(root, `.vitehub/database/${provider}-runtime.mjs`)
+  if (!(databaseRegistryImport in alias)) {
+    alias[databaseRegistryImport] = resolve(root, `.vitehub/database/${provider}-runtime.mjs`)
   }
 }
 
@@ -744,12 +744,12 @@ async function installNitroRequestStats(config: Record<string, unknown>, root: s
   ].join("\n"))
 }
 
-/** Applies pending migrations when the Node server starts. `@vite-hub/database/drizzle` is the local runtime alias here. */
+/** Applies pending migrations when the Node server starts. `@vite-hub/database/runtime/registry` is the local runtime alias here. */
 async function installNitroMigrateOnStart(config: Record<string, unknown>, root: string, runtime: ResolvedDBViteConfig, settings: MigrateOnStartSettings) {
   const file = resolve(root, migrateOnStartPluginFile)
   await writeFileIfChanged(file, renderMigrateOnStartPlugin(runtime, {
     ...settings,
-    drizzleImport: databaseDrizzleImport,
+    registryImport: databaseRegistryImport,
     host: undefined,
     runtimeImport: pathToFileURL(resolve(databaseRuntimeDir, "migrate-on-start.js")).href,
   }))

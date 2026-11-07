@@ -254,7 +254,7 @@ function renderConsoleNitroPlugin(
     ...(blobEnabled ? [{ bindings: "installConsoleBlob", module: "vite-hub/console/blob" }, { bindings: "blob: vitehubConsoleBlob", module: "vite-hub/blob" }] : []),
     ...(definitionsEnabled ? [{ bindings: `installConsoleDefinitions${schedulesEnabled ? ", installConsoleSchedules" : ""}`, module: "vite-hub/console/definitions" }] : []),
     ...(definitionsEnabled ? runtimeReaders.map((reader, index) => ({ bindings: `${reader.export}: vitehubConsoleRuntimeReader${index}`, module: reader.module })) : []),
-    ...(databaseEnabled ? [{ bindings: "installConsoleDatabase", module: "vite-hub/console/database" }, { bindings: "databases: vitehubConsoleDatabases", module: "vite-hub/database/drizzle" }] : []),
+    ...(databaseEnabled ? [{ bindings: "installConsoleDatabase", module: "vite-hub/console/database" }, { bindings: "databases: vitehubConsoleDatabases", module: "@vite-hub/database/runtime/registry" }] : []),
     ...(sections.includes("env") ? [{ bindings: "describeServerEnv", module: "#vitehub/env/description" }, { bindings: "installConsoleEnv", module: "vite-hub/console/env" }] : []),
   ]
   const runtimeInstall = [

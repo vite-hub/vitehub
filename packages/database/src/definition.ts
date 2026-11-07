@@ -18,7 +18,7 @@ function assertPlainObject(value: unknown, label: string): asserts value is Reco
   }
 }
 
-/** Declares a PostgreSQL Database Definition. Query it with `useDatabase()` from `@vite-hub/database/drizzle`. */
+/** Declares a PostgreSQL Database Definition. Query it with `useDatabase()` from `vite-hub/database`. */
 export function defineDatabase<TSchema extends Record<string, unknown>>(
   options: PostgresDatabaseDefinitionOptions<TSchema>,
 ): PostgresDatabaseDefinition<TSchema>

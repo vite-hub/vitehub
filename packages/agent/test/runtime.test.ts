@@ -15482,7 +15482,7 @@ describe("agent message protocol", () => {
       const blobPrimitive = { list: blobList }
       const databasePrimitive = { schema: dbSchema }
       vi.doMock("@vite-hub/blob", () => ({ blob: blobPrimitive }))
-      vi.doMock("@vite-hub/database/drizzle", () => ({ agentDb: databasePrimitive }))
+      vi.doMock("@vite-hub/database/runtime/registry", () => ({ agentDb: databasePrimitive }))
       const { blob, db } = await import("../src/capabilities.ts")
       const { defineAgent, runAgent } = await import("../src/index.ts")
       const { requireAgentWorkflowContextKey } = await import("../src/internal/final-channel-output.ts")
@@ -15527,7 +15527,7 @@ describe("agent message protocol", () => {
       }
       finally {
         vi.doUnmock("@vite-hub/blob")
-        vi.doUnmock("@vite-hub/database/drizzle")
+        vi.doUnmock("@vite-hub/database/runtime/registry")
       }
     })
 

@@ -40,7 +40,7 @@ describe("Nuxt D1 HTTP bundles", () => {
       })
       const config = { alias: {} as Record<string, string>, exportConditions: [] as string[], preset }
       for (const hook of hooks) await hook(config)
-      const runtime = config.alias["@vite-hub/database/drizzle"]!
+      const runtime = config.alias["@vite-hub/database/runtime/registry"]!
       expect(runtime).toBeTruthy()
       const bundled = await build({
         alias: { "#vitehub/database/definition-runtime": join(packageRoot, "src/runtime/definition-hosted.ts"), ...config.alias },

@@ -41,5 +41,9 @@ export const envErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     ENV_B0003: dynamicError,
     ENV_B0004: dynamicError,
     ENV_B0005: dynamicError,
+    ENV_NOT_GENERATED: {
+      why: ({ accessor }: { accessor: string }) => `\`${accessor}()\` ran outside a Vite build, so ViteHub did not generate the Env registry that it reads.`,
+      fix: "Run the code through `vite dev`, `vite build`, or a framework that uses them, with `vitehub()` and Env on. A test that calls it needs the Vite plugin too.",
+    },
   },
 })

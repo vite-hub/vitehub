@@ -16,7 +16,7 @@ import { consoleMcpOAuth } from "../src/console/auth.ts"
 const app = "https://app.example.com"
 const resource = `${app}/_vitehub/mcp`
 const state = vi.hoisted(() => ({ databases: {} as Record<string, { db: unknown, schema: Record<string, unknown> }> }))
-vi.mock("@vite-hub/database/drizzle", () => ({ databases: state.databases }))
+vi.mock("@vite-hub/database/runtime/registry", () => ({ databases: state.databases }))
 
 let directory: string
 let client: ReturnType<typeof createClient>

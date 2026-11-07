@@ -21,7 +21,7 @@ Use these imports and methods to read Sources from server code and expose them t
 | `useCollection`, `CollectionAccessError` from `vite-hub/source/client` | Consume a Collection from Vue and detect access errors. |
 | `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a keyed reader with Nitro cache options, or mount a Collection handler manually. |
 | `hubSource` from `vite-hub/source/vite` | Discover Collections and Content and generate their routes. `vitehub()` and the Nuxt module install it. |
-| `useDatabase` from `vite-hub/database/drizzle` | Access a discovered database and its generated schema for `table()`. |
+| `useDatabase` from `vite-hub/database` | Access a discovered database and its generated schema for `table()`. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
 
 Source, Source Reader, Source Item, revision, cache, and error types are exported from `vite-hub/source`. Libraries that install `@vite-hub/source` directly use the matching `@vite-hub/source/*` paths. `table()` and `cachedSource()` exist only in the `vite-hub` distribution. `@vite-hub/source` exports both forms of `defineCollection()` and `array()`.
@@ -176,7 +176,7 @@ A Source describes where data comes from. A Collection describes the paginated o
 ```ts [server/collections/articles.ts]
 import { eq } from 'drizzle-orm'
 import * as v from 'valibot'
-import { useDatabase } from 'vite-hub/database/drizzle'
+import { useDatabase } from 'vite-hub/database'
 import { defineCollection, table } from 'vite-hub/source'
 
 const { db, schema } = useDatabase('default')

@@ -83,7 +83,7 @@ pnpm add @anthropic-ai/claude-agent-sdk@0.3.246
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
-import { loadServerEnv } from '#vitehub/env/server'
+import { loadServerEnv } from 'vite-hub/env'
 
 export default defineAgent({
   driver: codexDriver({
@@ -389,7 +389,7 @@ No output schema or parsing is necessary.
 Jev reads the Invocation `data` when a caller sets it, else the prompt text, else the latest user message. Pass a function to build the questions for each Invocation. It receives the same context as `driver.run`:
 
 ```ts [server/agents/labeller.ts]
-import { useServerEnv } from '#vitehub/env/server'
+import { useServerEnv } from 'vite-hub/env'
 import { defineAgent } from 'vite-hub/agent'
 import { ask } from 'vite-hub/gateways'
 

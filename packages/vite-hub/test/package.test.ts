@@ -172,6 +172,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/hosted",
   "@vite-hub/database/runtime/migrate-on-start",
   "@vite-hub/database/runtime/postgres",
+  "@vite-hub/database/runtime/registry",
   "@vite-hub/database/runtime/request-stats",
   "@vite-hub/database/runtime/state",
   "@vite-hub/database/runtime/virtual-databases",
@@ -242,7 +243,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
   const path = subpath.replace(/^\.\//, "");
 
   if (subpath === "./package.json") return "package metadata";
-  if (packageName === "@vite-hub/cli") return "framework tooling";
+  if (packageName === "@vite-hub/cli" || packageName === "@vite-hub/codemods") return "framework tooling";
   if (/^(?:cli|mountx|nitro|nuxt|test|tsconfig|virtual|vite|task\/vite)(?:\/|$)/.test(path))
     return "integration or test tooling";
   if (/(?:^|\/)_?internal(?:\/|$)/.test(path)) return "internal implementation";

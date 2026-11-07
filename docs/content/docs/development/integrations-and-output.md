@@ -28,7 +28,7 @@ Put options in `vite.config.ts` when they affect discovery, generated files, pro
 
 ## Use Provider Output as build evidence
 
-Inspect generated output to verify routes, bindings, or host wiring. Import it from application code only when the package documents a path such as `#vitehub/env/server`.
+Inspect generated output to verify routes, bindings, or host wiring. Import it from application code only when the package documents a path such as `#vitehub/emails/<name>`.
 
 | Need | Surface |
 | --- | --- |

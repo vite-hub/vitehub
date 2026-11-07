@@ -36,7 +36,7 @@ describe("vitehub/no-internal-imports", () => {
     expect(await codes(noInternalImports, {
       "server/api/a.ts": [
         "import { kv } from \"vite-hub/kv\"",
-        "import { useServerEnv } from \"#vitehub/env/server\"",
+        "import { useServerEnv } from \"vite-hub/env\"",
         "import { defineQueue } from \"@vite-hub/queue\"",
         "import internal from \"./internal/helper.ts\"",
         "export { kv, useServerEnv, defineQueue, internal }",
@@ -69,11 +69,10 @@ describe("vitehub/no-internal-imports generated aliases", () => {
     expect(await codes(noInternalImports, {
       "server/api/a.ts": [
         'import { usePublicEnv } from "#vitehub/env/public"',
-        'import { useServerEnv } from "#vitehub/env/server"',
         'import auth from "#vitehub/auth/server"',
         'import welcome from "#vitehub/emails/welcome"',
         'import { schedules } from "#vitehub/schedule/registry"',
-        "export { usePublicEnv, useServerEnv, auth, welcome, schedules }",
+        "export { usePublicEnv, auth, welcome, schedules }",
       ].join("\n"),
     })).toEqual([])
   })
@@ -85,8 +84,8 @@ describe("vitehub/no-server-imports-in-client", () => {
       "src/App.vue": "<script setup lang=\"ts\">\nimport { useServerEnv } from \"#vitehub/env/server\"\nconst env = useServerEnv()\n</script>\n<template><div>{{ env }}</div></template>\n",
     })).toEqual(["VHUB0002"])
     expect(await codes(noServerImportsInClient, {
-      "app/composables/useMail.ts": "import { email } from \"vite-hub/email/server\"\nexport const useMail = () => email\n",
-      "app/pages/index.vue": "<script setup lang=\"ts\">\nimport { useDatabase } from \"vite-hub/database/drizzle\"\nconst db = useDatabase()\n</script>\n<template><div>{{ db }}</div></template>\n",
+      "app/composables/useMail.ts": "import { email } from \"vite-hub/email\"\nexport const useMail = () => email\n",
+      "app/pages/index.vue": "<script setup lang=\"ts\">\nimport { useDatabase } from \"vite-hub/database\"\nconst db = useDatabase()\n</script>\n<template><div>{{ db }}</div></template>\n",
     }, "nuxt")).toEqual(["VHUB0002", "VHUB0002"])
   })
 
@@ -100,16 +99,16 @@ describe("vitehub/no-server-imports-in-client", () => {
   it("accepts inline type specifiers but reports mixed and side-effect declarations", async () => {
     expect(await codes(noServerImportsInClient, {
       "app/utils/types.ts": [
-        'import { type Email } from "vite-hub/email/server"',
-        'export { type Email as Mail } from "vite-hub/email/server"',
-        'export type * from "vite-hub/email/server"',
+        'import { type EnvAccessContext } from "vite-hub/env/server"',
+        'export { type EnvAccessContext as Access } from "vite-hub/env/server"',
+        'export type * from "vite-hub/env/server"',
       ].join("\n"),
     }, "nuxt")).toEqual([])
     for (const source of [
-      'import { type Email, email } from "vite-hub/email/server"',
-      'export { type Email, email } from "vite-hub/email/server"',
-      'import "vite-hub/email/server"',
-      'export * from "vite-hub/email/server"',
+      'import { type EnvAccessContext, resolveServerEnv } from "vite-hub/env/server"',
+      'export { type EnvAccessContext, resolveServerEnv } from "vite-hub/env/server"',
+      'import "vite-hub/env/server"',
+      'export * from "vite-hub/env/server"',
     ]) {
       expect(await codes(noServerImportsInClient, { "app/utils/mail.ts": source }, "nuxt")).toEqual(["VHUB0002"])
     }
@@ -135,7 +134,7 @@ describe("vitehub/no-server-imports-in-client", () => {
         'import { useAgent } from "vite-hub/agent/vue"',
         'import { useUpload } from "vite-hub/blob/vue"',
         'import { useRealtimeTiptap } from "vite-hub/realtime/vue"',
-        'import { defineSchedule } from "vite-hub/schedule"',
+        'import { useUpload as useBlobUpload } from "vite-hub/blob/client"',
         "</script>",
       ].join("\n"),
     }, "nuxt")).toEqual([])
@@ -144,7 +143,7 @@ describe("vitehub/no-server-imports-in-client", () => {
   it("accepts server files, type imports, and client paths", async () => {
     expect(await codes(noServerImportsInClient, {
       "server/api/env.get.ts": "import { useServerEnv } from \"#vitehub/env/server\"\nexport default () => useServerEnv()\n",
-      "src/App.vue": "<script setup lang=\"ts\">\nimport type { Email } from \"vite-hub/email/server\"\nimport { useUpload } from \"vite-hub/blob/vue\"\nimport { usePublicEnv } from \"#vitehub/env/public\"\ndefineProps<{ email?: Email }>()\nconst upload = useUpload()\nconst env = usePublicEnv()\n</script>\n<template><div>{{ upload }} {{ env }}</div></template>\n",
+      "src/App.vue": "<script setup lang=\"ts\">\nimport type { EmailMessage } from \"vite-hub/email\"\nimport { useUpload } from \"vite-hub/blob/vue\"\nimport { usePublicEnv } from \"#vitehub/env/public\"\ndefineProps<{ email?: EmailMessage }>()\nconst upload = useUpload()\nconst env = usePublicEnv()\n</script>\n<template><div>{{ upload }} {{ env }}</div></template>\n",
     })).toEqual([])
     expect(await codes(noServerImportsInClient, {
       "app/plugins/env.server.ts": "import { useServerEnv } from \"#vitehub/env/server\"\nexport default () => useServerEnv()\n",
@@ -328,7 +327,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
     expect(await codes(destructureResultTuples, {
       "server/api/send.post.ts": [
         'import { blob } from "vite-hub/blob"',
-        'import { email } from "vite-hub/email/server"',
+        'import { email } from "vite-hub/email"',
         'import { runQueue, getQueue } from "vite-hub/queue"',
         'import { useChannel } from "vite-hub/channels/server"',
         'import { callMcpTool } from "vite-hub/agent/mcp"',

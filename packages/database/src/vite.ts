@@ -69,7 +69,9 @@ const NITRO_MIGRATIONS_DIR = ".vitehub/database/migrations"
 const NITRO_REQUEST_SCOPE_MIDDLEWARE = ".vitehub/nitro/database/request-scope.mjs"
 const NITRO_REQUEST_STATS_MIDDLEWARE = ".vitehub/nitro/database/request-stats.mjs"
 const HOSTED_RUNTIME_DIR = ".vitehub/database"
-const DB_DRIZZLE_ENTRY_PATTERN = /(?:^|\/)(?:@vite-hub\/database|database)\/dist\/drizzle\.js$/
+const DB_REGISTRY_ENTRY_PATTERN = /(?:^|\/)(?:@vite-hub\/database|database)\/dist\/runtime\/registry\.js$/
+// The Database root, directly or through the `vite-hub/database` facade that the framework aliases to a file.
+const DB_ROOT_ENTRY_PATTERN = /(?:^|\/)(?:(?:@vite-hub\/database|database)\/dist\/index|vite-hub\/dist\/database)\.js$/
 
 export interface DBVitePluginAPI {
   getConfig: () => ResolvedDBViteConfig | undefined
@@ -117,7 +119,18 @@ function resolveDatabaseVirtualId(id: string) {
   if (id === DB_VIRTUAL_DEFINITION_DEFAULTS_ID) return RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID
 }
 
-function rewriteDrizzleVirtualImports(code: string) {
+function importsDatabaseRoot(id: string) {
+  return id === "@vite-hub/database" || id === "vite-hub/database" || DB_ROOT_ENTRY_PATTERN.test(normalize(id))
+}
+
+/** True for a Database Definition or one of its schema sources. */
+function isDefinitionModule(config: ResolvedDBViteConfig, importer: string) {
+  const file = normalize(importer.split("?")[0]!)
+  return config.definitions.some(definition =>
+    normalize(definition.handler) === file || definition.schemaSources.some(source => normalize(source.handler) === file))
+}
+
+function rewriteRegistryVirtualImports(code: string) {
   return code
     .replaceAll(DB_VIRTUAL_SCHEMA_ID, DB_INTERNAL_VIRTUAL_SCHEMA_ID)
     .replaceAll(DB_VIRTUAL_DATABASES_ID, DB_INTERNAL_VIRTUAL_DATABASES_ID)
@@ -372,7 +385,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     const plugin = resolve(databaseRoot(), migrateOnStartPluginFile)
     writeFileIfChangedSync(plugin, renderMigrateOnStartPlugin(runtimeConfig, {
       ...settings,
-      drizzleImport: resolveRuntimeModule(packageDir, "drizzle"),
+      registryImport: resolveRuntimeModule(packageDir, "runtime/registry"),
       host: resolveHost({ nitro: nitroOptions }) ?? resolveHostPreset({ nitro: nitroOptions }),
       runtimeImport: resolveRuntimeModule(packageDir, "runtime/migrate-on-start"),
     }))
@@ -521,7 +534,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         if (module) context.server.moduleGraph.invalidateModule(module)
       }
     },
-    // Queue and Workflow still bundle their own host functions. They alias `@vite-hub/database/drizzle`
+    // Queue and Workflow still bundle their own host functions. They alias `@vite-hub/database/runtime/registry`
     // to this hosted runtime module, so Database calls in those functions use the same Definitions.
     async buildEnd(error) {
       const resetRuntimeContribution = () => {
@@ -560,11 +573,18 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
           : { vercel: runtimeModule, "vercel-definition-defaults": definitionDefaults },
       }, siblingRuntimeGenerations.get(this))
     },
-    resolveId(id) {
-      return resolveDatabaseVirtualId(id)
+    resolveId(id, importer) {
+      const virtualId = resolveDatabaseVirtualId(id)
+      if (virtualId) return virtualId
+      // The Database root also exports `db`, whose registry imports every Definition. A Definition that imported the root
+      // would import itself, and a module that loads the Definition first would read it before it exists. Definitions
+      // get `defineDatabase()` from its own module instead.
+      if (importer && runtimeConfig && importsDatabaseRoot(id) && isDefinitionModule(runtimeConfig, importer)) {
+        return resolveRuntimeModule(computePackageDir(import.meta.url), "definition")
+      }
     },
     transform(code, id) {
-      if (DB_DRIZZLE_ENTRY_PATTERN.test(normalize(id))) return rewriteDrizzleVirtualImports(code)
+      if (DB_REGISTRY_ENTRY_PATTERN.test(normalize(id))) return rewriteRegistryVirtualImports(code)
     },
     load(id) {
       if (id === RESOLVED_DB_VIRTUAL_SCHEMA_ID) return renderSchemaModule(runtimeConfig)
