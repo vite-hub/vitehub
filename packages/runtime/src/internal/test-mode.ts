@@ -15,7 +15,7 @@ export interface ViteHubTestMode {
   backend: <T>(key: string, create: () => T, dispose?: (value: Awaited<T>) => unknown) => T
   /** Returns the backend with this key when the current test created it. */
   peek: <T>(key: string) => T | undefined
-  /** Returns an empty temporary folder for this key. The next reset deletes it. */
+  /** Returns an empty folder for this key under `<root>/.vitehub/test`. The next reset deletes it. */
   directory: (key: string) => Promise<string>
   /** Disposes every backend, deletes the temporary folders, and clears the Server Env values. */
   reset: () => Promise<void>
@@ -37,11 +37,30 @@ export function getViteHubTestMode(): ViteHubTestMode | undefined {
 
 let processRoot: Promise<string> | undefined
 
-/** One folder per process for every test's folders. It goes when the process exits, after the last test of a file. */
-function processTemporaryRoot(): Promise<string> {
+function isRunning(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  }
+  catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM"
+  }
+}
+
+/**
+ * One folder per test process under `<root>/.vitehub/test`. A test runner can stop its workers without an exit event,
+ * so each process also deletes the folders of processes that no longer run.
+ */
+function processTemporaryRoot(root: string): Promise<string> {
   processRoot ??= (async () => {
-    const [{ rmSync }, { mkdtemp }, { tmpdir }, { join }] = await Promise.all([import("node:fs"), import("node:fs/promises"), import("node:os"), import("node:path")])
-    const directory = await mkdtemp(join(tmpdir(), "vitehub-test-"))
+    const [{ rmSync }, { mkdir, mkdtemp, readdir, rm }, { join }] = await Promise.all([import("node:fs"), import("node:fs/promises"), import("node:path")])
+    const parent = join(root, ".vitehub", "test")
+    await mkdir(parent, { recursive: true })
+    for (const name of await readdir(parent)) {
+      const pid = Number(name.split("-")[0])
+      if (Number.isInteger(pid) && pid !== process.pid && !isRunning(pid)) await rm(join(parent, name), { force: true, recursive: true })
+    }
+    const directory = await mkdtemp(join(parent, `${process.pid}-`))
     process.once("exit", () => rmSync(directory, { force: true, recursive: true }))
     return directory
   })()
@@ -76,7 +95,7 @@ function createViteHubTestMode(root: string): ViteHubTestMode {
     async directory(key) {
       temporaryRoot ??= (async () => {
         const [{ mkdtemp }, { join }] = await Promise.all([import("node:fs/promises"), import("node:path")])
-        return await mkdtemp(join(await processTemporaryRoot(), "test-"))
+        return await mkdtemp(join(await processTemporaryRoot(root), "test-"))
       })()
       const [{ mkdir }, { join }] = await Promise.all([import("node:fs/promises"), import("node:path")])
       const directory = join(await temporaryRoot, key.replace(/[^\w.-]/g, "_"))

@@ -66,15 +66,15 @@ If you keep a separate `vitest.config.ts`, add the same `vitehub()` plugin there
 
 | Primitive | Backend in a test | Inspect it with |
 | --- | --- | --- |
-| KV | An `fs-lite` store in a temporary folder | `kv.get()`, `kv.keys()` |
-| Blob | An `fs` store in a temporary folder | `blob.get()`, `blob.list()` |
+| KV | An `fs-lite` store in a folder under `.vitehub/test` | `kv.get()`, `kv.keys()` |
+| Blob | An `fs` store in a folder under `.vitehub/test` | `blob.get()`, `blob.list()` |
 | Database | In-memory SQLite with the migrations of each Definition | `useDatabase(name).db` |
 | Queue | A list of the jobs that `runQueue()`, `deferQueue()`, and `getQueue()` sent. No handler runs. | `hub.jobs` |
 | Email | A list of the messages that `email.send()` accepted. No provider runs. | `hub.emails` |
 | Rate Limit | Memory counters, also when the host is Cloudflare. A request without a client address counts as one client. | `checkRateLimit()` |
 | Server Env | The values of `hub.setEnv()`, read before `process.env` | `useServerEnv()` |
 
-`reset()` deletes the temporary folders, closes the databases, empties both lists, and clears the `setEnv()` values. The configured drivers are not used: a test never writes to `.vitehub/data` or to a provider.
+`reset()` deletes the test folders, closes the databases, empties both lists, and clears the `setEnv()` values. The configured drivers are not used: a test never writes to `.vitehub/data` or to a provider.
 
 Database applies the Drizzle Kit migrations in the Definition's migrations folder, such as `server/databases/migrations/`. Run `vitehub db generate` after a schema change, as for `vite dev`. Postgres Definitions keep their own connection in tests.
 
