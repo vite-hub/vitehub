@@ -47,7 +47,12 @@ describe("Cloudflare R2 object keys", () => {
     const storage = createBlobStorage(driver, "default")
 
     const [error] = await storage.put("k".repeat(1025), "x")
-    expect(error).toMatchObject({ code: "BLOB_PATHNAME_TOO_LONG", details: { operation: "put", store: "default" } })
+    expect(error).toMatchObject({
+      code: "BLOB_PATHNAME_TOO_LONG",
+      docs: "https://vitehub.dev/docs/blob/limits-and-errors#blob_pathname_too_long",
+      name: "BLOB_PATHNAME_TOO_LONG",
+      why: "The pathname is 1025 bytes in UTF-8. Cloudflare R2 accepts object keys of at most 1024 bytes.",
+    })
     expect(error?.cause).toHaveProperty("message", "The pathname is 1025 bytes in UTF-8. Cloudflare R2 accepts object keys of at most 1024 bytes.")
     expect(puts).toEqual([])
     // Two bytes per character in UTF-8, so 513 characters are 1026 bytes.
@@ -56,13 +61,13 @@ describe("Cloudflare R2 object keys", () => {
       expect(readError?.code).toBe("BLOB_PATHNAME_TOO_LONG")
     }
 
-    expect((await storage.put("k".repeat(1024), "x"))[0]).toBeNull()
+    expect((await storage.put("k".repeat(1024), "x"))[0]).toBeUndefined()
     expect(puts).toEqual(["k".repeat(1024)])
   })
 
   it("keeps other drivers unchanged", async () => {
     const { driver } = memoryDriver("s3")
-    expect((await createBlobStorage(driver, "default").put("k".repeat(1025), "x"))[0]).toBeNull()
+    expect((await createBlobStorage(driver, "default").put("k".repeat(1025), "x"))[0]).toBeUndefined()
   })
 })
 
@@ -95,14 +100,14 @@ describe.each(["H3", "Standard Context"] as const)("request body limit of a dev 
     expect(puts).toEqual([])
 
     const [error, objects] = await storage.handleUpload(event(formRequest(4 * mb)))
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(objects).toHaveLength(1)
   })
 
   it("reads any body size without a limit", async () => {
     const { driver } = memoryDriver("vercel-blob")
     const [error] = await createBlobStorage(driver, "default").handleUpload(event(formRequest(5 * mb)))
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
   })
 })
 

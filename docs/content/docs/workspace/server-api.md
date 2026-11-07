@@ -237,9 +237,9 @@ pnpm vitehub workspace stale site --ref draft
 
 Each changed entry has `sourceDigest`, the digest of the source now. The command prints it in the `SOURCE DIGEST` column. Update the file, then write that value as `derivedFrom.digest`. An entry with `reason: "missing"` names a source that is gone. `lineageDigest(bytes)`, `readDerivedFrom(path, bytes)`, and `staleDerivedFiles(files)` from `vite-hub/workspace/lineage` do the same checks in your code.
 
-To translate when the source changes, start your translator from a `write:after` hook. The hook runs after each commit, also for `vitehub push`:
+To translate when the source changes, start your translator from a `write:after` hook. The hook runs after each commit, also for `vitehub push`. This excerpt uses the app's `translate` Queue Definition:
 
-```ts [server/plugins/translate.ts]
+```ts [server/plugins/translate.ts] fragment
 import { registerWorkspacePlugin } from 'vite-hub/workspace'
 import { runQueue } from 'vite-hub/queue'
 

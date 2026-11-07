@@ -137,10 +137,11 @@ describe("Channel types", () => {
     async function checkSendTuple() {
       const [error, receipt] = await channel.send("Build finished.", { connector: "telegram", chatId: "chat-1" })
       if (error) {
-        const absent: null = receipt
-        return absent
+        const code: "CHANNEL_DEFINITION_FAILED" | "CHANNEL_INVALID_SEND" | "CHANNEL_SEND_FAILED" = error.code
+        const absent: undefined = receipt
+        return { absent, code }
       }
-      const noError: null = error
+      const noError: undefined = error
       const deliveryId: string = receipt.deliveryId
       return { noError, deliveryId }
     }

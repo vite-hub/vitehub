@@ -14,14 +14,17 @@ const workspacePackage = {
 }
 
 describe("vitehub status with vitehub.lock", () => {
-  it("shows the checkout folders that the Workspace package reads", async () => {
-    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig("{ workspace: true }"), "vitehub.lock": lock, ...workspacePackage })
+  it("shows the host link and the checkout folders that the Workspace package reads", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ preset: "deno", workspace: true }'), "vitehub.lock": lock, ...workspacePackage })
+    expect((await runSetup(["link", "--json"], root)).exitCode).toBe(0)
 
     const text = await runSetup(["status"], root)
     const json = await runSetup<{ checkouts: unknown }>(["status", "--json"], root)
 
     expect(text.exitCode).toBe(0)
+    expect(text.stdout).toContain("app on deno")
     expect(text.stdout).toContain("\nCheckouts (vitehub.lock):\nsite: content/ has 1 conflict\n")
+    expect(json.json).toMatchObject({ link: { host: "deno", project: { name: "app" }, verified: false } })
     expect(json.json.checkouts).toEqual([{ root, workspace: "site" }])
     expect(text.loadConfig).not.toHaveBeenCalled()
   })

@@ -1333,6 +1333,9 @@ importers:
 
   packages/channels:
     dependencies:
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
