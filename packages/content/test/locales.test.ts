@@ -123,11 +123,44 @@ describe("documents() with locales", () => {
     expect((await docs.status({ locale: "es" })).map(status => [status.id, status.locale, status.state])).toEqual([["guide", "es", "draft"]])
     expect(await docs.status({ locale: "es" })).not.toContainEqual(expect.objectContaining({ translations: expect.anything() }))
 
-    // A caller's derivedFrom wins, so a fix that is not a new translation can keep it stale.
-    await docs.save("guide", { data: { title: "Guía" }, body: "¡Hola!\n", derivedFrom: spanish.derivedFrom! }, { locale: "es" })
+    // A save without sourceDigest keeps the derivedFrom of the translation, so a fix does not mark it current.
+    await docs.save("guide", { data: { title: "Guía" }, body: "¡Hola!\n" }, { locale: "es" })
+    expect(await docs.get("guide", { ref: "draft", locale: "es" })).toMatchObject({ derivedFrom: source })
     expect(await docs.status("guide")).toMatchObject({ translations: { es: "stale" } })
-    await docs.save("guide", { data: { title: "Guía" }, body: "Hola otra vez.\n" }, { locale: "es" })
+    // The source digest of the current read marks it current.
+    const english = await docs.get("guide", { ref: "draft", locale: "es" })
+    await docs.save("guide", { data: { title: "Guía" }, body: "Hola otra vez.\n" }, { locale: "es", sourceDigest: english!.source!.digest })
     expect(await docs.status("guide")).toMatchObject({ translations: { es: "current" } })
+  })
+
+  it("records the source version a translation was made from, not the one at save time", async () => {
+    const { docs, workspace } = await setup()
+    await docs.save("guide", { data: { title: "Guide" }, body: "Version A.\n" })
+    // A translator reads source A from the fallback read.
+    const read = await docs.get("guide", { ref: "draft", locale: "es" })
+    const a = { path: "docs/en/guide.md", digest: lineageDigest(await draftBytes(workspace, "docs/en/guide.md")) }
+    expect(read).toMatchObject({ locale: "en", fallback: true, source: a })
+    expect(await docs.get("guide", { ref: "draft" })).toMatchObject({ source: a })
+    // Someone saves source B before the translation of A is saved.
+    await docs.save("guide", { data: { title: "Guide" }, body: "Version B.\n" })
+    const b = lineageDigest(await draftBytes(workspace, "docs/en/guide.md"))
+    const spanish = await docs.save("guide", { data: { title: "Guía" }, body: "Versión A.\n" }, { locale: "es", sourceDigest: read!.source!.digest })
+    expect(spanish.derivedFrom).toEqual(a)
+    expect(await docs.status("guide")).toMatchObject({ translations: { es: "stale" } })
+    // A read of the translation names the current source, so the caller sees what changed.
+    expect(await docs.get("guide", { ref: "draft", locale: "es" })).toMatchObject({ locale: "es", derivedFrom: a, source: { path: a.path, digest: b } })
+    // A typo fix keeps it stale.
+    await docs.save("guide", { data: { title: "Guía" }, body: "Versión A, sin errata.\n" }, { locale: "es" })
+    expect(await docs.status("guide")).toMatchObject({ translations: { es: "stale" } })
+    // A translation of B marks it current.
+    await docs.save("guide", { data: { title: "Guía" }, body: "Versión B.\n" }, { locale: "es", sourceDigest: b })
+    expect(await docs.status("guide")).toMatchObject({ translations: { es: "current" } })
+
+    // derivedFrom is Content's to write, and sourceDigest is only for a translation in the lineage form.
+    await docs.save("guide", { data: { title: "Guía", derivedFrom: a }, body: "Versión B.\n" }, { locale: "es" })
+    expect(await docs.status("guide")).toMatchObject({ translations: { es: "current" } })
+    expect(await rejection(docs.save("guide", { data: { title: "Guía" } }, { locale: "es", sourceDigest: read!.digest }))).toMatchObject({ code: "CONTENT_R0008", message: expect.stringMatching(/source\.digest/) })
+    expect(await rejection(docs.save("guide", { data: { title: "Guide" } }, { sourceDigest: b }))).toMatchObject({ code: "CONTENT_R0008", message: expect.stringMatching(/translation/) })
   })
 
   it("publishes every locale and resolves locale URLs", async () => {

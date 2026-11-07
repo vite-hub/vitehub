@@ -66,6 +66,8 @@ interface ContentDocumentRecord {
   locale?: string
   path: string
   revision: string
+  /** The source locale version on the same revision, in a collection with locales. */
+  source?: { digest: string, path: string }
   updatedAt: string | null
 }
 
@@ -99,6 +101,7 @@ interface ContentWriteOptions {
   lease?: "override"
   locale?: string
   metadata?: Record<string, unknown>
+  sourceDigest?: string
 }
 
 interface ContentReadOptions {
@@ -190,6 +193,7 @@ interface SaveDraftInput {
   id?: string
   ifDigest: string | null
   locale?: string | null
+  sourceDigest?: string | null
 }
 
 interface StatusInput {
@@ -269,6 +273,17 @@ function localeProperty(collections: readonly ContentCollectionHandle[], descrip
   const locales = localesOf(collections)
   if (!locales.length) return {}
   return { locale: { anyOf: [{ enum: locales, type: "string" }, { type: "null" }], description } }
+}
+
+/** The `sourceDigest` input of a translation save. Absent when no collection has locales. */
+function sourceDigestProperty(collections: readonly ContentCollectionHandle[]): Record<string, JsonSchema> {
+  if (!localesOf(collections).length) return {}
+  return {
+    sourceDigest: {
+      anyOf: [{ pattern: "^sha256-[0-9a-f]{64}$", type: "string" }, { type: "null" }],
+      description: "For a translation: source.digest of the content_get_document read whose text you translated. Keep the value from that read even if the source changed since, so the translation shows as stale until the new version is translated. Null for the source locale, or to fix an existing translation without marking it up to date.",
+    },
+  }
 }
 
 function idSchema(singletons: boolean, suffix = ""): JsonSchema {
@@ -667,7 +682,7 @@ function contentTools(
       title: "Listed Content documents",
     })
     tools.content_get_document = defineInternalTool<GetDocumentInput>({
-      description: `Read one document with its fields, Markdown body, digest, and any field issues of a draft. Pass the digest as ifDigest when you save it. Requires read access to the document. ${untrusted}`,
+      description: `Read one document with its fields, Markdown body, digest, and any field issues of a draft. Pass the digest as ifDigest when you save it. In a collection with locales, source gives the source locale version on the same ref: pass source.digest as sourceDigest when you save a translation of this text. Requires read access to the document. ${untrusted}`,
       execute: async (input) => {
         const target = collection(input?.collection)
         const id = documentId(target, input.id)
@@ -737,7 +752,7 @@ function contentTools(
     const localized = scoped.filter(entry => entry.locales && entry.locales.length > 1)
     if (localized.length) {
       tools.content_list_translations = defineInternalTool<ListTranslationsInput>({
-        description: "List the documents whose translation in a locale is missing, or stale because the source locale document changed since it was translated. To translate one, read the source with content_get_document (ref: draft), then save the translation with content_save_draft and the locale. The save records which source version it was made from. Requires read access, and lists only the documents the user may read.",
+        description: "List the documents whose translation in a locale is missing, or stale because the source locale document changed since it was translated. To translate one, read the source with content_get_document (ref: draft), then save the translation with content_save_draft, the locale, and sourceDigest set to the source.digest of that read. The save records which source version it was made from. Requires read access, and lists only the documents the user may read.",
         execute: async (input) => {
           const target = collection(input?.collection)
           const locale = localeOption(target, input?.locale)
@@ -807,7 +822,7 @@ function contentTools(
   }
   if (options.enabled.has("write")) {
     tools.content_save_draft = defineInternalTool<SaveDraftInput>({
-      description: `Save a document to the draft ref, in a locale for a translation. Publishing is a separate step. Send every field and, for a Markdown collection, the full body. JSON and YAML collections have no body. Set ifDigest to the digest from content_get_document (ref: draft), or null for a new document. A draft with invalid fields is saved and returns issues to fix before it can be published. Conflicts and a person editing the document come back as ok: false with what to do.`,
+      description: `Save a document to the draft ref, in a locale for a translation. Publishing is a separate step. Send every field and, for a Markdown collection, the full body. JSON and YAML collections have no body. Set ifDigest to the digest from content_get_document (ref: draft), or null for a new document. For a translation, set sourceDigest to the source.digest of the read you translated. A draft with invalid fields is saved and returns issues to fix before it can be published. Conflicts and a person editing the document come back as ok: false with what to do.`,
       execute: async (input) => {
         const target = collection(input?.collection)
         const id = documentId(target, input.id)
@@ -817,6 +832,15 @@ function contentTools(
         await authorize("write", target.name, id)
         if (input.ifDigest !== null && (String(input.ifDigest) !== input.ifDigest || !input.ifDigest)) {
           return invalidInput("ifDigest", "ifDigest must be the draft digest you edited, or null for a new document.")
+        }
+        const sourceDigest = input.sourceDigest ?? undefined
+        if (sourceDigest !== undefined) {
+          if (!locale.locale || locale.locale === target.locales?.[0]) {
+            return invalidInput("sourceDigest", "Only a translation takes sourceDigest. Pass null for the source locale.")
+          }
+          if (String(sourceDigest) !== sourceDigest || !/^sha256-[0-9a-f]{64}$/.test(sourceDigest)) {
+            return invalidInput("sourceDigest", "sourceDigest must be source.digest from content_get_document, such as sha256-<64 hex characters>. It is not the document digest.")
+          }
         }
         // The strict-provider schema uses `null` to represent an omitted body for
         // data collections. Normalize it to an empty Markdown body as well so a
@@ -832,7 +856,7 @@ function contentTools(
           const { body: _body, issues, ...document } = await target.save(
             id,
             { data: input.data, ...(target.format === "markdown" ? { body: input.body } : {}) },
-            { ifDigest: input.ifDigest, metadata: await authorMetadata(), ...locale, ...(options.lease ? { lease: options.lease } : {}) },
+            { ifDigest: input.ifDigest, metadata: await authorMetadata(), ...locale, ...(sourceDigest === undefined ? {} : { sourceDigest }), ...(options.lease ? { lease: options.lease } : {}) },
           )
           return issues?.length
             ? { document, hint: hints.savedWithIssues, issues, ok: true as const }
@@ -854,9 +878,10 @@ function contentTools(
             anyOf: [{ minLength: 1, type: "string" }, { type: "null" }],
             description: "Digest of the draft you edited, or null to create a new document.",
           },
-          ...localeProperty(scoped, "The locale to save in a collection with locales. Null for the source locale. A translation records the source locale draft it was made from, so it counts as current."),
+          ...localeProperty(scoped, "The locale to save in a collection with locales. Null for the source locale. A translation records the source version from sourceDigest, so it counts as current until the source changes."),
+          ...sourceDigestProperty(scoped),
         },
-        required: ["body", "collection", "data", "id", "ifDigest", ...Object.keys(localeProperty(scoped, ""))],
+        required: ["body", "collection", "data", "id", "ifDigest", ...Object.keys(localeProperty(scoped, "")), ...Object.keys(sourceDigestProperty(scoped))],
         type: "object",
       },
       metadata: metadata("save"),

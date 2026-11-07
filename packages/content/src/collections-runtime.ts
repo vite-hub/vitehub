@@ -58,6 +58,7 @@ const maxUpdatedAtScan = 5_000
 const listDefaultLimit = 50
 const listMaxLimit = 1_000
 const titleFieldNames = ["title", "name", "label", "heading"]
+const lineageDigestPattern = /^sha256-[0-9a-f]{64}$/
 
 /** `blog-posts` → `Blog Posts`. */
 function titleCase(name: string): string {
@@ -114,6 +115,12 @@ export interface ContentDocument<TData = Record<string, unknown>> {
   fallback?: true
   /** The source version that this document was made from, such as the source locale version of a translation. */
   derivedFrom?: ContentDerivedFrom
+  /**
+   * The source locale version of this document on the revision that `get()` read, in a collection with `locales`: its
+   * path and digest in the `sha256-` form that `derivedFrom` records. Pass `source.digest` as `sourceDigest` when you
+   * save a translation made from this read. Absent when the source locale has no version, and on `list()` items.
+   */
+  source?: ContentDerivedFrom
   /**
    * The page of this document in each locale that has its own version, in the order of `locales`, so the source locale
    * comes first. `get()` sets it in a collection with `locales` and `url`. `contentHead()` turns it into `hreflang` links.
@@ -220,12 +227,6 @@ export interface ContentSaveInput<TInput = Record<string, unknown>> {
   data: TInput
   /** Markdown body. Defaults to an empty body. JSON and YAML documents have no body and reject a non-empty one. */
   body?: string
-  /**
-   * The source version this document was made from, stored as the `derivedFrom` key of the file. A save in a locale
-   * other than the source locale fills it in with the source locale version on the draft, so pass it only to record
-   * another source, or to keep the `derivedFrom` of the document you read when your edit is not a new translation.
-   */
-  derivedFrom?: ContentDerivedFrom
 }
 
 export interface ContentWriteOptions {
@@ -256,6 +257,13 @@ export interface ContentWriteOptions {
   lease?: "override"
   /** The locale to write in a collection with `locales`. Defaults to the source locale. */
   locale?: string
+  /**
+   * The source locale version that a translation was made from: the `source.digest` of the `get()` you translated.
+   * The save records it as `derivedFrom`, so the translation stays `stale` when the source changed after that read.
+   * Without it, an existing translation keeps the `derivedFrom` it has, so a fix does not mark it current, and a new
+   * translation records the source locale version on the draft at save time. Only a translation locale takes it.
+   */
+  sourceDigest?: string
 }
 
 /**
@@ -1562,20 +1570,26 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const locale = localeOf(options.locale)
       const path = pathFor(id, locale)
       const target = framed(options)
-      if (target?.path === path) return await withAlternates(await frameDraft(target), (await refState("draft")).opened)
+      if (target?.path === path) return await withLocales(await frameDraft(target), (await refState("draft")).opened)
       const opened = await openFor("get", options)
       if (!opened) return null
-      if (opened.files.has(path)) return await withAlternates(await read(opened, id, locale), opened)
+      if (opened.files.has(path)) return await withLocales(await read(opened, id, locale), opened)
       // A locale without a translation reads the source locale version.
       if (locale === sourceLocale) return null
       const source = await read(opened, id, sourceLocale)
-      return await withAlternates(source && fallbackOf(source, locale), opened)
+      return await withLocales(source && fallbackOf(source, locale), opened)
     }
 
-    /** Adds the page of the document in each locale that has its own version on the same revision. */
-    async function withAlternates(document: IndexedDocument | null, opened: OpenedRevision | undefined): Promise<IndexedDocument | null> {
+    /**
+     * Adds the source locale version of the document, and the page of the document in each locale that has its own
+     * version, on the same revision.
+     */
+    async function withLocales(document: IndexedDocument | null, opened: OpenedRevision | undefined): Promise<IndexedDocument | null> {
+      if (!document || !opened || !locales) return document
+      const source = await sourceVersion(opened, document.id)
+      if (source) document.source = source
       const url = definition.url
-      if (!document || !opened || !locales || url === undefined) return document
+      if (url === undefined) return document
       const alternates: ContentAlternate[] = []
       for (const locale of locales) {
         const path = pathFor(document.id, locale)
@@ -1753,15 +1767,21 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       catch (cause) {
         throw contentInvalid(name, id, path, [{ message: cause instanceof Error ? cause.message : String(cause), path: [] }])
       }
-      if (input.derivedFrom !== undefined) {
-        const derivedFrom = derivedFromOf({ derivedFrom: input.derivedFrom })
-        if (!derivedFrom) throw contentInvalid(name, id, path, [{ message: "derivedFrom must be { path, digest } with the Workspace path of the source and its digest.", path: ["derivedFrom"] }])
-        frontmatter.derivedFrom = derivedFrom
+      const { sourceDigest } = writeOptions
+      if (sourceDigest !== undefined && (locale === undefined || locale === sourceLocale)) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content sourceDigest is for a translation. Save it with the locale of the translation, one of ${JSON.stringify(locales?.slice(1) ?? [])}.` })
       }
-      else if (locale !== sourceLocale && !derivedFromOf(frontmatter)) {
-        // A translation records the source locale version it was made from, so a later source change marks it stale.
-        const source = await sourceVersion(id)
-        if (source) frontmatter.derivedFrom = source
+      if (sourceDigest !== undefined && (String(sourceDigest) !== sourceDigest || !lineageDigestPattern.test(sourceDigest))) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content sourceDigest must be the source.digest of the get() you translated, "sha256-" and 64 hex characters. Received ${JSON.stringify(sourceDigest)}.` })
+      }
+      if (locales) {
+        // derivedFrom is reserved in a collection with locales: Content writes it, never the fields.
+        delete frontmatter.derivedFrom
+        if (locale !== sourceLocale) {
+          // A translation records the source locale version it was made from, so a later source change marks it stale.
+          const derivedFrom = sourceDigest === undefined ? await translationSource(id, locale) : { path: pathFor(id, sourceLocale), digest: sourceDigest }
+          if (derivedFrom) frontmatter.derivedFrom = derivedFrom
+        }
       }
       // Drafts accept fields in progress. The issues come back with the document, and publish() refuses it until they are fixed.
       const validated = await validateFields(definition.fields, frontmatter)
@@ -1779,11 +1799,22 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       return (await commitDocument(id, path, change, writeOptions, "save", locale))!
     }
 
-    /** The source locale version of a document on the draft, as a translation records it, or undefined when it has none. */
-    async function sourceVersion(id: string): Promise<ContentDerivedFrom | undefined> {
+    /**
+     * The `derivedFrom` of a translation saved without `sourceDigest`: the one the translation on the draft records, so a
+     * fix keeps a stale translation stale, or for a new translation the source locale version on the draft.
+     */
+    async function translationSource(id: string, locale: string | undefined): Promise<ContentDerivedFrom | undefined> {
       const opened = (await refState("draft")).opened
+      if (!opened) return
+      const path = pathFor(id, locale)
+      if (opened.files.has(path)) return (await lineageOf(opened, path)).derivedFrom
+      return await sourceVersion(opened, id)
+    }
+
+    /** The source locale version of a document on a revision, in the form a translation records it. */
+    async function sourceVersion(opened: OpenedRevision, id: string): Promise<ContentDerivedFrom | undefined> {
       const path = pathFor(id, sourceLocale)
-      if (!opened?.files.has(path)) return
+      if (!opened.files.has(path)) return
       return { path, digest: (await lineageOf(opened, path)).digest }
     }
 
