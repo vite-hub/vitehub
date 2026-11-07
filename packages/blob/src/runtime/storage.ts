@@ -8,6 +8,7 @@ import { resolveRuntimeMinioBlobStore, resolveRuntimeVercelBlobStore } from "../
 import { createDriver as createCloudflareR2NativeDriver, getOptionalBucket } from "../drivers/cloudflare-native.ts"
 
 import { getBlobRuntimeConfig, resolveNamedBlobRuntimeStorage } from "./state.ts"
+import { getViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
 
 import type { BlobDriverAdapter, BlobMultipartUpload, BlobObject, BlobOperation, BlobResult, BlobStorage, BlobStoreName, BlobStoreOptions, ReadonlyBlobStorage, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig, ResolvedCloudflareR2BlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
@@ -138,6 +139,14 @@ async function withServedBlobUrl(name: string, object: BlobObject): Promise<Blob
 }
 
 function resolveStorage(name = "default"): Promise<BlobStorage> {
+  // In app tests, each store is a fresh fs folder that the next reset deletes.
+  const test = getViteHubTestMode()
+  if (test) {
+    return test.backend(`blob:${name}`, async () => {
+      const store = { base: await test.directory(`blob-${name}`), driver: "fs" } as const
+      return await createConfiguredBlobStorage({ store }, name)
+    })
+  }
   return resolveNamedBlobRuntimeStorage(name, async (config) => {
     if (!config) throw blobErrorDiagnostics.BLOB_R0023({ message: "Blob runtime is disabled." })
     const stores = config.stores || { default: config.store }
