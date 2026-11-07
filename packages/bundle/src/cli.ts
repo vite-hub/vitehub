@@ -1,21 +1,17 @@
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
+import { formatBytes } from "./bytes.ts"
 import { readEnvironmentReports } from "./files.ts"
 import { createBundleReport, explainBundle } from "./report.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliFeature } from "@vite-hub/internal/cli"
-import type { BundleSide } from "./types.ts"
+import type { BundleFinding, BundleSide } from "./types.ts"
 
 const reportUsage = "vitehub bundle [--json]"
 const whyUsage = "vitehub bundle why <package|file> [--json]"
 const missingReport = "No bundle report in .vitehub/bundle/. Set `bundle: true` in vitehub() (vite.config.ts) or in `vitehub` (nuxt.config.ts), then run a production build.\n"
 
-/** `1234567` becomes `1.23 MB`, like Vite's build output. */
-export function formatBytes(bytes: number): string {
-  if (bytes >= 1_000_000) return `${(bytes / 1_000_000).toFixed(2)} MB`
-  if (bytes >= 1_000) return `${(bytes / 1_000).toFixed(1)} kB`
-  return `${bytes} B`
-}
+export { formatBytes }
 
 /** The CLI passes the Vite root, which is `app/` in Nuxt. Reports live in the project root. */
 function projectRoot(context: ViteHubCliContext): string {
@@ -47,6 +43,23 @@ function sideLines(label: string, side: BundleSide, startupMeaning: string): str
   return lines
 }
 
+function findingLines(findings: readonly BundleFinding[]): string[] {
+  if (!findings.length) return ["Checks: no findings.", ""]
+  const lines = [`Checks: ${findings.length} ${findings.length === 1 ? "finding" : "findings"}.`]
+  for (const finding of findings) {
+    lines.push(`  ${finding.severity} ${finding.code} (${finding.side}): ${finding.why}`)
+    if (finding.chain.length) lines.push(`    Chain: ${finding.chain.map(step => step.id).join(" → ")}`)
+    lines.push(`    Fix: ${finding.fix}`, `    Docs: ${finding.docs}`)
+  }
+  lines.push("")
+  return lines
+}
+
+/** Like `vite-doctor`: an error finding fails the command, a warning does not. */
+function exitCode(findings: readonly BundleFinding[]): number {
+  return findings.some(finding => finding.severity === "error") ? 1 : 0
+}
+
 function runReport(args: string[], context: ViteHubCliContext): number {
   const parsed = parse(args)
   if (parsed.help) {
@@ -55,6 +68,9 @@ function runReport(args: string[], context: ViteHubCliContext): number {
       "",
       "Shows the size of the last production build: client and server, the code that loads at startup, and the largest",
       "packages and folders. Needs a build with `bundle: true` in vitehub(). No dev server needed.",
+      "",
+      "Then it runs the bundle checks. It exits with 1 when a finding is an error, such as a server over the host size",
+      "limit. Warnings, such as a package that this build never runs at startup but loads there, keep exit code 0.",
       "",
       "Options:",
       "  --json      Print the full report.",
@@ -74,14 +90,15 @@ function runReport(args: string[], context: ViteHubCliContext): number {
   }
   if (parsed.json) {
     context.stdout.write(`${JSON.stringify(report, null, 2)}\n`)
-    return 0
+    return exitCode(report.findings)
   }
-  const lines = [`Bundle of the build from ${report.build}`, ""]
+  const lines = [`Bundle of the build from ${report.build}${report.host ? ` for ${report.host}` : ""}`, ""]
   if (report.server) lines.push(...sideLines("Server", report.server, "This code loads before the server answers its first request."), "")
   if (report.client) lines.push(...sideLines("Client", report.client, "Combined startup across all page entries; shared files count once."), "")
+  lines.push(...findingLines(report.findings))
   lines.push("Run `vitehub bundle why <package|file>` to see why something is in the output.", "")
   context.stdout.write(lines.join("\n"))
-  return 0
+  return exitCode(report.findings)
 }
 
 function runWhy(args: string[], context: ViteHubCliContext): number {

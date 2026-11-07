@@ -187,6 +187,20 @@ The mapper includes only bounded identifiers, categories, retry delays, reset
 times, and request IDs. It replaces unknown errors with a context-specific `INTERNAL`
 message instead of copying `error.message`.
 
+## Bundle checks
+
+`vitehub bundle` checks the report of the last production build that had `bundle: true`. Each finding has a `code`, a `severity`, a `why`, a `fix`, a `docs` link, the bytes, and the import chain from the server entry, as `vitehub bundle why` gives it. `vitehub bundle --json` prints the findings in `findings`. An `error` makes the command exit with 1, so CI can run it after the build. A `warning` keeps exit code 0, like a Vite Doctor warning.
+
+### BUNDLE_STARTUP_UNUSED
+
+Warning. A package loads at server startup, and a feature of this build knows that the server never runs it. The feature derives this from its resolved configuration, not from the package name. The Database declares the libSQL client on a Cloudflare build where every Database is D1 or Postgres and no Database can get a remote libSQL URL: a Worker has no files, so libSQL only serves the local SQLite that stands in for D1 in `vite dev`.
+
+Read the chain from the end. If it passes through a ViteHub package, update `vite-hub`. If it passes through app code, remove the import, or move it into an `import()` in the code that uses it.
+
+### BUNDLE_HOST_SIZE_LIMIT
+
+Error. The server JavaScript is larger than the host accepts, so the deployment fails. Cloudflare rejects a Worker over 64 MiB before compression, on the Free and the Paid plan ([Workers limits](https://developers.cloudflare.com/workers/platform/limits/#worker-size)). The report counts only JavaScript, and Cloudflare also counts other files in the Worker, such as WebAssembly. Keep large data and binary files in KV, R2, D1, or static assets, and import large packages with `import()` in the routes that use them.
+
 ## Diagnostics sources
 
 | Source | Use |
