@@ -13,7 +13,7 @@ icon: i-ph-flag-light
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). Import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/marker`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/marker`:
 
 ```ts
 import { Marker, MarkerContent, MarkerIcon } from "@vite-hub/ui";

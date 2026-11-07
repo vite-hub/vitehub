@@ -593,11 +593,14 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("skips the styled runtime when Nuxt UI is installed but its module is not enabled", async () => {
-    const { nuxt, runIconHook, runModulesDoneHook } = createNuxt()
+    const { componentsExtendHooks, nuxt, runIconHook, runModulesDoneHook } = createNuxt()
     await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
     runModulesDoneHook()
     expect(nuxt.options.plugins).toEqual([])
     expect([...runIconHook()]).toEqual([])
+    const components: Array<{ pascalName: string, filePath: string }> = []
+    for (const hook of componentsExtendHooks) await hook(components)
+    expect(components).toEqual([])
   })
 
   it("registers the ViteHub Iconify collection before Nuxt Icon setup", async () => {
@@ -615,8 +618,8 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
-  it.each([false, true])("gives the vite-hub/ui parts their Nuxt runtime and icons when Nuxt UI installs later: %s", async (later) => {
-    const { nuxt, runIconHook, runModulesDoneHook } = createNuxt()
+  it.each([false, true])("gives the vite-hub/ui parts their Nuxt runtime, icons, and auto-imports when Nuxt UI installs later: %s", async (later) => {
+    const { componentsExtendHooks, nuxt, runIconHook, runModulesDoneHook } = createNuxt()
     if (!later) nuxt.options._installedModules.push({ meta: { name: "@nuxt/ui" } })
     await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
     await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
@@ -624,6 +627,12 @@ describe("ViteHub Nuxt integration", () => {
     runModulesDoneHook()
     const runtime = nuxt.options.plugins.filter(plugin => String(typeof plugin === "string" ? plugin : plugin.src).endsWith("/ui/dist/runtime/nuxt-plugin.js"))
     expect(runtime).toHaveLength(1)
+    // Two module calls still register each component once, from the package's styled entry.
+    const components: Array<{ pascalName: string, filePath: string, export?: string }> = []
+    for (const hook of componentsExtendHooks) await hook(components)
+    expect(components.filter(component => component.pascalName === "Chat")).toEqual([
+      expect.objectContaining({ export: "Chat", filePath: expect.stringMatching(/\/ui\/dist\/index\.js$/) }),
+    ])
     // The list that @vite-hub/ui generates from the icons its sources name, so a new icon of a part needs no change here.
     expect([...runIconHook()].sort()).toEqual([...viteHubUIIcons].sort())
     expect(viteHubUIIcons).toEqual(expect.arrayContaining(["ph:arrow-left", "ph:check", "ph:pencil-simple-light", "ph:trash-light", "ph:x-light"]))

@@ -15,7 +15,7 @@ The scroller does not own messages, Agent state, transport, or persistence. Put 
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The parts are headless. Import them from the focused entry `@vite-hub/ui/headless`, which does not load styles or need Nuxt UI.:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The parts are headless. Import them from the focused entry `@vite-hub/ui/headless`, which does not load styles or need Nuxt UI. `vite-hub/nuxt` does not auto-import them:
 
 ```ts
 import {

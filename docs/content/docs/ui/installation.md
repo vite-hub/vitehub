@@ -53,13 +53,7 @@ Load Tailwind CSS, Nuxt UI, and the package styles in this order:
 @import "@vite-hub/ui/styles.css";
 ```
 
-`vite-hub/nuxt` gives the components Nuxt UI's Nuxt icon and adds their icons to the `@nuxt/icon` client bundle. You do not register a Vue plugin. Import each component where you use it:
-
-```vue [nuxt/components/Example.vue]
-<script setup lang="ts">
-import { Chat } from "@vite-hub/ui";
-</script>
-```
+`vite-hub/nuxt` auto-imports every public component, for example `Chat`, `Markdown`, and `Trace`. It also gives them Nuxt UI's Nuxt icon and adds their icons to the `@nuxt/icon` client bundle. You do not register a Vue plugin. The stylesheet stays an explicit import, so you choose where it loads.
 
 For explicit imports, each public component or part family also has a kebab-case entry such as `@vite-hub/ui/chat` or `@vite-hub/ui/trace`. These entries export the same component objects as `@vite-hub/ui` and keep the development import graph focused.
 
@@ -112,7 +106,7 @@ import { Chat } from "@vite-hub/ui";
 </script>
 ```
 
-The examples in these pages leave out the component imports. Add the import for each component that you use.
+The examples in these pages use Nuxt auto-imports. In Vue with Vite, add the import for each component.
 
 ### Vite plugin options
 
@@ -124,21 +118,18 @@ The examples in these pages leave out the component imports. Add the import for 
 ## Verify the setup
 
 In Nuxt, replace the contents of `app.vue` with this example. In Vue with
-Vite, put it in `App.vue`:
+Vite, put the template in `App.vue` and import `Markdown` from
+`@vite-hub/ui` in its script:
 
 ```vue [nuxt/app.vue]
-<script setup lang="ts">
-import { Markdown } from "@vite-hub/ui";
-</script>
-
 <template>
   <Markdown value="**ViteHub UI is ready.**" />
 </template>
 ```
 
 Start your application and open it in the browser. You should see
-**ViteHub UI is ready.** in bold. If the component is missing, check the
-import. If it appears without styles, check the CSS imports.
+**ViteHub UI is ready.** in bold. If the component is missing, check the Nuxt
+modules or the Vue import. If it appears without styles, check the CSS imports.
 
 You can now follow the [UI tutorial](/docs/ui/get-started) to display a chat
 message, or choose a [Console block](/docs/ui/blocks/chat-app). Connecting a

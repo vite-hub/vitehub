@@ -38,7 +38,7 @@ Load Tailwind CSS, Nuxt UI, and the package styles in this order:
 @import "@vite-hub/ui/styles.css";
 ```
 
-`vite-hub/nuxt` gives the components their Nuxt runtime. You do not need a Vue plugin registration in Nuxt.
+`vite-hub/nuxt` auto-imports the public UI components and gives them their Nuxt runtime. You do not need a Vue plugin registration in Nuxt.
 ::
 
 ::tutorial-step{title="Render one message"}
@@ -50,7 +50,6 @@ Each message has an id, a role, and text parts. The roles tell `Chat` which mess
 
 ```vue [app.vue]
 <script setup lang="ts">
-import { Chat } from "@vite-hub/ui";
 import type { UIMessage } from "ai";
 
 const messages: UIMessage[] = [

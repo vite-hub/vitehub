@@ -13,7 +13,7 @@ icon: i-ph-wrench-light
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). Import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/tool-list`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/tool-list`:
 
 ```ts
 import { ToolList } from "@vite-hub/ui";

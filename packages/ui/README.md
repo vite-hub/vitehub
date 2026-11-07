@@ -7,7 +7,7 @@
 
 Vue primitives for AI chat, traces, diffs, and file trees. The styled components compose [Nuxt UI](https://ui.nuxt.com/) and render [AI SDK](https://ai-sdk.dev/) message contracts; the headless entry point provides message-scrolling behavior without the styled component layer.
 
-`Markdown` accepts a string or a parsed Content page. Comark UI block components and document styles are bundled, so readers do not install Comark packages or assemble a component map. Import it from `@vite-hub/ui` or `@vite-hub/ui/markdown`.
+`Markdown` accepts a string or a parsed Content page. Comark UI block components and document styles are bundled, so readers do not install Comark packages or assemble a component map. `vite-hub/nuxt` auto-imports the primitive; Vite apps import it from `@vite-hub/ui/markdown`.
 
 Markdown images and image attachments use compact thumbnails with an expanded preview. The preview preserves the full aspect ratio and supports Escape, focus return, and opening the original image. Prompt attachments have a separate Remove button.
 
@@ -22,7 +22,7 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | `@vite-hub/ui/workspace` (and the other workspace entries) | A live app in the browser: editor, terminal, preview, boot checklist, and Connect | Files, tokens, and the cross-origin isolated route |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
 
-`@vite-hub/ui/primitive-rail` holds the icon rail and `PrimitiveIcon`, which draws a [`@vite-hub/icons`](../icons/README.md) icon inline so its rail item can move it on hover. ViteHub docs and the Console share both. The docs module registers the `vitehub` Iconify collection, so `i-vitehub-kv` also works in `UIcon`. It is internal: it can change in any release. Its styles are in `@vite-hub/ui/styles.css`. The rail always takes 3.5rem of the layout and expands over the next element on hover or keyboard focus to show labels. Its slots receive `expanded`, so a consumer can turn off its tooltips while the labels show.
+`@vite-hub/ui/primitive-rail` holds the icon rail and `PrimitiveIcon`, which draws a [`@vite-hub/icons`](../icons/README.md) icon inline so its rail item can move it on hover. ViteHub docs and the Console share both. `vite-hub/nuxt` registers the `vitehub` Iconify collection, so `i-vitehub-kv` also works in `UIcon`. It is internal: it can change in any release and `vite-hub/nuxt` does not auto-import it. Its styles are in `@vite-hub/ui/styles.css`. The rail always takes 3.5rem of the layout and expands over the next element on hover or keyboard focus to show labels. Its slots receive `expanded`, so a consumer can turn off its tooltips while the labels show.
 
 The parts `Message`, `Bubble`, `Marker`, `Trace`, and `Attachment` follow the [shadcn/ui agentic components](https://ui.shadcn.com/docs/changelog/2026-10-ai-elements): the same part names, props, and `data-slot` attributes. Each family has one entry, for example `@vite-hub/ui/trace` exports `Trace`, `TraceLine`, and the other Trace parts. Their default styles map shadcn/ui tokens to Nuxt UI tokens and live in the `components` layer of `styles.css`, so Tailwind utility classes on a part override them. Import them under another name, for example `import { Message as VhMessage } from "@vite-hub/ui/message"`, when the application already has a `Message` or `Trace` component.
 
@@ -125,7 +125,7 @@ Load Tailwind, Nuxt UI, and the package styles in that order:
 @import "@vite-hub/ui/styles.css";
 ```
 
-`vite-hub/nuxt` gives the components Nuxt UI's Nuxt icon and adds the icons that they use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. It also registers the `vitehub` collection, so names such as `<UIcon name="i-vitehub-kv" />` keep working. The Lucide and Phosphor collections must be installed in the application. No separate Vue plugin registration is needed. Import components from `@vite-hub/ui` where you use them.
+`vite-hub/nuxt` gives the components Nuxt UI's Nuxt icon and adds the icons that they use to the `@nuxt/icon` client bundle, because `@nuxt/icon` does not scan dependencies. It also registers the `vitehub` collection, so names such as `<UIcon name="i-vitehub-kv" />` keep working. The Lucide and Phosphor collections must be installed in the application. It auto-imports public components such as `Chat`, `Markdown`, and `TraceRun`. No separate Vue plugin registration is needed. The stylesheet stays an explicit import.
 
 `@vite-hub/ui/nuxt` is internal. `vite-hub/nuxt` and `@vite-hub/docs/nuxt` load it, and it can change in any release. Do not add it to Nuxt `modules`.
 
@@ -173,7 +173,7 @@ Load Tailwind, Nuxt UI, and the package styles in that order:
 @import "@vite-hub/ui/styles.css";
 ```
 
-The Vite integration does not register ViteHub UI components. Import them from `@vite-hub/ui` in each component or use the application's component-registration convention.
+Unlike `vite-hub/nuxt`, the Vite integration does not auto-register ViteHub UI components. Import them from `@vite-hub/ui` in each component or use the application's component-registration convention.
 
 ## Verify the setup
 

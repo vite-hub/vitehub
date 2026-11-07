@@ -15,7 +15,7 @@ Syntax highlighting is optional and lives in a separate composable, so a block t
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). Import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/code-block`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/code-block`:
 
 ```ts
 import { CodeBlock, CodeBlockContent, useHighlightedCode } from "@vite-hub/ui";
