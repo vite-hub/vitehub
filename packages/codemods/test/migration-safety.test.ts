@@ -13,7 +13,7 @@ import { rewriteCallSites } from "../src/nuxt-safe-runtime-config/call-sites.ts"
 import { editNuxtConfig } from "../src/nuxt-safe-runtime-config/config-edit.ts"
 import { readRuntimeConfig } from "../src/nuxt-safe-runtime-config/nuxt-config.ts"
 import { readNuxtConfig } from "../src/shared/nuxt-config.ts"
-import { planFromJsonSchema } from "../src/nuxt-safe-runtime-config/schema.ts"
+import { planFromJsonSchema, schemaIssues, schemaToJsonSchema } from "../src/nuxt-safe-runtime-config/schema.ts"
 
 import type { EnvRuntimeConfigOptions } from "@vite-hub/env"
 import type { EnvField } from "../src/nuxt-safe-runtime-config/fields.ts"
@@ -366,23 +366,26 @@ describe("schema migration safety", () => {
     expect(edited.code).not.toContain("runtimeConfig")
   })
 
-  it.each(["string", "number", "boolean"])("leaves || fallbacks for %s in runtimeConfig for unset, empty and non-empty sources", async (type) => {
+  it.each(["string", "number", "boolean"])("migrates || fallbacks for %s to an Env source that skips empty values", async (type) => {
     const fallback = type === "string" ? "'fallback'" : type === "number" ? "7" : "true"
     const cwd = await app({ "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'], runtimeConfig: { value: process.env.SOURCE || ${fallback} } })` })
     const config = await readNuxtConfig(cwd)
-    const runtimeConfig = readRuntimeConfig(config).values
-    const plan = planFromJsonSchema({ jsonSchema: { type: "object", properties: { value: { type } } }, issues: new Map(), runtimeConfig })
-    expect(plan.fields).toEqual([])
-    expect(plan.unmigrated).toEqual(["value"])
-    expect(plan.followUps[0]?.message).toContain("empty-string fallback")
-    const edited = editNuxtConfig({ config, env: { kind: "fields", fields: plan.fields }, migrated: new Set() })
-    expect(edited.code).toContain(`value: process.env.SOURCE || ${fallback}`)
-    // All three source states still execute the original expression after migration.
+    const plan = planFromJsonSchema({ jsonSchema: { type: "object", required: ["value"], properties: { value: { type } } }, issues: new Map(), runtimeConfig: readRuntimeConfig(config).values })
+    expect(plan.unmigrated).toEqual([])
+    expect(plan.fields[0]).toMatchObject({ skipEmpty: true, extraVariables: ["SOURCE"] })
+    const edited = editNuxtConfig({ config, env: { kind: "fields", fields: plan.fields }, migrated: new Set(["value"]) })
+    expect(edited.code).toContain("source: env.source(['NUXT_VALUE', 'SOURCE'], { skipEmpty: true })")
+    const exported = parseProgram(edited.code).program.body.find(node => node.type === "ExportDefaultDeclaration")
+    if (exported?.type !== "ExportDefaultDeclaration") throw new Error("Missing migrated config")
+    const migrated: { vitehub: { env: { server: EnvRuntimeConfigOptions } } } = runInNewContext(edited.code.slice(start(exported.declaration), end(exported.declaration)), { defineNuxtConfig: (options: unknown) => options, env })
+    const parse = (value: unknown) => type === "number" ? Number(value) : type === "boolean" ? value === true || value === "true" : value
+    vi.stubEnv("NUXT_VALUE", undefined)
+    // Unset, empty, and configured sources resolve as the original expression did, parsed to the field type.
     for (const source of [undefined, "", type === "string" ? "configured" : type === "number" ? "2" : "false"]) {
-      const original = config.code.match(/value: (.*?) \}/)?.[1]
-      const migrated = edited.code.match(/value: (.*?) \}/)?.[1]
-      const evaluate = (expression: string | undefined): unknown => runInNewContext(expression ?? "", { process: { env: { SOURCE: source } } })
-      expect(evaluate(migrated)).toBe(evaluate(original))
+      vi.stubEnv("SOURCE", source)
+      const original: unknown = runInNewContext(`process.env.SOURCE || ${fallback}`, { process: { env: { SOURCE: source } } })
+      const registry = createRuntimeEnvRegistry({ ...migrated.vitehub.env.server }, { prefix: false })
+      expect(resolveServerEnv(registry).value).toBe(parse(original))
     }
   })
 
@@ -420,5 +423,34 @@ describe("schema migration safety", () => {
     expect(calls.edits[0]?.after).toContain("useSafeRuntimeConfig().public.fooBar")
     expect(calls.edits[0]?.after).toContain("useSafeRuntimeConfig().public.foo.bar")
     expect(calls.edits[0]?.after).toContain("usePublicEnv().title")
+  })
+})
+
+describe("schema conversion", () => {
+  it("reads Zod 3 schemas, which have no JSON Schema output", async () => {
+    const { z } = await import("zod/v3")
+    const schema = z.object({
+      apiUrl: z.string().url().min(3),
+      retries: z.coerce.number().int().min(1),
+      mode: z.enum(["off", "on"]).default("off"),
+      flag: z.string().transform(value => value === "true").optional(),
+      enabled: z.coerce.boolean(),
+      public: z.object({ siteName: z.string().optional() }),
+    })
+    expect(await schemaToJsonSchema(schema)).toEqual({
+      type: "object",
+      required: ["apiUrl", "retries", "enabled", "public"],
+      properties: {
+        apiUrl: { type: "string", format: "uri", minLength: 3 },
+        retries: { type: "integer", minimum: 1 },
+        mode: { type: "string", enum: ["off", "on"], default: "off" },
+        flag: { type: "string" },
+        enabled: { type: "boolean" },
+        public: { type: "object", required: [], properties: { siteName: { type: "string" } } },
+      },
+    })
+    const issues = schemaIssues(schema)
+    expect(issues.get("flag")).toEqual(["a Zod transform"])
+    expect(issues.get("enabled")?.[0]).toContain("z.coerce.boolean()")
   })
 })
