@@ -61,7 +61,7 @@ class FileRewrite {
 
   constructor(private readonly file: string, private readonly code: string) {
     this.output = new MagicString(code)
-    this.program = parseProgram(code, { typescript: !/\.(?:c|m)?js$/.test(file), jsx: /x$/.test(file) })
+    this.program = parseProgram(code, { typescript: !/\.(?:c|m)?js$/.test(file), jsx: file.endsWith("x") })
     this.mailer = nameTaken(this.program, "email") ? "viteHubEmail" : "email"
     for (const statement of this.program.program.body) {
       if (statement.type !== "ImportDeclaration") continue
