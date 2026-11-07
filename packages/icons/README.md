@@ -29,7 +29,7 @@ Server Primitives use their `vite-hub/<name>` import name.
 | `decisions` | Decisions |
 | `email` | Email |
 | `env` | Env |
-| `gateway` | AI Gateways |
+| `gateways` | AI Gateways |
 | `kv` | KV |
 | `logs` | Logs |
 | `queue` | Queue |

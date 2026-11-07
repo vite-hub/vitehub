@@ -239,7 +239,7 @@ export const landingPrimitives = [
     name: "AI Gateways",
     description: "Model request routing",
     to: "/docs/agents/ai-gateways",
-    icon: "i-vitehub-gateway",
+    icon: "i-vitehub-gateways",
   },
   {
     id: "realtime",

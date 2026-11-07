@@ -441,6 +441,10 @@
   --vh-primitive-icon-motion: translateY(-1.5px);
 }
 
+.vh-primitive-icon[data-icon="decisions"] {
+  --vh-primitive-icon-motion: translate(1px, -1px);
+}
+
 .vh-primitive-icon[data-icon="development"] {
   --vh-primitive-icon-motion: rotate(14deg);
 }
@@ -459,20 +463,16 @@
   --vh-primitive-icon-origin: 7.5px 16.5px;
 }
 
+.vh-primitive-icon[data-icon="gateways"] {
+  --vh-primitive-icon-motion: translateX(1.5px);
+}
+
 .vh-primitive-icon[data-icon="guides"] {
   --vh-primitive-icon-motion: rotate(45deg);
 }
 
 .vh-primitive-icon[data-icon="hosts"] {
   --vh-primitive-icon-motion: translateY(-1.5px);
-}
-
-.vh-primitive-icon[data-icon="decisions"] {
-  --vh-primitive-icon-motion: translate(1px, -1px);
-}
-
-.vh-primitive-icon[data-icon="gateway"] {
-  --vh-primitive-icon-motion: translateX(1.5px);
 }
 
 .vh-primitive-icon[data-icon="kv"] {
