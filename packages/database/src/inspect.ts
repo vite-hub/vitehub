@@ -1,13 +1,12 @@
 import { join } from "pathe"
 
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
+import { readProvisionedId, readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { isWebContainer } from "@vite-hub/web-container/env"
 
 import { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets } from "./contributions.ts"
-import { readProvisionedId, readProvisionStateSync } from "@vite-hub/internal/provision-state"
-
 import { resolveConfigValue } from "./config-value.ts"
-import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionReadReplication, readStaticDatabaseSchema, resolveDBViteConfig } from "./config.ts"
+import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionReadReplication, readDatabaseDefinitionRemote, readStaticDatabaseSchema, resolveDBViteConfig } from "./config.ts"
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary, ViteHubResourceSummary } from "@vite-hub/internal/inspect"
@@ -15,6 +14,8 @@ import type { CollectedDatabaseContributions, ResolvedDatabaseContribution, Reso
 import type { DatabaseConfigValue, DBModulePublicOptions } from "./types.ts"
 
 export interface DatabaseInspectionOptions {
+  /** Whether the integration's `cloudflare.http` makes development queries remote. */
+  http?: boolean
   /** Without a Database Definition, list the implicit default Database that an enabled database uses. */
   implicitDefault?: boolean
   /** Vite plugins that can contribute tables through `vitehub.databases`. */
@@ -86,6 +87,9 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
         : [],
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },
       ...(dialects[definition.name] !== "postgresql" && isWebContainer() ? [{ label: "Local driver", value: webContainerDriver }] : []),
+      ...(dialects[definition.name] !== "postgresql" && (readDatabaseDefinitionRemote(definition.handler) ?? options.http))
+        ? [{ label: "Development", value: "Remote. `vite dev` queries the real D1 database over HTTP, so writes change real data." }]
+        : [],
       ...(readDatabaseDefinitionReadReplication(definition.handler) ?? options.readReplication)
         ? [{ label: "Read replication", value: "On. Reads use D1 read replicas, through one D1 session per request. Writes return a bookmark cookie." }]
         : [],
@@ -118,7 +122,7 @@ function describeConfiguredId(value: DatabaseConfigValue | undefined, env: Recor
   if (typeof value === "string") return value.trim() ? { id: value, source: "config" } : {}
   if (!value) return {}
   for (const name of value.source?.names ?? (value.source?.name ? [value.source.name] : [])) {
-    const id = env[name]
+    const id = env[name]?.trim()
     if (id) return { env: name, id, source: "env" }
   }
   return typeof value.default === "string" && value.default.trim() ? { id: value.default, source: "config" } : {}

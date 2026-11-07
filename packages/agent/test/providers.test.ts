@@ -13063,7 +13063,9 @@ describe("server helpers", () => {
     }
   })
 
-  it("delivers state-backed Chat SDK titles once per thread across handler recreation", async () => {
+  it.each([false, true])("delivers state-backed Chat SDK titles once per thread across handler recreation, journal: %s", async (journaled) => {
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const invocations = defineAgentInvocations({ metadataContent: ["vitehub.session.title"], store: createMemoryAgentInvocationStore() })
     const state = createLibsqlAgentState({ url: "file::memory:" })
     const setThreadTitle = vi.fn(async () => undefined)
     const execute = vi.fn(({ text }: { text: string }) => `Title: ${text}`)
@@ -13079,6 +13081,7 @@ describe("server helpers", () => {
             channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
           },
           driver: { run },
+          invocations: journaled ? invocations : undefined,
           hooks: { "agent:finish": finish },
           messages: { state, stream: false, triggerHistory: "none" },
         }) as never,
@@ -13089,10 +13092,10 @@ describe("server helpers", () => {
       await expect(first(chatWebhookRequest(101, 456, "first"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
       await expect(first(chatWebhookRequest(102, 456, "second"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
       expect(run).toHaveBeenCalledTimes(2)
-      expect(execute).toHaveBeenCalledOnce()
+      expect(execute).toHaveBeenCalledTimes(journaled ? 2 : 1)
       expect(setThreadTitle).toHaveBeenCalledOnce()
       expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: first" })
-      expect(finish.mock.calls[1]![0].extensions.get("title")).toBeUndefined()
+      expect(finish.mock.calls[1]![0].extensions.get("title")).toEqual(journaled ? { title: "Title: second" } : undefined)
 
       const recreated = createHandler()
       await expect(recreated(chatWebhookRequest(103, 456, "third"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
@@ -13101,7 +13104,11 @@ describe("server helpers", () => {
       expect(setThreadTitle).toHaveBeenCalledTimes(2)
       expect(setThreadTitle).toHaveBeenNthCalledWith(1, "telegram:456", "Title: first")
       expect(setThreadTitle).toHaveBeenNthCalledWith(2, "telegram:789", "Title: other thread")
-      expect(execute).toHaveBeenCalledTimes(2)
+      expect(execute).toHaveBeenCalledTimes(journaled ? 4 : 2)
+      if (journaled) {
+        const { invocations: records } = await invocations.list()
+        expect(records.map(record => record.title).sort()).toEqual(["Title: first", "Title: second", "Title: third", "Title: other thread"].sort())
+      }
       await expect(state.get("chat:mini:channel:channel-title:telegram:456:delivered")).resolves.toBe(true)
       await expect(state.get("chat:mini:channel:channel-title:telegram:789:delivered")).resolves.toBe(true)
     } finally {
@@ -19477,6 +19484,84 @@ describe("server helpers", () => {
       await rm(stateDir, { force: true, recursive: true })
     }
   }, 40_000)
+
+  it("steers a follow-up after the inline Driver becomes ready", { timeout: 30_000 }, async () => {
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { ownedAgentInvocationControlId } = await import("../src/internal/agent-invocation-response-owner.ts")
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    const adapter = createTestChatAdapter()
+    const started = deferred<void>()
+    const readinessChecked = deferred<void>()
+    const released = deferred<void>()
+    let ready = false
+    const sendInput = vi.fn<Parameters<typeof registerAgentInvocationInputHandler>[1]["sendInput"]>(() => {
+      if (!ready) {
+        readinessChecked.resolve()
+        return "unsupported" as const
+      }
+      return "accepted" as const
+    })
+    const run = vi.fn(async (context: AgentRunContext) => {
+      const runId = ownedAgentInvocationControlId(context)
+      if (!runId) throw new Error("Expected an invocation control ID")
+      const unregister = registerAgentInvocationInputHandler(runId, {
+        sendInput,
+        get support() {
+          if (!ready) readinessChecked.resolve()
+          return { steer: ready }
+        },
+      })
+      started.resolve()
+      try {
+        await released.promise
+        return "Steered reply"
+      } finally {
+        unregister()
+      }
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state },
+        }),
+      },
+      driver: { run },
+      hooks: { "agent:finish": event => event.reply("Steered reply") },
+    })
+    // SAFETY: This fixture constructs the Agent definition expected by the route.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const pending: Promise<Response>[] = []
+    try {
+      await state.connect()
+      pending.push(handler(chatWebhookRequest(91_130), "telegram", { agentIdentity: { name: "calories" } }))
+      await withDeadline(started.promise, 10_000, "The first Driver did not start")
+      pending.push(handler(chatWebhookRequest(91_131, 456, "Use screenshots"), "telegram", { agentIdentity: { name: "calories" } }))
+      await withDeadline(readinessChecked.promise, 10_000, "The follow-up did not check steering readiness")
+      ready = true
+      await vi.waitFor(() => expect(sendInput).toHaveLastReturnedWith("accepted"))
+      await expect(pending[1]).resolves.toMatchObject({ status: 200 })
+      expect(sendInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.objectContaining({
+            parts: expect.arrayContaining([expect.objectContaining({ type: "text", text: "Use screenshots" })]),
+          }),
+        }),
+        { mode: "steer" },
+      )
+      expect(run).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+      released.resolve()
+      await Promise.all(pending)
+      expect(run).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledExactlyOnceWith("telegram:456", { markdown: "Steered reply" })
+    } finally {
+      released.resolve()
+      await Promise.allSettled(pending)
+      await state.disconnect()
+    }
+  })
 
   it("serializes overlapping inline steering submissions", async () => {
     const { defineAgent } = await import("../src/index.ts")

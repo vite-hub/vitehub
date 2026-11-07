@@ -1,3 +1,5 @@
+import { readEnv } from "@vite-hub/internal/env"
+
 import { isMaskedBlobRuntimeValue } from "./config.ts"
 import { resolveBlobViteConfig } from "./vite-config.ts"
 
@@ -31,6 +33,7 @@ export function inspectBlobResources(
       })
     }
     else if (store.driver === "vercel-blob") {
+      const storeId = readEnv(env, "BLOB_STORE_ID")
       resources.push({
         definition: storeName,
         host: "vercel",
@@ -38,9 +41,9 @@ export function inspectBlobResources(
         owner: "blob",
         ...(!isMaskedBlobRuntimeValue(store.token)
           ? { source: "config" }
-          : !store.tokenFromConfig && env.BLOB_STORE_ID
-            ? { env: "BLOB_STORE_ID", id: env.BLOB_STORE_ID, source: "env" }
-            : env.BLOB_READ_WRITE_TOKEN
+          : !store.tokenFromConfig && storeId
+            ? { env: "BLOB_STORE_ID", id: storeId, source: "env" }
+            : readEnv(env, "BLOB_READ_WRITE_TOKEN")
               ? { env: "BLOB_READ_WRITE_TOKEN", source: "env" }
               : { note: "Vercel sets `BLOB_STORE_ID` for the store that is connected to the project. Off Vercel, set `BLOB_READ_WRITE_TOKEN`." }),
       })
