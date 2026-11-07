@@ -30,6 +30,8 @@ import type { ConfigEnv, Plugin, PluginOption, ResolvedConfig, UserConfig } from
 import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.ts"
 import { resolveConsoleSections } from "../src/console/internal.ts"
 
+// Nuxt's Nitro 2 receives this module after every other Nitro module.
+const injectSourcemapsModule = expect.objectContaining({ name: "vite-hub/nitro-inject-sourcemaps" })
 const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const kvCacheDriver = fileURLToPath(import.meta.resolve("vite-hub/_internal/kv/runtime/nitro-cache"))
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
@@ -127,6 +129,7 @@ import { optionalOwnerImportsPlugin } from "../src/internal/owner-modules.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
+  const nitroInitHooks: Array<(instance: { options: { handlers: Array<{ handler: string, route: string, middleware?: boolean }>, output: { serverDir: string } }, hooks: { hook: (name: string, callback: () => Promise<void>) => void } }) => void> = []
   const componentsExtendHooks: Array<(components: Array<{ pascalName: string, filePath: string }>) => Promise<void>> = []
   const templatesGeneratedHooks: Array<(app: { components: Array<{ pascalName: string, filePath: string }> }) => Promise<void>> = []
   const builderWatchHooks: Array<(event: string, path: string) => Promise<void>> = []
@@ -138,11 +141,14 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const devtoolsCustomTabsHooks: Array<(tabs: unknown[]) => void> = []
   const iconHooks: Array<(icons: Set<string>) => void> = []
   const modulesDoneHooks: Array<() => void> = []
+  const buildBeforeHooks: Array<() => void> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
-    hook(name: "components:extend" | "app:templatesGenerated" | "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "modules:done" | "nitro:config" | "vite:serverCreated", callback: (() => void) | (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
-      if (name === "icon:clientBundleIcons") iconHooks.push(callback as (icons: Set<string>) => void)
+    hook(name: "nitro:init" | "components:extend" | "app:templatesGenerated" | "build:before" | "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "modules:done" | "nitro:config" | "vite:serverCreated", callback: (typeof nitroInitHooks)[number] | (() => void) | (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
+      if (name === "nitro:init") nitroInitHooks.push(callback as (typeof nitroInitHooks)[number])
+      else if (name === "icon:clientBundleIcons") iconHooks.push(callback as (icons: Set<string>) => void)
       else if (name === "modules:done") modulesDoneHooks.push(callback as () => void)
+      else if (name === "build:before") buildBeforeHooks.push(callback as () => void)
       else if (name === "components:extend") componentsExtendHooks.push(callback as (typeof componentsExtendHooks)[number])
       else if (name === "app:templatesGenerated") templatesGeneratedHooks.push(callback as (typeof templatesGeneratedHooks)[number])
       else if (name === "listen") listenHooks.push(callback as (typeof listenHooks)[number])
@@ -182,10 +188,12 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
     },
   }
   return {
+    buildBeforeHooks,
     closeHooks,
     componentsExtendHooks,
     listenHooks,
     nitroConfigHooks,
+    nitroInitHooks,
     nuxt,
     viteServerCreatedHooks,
     async runComponentScan(components: Array<{ pascalName: string, filePath: string }>) {
@@ -921,7 +929,28 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare", sandboxTask: true }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
-    expect(nitroConfig.modules).toEqual([existingModule, nitroModule])
+    expect(nitroConfig.modules).toEqual([existingModule, nitroModule, injectSourcemapsModule])
+  })
+
+  it.each([false, true])("starts a bundle session before each Nuxt production build (retained plugin: %s)", async (retained) => {
+    const startBuild = vi.fn()
+    const nitroModule = { name: "@vite-hub/bundle/nitro", setup: vi.fn() }
+    const plugin = {
+      name: "@vite-hub/bundle/vite",
+      api: { startBuild },
+      nitro: nitroModule,
+    }
+    mocks.vitehub.mockReturnValue([{ ...plugin, api: { startBuild: retained ? vi.fn() : startBuild } }])
+    const { nuxt, buildBeforeHooks, runNitroConfigHook } = createNuxt(false, retained ? [plugin] : [])
+    await viteHubNuxtModule({ bundle: true, preset: "cloudflare" }, nuxt)
+    const config: Record<string, unknown> = {}
+    await runNitroConfigHook(config)
+    expect(config.modules).toContain(nitroModule)
+    expect(startBuild).not.toHaveBeenCalled()
+    expect(buildBeforeHooks).toHaveLength(1)
+    for (const hook of buildBeforeHooks) hook()
+    for (const hook of buildBeforeHooks) hook()
+    expect(startBuild).toHaveBeenCalledTimes(2)
   })
 
   it("finalizes Sandbox Wrangler config after every Nuxt replay contributor", async () => {
@@ -3086,11 +3115,16 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       await viteHubNuxtModule({ console: false, preset, realtime }, nuxt)
       expect(nitroOptions(nuxt).preset).toBe(expectedPreset)
       expect(nuxt.options.vite).toHaveProperty(VITEHUB_NITRO_MAJOR_VERSION, major)
-      await runNitroConfigHook({ ...nitroOptions(nuxt) })
+      const config: Record<string, unknown> = { ...nitroOptions(nuxt) }
+      await runNitroConfigHook(config)
+      await runNitroConfigHook(config)
       expect(mocks.sandboxTaskHook).toHaveBeenCalledWith(expect.objectContaining({
         [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
         [VITEHUB_NITRO_MAJOR_VERSION]: major,
       }), expect.anything())
+      // Only Nitro 2 bundles with Rollup and `@rollup/plugin-inject`.
+      const injectModules = (Array.isArray(config.modules) ? config.modules : []).filter(module => isTestRecord(module) && module.name === "vite-hub/nitro-inject-sourcemaps")
+      expect(injectModules).toHaveLength(major === 2 ? 1 : 0)
     }
     finally {
       await rm(root, { recursive: true, force: true })
@@ -3522,7 +3556,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       ownerPlugin: true,
       externals: { inline: ["vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot] },
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
-      modules: ["agent-module"],
+      modules: ["agent-module", injectSourcemapsModule],
       preset: "cloudflare_module",
       queues: {
         handlers: [{ handler: "custom-server/queues/email.ts" }],
@@ -3976,8 +4010,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     const { nuxt } = createNuxt()
     const githubToken = { source: "GITHUB_TOKEN" }
     const appName = { source: "PUBLIC_APP_NAME" }
-    // SAFETY: This fixture extends the mutable Vite options with ViteHub's Env declaration.
-    ;(nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }).env = {
+    // SAFETY: This fixture uses partial Env declarations to exercise type preparation without validation.
+    ;(nuxt.options.vite as { env?: Record<string, unknown> }).env = {
       public: { appName },
     }
 
@@ -4233,8 +4267,8 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
 
   it("replaces existing Env array declarations instead of concatenating data values", async () => {
     const { nuxt } = createNuxt()
-    // SAFETY: This fixture extends the mutable Vite options with ViteHub's Env declaration.
-    const vite = nuxt.options.vite as typeof nuxt.options.vite & { env?: Record<string, unknown> }
+    // SAFETY: This fixture uses array data to exercise Env merging without declaration validation.
+    const vite = nuxt.options.vite as { env?: Record<string, unknown> }
     vite.env = { public: { regions: ["old"] } }
 
     await viteHubNuxtModule(
@@ -4727,7 +4761,7 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     await runNitroConfigHook(nitroConfig)
 
     expect(nitroConfig).toMatchObject({
-      modules: ["first", "second"],
+      modules: ["first", "second", injectSourcemapsModule],
     })
   })
 
@@ -4798,6 +4832,62 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
     expect(externals.inline).toEqual(["consumer-package"])
     if (noExternals === undefined || Array.isArray(noExternals)) expect(nitroConfig).not.toHaveProperty("noExternals")
     else expect(nitroConfig.noExternals).toBe(noExternals)
+  })
+
+  it.each([
+    { incomingNoExternals: undefined, replayList: false },
+    { incomingNoExternals: false, replayList: false },
+    { incomingNoExternals: false, replayList: true },
+    { incomingNoExternals: true, replayList: true },
+  ])("keeps required Nitro 3 inlining with policy $incomingNoExternals (replayList: $replayList) and H3 2", async ({ incomingNoExternals, replayList }) => {
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-nuxt-nitro3-externals-"))
+    const writePackage = async (directory: string, manifest: object) => {
+      await mkdir(directory, { recursive: true })
+      await writeFile(resolve(directory, "package.json"), JSON.stringify(manifest))
+    }
+    try {
+      const nuxtRoot = resolve(root, "node_modules/nuxt")
+      const builderRoot = resolve(nuxtRoot, "node_modules/@nuxt/nitro-server")
+      await writePackage(nuxtRoot, { name: "nuxt", dependencies: { "@nuxt/nitro-server": "5.0.0" } })
+      await writePackage(builderRoot, { name: "@nuxt/nitro-server", dependencies: { nitro: "3.0.261102-rc" } })
+      await writePackage(resolve(builderRoot, "node_modules/nitro"), { name: "nitro", version: "3.0.261102-rc" })
+      mocks.vitehub.mockReturnValue(!replayList ? [] : [{
+        name: "consumer-nitro-inlining",
+        config: () => ({ nitro: { noExternals: ["effect", "@effect/platform-node"] } }),
+      }])
+      const { nuxt, runModulesDoneHook, runNitroConfigHook } = createNuxt()
+      nuxt.options.rootDir = root
+      nuxt.options.buildDir = resolve(root, ".nuxt")
+      nuxt.options.serverDir = resolve(root, "server")
+      // A module that points `h3` at nitropack's H3 1, as @nuxtjs/mcp-toolkit does.
+      const h3One = resolve(root, "node_modules/nitropack/node_modules/h3")
+      await writePackage(h3One, { name: "h3", version: "1.15.11" })
+      await writeFile(resolve(h3One, "index.cjs"), "")
+      const transpiled = /^\/app\/node_modules\/docs(?!.*node_modules)/
+      const nitroConfig: Record<string, unknown> = { noExternals: incomingNoExternals ?? ["@nuxt/", transpiled], alias: { h3: resolve(h3One, "index.cjs"), kept: "/app/kept.ts" } }
+
+      await viteHubNuxtModule({ console: false, preset: "node" }, nuxt)
+      runModulesDoneHook()
+      await runNitroConfigHook(nitroConfig)
+
+      const owned = ["vite-hub", "@vite-hub/", resolve(root, ".vitehub"), h3RuntimeRoot]
+      const inlined = incomingNoExternals === undefined ? ["@nuxt/", transpiled] : []
+      const expectedNoExternals = incomingNoExternals === true
+        ? true
+        : [...inlined, ...owned]
+      expect(nitroConfig.noExternals).toEqual(expectedNoExternals)
+      await runNitroConfigHook(nitroConfig)
+      expect(nitroConfig.noExternals).toEqual(expectedNoExternals)
+      expect(nitroConfig).not.toHaveProperty("externals")
+      expect(nitroConfig.alias).not.toHaveProperty("h3")
+      expect(nitroConfig.alias).toHaveProperty("kept", "/app/kept.ts")
+      nitroConfig.noExternals = true
+      await runNitroConfigHook(nitroConfig)
+      expect(nitroConfig.noExternals).toBe(true)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it("resolves generated Workspace plugins from the project rather than server directory", async () => {
@@ -4976,4 +5066,122 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       name: "vite-hub/nuxt",
     })
   })
+
+  it("builds the Nitro 2 Cloudflare asset handler with the host H3 API", async () => {
+    mocks.vitehub.mockReturnValue([])
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-assets-h3-"))
+    try {
+      const fixture = createNuxt(false)
+      Object.assign(fixture.nuxt.options, {
+        rootDir: root,
+        buildDir: resolve(root, ".nuxt"),
+        serverDir: resolve(root, "server"),
+      })
+      await viteHubNuxtModule({ preset: "cloudflare", console: false }, fixture.nuxt)
+      const instance = {
+        options: {
+          imports: false,
+          handlers: [] as Array<{ handler: string, route: string, middleware?: boolean }>,
+          output: { serverDir: resolve(root, ".output/server") },
+        },
+        hooks: { hook: vi.fn() },
+      }
+      await fixture.runNitroConfigHook(instance.options)
+      for (const hook of fixture.nitroInitHooks) hook(instance)
+      const handler = instance.options.handlers.at(-1)!.handler
+      const plugins = (instance.options as { rollupConfig?: { plugins: Array<{ name: string, resolveId?: (id: string, importer: string) => string | undefined }> } }).rollupConfig!.plugins
+      const resolver = plugins.find(plugin => plugin.name === "vite-hub/nitro-h3")!
+      const h3 = resolver.resolveId?.("h3", handler) ?? fileURLToPath(import.meta.resolve("h3-v1"))
+      const bundle = await build({
+        entryPoints: [handler], bundle: true, write: false, platform: "node", format: "esm",
+        // Apply ViteHub's resolver before falling back to Nitro 2's host H3, including with auto-imports off.
+        alias: { h3 },
+      })
+      const { default: serve } = await import(
+        `data:text/javascript;base64,${Buffer.from(bundle.outputFiles![0]!.text).toString("base64")}`,
+      )
+      const { createApp, toWebHandler } = await import("h3-v1")
+      const fetch = vi.fn(async () => new Response("static page"))
+      const app = createApp().use(event => { event.context.cloudflare = { env: { ASSETS: { fetch } } } }).use(serve)
+      const response = await toWebHandler(app)(new Request("https://docs.test/guide/"))
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe("static page")
+      expect(fetch).toHaveBeenCalledOnce()
+      expect(fetch.mock.calls[0]).toEqual([expect.objectContaining({ url: "https://docs.test/guide/" })])
+    }
+    finally { await rm(root, { recursive: true, force: true }) }
+  })
+
+  it("serves Cloudflare assets after middleware and writes the deploy pointer beside the project config", async () => {
+    mocks.vitehub.mockReturnValue([]);
+    const root = await mkdtemp(resolve(tmpdir(), "vitehub-assets-"));
+    try {
+      for (const [name, manifest] of Object.entries({
+        nuxt: { name: "nuxt", dependencies: { "@nuxt/nitro-server": "5.0.0" } },
+        "@nuxt/nitro-server": { name: "@nuxt/nitro-server", dependencies: { nitro: "3.0.0" } },
+        nitro: { name: "nitro", version: "3.0.0" },
+      })) {
+        await mkdir(resolve(root, "node_modules", name), { recursive: true });
+        await writeFile(
+          resolve(root, "node_modules", name, "package.json"),
+          JSON.stringify(manifest),
+        );
+      }
+      await mkdir(resolve(root, "docs"));
+      await writeFile(resolve(root, "wrangler.jsonc"), '{ "name": "fixture" }');
+      const fixture = createNuxt();
+      Object.assign(fixture.nuxt.options, {
+        rootDir: resolve(root, "docs"),
+        buildDir: resolve(root, "docs/.nuxt"),
+        serverDir: resolve(root, "docs/server"),
+      });
+      await viteHubNuxtModule({ preset: "cloudflare", console: false }, fixture.nuxt);
+      const callbacks = new Map<string, () => Promise<void>>();
+      const instance = {
+        options: {
+          handlers: [{ handler: "application.mjs", route: "/**", middleware: true }],
+          output: { serverDir: resolve(root, "docs/dist/server") },
+        },
+        hooks: {
+          hook: (name: string, callback: () => Promise<void>) => {
+            callbacks.set(name, callback);
+          },
+        },
+      };
+      await fixture.runNitroConfigHook(instance.options);
+      for (const hook of fixture.nitroInitHooks) hook(instance);
+      const handler = instance.options.handlers.at(-1)!.handler;
+    expect(handler).toMatch(/cloudflare-assets\.mjs$/);
+      expect(instance.options.handlers[0]?.handler).toBe("application.mjs");
+      expect(await readFile(handler, "utf8")).toContain('from "nitro"');
+      const bundle = await build({
+        entryPoints: [handler],
+        bundle: true,
+        write: false,
+        platform: "node",
+        format: "esm",
+        alias: { nitro: fileURLToPath(import.meta.resolve("h3")) },
+      });
+      const { default: serve } = await import(
+        `data:text/javascript;base64,${Buffer.from(bundle.outputFiles![0]!.text).toString("base64")}`
+      );
+      const fetch = vi.fn(async () => new Response("static page"));
+      const request = new Request("https://docs.test/guide/");
+      Object.assign(request, { runtime: { cloudflare: { env: { ASSETS: { fetch } } } } });
+      expect(await (await serve({ req: request })).text()).toBe("static page");
+      fetch.mockResolvedValueOnce(new Response("missing", { status: 404 }));
+      expect(await serve({ req: request })).toBeUndefined();
+      fetch.mockClear();
+      expect(await serve({ req: new Request(request, { method: "POST" }) })).toBeUndefined();
+      expect(fetch).not.toHaveBeenCalled();
+      await mkdir(instance.options.output.serverDir, { recursive: true });
+      await writeFile(resolve(instance.options.output.serverDir, "wrangler.json"), "{}");
+      await callbacks.get("compiled")!();
+      expect(
+        JSON.parse(await readFile(resolve(root, ".wrangler/deploy/config.json"), "utf8")),
+      ).toEqual({ configPath: "../../docs/dist/server/wrangler.json" });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 })

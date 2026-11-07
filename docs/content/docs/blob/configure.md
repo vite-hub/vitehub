@@ -25,11 +25,30 @@ export default defineConfig({
 | Shape | Description |
 | --- | --- |
 | `blob: false` | Disables Blob runtime configuration. |
-| `blob: BlobStoreConfig` | Configures one Default Blob Store with a `driver` and its provider options. Without a driver, ViteHub infers Cloudflare R2, Netlify Blobs, Vercel Blob, or local filesystem storage from the host and runtime env. |
+| `blob: BlobStoreConfig` | Configures one Default Blob Store with a `driver` and its provider options. Without a driver, ViteHub infers Cloudflare R2, Netlify Blobs, Vercel Blob, or local filesystem storage from the host and runtime env. In `vite dev`, an inferred store stays local unless it sets `remote: true`. See [Use the real store in development](#use-the-real-store-in-development). |
 | `blob: { stores: Record<string, BlobStoreConfig> }` | Defines named Blob Stores. `stores.default` is required. |
 | `blob: { serve: false }` | Disables Blob route generation. This is the default. |
 | `blob: { serve: true }` | Generates an opt-in Nitro route at `/api/_vitehub/blob/**` for serving the Default Blob Store. |
 | `blob: { serve: { route?, store?, publicBaseUrl?, headers?, authorize?, anonymous? } }` | Generates an opt-in Nitro route. `route` defaults to `/api/_vitehub/blob`, `store` defaults to `default`, `publicBaseUrl` changes generated public URLs, and `headers` adds static response headers. `authorize: true` requires a signed-in Auth session. `anonymous: true` also sends signed-out requests to the `authorize` export. |
+
+### Use the real store in development
+
+`vite dev` keeps Blob local by default. When ViteHub infers Vercel Blob for a store without a `driver`, from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel preset, `vite dev` uses the local `fs` driver in `.vitehub/data/blob` instead. On the Cloudflare preset, a store without a `driver` uses the R2 binding of the dev runner when it has one, because that binding is a local emulation. Without a binding, for example on Nitro's default Node dev runner, it uses the local `fs` driver.
+
+Set `remote: true` to use the real store in `vite dev`:
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [hubBlob()],
+  blob: { remote: true },
+})
+```
+
+::warning
+Writes from `vite dev` then change real data. On first use, the dev server prints `Blob store "default" is remote`, and `vitehub inspect definitions --kind blob` shows `Development: Remote`.
+::
+
+`remote` changes only `vite dev`. Builds ignore it. A store with an explicit `driver` uses that driver in `vite dev`, with or without `remote`, because you selected it. On a `cloudflare-r2` store, `remote: true` makes `vite dev` use the real bucket through the R2 API and the HTTP credentials, not the local binding. In `blob.stores`, set `remote` on each named store. A value that is not a boolean fails with `BLOB_C0017`. `remote: true` on a store that uses the local `fs` driver fails with `BLOB_C0018`.
 
 ### Protect served objects
 
@@ -178,7 +197,7 @@ Filesystem storage is for local or single-process use. It does not become durabl
 | `defaultUrlExpiresIn` | `number` | Files SDK default | Sets the default signed URL lifetime in seconds. |
 | `publicBaseUrl` | `string` | None | Uses a public or CDN base URL for objects instead of signed URLs when supported. |
 
-The runtime binding takes precedence. HTTP credentials are used when no active binding exists.
+The runtime binding takes precedence. HTTP credentials are used when no active binding exists. In `vite dev`, a store that the Cloudflare preset infers uses the local `fs` driver instead of the HTTP credentials. See [Use the real store in development](#use-the-real-store-in-development).
 
 ### Vercel Blob
 
@@ -188,9 +207,9 @@ The runtime binding takes precedence. HTTP credentials are used when no active b
 | `access` | `'private' \| 'public'` | `'public'` | Sets the store-level access policy. A `blob.put()` call can override it. |
 | `allowOverwrite` | `boolean` | `true` | Allows writes to replace an existing pathname. |
 | `downloadTimeoutMs` | `number` | Provider default | Sets the download timeout in milliseconds. |
-| `token` | `string` | `BLOB_READ_WRITE_TOKEN` | Supplies the Vercel Blob token. ViteHub resolves masked build-time values again at runtime. |
+| `token` | `string` | OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN` | Supplies a Vercel Blob read-write token. Without it, ViteHub uses Vercel OIDC when `BLOB_STORE_ID` is set, and `BLOB_READ_WRITE_TOKEN` otherwise. |
 
-Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Other configured tokens stay unchanged.
+Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Configured tokens always take precedence over OIDC. Read [Vercel Blob credentials](/docs/guides/vercel-blob#create-the-store-and-connect-it).
 
 ### Netlify Blobs
 

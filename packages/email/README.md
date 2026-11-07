@@ -142,18 +142,19 @@ Captured messages are cloned before storage. `clear()` empties the mailbox and r
 
 In `vite dev`, `hubEmail()` wraps the provider driver with a development outbox. Each `email.send()` call records the headers, recipients, subject, text and HTML bodies, attachment metadata, provider name, and delivery result in the memory of the server runtime. Build output never contains the outbox.
 
-By default the outbox records each message and then delivers it through the provider. Pending deliveries appear as Sending. Each development runtime has separate messages, limits, and outbox IDs. Configure it with `outbox`:
+By default a dev send stays in the outbox. The provider gets no request, and `email.send()` returns an `outbox-<n>` id with `driver: "outbox"`. Set `remote: true` to send real email from `vite dev`: the outbox records each message and then sends it through the provider. Pending sends appear as Sending. The first remote send prints `` [vitehub] Email is remote: `vite dev` sends real email through <provider>. `` Builds ignore `remote`. Each development runtime has separate messages, limits, and outbox IDs.
 
 ```ts
 hubEmail({
   driver: "resend",
   options: { apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }) },
-  // Record messages without a provider request. Keep the newest 100 messages.
-  outbox: { deliver: false, limit: 100 },
+  // Send real email from `vite dev`. Keep the newest 100 messages.
+  remote: true,
+  outbox: { limit: 100 },
 })
 ```
 
-`limit` defaults to `50` and accepts 1 to 1000. `outbox: false` disables the outbox. A restart clears it. Header and metadata values with secret names, and credentials in delivery errors, are redacted. Message bodies are kept as rendered.
+`limit` defaults to `50` and accepts 1 to 1000. `outbox: false` disables the outbox and needs `remote: true`; without it, `vite dev` fails with `EMAIL_REMOTE_REQUIRED`. `remote` that is not a boolean fails with `EMAIL_INVALID_REMOTE`. A restart clears it. Header and metadata values with secret names, and credentials in delivery errors, are redacted. Message bodies are kept as rendered.
 
 Read the outbox from a running Development Server, or render a template without sending it. The commands run the `email.outbox-list`, `email.outbox-show`, `email.outbox-clear`, and `email.preview` operations, which the Console and agents can also run:
 
