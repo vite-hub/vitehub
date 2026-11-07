@@ -19,6 +19,8 @@ export interface DocsPage {
   description: string | null
   /** Text under the heading: `tagline`, else `description`. */
   tagline: string | null
+  /** A short label above the title, from the `eyebrow` field. */
+  eyebrow: string | null
   /** Inline Markdown at the end of the page. The page route returns it parsed. */
   credits: string | null
   /** Search words besides the page's own text. */

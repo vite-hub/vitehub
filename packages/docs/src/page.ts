@@ -47,6 +47,7 @@ export function docsPageOf(frontmatter: DocsPageFrontmatter, at: { id: string, p
     sourceTitle: frontmatter.title,
     description: frontmatter.description ?? null,
     tagline: frontmatter.tagline ?? frontmatter.description ?? null,
+    eyebrow: frontmatter.eyebrow ?? null,
     credits: frontmatter.credits?.trim() || null,
     keywords: (typeof frontmatter.keywords === "string" ? frontmatter.keywords.split(",") : frontmatter.keywords ?? []).map(word => word.trim()).filter(Boolean),
     icon: frontmatter.icon ?? null,
