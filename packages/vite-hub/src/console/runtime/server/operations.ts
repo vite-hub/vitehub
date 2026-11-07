@@ -276,6 +276,16 @@ const invocationsWorkspace = defineConsoleOperation({
   section: "agents",
 })
 
+const workspacesFiles = defineConsoleOperation({
+  cli: { namespace: "workspaces", positional: ["name"] },
+  description: "Read the files, refs, and revisions of one Workspace, and its changes since main.",
+  input: v.strictObject({ cursor: optionalText, name: v.pipe(text, v.minLength(1)), path: optionalText, ref: optionalText, revision: optionalText }),
+  kind: "read",
+  name: "workspaces.files",
+  run: async (input, context) => (await import("./workspace-files.get.ts")).default(legacyEvent("workspace-files", "GET", { query: input }, context)),
+  section: "workspaces",
+})
+
 const logsList = defineConsoleOperation({
   description: "Read structured events from the connected log source.",
   input: v.strictObject({ text: optionalText, level: v.optional(v.picklist(["debug", "info", "warn", "error"])), service: optionalText, cursor: optionalText, limit: optionalCount }),
@@ -394,6 +404,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   invocationsGet,
   invocationsList,
   invocationsWorkspace,
+  workspacesFiles,
   logsList,
   mediaAction,
   projectGet,

@@ -141,6 +141,7 @@ const consoleRoutes: Record<string, ConsoleRoute> = {
   "status": { operation: "status.get", strings: ["agent"] },
   "logs": { operation: "logs.list", numbers: ["limit"], strings: ["text", "level", "service", "cursor"] },
   "usage": { operation: "usage.get", strings: ["agent", "cursor", "search", "status", "window"] },
+  "workspace-files": { operation: "workspaces.files", strings: ["cursor", "name", "path", "ref", "revision"] },
 }
 
 function first(value: string | string[] | undefined): string | undefined {
