@@ -17,6 +17,7 @@ icon: i-lucide-circle-alert
 - **A Workspace is read every 5 seconds.** Each server instance reads the head of `published` at most once every 5 seconds, so another instance can show the old translations for up to 5 seconds after a publish.
 - **The catalog route ignores the app base URL.** The browser reads `/_vitehub/i18n/<locale>.json` from the origin root.
 - **`publish()` publishes every changed draft.** It does not pin the drafts that a person reviewed. A save that comes in during a publish can go out with it.
+- **Rich-text validation.** `save()` accepts at most 256 distinct numeric tag sequences at each step of expanding ICU branches, in both the source and the translation. Equal tag sequences count once. A message that exceeds this limit returns `I18N_INVALID_TRANSLATION` before any draft is saved. Split it into smaller messages.
 - **Memory on the server.** The server loads the compiled messages of every locale when it starts.
 - **Locale matching.** A locale matches by its full tag, then by its language. The first configured locale with the same language wins. With `["en", "pt-BR", "pt-PT"]`, a request for `pt` gets `pt-BR`.
 - **Top-level messages.** A `t` call at the top level of a module runs before any request and before the page picks a locale. Use [`msg` and `translate()`](/docs/i18n/server-api#msg-and-translate) there.
@@ -39,7 +40,7 @@ The app builds the server with Nitro 2. i18n needs Nitro 3, which runs each requ
 
 ### I18N_INVALID_TRANSLATION
 
-`useTranslations().save()` or the `i18n_save_translation` Agent tool got a translation that is not valid ICU MessageFormat, or that does not have the same `{placeholders}`, plural arguments, and `<0>` tags as the source text. Nothing was saved. Fix the translation and save it again. Plural forms are text, so `one {Artículo}` may differ from `one {Item}`.
+`useTranslations().save()` or the `i18n_save_translation` Agent tool got a translation that is not valid ICU MessageFormat, that does not have the same `{placeholders}`, plural arguments, and `<0>` tags as the source text, or whose source or translation exceeds the rich-text validation limit above. Nothing was saved. Fix the translation or split the message and save it again. Plural forms are text, so `one {Artículo}` may differ from `one {Item}`.
 
 ### I18N_NO_WORKSPACE
 

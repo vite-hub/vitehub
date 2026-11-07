@@ -428,6 +428,22 @@ describe("the browser with a Workspace", () => {
 })
 
 describe("missing translations for Agents", () => {
+  const richTextChoices = (count: number, branching: boolean) => Array.from({ length: count }, (_, index) =>
+    `{choice${index}, select, one {${branching ? "<0/>" : "<0/><1/>"}} other {${branching ? "<1/>" : "<0/><1/>"}}}`).join(" ")
+
+  it.each(["source", "translation", "both"] as const)("bounds rich-text branch expansion in the %s", async (side) => {
+    const store = memoryWorkspace()
+    installI18nServer({ hooks: { hook: () => undefined } }, {
+      config,
+      messages: {},
+      current: () => undefined,
+      workspace: { name: "translations", open: () => store.workspace, clientIds: null, interval: 0 },
+    })
+    const [error] = await useTranslations().save({ locale: "es", source: richTextChoices(40, side !== "translation"), translation: richTextChoices(40, side !== "source") })
+    expect(error).toMatchObject({ code: "I18N_INVALID_TRANSLATION", why: expect.stringContaining("256") })
+    expect(store.heads.size).toBe(0)
+  })
+
   it.each([
     ["Click <0>here</0>", "Haz clic <0>aquí"],
     ["Click <0>here</0>", "Haz clic aquí</0>"],
@@ -458,6 +474,8 @@ describe("missing translations for Agents", () => {
     ["Click <0><1>here</1></0>", "Haz clic <0><1>aquí</1></0>"],
     ["{count, plural, one {<0>Item</0>} other {<0>Items</0>}}", "{count, plural, one {<0>Artículo</0>} many {<0>Artículos</0>} other {<0>Artículos</0>}}"],
     ["<0>{count, plural, one {Item} other {Items}}</0>", "{count, plural, one {<0>Artículo} other {<0>Artículos}}</0>"],
+    [richTextChoices(8, true), richTextChoices(8, true)],
+    [richTextChoices(40, false), richTextChoices(40, false)],
   ])("saves valid rich-text tags across ICU branches: %s → %s", async (source, translation) => {
     const store = memoryWorkspace()
     installI18nServer({ hooks: { hook: () => undefined } }, {
