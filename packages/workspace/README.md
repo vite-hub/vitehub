@@ -223,7 +223,16 @@ before any call, so `vitehub push --dry-run` commits nothing.
 Checkout folders must be separate: they cannot share a folder or contain one another.
 On Windows and macOS, folder names that differ only in case are one folder.
 Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components, in any letter
-case, are excluded from pulls, status, and pushes; their remote files stay unchanged.
+case and with any trailing dots or spaces, are excluded from pulls, status, and pushes;
+their remote files stay unchanged.
+One push is one `workspace.commit` call of at most 4 MiB, which fits the request body
+limit of every host (Vercel Functions: 4.5 MB). A larger push fails with
+`WORKSPACE_CHECKOUT_TOO_LARGE` before the call and names the largest files. A pull reads
+all changes in one response; on Vercel, keep it below 4.5 MB.
+Pulls replace files through a rename, so a hard link to an old file keeps its content.
+A symbolic link at `vitehub.lock` fails. Commands in one project can run at the same time:
+each one rewrites only its own Workspace entries of `vitehub.lock`, under a short
+`vitehub.lock.lock` file.
 Commands reject existing symbolic links in the checkout folder and its ancestors
 inside the project. These checks do not isolate files from another process that can
 replace paths during an operation. Use an OS or container boundary for that isolation.
