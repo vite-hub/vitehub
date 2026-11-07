@@ -117,7 +117,7 @@ function importsModule(specifier: string, module: string): boolean {
 }
 
 /** Static imports, re-exports, dynamic imports, and `require` calls. Comments can match, which only makes `remove` stricter. */
-const specifierPattern = /\b(?:from|import|require)\s*\(?\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\r\n]*)\s*)*(["'])([^"'\r\n]+)\1/gu
+const specifierPattern = /\b(?:from|import|require)\s*\(?\s*(?:(?:\/\*[\s\S]*?\*\/|\/\/[^\r\n]*)\s*)*(?:(["'])([^"'\r\n]+)\1|`((?:(?!\$\{)[^`\\])+)`)/gu
 const sourceFile = /\.(?:[cm]?[jt]sx?|vue)$/iu
 const declarationFile = /\.d\.[cm]?[jt]sx?$/iu
 
@@ -244,7 +244,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     if (starters.has(path) && !args.keepFiles) continue
     const content = await readFile(file, "utf8")
     for (const match of content.matchAll(specifierPattern)) {
-      const specifier = match[2]!
+      const specifier = (match[2] ?? match[3])!
       imported.add(packageName(specifier))
       for (const [module, id] of modules) {
         if (!importsModule(specifier, module)) continue

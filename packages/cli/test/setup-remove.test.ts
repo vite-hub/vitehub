@@ -215,7 +215,9 @@ describe("vitehub remove", () => {
     'import(/* webpackChunkName: "realtime" */ "@vite-hub/realtime/client")',
     'import(// load the client\n "@vite-hub/realtime/client")',
     'require(/* client */ "@vite-hub/realtime/client")',
-  ])("keeps dependencies used by a commented import: %s", async (expression) => {
+    'import(`@vite-hub/realtime/client`)',
+    'import(/* @vite-ignore */ `@vite-hub/realtime/client`)',
+  ])("keeps dependencies used by a static import specifier: %s", async (expression) => {
     const root = await createProject({
       "package.json": JSON.stringify({ dependencies: { "@vite-hub/realtime": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
       "src/client.ts": `export const load = () => ${expression}\n`,
