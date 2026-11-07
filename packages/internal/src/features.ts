@@ -17,6 +17,7 @@ export const featureIds = [
   "database",
   "email",
   "env",
+  "i18n",
   "kv",
   "logs",
   "observability",
@@ -254,6 +255,14 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     id: "env",
     summary: "Typed environment variables and secrets, validated at build and at runtime.",
     title: "Env",
+  }),
+  i18n: feature({
+    docs: "/docs/i18n",
+    hosts: everywhere("lingui", "Lingui", "Messages compiled at build time, with request locales from Nitro 3."),
+    id: "i18n",
+    packages: ["@vite-hub/i18n"],
+    summary: "Messages with translation records for each locale and a locale for each request.",
+    title: "i18n",
   }),
   kv: feature({
     developmentOverrides: ["netlify"],
