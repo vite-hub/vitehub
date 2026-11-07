@@ -251,6 +251,12 @@ inside the project. These checks do not isolate files from another process that 
 replace paths during an operation. Use an OS or container boundary for that isolation.
 See [Work on a ref in a local folder](https://vitehub.dev/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
 
+A derived file, such as a translation, can record its source as `derivedFrom: { path, digest }`
+in Markdown frontmatter (`.md`, `.markdown`, `.mdx`), YAML, or JSON. `vitehub status` and
+`vitehub workspace stale <workspace>` list the derived files whose source changed. `workspace stale`
+also prints the source digest to write back as `derivedFrom.digest`. `@vite-hub/workspace/lineage` has the same checks.
+See [Derived files](https://vitehub.dev/docs/workspace/server-api#derived-files).
+
 ## JSON Collections
 
 Expose a JSON array stored in a Workspace file as a [Source Collection](https://vitehub.dev/docs/source/server-api#collections-over-an-array). `workspaceFile()` reads the file on every request and queries it in memory with `array()` from `@vite-hub/source`, so the browser gets bounded pages, `total`, and `facets` instead of the whole file.

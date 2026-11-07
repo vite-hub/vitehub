@@ -1,4 +1,5 @@
 import type { WorkspaceRevision } from "./core/types.ts"
+import type { WorkspaceStaleFile } from "./lineage.ts"
 
 /** Revisions that one `workspace.history` call returns when the caller names no limit. */
 export const workspaceHistoryDefaultLimit = 20
@@ -75,6 +76,14 @@ export interface WorkspaceChanges {
   head: WorkspaceHistoryRevision | null
   /** Files that changed since the base revision, sorted by path. Every file of the head without a base. */
   files: WorkspaceChangedFile[]
+}
+
+export interface WorkspaceStaleList {
+  workspace: string
+  ref: string
+  /** The head that the list reads, or null when the ref has no revision yet. */
+  head: string | null
+  stale: WorkspaceStaleFile[]
 }
 
 export interface WorkspaceCommitResult {
