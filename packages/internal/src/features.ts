@@ -79,6 +79,11 @@ export interface FeatureStarter {
   /** The source of a minimal Definition named `name`. */
   template: (name: string) => string
   /**
+   * Earlier versions of `template`. `vitehub remove` deletes a file only when it equals the current or an earlier
+   * starter, so keep the old template here when you change one.
+   */
+  previousTemplates?: readonly ((name: string) => string)[]
+  /**
    * Other files, relative to the project root, that already define the Definition `name` or that the owner rejects
    * next to it. The starter is not written when one exists.
    */
