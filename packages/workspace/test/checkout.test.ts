@@ -336,6 +336,33 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect(await remoteApp.read("posts/race.md")).toBe(post("Race", "Console."))
   })
 
+  it("pulls the files that the Store copied into a new ref on its first push", async () => {
+    const remoteApp = await app()
+    // As the GitHub Store does, the first commit to a ref that does not exist starts it from the files of another ref.
+    const local = await project(async (url, init) => {
+      const body = JSON.parse(String(init!.body)) as { operation: string, input: { ifHead: string | null } }
+      if (body.operation === "workspace.commit" && body.input.ifHead === null) {
+        const base = await remoteApp.edit({ put: { "posts/base.md": post("Base", "Published.") } })
+        body.input.ifHead = base.id
+        return await remoteApp.fetch(url, { ...init, body: JSON.stringify(body) })
+      }
+      return await remoteApp.fetch(url, init)
+    }, "new-ref")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await local.write("posts/local.md", post("Local", "New."))
+
+    const pushed = await local.json("push")
+
+    expect(pushed.code).toBe(0)
+    expect(pushed.value[0].pushed).toEqual(["posts/local.md"])
+    expect(pushed.value[0].after.files).toEqual([{ path: "posts/base.md", action: "added" }])
+    expect(await local.read("posts/base.md")).toBe(post("Base", "Published."))
+    const entry = (await local.lock()).workspaces.content
+    expect(entry.head).toBe(pushed.value[0].revision)
+    expect(Object.keys(entry.files).sort()).toEqual(["posts/base.md", "posts/local.md"])
+    expect((await local.status())[0]!.local).toEqual({ added: [], modified: [], deleted: [], conflicted: [] })
+  })
+
   it("refuses to write through a symbolic link, and to push while the folder has one", async () => {
     const remoteApp = await app()
     await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })

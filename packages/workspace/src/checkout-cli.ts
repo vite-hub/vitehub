@@ -81,7 +81,7 @@ function formatPull(result: WorkspacePullResult): string {
 function formatPush(result: WorkspacePushResult): string {
   const pulled = result.pull.from === result.pull.head ? "" : formatPull(result.pull)
   if (!result.revision) return `${pulled}${result.workspace}: nothing to push.\n`
-  return `${pulled}${result.workspace}: pushed ${result.pushed.length} ${result.pushed.length === 1 ? "file" : "files"} to ${result.ref} (${result.revision})\n${result.pushed.map(path => `  ${path}`).join("\n")}\n`
+  return `${pulled}${result.workspace}: pushed ${result.pushed.length} ${result.pushed.length === 1 ? "file" : "files"} to ${result.ref} (${result.revision})\n${result.pushed.map(path => `  ${path}`).join("\n")}\n${result.after ? formatPull(result.after) : ""}`
 }
 
 const usage = {
