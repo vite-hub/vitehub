@@ -112,6 +112,13 @@ describe("docs Nuxt setup", () => {
     expect(readdirSync(stylesDir)).toEqual([file])
   })
 
+  it("links the comark-ui stylesheet at runtime, below the base of the running server", async () => {
+    const options = await setupDocs({})
+    const [file] = readdirSync(join(options.buildDir, "docs/styles"))
+    expect(templates.get("docs/comark-css.mjs")?.()).toBe(`export default ${JSON.stringify(file)}\n`)
+    expect(JSON.stringify(options.app.head)).not.toContain("/_docs/")
+  })
+
   it("reports a link to the MCP endpoint when the site turns MCP off", async () => {
     const options = await setupDocs({ mcp: false })
     const publicDir = join(options.buildDir, "public")
