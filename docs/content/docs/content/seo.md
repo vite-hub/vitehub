@@ -138,7 +138,7 @@ export const content = defineContent({
 
 The sitemap lists every published document of a routable collection that has a URL. It leaves out documents with `seo.noindex`, and documents whose `seo.canonical` points to another URL. `lastmod` is the document's `updatedAt` on `published`. Drafts never reach it. Then it lists every document of a Source with a [`url`](#source-urls), without `lastmod`. A read-only Source without `url` is not in the sitemap. One sitemap holds 50,000 URLs; beyond that `content.sitemap()` throws `CONTENT_R0009` instead of returning an incomplete sitemap.
 
-ViteHub generates both routes the same way it generates `/api/content/**`: the `vitehub()` Vite plugin and the Nuxt module read the `defineContent()` call in `server/content.ts` without running it. The routes are generated when the call sets `seo` with `sitemap` or `robots` that is not literally `false`. They run on Nitro 3, on Nuxt 4 with Nitro 2, and on every preset. A server route of your own at `/sitemap.xml` or `/robots.txt` conflicts with them and fails the build; a file in `public/` is served first.
+ViteHub generates both routes the same way it generates `/api/content/**`: the `vitehub()` Vite plugin and the Nuxt module read the `defineContent()` call in `server/content.ts` without running it. The routes are generated when the call sets `seo` with `sitemap` or `robots` that is not literally `false`. They run on Nitro 3 and on every preset. A server route of your own at `/sitemap.xml` or `/robots.txt` conflicts with them and fails the build; a file in `public/` is served first.
 
 Check the output from code:
 
@@ -147,7 +147,7 @@ await content.sitemap()  // [{ collection: 'posts', id: 'hello', loc: 'https://v
 content.robots()         // 'User-agent: *\nDisallow: /_vitehub\n\nSitemap: https://vitehub.dev/sitemap.xml\n'
 ```
 
-In another server, mount `defineContentSitemapHandler(content)` and `defineContentRobotsHandler(content)` yourself. `renderContentSitemap(entries)` renders entries as sitemap XML, for example to merge them with pages that are not Content documents.
+In another server, mount `defineContentSitemapHandler(content)` and `defineContentRobotsHandler(content)` yourself. Each one returns a Fetchable route, `{ fetch(request) }`, that Nitro and H3 accept as a route handler. You can also call `fetch(request)` directly. `renderContentSitemap(entries)` renders entries as sitemap XML, for example to merge them with pages that are not Content documents.
 
 ## Console
 
