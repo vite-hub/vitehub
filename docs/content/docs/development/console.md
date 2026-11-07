@@ -348,6 +348,30 @@ The link has limits:
 
 The top of the rail shows the name and the host of the open project. Select it, or press <kbd>⌘</kbd><kbd>K</kbd> and choose **Switch project**, to see the linked projects. A dot shows if each one is reachable, needs a new token, or is unreachable. The Console loads the project that you choose, and opens it again after a reload.
 
+### Links to the hosted Console
+
+A link can open one page of a project in the hosted Console:
+
+```txt
+https://console.vitehub.dev/open?project=<app URL>&path=<Console path>
+```
+
+- `project` is the app origin, with its base path if it has one, such as `https://app.example.com/portal`. It must be `https://`, or `http://` on `localhost`, `127.0.0.1`, or `[::1]`.
+- `path` is the page in the Console, such as `/kv` or `/agents/<agent>/invocations/<id>`. It must start with one `/`. A path that starts with `/_vitehub`, as in the Console that the app serves, also works. Without `path`, the link opens the Overview.
+
+When this browser linked the project, the Console switches to it and opens the page. When it did not, the Console opens **Link project** with the app URL filled in. Select **Continue** to link the project, and the Console then opens the page. The link holds no secret. An absolute URL or a `//` path in `path` shows `Check the Console path`, so a link cannot send the browser to another site.
+
+To build the link in code, use `hostedConsoleUrl()` from `vite-hub/runtime`. It encodes both values, and throws a `TypeError` for a project URL or a path that the Console refuses:
+
+```ts
+import { hostedConsoleUrl } from 'vite-hub/runtime'
+
+hostedConsoleUrl('https://app.example.com', '/agents/support/invocations/abc')
+// https://console.vitehub.dev/open?project=https%3A%2F%2Fapp.example.com&path=%2Fagents%2Fsupport%2Finvocations%2Fabc
+```
+
+A self-hosted Console takes its origin as the third argument, such as `hostedConsoleUrl(url, '/kv', 'https://console.example.com')`.
+
 ### Where the tokens are
 
 The project list and the tokens stay in this browser, in `localStorage` of the Console origin, under the key `vitehub-console:projects`. No server keeps a copy. This has consequences:
