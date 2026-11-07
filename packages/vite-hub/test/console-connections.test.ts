@@ -227,9 +227,9 @@ describe("Connections management client", () => {
     const scopes = (missing: string[]) => ({ scopes: { declared: [], granted: [], missing } })
     expect(connectionNotices(scopes([]))).toBeUndefined()
     expect(connectionNotices(scopes([]), 0)).toBeUndefined()
-    expect(connectionNotices(scopes([]), 1)).toEqual({ count: 1, items: ["1 pending approval"], tab: "approvals" })
-    expect(connectionNotices(scopes(["mail.send"]))).toEqual({ count: 1, items: ["1 missing scope"], tab: "details" })
-    expect(connectionNotices(scopes(["a", "b"]), 3)).toEqual({ count: 5, items: ["3 pending approvals", "2 missing scopes"], tab: "approvals" })
+    expect(connectionNotices(scopes([]), 1)).toEqual({ count: 1, items: ["1 pending approval"], summary: "1 notice", tab: "approvals" })
+    expect(connectionNotices(scopes(["mail.send"]))).toEqual({ count: 1, items: ["1 missing scope"], summary: "1 notice", tab: "details" })
+    expect(connectionNotices(scopes(["a", "b"]), 3)).toEqual({ count: 5, items: ["3 pending approvals", "2 missing scopes"], summary: "5 notices", tab: "approvals" })
   })
 })
 

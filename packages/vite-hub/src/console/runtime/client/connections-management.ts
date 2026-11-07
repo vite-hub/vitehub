@@ -79,8 +79,10 @@ export function connectionNextStep(connection: Pick<ConnectionInspection, "crede
 export interface ConnectionNotices {
   /** The number of pending approvals plus missing scopes. */
   readonly count: number
-  /** One line for each fact, such as `2 pending approvals`. */
+  /** One line for each fact, such as `2 pending approvals`. The tooltip lists them. */
   readonly items: readonly string[]
+  /** The count in words, such as `3 notices`, for the short accessible name of the count button. */
+  readonly summary: string
   /** The details tab that shows the first fact. */
   readonly tab: "approvals" | "details"
 }
@@ -95,7 +97,8 @@ export function connectionNotices(connection: Pick<ConnectionInspection, "scopes
     ...missing > 0 ? [plural(missing, "missing scope")] : [],
   ]
   if (!items.length) return undefined
-  return { count: pendingApprovals + missing, items, tab: pendingApprovals > 0 ? "approvals" : "details" }
+  const count = pendingApprovals + missing
+  return { count, items, summary: plural(count, "notice"), tab: pendingApprovals > 0 ? "approvals" : "details" }
 }
 
 /** A short label for a Connection activity action. Connection tokens are stored as Env credentials. */

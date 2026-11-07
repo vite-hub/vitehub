@@ -215,8 +215,9 @@ export default defineConnection({
                   :label="connectionStatusLabel(row.original.status)"
                   :tone="connectionStatusTone(row.original.status)"
                 />
-                <!-- Pending approvals and missing scopes stay on the status line as one count. The tooltip and the
-                accessible name list them; the button opens the tab that shows them. -->
+                <!-- Pending approvals and missing scopes stay on the status line as one count. The tooltip lists
+                them and describes the button, so the accessible name only counts them. The button opens the tab
+                that shows them. -->
                 <UTooltip
                   v-if="notices(row.original)"
                   :delay-duration="150"
@@ -227,7 +228,7 @@ export default defineConnection({
                     color="warning"
                     icon="i-lucide-circle-alert"
                     :label="String(notices(row.original)?.count)"
-                    :aria-label="`Review ${notices(row.original)?.items.join(' and ')} for ${row.original.name}`"
+                    :aria-label="`Review ${notices(row.original)?.summary} for ${row.original.name}`"
                     class="h-5 gap-1 px-1.5 tabular-nums"
                     size="xs"
                     variant="soft"
