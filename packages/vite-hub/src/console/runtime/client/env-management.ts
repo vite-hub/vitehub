@@ -1,5 +1,6 @@
 import type { EnvActor, EnvPermission, EnvSecretMetadata, EnvActivity, EnvGrant } from "@vite-hub/env/bridge"
 import * as v from "valibot"
+import { projectFetch } from "./project"
 import { ConsoleNetworkError, consoleResponseError } from "./request"
 
 export const envPermissionSchema: v.GenericSchema<unknown, EnvPermission> = v.picklist(["inspect", "preview", "replace", "use"])
@@ -14,7 +15,7 @@ export async function requestEnvManagement<T extends v.BaseSchema<unknown, unkno
   const body = JSON.stringify({ ...input, path, action })
   let response: Response
   try {
-    response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body })
+    response = await projectFetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body })
   }
   catch (error) {
     if (error instanceof Error && error.name === "AbortError") throw error

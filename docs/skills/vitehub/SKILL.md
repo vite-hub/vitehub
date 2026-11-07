@@ -57,6 +57,7 @@ Read only the references whose conditions match, but read them before writing co
 | Capability, tool, secret, rate limit, telemetry, or other granted authority | [Capabilities and authority](references/capabilities-authority.md) |
 | Schedule, Workflow, orchestration retry, idempotency, or terminal state | [Schedules, Workflows, and Invocations](references/schedules-workflows-invocations.md) |
 | Sandbox, trusted host, isolation, required command, host link, or deployment | [Sandboxes and hosts](references/sandboxes-hosts.md) |
+| Bundle size, startup cost, host size limits, or why a package is in the output | [Bundle size and startup cost](references/bundle.md) |
 | A proof has failed, generated state disagrees, or a runtime/host failure needs diagnosis | [Proof and recovery](references/proof-recovery.md) |
 | Looking for a complete public application pattern | [Project patterns](references/project-patterns.md) |
 
@@ -84,7 +85,7 @@ Turn features on with `vitehub add <feature>`, not by editing `vitehub({...})` b
 - Run `--dry-run` first and read the diff, then apply with `--yes`. Without a terminal, `add` writes nothing until it gets `--yes`.
 - Pass `--name <name>` for a starter Definition, such as `server/queues/<name>.ts`. It never overwrites a file.
 - Pass provider options as `--option key=value`, such as `--option email.driver=resend`.
-- Follow the exit code. `0`: done or unchanged. `2`: input is needed; run the `rerun` command it prints, or supply the options listed in `missing` with their `choices`. `3`: the host does not support the feature, or `add` cannot edit the config; for `SETUP_CONFIG_MANUAL`, paste the printed `snippet` into the `vitehub()` options by hand. For an unsupported feature, choose another host or report the boundary, because a hand-written key does not give the host the feature.
+- Follow the exit code. `0`: done or unchanged. `2`: input is needed; run the `rerun` command it prints, or supply the options listed in `missing` with their `choices`. `3`: a conflict; read the diagnostic code. For `SETUP_FILE_EXISTS`, choose another `--name` or edit the existing file by hand. For `SETUP_CONFIG_MANUAL`, paste the printed `snippet` into the `vitehub()` options by hand. For an unsupported feature, choose another host or report the boundary, because a hand-written key does not give the host the feature.
 - `vitehub remove` is not available yet. To turn a feature off, set its key to `false` in `vitehub({...})` by hand.
 
 Building is complete when every requested behavior has an implemented row and no placeholder, unused integration, implicit authority, or unowned persistence remains.

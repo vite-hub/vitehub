@@ -30,7 +30,7 @@ export const featureIds = [
 ] as const
 export type FeatureId = (typeof featureIds)[number]
 
-/** `dev` is `vite dev` with local providers. The others are the deployment presets. */
+/** `dev` stores default Node development support. Use `featureSupport()` with the configured preset for development lookups. */
 export const featureHosts = ["dev", "cloudflare", "vercel", "netlify", "deno", "node"] as const
 export type FeatureHost = (typeof featureHosts)[number]
 
@@ -100,6 +100,8 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   hosts: Readonly<Record<FeatureHost, HostSupport>>
   /** The starter Definition, for features with Definition files. */
   definition?: FeatureStarter
+  /** Presets that use `hosts.dev` during development instead of their deployment entry. Node always uses `hosts.dev`. */
+  developmentOverrides?: readonly DeploymentPreset[]
 }
 
 const noHostLimit = "No host limit in ViteHub."
@@ -189,6 +191,7 @@ export default defineAgent({
     title: "Browser",
   }),
   cache: feature({
+    developmentOverrides: ["cloudflare", "deno", "vercel"],
     docs: "/docs/reference/config-options",
     hosts: {
       cloudflare: native("cloudflare-kv-binding", "Workers KV", "Workers KV binding `CACHE`."),
@@ -232,7 +235,6 @@ export default defineAgent({
     docs: "/docs/development/console",
     hosts: everywhere("nitro", "Nitro"),
     id: "console",
-    implies: [{ feature: "comments" }],
     summary: "The ViteHub Console at `/_vitehub` to inspect and operate every primitive.",
     title: "Console",
   }),
@@ -253,6 +255,7 @@ export default defineDatabase({
 })
 `,
     },
+    developmentOverrides: ["deno", "netlify", "vercel"],
     devPackages: ["drizzle-kit"],
     docs: "/docs/database",
     hosts: {
@@ -261,7 +264,7 @@ export default defineDatabase({
       dev: native("sqlite", "SQLite", "Local SQLite through libSQL and Drizzle.", "single-host"),
       netlify: explicit("database.connection", "libSQL", "Use a hosted libSQL connection. No Netlify-native database driver is provided."),
       node: native("sqlite", "SQLite / libSQL", "SQLite or hosted libSQL through the selected Database connection.", "single-host"),
-      vercel: native("libsql", "libSQL / D1", "Hosted libSQL or Cloudflare D1 over authenticated HTTP."),
+      vercel: explicit("database.connection", "libSQL / D1", "Configure hosted libSQL, D1 over authenticated HTTP, or a PostgreSQL Database Definition. The default local SQLite file is not supported in Vercel functions."),
     },
     id: "database",
     packages: ["@vite-hub/database", "drizzle-orm"],
@@ -291,6 +294,7 @@ export default defineDatabase({
     title: "Env",
   }),
   kv: feature({
+    developmentOverrides: ["netlify"],
     docs: "/docs/kv",
     hosts: {
       cloudflare: native("cloudflare-kv-binding", "Workers KV", "Cloudflare Workers KV binding."),
@@ -315,7 +319,7 @@ export default defineDatabase({
     docs: "/docs/agents/observability",
     hosts: everywhere("evlog", "Evlog"),
     id: "observability",
-    packages: ["@vite-hub/agent"],
+    packages: ["@vite-hub/agent", "evlog"],
     summary: "Agent telemetry, request logs, and papercut reports through Evlog.",
     title: "Observability",
   }),
@@ -331,7 +335,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
       cloudflare: native("cloudflare", "Queues", "Cloudflare Queues bindings and consumers."),
       deno: unsupported("No Deno Queue provider is provided."),
       dev: native("local", "Local provider", "The local provider stores jobs in .vitehub/data/queue and runs them in the dev server process.", "single-host"),
-      netlify: unsupported("Netlify has no built-in Queue Provider with ViteHub's delivery contract, and `queue` has no provider option."),
+      netlify: unsupported("`vitehub({ queue: true })` has no provider option and fails on Netlify. Compose `hubQueue({ provider })` to select the Cloudflare or Vercel Queue Provider."),
       node: native("local", "Local provider", "The local provider runs jobs in the server process. Jobs survive a restart on the same disk, on one host.", "single-host"),
       vercel: native("vercel", "Vercel Queues", "Vercel Queues callbacks and runtime client."),
     },
@@ -341,6 +345,7 @@ export default defineQueue<{ id: string }>(async ({ payload }) => {
     title: "Queue",
   }),
   rateLimit: feature({
+    developmentOverrides: ["cloudflare"],
     docs: "/docs/rate-limit",
     hosts: {
       cloudflare: native("cloudflare", "Cloudflare", "Native Cloudflare Rate Limiting binding."),
@@ -362,6 +367,7 @@ export default defineRealtime({
   document: { workspace: "${name}" },
 })
 `),
+    developmentOverrides: ["cloudflare", "deno", "netlify", "vercel"],
     docs: "/docs/realtime",
     hosts: {
       cloudflare: native("cloudflare", "Durable Objects", "Cloudflare Durable Objects provide the production room authority."),
@@ -382,9 +388,9 @@ export default defineRealtime({
     hosts: {
       cloudflare: native("cloudflare", "CF Sandbox", "Cloudflare Sandbox execution provider."),
       deno: unsupported("No Deno Sandbox provider is provided."),
-      dev: native("preset", "Sandbox provider", "Development runs the Sandbox provider of the cloudflare or vercel preset."),
-      netlify: unsupported("The Netlify preset has no built-in isolated Sandbox Provider."),
-      node: unsupported("The Node preset has no built-in isolated Sandbox Provider."),
+      dev: unsupported("The default Node preset has no Sandbox Provider. Development with the Cloudflare or Vercel preset uses that preset's Sandbox."),
+      netlify: unsupported("`vitehub({ sandboxTask: true })` fails on the Netlify preset. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
+      node: unsupported("`vitehub({ sandboxTask: true })` fails on the Node preset. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
       vercel: native("vercel", "Vercel Sandbox", "Vercel Sandbox execution provider."),
     },
     id: "sandboxTask",
@@ -402,10 +408,11 @@ export default defineSchedule({
   },
 })
 `),
+    developmentOverrides: ["cloudflare", "netlify", "vercel"],
     docs: "/docs/schedule",
     hosts: {
       cloudflare: native("cloudflare", "Cron triggers", "Cloudflare scheduled events and Nitro Provider Wake."),
-      deno: unsupported("The generated cron output is not part of the deployed Nitro entrypoint. The standalone Schedule integration can generate Deno.cron output."),
+      deno: unsupported("`vitehub({ preset: \"deno\", schedule: true })` is not supported because the generated cron output is not part of the deployed Nitro entrypoint. Compose `hubSchedule({ providerOutput: \"standalone\" })` for Deno.cron wake output."),
       dev: native("local", "Local / process", "Local development runner and the explicit process runtime.", "single-host"),
       netlify: native("netlify", "Scheduled fn", "One generated Netlify scheduled function per static Schedule."),
       node: native("process", "process", "Process runtime for one long-lived process or replica. A build needs `schedule: { runtime: { driver: \"process\" } }`, or `providerOutput: false` to wake Schedules yourself.", "single-host"),
@@ -437,6 +444,7 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
     title: "Workflow",
   }),
   workspace: feature({
+    developmentOverrides: ["cloudflare", "deno", "netlify", "vercel"],
     docs: "/docs/workspace",
     hosts: {
       cloudflare: native("memory", "Artifacts / GitHub", "Memory by default, or Cloudflare Artifacts beta and GitHub for durable state.", "process-local"),
@@ -459,9 +467,20 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
   }),
 }
 
-/** How `host` supports `id`. */
-export function featureSupport(id: FeatureId, host: FeatureHost): HostSupport {
-  return features[id].hosts[host]
+/** Additional Console owners selected by its access policy and enabled Agent integration. */
+export const consoleFeaturePackages = {
+  agents: ["@libsql/client", "drizzle-orm"],
+  signIn: ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
+} as const
+
+/** How `host` supports `id`. Development requires the app's configured (or detected) deployment preset. */
+export function featureSupport(id: FeatureId, host: DeploymentPreset): HostSupport
+export function featureSupport(id: FeatureId, host: FeatureHost, preset: DeploymentPreset): HostSupport
+export function featureSupport(id: FeatureId, host: FeatureHost, preset?: DeploymentPreset): HostSupport {
+  const definition = features[id]
+  if (host !== "dev") return definition.hosts[host]
+  if (!preset) throw new Error("Development feature support requires the configured deployment preset.")
+  return definition.hosts[preset === "node" || definition.developmentOverrides?.includes(preset) ? "dev" : preset]
 }
 
 /**

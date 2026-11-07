@@ -3,6 +3,7 @@ import {
   clearActiveCloudflareEnv,
   getActiveCloudflareBinding,
   getActiveCloudflareEnv,
+  installCloudflareRequestEnv,
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
 } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -12,6 +13,7 @@ import { setServedBlobRoute } from "../served.ts"
 
 export { setBlobPhotonLoader } from "../media/photon-module.ts"
 export { setBlobSharpModule } from "../media/sharp-module.ts"
+export { setBlobRequestBodyLimit } from "../internal/host-limits.ts"
 
 import type { BlobStorage, ResolvedBlobModuleOptions } from "../types.ts"
 
@@ -39,6 +41,7 @@ export {
   clearActiveCloudflareEnv,
   getActiveCloudflareBinding,
   getActiveCloudflareEnv,
+  installCloudflareRequestEnv,
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
 }
@@ -63,7 +66,7 @@ export async function getBlobRuntimeConfig(): Promise<false | ResolvedBlobModule
         ? "cloudflare"
         : readEnv(env, "VITEHUB_HOSTING")
           || (readEnv(env, "NETLIFY") || readEnv(env, "NETLIFY_DEV") || readEnv(env, "NETLIFY_LOCAL") ? "netlify" : undefined)
-          || (readEnv(env, "BLOB_READ_WRITE_TOKEN") ? "vercel" : undefined)
+          || (readEnv(env, "BLOB_STORE_ID", "BLOB_READ_WRITE_TOKEN") ? "vercel" : undefined)
       return normalizeBlobOptions(undefined, { env, hosting }) || false
     }
   })()

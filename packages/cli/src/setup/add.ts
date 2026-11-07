@@ -1,12 +1,12 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
-import { featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { consoleFeaturePackages, featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
-import { basename, dirname, join } from "pathe"
+import { basename, dirname, join, relative, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
@@ -81,7 +81,30 @@ const booleanFeatures: readonly FeatureId[] = ["queue", "sandboxTask"]
 /** The value that turns a feature on, when `true` is not valid for its key. */
 const enabledValues: Partial<Record<FeatureId, JsonValue>> = { env: {} }
 /** Options without a default that the feature key needs. */
-const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { observability: ["service"] }
+const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { console: ["auth"], logs: ["source"], observability: ["service"] }
+
+/** Match the Auth package's file locations without loading application code. */
+function hasAuthDefinition(project: SetupProject): boolean {
+  const directories = project.serverDirs ?? (project.framework === "nuxt" ? undefined : [join(project.root, "server")])
+  if (!directories) return false
+  const candidates = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"].flatMap(extension => [
+    join(project.root, `server.auth${extension}`),
+    ...directories.map(directory => join(directory, `auth${extension}`)),
+  ])
+  return candidates.filter(file => existsSync(file)).length === 1
+}
+
+/** Keep owner packages on the running CLI's pkg.pr.new preview. */
+function installSpecifiers(packages: readonly string[]): string[] {
+  const manifest: JsonValue = JSON.parse(readFileSync(new URL(import.meta.resolve("@vite-hub/cli/package.json")), "utf8"))
+  const dependencies = isRecord(manifest) && isRecord(manifest.dependencies) ? manifest.dependencies : {}
+  const preview = Object.entries(dependencies).flatMap(([name, specifier]) => {
+    if (!name.startsWith("@vite-hub/") || typeof specifier !== "string" || !specifier.startsWith("https://pkg.pr.new/")) return []
+    const [base, ref] = specifier.split(`/${name}@`)
+    return base && ref ? [{ base, ref }] : []
+  })[0]
+  return packages.map(name => preview && name.startsWith("@vite-hub/") ? `${preview.base}/${name}@${preview.ref}` : name)
+}
 
 function invalid(message: string): Error {
   return cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${message} Usage: ${usage}` })
@@ -264,13 +287,66 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const requires: FeatureId[] = []
   let rerunnable = true
   const keep = status.features.filter(item => item.enabled === "off" && item.reason === "config" && !args.features.includes(item.id)).map(item => item.id)
+  const valueFor = (id: FeatureId): JsonValue | undefined => {
+    const current = project.config?.ok ? project.config.site.keys[id] : undefined
+    return mergeValue(current?.kind === "literal" ? current.value : undefined, args.options[id])
+  }
   // Implications and provider prerequisites need their inputs before any file can be written.
-  const inputFeatures = [...args.features, ...impliedFeatures(args.features, host, keep)]
+  // Database is mandatory for Comments and Connections.
+  const inputFeatures = [...args.features, ...impliedFeatures(args.features, host, keep.filter(id => id !== "database"))]
+  if (inputFeatures.includes("database") && keep.includes("database")) requires.push("database")
+  const requireFeature = (required: FeatureId) => {
+    for (const id of [required, ...impliedFeatures([required], host, keep.filter(id => id !== "database"))]) {
+      if (!inputFeatures.includes(id)) inputFeatures.push(id)
+      if ((id === required || keep.includes(id)) && !args.features.includes(id) && !requires.includes(id) && status.features.find(item => item.id === id)?.enabled !== "on") requires.push(id)
+    }
+  }
   for (const id of inputFeatures) {
     const support = featureSupport(id, host)
     const options = args.options[id]
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
-    const value = mergeValue(current?.kind === "literal" ? current.value : undefined, options)
+    const value = valueFor(id)
+    if (id === "connections" && isRecord(value) && value.management) requireFeature("console")
+    if (id === "observability" && isRecord(value) && value.papercuts) {
+      requireFeature("agent")
+      requireFeature("console")
+    }
+    if (id === "observability" && isRecord(value) && value.posthog) requireFeature("env")
+    if (id === "realtime" && args.name !== undefined) requireFeature("workspace")
+    if (id === "agent" && host === "deno" && isRecord(value) && value.runtime === "deno") {
+      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The Deno preset cannot deploy the Agent Deno runtime outside its Nitro entrypoint. Use the preset's Nitro runtime instead.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+    }
+    if (id === "realtime" && isRecord(value) && value.authority !== undefined) {
+      const choices = host === "cloudflare" ? ["cloudflare", "auto"] : ["memory"]
+      if (typeof value.authority !== "string" || !choices.includes(value.authority)) {
+        throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `realtime.authority must be ${choices.join(" or ")} on this preset. ${support.detail}`, feature: id, host }), { exitCode: setupExitCodes.conflict })
+      }
+    }
+    if (id === "cache" && isRecord(value) && value.driver !== undefined) {
+      const nativeDriver = { cloudflare: "cloudflare-kv-binding", deno: "deno-kv", netlify: undefined, node: "fs-lite", vercel: "vercel-runtime-cache" }[host]
+      if (value.driver !== "kv" && value.driver !== nativeDriver) {
+        throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `cache.driver must be ${nativeDriver ? `${nativeDriver} or ` : ""}kv on this preset. ${support.detail}`, feature: id, host }), { exitCode: setupExitCodes.conflict })
+      }
+    }
+    const invocations = id === "agent" && isRecord(value) ? value.invocations : undefined
+    if (host === "netlify" && invocations !== undefined && invocations !== false) {
+      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "agent.invocations requires Nitro-hosted Agents. Set invocations on each Agent Definition instead, or use agent.invocations=false.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+    }
+    if (id === "console" && host !== "node" && isRecord(value) && isRecord(value.auth) && "provider" in value.auth && value.auth.provider !== "cloudflare-access") {
+      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Inline Console Auth requires the Node deployment preset. Use a file-based Console Auth Definition on this host.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+    }
+    if (id === "console" && isRecord(value) && value.auth === "app"
+      && ((!args.features.includes("auth") && status.features.find(item => item.id === "auth")?.enabled !== "on") || !hasAuthDefinition(project))) {
+      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "console.auth=app requires enabled app Auth and a discovered Auth Definition. Set auth: true and add an Auth Definition in the application server directory, or choose console.auth=false or a Console Auth Definition.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+    }
+    // Setup never evaluates Auth callbacks. Delegate production access to an explicit server file.
+    if (id === "console" && isRecord(value) && value.auth === "app"
+      && (typeof value.authorize !== "string" || !value.authorize.trim() || !existsSync(resolve(project.root, value.authorize)))) {
+      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Adding console.auth=app requires console.authorize to name an existing server file. Create a Console authorization file and pass --option console.authorize=server/console-authorize.ts, or configure app Auth access routes and Console by hand.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+    }
+    if (invocations === "database" || (isRecord(invocations) && invocations.store === "database")) {
+      requireFeature("database")
+    }
     if (support.level === "explicit") {
       const key = support.option.slice(id.length + 1)
       if (!(options && key in options) && !setsOption(project, support.option)) {
@@ -285,25 +361,34 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       const key = field.slice(id.length + 1)
       const selected = (isRecord(value) ? value[key] : undefined) ?? defaults[id]?.[key]
       if (typeof selected !== "string" || !choice.values.includes(selected)) continue
-      if (!inputFeatures.includes(choice.requires)) inputFeatures.push(choice.requires)
-      if (!args.features.includes(choice.requires) && !requires.includes(choice.requires) && status.features.find(item => item.id === choice.requires)?.enabled !== "on") requires.push(choice.requires)
+      requireFeature(choice.requires)
     }
     if (id === "schedule" && host === "node" && current?.kind !== "expression" && !(isRecord(value) && value.providerOutput === false)) {
       if (isRecord(value) && (value.providerOutput === "nitro" || value.providerOutput === "standalone")) {
         missing.push({ choices: ["auto"], field: "schedule.providerOutput" })
         setPath(defaults.schedule ??= {}, ["providerOutput"], "auto")
       }
-      if (!isRecord(value) || value.runtime === undefined) {
+      if (!isRecord(value) || !isRecord(value.runtime) || value.runtime.driver !== "process") {
         missing.push({ choices: ["process"], field: "schedule.runtime.driver" })
         setPath(defaults.schedule ??= {}, ["runtime", "driver"], "process")
       }
     }
     for (const key of requiredOptions[id] ?? []) {
-      if (options && key in options) continue
-      if (setsOption(project, `${id}.${key}`)) continue
+      if (id === "observability" || id === "logs") {
+        const selected = isRecord(value) ? value[key] : undefined
+        if (typeof selected === "string" && selected.trim()) continue
+      }
+      else if ((options && key in options) || setsOption(project, `${id}.${key}`)) continue
       missing.push({ field: `${id}.${key}` })
-      setPath(defaults[id] ??= {}, [key], basename(project.root).toLowerCase().replace(/[^a-z0-9]+/gu, "-") || "app")
+      if (id === "observability") setPath(defaults[id] ??= {}, [key], basename(project.root).toLowerCase().replace(/[^a-z0-9]+/gu, "-") || "app")
+      else rerunnable = false
     }
+  }
+  const enabledAfter = (id: FeatureId) => inputFeatures.includes(id) || status.features.find(item => item.id === id)?.enabled === "on"
+  const agent = valueFor("agent")
+  if (inputFeatures.some(id => id === "agent" || id === "observability") && enabledAfter("observability") && enabledAfter("agent")
+    && (host === "netlify" || (isRecord(agent) && agent.runtime === "deno"))) {
+    throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Observability requires Nitro-hosted Agents. Netlify and the Agent Deno runtime are not supported.", feature: "observability", host }), { exitCode: setupExitCodes.conflict })
   }
   for (const id of Object.keys(args.options) as FeatureId[]) {
     if (!inputFeatures.includes(id)) throw invalid(`${id} is not requested or required by ${args.features.join(", ")}.`)
@@ -329,14 +414,18 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const changes: SetupChange[] = []
   const files: Planned["files"] = []
   let configFile: Planned["configFile"]
+  const serverDir = relative(project.root, project.serverDirs?.[0] ?? join(project.root, "server"))
 
   // Starter Definition files.
   if (args.name !== undefined) {
     const withStarter = args.features.filter(id => features[id].definition)
     if (!withStarter.length) throw invalid(`${args.features.join(", ")} has no Definition files, so --name has no effect. Features with Definitions: ${featureIds.filter(id => features[id].definition).join(", ")}.`)
+    if (project.framework === "nuxt" && !project.serverDirs?.length) {
+      throw new SetupAddError(cliErrorDiagnostics.SETUP_SERVER_DIR_MANUAL(), { exitCode: setupExitCodes.conflict })
+    }
     for (const id of withStarter) {
       const starter = features[id].definition!
-      const path = starter.file(args.name)
+      const path = join(serverDir, relative("server", starter.file(args.name)))
       const content = starter.template(args.name)
       const file = join(project.root, path)
       if (existsSync(file)) {
@@ -364,11 +453,23 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   // The features that this command turns on, through the config or through an implication.
   const alreadyOn = new Set(status.features.filter(item => item.enabled === "on").map(item => item.id))
   const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], host, keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
-  const install: Planned["install"] = { dev: [], prod: [] }
-  for (const id of [...addedFeatures, ...implied]) {
-    for (const name of features[id].packages) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
-    for (const name of features[id].devPackages) if (!project.declared(name, true) && !install.dev.includes(name)) install.dev.push(name)
+  const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
+  const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures])]
+  const packages = packageFeatures.flatMap(id => features[id].packages)
+  const observability = valueFor("observability")
+  if (packageFeatures.includes("observability") && isRecord(observability) && observability.posthog) packages.push("posthog-node")
+  if (enabled.has("console")) {
+    if (enabled.has("agent")) packages.push(...consoleFeaturePackages.agents)
+    const consoleValue = valueFor("console")
+    const auth = isRecord(consoleValue) ? consoleValue.auth : "app"
+    if ((isRecord(auth) && auth.provider !== "cloudflare-access") || (auth === "app" && enabled.has("auth"))) packages.push(...consoleFeaturePackages.signIn)
   }
+  const install: Planned["install"] = {
+    dev: [...new Set(packageFeatures.flatMap(id => features[id].devPackages))].filter(name => !project.declared(name, true)),
+    prod: [...new Set(packages)].filter(name => !project.declared(name, false)),
+  }
+  install.prod = installSpecifiers(install.prod)
+  install.dev = installSpecifiers(install.dev)
   const command = installCommand(project.packageManager, install.prod, install.dev)
 
   const nextSteps: string[] = []
@@ -378,7 +479,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if (support.level === "unsupported") nextSteps.push(`${id} is turned on by ${args.features.join(", ")} but is not supported on ${host}: ${support.detail} Set \`${id}: false\` to turn it off.`)
     else if (support.level === "explicit" && !setsOption(project, support.option) && !(args.options[id] && support.option.slice(id.length + 1) in args.options[id])) nextSteps.push(`${id} is turned on by ${args.features.join(", ")}. Set \`${support.option}\` on ${host}, or set \`${id}: false\`. ${support.detail}`)
   }
-  if (args.name !== undefined && args.features.includes("realtime")) nextSteps.push(`server/realtime/${args.name}.ts stores documents in the Workspace "${args.name}". Add a Workspace Definition in server/workspaces/${args.name}.ts.`)
+  if (args.name !== undefined && args.features.includes("realtime")) nextSteps.push(`${join(serverDir, "realtime", `${args.name}.ts`)} stores documents in the Workspace "${args.name}". Add a Workspace Definition in ${join(serverDir, "workspaces", `${args.name}.ts`)}.`)
   for (const id of args.features) nextSteps.push(`${features[id].title}: https://vitehub.dev${features[id].docs}`)
   nextSteps.push("Run `vitehub status` to check the result.")
 
@@ -407,6 +508,9 @@ async function applyPlan(project: SetupProject, planned: Planned, args: SetupAdd
         throw new SetupAddError(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [project.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal }), { exitCode: setupExitCodes.error })
       }
     }
+  }
+  if (planned.configFile && await readFile(join(project.root, planned.configFile.path), "utf8") !== planned.configFile.before) {
+    throw new SetupAddError(cliErrorDiagnostics.SETUP_STALE_PLAN({ file: planned.configFile.path }), { exitCode: setupExitCodes.stalePlan })
   }
   for (const file of planned.files) {
     await mkdir(dirname(join(project.root, file.path)), { recursive: true })
