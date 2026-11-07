@@ -51,7 +51,7 @@ describe("Console bundled Skills", () => {
   it("reads the exact composed file through the browser RPC client while invocation is disabled", async () => {
     install()
     vi.stubGlobal("fetch", (input: string, init?: RequestInit) => handleConsoleRpcRequest(new Request(new URL(input, "http://vitehub.local"), init)))
-    await expect(requestConsole("/api/_vitehub/console/skills", { query: { agent: "reviewer", path: ".agents/skills/review/SKILL.md" } })).resolves.toEqual({ path: ".agents/skills/review/SKILL.md", content: "# Review\n\nRead the evidence.\n", size: 29 })
+    await expect(requestConsole("/_vitehub/api/skills", { query: { agent: "reviewer", path: ".agents/skills/review/SKILL.md" } })).resolves.toEqual({ path: ".agents/skills/review/SKILL.md", content: "# Review\n\nRead the evidence.\n", size: 29 })
   })
   it("opens the first Agent that bundles Skills when no Agent is chosen", async () => {
     install()

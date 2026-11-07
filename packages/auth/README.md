@@ -169,10 +169,6 @@ export default defineAuth({
         route: "/_vitehub/**",
         authorize: ({ user }) => user.isAdmin === true,
       },
-      {
-        route: "/api/_vitehub/console/**",
-        authorize: ({ user }) => user.isAdmin === true,
-      },
     ],
   },
 });

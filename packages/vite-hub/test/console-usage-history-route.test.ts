@@ -45,7 +45,7 @@ it("validates session history filters and keeps filtered responses separate in t
   const request = (query: string) =>
     usageHandler({
       method: "GET",
-      req: { url: `http://localhost/api/_vitehub/console/usage?${query}` },
+      req: { url: `http://localhost/_vitehub/api/usage?${query}` },
     });
   expect(await request("status=failed")).toMatchObject({
     sessionCount: 1,
@@ -98,7 +98,7 @@ it.each(["100%_", "%41", "雪% &+?#"])(
     const query = { agent: filter, search: filter };
     const request = (queryString: string) => usageHandler({
       method: "GET",
-      req: { url: `http://localhost/api/_vitehub/console/usage?${queryString}` },
+      req: { url: `http://localhost/_vitehub/api/usage?${queryString}` },
     });
     const first = await request(new URLSearchParams(query).toString());
     expect(first.sessions).toHaveLength(50);

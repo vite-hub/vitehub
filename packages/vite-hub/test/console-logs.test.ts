@@ -7,7 +7,7 @@ import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import type { LogPage, LogSource } from "../src/logs/source.ts";
 
 const request = (query = "") => ({
-  req: { method: "GET", url: `http://localhost/api/_vitehub/console/logs${query}` },
+  req: { method: "GET", url: `http://localhost/_vitehub/api/logs${query}` },
 });
 afterEach(() => installConsoleAccess({ mode: "open" }));
 describe("Console Logs", () => {
@@ -111,7 +111,7 @@ describe("Console Logs", () => {
     installLogSource("/logs-abort-tests", source);
     const controller = new AbortController();
     const req = transport === "HTTP"
-      ? new Request("http://localhost/api/_vitehub/console/logs", { signal: controller.signal })
+      ? new Request("http://localhost/_vitehub/api/logs", { signal: controller.signal })
       : new Request("http://localhost/_vitehub/rpc/__call", {
           method: "POST",
           headers: { "content-type": "application/json", "x-vitehub-console": "1" },

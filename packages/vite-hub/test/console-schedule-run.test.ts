@@ -147,7 +147,7 @@ describe("Console Schedule runs", () => {
     expect(generated).toContain(`import("vite-hub/_internal/schedule/runtime/console")`)
     expect(generated).toContain(`{ "schedules": vitehubConsoleRuntimeReader0 }`)
 
-    const timeZone = (): Promise<string[]> => definitionsHandler({ method: "GET", req: { method: "GET", url: "http://localhost/api/_vitehub/console/definitions?section=schedules" } })
+    const timeZone = (): Promise<string[]> => definitionsHandler({ method: "GET", req: { method: "GET", url: "http://localhost/_vitehub/api/definitions?section=schedules" } })
       .then(content => content.kind === "record-table" ? content.records.map(record => `${record.cells.timing} / ${record.fields.find(field => field.label === "Time zone")?.value}`) : [])
     installConsoleDefinitions(root, catalog.content, [], { schedules: readScheduleConsoleRecords })
     expect(await timeZone()).toEqual(["0 14 * * 1 (Not a static string) / Not a static string"])
@@ -168,7 +168,7 @@ describe("Console Schedule runs", () => {
   it("marks runnable Schedule Definitions in the catalog", async () => {
     installSchedules()
 
-    expect(await definitionsHandler({ method: "GET", req: { method: "GET", url: "http://localhost/api/_vitehub/console/definitions?section=schedules" } })).toEqual({
+    expect(await definitionsHandler({ method: "GET", req: { method: "GET", url: "http://localhost/_vitehub/api/definitions?section=schedules" } })).toEqual({
       definitions: [{ ...scheduleSummary("sync"), runnable: true }, scheduleSummary("nightly")],
       kind: "definition-catalog",
       section: "schedules",
@@ -185,7 +185,7 @@ describe("Console Schedule runs", () => {
     }))
     installConsoleDefinitions("/schedule-run", { schedules: { kind: "record-table", records } })
 
-    expect(await definitionsHandler({ method: "GET", req: { method: "GET", url: "http://localhost/api/_vitehub/console/definitions?section=schedules" } })).toEqual({
+    expect(await definitionsHandler({ method: "GET", req: { method: "GET", url: "http://localhost/_vitehub/api/definitions?section=schedules" } })).toEqual({
       kind: "record-table",
       records: [{ ...records[0], runnable: true }, records[1], records[2]],
       section: "schedules",

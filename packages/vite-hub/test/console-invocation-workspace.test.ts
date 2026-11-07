@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 const mocks = vi.hoisted(() => ({ inspector: vi.fn(), get: vi.fn(), definition: vi.fn(), glob: vi.fn(), exists: vi.fn(), stat: vi.fn(), readFile: vi.fn(), refs: vi.fn(), list: vi.fn(), open: vi.fn(), useWorkspaceFiles: vi.fn() }))
-vi.mock("@vite-hub/agent/server", () => ({ agentHostWorkspaceRoute: "/api/_vitehub/console/invocations/:id/workspace", getAgentHostWorkspaceInspector: mocks.inspector }))
+vi.mock("@vite-hub/agent/server", () => ({ agentHostWorkspaceRoute: "/_vitehub/api/invocations/:id/workspace", getAgentHostWorkspaceInspector: mocks.inspector }))
 vi.mock("../src/console/runtime/server/invocations.ts", () => ({ getConsoleInvocations: () => ({ get: mocks.get }) }))
 vi.mock("../src/console/runtime/server/agents.ts", () => ({ getConsoleAgentDefinition: mocks.definition }))
 vi.mock("@vite-hub/workspace/files", () => ({ useWorkspaceFiles: mocks.useWorkspaceFiles }))
@@ -10,7 +10,7 @@ const handler = allowed(handlerRoute)
 const request = (path?: string, query: Record<string, string> = {}) => {
   const params = new URLSearchParams(path === undefined ? query : { ...query, path })
   const search = params.toString()
-  return { method: "GET", context: { params: { id: "run" } }, req: { url: `http://localhost/api/_vitehub/console/invocations/run/workspace${search ? `?${search}` : ""}` } }
+  return { method: "GET", context: { params: { id: "run" } }, req: { url: `http://localhost/_vitehub/api/invocations/run/workspace${search ? `?${search}` : ""}` } }
 }
 beforeEach(() => {
   vi.resetAllMocks()

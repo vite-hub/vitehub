@@ -118,7 +118,7 @@ let sessionRequest: AbortController | undefined
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 const emit = defineEmits<{ changed: []; selectPage: []; selectSession: [] }>()
 const toast = useConsoleToast()
-// Document actions live next to the section list, as `/api/_vitehub/console/documents`.
+// Document actions live next to the section list, as `/_vitehub/api/documents`.
 const documentsBase = props.sectionsBase.replace(/\/sections$/, "/documents")
 const documentSections = ref<ConsoleDocumentSearchSection[]>([])
 const documentResults = ref<ConsoleDocumentSearchItem[]>([])

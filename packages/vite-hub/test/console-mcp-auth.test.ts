@@ -218,10 +218,10 @@ describe("MCP sign-in against a real Better Auth", () => {
       await expect(metadata.json()).resolves.toMatchObject({ code: "CONSOLE_MCP_ORIGIN_REQUIRED" })
       installConsoleAccess({ check: async () => new Response("{}", { status: 401 }), mode: "auth", oauth: { auth, path: "/_vitehub/mcp", resource } })
       const configured = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
-      await expect(configured.json()).resolves.toMatchObject({ authorization_servers: [`${app}/api/_vitehub/console/auth`], resource })
-      const server = await defineHandler(consoleMcpAuthorizationServerHandler).fetch(new Request(`${app}/.well-known/oauth-authorization-server/api/_vitehub/console/auth`))
+      await expect(configured.json()).resolves.toMatchObject({ authorization_servers: [`${app}/_vitehub/api/auth`], resource })
+      const server = await defineHandler(consoleMcpAuthorizationServerHandler).fetch(new Request(`${app}/.well-known/oauth-authorization-server/_vitehub/api/auth`))
       expect(server.status).toBe(200)
-      await expect(server.json()).resolves.toMatchObject({ issuer: `${app}/api/_vitehub/console/auth`, scopes_supported: expect.arrayContaining(["vitehub:read", "vitehub:write"]) })
+      await expect(server.json()).resolves.toMatchObject({ issuer: `${app}/_vitehub/api/auth`, scopes_supported: expect.arrayContaining(["vitehub:read", "vitehub:write"]) })
     }
     finally {
       vi.unstubAllEnvs()
@@ -405,7 +405,7 @@ describe("MCP sign-in against a real Better Auth", () => {
     const page = await signedIn.text()
     expect(signedIn.headers.get("content-security-policy")).toContain("script-src 'nonce-")
     expect(page).toContain("Connect an agent")
-    expect(page).toContain('"/portal/api/_vitehub/console/auth"')
+    expect(page).toContain('"/portal/_vitehub/api/auth"')
     expect(page).toContain("/oauth2/consent")
     expect(await consoleAuthSignInPage("github", new Request(`${app}/_vitehub/sign-in`), "/portal/").text()).not.toContain("oauth2/consent")
   })

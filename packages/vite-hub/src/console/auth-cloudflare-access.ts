@@ -33,7 +33,7 @@ export type CloudflareAccessVerifier = (
 
 export const cloudflareAccessAssertionHeader = "cf-access-jwt-assertion"
 export const cloudflareAccessSignOutPath = "/cdn-cgi/access/logout"
-export const cloudflareAccessIdentityPath = "/api/_vitehub/console/auth/identity"
+export const cloudflareAccessIdentityPath = "/_vitehub/api/auth/identity"
 const cloudflareAccessJwksCooldown = 1_000
 
 /**
@@ -150,7 +150,7 @@ export async function handleCloudflareAccessConsoleRequest(
   const path = mountBase && publicPath.startsWith(`${mountBase}/`) ? publicPath.slice(mountBase.length) : publicPath
   // Page tools apply their own visitor and API authorization, independently of the Console.
   if (path === "/_vitehub/page/session" || path.startsWith("/_vitehub/page/assets/")) return
-  if (!(path === "/_vitehub" || path.startsWith("/_vitehub/") || path === "/api/_vitehub/console" || path.startsWith("/api/_vitehub/console/"))) return
+  if (!(path === "/_vitehub" || path.startsWith("/_vitehub/"))) return
   const { identity, response } = await checkCloudflareAccessToken(request, resolveSettings, verify)
   if (response) return response
   if (path === cloudflareAccessIdentityPath) {
