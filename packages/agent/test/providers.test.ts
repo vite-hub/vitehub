@@ -391,6 +391,7 @@ function chatWebhookRequest(messageId: number, threadId = 456, text = "hello") {
 }
 
 describe("agent Vite plugin", () => {
+  // Install env stubs before the first await: timed-out test bodies can keep running after the next test starts.
   it("serializes shared Provider Output finalization", async () => {
     const { hubAgent } = await import("../src/vite.ts")
 
@@ -1039,6 +1040,37 @@ describe("agent Vite plugin", () => {
     }
   })
 
+  it("replaces the state setup that Nitro wrote before Vite resolved a Cloudflare build", async () => {
+    const { hubAgent } = await import("../src/vite.ts")
+    const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workflow-state-rewrite-"))
+    try {
+      const registryFile = join(root, ".vitehub", "workflow", "registry.mjs")
+      const plugin = hubAgent({})
+      // Nuxt writes the Workflow registry from its Nitro config hook, before Vite resolves the Cloudflare preset.
+      const written = plugin.vitehub?.agent?.transformWorkflowRegistry("export default {}\n", registryFile)
+      if (!written) throw new Error("Expected a Nitro workflow registry")
+      expect(written).toContain("createLibsqlAgentState")
+
+      const configResolvedHook: unknown = plugin.configResolved
+      // SAFETY: hubAgent installs configResolved as an async Vite hook.
+      const configResolved = configResolvedHook as (config: Record<string, unknown>) => Promise<void>
+      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+      const transform = plugin.transform as (code: string, id: string) => Promise<string | undefined>
+      await configResolved({ command: "build", plugins: [], preset: "cloudflare", root })
+      const registry = await transform(written, "/virtual/.vitehub/workflow/registry.mjs")
+      if (!registry) throw new Error("Expected a Cloudflare workflow registry")
+
+      expect(registry.match(/import \{ setAgentChannelDeliveryWorkflowStateResolver \}/g)).toHaveLength(1)
+      expect(registry).toContain("createCloudflareAgentState({ namespace })")
+      expect(registry).not.toContain("createLibsqlAgentState")
+      expect(registry.endsWith("export default {}\n")).toBe(true)
+      expect(await transform(registry, "/virtual/.vitehub/workflow/registry.mjs")).toBe(registry)
+      expect(plugin.vitehub?.agent?.transformWorkflowRegistry(registry, registryFile)).toBe(registry)
+    } finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("invalidates generated Agent modules when an Agent changes", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-invalidation-"))
@@ -1174,9 +1206,8 @@ describe("agent Vite plugin", () => {
   })
 
   it("publishes the conventional Netlify chat path", async () => {
+    vi.stubEnv("VITEHUB_HOSTING", "netlify")
     const { hubAgent } = await import("../src/vite.ts")
-    const previousHosting = process.env.VITEHUB_HOSTING
-    process.env.VITEHUB_HOSTING = "netlify"
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-chat-route-"))
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -1206,17 +1237,14 @@ describe("agent Vite plugin", () => {
       expect(generated).toContain('"/api/_vitehub/agents/:agent/chat"')
       expect(generated).toContain('"/api/_vitehub/agents/:agent/webhooks/:webhook"')
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
   })
 
   it("rejects wrong Discord Gateway secrets in the generated Netlify function", async () => {
+    vi.stubEnv("VITEHUB_HOSTING", "netlify")
+    vi.stubEnv("VITEHUB_DISCORD_GATEWAY_SECRET", "gateway-secret")
     const { hubAgent } = await import("../src/vite.ts")
-    const previousHosting = process.env.VITEHUB_HOSTING
-    const previousSecret = process.env.VITEHUB_DISCORD_GATEWAY_SECRET
-    process.env.VITEHUB_HOSTING = "netlify"
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-gateway-secret-"))
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -1236,7 +1264,6 @@ describe("agent Vite plugin", () => {
       expect(wrapper).toContain("!isViteHubBearerSecretEqual(request.headers.get('authorization'), secret)")
       expect(wrapper).not.toContain("!== secret")
 
-      process.env.VITEHUB_DISCORD_GATEWAY_SECRET = "gateway-secret"
       const generated: { default: (request: Request, context: { params: Record<string, string> }) => Promise<Response> } = await import(pathToFileURL(join(root, ".netlify/v1/functions/vitehub-agent.mjs")).href)
       const gateway = (authorization?: string) => generated.default(
         new Request("https://example.com/api/_vitehub/agents/support/discord/gateway", authorization ? { headers: { authorization } } : {}),
@@ -1247,18 +1274,13 @@ describe("agent Vite plugin", () => {
       }
       expect((await gateway("Bearer gateway-secret")).status).not.toBe(401)
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
-      if (isRuntimeString(previousSecret)) process.env.VITEHUB_DISCORD_GATEWAY_SECRET = previousSecret
-      else delete process.env.VITEHUB_DISCORD_GATEWAY_SECRET
       await rm(root, { force: true, recursive: true })
     }
 }, 60_000)
 
   it("publishes retained folder Agent Workspace sources before generation cleanup", async () => {
+    vi.stubEnv("VITEHUB_HOSTING", "netlify")
     const { hubAgent } = await import("../src/vite.ts")
-    const previousHosting = process.env.VITEHUB_HOSTING
-    process.env.VITEHUB_HOSTING = "netlify"
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-workspace-sources-"))
     const agentRoot = join(root, "server", "agents", "support")
     // Bound this consumer independently of Git metadata above the temporary root.
@@ -1328,16 +1350,13 @@ describe("agent Vite plugin", () => {
       await expect(readFile(join(retainedSourceRoot!, "context.md"), "utf8")).resolves.toBe("Retained Workspace context.\n")
     }
     finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
   })
 
   it("keeps parent instruction references literal in Netlify provider output", async () => {
+    vi.stubEnv("VITEHUB_HOSTING", "netlify")
     const { hubAgent } = await import("../src/vite.ts")
-    const previousHosting = process.env.VITEHUB_HOSTING
-    process.env.VITEHUB_HOSTING = "netlify"
     const container = await mkdtemp(join(tmpdir(), "vitehub-agent-parent-instructions-"))
     const root = join(container, "apps", "web")
     const agentRoot = join(root, "server", "agents", "support")
@@ -1380,22 +1399,18 @@ describe("agent Vite plugin", () => {
       expect(wrapper).not.toContain("agent-generations")
       expect(existsSync(join(root, ".vitehub/agent/schedule-registry.js"))).toBe(false)
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
       await rm(container, { force: true, recursive: true })
     }
   })
 
   it.each(["absent", "configured"] as const)("writes Netlify provider output during Netlify local dev with KV %s", async (kvMode) => {
+    vi.stubEnv("VITEHUB_HOSTING", undefined)
+    vi.stubEnv("NETLIFY_DEV", "true")
     const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-dev-routes-"))
-    const previousHosting = process.env.VITEHUB_HOSTING
-    const previousNetlifyDev = process.env.NETLIFY_DEV
     try {
       await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
-      delete process.env.VITEHUB_HOSTING
-      process.env.NETLIFY_DEV = "true"
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
@@ -1471,20 +1486,15 @@ describe("agent Vite plugin", () => {
         }),
       )
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
-      if (isRuntimeString(previousNetlifyDev)) process.env.NETLIFY_DEV = previousNetlifyDev
-      else delete process.env.NETLIFY_DEV
       await rm(root, { force: true, recursive: true })
     }
   })
 
   it("cleans stale Netlify agent output when generated routes are disabled", async () => {
+    vi.stubEnv("VITEHUB_HOSTING", "netlify")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-cleanup-"))
-    const previousHosting = process.env.VITEHUB_HOSTING
     try {
-      process.env.VITEHUB_HOSTING = "netlify"
       const plugin = hubAgent()
       const configResolvedHook: unknown = plugin.configResolved
       // SAFETY: hubAgent installs configResolved as an async Vite hook.
@@ -1514,8 +1524,6 @@ describe("agent Vite plugin", () => {
       await expect(readFile(staleSources, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
       expect(removeProviderOutputArtifactDir).toHaveBeenCalledWith(join(root, ".netlify/v1/agent"))
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
   })
@@ -2110,7 +2118,6 @@ describe("agent Vite plugin", () => {
   it("keeps the Schedule runtime out of generated hosted Agent routes", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-schedule-routes-"))
-    const previousHosting = process.env.VITEHUB_HOSTING
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
@@ -2165,7 +2172,6 @@ describe("agent Vite plugin", () => {
       expect(denoServer).toContain("vitehubSetAgentHostCapabilities(vitehubAgentRouteCapabilities)")
       expect(existsSync(join(root, ".vitehub/agent/schedule-registry.js"))).toBe(false)
 
-      process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent({ routes: { discordGateway: true } })
       if (isRuntimeFunction(netlifyPlugin.configResolved)) {
         await netlifyPlugin.configResolved.call(
@@ -2177,6 +2183,7 @@ describe("agent Vite plugin", () => {
             build: { outDir: "dist/client" },
             command: "build",
             plugins: [schedulePlugin],
+            preset: "netlify",
             resolve: { alias: agentProviderOutputAliases() },
             root,
           } as never,
@@ -2192,8 +2199,6 @@ describe("agent Vite plugin", () => {
       expect(netlifyFunction).not.toContain("@vite-hub/schedule/runtime")
       expect(netlifyFunction).toContain("Object.hasOwn(values, key)")
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
   })
@@ -2203,7 +2208,6 @@ describe("agent Vite plugin", () => {
     const { hubEmail } = await import("../../email/src/vite.ts")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-email-provider-routes-"))
-    const previousHosting = process.env.VITEHUB_HOSTING
     try {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
@@ -2247,7 +2251,6 @@ describe("agent Vite plugin", () => {
       })
       expect(await readFile(emailBundle, "utf8")).toContain("api.resend.com")
 
-      process.env.VITEHUB_HOSTING = "netlify"
       const netlifyPlugin = hubAgent()
       if (isRuntimeFunction(netlifyPlugin.configResolved)) {
         await netlifyPlugin.configResolved.call(
@@ -2258,6 +2261,7 @@ describe("agent Vite plugin", () => {
             build: { outDir: "dist/client" },
             command: "build",
             plugins: [emailPlugin, { name: "@vite-hub/database/vite" }],
+            preset: "netlify",
             resolve: {
               alias: agentProviderOutputAliases([
                 // Listed before `@vite-hub/email`, which would otherwise rewrite the email Capability import.
@@ -2280,8 +2284,6 @@ describe("agent Vite plugin", () => {
       expect(netlifyFunction).toContain('import { email as vitehubEmail } from "./email-runtime.js"')
       expect(netlifyFunction).toContain("@vite-hub/database/drizzle")
     } finally {
-      if (isRuntimeString(previousHosting)) process.env.VITEHUB_HOSTING = previousHosting
-      else delete process.env.VITEHUB_HOSTING
       await rm(root, { force: true, recursive: true })
     }
   }, 15_000)
@@ -2319,7 +2321,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
       expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
-      expect(webhookRoute).toContain('workspaceRegistryEntry("support", agent0')
+      expect(webhookRoute).toContain('agentWorkspaceEntry("support", agent0')
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -2554,40 +2556,28 @@ describe("agent Vite plugin", () => {
   })
 
   it("prefers explicit Cloudflare hosting over ambient Vercel CI", async () => {
-    const previousVercel = process.env.VERCEL
-    try {
-      process.env.VERCEL = "1"
-      const { hubAgent } = await import("../src/vite.ts")
-      const plugin = hubAgent()
-      const result = await resolveAgentViteConfig(plugin, {
-        preset: "cloudflare",
-        root: hostedAgentRoot,
-      })
+    vi.stubEnv("VERCEL", "1")
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent()
+    const result = await resolveAgentViteConfig(plugin, {
+      preset: "cloudflare",
+      root: hostedAgentRoot,
+    })
 
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeDefined()
-    } finally {
-      if (previousVercel === undefined) delete process.env.VERCEL
-      else process.env.VERCEL = previousVercel
-    }
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeDefined()
   })
 
   it("detects automatic Cloudflare hosting from the build environment", async () => {
-    const previousCloudflarePages = process.env.CF_PAGES
-    try {
-      process.env.CF_PAGES = "1"
-      const { hubAgent } = await import("../src/vite.ts")
-      const plugin = hubAgent()
-      const result = await resolveAgentViteConfig(plugin, {
-        root: hostedAgentRoot,
-      })
+    vi.stubEnv("CF_PAGES", "1")
+    const { hubAgent } = await import("../src/vite.ts")
+    const plugin = hubAgent()
+    const result = await resolveAgentViteConfig(plugin, {
+      root: hostedAgentRoot,
+    })
 
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeDefined()
-    } finally {
-      if (previousCloudflarePages === undefined) delete process.env.CF_PAGES
-      else process.env.CF_PAGES = previousCloudflarePages
-    }
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    expect((result as { nitro?: { cloudflare?: unknown } } | undefined)?.nitro?.cloudflare).toBeDefined()
   })
 
   it("keeps Cloudflare chat state opt-out when the state provider is memory", async () => {
@@ -2908,11 +2898,10 @@ export default defineAgent({
   })
 
   it("writes local SQLite state in Vite development with a Cloudflare production preset", async () => {
+    vi.stubEnv("VITEHUB_HOSTING", undefined)
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-local-state-routes-"))
-    const previousHosting = process.env.VITEHUB_HOSTING
     try {
-      delete process.env.VITEHUB_HOSTING
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
       const plugin = hubAgent()
@@ -2936,8 +2925,6 @@ export default defineAgent({
       expect(webhookRoute).toContain("const runtimeUrl = typeof process === 'object' ? process.env.VITEHUB_AGENT_STATE_URL : undefined")
       expect(webhookRoute).not.toContain("Agent state requires a durable VITEHUB_AGENT_STATE_URL")
     } finally {
-      if (previousHosting === undefined) delete process.env.VITEHUB_HOSTING
-      else process.env.VITEHUB_HOSTING = previousHosting
       await rm(root, { force: true, recursive: true })
     }
   })
@@ -3022,13 +3009,13 @@ export default defineAgent({
   })
 
   it("writes generated Nitro webhook handlers with sqlite state providers", async () => {
+    vi.stubEnv("TURSO-AUTH-TOKEN", "build-token-with-hyphen-env")
     const { hubAgent } = await import("../src/vite.ts")
 
     // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
     for (const provider of ["sqlite", "libsql"] as const) {
       const root = await mkdtemp(join(tmpdir(), `vitehub-agent-${provider}-state-routes-`))
       try {
-        vi.stubEnv("TURSO-AUTH-TOKEN", "build-token-with-hyphen-env")
         await mkdir(join(root, "server", "agents"), { recursive: true })
         await writeFile(join(root, "server", "agents", "support.ts"), "export default {}", "utf8")
         const plugin = hubAgent({
@@ -3222,8 +3209,8 @@ export default defineAgent({
       expect(webhookRoute).toContain("function hasHostedWorkspaceStore(module: AgentRegistryModule)")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
-      expect(webhookRoute).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
-      expect(webhookRoute).toContain('workspaceRegistryEntry("audio-bitacora", agent0')
+      expect(webhookRoute).not.toContain("setWorkspaceRuntimeRegistry")
+      expect(webhookRoute).toContain('agentWorkspaceEntry("audio-bitacora", agent0')
       expect(webhookRoute).toContain('["audio-bitacora"]: {"name":"audio-bitacora","workspace":"audio-bitacora"}')
       expect(webhookRoute).not.toContain("withAgentDefaults")
       expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
@@ -3262,10 +3249,18 @@ export default defineAgent({
 
       expect(webhookRoute).toContain('import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"')
       expect(webhookRoute).toContain('import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"')
-      expect(webhookRoute).toContain("process?.env?.BLOB_READ_WRITE_TOKEN")
+      expect(webhookRoute).toContain("process?.env?.BLOB_STORE_ID || process?.env?.BLOB_READ_WRITE_TOKEN")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
-      expect(webhookRoute).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
-      expect(webhookRoute).toContain('workspaceRegistryEntry("audio-bitacora", agent0')
+      expect(webhookRoute).not.toContain("setWorkspaceRuntimeRegistry")
+      expect(webhookRoute).toContain('agentWorkspaceEntry("audio-bitacora", agent0')
+
+      const generatedFunction = (name: string) => webhookRoute.match(new RegExp(`^function ${name}\\([\\s\\S]*?\\n\\}$`, "m"))?.[0] ?? ""
+      const { code } = await transform(`${generatedFunction("resolveAgentModule")}\n${generatedFunction("hasHostedVercelBlobWorkspaceStore")}`, { loader: "ts" })
+      const agentModule = { default: { __vitehubWorkspaceAgentOptions: { workspace: { mode: "write" } } } }
+      const hasStore = (env: Record<string, string>) => Boolean(runInNewContext(`${code}\nhasHostedVercelBlobWorkspaceStore(agentModule)`, { agentModule, process: { env } }))
+      expect(hasStore({ BLOB_STORE_ID: "store_123" })).toBe(true)
+      expect(hasStore({ BLOB_READ_WRITE_TOKEN: "runtime-token" })).toBe(true)
+      expect(hasStore({})).toBe(false)
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -3366,10 +3361,10 @@ export default defineAgent({
 
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
-      expect(denoServer).toContain('import { registerWorkspace, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"')
+      expect(denoServer).toContain("setAgentWorkspaceDefinitions(Object.fromEntries([")
       expect(denoServer).toContain("workspaceAgentOwnsWorkspaceDefinition")
       expect(denoServer).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(agent0)")
-      expect(denoServer).toContain('workspaceRegistryEntry("support", agent0')
+      expect(denoServer).toContain('agentWorkspaceEntry("support", agent0')
       expect(denoServer).toContain("__vitehubAgentInstructions")
       expect(denoServer).toContain("content: colocatedInstructions")
       expect(denoServer).toContain("Symbol.for('vitehub.agent.colocatedSkills')")
@@ -3394,7 +3389,7 @@ export default defineAgent({
       expect(denoServer).toContain("return decoratedAgent as unknown as Agent")
       expect(denoServer).toContain(`${JSON.stringify(join(root, "server", "agents", "support", "workspace"))}, "Use support instructions.\\n", {`)
       expect(denoServer).not.toContain("Do not use workspace instructions.")
-      expect(denoServer).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
+      expect(denoServer).not.toContain("setWorkspaceRuntimeRegistry")
       expect(denoServer).not.toContain('"support": async ()')
     } finally {
       await rm(root, { force: true, recursive: true })

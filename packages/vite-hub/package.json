@@ -893,6 +893,11 @@
       "import": "./dist/task.js",
       "default": "./dist/task.js"
     },
+    "./skills": {
+      "types": "./dist/skills.d.ts",
+      "import": "./dist/skills.js",
+      "default": "./dist/skills.js"
+    },
     "./source": {
       "types": "./dist/source.d.ts",
       "import": "./dist/source.js",
@@ -1028,6 +1033,11 @@
       "import": "./dist/ui/markdown.js",
       "default": "./dist/ui/markdown.js"
     },
+    "./ui/markdown-editor": {
+      "types": "./dist/ui/markdown-editor.d.ts",
+      "import": "./dist/ui/markdown-editor.js",
+      "default": "./dist/ui/markdown-editor.js"
+    },
     "./ui/marker": {
       "types": "./dist/ui/marker.d.ts",
       "import": "./dist/ui/marker.js",
@@ -1122,6 +1132,11 @@
       "types": "./dist/workspace/cloudflare.d.ts",
       "import": "./dist/workspace/cloudflare.js",
       "default": "./dist/workspace/cloudflare.js"
+    },
+    "./workspace/files": {
+      "types": "./dist/workspace/files.d.ts",
+      "import": "./dist/workspace/files.js",
+      "default": "./dist/workspace/files.js"
     },
     "./workspace/loader": {
       "types": "./dist/workspace/loader.d.ts",
@@ -1278,7 +1293,7 @@
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack",
     "dev": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack --watch",
-    "typecheck": "node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
+    "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
@@ -1313,6 +1328,7 @@
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "jose": "catalog:auth",
+    "nanotar": "^0.3.0",
     "nitro": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",

@@ -5,6 +5,7 @@ import { createRuntimeRegistry } from "../src/core/resolve.ts"
 import { defineEnvProvider } from "../src/provider.ts"
 import { SecretEnv } from "../src/secret.ts"
 import { describeServerEnv, inspectServerEnv, loadServerEnv, resolveServerEnv } from "../src/server.ts"
+import { cloudflareRequest } from "./cloudflare-request.ts"
 
 function labellerRegistry() {
   return createRuntimeRegistry({
@@ -31,19 +32,17 @@ function capture(operation: () => unknown): unknown {
 describe("typed Server Env values", () => {
   it("parses host values and uses typed defaults", () => {
     const registry = labellerRegistry()
-    expect(resolveServerEnv(registry, { env: { LABELLER_PIN: "1234" } })).toMatchObject({
+    expect(resolveServerEnv(registry, cloudflareRequest({ LABELLER_PIN: "1234" }))).toMatchObject({
       labeller: { dryRun: true, minConfidence: 0.6, mode: "draft", retries: undefined },
     })
 
-    const values = resolveServerEnv<{ labeller: { dryRun: boolean, minConfidence: number, mode: string, pin: SecretEnv<number>, retries?: number } }>(registry, {
-      env: {
+    const values = resolveServerEnv<{ labeller: { dryRun: boolean, minConfidence: number, mode: string, pin: SecretEnv<number>, retries?: number } }>(registry, cloudflareRequest({
         LABELLER_DRY_RUN: "false",
         LABELLER_MIN_CONFIDENCE: " 0.8 ",
         LABELLER_MODE: "send",
         LABELLER_PIN: "1234",
         LABELLER_RETRIES: "3",
-      },
-    })
+      }))
     expect(values.labeller).toMatchObject({ dryRun: false, minConfidence: 0.8, mode: "send", retries: 3 })
     expect(values.labeller.pin).toBeInstanceOf(SecretEnv)
     expect(String(values.labeller.pin)).toBe("<redacted>")
@@ -51,7 +50,7 @@ describe("typed Server Env values", () => {
   })
 
   it("accepts typed host bindings such as Cloudflare vars", () => {
-    expect(resolveServerEnv(labellerRegistry(), { env: { LABELLER_DRY_RUN: false, LABELLER_MIN_CONFIDENCE: 1, LABELLER_PIN: "1" } })).toMatchObject({
+    expect(resolveServerEnv(labellerRegistry(), cloudflareRequest({ LABELLER_DRY_RUN: false, LABELLER_MIN_CONFIDENCE: 1, LABELLER_PIN: "1" }))).toMatchObject({
       labeller: { dryRun: false, minConfidence: 1 },
     })
   })
@@ -63,7 +62,7 @@ describe("typed Server Env values", () => {
       ["LABELLER_MIN_CONFIDENCE", "", "Expected a finite number."],
       ["LABELLER_MODE", "archive", "Expected one of \"draft\", \"send\"."],
     ] as const) {
-      const error = capture(() => resolveServerEnv(labellerRegistry(), { env: { LABELLER_PIN: "1", [name]: value } }))
+      const error = capture(() => resolveServerEnv(labellerRegistry(), cloudflareRequest({ LABELLER_PIN: "1", [name]: value })))
       expect(error).toMatchObject({
         code: "ENV_RUNTIME_VALUE_INVALID",
         details: { path: expect.stringMatching(/^env\.server\.labeller\./), source: "env" },
@@ -80,13 +79,13 @@ describe("typed Server Env values", () => {
       limit: env.number({ secret: true, source: env.provider("settings", "limit") }),
     })
     const settings = (values: Record<string, string>) => ({ settings: defineEnvProvider({ read: async () => values }) })
-    const loaded = await loadServerEnv(registry, { env: {} }, { providers: settings({ enabled: "1", limit: "25" }) })
+    const loaded = await loadServerEnv(registry, cloudflareRequest({}), { providers: settings({ enabled: "1", limit: "25" }) })
     expect(loaded.enabled).toBe(true)
     expect((loaded.limit as SecretEnv<number>).unseal()).toBe(25)
 
-    await expect(loadServerEnv(registry, { env: {} }, { providers: settings({ enabled: "maybe", limit: "25" }) }))
+    await expect(loadServerEnv(registry, cloudflareRequest({}), { providers: settings({ enabled: "maybe", limit: "25" }) }))
       .rejects.toMatchObject({ code: "ENV_RUNTIME_VALUE_INVALID", details: { path: "env.server.enabled", source: "provider" } })
-    expect((await inspectServerEnv(registry, { env: {} }, { providers: settings({ enabled: "maybe", limit: "25" }) })).entries).toEqual([
+    expect((await inspectServerEnv(registry, cloudflareRequest({}), { providers: settings({ enabled: "maybe", limit: "25" }) })).entries).toEqual([
       { masked: false, path: "env.server.enabled", provider: "settings", required: true, source: "provider", status: "invalid" },
       { masked: true, path: "env.server.limit", provider: "settings", required: true, source: "provider", status: "available" },
     ])
@@ -99,7 +98,7 @@ describe("typed Server Env values", () => {
     expect(String((error as Error).cause)).toContain("cannot be a secret enum")
 
     const registry = { credential: { required: true, schema: { kind: "enum" as const, values: ["alpha-credential"] }, secret: true, source: { kind: "env" as const, label: "env:CREDENTIAL", name: "CREDENTIAL", serializable: true as const } } }
-    const invalid = capture(() => resolveServerEnv(registry, { env: { CREDENTIAL: "other" } }))
+    const invalid = capture(() => resolveServerEnv(registry, cloudflareRequest({ CREDENTIAL: "other" })))
     expect(invalid).toMatchObject({ code: "ENV_RUNTIME_VALUE_INVALID", details: { path: "env.server.credential" } })
     expect(String((invalid as Error).cause)).not.toContain("alpha-credential")
     expect(describeServerEnv(registry).entries).toEqual([{ path: "env.server.credential", source: "env", secret: true, required: true, hasDefault: false, type: "enum" }])

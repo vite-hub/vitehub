@@ -154,7 +154,13 @@ function uniqueDeliveredAnswers(activities: readonly InvocationActivity[], bodie
 }
 
 function deliveryReceipt(activity: InvocationActivity): InvocationActivity {
-  return { ...activity, attributes: Object.fromEntries(Object.entries(activity.attributes).filter(([key]) => key !== "channel.effect.content")) };
+  const truncatedAttributes = activity.truncatedAttributes?.filter(key => key !== "channel.effect.content");
+  return {
+    ...activity,
+    attributes: Object.fromEntries(Object.entries(activity.attributes).filter(([key]) => key !== "channel.effect.content")),
+    // Unnamed journal records keep their generic notice; named notices follow the retained values.
+    ...(truncatedAttributes ? { truncated: activity.truncated && truncatedAttributes.length > 0, truncatedAttributes } : {}),
+  };
 }
 
 function deliveryAnswer(activity: InvocationActivity): InvocationActivity {

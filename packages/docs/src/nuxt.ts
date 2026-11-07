@@ -22,15 +22,17 @@ import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
 import { readModuleOptions } from "./module-options.ts"
 import { createDocsManifest } from "./manifest.ts"
-import { docsAppPath, docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, type DocsIcons, type DocsLink } from "./navigation.ts"
+import { docsAppPath, docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
 import { coversDocsPages } from "./page.ts"
+import { DocsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
 import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
 
 import type { DocsPage } from "./types.ts"
 
 export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
 export { DocsCommentsSetupError } from "./comments-nuxt.ts"
+export { DocsRedirectError } from "./redirects.ts"
 export type { DocsCommentsOptions } from "./comments-nuxt.ts"
 
 export interface DocsSiteOptions {
@@ -65,6 +67,11 @@ export interface DocsModuleOptions {
   categories?: string[]
   /** Categories that the catalog lists but the rail leaves out, such as shared reference topics. */
   railExclude?: string[]
+  /**
+   * Rail items that hold several sections. The rail shows one item per group, and the sidebar of a member section
+   * lists every section of the group. A section joins a group here or with `group` in its `.navigation.yml`.
+   */
+  groups?: DocsGroup[]
   start?: DocsStartOptions
   /** Community links at the foot of the sidebar, such as a chat server. GitHub comes from `github`. */
   socials?: DocsLink[]
@@ -84,7 +91,9 @@ export interface DocsModuleOptions {
   /**
    * Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors.
    * Fragment checks are limited to the current page; fragments on other pages are not validated.
-   * Remote URLs are not fetched. Set the app's own `linkChecker` options to change that. `false` turns the check off.
+   * Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build checks instead that the
+   * rule leads to a docs page and hides none. Set the app's own `linkChecker` options to change that. `false` turns the
+   * check off.
    */
   linkChecker?: false
   /** The docs assistant: an Agent that answers from these pages. `true` uses the Agent named `docs`. */
@@ -122,6 +131,7 @@ export interface DocsPublicConfig {
   site: { name: string, url: string, description: string, logo: string | null, badge: { label: string, tooltip: string | null } | null }
   categories: string[]
   railExclude: string[]
+  groups: DocsGroup[]
   /** Absent without a `start` option. Nuxt turns a `null` in runtime config into an empty string. */
   start?: { section: string, links: DocsLink[] }
   socials: DocsLink[]
@@ -146,7 +156,7 @@ interface DiscoveryRuntime {
 
 interface NitroOptions {
   runtimeConfig?: DiscoveryRuntime
-  routeRules?: Record<string, { headers?: Record<string, string> }>
+  routeRules?: Record<string, DocsRouteRule & { headers?: Record<string, string> }>
   alias?: Record<string, string>
   serverAssets?: Array<{ baseName: string, dir: string, pattern?: string }>
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
@@ -210,7 +220,11 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       // Disabled setup still registers the no-op composable imported by useDocsSeo.
       [dependency("nuxt-og-image")]: { defaults: { enabled: docs.ogImage !== false, zeroRuntime: true, defaults: { width: 1200, height: 630 } } },
       [dependency("nuxt-schema-org")]: {},
-      ...docs.linkChecker === false ? {} : { [dependency("nuxt-link-checker")]: { defaults: { failOnError: true, fetchRemoteUrls: false, showLiveInspections: false } } },
+      // Installed after the app's modules and just before the link checker, so links to their redirect rules pass.
+      ...docs.linkChecker === false ? {} : {
+        [fileURLToPath(new URL("./link-checker-redirects.js", import.meta.url))]: {},
+        [dependency("nuxt-link-checker")]: { defaults: { failOnError: true, fetchRemoteUrls: false, showLiveInspections: false } },
+      },
       // The toolkit's own llms.txt block repeats what nuxt-agent-discovery writes.
       ...docs.mcp === false ? {} : { [dependency("@nuxtjs/mcp-toolkit")]: { defaults: { name: docs.site?.name ?? "Docs", llms: false } } },
     }
@@ -405,6 +419,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         ...[...config.start?.links ?? [], ...config.socials].map(link => link.icon),
         ...docsManifestPages(manifest).map(page => docsPageIcon(config.icons, page)),
         ...manifest.sections.flatMap(section => [docsSectionIcon(config.icons, section), docsRailIcon(config.icons, section)]),
+        ...config.groups.map(group => group.icon),
       ]
       for (const name of names) {
         const icon = name && iconifyName(name)
@@ -477,7 +492,14 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       ]
     }
 
-    // Nuxt types `nitro:config` only when Nitro's types load.
+    // Nuxt types Nitro hooks only when Nitro's types load.
+    Reflect.apply(nuxt.hook, nuxt, ["nitro:init", (nitro: { options: NitroOptions }) => {
+      // All nitro:config hooks have run, including those registered by modules installed after the docs module.
+      if (options.linkChecker !== false && !nuxt.options.dev && !Reflect.get(nuxt.options, "_prepare")) {
+        const problems = docsRedirectProblems(manifest, docsRedirects(nitro.options.routeRules ?? {}))
+        if (problems.length) throw new DocsRedirectError(problems)
+      }
+    }])
     Reflect.apply(nuxt.hook, nuxt, ["nitro:config", (nitro: NitroOptions) => {
       if (config.appBase !== "/") {
         // Discovery builds its default resource registry after all modules load. Its Link headers and public resource
@@ -549,6 +571,7 @@ function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicCo
     },
     categories: options.categories ?? [],
     railExclude: options.railExclude ?? [],
+    groups: options.groups ?? [],
     start: options.start ? { section: options.start.section, links: options.start.links ?? [] } : undefined,
     socials: options.socials ?? [],
     banner: options.banner ?? null,

@@ -246,7 +246,7 @@ Set `console.mcpClient: true` to add the MCP client section. It runs on the serv
 
 All Console paths use the application base: an explicit ViteHub application base (set from Nuxt `app.baseURL`), otherwise a root-relative Vite `base`. With `base: "/portal/"`, host middleware that you keep in front of the Console must protect `/portal/_vitehub/**` and `/portal/api/_vitehub/console/**` for every method, including assets, RPC, and invocation actions. Update host policies when changing the application base or upgrading to base-aware Console routes. Absolute and protocol-relative Vite bases such as `https://cdn.example/portal/` and `//cdn.example/portal/` are asset CDN URLs; without an explicit application base, protect `/_vitehub/**` and `/api/_vitehub/console/**` at root. Relative bases (`""` or `"./"`) also use root routes. When Nitro `baseURL` matches the application base, Nitro adds it once, so the Console is at `/portal/_vitehub`. Host middleware is an optional first layer; `authorize` is the check that ViteHub enforces.
 
-The Console RPC transport accepts browser requests only from its own origin, including in development. It uses browser Fetch Metadata through reverse proxies and checks the request origin when that metadata is absent. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata. Requests with neither same-origin Fetch Metadata nor an `Origin` header must send `x-vitehub-console: 1`. The built-in Console client adds this header to its RPC calls. Server clients must add it too and still require the configured authentication. Each Console operation is one stateless `POST /_vitehub/rpc/__call` request with the JSON body `{ method, input }`, so hosts such as Cloudflare Workers can send consecutive calls to different instances.
+The Console RPC transport accepts browser requests only from its own origin, including in development. It uses browser Fetch Metadata through reverse proxies and checks the request origin when that metadata is absent. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata. Requests with neither same-origin Fetch Metadata nor an `Origin` header must send `x-vitehub-console: 1`. The built-in Console client adds this header to its RPC calls. Server clients must add it too and still require the configured authentication. Each Console operation is one stateless `POST /_vitehub/rpc/__call` request with the JSON body `{ method, input }`, so hosts such as Cloudflare Workers can send consecutive calls to different instances. The `project.get` operation (`vitehub project info`) returns `{ protocol: 1, name, vitehub, sections, operations }`: the `vite-hub` version, and the installed sections and operations that `authorize` allows for the caller. It works without Agents. See [Read the project](https://vitehub.dev/docs/development/console#read-the-project).
 
 Console invocation requests accept a `prompt`, optional `invokerProfileId`, and optional prior `messages`. Use the `ConsoleAgentInvocationInput` type from `vite-hub/console`. History requires valid user or assistant Messages with unique IDs and only text, file, image, or audio parts. The Console rejects tool and approval parts, appends the new user prompt, and starts a new invocation. See the [Console guide](https://vitehub.dev/docs/development/console#start-agent-invocations) for the access and history contracts.
 
@@ -275,6 +275,20 @@ For production, use `logs: { source: './server/logs.ts' }`. That server module m
 Explorer and Stream keep selected event data in the right inspector. Search includes structured fields. Follow refreshes the newest page every two seconds and is a polling view, not guaranteed delivery of every event. The browser retains at most 1,000 loaded events. The Console shows local retention limits and dropped or evicted counts. The same read operation is available as `vitehub logs list --level error --limit 50 --json` and through Console RPC `logs.list`, under the same section access policy.
 
 With the Cloudflare preset and Logs enabled, ViteHub defaults the generated Wrangler configuration to `observability: { enabled: true }`. An explicit Wrangler observability configuration is preserved, including `enabled: false`. This enables Cloudflare's native collection. It does not create an exporter, configure a destination, or connect that history to the Console. Those remain owned by the existing backend and its source adapter.
+
+## Agent Skills
+
+`vite-hub/skills` serves the Agent Skills of an app to coding agents from one list. `defineSkills()` reads an `import.meta.glob()` of `skills/**` and starts a skill at each `SKILL.md`. `serveSkills(request, skills)` answers Agent Skills Discovery v0.2.0 at `/.well-known/agent-skills/` (index with digests, `.tar.gz` for a multi-file skill) and v0.1.0 at `/.well-known/skills/`, which `npx skills add <origin>` reads. It returns `undefined` for other paths, so it fits in a middleware. `skillsMcp(skills)` gives the MCP Skills extension results (`skills/list`, `skills/get`, `skill://` resources) for any MCP server library. Pass a function instead of a list to change the skills at runtime. Read the [Agent Skills guide](https://vitehub.dev/docs/development/skills).
+
+```ts
+// server/middleware/skills.ts
+import { defineHandler } from "h3"
+import { defineSkills, serveSkills } from "vite-hub/skills"
+
+const skills = defineSkills(import.meta.glob("../../skills/**", { query: "?raw", import: "default", eager: true }))
+
+export default defineHandler(event => serveSkills(event.req, skills))
+```
 
 ## ViteHub MCP
 

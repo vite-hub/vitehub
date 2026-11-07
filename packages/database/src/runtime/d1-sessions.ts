@@ -1,17 +1,16 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 
+import { getStandardContext } from "@vite-hub/runtime/h3"
+
+import type { ViteHubContext, ViteHubStandardProps } from "@vite-hub/runtime"
+
 /** A D1 session from the Sessions API. Drizzle queries it like a D1 database. */
 export interface D1SessionLike {
   getBookmark: () => string | null
 }
 
-interface DatabaseRequestEvent {
-  req?: { headers?: Headers, method?: string, url?: string }
-  res?: { headers?: Headers }
-}
-
 interface DatabaseRequest {
-  event: DatabaseRequestEvent
+  standard: ViteHubStandardProps
   /** D1 sessions of this request, by binding name. */
   sessions: Map<string, D1SessionLike>
 }
@@ -27,8 +26,8 @@ export function d1BookmarkCookieName(binding: string) {
   return `vitehub-d1-bookmark-${binding.toLowerCase()}`
 }
 
-function readCookie(headers: Headers | undefined, name: string) {
-  for (const part of headers?.get("cookie")?.split(";") ?? []) {
+function readCookie(headers: Headers, name: string) {
+  for (const part of headers.get("cookie")?.split(";") ?? []) {
     const separator = part.indexOf("=")
     if (separator !== -1 && part.slice(0, separator).trim() === name) {
       try {
@@ -41,23 +40,22 @@ function readCookie(headers: Headers | undefined, name: string) {
   }
 }
 
-const writes = (event: DatabaseRequestEvent) => !SAFE_METHODS.has(event.req?.method?.toUpperCase() ?? "GET")
+const writes = (standard: ViteHubStandardProps) => !SAFE_METHODS.has(standard.req.method.toUpperCase())
 
 /**
  * Runs one request with its own D1 sessions. After the request, a request that can write (a method other than GET,
  * HEAD, or OPTIONS) gets a bookmark cookie for each D1 session that it used.
  */
-export async function runWithDatabaseRequest<T>(event: unknown, next: () => T): Promise<Awaited<T>> {
-  // SAFETY: Every field is optional and read with optional chaining, so any h3 event or plain object fits.
-  const target = (event ?? {}) as DatabaseRequestEvent
-  const request: DatabaseRequest = { event: target, sessions: new Map() }
+export async function runWithDatabaseRequest<T>(event: ViteHubContext, next: () => T): Promise<Awaited<T>> {
+  const standard = getStandardContext(event)
+  const request: DatabaseRequest = { standard, sessions: new Map() }
   const result = await requestStorage.run(request, next)
-  if (request.sessions.size && writes(target)) {
-    const secure = target.req?.url?.startsWith("https:") === true
+  if (request.sessions.size && writes(standard)) {
+    const secure = standard.req.url.startsWith("https:")
     for (const [binding, session] of request.sessions) {
       const bookmark = session.getBookmark()
       if (!bookmark) continue
-      target.res?.headers?.append("set-cookie", `${d1BookmarkCookieName(binding)}=${encodeURIComponent(bookmark)}; Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`)
+      standard.res.headers?.append("set-cookie", `${d1BookmarkCookieName(binding)}=${encodeURIComponent(bookmark)}; Path=/; HttpOnly; SameSite=Lax${secure ? "; Secure" : ""}`)
     }
   }
   return result
@@ -78,9 +76,9 @@ export function useD1Session<TSession extends D1SessionLike>(
   // SAFETY: A binding name always names the same binding in one request, so its session has this binding's type.
   let session = request.sessions.get(bindingName) as TSession | undefined
   if (!session) {
-    const constraint = writes(request.event)
+    const constraint = writes(request.standard)
       ? "first-primary"
-      : readCookie(request.event.req?.headers, d1BookmarkCookieName(bindingName)) ?? "first-unconstrained"
+      : readCookie(request.standard.req.headers, d1BookmarkCookieName(bindingName)) ?? "first-unconstrained"
     session = binding.withSession(constraint)
     request.sessions.set(bindingName, session)
   }

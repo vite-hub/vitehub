@@ -46,6 +46,10 @@ export interface DocsSection {
   description: string | null
   icon: string | null
   category: string | null
+  /** Rail group from `.navigation.yml`. The `groups` option can also place the section in a group. */
+  group: string | null
+  /** Whether the page groups of the sidebar start folded, from `fold` in `.navigation.yml`. */
+  fold: boolean
   related: string[]
   order: number
   pages: DocsPage[]

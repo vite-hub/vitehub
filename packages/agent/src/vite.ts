@@ -444,9 +444,29 @@ function transformGeneratedAgentWorkflowRegistry(
           "",
         ]
       : []
-  if (!capabilityLoaders.imports.length && !stateImports.length) return code
-  const preamble = [...capabilityLoaders.imports, ...stateImports, "", ...capabilityLoaders.setup, ...stateSetup, ""].join("\n")
-  return code.startsWith(preamble) ? code : preamble + code
+  // Nuxt writes this registry from its Nitro config hook before Vite resolves the host preset,
+  // and the Vite transform runs again on that file. The latest call owns the setup block.
+  const registry = stripGeneratedAgentWorkflowRegistrySetup(code)
+  if (!capabilityLoaders.imports.length && !stateImports.length) return registry
+  return [
+    generatedAgentWorkflowRegistrySetupStart,
+    ...capabilityLoaders.imports,
+    ...stateImports,
+    "",
+    ...capabilityLoaders.setup,
+    ...stateSetup,
+    generatedAgentWorkflowRegistrySetupEnd,
+    registry,
+  ].join("\n")
+}
+
+const generatedAgentWorkflowRegistrySetupStart = "// @vite-hub/agent workflow registry setup start"
+const generatedAgentWorkflowRegistrySetupEnd = "// @vite-hub/agent workflow registry setup end"
+
+function stripGeneratedAgentWorkflowRegistrySetup(code: string): string {
+  if (!code.startsWith(`${generatedAgentWorkflowRegistrySetupStart}\n`)) return code
+  const end = code.indexOf(`\n${generatedAgentWorkflowRegistrySetupEnd}\n`)
+  return end === -1 ? code : code.slice(end + generatedAgentWorkflowRegistrySetupEnd.length + 2)
 }
 
 function isGeneratedAgentWorkflowRegistryId(id: string): boolean {
@@ -1794,11 +1814,12 @@ function generatedHostedWorkspaceRuntimeSetup(
       "  return store && typeof store === 'object' && 'provider' in store && typeof store.provider === 'string' && ['cloudflare-artifacts', 'github'].includes(store.provider)",
       "}",
       "",
+      // Same env names as `hasVercelWorkspaceBlobEnv` in @vite-hub/workspace storage/provider.ts.
       `function hasHostedVercelBlobWorkspaceStore(module${typescript ? ": AgentRegistryModule" : ""}) {`,
       `  const agent = resolveAgentModule(module)${typescript ? " as WorkspaceAgentDefinition" : ""}`,
       "  const workspace = agent?.__vitehubWorkspaceAgentOptions?.workspace",
       "  const store = workspace && typeof workspace === 'object' ? workspace.store : undefined",
-      "  if (workspace && !store && typeof process === 'object' && process?.env?.BLOB_READ_WRITE_TOKEN) return true",
+      "  if (workspace && !store && typeof process === 'object' && (process?.env?.BLOB_STORE_ID || process?.env?.BLOB_READ_WRITE_TOKEN)) return true",
       "  return store && typeof store === 'object' && 'provider' in store && store.provider === 'vercel-blob'",
       "}",
       "",
@@ -1889,7 +1910,6 @@ async function generateAgentDeploymentCatalog(
     inspection?: false | string
     typescript?: boolean
     workspaceImportBase: string
-    workspaceRuntimeImport?: string
     workspaceRegistry?: false
     resetPublicUrlAgentNames?: boolean
     /** Channels from `server/channels` that own their webhook routes. Each one gets a host Agent for its webhook handler. */
@@ -1912,15 +1932,12 @@ async function generateAgentDeploymentCatalog(
       agentEntry: `[${JSON.stringify(definition.name)}]: ${agentExpression}`,
       import: `import * as ${moduleName} from ${JSON.stringify(moduleImportSpecifier(handlerPath, definition.handler))}`,
       workspaceEntry: options.workspaceRegistry !== false && definition.workspace
-        ? `workspaceRegistryEntry(${JSON.stringify(definition.workspace)}, ${moduleName}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)})`
+        ? `agentWorkspaceEntry(${JSON.stringify(definition.workspace)}, ${moduleName}, ${JSON.stringify(sourceRootDir)}, ${JSON.stringify(colocatedInstructions)}, ${JSON.stringify(colocatedSkills)})`
         : undefined,
     }
   }))
   const hostedWorkspaceRuntime = generatedHostedWorkspaceRuntimeSetup(definitions, options.workspaceImportBase, typescript)
   const workspaceEntries = entries.flatMap(entry => entry.workspaceEntry ? [entry.workspaceEntry] : []).join(",\n  ")
-  if (workspaceEntries && !options.workspaceRuntimeImport) {
-    throw agentDiagnostics.AGENT_B0017({ message: "[vitehub] Agent deployment catalog requires a Workspace runtime import for Workspace Agents." })
-  }
   const agentEntries = entries.map(entry => entry.agentEntry).join(",\n  ")
   const registeredAgentWorkspaceEntries = definitions.flatMap(definition => options.workspaceRegistry !== false && definition.workspace
     ? [`markDiscoveredWorkspaceAgentDefinitionRegistered(agents[${JSON.stringify(definition.name)}], ${JSON.stringify({ name: definition.name, workspace: definition.workspace })})`]
@@ -1943,7 +1960,9 @@ async function generateAgentDeploymentCatalog(
         ? [`import { resolveAgentInspectionMetadata${typescript ? ", type ResolvedAgentRuntimeContext" : ""} } from ${JSON.stringify(options.agentImportBase)}`]
         : []),
       `import { ${serverInternalImports} } from ${JSON.stringify(subpath(options.agentImportBase, "server/internal"))}`,
-      ...(options.workspaceRuntimeImport ? [`import { registerWorkspace, setWorkspaceRuntimeRegistry } from ${JSON.stringify(options.workspaceRuntimeImport)}`] : []),
+      ...(options.workspaceRegistry !== false
+        ? [`import { setAgentWorkspaceDefinitions } from ${JSON.stringify(subpath(options.agentImportBase, "server/workspace"))}`]
+        : []),
       ...hostedWorkspaceRuntime.imports,
       ...entries.map(entry => entry.import),
       ...standaloneChannels.map((channel, index) => `import standaloneChannel${index} from ${JSON.stringify(moduleImportSpecifier(handlerPath, channel.handler))}`),
@@ -1969,21 +1988,20 @@ async function generateAgentDeploymentCatalog(
       "",
       ...(workspaceEntries
         ? [
-            `function workspaceRegistryEntry(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}) {`,
+            `function agentWorkspaceEntry(name${typescript ? ": string" : ""}, module${typescript ? ": AgentRegistryModule" : ""}, sourceRootDir${typescript ? ": string" : ""}, colocatedInstructions${typescript ? ": string | undefined" : ""}, colocatedSkills${typescript ? ": ViteHubEncodedColocatedSkills | undefined" : ""}) {`,
             "  const agent = withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(module), colocatedInstructions), sourceRootDir, colocatedInstructions, colocatedSkills)",
             "  if (!workspaceAgentOwnsWorkspaceDefinition(agent)) return",
             "  const workspaceName = markDiscoveredWorkspaceAgentDefinitionRegistered(agent, { name, workspace: name }) || name",
             `  const workspaceDefinition = workspaceDefinitionFromOptions(${typescript ? "(agent as WorkspaceAgentDefinition).__vitehubWorkspaceAgentOptions" : "agent.__vitehubWorkspaceAgentOptions"})`,
-            "  registerWorkspace(workspaceName, workspaceDefinition)",
-            `  return [workspaceName, async () => ({ ...module, default: agent })]${typescript ? " as const" : ""}`,
+            `  return [workspaceName, workspaceDefinition]${typescript ? " as const" : ""}`,
             "}",
             "",
           ]
         : []),
       ...hostedWorkspaceRuntime.setup,
-      ...(options.workspaceRuntimeImport
+      ...(options.workspaceRegistry !== false
         ? [
-            `setWorkspaceRuntimeRegistry(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].flatMap(entry => entry ? [entry] : []))${typescript ? " as Parameters<typeof setWorkspaceRuntimeRegistry>[0]" : ""})`,
+            `setAgentWorkspaceDefinitions(Object.fromEntries([${workspaceEntries ? `\n  ${workspaceEntries}\n` : ""}].flatMap(entry => entry ? [entry] : [])))`,
             "",
           ]
         : []),
@@ -2048,7 +2066,6 @@ async function generateAgentWebhookRouteHandler(
     standaloneChannels: options.standaloneChannels,
     typescript: true,
     workspaceImportBase,
-    workspaceRuntimeImport: subpath(workspaceImportBase, "runtime"),
   })
   const webhookRoute = typeof options.webhookRoute === "string" ? options.webhookRoute : ""
   const webhookSelector = webhookRoute.includes("[webhook]") ? "getRouterParam(event, 'webhook')" : "''"
@@ -2255,7 +2272,6 @@ async function generateAgentNetlifyFunctionRouteHandler(
     agentImportBase,
     inspection: options.inspectionRoute,
     workspaceImportBase,
-    workspaceRuntimeImport: subpath(agentImportBase, "server/workspace"),
   })
   const webhookSelector = routeUsesParam(options.webhookRoute, "webhook") ? "netlifyParam(context, 'webhook')" : "''"
   const webhookStateOption = options.libsqlState ? "state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, " : ""
@@ -2560,9 +2576,6 @@ async function generateAgentDiscordGatewayRouteHandler(
     channelHandlers: false,
     typescript: true,
     workspaceImportBase,
-    workspaceRuntimeImport: definitions.some(definition => definition.workspace)
-      ? subpath(workspaceImportBase, "runtime")
-      : undefined,
   })
 
   return [
@@ -2651,9 +2664,6 @@ async function generateAgentDenoServer(
     inspection: options.inspectionRoute,
     typescript: true,
     workspaceImportBase,
-    workspaceRuntimeImport: definitions.some(definition => definition.workspace)
-      ? subpath(workspaceImportBase, "runtime")
-      : undefined,
   })
 
   return [

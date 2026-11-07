@@ -809,6 +809,8 @@ export default defineAgent({
 
 Install the matching `@chat-adapter/*` package when a built-in Channel uses provider adapter options. Keep provider credentials in Server Env.
 
+For a complete bot with platform setup, local testing, and deployment, follow the guide for [Slack](/docs/guides/slack-ai-bot), [Discord](/docs/guides/discord-ai-bot), or [Telegram](/docs/guides/telegram-ai-bot).
+
 ### Channel Env
 
 Built-in Channels read credentials from Server Env under `env.server.<channel>`. ViteHub discovers built-in Channel factories in Agent definitions and declares their fields automatically, so applications usually need no separate Env declaration. Explicit Channel options take precedence over Env values. Declare a field yourself when the host variable name or provider differs from the default.
