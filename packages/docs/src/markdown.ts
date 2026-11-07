@@ -1,3 +1,4 @@
+import { renderHtmlFromDocument } from "@comark/html"
 import { createMarkdownParser } from "comark/parse"
 import alert from "comark/plugins/alert"
 import attributes from "comark/plugins/attributes"
@@ -5,7 +6,10 @@ import components from "comark/plugins/components"
 import shiki from "comark/plugins/shiki"
 import taskList from "comark/plugins/task-list"
 import toc from "comark/plugins/toc"
+import { textContent } from "comark/utils"
+import comarkUiHtml from "comark-ui/html"
 import comarkUi from "comark-ui/vue"
+import { defu } from "defu"
 import css from "shiki/dist/langs/css.mjs"
 import diff from "shiki/dist/langs/diff.mjs"
 import html from "shiki/dist/langs/html.mjs"
@@ -14,7 +18,8 @@ import mdc from "shiki/dist/langs/mdc.mjs"
 import githubDark from "shiki/dist/themes/github-dark-default.mjs"
 import githubLight from "shiki/dist/themes/github-light-default.mjs"
 
-import type { ComarkPlugin, MarkdownDocument, Node as ComarkNode } from "comark"
+import type { ElementNode, ComarkPlugin, MarkdownDocument, Node as ComarkNode } from "comark"
+import type { PresetOptions } from "comark-ui/vue"
 import type { DocsSearchSection, DocsTocLink } from "./types.ts"
 
 /** A page parsed on the server. The client renders `nodes` and never parses Markdown itself. */
@@ -24,8 +29,22 @@ export interface DocsDocument {
 }
 
 export interface DocsParserOptions {
+  /**
+   * comark-ui's preset options, merged over the built-in ones: `{ typeset: false, chips: false, badge: { download:
+   * false } }`. Such as `{ chips: true }` or `{ github: { references: { repo: "owner/name" } } }`.
+   */
+  comarkUi?: PresetOptions
+  /** Blocks that show their first fenced block rendered, next to its source. */
+  examples?: DocsExamplesOptions
   /** More Comark plugins, after the built-in ones. A plugin with a built-in name replaces it. */
   plugins?: ComarkPlugin[]
+}
+
+export interface DocsExamplesOptions {
+  /** Tags of the blocks that get a preview of their first fenced block. `["example"]` by default. */
+  tags?: string[]
+  /** A playground URL for a block's Markdown, written as its `play`. `undefined` writes none. */
+  play?: (source: string, tag: string) => string | undefined | Promise<string | undefined>
 }
 
 // Bash, JSON, JavaScript, TypeScript, Vue, and YAML are built in. Other code stays plain text.
@@ -36,11 +55,28 @@ const themes = { light: githubLight, dark: githubDark }
 /**
  * The blocks of comark-ui: callouts, tabs, steps, code with its toolbar, zoomable images, charts, and the rest. The
  * site's CSS styles the prose, so comark-ui's typeset is off. Chips are off too: they turn every web link into a chip
- * and fetch its favicon. A site turns them on by passing `comark-chips` in `docs.parser`.
+ * and fetch its favicon. A site turns them on with `comarkUi: { chips: true }`.
+ *
+ * The plugins are the HTML preset's, so annotate, comments, diff, and quiz parse too, with the Vue preset's copy of
+ * every plugin the two share.
  */
-function docsBlocks() {
-  return comarkUi({ typeset: false, chips: false, badge: { download: false } })
+function docsBlocks(options: PresetOptions = {}) {
+  const merged = defu(options, { typeset: false, chips: false, badge: { download: false } }) as PresetOptions
+  const vue = new Map(comarkUi(merged).plugins.map(plugin => [plugin.name, plugin]))
+  return comarkUiHtml(merged).plugins.map(plugin => vue.get(plugin.name) ?? plugin)
 }
+
+// annotate, comments, diff, and quiz have only an HTML renderer, so the server draws their blocks as HTML. Vue
+// components are named in PascalCase, `Tabs` for `tabs`, and a plain element such as `span` renders in Vue as it is.
+const htmlBlocks = comarkUiHtml().components
+const tagKey = (tag: string) => tag.replaceAll("-", "").toLowerCase()
+const vueBlocks = comarkUi()
+const vueTags = new Set([...Object.keys(vueBlocks.components), ...vueBlocks.tags].map(tagKey))
+const htmlOnly = new Set(Object.keys(htmlBlocks).filter(tag => !vueTags.has(tagKey(tag))))
+
+const isElement = (node: ComarkNode): node is ElementNode => Array.isArray(node) && typeof node[0] === "string"
+// A block such as `:suggestion` can sit in a paragraph, where a `div` would end the paragraph in the browser.
+const phrasing = /^(?:p|h[1-6]|a|span|em|strong|del|s|mark|sup|sub|small|label)$/
 
 /**
  * Parse Markdown with components (`::name`), comark-ui's blocks, GitHub alerts, task lists, highlighted code, and a
@@ -50,14 +86,45 @@ export function createDocsParser(options: DocsParserOptions = {}): (markdown: st
   const extra = options.plugins ?? []
   // A later plugin with the same name wins: comark-ui's GitHub callouts replace Comark's alert plugin, and the site's
   // plugins replace both.
-  const ordered = [alert(), taskList(), components(), attributes(), ...docsBlocks().plugins, shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 }), ...extra]
+  const ordered = [alert(), taskList(), components(), attributes(), ...docsBlocks(options.comarkUi), shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 }), ...extra]
   const byName = new Map(ordered.map(plugin => [plugin.name, plugin]))
   const plugins = ordered.filter(plugin => byName.get(plugin.name) === plugin)
   const parse = createMarkdownParser({ plugins })
-  return async (markdown) => {
+  const exampleTags = new Set(options.examples?.tags ?? ["example"])
+  const play = options.examples?.play
+
+  // An element node is [tag, attributes, ...children], so its children start at 2.
+  const visit = async (nodes: ComarkNode[], from = 0, parent?: string): Promise<void> => {
+    for (let at = from; at < nodes.length; at++) {
+      const node = nodes[at]!
+      if (!isElement(node)) continue
+      const tag = node[0]
+      if (htmlOnly.has(tag)) {
+        const html = await renderHtmlFromDocument({ nodes: [node] }, { components: htmlBlocks })
+        nodes[at] = ["comark-html", parent && phrasing.test(parent) ? { html, block: tag, inline: true } : { html, block: tag }]
+        continue
+      }
+      if (exampleTags.has(tag)) {
+        // An example's Markdown may be broken on purpose, such as invalid frontmatter, so it shows its source alone.
+        const pre = (node.slice(2) as ComarkNode[]).find((child): child is ElementNode => isElement(child) && child[0] === "pre")
+        const source = pre && textContent(pre)
+        if (!source) continue
+        const preview = await parseDocument(source).catch(() => undefined)
+        if (preview) node.splice(2, 0, ["example-preview", {}, ...preview.nodes])
+        const url = await play?.(source, tag)
+        if (url !== undefined) node[1].play = url
+        continue
+      }
+      await visit(node as ComarkNode[], 2, tag)
+    }
+  }
+
+  const parseDocument = async (markdown: string): Promise<DocsDocument> => {
     const document = await parse(markdown)
+    await visit(document.nodes)
     return { nodes: unwrapListParagraphs(document.nodes), toc: tocOf(document) }
   }
+  return parseDocument
 }
 
 /**

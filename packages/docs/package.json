@@ -64,7 +64,6 @@
     "test": "vp run -t @vite-hub/docs#build && vp test"
   },
   "dependencies": {
-    "@comark/vue": "0.8.1",
     "@nuxt/kit": "4.6.2",
     "@nuxtjs/mcp-toolkit": "^0.22.0",
     "@takumi-rs/core": "catalog:nuxt",
@@ -74,8 +73,6 @@
     "@vite-hub/ui": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
-    "comark": "catalog:markdown-ui",
-    "comark-ui": "catalog:markdown-ui",
     "defu": "catalog:unjs",
     "nuxt-agent-discovery": "^0.8.1",
     "nuxt-link-checker": "^6.0.1",
@@ -89,11 +86,15 @@
     "zod": "catalog:runtime"
   },
   "devDependencies": {
+    "@comark/html": "catalog:markdown-ui",
+    "@comark/vue": "0.8.1",
     "@nuxt/ui": "catalog:nuxt",
     "@types/node": "catalog:tooling",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "comark": "catalog:markdown-ui",
+    "comark-ui": "catalog:markdown-ui",
     "h3": "catalog:unjs",
     "nitropack": "catalog:unjs",
     "nuxt": "catalog:nuxt",
@@ -106,9 +107,13 @@
     "vue": "catalog:ui"
   },
   "peerDependencies": {
+    "@comark/html": "^0.8.1 || ^0.9.0",
+    "@comark/vue": "^0.8.1 || ^0.9.0",
     "@nuxt/ui": "^4.11.0",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/gateways": "workspace:*",
+    "comark": "^0.8.1 || ^0.9.0",
+    "comark-ui": "^0.9.1 || ^0.10.0",
     "nuxt": "catalog:nuxt-compat",
     "vue": "catalog:ui"
   },

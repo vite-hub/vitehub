@@ -263,7 +263,7 @@ describe("docs Nuxt setup", () => {
 
   it("gives the page route and search the app's parser module", async () => {
     const options = await setupDocs({ parser: "./docs.parser.ts" })
-    expect(templates.get("docs/parser.mjs")?.()).toBe(`export { default } from ${JSON.stringify(resolve(options.rootDir, "docs.parser.ts"))}\n`)
+    expect(templates.get("docs/parser.mjs")?.()).toBe(`export { default } from ${JSON.stringify(resolve(options.rootDir, "docs.parser.ts"))}\nexport const githubRepo = null\n`)
     const nitro: { alias?: Record<string, string> } = {}
     for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
     expect(nitro.alias?.["#docs/parser"]).toBe("/build/docs/parser.mjs")
@@ -271,7 +271,12 @@ describe("docs Nuxt setup", () => {
 
   it("parses with the built-in plugins only without a parser module", async () => {
     await setupDocs({})
-    expect(templates.get("docs/parser.mjs")?.()).toBe("export default {}\n")
+    expect(templates.get("docs/parser.mjs")?.()).toBe("export default {}\nexport const githubRepo = null\n")
+  })
+
+  it("gives the parser the site's repository, where issue references link", async () => {
+    await setupDocs({ github: { repo: "vite-hub/vitehub" } })
+    expect(templates.get("docs/parser.mjs")?.()).toContain(`export const githubRepo = "vite-hub/vitehub"`)
   })
 
   it("writes relative Markdown links against the rendered page below the app base", async () => {

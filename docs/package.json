@@ -21,6 +21,8 @@
     "preview:cloudflare": "vp run build && vp dlx \"wrangler@4.147.0\" dev --config .output/server/wrangler.json"
   },
   "dependencies": {
+    "@comark/html": "catalog:markdown-ui",
+    "@comark/vue": "0.8.1",
     "@nuxt/icon": "^2.5.1",
     "@nuxt/ui": "catalog:nuxt",
     "@vite-hub/agent": "workspace:*",
@@ -31,6 +33,8 @@
     "@vueuse/core": "catalog:ui",
     "agents": "catalog:ai",
     "ai": "catalog:ai",
+    "comark": "catalog:markdown-ui",
+    "comark-ui": "catalog:markdown-ui",
     "h3": "catalog:h3-v1-compat",
     "motion-v": "catalog:ui",
     "nuxt": "catalog:nuxt",

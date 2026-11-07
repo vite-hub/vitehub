@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // `:::example`: rendered Markdown with its source a switch away, and an optional link that opens it in a playground.
-// A site's parser puts the rendered copy in an `example-preview` node before the source, and writes `play`.
+// The docs parser puts the rendered copy in an `example-preview` node before the source, and writes `play`.
 defineProps<{
   label?: string
   /** A playground URL that opens this example. */

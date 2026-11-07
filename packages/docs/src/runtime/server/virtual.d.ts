@@ -13,12 +13,13 @@ declare module "#docs/content" {
   export const content: DocsContentRuntime | undefined
 }
 
-/** The default export of the module that the `parser` option names, or `{}` without one. */
+/** The default export of the module that the `parser` option names, or `{}` without one, and `docs.github.repo`. */
 declare module "#docs/parser" {
   import type { DocsParserOptions } from "../../markdown.ts"
 
   const parser: DocsParserOptions
   export default parser
+  export const githubRepo: string | null
 }
 
 declare module "#imports" {

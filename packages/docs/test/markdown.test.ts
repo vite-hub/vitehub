@@ -126,3 +126,72 @@ describe("comark-ui blocks", () => {
     expect(find(nodes, "github-callout")).toBeUndefined()
   })
 })
+
+describe("examples", () => {
+  const tagOf = (node: ComarkNode | undefined) => Array.isArray(node) ? node[0] : undefined
+  const example = (markdown: string, attributes = "") => `:::example${attributes}\n\`\`\`md\n${markdown}\n\`\`\`\n:::\n`
+
+  it("renders an example's Markdown before its source", async () => {
+    const { nodes } = await parse(example("> [!NOTE]\n> Lumen caches every page."))
+    const node = find(nodes, "example")
+
+    expect(tagOf(node?.[2])).toBe("example-preview")
+    expect(find([node![2]], "github-callout")?.[1]).toMatchObject({ type: "note" })
+    expect(find(node!.slice(3) as ComarkNode[], "pre")).toBeDefined()
+    expect(node?.[1].play).toBeUndefined()
+  })
+
+  it("writes the playground link that play returns", async () => {
+    const play = async (source: string, tag: string) => `/play?tag=${tag}#${encodeURIComponent(source)}`
+    const { nodes } = await createDocsParser({ examples: { play } })(example("**Bold**"))
+
+    expect(find(nodes, "example")?.[1].play).toBe(`/play?tag=example#${encodeURIComponent("**Bold**")}`)
+  })
+
+  it("previews the blocks that tags names", async () => {
+    const { nodes } = await createDocsParser({ examples: { tags: ["correct"] } })(":::correct\n```md\n**Bold**\n```\n:::\n")
+
+    expect(tagOf(find(nodes, "correct")?.[2])).toBe("example-preview")
+  })
+
+  it("shows only the source of Markdown that doesn't parse", async () => {
+    const { nodes } = await parse(example("---\ntitle: [\n---\n# Broken"))
+    const node = find(nodes, "example")
+
+    expect(find(nodes, "example-preview")).toBeUndefined()
+    expect(tagOf(node?.[2])).toBe("pre")
+  })
+})
+
+describe("HTML-only blocks", () => {
+  it("draws a diff as HTML named after its block", async () => {
+    const { nodes } = await parse("::diff\n```ts\nconst a = 1\n```\n```ts\nconst a = 2\n```\n::\n")
+    const node = find(nodes, "comark-html")
+
+    expect(find(nodes, "diff")).toBeUndefined()
+    expect(node?.[1]).toMatchObject({ block: "diff" })
+    expect(node?.[1].html).toContain("class=\"cd")
+  })
+
+  it("draws a block inside a paragraph inline", async () => {
+    const { nodes } = await parse("Run :suggestion[npm]{to=\"pnpm\"} first.\n")
+
+    expect(find(nodes, "p")?.[3]).toMatchObject(["comark-html", { block: "suggestion", inline: true }])
+  })
+
+  it("draws the HTML-only blocks inside an example's preview", async () => {
+    const { nodes } = await parse(":::example\n````md\n::diff\n```ts\nconst a = 1\n```\n```ts\nconst a = 2\n```\n::\n````\n:::\n")
+
+    expect(find([find(nodes, "example-preview")!], "comark-html")?.[1]).toMatchObject({ block: "diff" })
+  })
+})
+
+describe("comark-ui options", () => {
+  it("links issue references to the repository in github.references", async () => {
+    const own = createDocsParser({ comarkUi: { github: { references: { repo: "vite-hub/vitehub" } } } })
+    const linked = find((await own("Fixed in #12.\n")).nodes, "a")
+
+    expect(linked?.[1].href).toBe("https://github.com/vite-hub/vitehub/issues/12")
+    expect(find((await parse("Fixed in #12.\n")).nodes, "a")).toBeUndefined()
+  })
+})
