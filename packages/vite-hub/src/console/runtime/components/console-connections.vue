@@ -150,7 +150,7 @@ onBeforeUnmount(() => request?.abort());
               :href="setupURL"
               target="_blank"
               rel="noopener"
-              class="rounded-sm text-muted underline-offset-2 outline-none hover:text-highlighted hover:underline focus-visible:ring-1 focus-visible:ring-primary"
+              class="rounded-sm text-muted underline-offset-2 outline-none hover:text-highlighted hover:underline focus-visible:ring-1 focus-visible:ring-(--vitehub-console-focus)"
               >Add a Connection<span class="sr-only"> (opens in a new tab)</span></a
             >
           </template>
@@ -190,7 +190,7 @@ export default defineConnection({
               th: 'h-9 py-0 text-xs font-medium text-muted',
               // Tall enough for an action button, so a row without one has the same height.
               td: 'h-10',
-              tr: 'group cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary',
+              tr: 'group cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--vitehub-console-focus)',
             }"
           >
             <template #name-cell="{ row }"
