@@ -139,13 +139,16 @@ describe("Babysitter check waits", () => {
     expect(wakeReasons(await deferred(settled), "unknown", policy)).toEqual(["gates-settled"]);
   });
 
-  it("treats a check run that runs for eight hours as stuck", async () => {
+  it("treats a GitHub Actions check run that runs for eight hours as stuck, and others after half an hour", async () => {
     const now = Date.parse("2026-10-18T12:00:00Z");
-    const running = (startedAt: string) => parked(s => {
-      s.checks = { "check_run:1": { id: 1, name: "ci", head_sha: head, status: "in_progress", started_at: startedAt, app: { id: 5 } } };
+    const running = (startedAt: string, app = { id: 15368, slug: "github-actions" }) => parked(s => {
+      s.checks = { "check_run:1": { id: 1, name: "ci", head_sha: head, status: "in_progress", started_at: startedAt, app } };
     });
     expect(checksStillRunning(await running("2026-10-18T11:29:00Z"), now)).toBe(true);
     expect(checksStillRunning(await running("2026-10-18T03:59:00Z"), now)).toBe(false);
+    // A Workers Builds check run can stay in progress for good.
+    expect(checksStillRunning(await running("2026-10-18T11:45:00Z", { id: 5, slug: "cloudflare-workers-and-pages" }), now)).toBe(true);
+    expect(checksStillRunning(await running("2026-10-18T11:29:00Z", { id: 5, slug: "cloudflare-workers-and-pages" }), now)).toBe(false);
     // A queued check without a start time still runs.
     expect(checksStillRunning(await parked(s => { s.checks = { "check_run:1": { id: 1, name: "ci", head_sha: head, status: "queued", app: { id: 5 } } } }), now)).toBe(true);
     expect(checksStillRunning(await parked(), now)).toBe(false);
@@ -155,7 +158,7 @@ describe("Babysitter check waits", () => {
     const now = Date.parse("2026-11-07T10:00:00Z");
     // GitHub sets a queued run's started_at when it creates the run. vitehub#3514 had this at 09:50.
     const queued = (status: string, startedAt: string) => parked(s => {
-      s.checks = { "check_run:1": { id: 1, name: "package tests (agent 1/3)", head_sha: head, status, started_at: startedAt, app: { id: 5 } } };
+      s.checks = { "check_run:1": { id: 1, name: "package tests (agent 1/3)", head_sha: head, status, started_at: startedAt, app: { id: 15368, slug: "github-actions" } } };
     });
     expect(checksStillRunning(await queued("queued", "2026-11-07T08:41:29Z"), now)).toBe(true);
     expect(checksStillRunning(await queued("waiting", "2026-11-07T07:00:00Z"), now)).toBe(true);
