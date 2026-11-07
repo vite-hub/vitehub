@@ -8,13 +8,19 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Build a filter box. A person types "nord parts except vak supply". Your page shows one chip to include and one chip to exclude.
+You build a filter box. A person types "nord parts except vak supply". Your page shows one supplier to include and one supplier to exclude.
 
-You write the options and the route. ViteHub asks the model and checks the answer. You apply the selection to your own state.
+You write the list of options and the API route. ViteHub asks a model to pick from your options and checks the answer. You put the result in your own page state.
 
-This tutorial uses a small offline gateway. It needs no API key and no network. The last step swaps it for a real model.
+You need:
 
-You need Node.js 22.22 or newer, pnpm, and the app from the **Vite with Nitro** path in [Installation](/docs/getting-started/installation). Decisions ships in `vite-hub`, so there is no extra ViteHub package to add. This app has a Vue page, so install Vue and its Vite plugin:
+- Node.js 22.22 or newer
+- pnpm
+- the app from the **Vite with Nitro** path in [Installation](/docs/getting-started/installation)
+
+You do not need an API key or a network connection. A small offline stand-in answers in place of a model. The last step shows how to use a real model.
+
+Decisions is part of `vite-hub`, so you do not add a ViteHub package. The page in this tutorial uses Vue. Install Vue, and the plugin that lets Vite build `.vue` files:
 
 ```bash [commands/install-vue]
 pnpm add vue
@@ -24,10 +30,10 @@ pnpm add -D @vitejs/plugin-vue
 ::run-tutorial{to="/learn/decisions"}
 ::
 
-::tutorial-step{title="Declare your options"}
-## Declare your options
+::tutorial-step{title="List your options"}
+## List your options
 
-Create `server/utils/word-gateway.ts`. A gateway is the object that asks the model. This one answers by word match, so you can see the flow without a model. Read it once, then leave it alone.
+Create `server/utils/word-gateway.ts`. A gateway is the object that asks the model. This one does not use a model. It looks for the option names in the text. Read it once, then leave it alone.
 
 ```ts [server/utils/word-gateway.ts]
 import type { AiGatewayAsk } from "vite-hub/gateways"
@@ -74,7 +80,7 @@ export const wordGateway: { ask: AiGatewayAsk } = {
 }
 ```
 
-Now the part that is yours. Create `server/utils/forecast-choices.ts`. A **group** is one decision, such as "which supplier". An **option** is one thing the person can pick. `toOptions()` turns your data into options. This is the first bridge.
+Now the part that is yours. Create `server/utils/forecast-choices.ts`. A **group** is one decision, such as "which supplier". An **option** is one thing the person can pick. `toOptions()` turns your data into options. This is the first bridge: code that you write to connect your data to ViteHub.
 
 ```ts [server/utils/forecast-choices.ts]
 import { defineChoices, toOptions } from "vite-hub/decisions"
@@ -111,7 +117,7 @@ The `supplier` group takes any number of options. The `chart` group takes at mos
 ::tutorial-step{title="Write the route"}
 ## Write the route
 
-Create `server/api/choices.post.ts`. Call `resolve()` here. It returns `[error, selection]` and never throws.
+Create `server/api/choices.post.ts`. It calls `resolve()` with the text. `resolve()` does not throw. It returns `[error, selection]`: `error` tells you what went wrong, and `selection` holds the picked options.
 
 ```ts [server/api/choices.post.ts]
 import { createError, defineEventHandler, readBody } from "h3"
@@ -168,14 +174,14 @@ You get a selection. Each group has its own shape:
 }
 ```
 
-`supplier` lists the values to include and the values to exclude. `chart` has the best value, how sure the model is, and every option ranked. Every value is one of your option values.
+`supplier` lists the values to include and the values to exclude. `chart` has the best value, how sure the model is, and every option ranked. Every value is one of your option values, so the route turned the sentence into your own data.
 
 ::
 
 ::tutorial-step{title="Call it from the browser"}
 ## Call it from the browser
 
-The browser sends text to your route and gets a selection back. `useChoices()` handles the typing, the waiting, and the cancel of old requests. You write the second bridge: the `onSelect` function puts the selection into your own state.
+The browser sends text to your route and gets a selection back. `useChoices()` keeps the input text, shows when a request is waiting, and cancels old requests. You write the second bridge: the `onSelect` function puts the selection into your own state.
 
 Add the Vue plugin to `vite.config.ts`:
 
@@ -268,7 +274,7 @@ Not supplier: vak
 Chart: bar
 ```
 
-The chips are plain Vue state. Replace the list with your own filter bar and the same `onSelect` fills it.
+The browser sent your text to the route and put the answer in your Vue state. You can replace the list with your own filter bar. The same `onSelect` fills it.
 
 ::
 
@@ -287,21 +293,24 @@ The word gateway only knows exact names. A real decision model also reads codes,
 +  gateway: typesafe(), // reads TYPESAFE_API_KEY on the server
 ```
 
-Set the key in your server environment and restart. Keep it out of client code and version control. Each request can incur provider charges.
+Set the key in your server environment and restart:
 
 ```bash [commands/typesafe-key]
 export TYPESAFE_API_KEY=your-key
 pnpm dev
 ```
 
+> [!NOTE]
+> Each request to a real model can cost money. Keep the key out of browser code and out of Git.
+
 You can now delete `server/utils/word-gateway.ts`. The route and the page stay the same, because both only use `resolve()` and the selection.
 
 ::
 
-## What you built
+## Next steps
 
 You wrote two bridges and one route. Your data became options. The selection became your state. ViteHub did the part in the middle.
 
-- Read [Concepts](/docs/decisions/concepts) to see why the model cannot invent a value.
-- Read [Recipes](/docs/decisions/recipes) for search facets, a command palette, and dashboard knobs.
-- Read [Limits and errors](/docs/decisions/limits-and-errors) before you ship.
+- [Concepts](/docs/decisions/concepts): learn why the model cannot invent a value.
+- [Recipes](/docs/decisions/recipes): build search facets, a command palette, and dashboard controls.
+- [Limits and errors](/docs/decisions/limits-and-errors): learn what can fail before you ship.

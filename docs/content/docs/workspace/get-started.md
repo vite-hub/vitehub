@@ -1,5 +1,4 @@
 ---
-
 title: Build your first Workspace
 description: Read a mounted Markdown file and write a draft with explicit Workspace access.
 layout: tutorial
@@ -9,19 +8,31 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-List Markdown files from a local Source, then add a draft to the Workspace's writable file tree. A Workspace combines files with access rules and tracks changes as a diff. The read route and write route will ask for different access modes.
+You build two API routes. One route lists the Markdown files in a Workspace. The other route writes a draft file and shows what changed.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. This example uses the default local store. Read [Hosts](/docs/workspace/hosts) before choosing storage for a deployed app.
+A Workspace is a folder of files that your server can read and write. It has access rules, and it tracks each change.
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+You need:
 
-Install Workspace and Nitro. Add the plugins below to your existing Vite config and keep its other plugins.
+- Node.js 22.22 or newer
+- pnpm
+- a Vite app. Run every command from its root folder.
+
+You do not need a cloud account. The files stay on your computer.
+
+::tutorial-step{title="Install"}
+## Install
+
+Install the packages:
 
 ```bash [commands/install]
 pnpm add @vite-hub/workspace nitro h3
 pnpm add -D vite
 ```
+
+`@vite-hub/workspace` gives you Workspace. `nitro` and `h3` serve the API routes. `vite` runs the dev server.
+
+Add the plugins to `vite.config.ts`. Keep the other plugins that your config already has. `hubWorkspace()` finds the Workspaces in `server/workspaces/`.
 
 ```ts [vite.config.ts]
 import { hubWorkspace } from '@vite-hub/workspace/vite'
@@ -35,10 +46,10 @@ export default defineConfig({
 
 ::
 
-::tutorial-step{title="Define the Workspace"}
-## Define the Workspace
+::tutorial-step{title="Create the Workspace"}
+## Create the Workspace
 
-The Definition name comes from `server/workspaces/docs.ts`. The Source reads Markdown under the local `docs` directory and mounts it as `docs` in the Workspace. Create the sample file below before requesting the read route.
+Create `server/workspaces/docs.ts`. ViteHub uses the file name as the Workspace name, so this Workspace is `docs`.
 
 ```ts [server/workspaces/docs.ts]
 import { defineWorkspace, glob } from '@vite-hub/workspace'
@@ -50,7 +61,9 @@ export default defineWorkspace({
 })
 ```
 
-Create the directory and this file in your app. It gives the read route a known Markdown document to find:
+`sources` adds files from other places to the Workspace. A Source is a place that the Workspace reads files from but does not change. Here, `glob()` reads the Markdown files in your app's `docs/` folder. The key `docs` puts them in the `docs/` folder of the Workspace.
+
+Create `docs/intro.md`, so the read route has a file to find:
 
 ```md [docs/intro.md]
 # Workspace sample
@@ -63,7 +76,7 @@ This document comes from a read-only Source.
 ::tutorial-step{title="Add read and write routes"}
 ## Add read and write routes
 
-The default mode permits reads. `glob()` lists the Markdown paths visible through the Workspace, including files mounted from the Source.
+Create `server/api/docs.get.ts`. `useWorkspace('docs')` opens the Workspace. By default, it can only read. `fs.glob('**/*.md')` lists all Markdown files in the Workspace, together with the files from the Source.
 
 ```ts [server/api/docs.get.ts]
 import { defineEventHandler } from 'h3'
@@ -75,7 +88,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-This route asks for write mode because it creates a draft. Writing changes the Workspace store; it does not write back to the mounted Source. `diff()` reports the pending change.
+Create `server/api/drafts.post.ts`. This route asks for `mode: 'write'`, because it creates a file. Each route asks only for the access that it needs.
 
 ```ts [server/api/drafts.post.ts]
 import { defineEventHandler, readBody } from 'h3'
@@ -93,24 +106,28 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
+`writeFile()` saves the draft in the Workspace. It does not change the files in your `docs/` folder. `diff()` returns the changes that are not saved to history yet.
+
 ::
 
-::tutorial-step{title="Read and write the tree"}
-## Read and write the tree
+::tutorial-step{title="Read and write files"}
+## Read and write files
 
-Start Vite and call the read route:
+Start the dev server:
 
 ```bash [commands/start]
 pnpm vite dev
 ```
 
-Keep the server running. In another terminal, run:
+Keep the server running. Open a second terminal and call the read route:
 
 ```bash [commands/request]
 curl http://localhost:5173/api/docs
 ```
 
-The response lists Markdown files from the `docs` mount, including the `docs/intro.md` sample. Send a draft to the write route:
+The response lists `docs/intro.md`. This proves that the Workspace reads the files from the Source.
+
+Send a draft to the write route:
 
 ```bash [commands/write]
 curl -X POST http://localhost:5173/api/drafts \
@@ -118,6 +135,17 @@ curl -X POST http://localhost:5173/api/drafts \
   -d '{"text":"# Draft"}'
 ```
 
-The write response reports the new `drafts/summary.md` in a Workspace diff. Request `/api/docs` again to see it in the file listing. The Source file still contains its original content. Read [Server API](/docs/workspace/server-api) for snapshots, commits, and Source sync.
+The response shows `drafts/summary.md` as a new file. This proves that the write route saved the draft and that the Workspace tracks the change.
+
+Call `/api/docs` again. The list now has `drafts/summary.md` too. Your `docs/intro.md` file does not change.
+
+> [!NOTE]
+> This tutorial uses the default store on your computer. Before you deploy, read [Store providers](/docs/workspace/configure#store-providers) and [Hosts](/docs/workspace/hosts) to choose where the files go.
 
 ::
+
+## Next steps
+
+- [Server API](/docs/workspace/server-api): save versions, and sync files back to a Source.
+- [Configure](/docs/workspace/configure): set access rules and choose a store.
+- [Hosts](/docs/workspace/hosts): choose storage for a deployed app.

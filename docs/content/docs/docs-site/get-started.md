@@ -8,14 +8,20 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Build the docs site of Lumen, a made-up command-line tool. The site has a home page and one section with two pages. At the end, you read a page in the browser and its Markdown copy with `curl`.
+You build the docs site of Lumen, a made-up command-line tool. The site has a home page and one section with two pages. At the end, you read a page in the browser. Then you read the same page as plain Markdown with `curl`, as a coding agent does.
 
-You need Node.js 22.22 or newer and pnpm. No account is necessary.
+You need:
+
+- Node.js 22.22 or newer
+- pnpm
+- an empty folder
+
+You do not need an existing app or an account.
 
 ::tutorial-step{title="Create the app"}
 ## Create the app
 
-Create a folder for the site, and add a `package.json` with the two scripts that Nuxt uses:
+Create a `package.json` file with this content. `"type": "module"` tells Node.js that your files use `import` and `export`. `dev` starts the site on your computer, and `build` makes the files to deploy.
 
 ```json [package.json]
 {
@@ -29,7 +35,7 @@ Create a folder for the site, and add a `package.json` with the two scripts that
 }
 ```
 
-Install Nuxt, Nuxt UI, Tailwind CSS, and the docs module:
+Install the packages. `nuxt` runs the site. `@nuxt/ui` and `tailwindcss` give the components and the styles. `@vite-hub/docs` turns your Markdown files into docs pages.
 
 ```bash [commands/install]
 pnpm add @vite-hub/docs nuxt @nuxt/ui tailwindcss
@@ -37,10 +43,10 @@ pnpm add @vite-hub/docs nuxt @nuxt/ui tailwindcss
 
 ::
 
-::tutorial-step{title="Turn on the module"}
-## Turn on the module
+::tutorial-step{title="Add the module"}
+## Add the module
 
-Add the module to `nuxt.config.ts`, and give the site a name:
+Create `nuxt.config.ts`. It adds the docs module to Nuxt and gives the site a name:
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
@@ -56,21 +62,21 @@ export default defineNuxtConfig({
 })
 ```
 
-`url` is the public origin of the site. llms.txt, canonical links, and the links in the Markdown copies use it. The module installs Nuxt UI and the agent modules itself, so `modules` has one entry.
+`url` is the address of the live site. The site uses it to write full links: in `llms.txt` (a list of all pages for coding agents), in the canonical link of each page, and in the Markdown copies. The module adds Nuxt UI and the modules for coding agents itself, so `modules` has one entry.
 
 ::
 
 ::tutorial-step{title="Write a section"}
 ## Write a section
 
-The module reads Markdown from `content/`. Each folder in `content/docs/` is a section. Create the `guide` section, with its name and icon:
+The module reads Markdown files from `content/`. Each folder in `content/docs/` is a section, a group of pages in the sidebar. Create the `guide` section, with its name and icon:
 
 ```yaml [content/docs/guide/.navigation.yml]
 title: Guide
 icon: i-lucide-book-open
 ```
 
-`index.md` is the Overview of the section, at `/docs/guide`. `navigation.title` is its label in the sidebar:
+`index.md` is the first page of the section, at `/docs/guide`. `navigation.title` is its label in the sidebar:
 
 ```md [content/docs/guide/index.md]
 ---
@@ -82,7 +88,7 @@ navigation.title: Overview
 Lumen needs Node.js 22.22 or newer. Read [Install Lumen](/docs/guide/install) first.
 ```
 
-Add a page. `navigation.order` puts it first after the Overview. The `::agent-only` block is for coding agents: the site does not show it.
+Add a page. `navigation.order` puts it first after the Overview. The `::agent-only` block is for coding agents. The site does not show it to people.
 
 ````md [content/docs/guide/install.md]
 ---
@@ -115,7 +121,7 @@ The page heading comes from `title`, so the body does not start with `# Install 
 ::tutorial-step{title="Add the home page"}
 ## Add the home page
 
-A file outside `content/docs/` is a plain page under the site header. `content/index.md` is the home page:
+A file outside `content/docs/` is a plain page with no sidebar. `content/index.md` is the home page:
 
 ```md [content/index.md]
 ---
@@ -139,7 +145,9 @@ pnpm dev
 
 Open `http://localhost:3000/docs/guide/install`. The sidebar on the left lists the Guide section with Overview and Install Lumen. On a wide screen, the outline on the right lists Check the version. The agent-only text is not on the page. Press `⌘K` to search.
 
-Keep the server running. In another terminal, read the page as a coding agent does:
+This proves that the module made a page and a sidebar from your files.
+
+Keep the server running. In a second terminal, read the page as a coding agent does:
 
 ```bash [commands/agent-copy]
 curl http://localhost:3000/raw/docs/guide/install.md
@@ -163,10 +171,13 @@ lumen --version
 ```
 ````
 
-The copy has the title as a heading and keeps the agent-only text. `curl http://localhost:3000/llms.txt` lists both pages with their descriptions.
+The Markdown copy has the title as a heading and keeps the agent-only text. So a coding agent gets the same page, plus the text that you wrote only for it. `curl http://localhost:3000/llms.txt` lists both pages with their descriptions.
 
-Change the `title` of `install.md` and save. The server restarts, and the sidebar shows the new title. A change to the body only shows when you reload the page.
+Change the `title` of `install.md` and save. The server restarts, and the sidebar shows the new title. A change to the body shows only when you reload the page.
 
 ::
 
-Next, [change the layout of a page, turn off the navigation or the outline, and replace a component](/docs/docs-site/configure), or [add the docs assistant](/docs/docs-site/assistant).
+## Next steps
+
+- [Configure](/docs/docs-site/configure): change the layout of a page, turn off the sidebar or the outline, and replace a component.
+- [Assistant](/docs/docs-site/assistant): add a chat assistant that answers questions from your docs.

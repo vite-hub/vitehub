@@ -1,5 +1,4 @@
 ---
-
 title: Guard your first request
 description: Allow two requests per minute and check that the third returns HTTP 429.
 layout: tutorial
@@ -8,21 +7,29 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Allow two requests in one minute, then reject the third with HTTP `429`. Add the guard before the work in your route so requests over the limit cannot reach that work.
+You add a limit to one API route: two requests per minute. Then you send three requests and see the third one fail with HTTP `429 Too Many Requests`.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. The Node preset counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. See [Hosts](/docs/rate-limit/hosts) for shared enforcement.
+You need:
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+- Node.js 22.22 or newer
+- pnpm
+- a Vite app. Run every command from its root folder.
 
-Install ViteHub and Nitro. Add the plugins below to your existing Vite config and keep its other plugins.
+You do not need a cloud account.
+
+::tutorial-step{title="Install"}
+## Install
+
+Install the packages:
 
 ```bash [commands/install]
 pnpm add vite-hub nitro h3
 pnpm add -D vite
 ```
 
-Enable Rate Limit on the `node` preset for this local check. Supported deployment presets and provider configuration are in [Hosts](/docs/rate-limit/hosts).
+`vite-hub` gives you Rate Limit. `nitro` and `h3` serve the API route. `vite` runs the dev server.
+
+Add the `vitehub` plugin to `vite.config.ts`. Keep the other plugins that your config already has.
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
@@ -33,14 +40,18 @@ export default defineConfig({
 })
 ```
 
+- `preset: 'node'` builds the app for a plain Node.js server. A preset is the host that ViteHub builds for. For other hosts, see [Hosts](/docs/rate-limit/hosts).
+- `rateLimit: true` turns on Rate Limit.
+
+> [!NOTE]
+> The `node` preset counts requests in this process's memory. Counts reset on restart and are not shared with other app instances. For a count that all instances share, see [Hosts](/docs/rate-limit/hosts).
+
 ::
 
 ::tutorial-step{title="Protect one route"}
 ## Protect one route
 
-Require the Rate Limit directly in ordinary server code. The guard does not need a dedicated directory, file suffix, or module-scope declaration.
-
-The name `image-upload` identifies this policy. `limit: 2` permits two requests per client in a one-minute window. On the Node preset, the window is a fixed window that starts at second 0 of each clock minute. [Rate limiting algorithms](/docs/guides/rate-limiting-algorithms) shows what that means at the edge of a window. Put the guard before any upload or other side effect.
+Create `server/api/image-upload.post.ts`. Call `requireRateLimit()` at the top of the route, before the route does any work. A request over the limit then stops there and never reaches the upload. The guard does not need a dedicated directory, file suffix, or module-scope declaration. You call it in a normal route.
 
 ```ts [server/api/image-upload.post.ts]
 import { defineEventHandler } from 'h3'
@@ -55,20 +66,23 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
+- `'image-upload'` is the name of this limit.
+- `limit: 2` and `window: '1m'` allow two requests from each client in one minute.
+
+On the `node` preset, each minute starts at second 0 of the clock, not at your first request. [Rate limiting algorithms](/docs/guides/rate-limiting-algorithms) shows what this means at the edge of a minute.
+
 ::
 
-::tutorial-step{title="Run and verify the decision"}
-## Run and verify the decision
+::tutorial-step{title="Send three requests"}
+## Send three requests
 
-Start the dev server and call the route three times from the same client:
+Start the dev server:
 
 ```bash [commands/start]
 pnpm vite dev
 ```
 
-Keep the server running. In another terminal, run:
-
-Run these requests within one minute. `-i` includes the HTTP status and headers so you can see the third request change to `429`.
+Keep the server running. Open a second terminal and send three requests in less than one minute. `-i` shows the HTTP status and headers.
 
 ```bash [commands/request]
 curl -i -X POST http://localhost:5173/api/image-upload
@@ -76,19 +90,27 @@ curl -i -X POST http://localhost:5173/api/image-upload
 curl -i -X POST http://localhost:5173/api/image-upload
 ```
 
-The first two responses are `200` with `{ "ok": true, "message": "accepted" }`.
-The third response is `429`. `requireRateLimit()` uses the event's client
-address by default and throws a standard H3 `HTTPError` when the request is
-limited. Pass `key: authenticatedUser.id` when a user, account, tenant, or API
-client is the correct budget boundary.
+The first two responses are `200` with `{ "ok": true, "message": "accepted" }`. The third response is `429`. This proves that the limit stops the third request before the route does its work.
 
-Inspect the generated policy before choosing a hosted provider:
+By default, `requireRateLimit()` counts requests by the client address. When a request is over the limit, it throws a standard H3 `HTTPError`. To count by user or account, pass `key: authenticatedUser.id`.
+
+::
+
+::tutorial-step{title="Inspect the limit"}
+## Inspect the limit
+
+Build the app and print the limits that ViteHub found:
 
 ```bash [commands/inspect]
 pnpm vite build
 pnpm vitehub inspect definitions --kind rate-limit
 ```
 
-Continue with [Hosts](/docs/rate-limit/hosts) for Cloudflare output and
-[limits and errors](/docs/rate-limit/limits-and-errors) for production checks.
+Use this list to check your limits before you choose a host.
+
 ::
+
+## Next steps
+
+- [Hosts](/docs/rate-limit/hosts): deploy to Cloudflare and share one count across all app instances.
+- [Limits and errors](/docs/rate-limit/limits-and-errors): check what each host can and cannot do before production.

@@ -1,5 +1,4 @@
 ---
-
 title: Start your first Workflow
 description: Define a two-step onboarding Workflow, start it from a route, and inspect the run id to follow its progress.
 layout: tutorial
@@ -8,19 +7,29 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Build a two-step onboarding Workflow and start it from an API route. One step creates a sample user; the next returns a sample welcome result. Neither step calls a database or sends an email yet. You will get a run id that identifies this execution.
+You build a Workflow with two steps and start it from an API route. A Workflow is a job made of steps that run in order. Here, one step creates a sample user and the next step returns a sample welcome result. The steps do not use a database or send an email yet. At the end, you get a run id for the job.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. Local execution runs inline and needs no provider account. Select a [durable provider](/docs/workflows/hosts) before relying on a run surviving a server restart.
+You need:
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+- Node.js 22.22 or newer
+- pnpm
+- a Vite app. Run every command from its root folder.
 
-Install Workflow and Nitro. Add the plugins below to your existing Vite config and keep its other plugins.
+You do not need a cloud account. On your computer, the steps run directly in the server process.
+
+::tutorial-step{title="Install"}
+## Install
+
+Install the packages:
 
 ```bash [commands/install]
 pnpm add @vite-hub/runtime @vite-hub/workflow nitro h3
 pnpm add -D vite
 ```
+
+`@vite-hub/workflow` runs the Workflow, and `@vite-hub/runtime` is the ViteHub server code that it uses. `nitro` and `h3` serve the API route. `vite` runs the dev server.
+
+Add the plugins to `vite.config.ts`. Keep the other plugins that your config already has. `hubWorkflow()` finds the Workflows in `server/workflows/`.
 
 ```ts [vite.config.ts]
 import { hubWorkflow } from '@vite-hub/workflow/vite'
@@ -34,13 +43,12 @@ export default defineConfig({
 
 ::
 
-::tutorial-step{title="Define the Workflow steps"}
-## Define the Workflow steps
+::tutorial-step{title="Write the steps"}
+## Write the steps
 
-Use a folder when a Workflow has more than one durable operation. The
-`index.ts` file receives the payload and calls the generated step functions in
-order. Files with a numeric prefix become step names (`01.create-user` and
-`02.send-welcome`) and each step can be retried or replayed independently.
+Put a Workflow with more than one step in a folder. The folder name is the Workflow name, here `onboard-user`.
+
+Create `server/workflows/onboard-user/index.ts`. It gets the input, called the payload, and calls the steps in order:
 
 ```ts [server/workflows/onboard-user/index.ts]
 import { defineWorkflow } from '@vite-hub/workflow'
@@ -51,8 +59,9 @@ export default defineWorkflow<{ email: string }>(async ({ payload, steps }) => {
 })
 ```
 
-The step runner is provider-neutral. ViteHub maps `createUser` to
-`01.create-user.ts` and `sendWelcome` to `02.send-welcome.ts`.
+Each other file in the folder is one step. The number at the start sets the order, and the rest is the step name: `01.create-user` and `02.send-welcome`. ViteHub gives each step a function in `steps`. `01.create-user.ts` becomes `steps.createUser`, and `02.send-welcome.ts` becomes `steps.sendWelcome`. Because each step is separate, each step can be retried or replayed independently.
+
+Create the two step files:
 
 ```ts [server/workflows/onboard-user/01.create-user.ts]
 export default async function createUser(input: { email: string }) {
@@ -68,14 +77,17 @@ export default async function sendWelcome(user: { id: string, email: string }) {
 }
 ```
 
-Make each side effect safe to repeat. For example, create or update a user by email instead of inserting another user on every retry. A durable provider can replay a failed step while keeping earlier completed steps. The local inline provider used here does not retain that step history. [Durable execution](/docs/guides/durable-execution) walks through a three-step job that fails at step 2 on each provider.
+When you add real work, make each step safe to run two times. This is called idempotent. For example, create or update a user by email. Do not insert a new user on each retry. A durable provider, one that saves each step's result, can run a failed step again and keep the steps that finished before it. [Durable execution](/docs/guides/durable-execution) shows a job that fails at step 2 on each provider.
+
+> [!NOTE]
+> The local provider in this tutorial does not save step results. If the server restarts during a run, the run is lost. Choose a [durable provider](/docs/workflows/hosts) before you depend on that.
 
 ::
 
 ::tutorial-step{title="Start the Workflow from a route"}
 ## Start the Workflow from a route
 
-The route submits the email as a payload. Use the returned run id to inspect this execution rather than starting another run to check it.
+Create `server/api/onboard.post.ts`. It reads the email from the request body and starts the `onboard-user` Workflow with it:
 
 ```ts [server/api/onboard.post.ts]
 import { defineEventHandler, readBody } from 'h3'
@@ -87,18 +99,20 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
+`runWorkflow()` returns the run. A run is one execution of the Workflow, and its id identifies it.
+
 ::
 
-::tutorial-step{title="Start and inspect a run"}
-## Start and inspect a run
+::tutorial-step{title="Start a run"}
+## Start a run
 
-Start Vite and call the route:
+Start the dev server:
 
 ```bash [commands/start]
 pnpm vite dev
 ```
 
-Keep the server running. In another terminal, run:
+Keep the server running. Open a second terminal and send an email to the route:
 
 ```bash [commands/run]
 curl -X POST http://localhost:5173/api/onboard \
@@ -106,14 +120,15 @@ curl -X POST http://localhost:5173/api/onboard \
   -d '{"email":"ada@example.com"}'
 ```
 
-The response includes a run id and a provider status. Use
-[`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run) with that id to
-inspect the final run status, result, or error metadata after the handler
-completes. Local inline execution retains the final result. It does not retain
-step history.
+The response includes the run `id` and its `status`. This proves that the route started the Workflow.
 
-## Start a run from the CLI or the Console
-
-You can also start a run without a route. `vitehub workflow start onboard --payload '{"email":"ada@example.com"}'` starts it on the running dev server, and the Workflows page of the [Console](/docs/development/console) has a Start button with a JSON payload field. Both read the run back with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. The commands call the Console RPC, so they need `vitehub()`; an app that adds only `hubWorkflow()` has no `vitehub workflow` commands. `workflow.start` and `workflow.resume` are registered only when `console.invoke` is on, and the Console hides Start and Resume when they are not (`workflow.cancel` stays available). See [Run Workflows in development](/docs/development/cli#run-workflows-in-development).
+To read the run again later, pass the Workflow name and the run id to [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run). It returns the final status, and the result or the error. Do not start a new run to check the first one. The local provider keeps the final result, but not the result of each step.
 
 ::
+
+## Next steps
+
+- [Run Workflows in development](/docs/development/cli#run-workflows-in-development): start, read, and cancel runs with `vitehub workflow start onboard-user --payload '{"email":"ada@example.com"}'` or from the [Console](/docs/development/console). These need the `vitehub()` plugin, not only `hubWorkflow()`.
+- [Hosts](/docs/workflows/hosts): choose a durable provider that keeps each step after a restart.
+- [Durable execution](/docs/guides/durable-execution): see how retries work when a step fails.
+- [Server API](/docs/workflows/server-api): read the full shape of a run.

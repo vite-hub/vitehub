@@ -8,20 +8,28 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Send a build notification through a Channel named `alerts`. Your first connector writes to the server terminal and returns a receipt. This lets you check the delivery code before connecting a messaging service.
+You send a "Build finished." message through a Channel with the name `alerts`. A Channel is a named place that your server code sends messages to. In this tutorial, the Channel prints the message in your terminal, so you can test the code before you connect Slack, email, or another service.
 
-You need Node.js 22.22 or newer, pnpm, and a Vite application. Run the commands from its root. Nitro serves the API route. No message leaves your machine and no provider key is needed.
+You need:
 
-::tutorial-step{title="Install and enable discovery"}
-## Install and enable discovery
+- Node.js 22.22 or newer
+- pnpm
+- a Vite app. Run all commands from its root folder.
 
-Install ViteHub and Nitro. Add the plugins below to your existing Vite config, keeping its other plugins.
+You do not need an account or an API key. No message leaves your computer.
+
+::tutorial-step{title="Install and configure"}
+## Install and configure
+
+Install the packages:
 
 ```bash [commands/install]
 pnpm add vite-hub nitro h3 vite
 ```
 
-Add the Channels integration to your Vite config. ViteHub then discovers files below `server/channels` and files that end in `.channel.ts`. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder. Other files in that folder are helpers that the Channel imports. Discovery reads each module without running it and skips modules that cannot be outbound Channels: a default export that is a function, a class, a primitive value, an array, a call to the Agent `defineChannel()`, or a statically known object literal without `connectors`, and modules with neither a default nor a `connectors` export. Agent Channels can live in `server/channels` next to outbound Channels. An Agent `defineChannel()` with a `webhooks.path` there [serves its own webhook route](/docs/agents/channels#give-a-channel-its-own-route).
+`vite-hub` gives you Channels. `nitro` and `h3` serve the API route.
+
+Turn on Channels in `vite.config.ts`. Keep the other plugins of your app.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -32,16 +40,22 @@ export default defineConfig({
 })
 ```
 
-The local connector does not need Server Env. Add a secret declaration only
-when a connector calls a provider API.
+`preset: 'node'` tells ViteHub that the app runs on a Node.js server. `channels: true` makes ViteHub find your Channel files. It looks in two places:
+
+- files in `server/channels/`
+- files with a name that ends in `.channel.ts`
+
+A folder with an `index` file, such as `server/channels/teams/index.ts`, is one Channel. The folder name is the Channel name. The other files in that folder are helpers that the Channel imports.
+
+> [!NOTE]
+> ViteHub reads each file without running it. It skips a file that cannot be a Channel that sends messages: a default export that is a function, a class, a primitive value, an array, a call to the Agent `defineChannel()`, or an object without `connectors`, and a file with neither a default export nor a `connectors` export. Agent Channels, which receive messages, can live in `server/channels/` too. An Agent `defineChannel()` with a `webhooks.path` [serves its own webhook route](/docs/agents/channels#give-a-channel-its-own-route).
 
 ::
 
 ::tutorial-step{title="Define a named Channel"}
 ## Define a named Channel
 
-Create `server/channels/alerts.ts` with `defineOutboundChannel()`. The `log`
-connector returns a receipt that we can inspect without sending a real message.
+Create `server/channels/alerts.ts`. A connector is one way to deliver a message, for example Slack or email. This Channel has one connector, `log`, that prints the message and returns a receipt. A receipt is the proof of delivery that the connector gives back.
 
 ```ts [server/channels/alerts.ts]
 import { defineOutboundChannel } from 'vite-hub/channels'
@@ -57,14 +71,14 @@ export default defineOutboundChannel({
 })
 ```
 
-The file name becomes the Channel name. For a Vite suffix definition, use `src/alerts.channel.ts` instead; both forms discover the same `alerts` Channel.
+The file name `alerts` is the Channel name. The file `src/alerts.channel.ts` gives the same `alerts` Channel.
 
 ::
 
 ::tutorial-step{title="Send and verify one delivery"}
 ## Send and verify one delivery
 
-`useChannel('alerts')` selects the Definition; `connector: 'log'` selects its send function. That function receives the label and text. Check the tuple's error before returning its receipt.
+Create an API route that sends the message:
 
 ```ts [server/api/build-finished.post.ts]
 import { defineEventHandler } from 'h3'
@@ -80,7 +94,11 @@ export default defineEventHandler(async () => {
 })
 ```
 
-Start the dev server and send one request:
+- `useChannel('alerts')` picks the `alerts` Channel.
+- `connector: 'log'` picks the connector. Its `send()` function gets the text and the `label`.
+- `send()` returns `[error, receipt]`. If `error` is set, the route throws it. If not, the route returns the receipt.
+
+Start the dev server:
 
 ```bash [commands/start]
 pnpm vite dev
@@ -92,9 +110,7 @@ Keep the server running. In another terminal, run:
 curl -X POST http://localhost:5173/api/build-finished
 ```
 
-The response includes a generated delivery id and the connector id:
-
-The terminal running Vite also prints `[release] Build finished.`. This confirms that the connector ran, while the HTTP response confirms that the caller received its receipt.
+You see:
 
 ```json [output/response.json]
 {
@@ -105,7 +121,15 @@ The terminal running Vite also prints `[release] Build finished.`. This confirms
 }
 ```
 
-Channels does not bundle provider adapters or retry deliveries. For a real
-connector, read typed Server Env inside `send()` and keep credentials out of
-client code. Continue with [Send from an H3 or Nitro handler](/docs/channels/server-api#send-from-an-h3-or-nitro-handler).
+`deliveryId` is a new id for each send. `id` comes from your connector. The terminal that runs Vite also prints `[release] Build finished.`. The terminal line proves that the connector ran. The response proves that your route got the receipt back.
+
+> [!NOTE]
+> Channels does not include connectors for Slack or other services, and it does not try a failed send again. In a real connector, read the API key inside `send()` with [Env](/docs/env), which keeps server secrets on the server. Never put the key in browser code.
+
 ::
+
+## Next steps
+
+- [Send from an H3 or Nitro handler](/docs/channels/server-api#send-from-an-h3-or-nitro-handler): send messages from your own routes.
+- [Add another connector](/docs/channels/server-api#add-another-connector): send the same Channel to a second service.
+- [Agent capability](/docs/channels/agent-capability): let an Agent send messages through a Channel.
