@@ -25,7 +25,7 @@ In a Nuxt app, `vitehub bundle` also lists the largest page routes. For each rou
 - the CSS of those files,
 - the largest modules in the page files. These are what the route adds. Run `vitehub bundle why <module>` on one to get its import chain.
 
-Code that the page loads later with `import()` does not count. The layout comes from a static `layout` in `definePageMeta`, or is `default`. A layout set at runtime, route middleware, and Nuxt's `<link rel="prefetch">` files are not counted. Nuxt can inline some CSS in the HTML, so `cssBytes` is an upper bound for the CSS files the browser fetches. `--json` gives the routes in `client.routes`.
+Code that the page loads later with `import()` does not count. The layout comes from a static `layout` in `definePageMeta`, or is `default`. A layout set at runtime, route middleware, and prefetching are not counted: Nuxt's `<link rel="prefetch">` files and the pages of visible `<NuxtLink>`s load at low priority after the page. Nuxt can inline some CSS in the HTML, so `cssBytes` is an upper bound for the CSS files the browser fetches. `--json` gives the routes in `client.routes`.
 
 Use `--json` on both commands when you compare numbers or write them into a report.
 
