@@ -43,6 +43,7 @@ vi.mock("node:module", async (importOriginal) => ({
   }),
 }))
 const { default: setup, DocsCommentsSetupError } = await import("../src/nuxt.ts")
+const { extendPages } = await import("@nuxt/kit")
 // SAFETY: the @nuxt/kit mock above keeps the module definition's moduleDependencies on the setup function.
 const moduleDependencies = (setup as unknown as { moduleDependencies: (nuxt: unknown) => Promise<Record<string, unknown>> }).moduleDependencies
 const roots: string[] = []
@@ -57,12 +58,13 @@ afterEach(async () => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
 })
 
-async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false) {
+async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, app: { srcDir?: string } = {}) {
   const buildDir = mkdtempSync(join(tmpdir(), "docs-nuxt-"))
   roots.push(buildDir)
   const options = {
     rootDir: resolve(import.meta.dirname, "fixtures"), buildDir, serverDir: "/missing-server",
-    srcDir: "/app", dev, build: { transpile: [] }, appConfig: {}, _layers: [],
+    srcDir: "/app", appDir: "/nuxt/dist/app", extensions: [".js", ".ts", ".vue"], dev, build: { transpile: [] }, appConfig: {},
+    _layers: app.srcDir ? [{ config: { srcDir: app.srcDir } }] : [],
     app: { baseURL: appBase, head: {} }, runtimeConfig: { public: {} }, alias: {}, css: [],
     imports: { dirs: [] }, docs,
   }
@@ -78,6 +80,114 @@ async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false) {
     llms: { domain: string }
   }
 }
+
+/** A content folder with only these pages, and an app folder with an `app.vue` when `ownApp` is set. */
+function appWithDocs(files: Record<string, string>, ownApp = false) {
+  const root = mkdtempSync(join(tmpdir(), "docs-app-"))
+  roots.push(root)
+  for (const [file, title] of Object.entries(files)) {
+    mkdirSync(dirname(join(root, "content", file)), { recursive: true })
+    writeFileSync(join(root, "content", file), `---\ntitle: ${title}\n---\n`)
+  }
+  mkdirSync(join(root, "app"))
+  if (ownApp) writeFileSync(join(root, "app/app.vue"), "<template><UApp><NuxtLayout><NuxtPage /></NuxtLayout></UApp></template>\n")
+  return { dir: join(root, "content"), srcDir: join(root, "app") }
+}
+
+async function callHook(name: string, ...args: unknown[]) {
+  for (const hook of hooks.get(name) ?? []) await (hook as (...args: unknown[]) => unknown)(...args)
+}
+
+describe("docs in an existing app", () => {
+  it("serves the content folder's docs/ folder at /docs, and a folder without one at the site root", async () => {
+    const app = appWithDocs({ "docs/guide/index.md": "Guide" })
+    expect((await setupDocs({ dir: app.dir })).runtimeConfig.public.docs.base).toBe("/docs")
+    const site = appWithDocs({ "index.md": "Home", "guide/index.md": "Guide" })
+    expect((await setupDocs({ dir: site.dir })).runtimeConfig.public.docs.base).toBe("/")
+    expect((await setupDocs({ dir: site.dir, base: "/docs" })).runtimeConfig.public.docs.base).toBe("/docs")
+  })
+
+  it("answers only below /docs, beside the app's own catch-all page", async () => {
+    const app = appWithDocs({ "docs/index.md": "Docs", "docs/guide/index.md": "Guide" })
+    await setupDocs({ dir: app.dir })
+    const extend = vi.mocked(extendPages).mock.calls.at(-1)![0] as (pages: Array<{ path: string, name?: string }>) => void
+    const pages = [{ path: "/" }, { path: "/:slug(.*)*" }]
+    extend(pages)
+    expect(pages.at(-1)).toMatchObject({ name: "docs-page", path: "/docs/:slug(.*)*" })
+    const replaced = [{ path: "/docs/:slug(.*)*" }]
+    extend(replaced)
+    expect(replaced).toHaveLength(1)
+  })
+
+  it("answers every path when a page sits outside the docs base", async () => {
+    await setupDocs({})
+    const extend = vi.mocked(extendPages).mock.calls.at(-1)![0] as (pages: Array<{ path: string, name?: string }>) => void
+    const pages: Array<{ path: string, name?: string }> = []
+    extend(pages)
+    expect(pages).toMatchObject([{ name: "docs-page", path: "/:slug(.*)*" }])
+  })
+
+  it("keeps the app's head, layouts, and home page when the app has its own app.vue", async () => {
+    const app = appWithDocs({ "docs/guide/index.md": "Guide" }, true)
+    const options = await setupDocs({ dir: app.dir }, "/", false, { srcDir: app.srcDir }) as Awaited<ReturnType<typeof setupDocs>> & { app: { head: Record<string, unknown> } }
+    expect(options.app.head).toEqual({})
+    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = false\n")
+    const layouts: Record<string, { file: string }> = {}
+    await callHook("app:templates", { layouts, templates: [] })
+    expect(Object.keys(layouts).sort()).toEqual(["docs", "docs-article"])
+    const appFile = join(app.srcDir, "app.vue")
+    const resolved = { mainComponent: appFile, errorComponent: "/nuxt/dist/app/components/nuxt-error-page.vue" }
+    await callHook("app:resolve", resolved)
+    expect(resolved.mainComponent).toBe(appFile)
+    expect(resolved.errorComponent).toBe("/nuxt/dist/app/components/nuxt-error-page.vue")
+    expect(options.agentDiscovery.routes).not.toContain("/")
+  })
+
+  it("draws the site with the docs app.vue when the app has none", async () => {
+    const options = await setupDocs({}) as Awaited<ReturnType<typeof setupDocs>> & { app: { head: { titleTemplate?: string } } }
+    expect(options.app.head.titleTemplate).toBe("%s · Docs")
+    expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = true\n")
+    const layouts: Record<string, { file: string }> = {}
+    await callHook("app:templates", { layouts, templates: [] })
+    expect(Object.keys(layouts).sort()).toEqual(["default", "docs"])
+    // Nuxt's pages module turns the welcome page into its own app.vue before the docs module sees it.
+    const resolved = { mainComponent: "/nuxt/dist/pages/runtime/app.vue", errorComponent: "/nuxt/dist/app/components/nuxt-error-page.vue" }
+    await callHook("app:resolve", resolved)
+    expect(resolved.mainComponent).toMatch(/runtime\/app\/app\.vue$/)
+    expect(resolved.errorComponent).toMatch(/runtime\/app\/error\.vue$/)
+  })
+
+  it("builds the docs classes in the app's own Tailwind build when the app imports Nuxt UI", async () => {
+    const app = appWithDocs({ "docs/guide/index.md": "Guide" })
+    writeFileSync(join(app.srcDir, "main.css"), '@import "tailwindcss";\n@import "@nuxt/ui";\n')
+    const options = await setupDocs({ dir: app.dir }) as Awaited<ReturnType<typeof setupDocs>> & { css: string[], alias: Record<string, string> }
+    const docsCss = templates.get("docs/docs.css")!
+    expect(docsCss()).toContain('@import "tailwindcss";')
+    options.alias["~"] = app.srcDir
+    options.css.push("~/main.css")
+    expect(docsCss()).not.toContain("tailwindcss")
+    expect(docsCss()).toContain("theme/vercel.css")
+    const ui = { filename: "ui.css", getContents: async () => '@source "/app/**/*";' }
+    await callHook("app:templates", { layouts: {}, templates: [ui] })
+    const contents = await ui.getContents()
+    expect(contents).toContain('@source "/app/**/*";')
+    expect(contents).toContain(`@source "${app.dir}";`)
+    expect(contents).toMatch(/@source ".*runtime\/app";/)
+  })
+
+  it("prerenders the docs pages of an app without crawling the app's own pages", async () => {
+    const app = appWithDocs({ "docs/guide/index.md": "Guide" })
+    await setupDocs({ dir: app.dir })
+    const nitro: { prerender?: { crawlLinks?: boolean, routes?: string[] } } = {}
+    await callHook("nitro:config", nitro)
+    expect(nitro.prerender).toMatchObject({ crawlLinks: false, routes: expect.arrayContaining(["/docs/guide", "/api/_docs/page/docs/guide.json"]) })
+    hooks.clear()
+    await setupDocs({})
+    const site: typeof nitro = {}
+    await callHook("nitro:config", site)
+    expect(site.prerender?.crawlLinks).toBe(true)
+  })
+})
 
 describe("docs Nuxt setup", () => {
   it.each(["docs", "/docs/", "/docs"])("shares the normalized base %s with the manifest and discovery", async (base) => {

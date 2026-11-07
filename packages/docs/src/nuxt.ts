@@ -24,7 +24,7 @@ import { readModuleOptions } from "./module-options.ts"
 import { createDocsManifest } from "./manifest.ts"
 import { docsAppPath, docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile, docsRawPath, docsRawSectionLinks, docsSectionIcon, normalizeDocsBase, type DocsGroup, type DocsIcons, type DocsLink } from "./navigation.ts"
 import { toRawMarkdown } from "./raw.ts"
-import { coversDocsPages } from "./page.ts"
+import { docsMount, replacesDocsPage } from "./page.ts"
 import { DocsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
 import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
 
@@ -58,9 +58,12 @@ export interface DocsStartOptions {
 }
 
 export interface DocsModuleOptions {
-  /** Folder of Markdown pages, relative to the app root. Defaults to `content`. */
+  /** Folder of Markdown pages, relative to the app root. Defaults to `content`. A page's URL is its path in the folder. */
   dir?: string
-  /** URL prefix whose folders are sections in the rail. Defaults to `/docs`. */
+  /**
+   * URL prefix whose folders are sections in the rail. Defaults to `/docs` when the content folder has a `docs/` folder,
+   * and to `/` when it has none, so the docs are the whole site.
+   */
   base?: string
   site?: DocsSiteOptions
   /** Order of section categories in the rail and the catalog. Sections of other categories come after them in the rail. */
@@ -243,7 +246,13 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     transform.include.push(new RegExp(`^${packageRoot.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/`))
     const contentDir = resolve(nuxt.options.rootDir, options.dir ?? "content")
     const rawDir = join(nuxt.options.buildDir, "docs/raw")
-    const config = publicConfig(options, nuxt.options.app.baseURL)
+    const base = normalizeDocsBase(options.base ?? (existsSync(join(contentDir, "docs")) ? "/docs" : "/"))
+    const config = publicConfig(options, base, nuxt.options.app.baseURL)
+    // Without an `app.vue` of its own, the app is the docs site: the docs `app.vue` draws the site header, search, and
+    // head on every page. An app with its own `app.vue` keeps it, and the docs layouts draw them on docs pages only.
+    const ownsApp = !hasAppComponent(nuxt.options._layers.map(layer => layer.config.srcDir), nuxt.options.extensions)
+    nuxt.options.alias["#docs/shell"] = addTemplate({ filename: "docs/shell.mjs", write: true, getContents: () => `export const ownsApp = ${ownsApp}\n` }).dst
+    addTemplate({ filename: "docs/shell.d.mts", write: true, getContents: () => "export declare const ownsApp: boolean\n" })
     nuxt.options.runtimeConfig.public.docs = config
     setupDocsAssistant(nuxt, config)
     // The panel calls `useChat()` from `vite-hub/nuxt`, so without the assistant `DocsAssistant` renders nothing.
@@ -251,7 +260,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     if (config.assistant) addComponent({ name: "DocsAssistantPanel", filePath: join(runtime, "app/assistant/DocsAssistantPanel.vue") })
     const moduleOptions: DocsNuxtOptions = nuxt.options
 
-    let manifest = createDocsManifest({ dir: contentDir, base: config.base })
+    let manifest = createDocsManifest({ dir: contentDir, base })
     /**
      * Writes the agent copy of every page, with the links of its section at the end. `nuxi build` empties the build
      * folder after the modules load, so it runs before the build.
@@ -278,20 +287,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     moduleOptions.runtimeConfig.public.mdc ??= { headings: { anchorLinks: { h1: false, h2: true, h3: true, h4: true, h5: false, h6: false } } }
     moduleOptions.appConfig.ui = docsAppConfigUi(vercelTheme(config.site.name), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
 
-    // The error page replaces `app.vue`, so the head that every page needs is part of the app's head config.
-    const head = nuxt.options.app.head
-    const meta = head.meta ??= []
-    const viewport = meta.find(tag => tag.name === "viewport")
-    // Content may use the area around a notch, and `100dvh` shrinks when the phone keyboard opens. A viewport that
-    // the app set itself stays.
-    if (!viewport?.content || viewport.content === "width=device-width, initial-scale=1") {
-      if (viewport) meta.splice(meta.indexOf(viewport), 1)
-      meta.push({ name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" })
-    }
-    meta.push({ name: "color-scheme", content: "light dark" })
-    head.htmlAttrs = { lang: "en", dir: "ltr", ...head.htmlAttrs }
-    // `app.vue` sets the full title template. The error page uses this one: "Page not found · ViteHub".
-    head.titleTemplate ??= `%s · ${config.site.name}`
+    // The error page replaces `app.vue`, so the head that every page needs is part of the app's head config. In an app
+    // with its own `app.vue`, the head stays the app's, and the docs layouts set the docs head on docs pages.
+    if (ownsApp) setDocsHead(nuxt.options.app.head, config.site.name)
 
     moduleOptions.llms = defu(moduleOptions.llms, {
       domain: config.site.url ? `${config.site.url}${config.appBase.replace(/\/+$/, "")}` : "",
@@ -315,7 +313,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     if (!agentDiscoveryOptions.routes?.length) {
       const standalone = manifest.pages.map(page => page.path).filter(path => path !== "/")
       agentDiscoveryOptions.routes = config.appBase === "/"
-        ? [...new Set(["/", config.base, `${config.base.replace(/\/+$/, "")}/**`, ...standalone])]
+        // `/` only when it is a docs page: an app's own home page has no Markdown twin.
+        ? [...new Set([...manifest.root?.path === "/" || manifest.pages.some(page => page.path === "/") ? ["/"] : [], config.base, `${config.base.replace(/\/+$/, "")}/**`, ...standalone])]
         // Discovery currently accepts only an origin as siteUrl. Give it explicit public raw destinations for both
         // Nitro's app-relative request paths and the public paths returned by the content source.
         : docsManifestPages(manifest).flatMap(page => [...new Set([page.path, docsAppPath(page.path, config.appBase).replace(/(.)\/$/, "$1")])]
@@ -373,7 +372,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           regeneration = regeneration.then(async () => {
             if (closed) return
             try {
-              const next = createDocsManifest({ dir: contentDir, base: config.base })
+              const next = createDocsManifest({ dir: contentDir, base })
               const changed = JSON.stringify(next) !== JSON.stringify(manifest)
               await writeRaw(next)
               manifest = next
@@ -395,16 +394,21 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       })
     }
 
-    // Tailwind scans the app; the docs components and the Markdown pages live outside it.
+    // Tailwind scans the app; the docs components and the Markdown pages live outside it. Nuxt UI's `#build/ui.css`
+    // lists the folders that Tailwind scans, so the docs folders go there. An app with its own `@import "@nuxt/ui"`
+    // then builds the docs classes in its one Tailwind build. A second build would put its utilities after the docs
+    // ones, so `flex` would win over `xl:hidden`. An app without one gets the Tailwind build of the docs.
+    const sources = [join(runtime, "app"), resolver.resolve("./theme.js"), contentDir].map(source => `@source "${source}";`).join("\n")
+    nuxt.hook("app:templates", (app) => {
+      const ui = app.templates.find(template => template.filename === "ui.css")
+      const getContents = ui?.getContents
+      if (ui && getContents) ui.getContents = async (data) => `${await getContents(data)}\n${sources}\n`
+    })
     nuxt.options.css.unshift(addTemplate({
       filename: "docs/docs.css",
       write: true,
       getContents: () => [
-        `@import "tailwindcss";`,
-        `@import "@nuxt/ui";`,
-        `@source "${join(runtime, "app")}";`,
-        `@source "${resolver.resolve("./theme.js")}";`,
-        `@source "${contentDir}";`,
+        ...importsNuxtUi(nuxt.options.css, nuxt.options.alias) ? [] : [`@import "tailwindcss";`, `@import "@nuxt/ui";`],
         `@import "${join(runtime, "theme/vercel.css")}";`,
         "",
       ].join("\n"),
@@ -448,21 +452,36 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     addTemplate({ filename: "docs/components.d.mts", write: true, getContents: () => `import type { Component } from "vue"\ndeclare const components: Record<string, (() => Promise<{ default: Component }>) | undefined>\nexport default components\n` })
     addImportsDir([join(runtime, "app/composables"), join(runtime, "app/utils")])
     nuxt.hook("app:templates", (app) => {
-      for (const name of ["default", "docs"]) {
-        app.layouts[name] ??= { file: join(runtime, `app/layouts/${name}.vue`), name }
-      }
+      app.layouts.docs ??= { file: join(runtime, "app/layouts/docs.vue"), name: "docs" }
+      // Pages outside the sections are plain articles. In the docs site they use the `default` layout, which an app
+      // page uses too. In an app with its own `app.vue`, they get a layout of their own, so app pages keep theirs.
+      const article = ownsApp ? "default" : "docs-article"
+      app.layouts[article] ??= { file: join(runtime, "app/layouts/default.vue"), name: article }
     })
     addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
     extendPages((pages) => {
-      // A catch-all of the app, such as `pages/[...slug].vue`, can replace the docs page. One that leaves docs pages
-      // out, such as `pages/blog/[...slug].vue`, does not, and the docs route registers beside it.
-      if (coversDocsPages(pages, docsManifestPages(manifest).map(page => page.path))) return
-      pages.push({ name: "docs-page", path: "/:slug(.*)*", file: join(runtime, "app/pages/docs-page.vue") })
+      // The docs page answers below the docs mount only, such as `/docs/:slug(.*)*`. An app catch-all page at the same
+      // prefix replaces it. Vue Router prefers the longer static prefix, so a root catch-all of the app does not hide it.
+      const mount = docsMount(manifest)
+      if (replacesDocsPage(pages, mount)) return
+      pages.push({ name: "docs-page", path: `${mount === "/" ? "" : mount}/:slug(.*)*`, file: join(runtime, "app/pages/docs-page.vue") })
     })
+    // The docs site replaces Nuxt's own defaults: the welcome page, the `app.vue` of the pages module, and the error
+    // page. An app with its own `app.vue` keeps its error page. Compare paths, as Nuxt does: the package is
+    // `nuxt-nightly` on Nuxt 5 nightlies.
+    const nuxtApp = [resolve(nuxt.options.appDir, "components/welcome.vue"), resolve(nuxt.options.appDir, "../pages/runtime/app.vue")]
+    const nuxtErrorPage = resolve(nuxt.options.appDir, "components/nuxt-error-page.vue")
     nuxt.hook("app:resolve", (app) => {
-      if (!app.mainComponent || app.mainComponent.includes("@nuxt/ui-templates") || app.mainComponent.includes("nuxt/dist/app/components/welcome")) app.mainComponent = join(runtime, "app/app.vue")
-      if (!app.errorComponent || app.errorComponent.includes("nuxt/dist/app/components/nuxt-error-page")) app.errorComponent = join(runtime, "app/error.vue")
+      if (ownsApp && (!app.mainComponent || nuxtApp.includes(app.mainComponent))) app.mainComponent = join(runtime, "app/app.vue")
+      if (ownsApp && (!app.errorComponent || app.errorComponent === nuxtErrorPage)) app.errorComponent = join(runtime, "app/error.vue")
+      if (!ownsApp && app.mainComponent) warnAppComponent(app.mainComponent)
+    })
+    // The shell moves between `app.vue` and the docs layouts when the app adds or removes its `app.vue`.
+    nuxt.hook("builder:watch", (event, path) => {
+      if ((event === "add" || event === "unlink") && /(^|\/)app\.\w+$/i.test(path) && hasAppComponent(nuxt.options._layers.map(layer => layer.config.srcDir), nuxt.options.extensions) === ownsApp) {
+        void Promise.resolve(nuxt.callHook("restart")).catch(error => useLogger("@vite-hub/docs").error(error))
+      }
     })
 
     // Nitro mounts handlers, public assets, and prerender fetches below app.baseURL itself.
@@ -525,7 +544,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       nitro.publicAssets = [...nitro.publicAssets ?? [], { baseURL: "/raw", dir: rawDir, fallthrough: true, maxAge: 300 }]
       // `docs/kv.html` beside the `docs/kv/` folder, and every linked page, as static hosts expect. Development
       // prerenders nothing, and Nuxt would turn listed routes into prerender route rules there.
-      nitro.prerender = defu(nitro.prerender, { crawlLinks: true, autoSubfolderIndex: false, routes: nuxt.options.dev ? [] : prerenderRoutes() })
+      // Docs below a prefix of an app list every page and crawl nothing, so the build does not prerender the app's
+      // own pages that the docs link to, such as its home page.
+      nitro.prerender = defu(nitro.prerender, { crawlLinks: docsMount(manifest) === "/", autoSubfolderIndex: false, routes: nuxt.options.dev ? [] : prerenderRoutes() })
       // The MCP toolkit reads the current request through Nitro's async context.
       if (config.mcp) nitro.experimental = { ...nitro.experimental, asyncContext: true }
     }])
@@ -550,18 +571,60 @@ function iconifyName(icon: string): string | null {
   return match ? `${match[1]}:${match[2]}` : icon.includes(":") ? icon : null
 }
 
+type DocsHead = { meta?: Array<{ name?: string, content?: string }>, htmlAttrs?: Record<string, unknown>, titleTemplate?: string | null }
+
+/** The head of every page of a docs site. */
+function setDocsHead(head: DocsHead, siteName: string): void {
+  const meta = head.meta ??= []
+  const viewport = meta.find(tag => tag.name === "viewport")
+  // Content may use the area around a notch, and `100dvh` shrinks when the phone keyboard opens. A viewport that
+  // the app set itself stays.
+  if (!viewport?.content || viewport.content === "width=device-width, initial-scale=1") {
+    if (viewport) meta.splice(meta.indexOf(viewport), 1)
+    meta.push({ name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" })
+  }
+  meta.push({ name: "color-scheme", content: "light dark" })
+  head.htmlAttrs = { lang: "en", dir: "ltr", ...head.htmlAttrs }
+  // `app.vue` sets the full title template. The error page uses this one: "Page not found · ViteHub".
+  head.titleTemplate ??= `%s · ${siteName}`
+}
+
+/** Whether a layer has an `app.vue`, as Nuxt looks for it: `app` or `App` with any Nuxt extension. */
+function hasAppComponent(srcDirs: string[], extensions: string[]): boolean {
+  return srcDirs.some(dir => ["app", "App"].some(name => extensions.some(extension => existsSync(join(dir, `${name}${extension}`)))))
+}
+
+/** The docs pages need Nuxt UI's `<UApp>` and a `<NuxtLayout>` in the app's own `app.vue`. Say so when one is missing. */
+function warnAppComponent(file: string): void {
+  if (!existsSync(file)) return
+  const source = readFileSync(file, "utf8")
+  const missing = [/<(UApp|u-app)\b/.test(source) ? null : "`<UApp>`, which Nuxt UI needs for search, tooltips, and menus", /<(NuxtLayout|nuxt-layout)\b/.test(source) ? null : "`<NuxtLayout>`, which draws the docs navigation"].filter(Boolean)
+  if (missing.length) useLogger("@vite-hub/docs").warn(`${file} has no ${missing.join(", and no ")}. Wrap \`<NuxtPage />\` in both, or remove app.vue to use the docs one.`)
+}
+
+/** Whether a stylesheet of the app imports Nuxt UI, and so starts a Tailwind build of its own. */
+function importsNuxtUi(css: ReadonlyArray<string | { src?: string }>, alias: Record<string, string>): boolean {
+  return css.some((entry) => {
+    const src = typeof entry === "string" ? entry : entry.src
+    if (!src?.endsWith(".css")) return false
+    const prefix = Object.keys(alias).filter(key => src.startsWith(`${key}/`)).sort((left, right) => right.length - left.length)[0]
+    const file = prefix ? join(alias[prefix]!, src.slice(prefix.length)) : src
+    return existsSync(file) && /@import\s+["']@nuxt\/ui["']/.test(readFileSync(file, "utf8"))
+  })
+}
+
 /** A module that this package depends on, by file path, so Nuxt finds it and transpiles its runtime. */
 function dependency(name: string): string {
   return fileURLToPath(import.meta.resolve(name))
 }
 
-function publicConfig(options: DocsModuleOptions, appBase: string): DocsPublicConfig {
+function publicConfig(options: DocsModuleOptions, base: string, appBase: string): DocsPublicConfig {
   const site = options.site ?? {}
   const url = (site.url ?? "").replace(/\/+$/, "")
   const dir = options.dir ?? "content"
   return {
     appBase: docsAppPath("/", appBase),
-    base: normalizeDocsBase(options.base ?? "/docs"),
+    base,
     site: {
       name: site.name ?? "Docs",
       url,

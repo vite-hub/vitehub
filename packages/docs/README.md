@@ -30,6 +30,30 @@ The shell uses Lucide, Phosphor, Simple Icons, and VS Code Icons. Install `@icon
 
 Apps that use `vite-hub` can import the root and the assistant from `vite-hub/docs` and `vite-hub/docs/assistant`.
 
+### Add docs to an existing app
+
+Put the pages in `content/docs/`. The module serves them at `/docs`, and the rest of the site stays the app's:
+
+```txt
+content/docs/
+  index.md        → /docs
+  guide/
+    index.md      → /docs/guide
+    install.md    → /docs/guide/install
+```
+
+```ts
+// nuxt.config.ts
+export default defineNuxtConfig({
+  modules: ["@nuxt/ui", "@vite-hub/docs/nuxt"],
+  docs: { site: { name: "Acme", url: "https://acme.dev" } },
+})
+```
+
+- The docs page answers only below `/docs`. The app keeps its own pages, its layouts, and its error page, also next to its own `pages/[...slug].vue`.
+- The app keeps its `app.vue`. The docs layouts draw the site header, the search, and the page head on docs pages only. The `app.vue` must wrap `<NuxtPage />` in `<UApp>` and `<NuxtLayout>`, as Nuxt UI and Nuxt layouts need. The development server warns when one is missing.
+- The build prerenders every docs page and crawls nothing else, so the app's own pages stay server-rendered.
+
 ## Content
 
 ```txt
@@ -44,7 +68,7 @@ content/
       install.md              → /docs/guide/install
 ```
 
-`content/docs/index.md` is the page at `/docs`. Without it, `/docs` is not found, and the Docs links open the first section. Each folder under `content/docs/` is a section: one entry in the rail and its own sidebar. A site with three sections or fewer, or with no section icons, has no rail: the sidebar lists every section with its pages. Pages outside `content/docs/`, such as `about.md`, render as plain articles under the site header. `dir` changes the content folder and `base` changes the `/docs` prefix.
+A page's URL is its path in the folder. With a `content/docs/` folder, the docs are at `/docs`. Without one, the docs are the whole site: `content/index.md` is `/`, and each folder in `content/` is a section. `content/docs/index.md` is the page at `/docs`. Without it, `/docs` is not found, and the Docs links open the first section. Each folder under `content/docs/` is a section: one entry in the rail and its own sidebar. A site with three sections or fewer, or with no section icons, has no rail: the sidebar lists every section with its pages. Pages outside `content/docs/`, such as `about.md`, render as plain articles under the site header. `dir` changes the content folder, and `base` sets the URL prefix of the sections when the default does not fit.
 
 The module reads the folder at build time. In development it watches the folder: a body edit shows on the next page load, and a new page, title, or order restarts the app.
 
@@ -112,7 +136,7 @@ Most changes are options in `nuxt.config.ts`:
 | Option | Default | Use |
 | --- | --- | --- |
 | `dir` | `content` | Folder of Markdown pages. |
-| `base` | `/docs` | URL prefix whose folders are sections. |
+| `base` | `/docs`, or `/` without a `docs/` folder | URL prefix whose folders are sections. |
 | `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo` (one-color SVG path), `badge` (`{ label, tooltip }`). |
 | `categories` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |
@@ -146,7 +170,7 @@ The shell is a set of Nuxt components. Create a component with the same name in 
 | `DocsCatalogFooter` | The catalog at the end of an Overview. |
 | `DocsCodePanel`, `DocsCodePre` | The tutorial code panel and code blocks. |
 
-Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, `layouts/default.vue`, or catch-all page also replaces the package one. A catch-all page replaces the docs page only when it answers every docs page, such as `pages/[...slug].vue`. One in another folder, such as `pages/blog/[...slug].vue`, does not.
+Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, or `layouts/default.vue` also replaces the package one. In an app with its own `app.vue`, the plain articles outside the sections use the `docs-article` layout, so the app's `default` layout stays on its own pages. A catch-all page replaces the docs page only at the docs prefix: `pages/[...slug].vue` for docs at `/`, and `pages/docs/[...slug].vue` for docs at `/docs`. One at another prefix, such as `pages/blog/[...slug].vue`, does not.
 
 Components read the site with auto-imported composables: `useDocsConfig()`, `useDocsManifest()`, `useDocsPage()`, `useDocsSection()`, `useDocsIcons()`, and `useDocsAssistant()`.
 
