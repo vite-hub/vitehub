@@ -190,7 +190,7 @@ describe("hubEmail", () => {
 
     const source = await loadConfiguredDefinition(plugin)
     expect(source).toMatch(/import\s*\{\s*env as vitehubEmailEnv\s*\}\s*from\s*"cloudflare:workers"/)
-    expect(source).toContain("resolveServerEnv(registry,{env:vitehubEmailEnv})")
+    expect(source).toContain("runWithCloudflareEnv(vitehubEmailEnv,()=>resolveServerEnv(registry))")
   })
 
   it("wires the Cloudflare Email driver to its Worker binding", async () => {
@@ -719,6 +719,7 @@ describe("hubEmail", () => {
         options: {
           apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
         },
+        remote: true,
       })],
       resolve: { alias: { "cloudflare:workers": cloudflareWorkers } },
       root,

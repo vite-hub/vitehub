@@ -112,6 +112,11 @@ export async function probeConsoleProject(
   return { kind: "failed", status: response.status, ...(fields.message ? { message: fields.message } : {}), ...(fields.fix ? { fix: fields.fix } : {}) }
 }
 
+/** What the Console says when a project refuses a token. The server keeps only a hash, so it cannot show the token. */
+export function consoleTokenRefused(host: string): string {
+  return `${host} refused this token. Use the token whose SHA-256 hash is in VITEHUB_CONSOLE_TOKEN_SHA256. If you lost it, create a new token and set its hash.`
+}
+
 /** What the Console says about a probe that did not open the project. */
 export interface ConsoleProjectProblem {
   title: string
@@ -126,8 +131,8 @@ export function consoleProjectProblem(probe: Exclude<ConsoleProjectProbe, { kind
   switch (probe.kind) {
     case "token":
       return probe.rejected
-        ? { title: "The token is not correct", message: `${context.host} refused this token. Copy the current value of VITEHUB_CONSOLE_TOKEN from the server and try again.` }
-        : { title: `Enter the Console token for ${context.host}`, message: "The project uses auth: \"token\". Paste the value of VITEHUB_CONSOLE_TOKEN." }
+        ? { title: "The token is not correct", message: consoleTokenRefused(context.host) }
+        : { title: `Enter the Console token for ${context.host}`, message: "The project uses auth: \"token\". Paste the token that you created for it." }
     case "oauth":
       return { title: `Sign in to ${context.host}`, message: `${context.host} signs Consoles in with OAuth. Sign in on ${context.host} and allow this Console.` }
     case "sign-in":

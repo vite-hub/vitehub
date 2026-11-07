@@ -22,6 +22,7 @@ import {
 import { consolePendingLinksStorageKey, createConsolePendingLinkStore, parseConsoleLinkFragment } from "./pending-links"
 import { setConsoleProject } from "./project"
 import { consoleProjectProblem, probeConsoleProject } from "./project-link"
+import { useConsoleToast } from "./toast"
 import { consoleProjectHost, consoleProjectTarget, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "./projects"
 
 import type { ConsoleOAuthFetch, ConsoleOAuthLock, ConsoleOAuthPendingSignIn, ConsoleOAuthRefresher, ConsoleOAuthStateStore, ConsoleOAuthTokens } from "./oauth"
@@ -96,9 +97,12 @@ interface ConsoleProjectsState {
   statuses: ShallowRef<Readonly<Record<string, ConsoleProjectStatus>>>
   /** The Link project dialog is open. The rail and the search palette open it. */
   linkOpen: Ref<boolean>
+  /** `false` when the browser does not keep the project list, so it ends with the page. */
+  persistent: Ref<boolean>
 }
 
 let state: ConsoleProjectsState | undefined
+let probeVersion = 0
 let resolveReady: (() => void) | undefined
 const ready = new Promise<void>((resolve) => {
   resolveReady = resolve
@@ -225,6 +229,7 @@ export function startConsoleProjects(options: {
     mode: options.mode,
     navigate: options.navigate,
     pageOrigin: options.pageOrigin,
+    persistent: ref(options.storage.persistent !== false),
     pendingLinks: createConsolePendingLinkStore(options.storage),
     pendingLinkLocks: options.pendingLinkLocks,
     projects: shallowRef(projects),
@@ -254,6 +259,7 @@ function open(info: ConsoleProjectInfo): void {
   if (current?.id) projects.statuses.value = { ...projects.statuses.value, [current.id]: "ready" }
   projects.gate.value = { kind: "ready" }
   resolveReady?.()
+  announceVolatile()
 }
 
 /**
@@ -291,10 +297,13 @@ export async function openConsoleProject(): Promise<void> {
     projects.gate.value = { kind: "empty" }
     return
   }
+  const version = ++probeVersion
   projects.gate.value = { kind: "opening" }
   const target = projects.mode === "embedded" ? { ...consoleProjectTarget(current), origin: "" } : consoleProjectTarget(current)
   const signedIn = Boolean(current.id && projects.store.find(current.url)?.oauth)
   const probe = await probeProject(target, current)
+  // A switch or a newer attempt can finish first. Only the current attempt may open the gate or update the project.
+  if (projects !== state || version !== probeVersion || projects.current.value !== current) return
   const gate = gateOf(probe, consoleProjectTarget(current), signedIn)
   if (gate) {
     projects.gate.value = gate
@@ -316,8 +325,10 @@ export async function signInConsoleProject(token: string): Promise<ConsoleProjec
   const projects = useState()
   const current = projects.current.value
   if (!current) return projects.gate.value
+  const version = ++probeVersion
   const target = consoleProjectTarget(current)
   const probe = await probeConsoleProject(projects.mode === "embedded" ? { ...target, origin: "" } : target, token)
+  if (projects !== state || version !== probeVersion || projects.current.value !== current) return projects.gate.value
   if (probe.kind !== "ready") return gateOf(probe, target) ?? { kind: "problem", problem: consoleProjectProblem(probe, problemContext(target)) }
   projects.current.value = projects.store.save({ url: current.url, label: probe.info.name, token })
   projects.projects.value = projects.store.list()
@@ -348,11 +359,42 @@ export async function linkConsoleProject(input: string, token?: string): Promise
   return { kind: "linked", project }
 }
 
-/** Make a linked project active and load the Console for it. */
+/** What the Console says, once, when the browser does not keep the project list. */
+export const consoleProjectsVolatileNote = "This browser does not let the Console keep data, so linked projects and tokens last until the page reloads."
+let volatileAnnounced = false
+
+/** Say once, in a toast of the open Console, that the list ends with the page. Before that, the gate shows the note. */
+function announceVolatile(): void {
+  if (volatileAnnounced || state?.persistent.value !== false || state.gate.value.kind !== "ready") return
+  // An embedded app without a token stores nothing, so the note would only be noise there.
+  if (state.mode === "embedded" && !state.current.value?.token) return
+  volatileAnnounced = true
+  useConsoleToast().show({ duration: 8_000, title: consoleProjectsVolatileNote })
+}
+
+/** The project storage stopped keeping the list, such as after a write to full storage failed. */
+export function noteConsoleProjectsVolatile(): void {
+  if (!state) return
+  state.persistent.value = false
+  announceVolatile()
+}
+
+/**
+ * Make a linked project active and load the Console for it. Before the Console shows a project, such as after the first
+ * link, it opens the project in place: nothing has loaded yet, and a list that lives only in memory stays.
+ */
 export function switchConsoleProject(id: string): void {
   const projects = useState()
   projects.store.select(id)
-  projects.navigate(projects.home)
+  const project = projects.store.get(id)
+  if (projects.gate.value.kind === "ready" || !project) {
+    projects.navigate(projects.home)
+    return
+  }
+  projects.current.value = project
+  projects.projects.value = projects.store.list()
+  applyTransport(consoleProjectTarget(project))
+  void openConsoleProject()
 }
 
 /** Ask the authorization server to revoke the refresh token. Best effort: the tokens are already gone from this browser. */

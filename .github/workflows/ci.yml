@@ -491,6 +491,10 @@ jobs:
       # The Console client imports the built packages, such as vite-hub/console/sections.
       - run: vp run -t vite-hub#build
       - run: vp run --filter vite-hub build:console-hosted
+      - name: Identify hosted Console build
+        run: |
+          marker="<meta name=\"vitehub-deploy\" content=\"${GITHUB_SHA}:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}\">"
+          sed -i "s|</head>|${marker}</head>|" packages/vite-hub/.vitehub/console-hosted/index.html packages/vite-hub/.vitehub/console-hosted/404.html
       - name: Verify Worker configuration
         run: ./.github/ci-tools/node_modules/.bin/wrangler deploy --dry-run --config packages/vite-hub/console.hosted.wrangler.jsonc
       - name: Upload hosted Console
@@ -553,17 +557,18 @@ jobs:
           done
           ./.github/ci-tools/node_modules/.bin/wrangler deploy --config packages/vite-hub/console.hosted.wrangler.jsonc
 
-      # The entry script name carries a content hash, so the live page names it only after this build is live.
+      # The marker identifies this upload even when only HTML, headers, or unreferenced assets change.
+      # Include the run and attempt so a rerun of the same commit cannot accept an earlier deployment.
       # The first deploy also creates the custom domain and its certificate, so the check waits up to 3 minutes.
       - name: Check the live site
         run: |
-          entry=$(grep -o 'src="/assets/console-[^"]*\.js"' packages/vite-hub/.vitehub/console-hosted/index.html)
-          if [ -z "$entry" ]; then
-            echo "The hosted Console build has no entry script." >&2
+          marker="<meta name=\"vitehub-deploy\" content=\"${GITHUB_SHA}:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}\">"
+          if ! grep -qF "$marker" packages/vite-hub/.vitehub/console-hosted/index.html; then
+            echo "The hosted Console build has no deployment marker for this run." >&2
             exit 1
           fi
           for _ in $(seq 18); do
-            if curl --fail --silent --show-error --max-time 30 "https://console.vitehub.dev/?deploy=${GITHUB_SHA}" | grep -qF "$entry"; then
+            if curl --fail --silent --show-error --max-time 30 "https://console.vitehub.dev/?deploy=${GITHUB_SHA}:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}" | grep -F "$marker" > /dev/null; then
               echo "console.vitehub.dev serves ${GITHUB_SHA}."
               exit 0
             fi
