@@ -424,6 +424,17 @@ export default ({ mode }) => ({
     expect(run).toHaveBeenCalledWith(["--help"], expect.anything())
   })
 
+  it("passes a Workspace named like the command to a namespace that is one command", async () => {
+    const run = vi.fn(() => 0)
+    const config = async () => ({ plugins: [{ vitehub: { cli: { namespaces: [{ defaultFeature: "push", features: [{ name: "push", run }], name: "push" }] } } }], root: "/repo" })
+
+    expect(await runViteHubCli({ args: ["push", "push"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+    expect(await runViteHubCli({ args: ["push"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+
+    expect(run).toHaveBeenNthCalledWith(1, ["push"], expect.anything())
+    expect(run).toHaveBeenNthCalledWith(2, [], expect.anything())
+  })
+
   it("reserves the inspect namespace for built-in commands", async () => {
     const stdout = stream()
     const stderr = stream()
