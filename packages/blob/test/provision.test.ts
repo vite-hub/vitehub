@@ -137,6 +137,19 @@ describe("blob cloudflare provision step", () => {
     ])
   })
 
+  it("accepts the documented R2 duplicate-bucket code after the exact bucket becomes visible", async () => {
+    const fetchImpl = mockFetch(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = new URL(String(input))
+      if (url.pathname.endsWith("/r2/buckets/assets")) return jsonResponse({ success: true, result: { name: "assets" } })
+      // https://developers.cloudflare.com/r2/api/error-codes/
+      if (init?.method === "POST") return jsonResponse({ errors: [{ code: 10073, message: "Bucket name already exists." }], success: false }, 409)
+      return jsonResponse({ success: true, result: { buckets: [] } })
+    })
+
+    const actions = await plan(fetchImpl)
+    await expect(actions[0]!.apply()).resolves.toEqual({})
+  })
+
   it("does not treat another Cloudflare 400 response as a duplicate bucket", async () => {
     const fetchImpl = mockFetch(async (_input: string | URL | Request, init?: RequestInit) => {
       if (init?.method === "POST") {
@@ -396,6 +409,32 @@ describe("blob vercel provision step", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3)
   })
 
+  it.each([
+    [["BLOB_READ_WRITE_TOKEN"], true],
+    [["BLOB_READ_WRITE_TOKEN", "BLOB_STORE_ID", "BLOB_WEBHOOK_PUBLIC_KEY"], false],
+    [[], false],
+    [undefined, false],
+  ])("warns about a connection without BLOB_STORE_ID when it lists %j", async (environmentVariables, warns) => {
+    const warn = vi.fn()
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      if (init?.method === "POST") throw new Error("must not reconnect an equivalent store")
+      if (String(input).includes("/storage/stores/store_1")) {
+        return jsonResponse({ store: { projectsMetadata: [{ ...connectedProject(), environmentVariables }] } })
+      }
+      return jsonResponse({ stores: [{ id: "store_1", name: "vitehub-blob", type: "blob" }] })
+    })
+
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan({ env, fetch: fetchImpl, logger: { log: () => {}, warn } })
+
+    expect(actions[0]!.pending).toBe(false)
+    if (warns) {
+      expect(warn).toHaveBeenCalledExactlyOnceWith("blob: Vercel Blob store vitehub-blob is connected without BLOB_STORE_ID, so deployments use BLOB_READ_WRITE_TOKEN. Reconnect the store to the project in the Vercel dashboard to use OIDC.")
+    }
+    else {
+      expect(warn).not.toHaveBeenCalled()
+    }
+  })
+
   it.each([false, true])("accepts a complete matching connection regardless of entry order with completeFirst=%s", async (completeFirst) => {
     const projectsMetadata = [connectedProject("prj_1", ["production"]), connectedProject()]
     if (completeFirst) projectsMetadata.reverse()
@@ -579,6 +618,23 @@ describe("blob vercel provision step", () => {
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
       if (init?.method === "POST") return jsonResponse({ error: { code: "already_connected" } }, 400)
+      if (url.includes("/storage/stores/store_1")) {
+        reads++
+        return jsonResponse({ store: { projectsMetadata: reads <= 2 ? [] : [connectedProject()] } })
+      }
+      return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
+    })
+
+    const actions = await createBlobVercelProvisionStep(() => ({ driver: "vercel-blob" })).plan(context(fetchImpl))
+    await expect(actions[0]!.apply()).resolves.toEqual({})
+    expect(reads).toBe(3)
+  })
+
+  it("reads the store again after a 409 conflict on connect", async () => {
+    let reads = 0
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input)
+      if (init?.method === "POST") return jsonResponse({ error: { message: "conflict" } }, 409)
       if (url.includes("/storage/stores/store_1")) {
         reads++
         return jsonResponse({ store: { projectsMetadata: reads <= 2 ? [] : [connectedProject()] } })

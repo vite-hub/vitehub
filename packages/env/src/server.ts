@@ -3,6 +3,7 @@ export type { ViteHubContext } from "@vite-hub/runtime"
 import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { deriveViteHubSecret, readViteHubSecret, viteHubSecretMinimumLength } from "@vite-hub/internal/secret"
 import { isViteHubError } from "@vite-hub/runtime"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import {
   asyncServerEnvRequired,
@@ -10,7 +11,7 @@ import {
   invalidRuntimeEnvValue,
   missingRequiredEnv,
 } from "./core/errors.ts"
-import { createEnvBridgeHandler } from "./http.ts"
+import { createEnvBridgeHandler, type EnvBridgeRequestOptions } from "./http.ts"
 import type { EnvManagement } from "./http.ts"
 import { SecretEnv } from "./secret.ts"
 import { isRecord, isRuntimeEnvEntry, isRuntimeLiteralEntry, isRuntimeProviderEntry, runtimeRegistryEntries } from "./core/registry.ts"
@@ -29,7 +30,7 @@ import type {
   ServerEnvInspectionEntry,
 } from "./types.ts"
 import { envErrorDiagnostics } from "./error-diagnostics.ts"
-import type { ViteHubContext } from "@vite-hub/runtime"
+import type { ViteHubContext, ViteHubStandardProps } from "@vite-hub/runtime"
 
 export type { ServerEnvInspection, ServerEnvInspectionEntry, ServerEnvInspectionStatus } from "./types.ts"
 
@@ -44,10 +45,20 @@ function processEnv(): RuntimeEnv {
 
 /**
  * The Cloudflare bindings in the request's Standard Context, else the bindings of the active Cloudflare request.
- * A value without `~standard`, such as a `Request`, reads the active bindings.
+ * Installs Standard Context on H3 events when needed. A value without an event request, such as Auth's `Request`,
+ * reads the active bindings.
  */
 function cloudflareEnv(event?: ViteHubContext): RuntimeEnv | undefined {
-  return (event as Partial<ViteHubContext> | undefined)?.["~standard"]?.runtime?.cloudflare?.env ?? getActiveCloudflareEnv()
+  if (!event) return getActiveCloudflareEnv()
+  let standard: ViteHubStandardProps
+  try {
+    standard = getStandardContext(event)
+  }
+  catch (error) {
+    if ((error as { name?: unknown })?.name !== "RUNTIME_R0015") throw error
+    return getActiveCloudflareEnv()
+  }
+  return standard.runtime?.cloudflare?.env ?? getActiveCloudflareEnv()
 }
 
 /**
@@ -559,7 +570,7 @@ export async function inspectServerEnv(
 }
 
 /** Limit management to safe, declared provider paths. Host variables stay read-only. */
-export function createServerEnvManagement(registry: EnvRuntimeRegistry, providers: EnvProviders): (request: Request) => Promise<Response> {
+export function createServerEnvManagement(registry: EnvRuntimeRegistry, providers: EnvProviders): (request: Request, options?: EnvBridgeRequestOptions) => Promise<Response> {
   const targets = new Map<string, { key: string; management: EnvManagement }>()
   for (const { entry, path } of runtimeRegistryEntries(registry)) {
     if (!isRuntimeProviderEntry(entry)) continue

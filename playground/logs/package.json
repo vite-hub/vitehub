@@ -9,6 +9,6 @@
     "nostics": "catalog:runtime",
     "vite-hub": "workspace:*"
   },
-  "devDependencies": { "vite": "catalog:vite", "vite-plus": "catalog:tooling" },
+  "devDependencies": { "@types/node": "catalog:tooling", "vite": "catalog:vite", "vite-plus": "catalog:tooling" },
   "engines": { "node": ">=22.22.0" }
 }

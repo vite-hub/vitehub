@@ -11,7 +11,7 @@ describe("Blob build aliases", () => {
       { windows: true },
     );
 
-    for (const shim of ["oidc", "retry", "is-buffer", "throttle", "fetch"]) {
+    for (const shim of ["retry", "is-buffer", "throttle", "fetch"]) {
       expect(source).toContain(
         `fileURLToPath(new URL("./src/internal/vercel-${shim}.ts", import.meta.url))`,
       );

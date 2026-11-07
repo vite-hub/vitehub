@@ -1,5 +1,5 @@
 import { agentHostWorkspaceRoute, getAgentHostWorkspaceInspector } from "@vite-hub/agent/server"
-import { useWorkspace } from "@vite-hub/workspace/runtime"
+import { useWorkspaceFiles } from "@vite-hub/workspace/files"
 import * as v from "valibot"
 import { getConsoleAgentDefinition } from "./agents.ts"
 import { getConsoleInvocations } from "./invocations.ts"
@@ -184,7 +184,7 @@ async function consoleInvocationWorkspaceHandler(event: ConsoleRequestEvent): Pr
     .find(result => result.success)
   if (!configuration?.success) throw failure(404, "This run did not record its Workspace. Open a newer run to inspect its mounted files.")
   const name = configuration.output.workspace.name
-  const workspace = useWorkspace(name, { mode: "read", refresh: false })
+  const workspace = useWorkspaceFiles(name, { mode: "read", refresh: false })
   const history = historyReader(workspace)
   const historyPageValue = history && (path === null || historyRequested || Boolean(requestedRevision))
     ? await historyMetadata(history, requestedRef, url.searchParams.get("cursor") ?? undefined, historyRequested || Boolean(requestedRevision))
