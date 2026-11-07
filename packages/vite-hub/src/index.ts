@@ -18,6 +18,7 @@ import { hubEnv } from "@vite-hub/env/vite"
 import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig, type KVVitePluginAPI } from "@vite-hub/kv/vite"
 import { hubQueue } from "@vite-hub/queue/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
+import { hubBundle } from "@vite-hub/bundle/vite"
 import { hubSandboxTask } from "@vite-hub/sandbox/task/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
@@ -110,6 +111,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/agent": true,
   "@vite-hub/auth": true,
   "@vite-hub/blob": true,
+  "@vite-hub/bundle": false,
   "@vite-hub/browser": true,
   "@vite-hub/sandbox": true,
   "@vite-hub/channels": true,
@@ -394,6 +396,11 @@ export interface ViteHubOptions {
   /** The ViteHub Console at `/_vitehub`. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
   console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
+  /**
+   * Writes a bundle report of each production build to `.vitehub/bundle/`: client and server size, the code that loads
+   * at startup, and why each package is there. Read it with `vitehub bundle`. Off by default.
+   */
+  bundle?: boolean
   database?: boolean | DBModulePublicOptions
   email?: boolean | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
@@ -989,6 +996,8 @@ function hasExplicitBlobStore(options: boolean | BlobModuleOptions | undefined):
   return Boolean(options && typeof options === "object" && ("driver" in options || "stores" in options))
 }
 
+const presetBlobConfigs = new WeakSet<object>()
+
 function presetBlobOptions(
   plan: DeploymentPlan,
   options: boolean | BlobModuleOptions | undefined,
@@ -996,15 +1005,19 @@ function presetBlobOptions(
 ): BlobModuleOptions {
   if (hasExplicitBlobStore(options)) return options as BlobModuleOptions
   const configured = options && typeof options === "object" ? options : {}
+  const fromPreset = (blob: Exclude<BlobModuleOptions, false>) => {
+    presetBlobConfigs.add(blob)
+    return blob
+  }
   switch (plan.services.blob.supported && plan.services.blob.adapter) {
-    case "cloudflare-r2": return {
+    case "cloudflare-r2": return fromPreset({
       bucketName: process.env.BLOB_BUCKET_NAME || process.env.CLOUDFLARE_R2_BUCKET_NAME || process.env.R2_BUCKET_NAME || deploymentName,
       ...configured,
       driver: "cloudflare-r2",
-    }
-    case "fs": return { ...configured, driver: "fs" }
-    case "netlify-blobs": return { name: "vitehub-blob", ...configured, driver: "netlify-blobs" }
-    case "vercel-blob": return { ...configured, driver: "vercel-blob" }
+    })
+    case "fs": return fromPreset({ ...configured, driver: "fs" })
+    case "netlify-blobs": return fromPreset({ name: "vitehub-blob", ...configured, driver: "netlify-blobs" })
+    case "vercel-blob": return fromPreset({ ...configured, driver: "vercel-blob" })
     default: throw viteHubErrorDiagnostics.VITE_HUB_R0084({ message: "[vitehub] Missing Blob adapter for deployment preset " + JSON.stringify(plan.preset) + "." })
   }
 }
@@ -1319,7 +1332,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else plugins.push(hubConnectionsTypesCleanup())
   if (options.database) plugins.push(requireOptionalOwner(ownerModules.databaseVite, "database").hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
-    plugins.push(afterApplicationConfig(hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob` })))
+    plugins.push(afterApplicationConfig(hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob`, presetDriver: blob => Boolean(blob && presetBlobConfigs.has(blob)) })))
   }
   if (options.email) {
     const emailOptions = options.email === true
@@ -1341,6 +1354,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.queue && plan.services.queue.supported) {
     plugins.push(afterApplicationConfig(hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" })))
   }
+  if (options.bundle) plugins.push(hubBundle())
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
     // SAFETY: ViteHub adds its private generated import base to the public Rate Limit options before calling the owned integration.

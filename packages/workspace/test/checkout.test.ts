@@ -13,7 +13,7 @@ import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "../src/blob-database.ts"
-import { mergeText } from "../src/checkout.ts"
+import { formatWorkspaceStatus, localCheckoutStatus, mergeText } from "../src/checkout.ts"
 import { lineageDigest } from "../src/lineage.ts"
 import { workspaceCheckoutFeatures } from "../src/checkout-cli.ts"
 import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.ts"
@@ -102,6 +102,8 @@ async function project(fetch: typeof globalThis.fetch, name: string) {
     remove: async (path: string) => await rm(file(path)),
     exists: async (path: string) => await readFile(file(path)).then(() => true, () => false),
     lock: async () => JSON.parse(await readFile(join(rootDir, "vitehub.lock"), "utf8")),
+    /** What `vitehub status` shows for the checkouts: local only. */
+    status: async () => (await localCheckoutStatus(rootDir))!,
   }
 }
 
@@ -169,8 +171,8 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     await local.write("posts/hello.md", post("Hello", "Edited locally."))
     await local.write("posts/new.md", post("New", "Added locally."))
     await local.remove("posts/old.md")
-    const status = await local.json("status")
-    expect(status.value[0].local).toEqual({ added: ["posts/new.md"], conflicted: [], deleted: ["posts/old.md"], modified: ["posts/hello.md"] })
+    const status = await local.status()
+    expect(status[0]!.local).toEqual({ added: ["posts/new.md"], conflicted: [], deleted: ["posts/old.md"], modified: ["posts/hello.md"] })
 
     const pushed = await local.json("push", "--message", "Write locally")
 
@@ -182,7 +184,7 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect(await remoteApp.read("posts/new.md")).toBe(post("New", "Added locally."))
     await expect(remoteApp.read("posts/old.md")).rejects.toThrow()
     expect((await local.lock()).workspaces.content.head).toBe(head!.id)
-    expect((await local.json("status")).value[0].local).toEqual({ added: [], conflicted: [], deleted: [], modified: [] })
+    expect((await local.status())[0]!.local).toEqual({ added: [], conflicted: [], deleted: [], modified: [] })
     expect((await local.run("push")).stdout).toBe("content: nothing to push.\n")
   })
 
@@ -194,7 +196,9 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
 
     await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One, edited in the Console.\n\nTwo.\n\nThree."), "posts/other.md": post("Other", "Console text.") } })
     await local.write("posts/hello.md", post("Hello", "One.\n\nTwo.\n\nThree, edited locally."))
-    expect((await local.json("status", "--remote")).value[0].remoteChanges).toEqual([
+    const dryRun = await local.json("pull", "--dry-run")
+    expect(dryRun.value[0].local.modified).toEqual(["posts/hello.md"])
+    expect(dryRun.value[0].remoteChanges).toEqual([
       { change: "changed", path: "posts/hello.md" },
       { change: "changed", path: "posts/other.md" },
     ])
@@ -223,13 +227,14 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect(pulled.code).toBe(1)
     expect(pulled.stdout).toContain("conflict posts/hello.md")
     expect(await local.read("posts/hello.md")).toBe(`---\ntitle: Hello\n---\n\n<<<<<<< local\nLocal line.\n=======\nConsole line.\n>>>>>>> draft ${consoleEdit.id}\n`)
-    expect((await local.run("status", "--check")).code).toBe(1)
+    expect((await local.status())[0]!.local.conflicted).toEqual(["posts/hello.md"])
+    expect(formatWorkspaceStatus((await local.status())[0]!)).toContain("  conflict  posts/hello.md")
     const refused = await local.run("push")
     expect(refused).toMatchObject({ code: 1, stderr: expect.stringContaining("WORKSPACE_CHECKOUT_CONFLICT") })
     expect((await remoteApp.history.head({ ref: "draft" }))!.id).toBe(consoleEdit.id)
 
     await local.write("posts/hello.md", post("Hello", "Local and Console line."))
-    expect((await local.run("status", "--check")).code).toBe(0)
+    expect((await local.status())[0]!.local.conflicted).toEqual([])
     expect((await local.run("push")).code).toBe(0)
     expect(await remoteApp.read("posts/hello.md")).toBe(post("Hello", "Local and Console line."))
   })
@@ -273,7 +278,7 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
       { action: "kept", note: expect.stringContaining("The remote deleted this file"), path: "posts/kept.md" },
     ])
     expect(await local.read("posts/back.md")).toBe(post("Back", "Two."))
-    expect((await local.json("status")).value[0].local.added).toEqual(["posts/kept.md"])
+    expect((await local.status())[0]!.local.added).toEqual(["posts/kept.md"])
   })
 
   it("brings one clone's push to a second clone", async () => {
@@ -351,14 +356,13 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     await remoteApp.edit({ put: { "docs/en/guide.md": english, "docs/es/guide.md": spanish(translated) } })
     const local = await project(remoteApp.fetch, "lineage")
     await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
-    expect((await local.json("status")).value[0].stale).toEqual([])
+    expect((await local.status())[0]!.stale).toEqual([])
 
     const written: string[] = []
     cleanup.push(registerWorkspacePlugin("content", { hooks: { "write:after": ({ path, ref }) => { written.push(`${ref} ${path}`) } }, id: "translate" }))
     const edited = post("Guide", "Install it with pnpm.")
     await local.write("docs/en/guide.md", edited)
-    const status = await local.run("status")
-    expect(status.stdout).toContain("Stale derived files (their source changed):\n  changed   docs/es/guide.md <- docs/en/guide.md")
+    expect(formatWorkspaceStatus((await local.status())[0]!)).toContain("Stale derived files (their source changed):\n  changed   docs/es/guide.md <- docs/en/guide.md")
     expect((await local.run("push")).code).toBe(0)
     // A translator starts from this hook.
     expect(written).toEqual(["draft docs/en/guide.md"])
@@ -369,7 +373,7 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
 
     // The translator updates the file and records the digest that workspace.stale reported.
     await local.write("docs/es/guide.md", spanish(sourceDigest))
-    expect((await local.json("status")).value[0].stale).toEqual([])
+    expect((await local.status())[0]!.stale).toEqual([])
   })
 
   it("asks for --dir on the first pull and refuses a folder outside the project", async () => {
@@ -379,6 +383,7 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect((await local.run("pull", "content", "--url", remote)).stderr).toContain("Pass --dir <folder> on the first pull")
     expect((await local.run("pull", "content", "--dir", "..", "--url", remote)).stderr).toContain("must be a folder inside the project")
     expect((await local.run("pull", "content", "--dir", ".", "--url", remote)).stderr).toContain("must be a folder inside the project")
-    expect((await local.run("status")).stderr).toContain("has no checked-out Workspace")
+    expect((await local.run("push")).stderr).toContain("has no checked-out Workspace")
+    expect(await localCheckoutStatus(local.rootDir)).toBeUndefined()
   })
 })

@@ -600,6 +600,35 @@ export async function workspaceStatus(context: WorkspaceCheckoutContext, options
   return results
 }
 
+/** The state of one checkout as text: its ref and head, local changes and conflicts, and remote changes when read. */
+export function formatWorkspaceStatus(status: WorkspaceStatus): string {
+  const lines = [`${status.workspace}: ${status.dir}/ is ${status.ref} at ${status.head ?? "(empty)"}${status.remote ? ` on ${status.remote}` : ""}`]
+  const { local } = status
+  const rows = [
+    ...local.conflicted.map(path => `  conflict  ${path}`),
+    ...local.added.filter(path => !local.conflicted.includes(path)).map(path => `  added     ${path}`),
+    ...local.modified.filter(path => !local.conflicted.includes(path)).map(path => `  modified  ${path}`),
+    ...local.deleted.map(path => `  deleted   ${path}`),
+  ]
+  lines.push(rows.length ? "Local changes:" : "No local changes.", ...rows)
+  if (status.stale.length) lines.push("Stale derived files (their source changed):", ...status.stale.map(file => `  ${file.reason.padEnd(9)} ${file.path} <- ${file.derivedFrom.path}`))
+  if (status.remoteChanges) {
+    if (!status.remoteChanges.length) lines.push("No remote changes.")
+    else lines.push(`Remote changes since ${status.head ?? "(empty)"} (run \`vitehub pull\`):`, ...status.remoteChanges.map(change => `  ${change.change.padEnd(9)} ${change.path}`))
+  }
+  return `${lines.join("\n")}\n`
+}
+
+/**
+ * The local state of every checkout of `vitehub.lock`, without asking the remote, or undefined when the project has no
+ * lock file. `vitehub status` shows it.
+ */
+export async function localCheckoutStatus(rootDir: string): Promise<WorkspaceStatus[] | undefined> {
+  const lock = await readWorkspaceLock(rootDir)
+  if (!Object.keys(lock.workspaces).length) return undefined
+  return await workspaceStatus({ call: async () => ({ ok: false, message: "The local status does not call the app." }), rootDir }, {})
+}
+
 /** Marks conflicts without markers, such as binary files, as resolved: the local file is what the next push sends. */
 export async function resolveWorkspaceConflicts(rootDir: string, workspace: string, paths: readonly string[]): Promise<string[]> {
   const lock = await readWorkspaceLock(rootDir)

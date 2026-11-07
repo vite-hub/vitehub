@@ -33,12 +33,16 @@ The Agent Package contributes `agent`, `channels`, and `conversations` when `hub
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
+       vitehub <command> [args...]
+
+Project:
+  catalog     List every ViteHub feature and how each host supports it. Needs no project.
+  status      Show the host, the enabled features, and what each one still needs. Reads the config without running it.
 
 Available namespaces:
   workspace   Workspace development workflows and retained history.
   pull        Merge the remote changes of a Workspace ref into a local folder.
   push        Pull, then commit the local changes of a checkout folder to its ref.
-  status      Show local and remote changes of each checkout folder.
   resolve     Keep the local version of binary files that both sides changed.
   console     Console development workflows.
   agent       Agent development workflows.
@@ -68,6 +72,8 @@ Available namespaces:
 
 | Command | Status | Owner | Use it for |
 | --- | --- | --- | --- |
+| `vitehub catalog` | Available | ViteHub CLI | List every feature and how each host supports it. Does not load the project config. |
+| `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, what each one still needs, and the checkout folders of `vitehub.lock`. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent codex-home` | Available | Agent Package | Inspect or manage the Agent Codex home. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
@@ -150,13 +156,42 @@ Available namespaces:
 | `vitehub workspace commit` | Available | Workspace Package | Commit files to a ref when its head is still `ifHead`. `vitehub push` calls it. |
 | `vitehub pull` | Available | Workspace Package | Merge the remote changes of each checked-out Workspace ref into its local folder, and update `vitehub.lock`. |
 | `vitehub push` | Available | Workspace Package | Pull, then commit the local changes of each checkout folder to its ref. It never publishes or deploys. |
-| `vitehub status` | Available | Workspace Package | Show local changes, conflicts, and with `--remote` the remote changes of each checkout folder. |
 | `vitehub resolve` | Available | Workspace Package | Keep the local version of binary files that both sides changed. |
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub inspect definitions` | Available | ViteHub CLI plus package inspection contributors | List the Definitions that each active package discovered. |
 | `vitehub inspect provider-output` | Available | ViteHub CLI plus package inspection contributors | List generated Provider Output files with secrets redacted. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
 | `vitehub provision status` | Available | ViteHub CLI plus package Provision Steps | Inspect the latest provider provisioning result. |
+
+## Read a project without loading it
+
+`vitehub catalog` and `vitehub status` run before the CLI loads the project config. They work in an empty folder and on a config that throws, because they parse the config file and never run it.
+
+```bash [Terminal]
+pnpm vitehub catalog --json
+pnpm vitehub status --json
+```
+
+`catalog` lists every feature key of `vitehub({...})`, the packages that it needs, and how each host supports it: `native`, `explicit` (an option chooses the provider), or `unsupported`. It needs no project.
+
+`status` reads `vite.config.*` or `nuxt.config.*` in the current folder and reports the items below. With `vitehub.lock`, it also lists each checkout folder with its local changes and conflicts, read by the installed Workspace package without calling the app; `--json` puts them in `checkouts`. See [Work on Workspace files in a local folder](#work-on-workspace-files-in-a-local-folder).
+
+`status` reports:
+
+- `framework`: `vite`, `nuxt`, or `none`, from the config files and the dependencies.
+- `config`: the file and the config form, or `manual` with the reason when the options are not an object literal.
+- `host`: the `preset` from the config, else the host from the environment, as `detectPreset()` reads it, else `node`. `source` tells which one. A dynamic preset or config reports `name: "unknown"` and feature support with `level: "unknown"`.
+- `features`: each feature as `on`, `off`, or `unknown`. The reason is `config` when the config sets the key, `default` when it does not (including file discovery in `server/`), and `implied` when another feature turns it on or may turn it on. Expressions and keys overridden by a spread are `unknown`; their implications remain uncertain, respecting explicit `false`. An enabled feature lists `missingPackages` and a `fix`, such as the install command.
+
+With `--json`, a command prints exactly one JSON document on stdout, `{ "schemaVersion": 1, ... }`. A failure prints `{ "schemaVersion": 1, "error": { "code", "message", "why", "fix", "docs" } }`. The exit code is `0` when the command is done, `1` for an error, `2` when input is needed, `3` for an unsupported or conflicting change, and `4` for a stale plan.
+
+### `SETUP_NOT_A_PROJECT`
+
+The folder has no `package.json`, no `vite.config.*`, and no `nuxt.config.*`. Run the command in the folder of your Vite or Nuxt app.
+
+### `SETUP_CONFIG_NOT_LITERAL`
+
+The `vitehub()` options are not an object literal, for example a variable, a function call, or `mergeConfig()`. ViteHub does not run the config to read them. Write the options as an object literal, such as `vitehub({ kv: true })`, or edit the config by hand. `vitehub status` reports this case as `config.manual` and exits with `0`.
 
 ## Read and write blobs
 
@@ -827,7 +862,7 @@ Connected to docs at http://localhost:5173
 
 ```bash [Terminal]
 pnpm vitehub pull site --dir content --ref draft --url https://docs.example.com
-pnpm vitehub status --remote
+pnpm vitehub pull --dry-run
 pnpm vitehub push --message "Fix the install guide"
 ```
 

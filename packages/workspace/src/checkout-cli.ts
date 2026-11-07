@@ -1,8 +1,8 @@
 import { callOperationFromCli } from "@vite-hub/internal/operations"
 
-import { pullWorkspaces, pushWorkspaces, resolveWorkspaceConflicts, WorkspaceCheckoutError, workspaceLockFile, workspaceStatus } from "./checkout.ts"
+import { formatWorkspaceStatus, pullWorkspaces, pushWorkspaces, resolveWorkspaceConflicts, WorkspaceCheckoutError, workspaceLockFile, workspaceStatus } from "./checkout.ts"
 
-import type { WorkspaceCheckoutCall, WorkspacePullResult, WorkspacePushResult, WorkspaceStatus } from "./checkout.ts"
+import type { WorkspaceCheckoutCall, WorkspacePullResult, WorkspacePushResult } from "./checkout.ts"
 
 export interface WorkspaceCheckoutCliContext {
   cwd: string
@@ -76,29 +76,10 @@ function formatPush(result: WorkspacePushResult): string {
   return `${pulled}${result.workspace}: pushed ${result.pushed.length} ${result.pushed.length === 1 ? "file" : "files"} to ${result.ref} (${result.revision})\n${result.pushed.map(path => `  ${path}`).join("\n")}\n`
 }
 
-function formatStatus(status: WorkspaceStatus): string {
-  const lines = [`${status.workspace}: ${status.dir}/ is ${status.ref} at ${status.head ?? "(empty)"}${status.remote ? ` on ${status.remote}` : ""}`]
-  const { local } = status
-  const rows = [
-    ...local.conflicted.map(path => `  conflict  ${path}`),
-    ...local.added.map(path => `  added     ${path}`),
-    ...local.modified.filter(path => !local.conflicted.includes(path)).map(path => `  modified  ${path}`),
-    ...local.deleted.map(path => `  deleted   ${path}`),
-  ]
-  lines.push(rows.length ? "Local changes:" : "No local changes.", ...rows)
-  if (status.stale.length) lines.push("Stale derived files (their source changed):", ...status.stale.map(file => `  ${file.reason.padEnd(9)} ${file.path} <- ${file.derivedFrom.path}`))
-  if (status.remoteChanges) {
-    if (!status.remoteChanges.length) lines.push("No remote changes.")
-    else lines.push(`Remote changes since ${status.head ?? "(empty)"} (run \`vitehub pull\`):`, ...status.remoteChanges.map(change => `  ${change.change.padEnd(9)} ${change.path}`))
-  }
-  return `${lines.join("\n")}\n`
-}
-
 const usage = {
-  pull: "vitehub pull [workspace] [--dir <folder>] [--ref <ref>] [--url <origin>] [--theirs <path>] [--json]",
+  pull: "vitehub pull [workspace] [--dir <folder>] [--ref <ref>] [--url <origin>] [--theirs <path>] [--dry-run] [--json]",
   push: "vitehub push [workspace] [--message <text>] [--url <origin>] [--json]",
   resolve: "vitehub resolve <workspace> [path...] [--json]",
-  status: "vitehub status [workspace] [--remote] [--check] [--url <origin>] [--json]",
 }
 
 const help = {
@@ -111,6 +92,9 @@ Without a workspace, pull every Workspace of ${workspaceLockFile}.
 A file that only one side changed takes that side. A text file that both sides changed is merged by line; lines that
 both sides changed get Git conflict markers. --theirs <path> takes the remote version of one path. Without --url the
 command uses \`remote\` of ${workspaceLockFile}, else the dev server of the project.
+
+--dry-run lists your local changes and the files that changed on the remote since the last pull, and writes nothing.
+\`vitehub status\` shows the local changes and conflicts without asking the remote.
 `,
   push: `Usage: ${usage.push}
 
@@ -122,12 +106,6 @@ another push lands first, it pulls and tries again.
 
 Keep your local version of binary files that both sides changed. Without paths, resolve every one. Text conflicts need
 no command: remove the markers from the file.
-`,
-  status: `Usage: ${usage.status}
-
-Show the local changes of each checkout folder against the last pulled revision. --remote also lists the files that
-changed on the remote since then. It also lists derived files, such as translations, whose \`derivedFrom\` source
-changed. --check exits with 1 when a conflict is open, for a pre-commit hook.
 `,
 }
 
@@ -149,6 +127,11 @@ async function run(command: keyof typeof usage, args: readonly string[], context
   const [workspace, ...paths] = parsed.positional
   const checkout = { call: caller(context, parsed), rootDir: context.rootDir }
   try {
+    if (command === "pull" && parsed.flags.has("dry-run")) {
+      const results = await workspaceStatus(checkout, { ...(workspace ? { workspace } : {}), remote: true })
+      write(results, results.map(formatWorkspaceStatus).join(""))
+      return 0
+    }
     if (command === "pull") {
       const dir = one(parsed, "dir")
       const ref = one(parsed, "ref")
@@ -162,11 +145,6 @@ async function run(command: keyof typeof usage, args: readonly string[], context
       const results = await pushWorkspaces(checkout, { ...(workspace ? { workspace } : {}), ...(message ? { message } : {}) })
       write(results, results.map(formatPush).join(""))
       return 0
-    }
-    if (command === "status") {
-      const results = await workspaceStatus(checkout, { ...(workspace ? { workspace } : {}), remote: parsed.flags.has("remote") })
-      write(results, results.map(formatStatus).join(""))
-      return parsed.flags.has("check") && results.some(result => result.local.conflicted.length) ? 1 : 0
     }
     if (!workspace) {
       context.stderr.write(`Name a Workspace.\nUsage: ${usage.resolve}\n`)
@@ -184,12 +162,11 @@ async function run(command: keyof typeof usage, args: readonly string[], context
   }
 }
 
-/** `vitehub pull|push|status|resolve`: a local folder as a working copy of a Workspace ref. */
+/** `vitehub pull|push|resolve`: a local folder as a working copy of a Workspace ref. `vitehub status` shows its state. */
 export function workspaceCheckoutFeatures(): Array<{ description: string, name: string, run: (args: string[], context: WorkspaceCheckoutCliContext) => Promise<number>, usage: string }> {
   return [
     { description: "Merge the remote changes of a Workspace ref into a local folder.", name: "pull", run: async (args, context) => await run("pull", args, context), usage: usage.pull },
     { description: "Pull, then commit the local changes of a checkout folder to its ref.", name: "push", run: async (args, context) => await run("push", args, context), usage: usage.push },
-    { description: "Show local and remote changes of each checkout folder.", name: "status", run: async (args, context) => await run("status", args, context), usage: usage.status },
     { description: "Keep the local version of binary files that both sides changed.", name: "resolve", run: async (args, context) => await run("resolve", args, context), usage: usage.resolve },
   ]
 }
