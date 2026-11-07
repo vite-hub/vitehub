@@ -33,8 +33,8 @@ export function docsUi(siteName: string): DocsThemeUi {
   return {
     // Thin Phosphor icons for the color mode control, like the rest of the sidebar.
     icons: {
-      light: "i-ph-sun-light",
-      dark: "i-ph-moon-light",
+      light: "i-lucide-sun",
+      dark: "i-lucide-moon",
     },
     colors: {
       primary: "neutral",

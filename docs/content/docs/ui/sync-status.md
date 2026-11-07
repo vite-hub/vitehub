@@ -3,7 +3,7 @@ title: Sync Status
 description: "Show whether edits are loading, saving, saved, or not saved, with a custom label and an accessible live status."
 navigation.order: 32
 navigation.group: Collaboration
-icon: i-ph-cloud-check-light
+icon: i-lucide-cloud-check
 ---
 
 `SyncStatus` shows where local edits stand. The values follow [Liveblocks' Yjs sync status](https://liveblocks.io/docs/api-reference/liveblocks-yjs) (`loading`, `synchronizing`, `synchronized`), plus `error` for a save that failed. The parts split as [Kibo UI's Status](https://www.kibo-ui.com/components/status).

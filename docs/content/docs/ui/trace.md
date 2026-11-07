@@ -3,7 +3,7 @@ title: Trace
 description: "Show the steps an Agent takes as compact lines that can expand into detail."
 navigation.order: 14
 navigation.group: Parts
-icon: i-ph-path-light
+icon: i-lucide-route
 ---
 
 `Trace` lists the steps of an Agent turn: thoughts, searches, commands, tool calls, sources, and plan steps. Each `TraceLine` has an icon, a title, an optional description, and a status. Wrap a line in `TraceCollapsible` to show its output when the reader expands it. The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Trace](https://ui.shadcn.com/docs/components/trace).

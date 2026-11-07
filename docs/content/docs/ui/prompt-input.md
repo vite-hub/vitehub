@@ -3,7 +3,7 @@ title: Prompt Input
 description: Collect prompt text and file attachments with a submit control that follows the AI SDK chat status.
 navigation.order: 24
 navigation.group: Chat
-icon: i-ph-paper-plane-tilt-light
+icon: i-lucide-send
 ---
 
 `PromptInput` is a chat input with attachments, built like the [shadcn/ui Prompt Input](https://ui.shadcn.com/docs/ai-elements/base/prompt-input): a framed textarea that grows with its content, attachments above it as [Attachment](/docs/ui/attachment) parts, and round attach and send buttons below it. Enter sends and Shift+Enter adds a line; text composed with an input method never sends. The send button follows the AI SDK chat status: Send, Stop, or Retry. ViteHub adds clipboard paste for files and one `submit` payload with text and AI SDK file parts.

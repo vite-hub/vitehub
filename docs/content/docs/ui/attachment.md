@@ -3,7 +3,7 @@ title: Attachment
 description: "Show a file with its upload state as a row or a tile, with an image preview, actions, sizes, and attachment groups."
 navigation.order: 13
 navigation.group: Parts
-icon: i-ph-paperclip-light
+icon: i-lucide-paperclip
 ---
 
 `Attachment` shows one file: an icon or an image, a title, a description, and actions. The `state` prop shows whether the file is waiting, uploading, processing, done, or failed. The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Attachment](https://ui.shadcn.com/docs/components/attachment).
