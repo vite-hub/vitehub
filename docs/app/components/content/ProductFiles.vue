@@ -1,18 +1,36 @@
 <script setup lang="ts">
 // `::product-files` shows example code as a project file tree. Each child code block names its file
 // with a path, such as ```ts [server/workspaces/docs.ts]```. The tree lists folders first, like an
-// editor, and the first code block opens first.
+// editor, and the first code block opens first. Code blocks inside `::framework{name}` show only for the
+// framework that the reader picked, and the header then shows the framework switch.
 import type { VNode } from "vue";
 
 const slots = defineSlots<{ default?: () => VNode[] }>();
 const id = useId();
 const selected = ref(0);
 const tree = useTemplateRef<HTMLElement>("tree");
+const framework = useFramework();
 
-function flatten(nodes: VNode[]): VNode[] {
-  return nodes.flatMap((node) =>
-    typeof node.type === "symbol" && Array.isArray(node.children) ? flatten(node.children as VNode[]) : [node],
-  );
+function frameworkOf(node: VNode): string | undefined {
+  const type: unknown = node.type;
+  const isFramework = typeof type === "object" && type !== null && "name" in type && type.name === "Framework";
+  return isFramework ? String(node.props?.name ?? "") : undefined;
+}
+
+function slotNodes(node: VNode): VNode[] {
+  const children: unknown = node.children;
+  if (typeof children !== "object" || children === null || !("default" in children)) return [];
+  const slot: unknown = children.default;
+  return typeof slot === "function" ? slot() : [];
+}
+
+function flatten(nodes: VNode[], all = false): VNode[] {
+  return nodes.flatMap((node) => {
+    if (typeof node.type === "symbol" && Array.isArray(node.children)) return flatten(node.children as VNode[], all);
+    const name = frameworkOf(node);
+    if (name === undefined) return [node];
+    return all || name === framework.value ? [node, ...flatten(slotNodes(node), all)] : [];
+  });
 }
 
 const files = computed(() =>
@@ -20,6 +38,14 @@ const files = computed(() =>
     .map((node) => ({ node, path: String(node.props?.filename ?? "") }))
     .filter((file) => file.path),
 );
+const switchable = computed(() => flatten(slots.default?.() ?? [], true).some((node) => frameworkOf(node) !== undefined));
+
+// A framework switch keeps the open file when the other framework has a file with the same path.
+watch(files, (next, previous) => {
+  const path = previous[selected.value]?.path;
+  const index = next.findIndex((file) => file.path === path);
+  selected.value = index >= 0 ? index : 0;
+});
 
 const rows = computed(() => buildFileTree(files.value.map((file) => file.path)));
 
@@ -74,7 +100,10 @@ function onTreeKeydown(event: KeyboardEvent) {
       :data-state="selected === index ? 'active' : 'inactive'"
       :aria-labelledby="`${id}-tab-${index}`"
     >
-      <p class="vh-files-path">{{ file.path }}</p>
+      <div class="vh-files-path">
+        <span>{{ file.path }}</span>
+        <FrameworkSwitch v-if="switchable" />
+      </div>
       <div class="vh-files-body">
         <component :is="file.node" hide-header tabindex="-1" />
       </div>
@@ -184,6 +213,8 @@ function onTreeKeydown(event: KeyboardEvent) {
   min-height: 2.75rem;
   flex: none;
   align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
   margin: 0;
   border-bottom: 1px solid var(--ui-border);
   padding-inline: 0.75rem;

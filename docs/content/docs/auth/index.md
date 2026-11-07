@@ -52,6 +52,29 @@ icon: i-lucide-shield-check
   </template>
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: { preset: 'node', auth: true },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { nitro } from 'nitro/vite'
+  import { vitehub } from 'vite-hub'
+
+  export default defineConfig({
+    plugins: [
+      vitehub({ preset: 'node', auth: true }),
+      nitro(),
+    ],
+  })
+  ```
+  ::::
+  ::::framework{name="Vite"}
   ```ts [vite.config.ts]
   import { defineConfig } from 'vite'
   import { vitehub } from 'vite-hub'
@@ -62,6 +85,7 @@ icon: i-lucide-shield-check
     ],
   })
   ```
+  ::::
   :::
 ::
 

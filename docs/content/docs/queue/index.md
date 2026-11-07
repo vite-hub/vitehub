@@ -48,6 +48,16 @@ icon: i-lucide-list-ordered
   })
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    // Jobs go to Cloudflare Queues
+    vitehub: { preset: 'cloudflare', queue: true },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
   ```ts [vite.config.ts]
   import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'
@@ -61,6 +71,20 @@ icon: i-lucide-list-ordered
     ],
   })
   ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
+
+  export default defineConfig({
+    plugins: [
+      // Jobs go to Cloudflare Queues
+      vitehub({ preset: 'cloudflare', queue: true }),
+    ],
+  })
+  ```
+  ::::
   :::
 ::
 

@@ -51,6 +51,34 @@ icon: i-lucide-terminal-square
   })
   ```
 
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  // The Vercel preset uses Vercel Sandbox.
+  // Use preset 'cloudflare' for Cloudflare Sandbox.
+
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: { preset: 'vercel', sandboxTask: true },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { nitro } from 'nitro/vite'
+  import { vitehub } from 'vite-hub'
+
+  // The Vercel preset uses Vercel Sandbox.
+  // Use preset 'cloudflare' for Cloudflare Sandbox.
+  export default defineConfig({
+    plugins: [
+      vitehub({ preset: 'vercel', sandboxTask: true }),
+      nitro(),
+    ],
+  })
+  ```
+  ::::
+  ::::framework{name="Vite"}
   ```ts [vite.config.ts]
   import { defineConfig } from 'vite'
   import { vitehub } from 'vite-hub'
@@ -63,6 +91,7 @@ icon: i-lucide-terminal-square
     ],
   })
   ```
+  ::::
   :::
 ::
 
