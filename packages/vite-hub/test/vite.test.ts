@@ -652,7 +652,7 @@ describe("vitehub", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const implicit = dependencyPluginByName(
-        vitehub({ agent: true, console: { auth: false, authorize: hostManagedAuthorize }, preset: "netlify" }),
+        vitehub({ agent: { invocations: false }, console: { auth: false, authorize: hostManagedAuthorize }, preset: "netlify" }),
         "vite-hub/console",
       )
       const implicitConfig: { nitro?: { handlers?: Array<{ route?: string }> }; root: string } = { root }
@@ -668,7 +668,7 @@ describe("vitehub", () => {
 
       const explicit = dependencyPluginByName(
         vitehub({
-          agent: true,
+          agent: { invocations: false },
           console: { auth: false, authorize: hostManagedAuthorize },
           preset: "netlify",
           workflow: { provider: "vercel" },
@@ -995,10 +995,10 @@ describe("vitehub", () => {
     // Agents run on Workflow.
     [{ agent: true }, ["agent", "workflow"]],
     [{ agent: true, workflow: false }, ["agent"]],
-    [{ preset: "netlify", agent: true }, ["agent"]],
-    [{ preset: "netlify", agent: true, workflow: false }, ["agent"]],
-    [{ preset: "netlify", agent: true, workflow: true }, ["agent", "workflow"]],
-    [{ preset: "netlify", agent: true, workflow: {} }, ["agent", "workflow"]],
+    [{ preset: "netlify", agent: { invocations: false } }, ["agent"]],
+    [{ preset: "netlify", agent: { invocations: false }, workflow: false }, ["agent"]],
+    [{ preset: "netlify", agent: { invocations: false }, workflow: true }, ["agent", "workflow"]],
+    [{ preset: "netlify", agent: { invocations: false }, workflow: {} }, ["agent", "workflow"]],
   ] as const)("checks the owner packages of %j", (options, features) => {
     vitehub({ preset: "node", ...options } as ViteHubOptions)
     expect(assertFeaturePackages).toHaveBeenLastCalledWith(features)
@@ -1009,7 +1009,7 @@ describe("vitehub", () => {
       if (features.includes("workflow")) throw missingFeaturePackagesError(["workflow"])
     }, () => {
       const workflowCallsBefore = integrationMocks.hubWorkflow.mock.calls.length
-      expect(pluginNames(vitehub({ preset: "netlify", agent: true, workflow })))
+      expect(pluginNames(vitehub({ preset: "netlify", agent: { invocations: false }, workflow })))
         .not.toContain("@vite-hub/workflow/vite")
       expect(integrationMocks.hubWorkflow).toHaveBeenCalledTimes(workflowCallsBefore)
       expect(assertFeaturePackages).toHaveBeenLastCalledWith(["agent"])

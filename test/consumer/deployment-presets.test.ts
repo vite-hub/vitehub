@@ -22,7 +22,7 @@ function flattenPlugins(options: PluginOption[]): Plugin[] {
 }
 
 it("keeps implicit Workflow inert when Agent targets Netlify", () => {
-  const names = flattenPlugins(vitehub({ agent: true, preset: "netlify" }))
+  const names = flattenPlugins(vitehub({ agent: { invocations: false }, preset: "netlify" }))
     .map(plugin => plugin.name)
 
   expect(names).toContain("@vite-hub/agent/vite")
