@@ -21,7 +21,7 @@ export interface DocsIcons {
   /** Replacement per icon name. */
   aliases: Record<string, string>
   /**
-   * Icon prefix of the sidebar, such as `i-ph-`, or several prefixes, such as `["i-ph-", "i-vitehub-"]`. An icon outside
+   * Icon prefix of the sidebar, such as `i-lucide-`, or several prefixes, such as `["i-lucide-", "i-vitehub-"]`. An icon outside
    * them that `aliases` does not map shows the fallback icon, so the sidebar keeps one style. `""` or `[]` allows every icon.
    */
   family: string | string[]
@@ -29,6 +29,11 @@ export interface DocsIcons {
   page: string
   /** Icon of a section without one. */
   section: string
+  /**
+   * Stroke width of line icons that Iconify draws 2px wide, such as Lucide. The default `1.5` matches the ViteHub icon
+   * set. `false` keeps each icon as its set draws it.
+   */
+  stroke: number | false
 }
 
 /** One catalog row: the sections of one category, in rail order. */

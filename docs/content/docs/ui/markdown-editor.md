@@ -3,7 +3,7 @@ title: Markdown Editor
 description: "Edit Markdown with comark-ui's editor and Nuxt UI's menus. Pasted, dropped, and picked files upload to Blob with a placeholder that shows the percentage."
 navigation.order: 36
 navigation.group: Collaboration
-icon: i-ph-note-pencil
+icon: i-lucide-notebook-pen
 ---
 
 `MarkdownEditor` edits Markdown with [comark-ui's editor](https://comark-ui.onmax.me/guide/editor/): Comark syntax stays intact on save, and a document the editor can't save unchanged opens read-only. Nuxt UI's bubble toolbar, "/" menu, and drag handle sit on top. The text takes the same typeset as [Markdown](/docs/ui/markdown), so editing looks like reading.
