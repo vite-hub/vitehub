@@ -709,7 +709,7 @@ function createServerEnvInspectionTypes(indent: number): string[] {
     `${prefix}export interface ServerEnvDescriptionEntry { path?: string; canonicalName?: string; source: "env" | "literal" | "provider"; provider?: string; secret: boolean; required: boolean; hasDefault: boolean; type?: string }`,
     `${prefix}export interface ServerEnvDescription { entries: readonly ServerEnvDescriptionEntry[] }`,
     `${prefix}export function describeServerEnv(): ServerEnvDescription`,
-    `${prefix}export function manageServerEnv(request: Request): Promise<Response>`,
+    `${prefix}export function manageServerEnv(request: Request, options?: { allowedOrigin?: string }): Promise<Response>`,
     `${prefix}export interface ServerEnvInspectionEntry {`,
     `${prefix}  masked: boolean`,
     `${prefix}  path?: string`,
