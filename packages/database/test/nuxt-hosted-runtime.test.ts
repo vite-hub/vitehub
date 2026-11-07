@@ -21,7 +21,9 @@ describe("Nuxt hosted Database module preparation", () => {
     const hooks: Array<(config: Record<string, unknown>) => void | Promise<void>> = []
     try {
       await mkdir(dirname(definition), { recursive: true })
-      await writeFile(definition, `export default defineDatabase({ ${name === "default" ? "" : `name: ${JSON.stringify(name)},`} schema: {} })\n`)
+      // Cloudflare needs a D1 resource for each Definition. Without one, the Vite build removes the hosted runtime.
+      const cloudflare = provider === "cloudflare" ? `cloudflare: { databaseId: "db-id", databaseName: "db" },` : ""
+      await writeFile(definition, `export default defineDatabase({ ${name === "default" ? "" : `name: ${JSON.stringify(name)},`} ${cloudflare} schema: {} })\n`)
       await hubDb({ projectRoot: "service" })(undefined, {
         hook: (event: string, callback: (config: Record<string, unknown>) => void | Promise<void>) => {
           if (event === "nitro:config") hooks.push(callback)
