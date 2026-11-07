@@ -1,5 +1,5 @@
 import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withComments, withConnectionsDatabase, withDataDir, type ConsoleJournal } from "./storage-config.ts"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, realpathSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { findPackageJSON } from "node:module"
 import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
@@ -737,6 +737,17 @@ function withoutDeploymentOutput(options: readonly unknown[]): unknown[] {
 /** Vite config hooks can replace an explicit `noExternals` boolean with a package list. Keep the boolean. */
 function restoreNoExternals(config: Record<string, unknown>, incomingNoExternals: boolean | undefined): void {
   if (incomingNoExternals !== undefined) config.noExternals = incomingNoExternals
+}
+
+/**
+ * A workspace links ViteHub packages from their source folders, so their real paths do not contain `@vite-hub/`.
+ * Nitro loads such a package from Node, which cannot read the generated aliases.
+ */
+function linkedViteHubPackageRoots(projectRoot: string): string[] {
+  const nodeModules = join(projectRoot, "node_modules")
+  const scope = join(nodeModules, "@vite-hub")
+  const links = [join(nodeModules, "vite-hub"), ...(existsSync(scope) ? readdirSync(scope).map(name => join(scope, name)) : [])]
+  return links.filter(existsSync).map(link => realpathSync(link)).filter(root => !root.split(sep).includes("node_modules"))
 }
 
 /** Add packages that Nitro must bundle, unless Nitro already bundles every package. */
@@ -1565,7 +1576,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
     // Facade exports, owner runtimes, and generated `.vitehub` modules must resolve generated aliases and virtual modules
     // inside Nitro. Node, which loads external modules, cannot read those aliases.
-    addNoExternals(config, ["vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot])
+    addNoExternals(config, ["vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot, ...linkedViteHubPackageRoots(projectRoot)])
     if (incomingNoExternals === false && Array.isArray(config.noExternals)) nitro3ExternalLists.set(config, config.noExternals)
     else nitro3ExternalLists.delete(config)
     installNitroRuntimeResolvers(config, replayPlugins)
