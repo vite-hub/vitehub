@@ -220,17 +220,27 @@ The first pull writes `vitehub.lock`: commit it. Pull merges text by line and wr
 Git conflict markers where both sides changed the same lines; push refuses until they
 are gone. The commands call the `workspace.changes` and `workspace.commit` operations.
 A push keeps the media type and metadata of the files that it replaces, and records
-the signed-in user as `author` of the revision. Unknown flags fail before any call, so
-`vitehub push --dry-run` commits nothing. A push that writes a file that someone else
-holds an edit lease on, such as a Content document open in the Console, fails and
-saves nothing; the error names who edits which documents. `vitehub push --override-lease`
-writes anyway and records `lease: "override"` in the revision metadata. An Agent or an
-MCP client can pass `lease: "override"` to `workspace.commit` only with
-`operations({ overrideLeases: true })`.
+the signed-in user as `author` of the revision. When a Store starts a new ref from
+another ref, the first push also pulls the files of that ref. Unknown flags fail
+before any call, so `vitehub push --dry-run` commits nothing. A push that writes a file
+that someone else holds an edit lease on, such as a Content document open in the
+Console, fails and saves nothing; the error names who edits which documents.
+`vitehub push --override-lease` writes anyway and records `lease: "override"` in the
+revision metadata. An Agent or an MCP client can pass `lease: "override"` to
+`workspace.commit` only with `operations({ overrideLeases: true })`.
 Checkout folders must be separate: they cannot share a folder or contain one another.
 On Windows and macOS, folder names that differ only in case are one folder.
 Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components, in any letter
-case, are excluded from pulls, status, and pushes; their remote files stay unchanged.
+case and with any trailing dots or spaces, are excluded from pulls, status, and pushes;
+their remote files stay unchanged.
+One push is one `workspace.commit` call of at most 4 MiB, which fits the request body
+limit of every host (Vercel Functions: 4.5 MB). A larger push fails with
+`WORKSPACE_CHECKOUT_TOO_LARGE` before the call and names the largest files. A pull reads
+all changes in one response; on Vercel, keep it below 4.5 MB.
+Pulls replace files through a rename, so a hard link to an old file keeps its content. A file that ends in `.vitehub-tmp` is the leftover of a stopped write and is never pulled or pushed.
+A symbolic link at `vitehub.lock` fails. Commands in one project can run at the same time:
+each one rewrites only its own Workspace entries of `vitehub.lock`, under a short
+`vitehub.lock.lock` file.
 Commands reject existing symbolic links in the checkout folder and its ancestors
 inside the project. These checks do not isolate files from another process that can
 replace paths during an operation. Use an OS or container boundary for that isolation.
