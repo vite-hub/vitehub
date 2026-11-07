@@ -12,7 +12,7 @@ import { confirmSetupChange, flattenOptions, mergeValue, planSetupAdd, readAddAr
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { consolePendingIdPattern, formatSetupLinkFile, gitignoreWithViteHub, readSetupConsoleLink, readSetupLink, SETUP_LINK_FILE } from "./link.ts"
 import { detectPackageManager, readSetupProject } from "./project.ts"
-import { installArgs, installCommand } from "./status.ts"
+import { installArgs, installCommand, setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { JsonValue } from "@vite-hub/internal/config-edit"
@@ -360,6 +360,11 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
     configFile = framework === "vite" ? "vite.config.ts" : "nuxt.config.ts"
   }
   else {
+    const status = setupStatus(state.project, context.env)
+    // Init adopts an app; migrating an enabled stack requires reviewing its providers and Definitions.
+    if (state.project.config?.ok && status.host.name !== args.host && status.features.some(feature => feature.id !== "env" && feature.enabled !== "off")) {
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_INIT_HOST_MIGRATION({ host: args.host }), setupExitCodes.conflict)
+    }
     const config = adoptConfig(state.project, args.host, framework)
     base.set(config.file, config)
     configFile = config.file
@@ -514,6 +519,14 @@ async function scaffoldNuxt(planned: InitPlanned, context: ViteHubCliContext): P
   const result = await context.spawn(command, commandArgs, { cwd: dirname(planned.plan.root), env: context.env, stdout: "stderr" })
   if (result.exitCode !== 0) {
     throw new SetupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [command, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal, filesWritten: "possible" }), setupExitCodes.error)
+  }
+  const manifest: JsonValue = JSON.parse(await readFile(join(planned.plan.root, "package.json"), "utf8"))
+  const dependencies = isRecord(manifest) && isRecord(manifest.dependencies) ? manifest.dependencies : {}
+  const devDependencies = isRecord(manifest) && isRecord(manifest.devDependencies) ? manifest.devDependencies : {}
+  const nuxt = dependencies.nuxt ?? devDependencies.nuxt
+  // Tags and broad ranges cannot prove that the scaffold uses the supported Nuxt major.
+  if (typeof nuxt !== "string" || !/^(?:npm:nuxt(?:-nightly)?@)?[~^]?5\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/u.test(nuxt)) {
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_INIT_NUXT_VERSION({ dir: planned.plan.root }), setupExitCodes.conflict)
   }
 }
 

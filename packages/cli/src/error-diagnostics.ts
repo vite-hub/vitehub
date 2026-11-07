@@ -107,6 +107,16 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: ({ found }: { dir?: unknown, found?: unknown, framework?: unknown }) => `Pass --framework ${String(found)}, or choose another folder.`,
       why: ({ dir, found, framework }: { dir?: unknown, found?: unknown, framework?: unknown }) => `${String(dir)} holds a ${String(found)} app, not a ${String(framework)} app.`,
     },
+    SETUP_INIT_HOST_MIGRATION: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_init_host_migration",
+      fix: "Use the app's current host, or migrate its enabled features, providers and Definitions in the config before running init again.",
+      why: ({ host }: { host?: unknown }) => `init cannot change an enabled ViteHub stack to the ${String(host)} preset.`,
+    },
+    SETUP_INIT_NUXT_VERSION: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_init_nuxt_version",
+      fix: ({ dir }: { dir?: unknown }) => `The scaffold files remain in ${String(dir)}. Set nuxt to a Nuxt 5 version, then run init on that folder again.`,
+      why: () => "The scaffold does not declare a known Nuxt 5 version. ViteHub did not adopt it.",
+    },
     SETUP_CONSOLE_INVALID: {
       docs: "https://vitehub.dev/docs/development/cli#setup_console_invalid",
       fix: "Copy the command from the Console \"New project\" page again. Never pass the Console token itself.",

@@ -168,11 +168,11 @@ pnpm dlx vite-hub init my-app --host vercel --features email --option email.driv
 ```
 
 - `<dir>`: the app folder. A new or empty folder gets the app from [Installation](/docs/getting-started/installation): `package.json`, `vite.config.ts` with `vitehub({ preset })`, `tsconfig.json`, `server/api/health.get.ts`, and a `.gitignore`. A folder with a Vite or Nuxt app keeps its files; `init` registers `vitehub()` or the Nuxt module in the config. Any other folder that is not empty exits with `3`.
-- `--host`: `cloudflare`, `vercel`, `netlify`, `deno`, or `node`. It becomes `preset`.
+- `--host`: `cloudflare`, `vercel`, `netlify`, `deno`, or `node`. It becomes `preset`. An existing ViteHub stack with enabled features keeps its host; migrate its providers and Definitions by hand before changing the host.
 - `--features`: feature ids separated by commas, as `vitehub catalog` lists them. `init` plans them in one step with `vitehub add`, so a feature that the host does not support exits with `3` before any file is written.
 - `--option feature.key=value`: an option of a feature, such as `email.driver=resend`. Repeat it for more options.
 - `--console <pendingId>:sha256:<hex>`: the pending link from the Console. `init` stores the id and the hash in `.vitehub/link.json`, which is gitignored. The Console keeps the token, and the CLI never receives it.
-- `--framework vite|nuxt`: the default is `vite`. For `nuxt`, `init` runs the pinned `nuxi init` with the minimal template, then adds the `vite-hub/nuxt` module.
+- `--framework vite|nuxt`: the default is `vite`. For `nuxt`, `init` runs the pinned `nuxi init` with the minimal template, checks that it declares a Nuxt 5 version, then adds the `vite-hub/nuxt` module. A tag or an unsupported version stops adoption and leaves the scaffold files for manual setup.
 - `--pm pnpm|npm|yarn|bun`: the package manager. The default is the one that the folder uses, else the one that runs the command, else pnpm.
 - `--no-install` skips the install. `nextSteps` gives the install command. `--dry-run` prints the plan and writes nothing.
 - `--yes` applies the plan. Without a terminal, a missing input fails and names the flag, for example `Pass --host (cloudflare, vercel, netlify, deno, node) when running without an interactive terminal.` The command exits with `2` and gives `missing` and `rerun`.
@@ -186,6 +186,14 @@ The folder has files but no Vite or Nuxt app, so `init` cannot create or adopt a
 ### `SETUP_INIT_FRAMEWORK_MISMATCH`
 
 `--framework` names another framework than the app in the folder uses. Pass the framework of the app, or choose another folder. The command exits with `3`.
+
+### `SETUP_INIT_HOST_MIGRATION`
+
+`init` cannot change the host of an existing ViteHub stack with enabled features. Use its current host, or review and migrate the feature options, providers and Definitions in the config first. The command exits with `3` before installing packages or writing files.
+
+### `SETUP_INIT_NUXT_VERSION`
+
+The Nuxt scaffold does not declare a known Nuxt 5 version. ViteHub stops before adoption and package installation. The scaffold files remain; set `nuxt` to a Nuxt 5 version and run `init` on the folder again. The command exits with `3`.
 
 ### `SETUP_CONSOLE_INVALID`
 
