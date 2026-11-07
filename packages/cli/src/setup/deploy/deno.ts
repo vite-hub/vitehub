@@ -66,9 +66,9 @@ function safeJson(text: string): unknown {
   }
 }
 
-/** The Deno Deploy organization: `DENO_DEPLOY_ORG`, else the account of a Deno link. */
+/** The Deno Deploy organization: the linked account, else `DENO_DEPLOY_ORG`. */
 export function denoOrganization(link: SetupLink | undefined, env: NodeJS.ProcessEnv): string {
-  const organization = env.DENO_DEPLOY_ORG?.trim() || (link?.host === "deno" ? link.account?.id : undefined)
+  const organization = (link?.host === "deno" ? link.account?.id : undefined) ?? env.DENO_DEPLOY_ORG?.trim()
   if (!organization) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_ORG_REQUIRED(), setupExitCodes.inputNeeded, { missing: [{ field: "DENO_DEPLOY_ORG" }] })
   return organization
 }

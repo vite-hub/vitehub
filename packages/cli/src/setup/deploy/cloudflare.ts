@@ -88,7 +88,7 @@ export async function cloudflareAdapter(context: DeployContext): Promise<DeployA
   const command = await readWranglerCommand(context.outputDir)
   const wrangler = hostCli("wrangler", "wrangler", context.root, context.env)
   const linked = !context.temporary && context.link?.host === "cloudflare" ? context.link : undefined
-  const accountId = (context.credentials.ok ? context.credentials.accountId : undefined) ?? linked?.account?.id
+  const accountId = linked?.account?.id ?? (context.credentials.ok ? context.credentials.accountId : undefined)
   const target = linked ? ["--name", linked.project.name] : []
   const env: NodeJS.ProcessEnv = {
     ...context.env,
@@ -227,17 +227,19 @@ async function optional<T>(request: Promise<T>): Promise<T | undefined> {
  *   `wrangler deployments list`. https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/list/
  * - `GET .../versions?deployable=true`: the versions, with the `workers/message` annotation. A version in no
  *   deployment is a preview (`wrangler versions upload`). https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/
- * - `GET /accounts/{account_id}/workers/subdomain`: the `workers.dev` URL. https://developers.cloudflare.com/api/resources/workers/subresources/subdomains/methods/get/
+ * - `GET /accounts/{account_id}/workers/subdomain`: the account's `workers.dev` suffix. https://developers.cloudflare.com/api/resources/workers/subresources/subdomains/methods/get/
+ * - `GET .../scripts/{script_name}/subdomain`: whether production and preview `workers.dev` URLs are enabled. https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/subdomain/methods/get/
  */
 export const listCloudflareDeployments: ListDeployments = async (context, { limit, includeLive }) => {
-  const accountId = context.credentials.accountId ?? context.link.account?.id
+  const accountId = context.link.account?.id ?? context.credentials.accountId
   if (!accountId) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOYMENTS_ACCOUNT_REQUIRED({ host: "cloudflare" }), setupExitCodes.inputNeeded, { missing: [{ field: "CLOUDFLARE_ACCOUNT_ID" }], rerun: "vitehub link --host cloudflare --account <id>" })
   const client = createCloudflareProvisionClient({ accountId, token: context.credentials.token }, context.fetch)
   const script = `/workers/scripts/${encodeURIComponent(context.link.project.name)}`
-  const [deployments, versions, subdomain] = await Promise.all([
+  const [deployments, versions, subdomain, settings] = await Promise.all([
     client(`${script}/deployments`, { parse: parseDeployments, query: { per_page: String(limit) } }),
     client(`${script}/versions`, { parse: parseVersions, query: { deployable: "true", per_page: String(Math.max(limit, 10)) } }),
     optional(client("/workers/subdomain", { parse: value => isRecord(value) ? optionalString(value.subdomain) : undefined })),
+    optional(client(`${script}/subdomain`, { parse: value => isRecord(value) ? { enabled: value.enabled === true, previewsEnabled: value.previews_enabled === true } : undefined })),
   ])
   const byId = new Map((versions.result ?? []).map(version => [version.id, version]))
   const listed = (deployments.result ?? []).slice(0, limit)
@@ -249,11 +251,12 @@ export const listCloudflareDeployments: ListDeployments = async (context, { limi
 
   const name = context.link.project.name
   const host = subdomain?.result ? `${subdomain.result}.workers.dev` : undefined
-  const previewUrl = (version: CloudflareVersion | undefined) => host && version?.hasPreview ? `https://${version.id.slice(0, 8)}-${name}.${host}` : undefined
+  const productionUrl = host && settings?.result?.enabled ? `https://${name}.${host}` : undefined
+  const previewUrl = (version: CloudflareVersion | undefined) => host && settings?.result?.previewsEnabled && version?.hasPreview ? `https://${version.id.slice(0, 8)}-${name}.${host}` : undefined
   const deployed = new Set(listed.flatMap(item => item.versionIds))
   const result: HostDeployment[] = listed.map((item, index) => {
     const version = item.versionId ? byId.get(item.versionId) : undefined
-    const url = index === 0 && host ? `https://${name}.${host}` : previewUrl(version)
+    const url = index === 0 ? productionUrl : previewUrl(version)
     return {
       createdAt: item.createdAt,
       id: item.id,

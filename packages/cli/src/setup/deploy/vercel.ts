@@ -35,7 +35,7 @@ async function readClaim(root: string): Promise<DeployResult["claim"]> {
 // test/fixtures/host-cli-help/. The CLI reads VERCEL_TOKEN from the environment, so no token goes in argv.
 export function vercelAdapter(context: DeployContext): DeployAdapter {
   const vercel = hostCli("vercel", "vercel", context.root, context.env)
-  const team = context.credentials.ok ? context.credentials.teamId ?? (context.link?.host === "vercel" ? context.link.account?.id : undefined) : undefined
+  const team = (context.link?.host === "vercel" ? context.link.account?.id : undefined) ?? (context.credentials.ok ? context.credentials.teamId : undefined)
   const project = context.link?.host === "vercel" ? context.link.project.id ?? context.projectName : context.projectName
   const target = context.temporary ? [] : ["--project", project, ...(team ? ["--scope", team] : [])]
   const environment = context.preview ? "preview" : "production"
@@ -138,7 +138,7 @@ function parseVercelDeployments(value: unknown, production: string | undefined):
 export const listVercelDeployments: ListDeployments = async (context, { limit, includeLive }) => {
   const linked = context.link.account?.id
   // `vitehub link` stores the project owner, which is a user id on a personal account. Only a team id goes in `teamId`.
-  const teamId = context.credentials.teamId ?? (linked?.startsWith("team_") ? linked : undefined)
+  const teamId = linked ? (linked.startsWith("team_") ? linked : undefined) : context.credentials.teamId
   const client = createVercelProvisionClient({ teamId, token: context.credentials.token }, context.fetch)
   const project = context.link.project.id ?? context.link.project.name
   const [details, list] = await Promise.all([

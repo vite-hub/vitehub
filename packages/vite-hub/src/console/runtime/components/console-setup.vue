@@ -64,7 +64,11 @@ const groups = computed(() => {
 const selected = computed(() => catalog.value.find(feature => feature.id === selectedId.value));
 const selectedState = computed<SetupFeatureState | undefined>(() => selectedId.value ? states.value.get(selectedId.value) : undefined);
 const selectedSupport = computed(() => selected.value ? support(selected.value) : undefined);
-const action = computed<"add" | "remove">(() => selectedState.value?.enabled === "on" ? "remove" : "add");
+const action = computed<"add" | "remove">(() => {
+  const state = selectedState.value;
+  // An unsupported feature can only be removed on this host; other incomplete features can be repaired.
+  return state?.enabled === "on" && (state.support.level === "unsupported" || (!state.fix && !state.missingPackages.length)) ? "remove" : "add";
+});
 
 /** Option fields: the host option of an `explicit` feature, and every field that the last plan said is missing. */
 const fields = computed<SetupMissing[]>(() => {

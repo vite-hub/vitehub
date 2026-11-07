@@ -195,12 +195,12 @@ describe("vitehub deploy on Vercel", () => {
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [HASH, ...tokens])
   })
 
-  it("adds the secret before the only deploy when the link is verified, and marks the commit with --meta", async () => {
+  it.each([{}, { VERCEL_TEAM_ID: "other-team" }, { VERCEL_ORG_ID: "other-team" }])("uses the verified linked project and team for secrets and deploy, with credential metadata %j", async (teamEnv) => {
     const root = await builtProject("vercel", {
       ".vitehub/link.json": JSON.stringify({ account: { id: "team_1" }, console: { pendingId: PENDING_ID, tokenSha256: HASH }, host: "vercel", linkedAt: "", project: { id: "prj_1", name: "shop" }, schemaVersion: 1, verified: true }),
     })
     const sha = "0123456789abcdef0123456789abcdef01234567"
-    const hosts = await fakeHosts({ VERCEL_TOKEN: "vercel-token-1" })
+    const hosts = await fakeHosts({ VERCEL_TOKEN: "vercel-token-1", ...teamEnv })
     // A fake git on PATH answers for the repository.
     await writeFile(join(hosts.env.PATH!.split(":")[0]!, "git"), `#!/bin/sh\n[ "$1" = rev-parse ] && echo ${sha}\nexit 0\n`, { mode: 0o755 })
     const result = await deploy(["--no-build", "--yes"], root, hosts.env)
@@ -208,7 +208,11 @@ describe("vitehub deploy on Vercel", () => {
     expect(result.exitCode, result.stderr).toBe(0)
     const calls = await hosts.calls()
     expect(calls.map(call => call.argv.slice(0, 2))).toEqual([["env", "add"], ["env", "ls"], ["deploy", "--prebuilt"]])
+    for (const call of calls) {
+      expect(call.argv.slice(call.argv.indexOf("--scope"), call.argv.indexOf("--scope") + 2)).toEqual(["--scope", "team_1"])
+    }
     expect(calls[2]!.argv).toEqual(["deploy", "--prebuilt", "--yes", "--json", "--prod", "--project", "prj_1", "--scope", "team_1", "--create-if-missing", "--meta", `vitehubCommit=${sha}`, "--meta", "vitehubDirty=false"])
+    expectNoLeak(calls, result.stdout + result.stderr, [HASH, ...tokens])
   })
 
   it("deploys with --temporary and puts the hash into the function config, not argv", async () => {
@@ -267,6 +271,23 @@ function netlifyApi(): { fetch: typeof fetch, requests: NetlifyRequest[] } {
 }
 
 describe("vitehub deploy on Netlify", () => {
+  it("uses the deploy-preview context that receives the Console hash", async () => {
+    const root = await builtProject("netlify", consoleLink())
+    const hosts = await fakeHosts(netlifyEnv)
+    const api = netlifyApi()
+    const result = await deploy(["--no-build", "--yes", "--preview"], root, hosts.env, { fetch: api.fetch })
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    expect((await hosts.calls()).map(call => call.argv)).toEqual([
+      ["deploy", "--no-build", "--dir", "dist", "--json", "--context", "deploy-preview", "--site-name", "my-app"],
+      ["deploy", "--no-build", "--dir", "dist", "--json", "--context", "deploy-preview", "--site", "site-1"],
+    ])
+    expect(api.requests[2]!.body).toEqual([{ is_secret: true, key: "VITEHUB_CONSOLE_TOKEN_SHA256", scopes: ["functions"], values: [{ context: "production", value: HASH }, { context: "deploy-preview", value: HASH }] }])
+    for (const request of api.requests) expect(request.url).not.toContain(HASH)
+    expect(result.json).toMatchObject({ console: { linkUrl: linkUrl("https://deploy--my-app.netlify.app"), secret: "set" }, url: "https://deploy--my-app.netlify.app" })
+    expectNoLeak(await hosts.calls(), result.stdout + result.stderr, [HASH, ...tokens])
+  })
+
   it("deploys, sets the secret in a JSON request body, and deploys again to the site", async () => {
     const root = await builtProject("netlify", consoleLink())
     const hosts = await fakeHosts(netlifyEnv)
@@ -306,6 +327,23 @@ describe("vitehub deploy on Netlify", () => {
 })
 
 describe("vitehub deploy on Deno", () => {
+  it.each([undefined, "other-org"])("uses the linked organization and app when DENO_DEPLOY_ORG is %s", async (organization) => {
+    const root = await builtProject("deno", {
+      ".vitehub/link.json": JSON.stringify({ account: { id: "linked-org" }, console: { pendingId: PENDING_ID, tokenSha256: HASH }, host: "deno", linkedAt: "", project: { name: "linked-app" }, schemaVersion: 1, verified: true }),
+    })
+    const hosts = await fakeHosts({ DENO_DEPLOY_ORG: organization, DENO_DEPLOY_TOKEN: "deno-token-1" })
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env)
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    const calls = await hosts.calls()
+    expect(calls.some(call => call.argv.includes("load"))).toBe(true)
+    expect(calls.some(call => call.argv.includes("--prod"))).toBe(true)
+    for (const call of calls) {
+      expect(call.argv.slice(call.argv.indexOf("--org"), call.argv.indexOf("--org") + 4)).toEqual(["--org", "linked-org", "--app", "linked-app"])
+    }
+    expectNoLeak(calls, result.stdout + result.stderr, [HASH, ...tokens])
+  })
+
   it("creates the app, loads the secret from /dev/stdin, then deploys again", async () => {
     const root = await builtProject("deno", consoleLink())
     const hosts = await fakeHosts(denoEnv)
@@ -387,11 +425,11 @@ describe("vitehub deploy", () => {
     expectNoLeak(await hosts.calls(), result.stdout + result.stderr, tokens)
   })
 
-  it("uses the linked Cloudflare account and Worker for secrets, deploys and previews", async () => {
+  it.each([undefined, "other-account"])("uses the linked Cloudflare account and Worker when the credential account is %s", async (accountId) => {
     const root = await builtProject("cloudflare", {
       ".vitehub/link.json": JSON.stringify({ account: { id: "linked-account" }, console: { pendingId: PENDING_ID, tokenSha256: HASH }, host: "cloudflare", project: { name: "linked-worker" }, schemaVersion: 1, verified: true, linkedAt: "" }),
     })
-    const hosts = await fakeHosts({ CLOUDFLARE_API_TOKEN: cloudflareEnv.CLOUDFLARE_API_TOKEN })
+    const hosts = await fakeHosts({ CLOUDFLARE_API_TOKEN: cloudflareEnv.CLOUDFLARE_API_TOKEN, ...(accountId ? { CLOUDFLARE_ACCOUNT_ID: accountId } : {}) })
     for (const flags of [[], ["--preview"]]) {
       const result = await deploy(["--no-build", "--yes", ...flags], root, hosts.env)
       expect(result.exitCode, result.stdout + result.stderr).toBe(0)

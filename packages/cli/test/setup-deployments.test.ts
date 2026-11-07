@@ -55,6 +55,7 @@ function cloudflareRoutes(edit?: (text: string) => string): Record<string, Route
     [`GET ${cloudflareScript}/versions`]: { fixture: "cloudflare-versions.json", ...(edit ? { edit } : {}) },
     [`GET ${cloudflareScript}/versions/18f97339-c287-4872-9bdd-e2135c07ec12`]: { fixture: "cloudflare-version.json" },
     [`GET https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/workers/subdomain`]: { fixture: "cloudflare-subdomain.json" },
+    [`GET ${cloudflareScript}/subdomain`]: { fixture: "cloudflare-script-subdomain.json" },
   }
 }
 
@@ -129,6 +130,57 @@ function liveCommit(sha: string): (text: string) => string {
 }
 
 describe("vitehub deployments", () => {
+  it.each(["deployments", "status"])("uses the linked Cloudflare account for %s when the environment names another account", async (command) => {
+    const root = await createProject(projectFiles("cloudflare"))
+    const api = hostApi(cloudflareRoutes())
+
+    const result = await runSetup<SetupDeploymentsOutput & SetupLiveStatus>([command, "--json"], root, { ...credentials.cloudflare, CLOUDFLARE_ACCOUNT_ID: "other-account" }, { fetch: api.fetch })
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    if (command === "status") expect(result.json?.live).toMatchObject({ commit: { sha: LIVE_SHA }, url: "https://my-app.example.workers.dev" })
+    else expect(result.json?.deployments.some(item => item.live)).toBe(true)
+    expect(api.requests.length).toBeGreaterThan(0)
+    expect(api.requests.every(request => new URL(request.url).pathname.startsWith(`/client/v4/accounts/${ACCOUNT}/`))).toBe(true)
+  })
+
+  it.each([
+    { enabled: false, previews_enabled: false },
+    { enabled: true, previews_enabled: false },
+    { enabled: false, previews_enabled: true },
+  ])("respects Cloudflare Worker subdomain settings %j", async (settings) => {
+    const root = await createProject(projectFiles("cloudflare"))
+    const routes = {
+      ...cloudflareRoutes(),
+      [`GET ${cloudflareScript}/subdomain`]: { edit: () => JSON.stringify({ result: settings, success: true }), fixture: "cloudflare-script-subdomain.json" },
+    }
+    const api = hostApi(routes)
+    const listed = await runSetup<SetupDeploymentsOutput>(["deployments", "--json"], root, credentials.cloudflare, { fetch: api.fetch })
+    const status = await runSetup<SetupLiveStatus>(["status", "--json"], root, credentials.cloudflare, { fetch: api.fetch })
+
+    expect(listed.exitCode, listed.stderr).toBe(0)
+    const liveUrl = settings.enabled ? "https://my-app.example.workers.dev" : undefined
+    expect(listed.json?.deployments.find(item => item.live)?.url).toBe(liveUrl)
+    expect(listed.json?.deployments.find(item => item.target === "preview")?.url).toBe(settings.previews_enabled ? "https://6a5b4c3d-my-app.example.workers.dev" : undefined)
+    expect(status.exitCode, status.stderr).toBe(0)
+    expect(status.json?.liveReason).toBeNull()
+    expect(status.json?.live?.deploymentId).toBe("182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e")
+    expect(status.json?.live?.url).toBe(liveUrl)
+  })
+
+  it("omits Cloudflare workers.dev URLs when Worker subdomain settings cannot be read", async () => {
+    const root = await createProject(projectFiles("cloudflare"))
+    const api = hostApi({
+      ...cloudflareRoutes(),
+      [`GET ${cloudflareScript}/subdomain`]: { fixture: "cloudflare-not-found.json", status: 403 },
+    })
+
+    const result = await runSetup<SetupDeploymentsOutput>(["deployments", "--json"], root, credentials.cloudflare, { fetch: api.fetch })
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.json?.deployments).toHaveLength(3)
+    expect(result.json?.deployments.every(item => item.url === undefined)).toBe(true)
+  })
+
   it("lists Cloudflare deployments and previews from the Workers API, newest first", async () => {
     const root = await createProject(projectFiles("cloudflare"))
     const api = hostApi(cloudflareRoutes())
@@ -203,6 +255,21 @@ describe("vitehub deployments", () => {
 
     expect(exitCode).toBe(0)
     expect(json.deployments.map(item => item.id)).toEqual(deployments.map(item => item.id))
+  })
+
+  it.each([links.vercel.account.id, "user_personal"])("keeps Vercel listing scoped to linked owner %s when the environment names another team", async (owner) => {
+    const root = await createProject({
+      ...projectFiles("vercel"),
+      ".vitehub/link.json": JSON.stringify({ ...links.vercel, account: { id: owner } }),
+    })
+    const api = hostApi(vercelRoutes)
+
+    const result = await runSetup<SetupDeploymentsOutput>(["deployments", "--json"], root, { ...credentials.vercel, VERCEL_TEAM_ID: "team_other" }, { fetch: api.fetch })
+
+    expect(result.exitCode, result.stderr).toBe(0)
+    expect(result.json.deployments.some(item => item.live)).toBe(true)
+    expect(api.requests.length).toBeGreaterThan(0)
+    for (const request of api.requests) expect(new URL(request.url).searchParams.get("teamId")).toBe(owner.startsWith("team_") ? owner : null)
   })
 
   it("lists Vercel deployments and marks the production target as live", async () => {
