@@ -162,6 +162,7 @@ function onTreeKeydown(event: KeyboardEvent) {
 
 /* Inactive files stay mounted but hidden, so switching files does not move the page. */
 .vh-files-code {
+  position: relative;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -186,7 +187,7 @@ function onTreeKeydown(event: KeyboardEvent) {
   align-items: center;
   margin: 0;
   border-bottom: 1px solid var(--ui-border);
-  padding-inline: 0.75rem;
+  padding-inline: 0.75rem 4.5rem;
   color: var(--ui-text-dimmed);
   font-family: var(--font-mono);
   font-size: 0.75rem;
@@ -215,15 +216,31 @@ function onTreeKeydown(event: KeyboardEvent) {
   margin: 0;
 }
 
-/* The panel names the file and frames the code. `data-code-header` tells comark-ui's code block not to make room for its own bar, and the block drops its frame. */
+/*
+ * The panel names the file and frames the code, so comark-ui's code block drops its frame and its title.
+ * `data-code-header` stops it from making room for its bar, and the bar, with Wrap and Copy, moves to the end of the
+ * path row: the block is not positioned, so the bar is placed against the panel.
+ */
 .vh-files-body :deep(.ck) {
+  position: static;
   margin: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
 
-.vh-files-body :deep(.ck-bar) {
+.vh-files-body :deep(.ck > .ck-bar) {
+  top: 0;
+  right: 0;
+  bottom: auto;
+  left: auto;
+  width: max-content;
+  height: 2.75rem;
+  align-items: center;
+  padding: 0 0.5rem;
+}
+
+.vh-files-body :deep(.ck-title) {
   display: none;
 }
 </style>
