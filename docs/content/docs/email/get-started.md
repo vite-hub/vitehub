@@ -42,12 +42,13 @@ export default defineConfig({
       options: {
         apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),
       },
+      remote: true,
     },
   })],
 })
 ```
 
-The server reads the API key when it sends a message. Keep the key in the environment rather than placing its value in this config. Literal options are part of the build output.
+`remote: true` makes `vite dev` send real email through Resend. Without it, a dev send stays in the [development outbox](/docs/email/hosts#development-outbox) and Resend gets no request. Builds ignore `remote`. The server reads the API key when it sends a message. Keep the key in the environment rather than placing its value in this config. Literal options are part of the build output.
 
 ::
 
@@ -69,7 +70,7 @@ Use your deployment platform's secret store in production. Do not use a `VITE_` 
 ::tutorial-step{title="Send from server code"}
 ## Send from server code
 
-Replace both addresses with values accepted by Resend. The request performs a real delivery. In `vite dev`, the [development outbox](/docs/email/hosts#development-outbox) also records the message.
+Replace both addresses with values accepted by Resend. With `remote: true`, the request performs a real delivery. In `vite dev`, the [development outbox](/docs/email/hosts#development-outbox) also records the message.
 
 Replace the sender with a Resend-verified address and the recipient with an inbox you control. Each request to this route sends another message.
 
@@ -115,6 +116,6 @@ A successful response has this shape:
 }
 ```
 
-Resend supplies `id`. Confirm delivery in the recipient inbox or the provider's delivery log; an accepted message ID does not guarantee final inbox placement.
+Resend supplies `id`. The first send prints `[vitehub] Email is remote` in the server terminal. Confirm delivery in the recipient inbox or the provider's delivery log; an accepted message ID does not guarantee final inbox placement.
 
 ::

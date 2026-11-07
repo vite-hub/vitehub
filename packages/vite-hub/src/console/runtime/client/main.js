@@ -32,8 +32,8 @@ import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSection
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { consoleProjectReady, startConsoleProjects } from "./project-session";
-import { memoryProjectStorage } from "./projects";
+import { consoleProjectReady, noteConsoleProjectsVolatile, startConsoleProjects } from "./project-session";
+import { browserProjectStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
 // The hosted build marks its static page. There the Console opens the projects that this browser linked. Otherwise the
@@ -43,24 +43,14 @@ const hosted = document.querySelector('meta[name="vitehub-console-mode"]')?.getA
 const hostBase = hosted ? "" : consoleMountBase(window.location.pathname);
 const consoleBase = hosted ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
 
-function projectStorage() {
-  try {
-    const storage = window.localStorage;
-    storage.getItem("vitehub-console:projects");
-    return storage;
-  } catch {
-    // A browser that blocks storage keeps the projects for this tab only.
-    return memoryProjectStorage();
-  }
-}
-
 startConsoleProjects({
   base: hostBase,
   home: consoleBase,
   mode: hosted ? "hosted" : "embedded",
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
-  storage: projectStorage(),
+  // A browser that blocks or fills storage keeps the projects in memory until the page reloads.
+  storage: browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile),
 });
 const sectionsBase = "/api/_vitehub/console/sections";
 const capabilitiesBase = "/api/_vitehub/console/invocation-capabilities";
