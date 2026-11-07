@@ -9,12 +9,12 @@ const labels = computed(() => items.value.map((node, at) => String(node.props?.l
 const active = ref(0)
 const id = useId()
 const list = useTemplateRef<HTMLElement>("list")
-const line = ref<{ left: number, width: number } | null>(null)
+const line = ref<{ left: number, width: number, slide: boolean } | null>(null)
 
 // One line slides under the open tab. Its place is measured, because the labels differ in width.
-function place() {
+function place(slide = false) {
   const tab = list.value?.querySelectorAll<HTMLElement>("[role=tab]")[active.value]
-  if (tab) line.value = { left: tab.offsetLeft, width: tab.offsetWidth }
+  if (tab?.offsetWidth) line.value = { left: tab.offsetLeft, width: tab.offsetWidth, slide }
 }
 
 function select(at: number, focus = false) {
@@ -30,11 +30,15 @@ function onKeydown(event: KeyboardEvent) {
   select(keys[event.key]!, true)
 }
 
-watch(active, () => nextTick(place))
+// Tabs inside a hidden block measure zero, so the line is placed again, without sliding, whenever the row's size
+// changes: when the block opens or the font loads.
+let resizes: ResizeObserver | undefined
+watch(active, () => nextTick(() => place(true)))
 onMounted(() => {
-  place()
-  void document.fonts?.ready.then(place)
+  resizes = new ResizeObserver(() => place())
+  if (list.value) resizes.observe(list.value)
 })
+onBeforeUnmount(() => resizes?.disconnect())
 </script>
 
 <template>
@@ -54,7 +58,7 @@ onMounted(() => {
       >
         {{ label }}
       </button>
-      <span v-if="line" class="vh-examples-line" :style="{ transform: `translateX(${line.left}px)`, width: `${line.width}px` }" aria-hidden="true" />
+      <span v-if="line" class="vh-examples-line" :class="{ 'is-still': !line.slide }" :style="{ transform: `translateX(${line.left}px)`, width: `${line.width}px` }" aria-hidden="true" />
     </div>
     <div
       v-for="(item, at) in items"
@@ -142,6 +146,10 @@ onMounted(() => {
     position: static;
     margin-bottom: 0.5rem;
   }
+}
+
+.vh-examples-line.is-still {
+  transition: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

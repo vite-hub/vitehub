@@ -9,19 +9,23 @@ defineProps<{
 
 const view = ref<"preview" | "code">("preview")
 const seg = useTemplateRef<HTMLElement>("seg")
-const thumb = ref<{ left: number, width: number } | null>(null)
+const thumb = ref<{ left: number, width: number, slide: boolean } | null>(null)
 
 // The thumb slides under the pressed button. Its place is measured, because "Preview" and "Code" differ in width.
-function place() {
+function place(slide = false) {
   const button = seg.value?.querySelector<HTMLElement>(`[data-view="${view.value}"]`)
-  if (button) thumb.value = { left: button.offsetLeft, width: button.offsetWidth }
+  if (button?.offsetWidth) thumb.value = { left: button.offsetLeft, width: button.offsetWidth, slide }
 }
 
-watch(view, () => nextTick(place))
+// A switch in a hidden tab measures zero, so it's placed again, without sliding, whenever its size changes: when its
+// tab opens or the font loads.
+let resizes: ResizeObserver | undefined
+watch(view, () => nextTick(() => place(true)))
 onMounted(() => {
-  place()
-  void document.fonts?.ready.then(place)
+  resizes = new ResizeObserver(() => place())
+  if (seg.value) resizes.observe(seg.value)
 })
+onBeforeUnmount(() => resizes?.disconnect())
 </script>
 
 <template>
@@ -32,7 +36,7 @@ onMounted(() => {
         Playground
       </a>
       <div ref="seg" class="vh-seg" role="group" aria-label="View">
-        <span v-if="thumb" class="vh-seg-thumb" :style="{ transform: `translateX(${thumb.left - 3}px)`, width: `${thumb.width}px` }" aria-hidden="true" />
+        <span v-if="thumb" class="vh-seg-thumb" :class="{ 'is-still': !thumb.slide }" :style="{ transform: `translateX(${thumb.left - 3}px)`, width: `${thumb.width}px` }" aria-hidden="true" />
         <button type="button" data-view="preview" :aria-pressed="view === 'preview'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'preview'">Preview</button>
         <button type="button" data-view="code" :aria-pressed="view === 'code'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'code'">Code</button>
       </div>
@@ -130,6 +134,10 @@ onMounted(() => {
     min-height: 2.5rem;
     padding: 0.45rem 0.85rem;
   }
+}
+
+.vh-seg-thumb.is-still {
+  transition: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
