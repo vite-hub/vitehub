@@ -927,4 +927,20 @@ describe("agent messages and replies since resolved", () => {
     expect(wrapper.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2", "thread-3"]);
     expect(wrapper.find("[data-slot=comment-panel-group-header]").exists()).toBe(false);
   });
+
+  it("keeps a replied-to thread ungrouped when the app's grouper returns undefined", async () => {
+    const comments = client([
+      thread(1),
+      thread(2, { ...resolvedBy, messages: [message("m2"), message("m3", { createdAt: 3_000 })] }),
+    ]);
+    const group = (item: CommentThreadModel) => item.status === "open" ? "Current" : undefined;
+    const wrapper = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, group, subject: pricing } }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    await flushPromises();
+    const sections = wrapper.findAll("[data-slot=comment-panel-groups] > *");
+    expect(sections.map(section => section.attributes("data-slot"))).toEqual(["comment-panel-items", "comment-panel-group"]);
+    expect(sections[0]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
+    expect(wrapper.findAll("[data-slot=comment-panel-group-header]").map(header => header.text())).toEqual(["Current"]);
+    expect(sections[1]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-1"]);
+  });
 });

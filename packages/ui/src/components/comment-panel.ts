@@ -91,7 +91,7 @@ export const CommentPanel = defineComponent({
     can: { type: Function as PropType<CommentCan> },
     /**
      * Groups the rows under headings, in the order the groups first appear. Threads without a group come first. Without a
-     * group, a resolved thread that Open lists for a later reply goes under "Replied since resolved".
+     * group callback, a resolved thread that Open lists for a later reply goes under "Replied since resolved".
      */
     group: { type: Function as PropType<CommentGroup> },
   },
@@ -195,7 +195,9 @@ export const CommentPanel = defineComponent({
     const groups = computed(() => {
       const found: Array<{ label: string | undefined; threads: CommentThreadModel[] }> = [];
       for (const thread of rows.value) {
-        const label = props.group?.(thread) ?? (status.value === "open" && thread.status === "resolved" ? "Replied since resolved" : undefined);
+        const label = props.group
+          ? props.group(thread)
+          : status.value === "open" && thread.status === "resolved" ? "Replied since resolved" : undefined;
         let entry = found.find((group) => group.label === label);
         if (!entry) found.push((entry = { label, threads: [] }));
         entry.threads.push(thread);
