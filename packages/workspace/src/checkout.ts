@@ -3,6 +3,8 @@ import { constants } from "node:fs"
 import { lstat, mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, relative, resolve, sep } from "node:path"
 
+import { workspaceCommitRequestBytes } from "./results.ts"
+
 import type { WorkspaceChangedFile, WorkspaceChanges, WorkspaceCommitResult, WorkspaceHistoryContent, WorkspaceHistoryDetails } from "./results.ts"
 
 /** The lock file at the project root. Commit it: it records the remote revision that each checkout folder matches. */
@@ -687,14 +689,16 @@ async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, e
     const pushed = [...local.added, ...local.modified, ...local.deleted].sort()
     if (!pushed.length) return { workspace, ref: entry.ref, pushed, pull }
     const putFiles = Object.fromEntries([...local.added, ...local.modified].map(path => [path, encode(files.get(path)!)]))
-    const called = await context.call("workspace.commit", {
+    const input = {
       workspace,
       ref: entry.ref,
       ifHead: entry.head,
       ...(Object.keys(putFiles).length ? { put: putFiles } : {}),
       ...(local.deleted.length ? { delete: local.deleted } : {}),
       ...(message ? { message } : {}),
-    }, entry.remote)
+    }
+    assertCommitSize(workspace, input, putFiles)
+    const called = await context.call("workspace.commit", input, entry.remote)
     if (!called.ok) {
       if (called.code === "WORKSPACE_CONFLICT" && attempt < 3) continue
       throw new WorkspaceCheckoutError(called.code ?? "WORKSPACE_CHECKOUT_FAILED", called.message, called.fix)
@@ -712,6 +716,31 @@ async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, e
     else entry.head = revision.id
     return result
   }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1_024 * 1_024) return `${Number((bytes / 1_024 / 1_024).toFixed(1))} MiB`
+  if (bytes >= 1_024) return `${Number((bytes / 1_024).toFixed(1))} KiB`
+  return `${bytes} bytes`
+}
+
+/**
+ * A push is one revision, so it cannot be split into more calls. Fails before the call when the request body, as
+ * `callOperation()` sends it, is over the request limit of `workspace.commit`, and names the largest files.
+ */
+function assertCommitSize(workspace: string, input: object, putFiles: Record<string, { content: string }>): void {
+  const bytes = Buffer.byteLength(JSON.stringify({ operation: "workspace.commit", input }))
+  if (bytes <= workspaceCommitRequestBytes) return
+  const largest = Object.entries(putFiles)
+    .map(([path, file]) => ({ path, bytes: Buffer.byteLength(file.content) }))
+    .sort((left, right) => right.bytes - left.bytes)
+    .slice(0, 3)
+    .map(file => `${file.path} (${formatBytes(file.bytes)})`)
+  throw new WorkspaceCheckoutError(
+    "WORKSPACE_CHECKOUT_TOO_LARGE",
+    `The push of Workspace "${workspace}" is ${formatBytes(bytes)}, over the ${formatBytes(workspaceCommitRequestBytes)} limit of one push.${largest.length ? ` Largest files: ${largest.join(", ")}.` : ""}`,
+    "A push is one revision and sends each changed file whole, with binary files in base64. Keep large media in Blob, or add new files in smaller groups with a push after each group.",
+  )
 }
 
 interface WorkspaceStatusOptions {

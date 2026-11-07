@@ -18,6 +18,7 @@ import { workspaceCheckoutFeatures } from "../src/checkout-cli.ts"
 import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { useWorkspace } from "../src/index.ts"
 import { workspaceOperations } from "../src/operations.ts"
+import { workspaceCommitRequestBytes } from "../src/results.ts"
 
 import type { OperationUser } from "@vite-hub/internal/operations"
 import type { WorkspaceDefinition } from "../src/core/types.ts"
@@ -58,6 +59,10 @@ async function app(user: OperationUser | null = null) {
     expect(String(url)).toBe(`${remote}/_vitehub/rpc/__call`)
     const { input, operation } = JSON.parse(String(init!.body)) as { input: unknown, operation: string }
     calls.push(operation)
+    // The operation RPC rejects a body over the request limit of the operation, 64 KiB by default.
+    if (Buffer.byteLength(String(init!.body)) > (registry.get(operation)?.maxRequestBytes ?? 64 * 1_024)) {
+      return Response.json({ ok: false, code: "OPERATION_REQUEST_TOO_LARGE", message: "Operation request exceeds the byte limit.", status: 413 }, { status: 413 })
+    }
     const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user })
     return Response.json(result, { status: result.ok ? 200 : result.status ?? 500 })
   }
@@ -616,6 +621,32 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     deny = true
     expect((await local.run("pull")).code).toBe(1)
     expect(await local.lock()).toEqual(before)
+  })
+
+  it("pushes files up to the request limit of workspace.commit in one revision, and refuses a larger push before the call", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const local = await project(remoteApp.fetch, "push-size")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+
+    // The request also holds the operation name, the Workspace, the ref, the head, and the file path.
+    await local.write("large/under.txt", "x".repeat(workspaceCommitRequestBytes - 512))
+    expect(await local.run("push")).toMatchObject({ code: 0, stderr: "" })
+    expect((await remoteApp.read("large/under.txt")).length).toBe(workspaceCommitRequestBytes - 512)
+
+    const head = await remoteApp.history.head({ ref: "draft" })
+    const commits = remoteApp.calls.filter(call => call === "workspace.commit").length
+    await local.write("large/a.txt", "a".repeat(workspaceCommitRequestBytes / 2))
+    await local.write("large/b.txt", "b".repeat(workspaceCommitRequestBytes / 2 + 1_024))
+    await local.write("posts/small.md", post("Small", "Text."))
+    const refused = await local.run("push")
+
+    expect(refused.code).toBe(1)
+    expect(refused.stderr).toContain("WORKSPACE_CHECKOUT_TOO_LARGE")
+    expect(refused.stderr).toContain("4 MiB")
+    expect(refused.stderr).toMatch(/large\/b\.txt.*large\/a\.txt/s)
+    expect(remoteApp.calls.filter(call => call === "workspace.commit")).toHaveLength(commits)
+    expect((await remoteApp.history.head({ ref: "draft" }))!.id).toBe(head!.id)
   })
 
   it("replaces a pulled file instead of writing into a file that it shares through a hard link", async (context) => {
