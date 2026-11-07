@@ -105,8 +105,6 @@ Open a second terminal in the same folder, and start the schedule by hand:
 pnpm vitehub schedule run daily-report
 ```
 
-On Nuxt, add `--url http://localhost:3000`, with the port of your dev server.
-
 The command prints the result of the run:
 
 ```txt [output/run.txt]
