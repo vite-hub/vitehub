@@ -119,6 +119,17 @@ describe("Env management HTTP", () => {
     expect((await handler(new Request(`${origin}/_vitehub/env/manage`))).status).toBe(405)
   })
 
+  it("accepts only the origin that the server code allows, and still authenticates the request", async () => {
+    const { handler, authenticate } = setup(null)
+    const hosted = "https://console.vitehub.dev"
+    const input = () => request({ path, action: "inspect" }, { origin: hosted, authorization: "Bearer valid" })
+    expect((await handler(input(), { allowedOrigin: hosted })).status).toBe(401)
+    expect(authenticate).toHaveBeenCalledOnce()
+    expect((await handler(input(), { allowedOrigin: "https://other.example" })).status).toBe(403)
+    expect((await handler(input())).status).toBe(403)
+    expect(authenticate).toHaveBeenCalledOnce()
+  })
+
   it("passes bearer credentials to authentication without granting authority itself", async () => {
     const { handler, authenticate } = setup(null)
     const input = request({ path, action: "inspect" }, { authorization: "Bearer invalid" })

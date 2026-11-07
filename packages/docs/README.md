@@ -201,6 +201,10 @@ The build also checks cross-page fragments in the final HTML output. Routes excl
 
 `docs.linkChecker` accepts `excludeLinks` for intentionally unchecked URLs, `excludePages` for embedded documents, `ignoreFragments` for pages that use the hash as application state, and `redirect(url)` for application redirects. Lists accept exact public paths, globs such as `/blog/**`, or regular expressions; include `app.baseURL` when it is not `/`. The app's `linkChecker.excludeLinks` and `docs.linkChecker.excludeLinks` are combined. `linkChecker: false` disables both checks. For a standalone output check, use `checkDocsLinks({ dir, siteUrl, appBase?, excludeLinks?, excludePages?, ignoreFragments?, redirect?, isRuntimePath? })` from `@vite-hub/docs/server`; `isRuntimePath(pathname)` identifies server routes whose output files may be absent.
 
+The build also checks cross-page fragments in the final HTML output. Routes excluded by `routeRules` with `prerender: false` or `nitro.prerender.ignore`, including the enabled ViteHub Console, do not need output files: the server can answer them at request time. Files that do exist still have their fragments checked. More specific `prerender: true` rules remain checked.
+
+`docs.linkChecker` accepts `excludeLinks` for intentionally unchecked URLs, `excludePages` for embedded documents, `ignoreFragments` for pages that use the hash as application state, and `redirect(url)` for application redirects. Lists accept exact public paths, globs such as `/blog/**`, or regular expressions; include `app.baseURL` when it is not `/`. The app's `linkChecker.excludeLinks` and `docs.linkChecker.excludeLinks` are combined. `linkChecker: false` disables both checks. For a standalone output check, use `checkDocsLinks({ dir, siteUrl, appBase?, excludeLinks?, excludePages?, ignoreFragments?, redirect?, isRuntimePath? })` from `@vite-hub/docs/server`; `isRuntimePath(pathname)` identifies server routes whose output files may be absent.
+
 ## Agent resources
 
 Every page has a Markdown copy for coding agents. You get these routes with no setup:
