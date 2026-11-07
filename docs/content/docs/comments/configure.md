@@ -351,7 +351,7 @@ Stop comment writes while you migrate, including writes from older app instances
 
 **A ViteHub Database.** The migration must go in the migration history, so `vitehub db generate` does not try to change the old table itself:
 
-1. Run `vitehub db generate --custom --name comments_one_model`. It writes an empty SQL migration and the snapshot of the new tables.
+1. Run `vitehub db generate --custom --schema-snapshot --name comments_one_model`. It writes an empty SQL migration and the snapshot of the new tables. Without `--schema-snapshot`, the snapshot is a copy of the previous one, and the next `vitehub db generate` tries to move the tables again.
 2. Print the SQL and put it in that file, one statement before each `--> statement-breakpoint`:
 
 ```bash
