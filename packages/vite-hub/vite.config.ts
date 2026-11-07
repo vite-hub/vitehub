@@ -251,6 +251,10 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-project-problem.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-project-switcher.vue",
           to: "dist/console/runtime/components",
         },
@@ -372,6 +376,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-code-text.vue", to: "dist/console/runtime/components" },
         ...["console-mcp-client.vue", "console-mcp-callback.vue", "console-mcp-connect.vue", "console-mcp-connection.vue", "console-mcp-content.vue", "console-mcp-items.vue"].map(file => ({ from: `src/console/runtime/components/${file}`, to: "dist/console/runtime/components" })),
         { from: "src/console/runtime/components/console-skills.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-skill-tree.vue", to: "dist/console/runtime/components" },
