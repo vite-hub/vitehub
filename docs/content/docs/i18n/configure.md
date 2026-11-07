@@ -230,7 +230,7 @@ The Workspace holds the same records as `locales/`, at `<locale>/<file>.json`. I
 
 The server reads the head of `published` at most once every 5 seconds, and compiles each revision once. A request after a publish gets the new translations. The browser gets them from `/_vitehub/i18n/<locale>.json`, which sends only the messages of browser code. Its ETag is the revision, so the browser downloads a catalog again only after a publish.
 
-The build still reads `locales/` and embeds those translations. The server uses them until the first publish, and when it cannot read the Workspace. `vitehub i18n status`, `export`, `import`, and `prune` work on `locales/`, not on the Workspace.
+The build still reads `locales/` and embeds those translations. Published records override them; messages without a published record keep their build translation. When a Workspace read fails, the server keeps its last working catalogs, or the build snapshot before the first successful read. `vitehub i18n status`, `export`, `import`, and `prune` work on `locales/`, not on the Workspace.
 
 ## What the build does
 

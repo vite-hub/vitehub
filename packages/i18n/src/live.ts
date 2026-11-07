@@ -43,7 +43,7 @@ export async function readRevisionRecords(view: RevisionView, locales: readonly 
   const result: Record<string, TranslationRecords> = {}
   await Promise.all(locales.map(async (locale) => {
     const records: TranslationRecords = {}
-    const entries = await view.list(locale).catch(() => [])
+    const entries = await view.list(locale)
     await Promise.all(entries.map(async (entry) => {
       const name = entry.path.slice(entry.path.lastIndexOf("/") + 1)
       const id = entry.type === "file" ? idFromFileName(name) : undefined
@@ -67,7 +67,7 @@ export interface LiveTranslationsOptions {
   workspace: () => TranslationsWorkspace | Promise<TranslationsWorkspace>
   locales: readonly string[]
   sourceLocale: string
-  /** The translations that the build embedded. The server uses them until it reads the Workspace, and when the read fails. */
+  /** The translations that the build embedded. Published records override these; messages without a record keep them. */
   snapshot: Readonly<Record<string, Messages>>
   /** IDs of the messages in browser code. The browser catalog route sends only these, or all with `null`. */
   clientIds: readonly string[] | null
@@ -111,7 +111,7 @@ export function createLiveTranslations(options: LiveTranslationsOptions): LiveTr
       // Before the first publish, the build snapshot stays.
       if (!head || head.id === revision) return
       const records = await readRevisionRecords(await workspace.history.open(head.id), translated)
-      server = Object.fromEntries(translated.map(locale => [locale, compile(records[locale] ?? {})]))
+      server = Object.fromEntries(translated.map(locale => [locale, { ...options.snapshot[locale], ...compile(records[locale] ?? {}) }]))
       client = Object.fromEntries(translated.map(locale => [locale, compile(records[locale] ?? {}, clientIds)]))
       revision = head.id
     }

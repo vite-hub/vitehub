@@ -3,7 +3,9 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { compileMessage } from "@lingui/message-utils/compileMessage"
 import { describe, expect, it, vi } from "vitest"
 
+import { createLiveTranslations } from "../src/live.ts"
 import { resolveI18nLocaleConfig } from "../src/locales.ts"
+import { recordPath } from "../src/record-format.ts"
 import { messageId } from "../src/records.ts"
 import { configureI18n, getI18n, setLocale, translate } from "../src/runtime.ts"
 import { i18nCatalogResponse, installI18nServer, useTranslations } from "../src/server.ts"
@@ -53,7 +55,7 @@ function setup(store = memoryWorkspace()) {
   const hooks: ((event: object) => unknown)[] = []
   installI18nServer({ hooks: { hook: (_name, callback) => hooks.push(callback) } }, {
     config,
-    messages: { en: {}, es: { [deploy.id]: compileMessage("Despliega tu agente") } },
+    messages: { en: {}, es: { [deploy.id]: compileMessage("Despliega tu agente"), [note.id]: compileMessage("Nota del servidor") } },
     current: () => context.getStore(),
     workspace: { name: "translations", open: () => store.workspace, clientIds: [deploy.id], interval: 0 },
   })
@@ -72,6 +74,7 @@ describe("translations in a Workspace", () => {
     const { request } = setup()
     const translations = useTranslations()
     expect(await request(() => translate(deploy))).toBe("Despliega tu agente")
+    expect(await request(() => translate(note))).toBe("Nota del servidor")
     expect(await translations.revision()).toBe("build")
 
     const [error, saved] = await translations.save({ locale: "ES", source: "Deploy your agent", translation: "Publica tu agente", by: "ana" })
@@ -84,6 +87,7 @@ describe("translations in a Workspace", () => {
 
     expect(await translations.publish()).toEqual({ revision: expect.any(String), published: 1 })
     expect(await request(() => translate(deploy))).toBe("Publica tu agente")
+    expect(await request(() => translate(note)), "a partial publish keeps other build translations").toBe("Nota del servidor")
     expect(await request(() => translate(deploy), "en")).toBe("Deploy your agent")
     expect(await translations.publish(), "nothing changed since the last publish").toMatchObject({ published: 0 })
 
@@ -126,6 +130,48 @@ describe("translations in a Workspace", () => {
       console.error = log
     }
     expect(errors).toEqual([expect.stringContaining("could not read the Workspace \"translations\"")])
+  })
+
+  it.each(["list", "readFile"] as const)("keeps every catalog and the revision when a revision %s fails", async (method) => {
+    const store = memoryWorkspace()
+    const put = (translation: string) => Object.fromEntries(["es", "fr"].map(locale => [
+      recordPath(locale, deploy.id), JSON.stringify({ source: deploy.message, translation }),
+    ]))
+    const first = await store.workspace.history.commit({ ref: "published", ifHead: null, changes: { put: put("Primera") } })
+    const onError = vi.fn()
+    const live = createLiveTranslations({
+      workspace: () => store.workspace,
+      locales: ["en", "es", "fr"],
+      sourceLocale: "en",
+      snapshot: {},
+      clientIds: [deploy.id],
+      interval: 0,
+      onError,
+    })
+    await live.refresh()
+    expect(live.revision).toBe(first.id)
+    const catalogs = [live.messages("es"), live.messages("fr"), live.clientMessages("es"), live.clientMessages("fr")]
+    const second = await store.workspace.history.commit({ ref: "published", ifHead: first.id, changes: { put: put("Segunda") } })
+    const error = new Error("store revision read failed")
+    const open = store.workspace.history.open.bind(store.workspace.history)
+    const failing = vi.spyOn(store.workspace.history, "open").mockImplementationOnce(async (id) => {
+      const view = await open(id)
+      vi.spyOn(view, method).mockRejectedValueOnce(error)
+      return view
+    })
+    try {
+      await live.refresh()
+      expect(live.revision).toBe(first.id)
+      expect([live.messages("es"), live.messages("fr"), live.clientMessages("es"), live.clientMessages("fr")]).toEqual(catalogs)
+      expect(onError).toHaveBeenCalledExactlyOnceWith(error)
+    }
+    finally {
+      failing.mockRestore()
+    }
+    await live.refresh()
+    expect(live.revision).toBe(second.id)
+    expect(live.messages("es")[deploy.id]).toEqual(compileMessage("Segunda"))
+    expect(live.clientMessages("fr")[deploy.id]).toEqual(compileMessage("Segunda"))
   })
 })
 
