@@ -212,7 +212,7 @@ describe("vitehub init", () => {
       : 'import * as hub from "vite-hub"\nexport default { plugins: [hub.vitehub({ preset: "node" })] }\n'
     const file = `${framework}.config.ts`
     const root = await createProject({
-      "package.json": JSON.stringify({ devDependencies: { [framework]: "*" }, type: "module" }),
+      "package.json": JSON.stringify({ devDependencies: { [framework]: framework === "nuxt" ? "^5.0.0" : "*" }, type: "module" }),
       [file]: config,
     })
     const args = [".", "--host", "cloudflare", "--features", "kv", "--no-install", "--yes"]
@@ -230,7 +230,7 @@ describe("vitehub init", () => {
       const config = framework === "nuxt"
         ? `export default { modules: [["vite-hub/nuxt", { preset: "cloudflare", ${options} }]] }\n`
         : `import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub({ preset: "cloudflare", ${options} })] }\n`
-      const root = await createProject({ "package.json": "{}", [`${framework}.config.ts`]: config })
+      const root = await createProject({ "package.json": JSON.stringify({ dependencies: { [framework]: framework === "nuxt" ? "^5.0.0" : "*" } }), [`${framework}.config.ts`]: config })
       const before = await snapshot(root)
       const calls: string[] = []
       const result = await init([".", "--host", "node", "--features", "kv", "--yes"], root, async (command) => {
@@ -246,7 +246,7 @@ describe("vitehub init", () => {
 
   it.each([["vite", false], ["nuxt", false], ["nuxt", true]] as const)("adopts a config-less %s app without replacing existing files (unrelated Vite config: %s)", async (framework, unrelatedViteConfig) => {
     const root = await createProject({
-      "package.json": JSON.stringify({ devDependencies: { [framework]: "*" }, type: "module" }),
+      "package.json": JSON.stringify({ devDependencies: { [framework]: framework === "nuxt" ? "^5.0.0" : "*" }, type: "module" }),
       "index.html": "<div id=app></div>\n",
       ...(unrelatedViteConfig ? { "vite.config.ts": "export default { plugins: [] }\n" } : {}),
     })
@@ -275,7 +275,7 @@ describe("vitehub init", () => {
   })
 
   it.each(["vite", "nuxt"] as const)("does not create a config for a config-less %s app when feature planning fails", async (framework) => {
-    const root = await createProject({ "package.json": JSON.stringify({ dependencies: { [framework]: "*" } }) })
+    const root = await createProject({ "package.json": JSON.stringify({ dependencies: { [framework]: framework === "nuxt" ? "^5.0.0" : "*" } }) })
     const before = await snapshot(root)
     const result = await init([".", "--host", "node", "--features", "browser", "--no-install", "--yes"], root)
     expect(result.exitCode).toBe(3)
@@ -285,7 +285,7 @@ describe("vitehub init", () => {
 
   it("leaves a config-less Nuxt app with local layers manual", async () => {
     const root = await createProject({
-      "package.json": JSON.stringify({ dependencies: { nuxt: "*" } }),
+      "package.json": JSON.stringify({ dependencies: { nuxt: "^5.0.0" } }),
       "layers/base/nuxt.config.ts": 'export default { modules: ["vite-hub/nuxt"] }\n',
     })
     const before = await snapshot(root)
@@ -399,25 +399,22 @@ describe("vitehub init", () => {
     expect(result.json.stack.command).toBe("pnpm dlx vite-hub init app --host cloudflare --features kv --pm npm --yes")
   })
 
-  it.each([
-    ["pnpm", "^5.0.0"],
-    ["yarn", "npm:nuxt-nightly@5.0.0-2611031025-9496b7e"],
-  ] as const)("creates a Nuxt app with the pinned nuxi using %s and %s, then adopts it", async (pm, nuxt) => {
+  it.each(["pnpm", "yarn"] as const)("creates a Nuxt app with the pinned nuxi using %s, then adopts it", async (pm) => {
     const parent = await createProject()
     const calls: string[][] = []
     const spawn: ViteHubCliSpawn = async (command, args) => {
       calls.push([command, ...args])
       if (args.includes("init")) {
-        // What `nuxi init --template minimal` writes.
+        // The pinned starter with `nuxi init --nightly 5x` declares the resolved nightly version.
         await mkdir(join(parent, "site/server"), { recursive: true })
-        await writeFile(join(parent, "site/package.json"), JSON.stringify({ dependencies: { nuxt, vue: "^3.5.0" }, name: "site", private: true, type: "module" }))
+        await writeFile(join(parent, "site/package.json"), JSON.stringify({ dependencies: { nuxt: "npm:nuxt-nightly@5.0.0-2611071848-2d8337c", vue: "^3.5.44", "vue-router": "^5.4.0" }, name: "site", private: true, type: "module" }))
         await writeFile(join(parent, "site/nuxt.config.ts"), "// https://nuxt.com/docs/api/configuration/nuxt-config\nexport default defineNuxtConfig({\n  compatibilityDate: '2025-07-15',\n  devtools: { enabled: true }\n})\n")
       }
       return { exitCode: 0, signal: null }
     }
     const result = await init(["site", "--host", "vercel", "--features", "kv", "--framework", "nuxt", "--pm", pm, "--yes"], parent, spawn)
     expect(result.exitCode, result.stdout).toBe(0)
-    expect(calls[0]).toEqual([...(pm === "yarn" ? ["npx", "--yes"] : ["pnpm", "dlx"]), nuxiPackage, "init", "site", "--template", "minimal", "--packageManager", pm, "--no-install", "--no-gitInit", "--no-modules"])
+    expect(calls[0]).toEqual([...(pm === "yarn" ? ["npx", "--yes"] : ["pnpm", "dlx"]), nuxiPackage, "init", "site", "--template", "gh:nuxt/starter#db01806fcb37f2e369fb09443c72cac696b31548", "--nightly", "5x", "--packageManager", pm, "--no-install", "--no-gitInit", "--no-modules"])
     expect(calls.slice(1)).toEqual([[pm, "add", ...result.json.install.packages]])
     expect(result.json.install.packages.slice(0, 2)).toEqual([...initPackages.nuxt.prod])
     expect(result.json).toMatchObject({ framework: "nuxt", mode: "create", scaffold: { command: expect.stringContaining(nuxiPackage) }, status: "applied" })
@@ -444,6 +441,26 @@ describe("vitehub init", () => {
     expect(result.json.error?.fix).toContain("scaffold files remain")
     expect(calls).toHaveLength(1)
     expect(await snapshot(join(parent, "site"))).toEqual(files)
+  })
+
+  it.each(["dependencies", "devDependencies"])("rejects an existing Nuxt app without a known Nuxt 5 version in %s before any install or write", async (dependencyKey) => {
+    for (const nuxt of [undefined, "^4.6.4", "latest", "*", "npm:nuxt-nightly@latest"]) {
+      const root = await createProject({
+        "package.json": JSON.stringify({ [dependencyKey]: { nuxt }, type: "module" }),
+        "nuxt.config.ts": "export default defineNuxtConfig({})\n",
+      })
+      const before = await snapshot(root)
+      const calls: string[] = []
+      const result = await init([".", "--host", "node", "--features", "kv", "--yes"], root, async (command) => {
+        calls.push(command)
+        return { exitCode: 0 }
+      })
+      expect(result.exitCode, result.stdout).toBe(3)
+      expect(result.json.error?.code).toBe("SETUP_INIT_NUXT_VERSION")
+      expect(result.json.error?.fix).not.toContain("scaffold files")
+      expect(calls).toEqual([])
+      expect(await snapshot(root)).toEqual(before)
+    }
   })
 
   it("installs the packages that the installation docs list", async () => {

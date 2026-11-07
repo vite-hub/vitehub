@@ -46,6 +46,9 @@ export const initPackages: Readonly<Record<InitFramework, { prod: readonly strin
 /** The pinned Nuxt CLI that creates a new Nuxt app. */
 export const nuxiPackage = "nuxi@3.37.0"
 
+/** Pin the starter files and select Nuxt 5 explicitly instead of the live minimal registry entry. */
+const nuxtTemplate = "gh:nuxt/starter#db01806fcb37f2e369fb09443c72cac696b31548"
+
 /** Where the reproducing command lives in README.md. */
 const stackStart = "<!-- vitehub:stack -->"
 const stackEnd = "<!-- /vitehub:stack -->"
@@ -347,6 +350,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   const found = state.kind === "adopt" ? state.project.framework : undefined
   const framework: InitFramework = args.framework ?? (found === "nuxt" ? "nuxt" : "vite")
   if (found && found !== framework) throw new SetupFailure(cliErrorDiagnostics.SETUP_INIT_FRAMEWORK_MISMATCH({ dir: root, found, framework }), setupExitCodes.conflict)
+  if (state.kind === "adopt" && framework === "nuxt") await validateNuxtVersion(root)
   // A new app can inherit a parent lockfile. With no package-manager evidence, init defaults to pnpm.
   const detected = state.kind === "adopt" ? state.project : detectPackageManager(root, undefined, context.env)
   const packageManager = args.pm ?? (detected.packageManagerSource === "default" ? "pnpm" : detected.packageManager)
@@ -448,7 +452,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   const writes = ordered.filter(([, file]) => file.before !== file.after).map(([path, file]) => ({ path, ...file }))
   const command = installCommand(packageManager, install.prod, install.dev)
   const scaffold = scaffolded
-    ? dlx(packageManager, nuxiPackage, ["init", basename(root), "--template", "minimal", "--packageManager", packageManager, "--no-install", "--no-gitInit", "--no-modules", ...(state.exists ? ["--force"] : [])])
+    ? dlx(packageManager, nuxiPackage, ["init", basename(root), "--template", nuxtTemplate, "--nightly", "5x", "--packageManager", packageManager, "--no-install", "--no-gitInit", "--no-modules", ...(state.exists ? ["--force"] : [])])
     : undefined
 
   const nextSteps = [
@@ -520,13 +524,18 @@ async function scaffoldNuxt(planned: InitPlanned, context: ViteHubCliContext): P
   if (result.exitCode !== 0) {
     throw new SetupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [command, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal, filesWritten: "possible" }), setupExitCodes.error)
   }
-  const manifest: JsonValue = JSON.parse(await readFile(join(planned.plan.root, "package.json"), "utf8"))
+  await validateNuxtVersion(planned.plan.root, true)
+}
+
+/** Validate both existing apps and scaffold output before planning adoption or installing packages. */
+async function validateNuxtVersion(root: string, scaffolded = false): Promise<void> {
+  const manifest: JsonValue = JSON.parse(await readFile(join(root, "package.json"), "utf8"))
   const dependencies = isRecord(manifest) && isRecord(manifest.dependencies) ? manifest.dependencies : {}
   const devDependencies = isRecord(manifest) && isRecord(manifest.devDependencies) ? manifest.devDependencies : {}
   const nuxt = dependencies.nuxt ?? devDependencies.nuxt
   // Tags and broad ranges cannot prove that the scaffold uses the supported Nuxt major.
   if (typeof nuxt !== "string" || !/^(?:npm:nuxt(?:-nightly)?@)?[~^]?5\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/u.test(nuxt)) {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_INIT_NUXT_VERSION({ dir: planned.plan.root }), setupExitCodes.conflict)
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_INIT_NUXT_VERSION({ dir: root, scaffolded }), setupExitCodes.conflict)
   }
 }
 

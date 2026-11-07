@@ -41,6 +41,9 @@ Project:
 
 Available namespaces:
   workspace   Workspace development workflows and retained history.
+  pull        Merge the remote changes of a Workspace ref into a local folder.
+  push        Pull, then commit the local changes of a checkout folder to its ref.
+  resolve     Keep the local version of binary files that both sides changed.
   console     Console development workflows.
   agent       Agent development workflows.
   blob        Read and write blobs of the Blob stores of the app, on the dev server or on a deployed app.
@@ -72,7 +75,7 @@ Available namespaces:
 | `vitehub init` | Available | ViteHub CLI | Create a Vite or Nuxt app, or adopt an existing app, with a host and features. Does not load the project config. |
 | `vitehub add` | Available | ViteHub CLI | Turn on features: edit the `vitehub()` options, install the owner packages, and create a starter Definition. Does not load the project config. |
 | `vitehub catalog` | Available | ViteHub CLI | List every feature and how each host supports it. Does not load the project config. |
-| `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, and what each one still needs. Does not load the project config. |
+| `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, what each one still needs, and the checkout folders of `vitehub.lock`. Does not load the project config. |
 | `vitehub link` | Available | ViteHub CLI | Link the project to its project on the host in `.vitehub/link.json`. Does not load the project config. |
 | `vitehub unlink` | Available | ViteHub CLI | Remove `.vitehub/link.json`. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
@@ -152,6 +155,11 @@ Available namespaces:
 | `vitehub workspace history` | Available | Workspace Package | List the retained revisions of a Workspace with ref, author, message, and time. |
 | `vitehub workspace refs` | Available | Workspace Package | List the history refs of a Workspace and their head revisions. |
 | `vitehub workspace show` | Available | Workspace Package | Show one revision and its files, or print one file as it was in that revision. |
+| `vitehub workspace changes` | Available | Workspace Package | List the files of a ref that changed since a revision, with their content. `vitehub pull` reads it. |
+| `vitehub workspace commit` | Available | Workspace Package | Commit files to a ref when its head is still `ifHead`. `vitehub push` calls it. |
+| `vitehub pull` | Available | Workspace Package | Merge the remote changes of each checked-out Workspace ref into its local folder, and update `vitehub.lock`. |
+| `vitehub push` | Available | Workspace Package | Pull, then commit the local changes of each checkout folder to its ref. It never publishes or deploys. |
+| `vitehub resolve` | Available | Workspace Package | Keep the local version of binary files that both sides changed. |
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub inspect definitions` | Available | ViteHub CLI plus package inspection contributors | List the Definitions that each active package discovered. |
 | `vitehub inspect provider-output` | Available | ViteHub CLI plus package inspection contributors | List generated Provider Output files with secrets redacted. |
@@ -172,7 +180,7 @@ pnpm dlx vite-hub init my-app --host vercel --features email --option email.driv
 - `--features`: feature ids separated by commas, as `vitehub catalog` lists them. `init` plans them in one step with `vitehub add`, so a feature that the host does not support exits with `3` before any file is written.
 - `--option feature.key=value`: an option of a feature, such as `email.driver=resend`. Repeat it for more options.
 - `--console <pendingId>:sha256:<hex>`: the pending link from the Console. `init` stores the id and the hash in `.vitehub/link.json`, which is gitignored. The Console keeps the token, and the CLI never receives it.
-- `--framework vite|nuxt`: the default is `vite`. For `nuxt`, `init` runs the pinned `nuxi init` with the minimal template, checks that it declares a Nuxt 5 version, then adds the `vite-hub/nuxt` module. A tag or an unsupported version stops adoption and leaves the scaffold files for manual setup.
+- `--framework vite|nuxt`: the default is `vite`. For `nuxt`, `init` runs the pinned `nuxi init` with a pinned starter and the `5x` nightly channel, checks that it declares a Nuxt 5 version, then adds the `vite-hub/nuxt` module. Existing Nuxt apps must also declare a known Nuxt 5 version before any installation or config edit. A tag or an unsupported version stops adoption and leaves existing files for manual setup.
 - `--pm pnpm|npm|yarn|bun`: the package manager. The default is the one that the folder uses, else the one that runs the command, else pnpm.
 - `--no-install` skips the install. `nextSteps` gives the install command. `--dry-run` prints the plan and writes nothing.
 - `--yes` applies the plan. Without a terminal, a missing input fails and names the flag, for example `Pass --host (cloudflare, vercel, netlify, deno, node) when running without an interactive terminal.` The command exits with `2` and gives `missing` and `rerun`.
@@ -193,7 +201,7 @@ The folder has files but no Vite or Nuxt app, so `init` cannot create or adopt a
 
 ### `SETUP_INIT_NUXT_VERSION`
 
-The Nuxt scaffold does not declare a known Nuxt 5 version. ViteHub stops before adoption and package installation. The scaffold files remain; set `nuxt` to a Nuxt 5 version and run `init` on the folder again. The command exits with `3`.
+The Nuxt app does not declare a known Nuxt 5 version. ViteHub stops before adoption and package installation. If the command created a scaffold, those files remain. Set `nuxt` to a Nuxt 5 version and run `init` on the folder again. The command exits with `3`.
 
 ### `SETUP_CONSOLE_INVALID`
 
@@ -210,7 +218,9 @@ pnpm vitehub status --json
 
 `catalog` lists every feature key of `vitehub({...})`, the packages that it needs, and how each host supports it: `native`, `explicit` (an option chooses the provider), or `unsupported`. It needs no project.
 
-`status` reads `vite.config.*` or `nuxt.config.*` in the current folder and reports:
+`status` reads `vite.config.*` or `nuxt.config.*` in the current folder and reports the items below. With `vitehub.lock`, it also lists each checkout folder with its local changes and conflicts, read by the installed Workspace package without calling the app; `--json` puts them in `checkouts`. See [Work on Workspace files in a local folder](#work-on-workspace-files-in-a-local-folder).
+
+`status` reports:
 
 - `framework`: `vite`, `nuxt`, or `none`, from the config files and the dependencies.
 - `config`: the file and the config form, or `manual` with the reason when the options are not an object literal.
@@ -550,10 +560,11 @@ The Database commands refresh the discovered Database Definitions before running
 pnpm vitehub db generate
 pnpm vitehub db generate --name add-audit-log
 pnpm vitehub db generate --custom --name backfill-state
+pnpm vitehub db generate --custom --schema-snapshot --name move-tables
 pnpm vitehub db migrate
 ```
 
-`db generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. `db migrate` accepts forwarded Drizzle Kit migration arguments.
+`db generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. Drizzle Kit copies the previous snapshot into a custom migration, for SQL that changes only data. When the SQL changes the tables to the current Database Definitions, add `--schema-snapshot`: the migration then gets the snapshot of those Definitions, so the next `db generate` has nothing to add. `db migrate` accepts forwarded Drizzle Kit migration arguments.
 
 ## Export a Database
 
@@ -998,6 +1009,16 @@ If you omit the command in an interactive terminal, the CLI opens a prompt for r
 ```txt [Output]
 Connected to docs at http://localhost:5173
 > pnpm test
+```
+
+## Work on Workspace files in a local folder
+
+`vitehub pull` and `vitehub push` keep a folder of the project in sync with one ref of a Workspace, as `git pull` and `git push` do with a branch. Edit the files in your editor, and edit the same ref in the Console. The first pull names the folder and the ref and writes `vitehub.lock`; commit that file. See [Work on a ref in a local folder](/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
+
+```bash [Terminal]
+pnpm vitehub pull site --dir content --ref draft --url https://docs.example.com
+pnpm vitehub pull --dry-run
+pnpm vitehub push --message "Fix the install guide"
 ```
 
 ## Read Workspace history during development

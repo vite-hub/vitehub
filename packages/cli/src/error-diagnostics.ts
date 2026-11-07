@@ -114,8 +114,8 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SETUP_INIT_NUXT_VERSION: {
       docs: "https://vitehub.dev/docs/development/cli#setup_init_nuxt_version",
-      fix: ({ dir }: { dir?: unknown }) => `The scaffold files remain in ${String(dir)}. Set nuxt to a Nuxt 5 version, then run init on that folder again.`,
-      why: () => "The scaffold does not declare a known Nuxt 5 version. ViteHub did not adopt it.",
+      fix: ({ dir, scaffolded }: { dir?: unknown, scaffolded?: unknown }) => `${scaffolded ? `The scaffold files remain in ${String(dir)}. ` : ""}Set nuxt to a Nuxt 5 version, then run init on that folder again.`,
+      why: ({ dir }: { dir?: unknown }) => `${String(dir)} does not declare a known Nuxt 5 version. ViteHub did not adopt it.`,
     },
     SETUP_CONSOLE_INVALID: {
       docs: "https://vitehub.dev/docs/development/cli#setup_console_invalid",
