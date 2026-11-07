@@ -350,7 +350,7 @@ describe("linking a project", () => {
     expect(state.store.active()?.id).toBe(b.id)
     const { consoleProject: active } = await import("../src/console/runtime/client/project.ts")
     expect(active().origin).toBe("https://b.example.com")
-    expect(active().authorization?.()).toBe("Bearer token-b")
+    expect(await active().authorization?.()).toBe("Bearer token-b")
 
     responseB.resolve(Response.json(tokenRejection, { status: 401 }))
     await vi.waitFor(() => expect(state.gate.value).toEqual({ kind: "token", rejected: true }))
