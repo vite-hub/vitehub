@@ -361,7 +361,6 @@ describe("framework package contract", () => {
       "./console/sections",
       "./console/server",
       "./console/ui",
-      "./deployment",
       "./doctor",
       "./logs",
       "./logs/host",

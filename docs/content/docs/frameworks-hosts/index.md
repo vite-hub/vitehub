@@ -41,16 +41,16 @@ in this order:
 4. `node` when none of them is set
 
 Cloudflare Pages is not detected, because the `cloudflare` preset builds a
-Worker. Use `detectPreset()` from `vite-hub/deployment` to choose
+Worker. Use `detectHost()` from `vite-hub/runtime` to choose
 host-specific options in your own config:
 
 ```ts
 // vite.config.ts
 import { vitehub } from "vite-hub";
-import { detectPreset } from "vite-hub/deployment";
+import { detectHost } from "vite-hub/runtime";
 import { defineConfig } from "vite";
 
-const preset = detectPreset() ?? "node";
+const preset = detectHost() ?? "node";
 
 export default defineConfig({
   // The deno preset rejects Schedule.
@@ -58,8 +58,9 @@ export default defineConfig({
 });
 ```
 
-`detectPreset()` returns `undefined` when no variable names a host, so the
-app picks its own default.
+`detectHost()` returns `undefined` when no variable names a host, so the
+app picks its own default. Inside a Cloudflare Worker, it returns
+`"cloudflare"`.
 
 | Preset | Guide | Production output | Default providers | Rejected when enabled with `true` |
 | --- | --- | --- | --- | --- |

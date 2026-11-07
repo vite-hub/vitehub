@@ -197,6 +197,33 @@ does not clone, redact, encrypt, or restrict `request`, `event`, `cloudflare.env
 `runtimeConfig`, or Runtime Capability values. Pass only the bindings and secrets
 needed by that operation, and do not copy secrets into traces or approval input.
 
+### Host bindings
+
+`getHostBinding(name, event?)` reads one raw binding of a Cloudflare Worker, such
+as an R2 bucket or a `send_email` binding, for host features that no ViteHub
+primitive covers. It reads the bindings of the request event, else the bindings
+that Nitro or ViteHub installed for the current request, Schedule, Queue
+message, or Workflow step. It returns `[error, binding]`:
+
+- `RUNTIME_HOST_BINDINGS_UNAVAILABLE` when the code runs without host bindings,
+  for example on Node.
+- `RUNTIME_HOST_BINDING_NOT_FOUND` when the Worker has no binding with that name.
+
+Run `wrangler types` to type the binding from `Cloudflare.Env`. Without it, the
+binding is `unknown`.
+
+```ts
+import { getHostBinding } from "vite-hub/runtime"
+
+const [error, email] = getHostBinding("REVIEW_EMAIL", event)
+if (error) throw createError({ statusCode: 503, statusMessage: error.why })
+await email.send(message)
+```
+
+`detectHost()` returns the host that `vitehub()` builds for when `preset` is
+omitted, or `"cloudflare"` inside a Worker. It returns `undefined` when nothing
+names a host.
+
 ### Runtime Capabilities
 
 `defineCapability()` and `getCapability()` pass a named implementation between
@@ -333,7 +360,7 @@ safe for public responses. Use the `ViteHubError` public contract at that bounda
 
 | Import                   | Provides                                                                                             |
 | ------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `@vite-hub/runtime`      | Context, capability, policy, approval, trace, lease, diagnostic, error, execution-authority, and public URL APIs |
+| `@vite-hub/runtime`      | Context, capability, policy, approval, trace, lease, diagnostic, error, execution-authority, public URL, and host binding APIs |
 | `@vite-hub/runtime/node` | Node process observations, reconciliation, and graceful-drain lifecycle primitives                  |
 | `@vite-hub/runtime/shutdown` | Shared host shutdown: drain registration, stop signal handling, and shutdown state            |
 

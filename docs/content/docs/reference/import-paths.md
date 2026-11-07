@@ -19,7 +19,6 @@ composition and explicit feature subpaths for application APIs.
 | Import path | Use |
 | --- | --- |
 | `vite-hub` | Register the framework Vite Integration with `vitehub()`. |
-| `vite-hub/deployment` | `detectPreset()`: the preset that `vitehub()` detects when `preset` is omitted, for host-specific config. |
 | `vite-hub/skills` | Define and serve [Agent Skills](/docs/development/skills) through HTTP discovery and MCP. |
 | `vite-hub/agent/vite` | Process Agent host and generated health and Workspace routes for Vite. |
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Actor APIs. |
@@ -120,7 +119,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing, saved through [Realtime document adapters](/docs/realtime/server-api#custom-document-adapters). |
-| `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
+| `vite-hub/runtime` | `getHostBinding()` for raw host bindings, `detectHost()` for host-specific config, and Runtime Host Context, policy, approval, trace, and capability APIs. |
 | `vite-hub/runtime/h3` | H3 Runtime Context adapter, Standard Context types, `getStandardContext()`, and `installStandardContext()`. |
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |

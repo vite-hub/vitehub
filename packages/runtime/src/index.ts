@@ -1557,3 +1557,5 @@ export {
   toResponse,
   type SerializedResponse,
 } from "./response.ts"
+
+export { detectHost, getHostBinding, type HostBindingErrorCode, type ViteHubHost } from "./host.ts"

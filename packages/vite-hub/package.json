@@ -683,11 +683,6 @@
       "import": "./dist/decisions/vue.js",
       "default": "./dist/decisions/vue.js"
     },
-    "./deployment": {
-      "types": "./dist/deployment.d.ts",
-      "import": "./dist/deployment.js",
-      "default": "./dist/deployment.js"
-    },
     "./docs": {
       "types": "./dist/docs.d.ts",
       "import": "./dist/docs.js",
