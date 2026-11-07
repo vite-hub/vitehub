@@ -796,7 +796,7 @@ The rule skips a definition with a spread, and runtimes from variables. Read [Sa
 
 **Import `defineAgent` from `vite-hub/agent`.** Rule `vitehub/define-agent-from-vite-hub`.
 
-An app that depends on `vite-hub` imports `defineAgent` from the owner package `@vite-hub/agent`. That version does not apply the app-wide `agent.invocations` journal or the Console journal, so ViteHub does not record Invocations of the Agent. A string `invocations` setting, such as `'database'`, also fails when the module loads.
+An app that depends on `vite-hub` imports `defineAgent` from the owner package `@vite-hub/agent`. That version does not apply the app-wide `agent.invocations` journal or the default journal, so ViteHub does not record Invocations of the Agent. A string `invocations` setting, such as `'database'`, also fails when the module loads.
 
 ```ts [server/agents/support.ts]
 // Invalid

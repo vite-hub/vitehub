@@ -378,6 +378,26 @@ export function resolveConsoleInvocations(scope: ConsoleInvocationScope = defaul
     ?? scope[consoleInvocationsKey]
 }
 
+const consoleFixtureInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations.fixture")
+
+/**
+ * Marks a journal that the Console supplies to discovered Agents, such as the in-memory journal of fixture mode.
+ * It replaces the app-wide Agent journal in development.
+ */
+export function markConsoleFixtureInvocations(invocations: AgentInvocations): void {
+  Object.defineProperty(invocations, consoleFixtureInvocationsKey, { configurable: true, enumerable: false, value: true })
+}
+
+/** The Console journal when the Console supplies it, as in fixture mode. The Console reads every other journal from its owner. */
+export function resolveConsoleFixtureInvocations(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): AgentInvocations | undefined {
+  const invocations = resolveConsoleInvocations(scope)
+  if (!invocations) return undefined
+  if (Reflect.get(invocations, consoleFixtureInvocationsKey) === true) return invocations
+  // A fixture install also records its fixture revision.
+  const identity = scope[consoleInvocationsIdentityKey]
+  return identity && resolveConsoleInvocationsRevision(identity) ? invocations : undefined
+}
+
 export function installConsoleInvocationFallback(
   invocations: AgentInvocations,
   projectRoot: string,
