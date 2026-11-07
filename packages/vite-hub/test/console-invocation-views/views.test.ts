@@ -12,7 +12,7 @@ import { MessageParts } from "@vite-hub/ui";
 import { AgentCapabilityInspector } from "../../src/console/runtime/components/invocation/agent-capability-inspector.ts";
 import { ToolList } from "@vite-hub/ui";
 import { channelIcon } from "../../src/console/runtime/components/invocation/internal/channel-icon.ts";
-import { invocationBrand, invocationModelMaker } from "../../src/console/runtime/components/invocation/internal/invocation-brand.ts";
+import { invocationBrand, invocationModelMaker, invocationModelName } from "../../src/console/runtime/components/invocation/internal/invocation-brand.ts";
 import { invocationActivities, invocationActivityTitle } from "../../src/console/runtime/components/invocation/internal/invocation-activity.ts";
 
 import type { AgentInvocationView } from "../../src/console/runtime/components/invocation/types.ts";
@@ -4575,6 +4575,18 @@ describe("Agent Invocation UI", () => {
       expect(wrapper.find(".vh-invocation-execution__provider").exists()).toBe(false);
     });
 
+    it.each([
+      ["claude-haiku-5-5", "Claude Haiku 5.5"],
+      ["claude-sonnet-4-5-20250929", "Claude Sonnet 4.5"],
+      ["anthropic/claude-3-5-sonnet", "Claude 3.5 Sonnet"],
+      ["gpt-6-luna", "GPT 6 Luna"],
+      ["gpt-5.6", "GPT 5.6"],
+      ["llama-3-1-70b", "Llama 3.1 70B"],
+      ["gpt-4-1106-preview", "GPT 4 1106 Preview"],
+    ])("names the model %s as %s", (id, name) => {
+      expect(invocationModelName(id)).toBe(name);
+    });
+
     it("recognizes model makers and providers", () => {
       expect(invocationModelMaker("anthropic/claude-sonnet-4.5")).toMatchObject({ id: "anthropic", label: "Anthropic" });
       expect(invocationModelMaker("gpt-5.6")).toMatchObject({ id: "openai" });
@@ -4586,6 +4598,7 @@ describe("Agent Invocation UI", () => {
       expect(invocationBrand("z-ai")).toMatchObject({ id: "zai", label: "Z.AI" });
       expect(invocationBrand("codex")).toMatchObject({ id: "codex", label: "Codex" });
       expect(invocationBrand("acme-ai")).toEqual({ id: "fallback", label: "Acme AI" });
+      expect(invocationBrand("claude-code")).toMatchObject({ id: "claude-code", label: "Claude Code", icon: "anthropic" });
 
       const wrapper = mount(AgentInvocationInspector, { props: { invocation: conversation() } });
       expect(wrapper.get(".vh-invocation-execution__model-icon").attributes("data-brand")).toBe("anthropic");

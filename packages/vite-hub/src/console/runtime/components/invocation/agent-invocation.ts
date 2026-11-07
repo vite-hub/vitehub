@@ -1,6 +1,6 @@
 import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { channelIcon } from "./internal/channel-icon.ts";
-import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
+import { invocationBrand, invocationBrandMark, invocationModelMaker, invocationModelName } from "./internal/invocation-brand.ts";
 import { computed, defineAsyncComponent, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, useId, type PropType, type DefineComponent, type ComponentOptionsMixin, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "./types.ts";
 import {
@@ -87,20 +87,6 @@ function driverLabel(configuration: AgentInvocationConfiguration): string | unde
     model?.provider ?? driver?.provider,
     model?.id,
   ].filter(Boolean).join(" · ") || undefined;
-}
-
-function invocationModelName(value: string): string {
-  const slug = value.split("/").at(-1) ?? "";
-  return slug
-    .split("-")
-    .filter(Boolean)
-    .map((part) => {
-      const lower = part.toLocaleLowerCase();
-      if (/^(ai|gpt|glm|llm|vlm)$/.test(lower)) return lower.toLocaleUpperCase();
-      if (/^\d+[a-z]$/i.test(part)) return part.toLocaleUpperCase();
-      return `${part[0]?.toLocaleUpperCase() ?? ""}${part.slice(1)}`;
-    })
-    .join(" ") || "Configured model";
 }
 
 function workspaceLabel(configuration: AgentInvocationConfiguration): string | undefined {

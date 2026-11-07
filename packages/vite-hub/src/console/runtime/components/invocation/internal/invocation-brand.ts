@@ -8,6 +8,7 @@ const brands = {
   azure: { icon: "azure", label: "Azure" },
   bedrock: { icon: "bedrock", label: "Amazon Bedrock" },
   cerebras: { icon: "cerebras", label: "Cerebras" },
+  "claude-code": { icon: "anthropic", label: "Claude Code" },
   cloudflare: { icon: "cloudflare", label: "Cloudflare" },
   codex: { icon: "openai", label: "Codex" },
   cohere: { icon: "cohere", label: "Cohere" },
@@ -145,4 +146,28 @@ export function invocationBrandMark(value: InvocationBrand | undefined, classNam
     d: path.d,
     "fill-opacity": path.fillOpacity,
   })));
+}
+
+/**
+ * A readable name for a model id: `claude-haiku-5-5` is "Claude Haiku 5.5", `gpt-6-luna` is "GPT 6 Luna". Version
+ * numbers that the id splits with dashes join with a dot, and a trailing date snapshot such as `20250929` is dropped.
+ */
+export function invocationModelName(value: string): string {
+  const slug = value.split("/").at(-1) ?? "";
+  const parts = slug.split("-").filter(Boolean);
+  if (parts.length > 1 && /^\d{8}$/.test(parts.at(-1) ?? "")) parts.pop();
+  const words: string[] = [];
+  for (const part of parts) {
+    const previous = words.at(-1);
+    if (previous !== undefined && /^\d{1,2}$/.test(part) && /^\d+(\.\d+)*$/.test(previous)) words[words.length - 1] = `${previous}.${part}`;
+    else words.push(part);
+  }
+  return words
+    .map((part) => {
+      const lower = part.toLocaleLowerCase();
+      if (/^(ai|gpt|glm|llm|vlm)$/.test(lower)) return lower.toLocaleUpperCase();
+      if (/^\d+[a-z]$/i.test(part)) return part.toLocaleUpperCase();
+      return `${part[0]?.toLocaleUpperCase() ?? ""}${part.slice(1)}`;
+    })
+    .join(" ") || "Configured model";
 }
