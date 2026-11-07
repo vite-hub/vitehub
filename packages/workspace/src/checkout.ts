@@ -3,8 +3,10 @@ import { constants } from "node:fs"
 import { lstat, mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, relative, resolve, sep } from "node:path"
 
+import { staleDerivedFiles } from "./lineage.ts"
 import { workspaceCommitRequestBytes } from "./results.ts"
 
+import type { WorkspaceStaleFile } from "./lineage.ts"
 import type { WorkspaceChangedFile, WorkspaceChanges, WorkspaceCommitResult, WorkspaceHistoryContent, WorkspaceHistoryDetails } from "./results.ts"
 
 /** The lock file at the project root. Commit it: it records the remote revision that each checkout folder matches. */
@@ -547,6 +549,8 @@ export interface WorkspaceStatus {
   remote?: string
   head: string | null
   local: WorkspaceLocalChanges
+  /** Local derived files, such as translations, whose `derivedFrom` source changed or is gone. */
+  stale: WorkspaceStaleFile[]
   /** Paths that changed on the remote ref since `head`. Set when the status asked the remote. */
   remoteChanges?: Array<{ path: string, change: "added" | "changed" | "deleted" }>
   remoteHead?: string | null
@@ -824,13 +828,15 @@ export async function workspaceStatus(context: WorkspaceCheckoutContext, options
   const results: WorkspaceStatus[] = []
   for (const name of selected(lock, options.workspace)) {
     const entry = lock.workspaces[name]!
+    const files = await scan(context.rootDir, folderOf(context.rootDir, entry.dir))
     const status: WorkspaceStatus = {
       workspace: name,
       dir: entry.dir,
       ref: entry.ref,
       ...(entry.remote ? { remote: entry.remote } : {}),
       head: entry.head,
-      local: localChanges(entry, await scan(context.rootDir, folderOf(context.rootDir, entry.dir))),
+      local: localChanges(entry, files),
+      stale: staleDerivedFiles(files),
     }
     if (options.remote) {
       const changes = await callOrThrow<WorkspaceChanges>(context, entry.remote, "workspace.changes", { workspace: name, ref: entry.ref, since: entry.head, content: false })
@@ -853,6 +859,7 @@ export function formatWorkspaceStatus(status: WorkspaceStatus): string {
     ...local.deleted.map(path => `  deleted   ${path}`),
   ]
   lines.push(rows.length ? "Local changes:" : "No local changes.", ...rows)
+  if (status.stale.length) lines.push("Stale derived files (their source changed):", ...status.stale.map(file => `  ${file.reason.padEnd(9)} ${file.path} <- ${file.derivedFrom.path}`))
   if (status.remoteChanges) {
     if (!status.remoteChanges.length) lines.push("No remote changes.")
     else lines.push(`Remote changes since ${status.head ?? "(empty)"} (run \`vitehub pull\`):`, ...status.remoteChanges.map(change => `  ${change.change.padEnd(9)} ${change.path}`))
