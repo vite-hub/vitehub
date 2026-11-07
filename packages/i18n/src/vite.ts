@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
@@ -103,6 +104,8 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   let isBuild = false
   /** Messages of each environment in this build. The client catalogs and the manifest come from it. */
   const manifest: I18nManifest = { environments: {} }
+  const moduleMessages = new Map<string, Map<string, SourceMessages>>()
+  let manifestWrite = Promise.resolve()
   let buildRecords: Promise<Record<string, TranslationRecords>> | undefined
 
   const setup = (config: ViteHubConfig): void => {
@@ -146,6 +149,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   return {
     name: pluginName,
     enforce: "post",
+    sharedDuringBuild: true,
     vitehub: {
       cli: async () => {
         const { createI18nCliContributor } = await import("./cli.ts")
@@ -215,6 +219,9 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       if (!isServerEnvironment(name, config)) return
       return { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }
     },
+    buildStart() {
+      buildRecords = undefined
+    },
     resolveId(id) {
       if (id === clientModule) return resolvedClientModule
       if (id.startsWith(catalogModule)) return `\0${id}`
@@ -238,13 +245,34 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
         if (isBuild && !id.includes("?")) {
           // The build reads each message from the file on disk, so origins point at the lines that you wrote.
           const source = await readFile(id, "utf8").catch(() => undefined)
-          const messages = manifest.environments[this.environment.name] ??= {}
+          const messages: SourceMessages = {}
           for (const message of source ? await extractFileMessages(id, source, lingui) : []) addMessage(messages, message, lingui.rootDir)
+          let modules = moduleMessages.get(this.environment.name)
+          if (!modules) moduleMessages.set(this.environment.name, modules = new Map())
+          modules.set(id, messages)
         }
         // Browser code ships only message IDs. Server code keeps the source text, so a message without a
         // translation falls back to it.
         return transformMacros(code, id, lingui, importBase, isProduction && !server ? "id-only" : "all")
       },
+    },
+    renderStart() {
+      // Cached modules may skip transform on a watch rebuild. Keep their contributions, but only for modules
+      // that are still in the current graph, and replace each changed module's previous contribution.
+      const modules = moduleMessages.get(this.environment.name)
+      const active = new Set(this.getModuleIds())
+      const sources: SourceMessages = {}
+      for (const [id, messages] of modules ?? []) {
+        if (!active.has(id)) {
+          modules!.delete(id)
+          continue
+        }
+        for (const [id, message] of Object.entries(messages)) {
+          const entry = sources[id] ??= { ...message, origins: [] }
+          for (const origin of message.origins) if (!entry.origins.includes(origin)) entry.origins.push(origin)
+        }
+      }
+      manifest.environments[this.environment.name] = sources
     },
     async renderChunk(code) {
       if (!code.includes("__VITEHUB_I18N_CATALOG_")) return
@@ -261,7 +289,21 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     async writeBundle() {
       if (!projectRoot) return
-      await writeFileIfChanged(resolve(projectRoot, manifestFile), `${JSON.stringify(sortManifest(manifest), null, 2)}\n`)
+      const file = resolve(projectRoot, manifestFile)
+      // Environments can finish concurrently. Serialize snapshots so an older write cannot finish after the
+      // final one, and rename a complete file so readers never see a partially written snapshot.
+      manifestWrite = manifestWrite.catch(() => {}).then(async () => {
+        const temporary = `${file}.${randomUUID()}.tmp`
+        try {
+          await mkdir(resolve(file, ".."), { recursive: true })
+          await writeFile(temporary, `${JSON.stringify(sortManifest(manifest), null, 2)}\n`, "utf8")
+          await rename(temporary, file)
+        }
+        finally {
+          await rm(temporary, { force: true })
+        }
+      })
+      await manifestWrite
     },
     configureServer(server) {
       if (!projectRoot) return

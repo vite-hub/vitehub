@@ -299,7 +299,8 @@ async function resolveSpecifiers(appDir: string, specifiers: readonly string[]) 
 
 async function importSpecifiers(appDir: string, specifiers: readonly string[], withCloudflareHost = false) {
   await settled(specifiers.map(async (specifier) => {
-    // Vite supplies the catalog setup module. The i18n build tests exercise its generated contents.
+    // Vite provides this side-effect module when it compiles the Vue entry. The
+    // package's Vue app test exercises the generated config and catalog loaders.
     const withI18nClient = specifier === "@vite-hub/i18n/vue" || specifier === "vite-hub/i18n/vue"
     const script = [
       ...(withCloudflareHost || withI18nClient
@@ -980,7 +981,7 @@ describe("published declaration diagnostics", () => {
     await importSpecifiers(tmpdir(), ["node:path"], true)
   })
 
-  it("imports i18n Vue hooks with the client module supplied by Vite", async () => {
+  it("imports Vue i18n entries with their Vite client module", async () => {
     await importSpecifiers(join(repoRoot, "packages/vite-hub"), ["@vite-hub/i18n/vue", "vite-hub/i18n/vue"])
   })
 

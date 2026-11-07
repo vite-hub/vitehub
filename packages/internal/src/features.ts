@@ -258,11 +258,11 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
   }),
   i18n: feature({
     docs: "/docs/i18n",
-    hosts: everywhere("lingui", "Lingui", "Messages compiled at build time, with request locales from Nitro 3."),
+    hosts: everywhere("nitro", "Nitro 3", "Requires Nitro 3 with request async context, or Nuxt 5. Nuxt 4 and Nitro 2 are unsupported."),
     id: "i18n",
     packages: ["@vite-hub/i18n"],
     summary: "Messages with translation records for each locale and a locale for each request.",
-    title: "i18n",
+    title: "I18n",
   }),
   kv: feature({
     developmentOverrides: ["netlify"],
@@ -365,7 +365,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
       deno: unsupported("The generated cron output is not part of the deployed Nitro entrypoint. The standalone Schedule integration can generate Deno.cron output."),
       dev: native("local", "Local / process", "Local development runner and the explicit process runtime.", "single-host"),
       netlify: native("netlify", "Scheduled fn", "One generated Netlify scheduled function per static Schedule."),
-      node: native("process", "process", "Process runtime for one long-lived process or replica.", "single-host"),
+      node: native("process", "process", "Process runtime for one long-lived process or replica. A build needs `schedule: { runtime: { driver: \"process\" } }`, or `providerOutput: false` to wake Schedules yourself.", "single-host"),
       vercel: native("vercel", "Vercel Cron", "Vercel Cron Jobs provider output."),
     },
     id: "schedule",
