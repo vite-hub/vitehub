@@ -635,7 +635,7 @@ describe("content capability", () => {
     })
     cleanup.push(() => runtime.dispose())
     const all = await tools(content(), runtime)
-    expect((all.content_save_draft!.inputSchema as any).required).toEqual(["body", "collection", "data", "id", "ifDigest", "locale"])
+    expect((all.content_save_draft!.inputSchema as any).required).toEqual(["body", "collection", "data", "id", "ifDigest", "locale", "sourceDigest"])
     expect((all.content_list_translations!.inputSchema as any).properties).toMatchObject({ collection: { enum: ["docs"] }, locale: { enum: ["en", "es"] } })
     expect((await run(all.content_list_collections, {})).collections).toContainEqual(expect.objectContaining({ name: "docs", locales: ["en", "es"] }))
 
@@ -650,17 +650,29 @@ describe("content capability", () => {
         { id: "intro", state: "missing" },
       ],
     })
-    expect(await run(all.content_get_document, { collection: "docs", id: "guide", ref: "draft", locale: "es" }))
-      .toMatchObject({ ok: true, document: { locale: "en", fallback: true } })
+    const read = await run(all.content_get_document, { collection: "docs", id: "guide", ref: "draft", locale: "es" })
+    expect(read).toMatchObject({ ok: true, document: { locale: "en", fallback: true, source: { path: "docs/en/guide.md", digest: expect.stringMatching(/^sha256-[0-9a-f]{64}$/) } } })
+    const source = read.document.source
 
-    const saved = await run(all.content_save_draft, { collection: "docs", id: "guide", data: { title: "Guía" }, body: "Hola.\n", ifDigest: null, locale: "es" })
-    expect(saved).toMatchObject({ ok: true, document: { id: "guide", locale: "es", derivedFrom: { path: "docs/en/guide.md" } } })
+    expect(await run(all.content_save_draft, { collection: "docs", id: "guide", data: { title: "Guía" }, body: "Hola.\n", ifDigest: null, locale: "es", sourceDigest: read.document.digest }))
+      .toMatchObject({ ok: false, error: { code: "CONTENT_INVALID", issues: [{ path: ["sourceDigest"] }] } })
+    expect(await run(all.content_save_draft, { collection: "docs", id: "guide", data: { title: "Guide" }, body: "Hello.\n", ifDigest: read.document.digest, locale: null, sourceDigest: source.digest }))
+      .toMatchObject({ ok: false, error: { code: "CONTENT_INVALID", issues: [{ path: ["sourceDigest"] }] } })
+    const saved = await run(all.content_save_draft, { collection: "docs", id: "guide", data: { title: "Guía" }, body: "Hola.\n", ifDigest: null, locale: "es", sourceDigest: source.digest })
+    expect(saved).toMatchObject({ ok: true, document: { id: "guide", locale: "es", derivedFrom: source } })
     expect((await run(all.content_list_translations, { collection: "docs", locale: "es" })).translations.map((entry: any) => entry.id)).toEqual(["intro"])
     await docs.save("guide", { data: { title: "Guide" }, body: "Hello again.\n" })
     expect((await run(all.content_list_translations, { collection: "docs", locale: "es" })).translations)
       .toEqual([{ id: "guide", state: "stale" }, { id: "intro", state: "missing" }])
+    // A translation of the source it read stays stale when the source changed before the save.
+    const intro = await run(all.content_get_document, { collection: "docs", id: "intro", ref: "draft", locale: "es" })
+    await docs.save("intro", { data: { title: "Intro 2" } })
+    expect(await run(all.content_save_draft, { collection: "docs", id: "intro", data: { title: "Introducción" }, body: "", ifDigest: null, locale: "es", sourceDigest: intro.document.source.digest }))
+      .toMatchObject({ ok: true, document: { derivedFrom: intro.document.source } })
+    expect((await run(all.content_list_translations, { collection: "docs", locale: "es" })).translations)
+      .toEqual([{ id: "guide", state: "stale" }, { id: "intro", state: "stale" }])
 
-    expect(await run(all.content_status, { collection: "docs", locale: "es" })).toMatchObject({ documents: [{ id: "guide", locale: "es", state: "draft" }] })
+    expect(await run(all.content_status, { collection: "docs", locale: "es" })).toMatchObject({ documents: [{ id: "guide", locale: "es", state: "draft" }, { id: "intro", locale: "es", state: "draft" }] })
     expect(await run(all.content_save_draft, { collection: "posts", id: "x", data: { title: "X" }, body: "", ifDigest: null, locale: "es" }))
       .toMatchObject({ ok: false, error: { code: "CONTENT_INVALID", issues: [{ path: ["locale"] }] } })
     expect(await run(all.content_list_translations, { collection: "docs", locale: "en" })).toMatchObject({ ok: false, error: { code: "CONTENT_INVALID" } })
