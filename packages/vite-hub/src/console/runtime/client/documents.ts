@@ -96,6 +96,8 @@ export interface ConsoleDocument {
   path: string
   revision: string
   schedule?: ConsoleDocumentSchedule
+  /** The source locale version on the draft when this was read. Save a translation made from it with `sourceDigest: source.digest`. */
+  source?: { digest: string, path: string }
   state?: ConsoleDocumentState
   /** The state of each translation of the document, by locale, in a collection with locales. */
   translations?: Record<string, ConsoleDocumentTranslationState>
@@ -282,9 +284,12 @@ export interface ConsoleDocumentsClient {
   remove(collection: string, id: string, ifDigest: string, session?: string, live?: boolean): Promise<null>
   restore(collection: string, id: string, revision: string, ifDigest: string | null, session?: string, live?: boolean): Promise<ConsoleDocument>
   revisions(collection: string, id: string, cursor?: string): Promise<{ cursor?: string, revisions: ConsoleDocumentRevision[] }>
-  /** `session` is this tab's token, so its own edit lease does not block the save. */
-  /** `ifPublishedDigest` names the version on the site that the person compared, which resolves a `conflict`. */
-  save(collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string }): Promise<ConsoleDocument>
+  /**
+   * `session` is this tab's token, so its own edit lease does not block the save. `ifPublishedDigest` names the version
+   * on the site that the person compared, which resolves a `conflict`. `sourceDigest` names the source version that a
+   * translation was made from. Without it, an existing translation keeps the one it records.
+   */
+  save(collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string, sourceDigest?: string }): Promise<ConsoleDocument>
   /** Publishes exactly these drafts at `at`, an ISO timestamp. A draft saved after scheduling makes the schedule fail. */
   schedule(collection: string, at: string, expect: readonly ConsoleDocumentPublishExpectation[]): Promise<ConsoleDocumentScheduled>
   /** Cancels a pending schedule, or dismisses a failed one. */
@@ -320,7 +325,7 @@ export function createConsoleDocumentsClient(base: string, section: string, loca
     get: (collection: string, id: string, ref?: "draft" | "published") => call("get", ref === "published" ? { collection, id, ref } : { collection, id }),
     preview: (collection: string, id: string) => call("preview", { collection, id }),
     raw: (collection: string, id: string, revision?: string) => call("raw", revision ? { collection, id, revision } : { collection, id }),
-    save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string }) =>
+    save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string, sourceDigest?: string }) =>
       call("save", { collection, id, ...input }),
     remove: (collection: string, id: string, ifDigest: string, session?: string, live?: boolean) => call("remove", { collection, id, ifDigest, ...(session ? { session } : {}), ...(live ? { live } : {}) }),
     publish: (collection: string, expect: readonly ConsoleDocumentPublishExpectation[]) =>

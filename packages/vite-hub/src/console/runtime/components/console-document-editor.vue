@@ -12,6 +12,7 @@ import {
   consoleDocumentScheduleTone,
   consoleDocumentStateColor,
   consoleDocumentStateLabel,
+  consoleDocumentText,
   consoleErrorMessage,
   consoleFieldIssues,
   consoleFixFieldsLabel,
@@ -86,6 +87,8 @@ const props = defineProps<{
   locale?: string;
   /** Where Back leads instead of the collection list, such as the Settings page for a singleton. */
   parent?: { label: string, to: RouteLocationRaw };
+  /** Reads the source locale of a translation, to show it before Mark as up to date records it as the source. */
+  sourceClient?: ConsoleDocumentsClient;
   /** What the project lacks, such as a runner for scheduled publishes. */
   setup?: ConsoleDocumentSetup;
 }>();
@@ -184,6 +187,8 @@ const sourceLocale = computed(() => props.collection.locales?.[0]);
  * saves the translation.
  */
 const untranslated = ref<Version>();
+/** The source digest of `untranslated`. The first save records it, so the translation names the version it shows. */
+const untranslatedSource = ref<string>();
 /** The state of each translation, by locale, from the last read or save. */
 const translations = ref<Record<string, ConsoleDocumentTranslationState>>();
 /** The locales to switch between, source locale first, each with the state of its translation. A new document starts in the source locale. */
@@ -202,9 +207,47 @@ const translationNote = computed(() => {
       ? `Not translated yet · This is the ${source} version. Your first edit saves the ${consoleLocaleName(props.locale)} translation.`
       : `Not translated yet · This is the ${source} version.`;
   }
-  if (base.value && translations.value?.[props.locale] === "stale") return `Out of date · The ${source} version changed after this translation was made.`;
+  if (stale.value) return `Out of date · The ${source} version changed after this translation was made.`;
   return undefined;
 });
+/** A saved translation whose source changed after it was made. */
+const stale = computed(() => Boolean(props.locale && base.value && translations.value?.[props.locale] === "stale"));
+
+/**
+ * Mark as up to date: the dialog shows the current source version, and confirming saves the translation with that
+ * version as its source. A normal save keeps the source version that the translation records.
+ */
+const markOpen = ref(false);
+const markSource = ref<ConsoleDocument | null>();
+const markError = ref<string>();
+const markChanged = ref(false);
+
+async function openMarkCurrent(changed = false): Promise<void> {
+  if (!props.sourceClient || props.documentId === undefined) return;
+  markOpen.value = true;
+  markChanged.value = changed;
+  markSource.value = undefined;
+  markError.value = undefined;
+  try {
+    markSource.value = await props.sourceClient.get(props.collection.name, props.documentId);
+  }
+  catch (error) {
+    markError.value = consoleErrorMessage(error, "Couldn't read the source version.");
+  }
+}
+
+async function markCurrent(): Promise<void> {
+  const digest = markSource.value?.source?.digest;
+  if (!digest) return;
+  await save({ sourceDigest: digest });
+  if (saveError.value || conflict.value) {
+    markOpen.value = false;
+    return;
+  }
+  // The source changed again after the dialog read it: the translation stays out of date, so show the newer source.
+  if (stale.value) await openMarkCurrent(true);
+  else markOpen.value = false;
+}
 
 function localeRoute(locale: string) {
   const query = { ...route.query };
@@ -657,11 +700,13 @@ function openUntranslated(document: ConsoleDocument): void {
   translations.value = document.translations;
   if (document.state === "deleted") {
     untranslated.value = undefined;
+    untranslatedSource.value = undefined;
     return;
   }
-  // Someone typed while the page loaded: keep their edits.
+  // Someone typed while the page loaded: keep their edits and the source version they translate.
   if (untranslated.value && dirty.value) return;
   untranslated.value = { body: document.body, data: clone(document.data) };
+  untranslatedSource.value = document.source?.digest;
   draft.value = { body: document.body, data: clone(document.data) };
 }
 
@@ -760,7 +805,7 @@ watch(() => draft.value.data, (data) => {
  * Saves the draft. An autosave never moves focus or opens a dialog: invalid fields and conflicts show in the header
  * and inline, and saving pauses until the next edit or until someone resolves the conflict.
  */
-async function save(options: { auto?: boolean, ifDigest?: string | null } = {}): Promise<void> {
+async function save(options: { auto?: boolean, ifDigest?: string | null, sourceDigest?: string } = {}): Promise<void> {
   if (!canWrite.value) return;
   if (liveActive.value) {
     await saveLive();
@@ -785,11 +830,14 @@ async function save(options: { auto?: boolean, ifDigest?: string | null } = {}):
   const failedBefore = Boolean(saveError.value);
   saveError.value = undefined;
   const sent: Version = { body: draft.value.body, data: compact(draft.value.data) };
+  // A new translation records the source version it opened with. An existing one keeps its own, unless marked up to date.
+  const sourceDigest = options.sourceDigest ?? (untranslated.value ? untranslatedSource.value : undefined);
   try {
     const saved = await props.client.save(props.collection.name, id.value, {
       ...sent,
       ifDigest: options.ifDigest !== undefined ? options.ifDigest : base.value?.digest ?? null,
       session: consoleTabSession,
+      ...(sourceDigest ? { sourceDigest } : {}),
     });
     refusedEdits.value = 0;
     conflict.value = undefined;
@@ -2211,6 +2259,7 @@ const menuItems = computed(() => [[
           <UIcon name="i-lucide-languages" class="size-4 shrink-0 text-muted" aria-hidden="true" />
           <span class="min-w-0 flex-1 text-default">{{ translationNote }}</span>
           <UButton v-if="sourceLocale" size="xs" color="neutral" variant="outline" :label="`Open ${consoleLocaleName(sourceLocale)}`" :to="localeRoute(sourceLocale)" />
+          <UButton v-if="stale && canWrite && sourceClient" size="xs" color="neutral" variant="outline" label="Mark as up to date" @click="openMarkCurrent()" />
         </div>
         <p v-if="!canWrite" class="mb-6 flex items-center gap-2 text-[13px] text-muted">
           <UIcon name="i-lucide-lock" class="size-4 shrink-0" aria-hidden="true" />
@@ -2663,6 +2712,30 @@ const menuItems = computed(() => [[
       <div class="flex w-full justify-end gap-2">
         <UButton variant="ghost" label="Cancel" @click="scheduleOpen = false" />
         <UButton label="Schedule" :disabled="!scheduleAt || scheduleInPast" :loading="scheduling" @click="scheduleDraft" />
+      </div>
+    </template>
+  </UModal>
+
+  <UModal
+    :open="markOpen"
+    :title="`Mark the ${consoleLocaleName(locale ?? '')} translation as up to date?`"
+    :description="`Check that it matches the ${consoleLocaleName(sourceLocale ?? '')} version below. The translation then records this version as its source.`"
+    :ui="{ content: 'sm:max-w-3xl' }"
+    @update:open="(open) => { if (!open) markOpen = false }"
+  >
+    <template #body>
+      <p v-if="markError" role="alert" class="text-sm text-muted">{{ markError }}</p>
+      <ConsoleLoading v-else-if="markSource === undefined" :label="`Loading the ${consoleLocaleName(sourceLocale ?? '')} version…`" />
+      <p v-else-if="!markSource" class="text-sm text-muted">The {{ consoleLocaleName(sourceLocale ?? "") }} version no longer exists on the draft.</p>
+      <div v-else class="grid gap-3">
+        <p v-if="markChanged" class="text-xs text-muted" role="status">The {{ consoleLocaleName(sourceLocale ?? "") }} version changed again while you checked it. This is the newer version.</p>
+        <pre class="max-h-[60vh] overflow-auto rounded-md bg-elevated/50 px-4 py-3 font-mono text-[13px]/6 whitespace-pre-wrap text-muted select-text" :aria-label="`${consoleLocaleName(sourceLocale ?? '')} version, read-only`">{{ consoleDocumentText({ body: markSource.body, data: markSource.data }, collection.format) }}</pre>
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex w-full justify-end gap-2">
+        <UButton variant="ghost" label="Cancel" @click="markOpen = false" />
+        <UButton label="Mark as up to date" :disabled="!markSource?.source" :loading="saving" @click="markCurrent" />
       </div>
     </template>
   </UModal>

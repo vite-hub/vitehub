@@ -62,7 +62,7 @@ describe("Console documents client with a locale", () => {
     await client.get("docs", "guide")
     await client.get("docs", "guide", "published")
     await client.raw("docs", "guide")
-    await client.save("docs", "guide", { body: "Hola.", data: { title: "Guía" }, ifDigest: null, session: "tab" })
+    await client.save("docs", "guide", { body: "Hola.", data: { title: "Guía" }, ifDigest: null, session: "tab", sourceDigest: "sha256-a" })
     await client.remove("docs", "guide", "digest")
     await client.restore("docs", "guide", "revision", "digest")
     await client.revisions("docs", "guide")
@@ -74,7 +74,7 @@ describe("Console documents client with a locale", () => {
       ["get", { collection: "docs", id: "guide", locale: "es" }],
       ["get", { collection: "docs", id: "guide", ref: "published", locale: "es" }],
       ["raw", { collection: "docs", id: "guide", locale: "es" }],
-      ["save", { collection: "docs", id: "guide", body: "Hola.", data: { title: "Guía" }, ifDigest: null, session: "tab", locale: "es" }],
+      ["save", { collection: "docs", id: "guide", body: "Hola.", data: { title: "Guía" }, ifDigest: null, session: "tab", sourceDigest: "sha256-a", locale: "es" }],
       ["remove", { collection: "docs", id: "guide", ifDigest: "digest", locale: "es" }],
       ["restore", { collection: "docs", id: "guide", ifDigest: "digest", revision: "revision", locale: "es" }],
       ["revisions", { collection: "docs", id: "guide", locale: "es" }],
@@ -148,25 +148,28 @@ describe("Editing a translation", () => {
     UButton: defineComponent({ props: { label: String }, setup: props => () => h("button", { "data-label": props.label }, props.label) }),
     UTooltip: { template: "<slot />" },
     UFieldGroup: { template: "<slot />" },
-    UDropdownMenu: true, UEmpty: true, UModal: true, UIcon: true,
+    UDropdownMenu: true, UEmpty: true, UIcon: true,
+    UModal: { props: ["open"], template: "<div v-if='open' class='modal'><slot name='body' /><slot name='footer' /></div>" },
   }
 
-  function mountEditor(document: ConsoleDocument, locale?: string) {
+  function mountEditor(document: ConsoleDocument, locale?: string, current: ConsoleDocument = source) {
     const client = {
       ...createConsoleDocumentsClient("", "content", locale),
       get: vi.fn(async () => document),
-      save: vi.fn(async (_collection: string, _id: string, input: { data: Record<string, unknown>, ifDigest: string | null }) => ({
+      save: vi.fn(async (_collection: string, _id: string, input: { data: Record<string, unknown>, ifDigest: string | null, sourceDigest?: string }) => ({
         ...source,
         data: input.data,
-        digest: "es-digest",
-        locale: "es",
-        path: "docs/es/guide.json",
-        translations: { es: "current" as const, fr: "stale" as const },
+        digest: `${locale}-digest`,
+        locale,
+        path: `docs/${locale}/guide.json`,
+        // Only a save with the current source digest makes the French translation up to date.
+        translations: { es: "current" as const, fr: input.sourceDigest === current.source?.digest ? "current" as const : "stale" as const },
       })),
     }
+    const sourceClient = { ...createConsoleDocumentsClient("", "content"), get: vi.fn(async () => current) }
     route.query = locale ? { locale } : {}
-    const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection, documentId: "guide", ...(locale ? { locale } : {}) }, global: { stubs } })
-    return { client, wrapper }
+    const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection, documentId: "guide", ...(locale ? { locale, sourceClient } : {}) }, global: { stubs } })
+    return { client, sourceClient, wrapper }
   }
 
   it("switches between locales, source locale first, with each translation state", async () => {
@@ -186,7 +189,7 @@ describe("Editing a translation", () => {
   it("opens a missing translation with the source version and saves it in its locale on the first edit", async () => {
     vi.useFakeTimers()
     try {
-      const { client, wrapper } = mountEditor({ ...source, fallback: true, state: undefined }, "es")
+      const { client, wrapper } = mountEditor({ ...source, fallback: true, source: { digest: "sha256-a", path: "docs/en/guide.json" }, state: undefined }, "es")
       await flushPromises()
       expect(wrapper.text()).toContain("Not translated yet · This is the English version. Your first edit saves the Spanish translation.")
       expect(wrapper.get("textarea").element.value).toBe("Guide")
@@ -197,7 +200,8 @@ describe("Editing a translation", () => {
       await wrapper.get("textarea").setValue("Guía")
       await vi.advanceTimersByTimeAsync(1_500)
       await flushPromises()
-      expect(client.save).toHaveBeenCalledWith("docs", "guide", expect.objectContaining({ data: { title: "Guía" }, ifDigest: null }))
+      // The save records the source version the editor showed, even if the source changed since.
+      expect(client.save).toHaveBeenCalledWith("docs", "guide", expect.objectContaining({ data: { title: "Guía" }, ifDigest: null, sourceDigest: "sha256-a" }))
       expect(wrapper.text()).not.toContain("Not translated yet")
       expect(wrapper.get("nav a[aria-current='page']").attributes("aria-label")).toBe("Spanish · Up to date")
       wrapper.unmount()
@@ -212,5 +216,36 @@ describe("Editing a translation", () => {
     await flushPromises()
     expect(wrapper.text()).toContain("Out of date · The English version changed after this translation was made.")
     wrapper.unmount()
+  })
+
+  it("keeps a stale translation stale on edits, and marks it up to date after showing the current source", async () => {
+    vi.useFakeTimers()
+    try {
+      const current = { ...source, data: { title: "Guide B" }, source: { digest: "sha256-b", path: "docs/en/guide.json" } }
+      const french = { ...source, data: { title: "Guide en français" }, digest: "fr-digest", locale: "fr", path: "docs/fr/guide.json", source: { digest: "sha256-b", path: "docs/en/guide.json" } }
+      const { client, sourceClient, wrapper } = mountEditor(french, "fr", current)
+      await flushPromises()
+
+      await wrapper.get("textarea").setValue("Guide en français, corrigé")
+      await vi.advanceTimersByTimeAsync(1_500)
+      await flushPromises()
+      expect(client.save).toHaveBeenCalledTimes(1)
+      expect(client.save.mock.calls[0]![2]).not.toHaveProperty("sourceDigest")
+      expect(wrapper.text()).toContain("Out of date")
+
+      await wrapper.get("button[data-label='Mark as up to date']").trigger("click")
+      await flushPromises()
+      expect(sourceClient.get).toHaveBeenCalledWith("docs", "guide")
+      expect(wrapper.get(".modal pre").text()).toContain("Guide B")
+      await wrapper.findAll(".modal button[data-label='Mark as up to date']").at(-1)!.trigger("click")
+      await flushPromises()
+      expect(client.save).toHaveBeenLastCalledWith("docs", "guide", expect.objectContaining({ data: { title: "Guide en français, corrigé" }, ifDigest: "fr-digest", sourceDigest: "sha256-b" }))
+      expect(wrapper.find(".modal").exists()).toBe(false)
+      expect(wrapper.text()).not.toContain("Out of date")
+      wrapper.unmount()
+    }
+    finally {
+      vi.useRealTimers()
+    }
   })
 })

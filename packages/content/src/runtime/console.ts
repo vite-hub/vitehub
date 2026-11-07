@@ -458,6 +458,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     if (document.issues?.length) result.issues = json(document.issues)
     if (document.locale !== undefined) result.locale = document.locale
     if (document.fallback) result.fallback = true
+    if (document.source) result.source = { ...document.source }
     const translated = collection.kind === "documents" && locale !== undefined && locale !== collection.locales?.[0]
     const [status, source] = await Promise.all([
       collection.kind === "documents" && locale !== undefined ? collection.status(document.id, { locale }) : collection.status(document.id),
@@ -687,7 +688,10 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       const ifDigest = digest(input.ifDigest)
       const published = input.ifPublishedDigest === undefined ? {} : { ifPublishedDigest: digest(input.ifPublishedDigest, "ifPublishedDigest") }
       const locale = localeInput(input)
-      return await attempt(async () => await view(collection, await collection.save(id, { data, body: input.body }, { ifDigest, ...published, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id), ...locale }), locale.locale))
+      // The source version that the person translated from. Without it, Content keeps the one the translation records.
+      const sourceDigest = optionalText(input.sourceDigest, "sourceDigest")
+      const source = sourceDigest === undefined ? {} : { sourceDigest }
+      return await attempt(async () => await view(collection, await collection.save(id, { data, body: input.body }, { ifDigest, ...published, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id), ...locale, ...source }), locale.locale))
     },
 
     async remove(input, context) {

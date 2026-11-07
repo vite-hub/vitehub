@@ -704,6 +704,29 @@ describe("Content Console locales", { timeout: 30_000 }, () => {
     expect((await actions.revisions({ collection: "docs", id: "guide", locale: "es" }, editor)).revisions.map(revision => revision.action)).toEqual(["save"])
   })
 
+  it("records the source version the editor showed, keeps a stale translation stale, and marks it up to date on request", async () => {
+    const { actions } = await localized()
+    const a = await actions.save(guide, editor)
+    // The editor opens the missing translation with source A.
+    const shown = await actions.get({ collection: "docs", id: "guide", locale: "es" }, editor)
+    expect(shown).toMatchObject({ fallback: true, source: { path: "docs/en/guide.md", digest: expect.stringMatching(/^sha256-[0-9a-f]{64}$/) } })
+    // Someone saves source B before the first autosave of the translation.
+    await actions.save({ ...guide, data: { title: "Guide B" }, ifDigest: a.digest }, editor)
+    const first = await actions.save({ ...guide, data: { title: "Guía A" }, locale: "es", sourceDigest: shown!.source!.digest }, editor)
+    expect(first).toMatchObject({ locale: "es", translations: { es: "stale" } })
+
+    // A normal autosave keeps the recorded source version.
+    const edited = await actions.save({ ...guide, data: { title: "Guía A, sin errata" }, ifDigest: first.digest, locale: "es" }, editor)
+    expect(edited).toMatchObject({ translations: { es: "stale" } })
+
+    // Mark as up to date shows the current source, then saves with its digest.
+    const current = await actions.get({ collection: "docs", id: "guide" }, editor)
+    expect(current).toMatchObject({ data: { title: "Guide B" }, source: { path: "docs/en/guide.md" } })
+    const marked = await actions.save({ ...guide, data: { title: "Guía B" }, ifDigest: edited.digest, locale: "es", sourceDigest: current!.source!.digest }, editor)
+    expect(marked).toMatchObject({ translations: { es: "current" } })
+    expect(await failure(actions.save({ ...guide, ifDigest: current!.digest, sourceDigest: current!.source!.digest }, editor))).toMatchObject({ status: 400 })
+  })
+
   it("publishes, restores, and removes a translation in its locale", async () => {
     const { actions, content } = await localized()
     const source = await actions.save(guide, editor)

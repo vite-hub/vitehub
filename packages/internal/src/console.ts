@@ -509,6 +509,11 @@ export interface ViteHubConsoleDocument {
    * `revision` are the source's: save the translation with `ifDigest: null`.
    */
   fallback?: true
+  /**
+   * The source locale version on the draft when this was read, in a collection with `locales`. Save a translation made
+   * from it with `sourceDigest: source.digest`.
+   */
+  source?: { path: string, digest: string }
   /** The state of each translation of the document, by locale, in a collection with `locales`. */
   translations?: Record<string, ViteHubConsoleDocumentTranslationState>
 }
@@ -787,9 +792,11 @@ export interface ViteHubConsoleDocumentActions {
   /**
    * `ifDigest: null` creates a document that must not exist yet. `session` is the tab token: while another tab holds
    * the edit lease, the save fails with `409 CONTENT_LEASE_HELD` and `details.holder`. `ifPublishedDigest` resolves a
-   * `conflict`: it names the published version that the person saw, which the draft then builds on.
+   * `conflict`: it names the published version that the person saw, which the draft then builds on. `sourceDigest`, on a
+   * translation, is the `source.digest` of the source version it was made from; without it, an
+   * existing translation keeps the version it records.
    */
-  save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null, ifPublishedDigest?: string | null, session?: string, live?: boolean, locale?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
+  save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null, ifPublishedDigest?: string | null, session?: string, live?: boolean, locale?: string, sourceDigest?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
   /** `live: true` when the tab edits in the live room of the document, which holds the lease for everyone in it. */
   remove(input: { collection: string, id: string, ifDigest: string, session?: string, live?: boolean, locale?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
   /**

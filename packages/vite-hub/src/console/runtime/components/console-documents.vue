@@ -490,6 +490,7 @@ onBeforeUnmount(() => {
           :collection="collection"
           :document-id="editorDocumentId"
           :locale="editorLocale"
+          :source-client="editorLocale ? client : undefined"
           :parent="collection.kind === 'singleton' && settingsPage ? { label: settingsPage.label, to: pageRoute(settingsPage) } : undefined"
           :changes="changes"
           :setup="setup"
