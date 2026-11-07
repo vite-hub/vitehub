@@ -1,4 +1,5 @@
 import { addCommand } from "./add.ts"
+import { initCommandDefinition, readSetupStack } from "./init.ts"
 import { parseArgs } from "node:util"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
@@ -76,7 +77,7 @@ function credentialsLabel(credentials: SetupLinkStatus["credentials"]): string {
   return credentials.ok ? `${credentials.host} (${credentials.source})` : `missing: ${credentials.fix}`
 }
 
-function writeStatus(status: SetupStatus & SetupLinkStatus, context: ViteHubCliContext): void {
+function writeStatus(status: SetupStatus & SetupLinkStatus & { stack: { command: string } | null }, context: ViteHubCliContext): void {
   const shown = status.features.filter(feature => feature.enabled !== "off")
   const off = status.features.length - shown.length
   context.stdout.write(`${table([
@@ -87,6 +88,8 @@ function writeStatus(status: SetupStatus & SetupLinkStatus, context: ViteHubCliC
     ["packages", status.packageManager],
     ["link", linkLabel(status.link)],
     ["credentials", credentialsLabel(status.credentials)],
+    ...(status.console ? [["console", `pending link ${status.console.pendingId}`]] : []),
+    ...(status.stack ? [["stack", status.stack.command]] : []),
   ])}\n\n`)
   if (shown.length) {
     context.stdout.write(`${table([
@@ -103,7 +106,7 @@ const statusCommand: ViteHubCliCommand = {
   run: (args, context) => runSetupCommand(statusCommand, args, context, async (json) => {
     const project = await readSetupProject(context.rootDir, context.env)
     const features = setupStatus(project, context.env)
-    const status = { ...features, ...await readSetupLinkStatus(project, features.host.name, context) }
+    const status = { ...features, ...await readSetupLinkStatus(project, features.host.name, context), stack: await readSetupStack(project.root) }
     if (json) writeSetupJson(context, status)
     else writeStatus(status, context)
     return setupExitCodes.done
@@ -178,4 +181,4 @@ const unlinkCommand: ViteHubCliCommand = {
 }
 
 /** The setup commands. They run before the CLI loads the project config. */
-export const setupCommands: readonly ViteHubCliCommand[] = [addCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand]
+export const setupCommands: readonly ViteHubCliCommand[] = [initCommandDefinition, addCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand]
