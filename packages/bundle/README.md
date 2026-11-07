@@ -35,6 +35,8 @@ The report joins the build environments. In Nuxt 5, Nitro bundles the SSR output
 
 `hubBundle()` is a Vite plugin. In `writeBundle` it reads Rolldown's output chunks, `chunk.modules[id].renderedLength`, and `getModuleInfo()`, and writes `.vitehub/bundle/<environment>.json`. When Nitro bundles on its own, as in Nuxt 5, the plugin's Nitro module adds the same reader to Nitro's `build:config`. A new build removes the files of older builds.
 
+Each Vite build command starts a fresh report. All environments of a Vite builder share a build ID, and `vite-hub/nuxt` starts one session for Nuxt's Vite and Nitro phases. Custom coordinators that run phases in separate processes must pass the same fresh `buildId` to `hubBundle({ buildId })` in every phase; independent commands do not join reports left on disk.
+
 Read the report in code:
 
 ```ts

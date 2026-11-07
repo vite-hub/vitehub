@@ -5,7 +5,7 @@ import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 
 import { bundleCliContributor } from "./cli.ts"
 import { collectEnvironmentReport } from "./collect.ts"
-import { readEnvironmentReports, writeEnvironmentReport } from "./files.ts"
+import { writeEnvironmentReport } from "./files.ts"
 
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
@@ -24,7 +24,17 @@ interface BundleNitroModule {
   setup: (nitro: NitroLike) => void
 }
 
-export type BundleVitePlugin = Plugin & { nitro: BundleNitroModule, vitehub: ViteHubCliPluginMetadata }
+export type BundleVitePlugin = Plugin & {
+  /** Frameworks such as Nuxt start one session before running their Vite and Nitro phases. */
+  api: { startBuild: () => string }
+  nitro: BundleNitroModule
+  vitehub: ViteHubCliPluginMetadata
+}
+
+export interface BundleViteOptions {
+  /** A coordinator can pass the same fresh ID to phases running in separate processes. */
+  buildId?: string
+}
 
 interface OutputContext {
   getModuleInfo: (id: string) => ModuleInfoLike | null
@@ -39,23 +49,21 @@ function writtenOutputs(): WeakMap<object, Set<string>> {
   return outputs
 }
 
-function writeReport(context: OutputContext, bundle: Record<string, unknown>, options: { environment: string, outDir: string, root: string, side: "client" | "server" }): void {
+function newBuildId(): string {
+  return `${new Date().toISOString()}-${randomUUID()}`
+}
+
+function writeReport(context: OutputContext, bundle: Record<string, unknown>, options: { build: string, environment: string, outDir: string, root: string, side: "client" | "server" }): void {
   // Nitro's rootDir can end with a slash, and Vite's root can be Nuxt's srcDir. Both must name the same build.
   const root = resolve(options.root)
   const outDir = resolve(options.outDir)
   const outputs = writtenOutputs()
   const written = outputs.get(bundle) ?? new Set<string>()
   // In Nuxt 5, the Vite plugin and the Nitro module can both see the server build.
-  const key = `${root}\0${options.environment}\0${outDir}`
+  const key = `${root}\0${options.build}\0${options.environment}\0${outDir}`
   if (written.has(key)) return
-  const reports = readEnvironmentReports(root)
-  // A repeated environment begins the next build. Later phases join the on-disk identity, even in another process.
-  const build = reports.some(report => report.environment === options.environment)
-    ? `${new Date().toISOString()}-${randomUUID()}`
-    : reports[0]?.build ?? `${new Date().toISOString()}-${randomUUID()}`
   writeEnvironmentReport(root, collectEnvironmentReport(bundle, {
     ...options,
-    build,
     getModuleInfo: id => context.getModuleInfo(id),
     outDir,
     root,
@@ -65,7 +73,7 @@ function writeReport(context: OutputContext, bundle: Record<string, unknown>, op
 }
 
 /** Adds a Rolldown plugin to a Nitro build that bundles on its own, such as the server build of Nuxt 5. */
-function bundleNitroModule(): BundleNitroModule {
+function bundleNitroModule(buildId: () => string | undefined): BundleNitroModule {
   return {
     name: "@vite-hub/bundle/nitro",
     setup(nitro) {
@@ -75,11 +83,12 @@ function bundleNitroModule(): BundleNitroModule {
       nitro.hooks.hook("build:config", (_nitro, config) => {
         const bundler = config.rolldown ?? config.rollup
         if (!bundler) return
+        const build = newBuildId()
         const plugins = Array.isArray(bundler.plugins) ? bundler.plugins : bundler.plugins ? [bundler.plugins] : []
         bundler.plugins = [...plugins, {
           name: "@vite-hub/bundle/nitro-report",
           writeBundle(this: OutputContext, output: { dir?: string }, bundle: Record<string, unknown>) {
-            writeReport(this, bundle, { environment: "nitro", outDir: output.dir ?? root, root, side: "server" })
+            writeReport(this, bundle, { build: buildId() ?? build, environment: "nitro", outDir: output.dir ?? root, root, side: "server" })
           },
         }]
       })
@@ -91,21 +100,42 @@ function bundleNitroModule(): BundleNitroModule {
  * Writes a bundle report for each build environment to `.vitehub/bundle/`. `vitehub bundle` joins them into one
  * report for the app. Builds without the plugin write nothing.
  */
-export function hubBundle(): BundleVitePlugin {
+export function hubBundle(options: BundleViteOptions = {}): BundleVitePlugin {
+  let coordinatedBuild = options.buildId
+  const builds = new WeakMap<object, string>()
   return {
     name: "@vite-hub/bundle/vite",
     enforce: "post",
+    sharedDuringBuild: true,
+    buildApp: {
+      order: "pre",
+      async handler(builder) {
+        const build = coordinatedBuild ?? newBuildId()
+        for (const environment of Object.values(builder.environments)) builds.set(environment, build)
+      },
+    },
+    buildStart() {
+      // Standalone build() calls get new environments; watch rebuilds update the same session.
+      if (!builds.has(this.environment)) builds.set(this.environment, coordinatedBuild ?? newBuildId())
+    },
     writeBundle(output, bundle) {
       const environment = this.environment
       const config = environment.config
       writeReport(this, bundle as Record<string, unknown>, {
+        build: coordinatedBuild ?? builds.get(environment)!,
         environment: environment.name,
         outDir: output.dir ?? resolve(config.root, config.build.outDir),
         root: resolveViteHubProjectRoot(config.root),
         side: config.consumer === "server" ? "server" : "client",
       })
     },
-    nitro: bundleNitroModule(),
+    api: {
+      startBuild() {
+        coordinatedBuild = newBuildId()
+        return coordinatedBuild
+      },
+    },
+    nitro: bundleNitroModule(() => coordinatedBuild),
     vitehub: { cli: bundleCliContributor },
   }
 }

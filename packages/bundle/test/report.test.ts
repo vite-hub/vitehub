@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -60,11 +60,31 @@ function nuxtBuild(build = "2026-11-06T10:00:00.000Z") {
 }
 
 describe("module ids and groups", () => {
+  it.each(["shared", "@consumer/shared", "@vite-hub/agent"])("uses the manifest name for a sibling workspace package named %s", (name) => {
+    const workspace = mkdtempSync(join(tmpdir(), "vitehub-bundle-workspace-"))
+    try {
+      const packageDir = join(workspace, "packages", "shared")
+      mkdirSync(packageDir, { recursive: true })
+      writeFileSync(join(packageDir, "package.json"), JSON.stringify({ name }))
+      const appRoot = join(workspace, "apps", "site")
+      const raw = join(packageDir, "dist", "index.js")
+      const report = collectEnvironmentReport({
+        "entry.js": chunk("entry.js", "code", { [raw]: 1 }, { entry: raw }),
+      }, { build: "b", environment: "client", side: "client", root: appRoot, outDir: join(appRoot, "dist"), getModuleInfo: graph({}, [raw]) })
+      expect(report.chunks[0]!.modules[0]!.id).toBe(`node_modules/${name}/dist/index.js`)
+      expect(createBundleReport([report])!.client!.groups).toMatchObject([{ name, kind: name.startsWith("@vite-hub/") ? "vitehub" : "dependency", bytes: 4 }])
+      expect(explainBundle([report], name)[0]?.bytes).toBe(4)
+    }
+    finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  })
+
   it("normalizes Windows app, dependency, workspace, and Nuxt template paths", () => {
     const windowsRoot = "C:\\repo\\app\\"
     expect(moduleId("C:/repo/app/server/api/hello.ts", windowsRoot)).toBe("server/api/hello.ts")
     expect(moduleId("C:\\repo\\app\\node_modules\\.pnpm\\zod@4\\node_modules\\zod\\index.js?x", windowsRoot)).toBe("node_modules/zod/index.js")
-    expect(moduleId("C:/repo/packages/agent/dist/index.js", windowsRoot)).toBe("node_modules/@vite-hub/agent/dist/index.js")
+    expect(moduleId("C:/repo/packages/agent/dist/index.js", windowsRoot)).toBe("C:/repo/packages/agent/dist/index.js")
     expect(moduleId(`virtual:nuxt:${encodeURIComponent("C:/repo/app/.nuxt/routes.mjs")}`, windowsRoot)).toBe(".nuxt/routes.mjs")
     expect(moduleGroup(moduleId("C:/repo/app/server/api/hello.ts", windowsRoot))).toEqual({ name: "server/api", kind: "app" })
     expect(moduleGroup(moduleId("D:/shared/index.js", windowsRoot))).toEqual({ name: "outside the project", kind: "dependency" })
@@ -72,7 +92,7 @@ describe("module ids and groups", () => {
 
   it("names pnpm packages, workspace packages, generated output, and app folders", () => {
     expect(moduleId(`${root}/node_modules/.pnpm/@libsql+client@0.15.0/node_modules/@libsql/client/web.js?x`, root)).toBe("node_modules/@libsql/client/web.js")
-    expect(moduleId("/repo/packages/agent/dist/index.js", root)).toBe("node_modules/@vite-hub/agent/dist/index.js")
+    expect(moduleId("/repo/packages/agent/dist/index.js", root)).toBe("/repo/packages/agent/dist/index.js")
     expect(moduleId(`${root}/node_modules/.cache/nuxt/.nuxt/dist/server/server.mjs`, root)).toBe("node_modules/.cache/nuxt/.nuxt/dist/server/server.mjs")
     expect(moduleGroup("node_modules/vite-hub/dist/console/runtime/server/mcp.js")).toEqual({ name: "vite-hub/console", kind: "vitehub" })
     expect(moduleGroup("node_modules/vite-hub/dist/usage-index-DINxJnhe.js")).toEqual({ name: "vite-hub/usage-index", kind: "vitehub" })

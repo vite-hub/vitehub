@@ -1,15 +1,17 @@
+import { readFileSync } from "node:fs"
+
 import type { BundleGroupKind } from "./types.ts"
 
 const frameworkPackages = new Set(["@unhead/vue", "nuxt-nightly", "@vue/reactivity", "@vue/runtime-core", "@vue/runtime-dom", "@vue/server-renderer", "@vue/shared", "crossws", "h3", "nitro", "nuxt", "ocache", "rou3", "srvx", "unhead", "vue", "vue-router"])
 
 /** The root-relative id of a module. Dependencies become `node_modules/<package>/<file>`, wherever pnpm stores them. */
-export function moduleId(id: string, root: string): string {
+export function moduleId(id: string, root: string, packages: Map<string, string | undefined> = new Map()): string {
   const clean = id.replace(/\\/g, "/").replace(/\?.*$/, "").replace(/^\0/, "")
   const rootPath = root.replace(/\\/g, "/").replace(/\/$/, "")
   // Nuxt names its templates `virtual:nuxt:<encoded path>`.
   const nuxtTemplate = clean.match(/^virtual:nuxt:(.+)$/)
   if (nuxtTemplate) {
-    return moduleId(decodeURIComponent(nuxtTemplate[1]!), rootPath)
+    return moduleId(decodeURIComponent(nuxtTemplate[1]!), rootPath, packages)
   }
   const windows = /^[a-z]:\//i.test(clean)
   if (!clean.startsWith("/") && !windows) return clean
@@ -20,8 +22,21 @@ export function moduleId(id: string, root: string): string {
     if (!rest.startsWith(".")) return `node_modules/${rest}`
   }
   const withinRoot = windows ? clean.toLowerCase().startsWith(`${rootPath.toLowerCase()}/`) : clean.startsWith(`${rootPath}/`)
-  const workspace = clean.match(/\/packages\/([^/]+)\/dist\/(.+)$/)
-  if (workspace && !withinRoot) return `node_modules/${workspace[1] === "vite-hub" ? "vite-hub" : `@vite-hub/${workspace[1]}`}/dist/${workspace[2]}`
+  const workspace = clean.match(/^(.*\/packages\/[^/]+)\/dist\/(.+)$/)
+  if (workspace && !withinRoot) {
+    const dir = workspace[1]!
+    if (!packages.has(dir)) {
+      let name: string | undefined
+      try {
+        const manifest: unknown = JSON.parse(readFileSync(`${dir}/package.json`, "utf8"))
+        if (manifest && typeof manifest === "object" && typeof Reflect.get(manifest, "name") === "string") name = Reflect.get(manifest, "name")
+      }
+      catch { /* An unknown outside file keeps its absolute path. */ }
+      packages.set(dir, name)
+    }
+    const name = packages.get(dir)
+    if (name) return `node_modules/${name}/dist/${workspace[2]}`
+  }
   return withinRoot ? clean.slice(rootPath.length + 1) : clean
 }
 

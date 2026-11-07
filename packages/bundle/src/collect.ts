@@ -97,8 +97,9 @@ export function collectEnvironmentReport(bundle: Record<string, unknown>, option
     pending.push(...byFile.get(file)?.imports ?? [])
   }
   const ids = new Map<string, string>()
+  const packages = new Map<string, string | undefined>()
   for (const chunk of chunks) {
-    for (const [id, module] of Object.entries(chunk.modules)) if (module.renderedLength > 0) ids.set(id, moduleId(id, options.root))
+    for (const [id, module] of Object.entries(chunk.modules)) if (module.renderedLength > 0) ids.set(id, moduleId(id, options.root, packages))
   }
   const edges = createEdgeReader(ids, options.getModuleInfo)
 
