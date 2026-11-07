@@ -264,7 +264,8 @@ async function writeWorkspaceLock(rootDir: string, lock: WorkspaceLock): Promise
   await writeFile(join(rootDir, workspaceLockFile), `${JSON.stringify(sorted, null, 2)}\n`)
 }
 
-function folderOf(rootDir: string, dir: string): string {
+/** The absolute checkout folder of a lock `dir`. Fails unless it is a folder inside the project. */
+export function folderOf(rootDir: string, dir: string): string {
   const folder = resolve(rootDir, dir)
   const inside = relative(rootDir, folder)
   if (!inside || inside.startsWith("..") || inside.split(sep).includes("..")) {

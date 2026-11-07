@@ -4,7 +4,7 @@ import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/pr
 import { join, relative, resolve, sep } from "node:path"
 import { promisify } from "node:util"
 
-import { formatWorkspaceStatus, ignoredName, localCheckoutStatus, workspaceLockFile } from "./checkout.ts"
+import { folderOf, formatWorkspaceStatus, ignoredName, localCheckoutStatus, workspaceLockFile } from "./checkout.ts"
 import { workspaceCheckoutFeatures } from "./checkout-cli.ts"
 
 import type { WorkspaceCheckoutCliContext } from "./checkout-cli.ts"
@@ -167,7 +167,17 @@ async function checkoutFiles(rootDir: string): Promise<Map<string, string>> {
       else if (entry.isFile()) await digest(relative(rootDir, path).split(sep).join("/"))
     }
   }
-  for (const dir of dirs) await walk(join(rootDir, dir))
+  for (const dir of dirs) {
+    let folder: string
+    try {
+      folder = folderOf(rootDir, dir)
+    }
+    catch {
+      // A committed lock can name a folder outside the project. Read nothing there: `vitehub push` rejects the lock.
+      continue
+    }
+    await walk(folder)
+  }
   return files
 }
 

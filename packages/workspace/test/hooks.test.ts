@@ -237,6 +237,21 @@ describe("vitehub hooks", () => {
     expect(opened.filter(path => path.startsWith(skipped))).toEqual([])
   })
 
+  it("reads no folder outside the project that a committed lock names", async () => {
+    const { rootDir, top } = await repository()
+    const outside = join(top, "secret")
+    await mkdir(outside)
+    await writeFile(join(outside, "key.pem"), "secret\n")
+    await writeFile(join(rootDir, "vitehub.lock"), JSON.stringify({ version: 1, workspaces: { site: { dir: "../secret", files: {}, head: "r1", ref: "draft", remote: "https://docs.example.test" } } }))
+    opened.length = 0
+
+    const pushed = await run("pre-push", rootDir, pushMain)
+
+    expect(pushed.code).toBe(1)
+    expect(pushed.stderr).toContain("must be a folder inside the project")
+    expect(opened.filter(path => path.startsWith(outside))).toEqual([])
+  })
+
   it("reads the remote branches from the pre-push input", () => {
     expect(pushedBranches("refs/heads/a 1 refs/heads/main 0\nrefs/tags/v1 2 refs/tags/v1 0\n")).toEqual(["main"])
     expect(pushedBranches("")).toEqual([])
