@@ -87,6 +87,15 @@ describe("mcpOAuth", () => {
     expect(row?.applicationType).toBe("native")
   })
 
+  it("verifies a request that has only a URL and headers, such as H3's event.req", async () => {
+    const auth = await setup()
+    const { accessToken } = await signInAgent(auth)
+    const request = mcpRequest(accessToken)
+    const [error, caller] = await verifyMcpRequest({ headers: request.headers, url: request.url }, { auth: auth.auth })
+    expect(error).toBeUndefined()
+    expect(caller?.user).toMatchObject({ email: "ada@example.com" })
+  })
+
   it("rejects a missing, tampered, or foreign-resource token, and a deleted user's", async () => {
     const auth = await setup()
     const { accessToken } = await signInAgent(auth)

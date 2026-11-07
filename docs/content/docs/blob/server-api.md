@@ -308,7 +308,11 @@ if (completeError) throw completeError
 | `vercel-blob` | Vercel multipart upload | The upload ID encodes the Vercel key. Access always comes from the store config. `abort()` does nothing; Vercel discards unfinished uploads. |
 
 The framework-neutral client is `@vite-hub/blob/client`, with `uploadFiles()`
-and `createMultipartUploader()`. The Vue composables use it.
+and `createMultipartUploader()`. The Vue composables use it. Pass `onProgress` to
+`uploadFiles()` to hear the upload progress from 0 to 100; the files then go through
+XMLHttpRequest, since `fetch` can't report it. For a cross-origin upload route,
+the server must also answer CORS preflight (`OPTIONS`) requests: listening for
+upload progress makes the browser preflight even a simple multipart POST.
 
 ## Signed requests
 

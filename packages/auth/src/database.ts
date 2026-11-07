@@ -15,8 +15,8 @@ export type { AuthAppDatabase } from "./types.ts"
 
 /**
  * The Better Auth `database` adapter for the app Database `name` (default `"default"`). Pass it inline as the
- * `database` of `defineAuth()`. Auth then adds the Better Auth tables, with the fields of `admin()` and the
- * Console MCP OAuth tables, to that Database. The adapter uses the Database of each request: SQLite, libSQL,
+ * `database` of `defineAuth()`. Auth then adds the Better Auth tables, with the fields of `admin()`, the
+ * Console MCP OAuth tables, and the table of Better Auth's limiter, to that Database. The adapter uses the Database of each request: SQLite, libSQL,
  * Cloudflare D1, or Postgres.
  */
 export function authDatabase(name: string = "default"): AuthAppDatabase {
