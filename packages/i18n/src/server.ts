@@ -115,7 +115,7 @@ export function installI18nServer(nitroApp: NitroAppLike, options: I18nServerOpt
     // Nitro waits for this promise, so a request after a publish reads the new revision.
     const revision = live.revision
     return live.refresh().then(() => {
-      if (live.revision !== revision) instance.load(instance.locale, messagesOf(instance.locale))
+      if (live.revision !== revision) instance.loadAndActivate({ locale: instance.locale, messages: messagesOf(instance.locale) })
     })
   })
 

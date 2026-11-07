@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { describe, expect, it, vi } from "vitest"
 
 import { matchLocale, parseAcceptLanguage, resolveI18nLocaleConfig } from "../src/locales.ts"
-import { configureI18n, getLocale, resolveRequestLocale, setLocale, translate } from "../src/runtime.ts"
+import { activateLocale, configureI18n, getI18n, getLocale, resolveBrowserLocale, resolveRequestLocale, setLocale, translate } from "../src/runtime.ts"
 import { installI18nServer } from "../src/server.ts"
 import { t } from "../src/index.ts"
 
@@ -99,6 +99,28 @@ describe("server scope", () => {
 })
 
 describe("runtime", () => {
+  it.each([
+    { cookie: "locale=es", languages: ["en"], locale: "es" },
+    { cookie: "", languages: ["es-MX"], locale: "es" },
+    { cookie: "", languages: ["fr"], locale: "en" },
+  ])("sets the initial document language to $locale for $cookie and $languages", async ({ cookie, languages, locale }) => {
+    configureI18n({ ...config, catalogs: { es: async () => ({ messages: { greeting: "Hola" } }) } })
+    const page = { cookie, documentElement: { lang: "en" } }
+    vi.stubGlobal("document", page)
+    vi.stubGlobal("navigator", { languages })
+    try {
+      // `createI18n()` initializes a Vite app with this browser selection and activation.
+      await activateLocale(getI18n(), resolveBrowserLocale(config))
+      expect(getLocale()).toBe(locale)
+      expect(translate({ id: "greeting", message: "Hello" })).toBe(locale === "es" ? "Hola" : "Hello")
+      expect(page.documentElement.lang).toBe(locale)
+      expect(page.cookie).toBe(cookie)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("keeps the latest locale selection when an earlier catalog loads last", async () => {
     const spanish = delayedCatalog()
     const portuguese = delayedCatalog()
@@ -117,7 +139,9 @@ describe("runtime", () => {
       const cookie = page.cookie
       expect(cookie).toContain("locale=pt-BR;")
       spanish.resolve({ messages: { greeting: "Hola" } })
-      expect(await earlier).toEqual([undefined, "es"])
+      const [error, locale] = await earlier
+      expect(locale).toBeUndefined()
+      expect(error).toMatchObject({ code: "I18N_LOCALE_SUPERSEDED", docs: "https://vitehub.dev/docs/i18n/limits-and-errors#i18n_locale_superseded" })
       expect(getLocale()).toBe("pt-BR")
       expect(translate({ id: "greeting" })).toBe("Olá")
       expect(page.cookie).toBe(cookie)

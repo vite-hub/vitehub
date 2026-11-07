@@ -37,7 +37,9 @@ function memoryWorkspace() {
         if ((heads.get(ref) ?? null) !== ifHead) throw new Error("conflict")
         const base = ifHead ? revisions.get(ifHead)! : {}
         const id = `${ref}-${revisions.size + 1}`
-        revisions.set(id, { ...base, ...changes.put })
+        const files = { ...base, ...changes.put }
+        for (const path of changes.delete ?? []) delete files[path]
+        revisions.set(id, files)
         heads.set(ref, id)
         return { id }
       },
@@ -162,6 +164,31 @@ function setup(store = memoryWorkspace()) {
 }
 
 describe("translations in a Workspace", () => {
+  it.each(["deleted", "malformed"])("replaces the detecting request's catalog when published records are %s", async (change) => {
+    const { store, request } = setup()
+    const extra = { id: messageId("Live only message"), message: "Live only message" }
+    const paths = [recordPath("es", deploy.id), recordPath("es", extra.id)]
+    const first = await store.workspace.history.commit({
+      ref: "published",
+      ifHead: null,
+      changes: { put: {
+        [paths[0]!]: JSON.stringify({ source: deploy.message, translation: "Publica tu agente" }),
+        [paths[1]!]: JSON.stringify({ source: extra.message, translation: "Solo en vivo" }),
+      } },
+    })
+    const render = () => [translate(deploy), translate(extra), translate(note)]
+    expect(await request(render)).toEqual(["Publica tu agente", "Solo en vivo", "Nota del servidor"])
+
+    await store.workspace.history.commit({
+      ref: "published",
+      ifHead: first.id,
+      changes: change === "deleted" ? { delete: paths } : { put: Object.fromEntries(paths.map(path => [path, "{"])) },
+    })
+    const fallback = ["Despliega tu agente", extra.message, "Nota del servidor"]
+    expect(await request(render), "the request that detects the revision removes stale messages").toEqual(fallback)
+    expect(await request(render)).toEqual(fallback)
+  })
+
   it("serves the build snapshot, hides drafts, and serves a publish on the next request", async () => {
     const { request } = setup()
     const translations = useTranslations()
@@ -275,6 +302,32 @@ describe("useTranslations() without a Workspace", () => {
 })
 
 describe("the browser with a Workspace", () => {
+  it("reports a superseded selection while its live catalog is still loading", async () => {
+    const pending = deferred()
+    const page = { cookie: "", documentElement: { lang: "en" } }
+    vi.stubGlobal("document", page)
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url.endsWith("/es.json")) await pending.promise
+      return Response.json({ revision: "rev-2", messages: { [deploy.id]: ["Publica tu agente"] } })
+    })
+    try {
+      configureI18n({ ...config, live: "/_vitehub/i18n", catalogs: {} })
+      const earlier = setLocale("es")
+      expect(await setLocale("en")).toEqual([undefined, "en"])
+      pending.resolve()
+      const [error, locale] = await earlier
+      expect(error).toMatchObject({ code: "I18N_LOCALE_SUPERSEDED" })
+      expect(locale).toBeUndefined()
+      expect(getI18n().locale).toBe("en")
+      expect(page.documentElement.lang).toBe("en")
+      expect(page.cookie).toContain("locale=en;")
+    }
+    finally {
+      pending.resolve()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("puts published translations over the build catalog, and keeps the build catalog when the route fails", async () => {
     const requests: string[] = []
     let routeUp = true
