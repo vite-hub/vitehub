@@ -17,7 +17,7 @@ beforeEach(() => {
   resetWorkflowRuntime()
   setWorkflowRuntimeConfig({ provider: "vercel" })
   setWorkflowRuntimeRegistry({
-    welcome: async () => ({ default: { handler: async ({ payload }) => ({ reply: String((payload as { name?: string } | undefined)?.name ?? "nobody").toUpperCase() }) } }),
+    welcome: async () => ({ default: { handler: async (payload) => ({ reply: String((payload as { name?: string } | undefined)?.name ?? "nobody").toUpperCase() }) } }),
   })
 })
 

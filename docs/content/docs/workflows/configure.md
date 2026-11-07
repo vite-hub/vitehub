@@ -43,7 +43,7 @@ Create a Workflow Definition for named long-running work.
 ```ts [server/workflows/onboard-user.ts] fragment
 import { defineWorkflow } from '@vite-hub/workflow'
 
-export default defineWorkflow<{ email: string }>(async ({ payload }) => {
+export default defineWorkflow('onboard-user', async (payload: { email: string }) => {
   const user = await createUser(payload.email)
   await sendWelcomeEmail(user.email)
 
@@ -55,15 +55,15 @@ Use Workflow Steps only when the selected provider and definition need independe
 
 ## Workflow Definition options
 
-`defineWorkflow(handler, options?)` accepts these options. The discovered file name provides the Definition name.
+`defineWorkflow(name, handler, options?)` accepts these options. `name` is the discovered file or folder name; another name fails with `WORKFLOW_C0019` when the Workflow loads.
 
 | Option | Type | Description |
 | --- | --- | --- |
 | `id` | `string` | Static provider id override for the Workflow Definition. |
-| `native` | `WorkflowHandler` | Provider-native durable entry used by Vercel Workflow DevKit. |
+| `native` | `(context: WorkflowProviderContext) => unknown` | Provider-native durable entry used by Vercel Workflow DevKit. |
 | `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. |
 
-The handler receives a `WorkflowExecutionContext` with `name`, `payload`, `provider`, optional run `id`, the provider-backed `step` when available, and a `steps` runner. `steps` has one function for each numbered file in the Workflow folder and is empty when the Workflow has no step files.
+The handler receives `(payload, context)`. Annotate `payload` to type it. `context` is a `WorkflowExecutionContext` with `name`, `payload`, `provider`, optional run `id`, the provider-backed `step` when available, and a `steps` runner. `steps` has one function for each numbered file in the Workflow folder, typed from `.vitehub/workflow.d.ts`, and is empty when the Workflow has no step files.
 
 ### Add a durable Vercel entry
 
@@ -76,11 +76,7 @@ pnpm add --save-exact workflow@5.2.3 @workflow/builders@5.0.6
 ```
 
 ```ts [server/workflows/onboard-user.ts] fragment
-import {
-  defineWorkflow,
-  type WorkflowExecutionContext,
-  type WorkflowProviderContext,
-} from '@vite-hub/workflow'
+import { defineWorkflow, type WorkflowProviderContext } from '@vite-hub/workflow'
 
 interface OnboardPayload {
   email: string
@@ -106,13 +102,13 @@ async function durableOnboard({ payload }: WorkflowProviderContext<OnboardPayloa
   return { userId: user.id }
 }
 
-async function inlineOnboard({ payload }: WorkflowExecutionContext<OnboardPayload>) {
+async function inlineOnboard(payload: OnboardPayload) {
   const user = await createUser(payload.email)
   await sendWelcomeEmail(user.email)
   return { userId: user.id }
 }
 
-export default defineWorkflow(inlineOnboard, { native: durableOnboard })
+export default defineWorkflow('onboard-user', inlineOnboard, { native: durableOnboard })
 ```
 
 ViteHub transforms the `native` entry when it generates Vercel output. Other

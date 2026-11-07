@@ -82,7 +82,7 @@ function createRegistry(boundary: typeof boundaries[number], original: unknown):
     reject: async () => ({
       default: {
         options: { rootStep: boundary === "root step" },
-        handler: async ({ step }) => {
+        handler: async (_payload, { step }) => {
           const fail = () => { throw original }
           return boundary === "explicit step" ? await step!.do!("validate", stepOptions, fail) : fail()
         },

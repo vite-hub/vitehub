@@ -23,7 +23,8 @@ export async function runProviderStep<TResult>(
   return await run()
 }
 
-function toStepPropertyName(file: string): string {
+/** `01.create-user.ts` becomes the `createUser` step. */
+export function toStepPropertyName(file: string): string {
   const base = file
     .split("/")
     .pop()!
@@ -75,7 +76,7 @@ export async function runWorkflowHandler<TPayload, TResult>(
   context: WorkflowProviderContext<TPayload>,
   definition: WorkflowDefinition<TPayload, TResult>,
 ): Promise<Response> {
-  const run = () => definition.handler(toExecutionContext(context))
+  const run = () => definition.handler(context.payload, toExecutionContext(context))
   const value = definition.options?.rootStep === false
     ? await run()
     : await runProviderStep(context.step, context.name, run)
@@ -88,7 +89,7 @@ export async function runSerializedWorkflowHandler<TPayload, TResult>(
   context: WorkflowProviderContext<TPayload>,
   definition: WorkflowDefinition<TPayload, TResult>,
 ): Promise<SerializedResponse> {
-  const run = async () => serializeResponse(toResponse(await definition.handler(toExecutionContext(context))))
+  const run = async () => serializeResponse(toResponse(await definition.handler(context.payload, toExecutionContext(context))))
   return definition.options?.rootStep === false
     ? await run()
     : await runProviderStep(context.step, context.name, run)

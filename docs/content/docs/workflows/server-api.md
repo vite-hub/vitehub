@@ -110,7 +110,7 @@ export default defineEventHandler((event) => {
 A typed Workflow handle requires a payload when its handler requires one. Both `run()` and `defer()` use this rule. A handle with an optional payload or `void` input can still run with no argument. To set start options for a no-input Workflow, pass `undefined` first.
 
 ```ts fragment
-const welcome = createWorkflow<{ email: string }>("welcome", async ({ payload }) => {
+const welcome = createWorkflow("welcome", async (payload: { email: string }) => {
   await sendWelcomeEmail(payload.email)
 })
 await welcome.run({ email: "ada@example.com" })
