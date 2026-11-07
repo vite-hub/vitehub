@@ -16,6 +16,7 @@ import { readNuxtConfig } from "../src/shared/nuxt-config.ts"
 import { planFromJsonSchema, schemaIssues, schemaToJsonSchema } from "../src/nuxt-safe-runtime-config/schema.ts"
 
 import type { EnvRuntimeConfigOptions } from "@vite-hub/env"
+import type { EnumLike } from "zod/v3"
 import type { EnvField } from "../src/nuxt-safe-runtime-config/fields.ts"
 
 const directories: string[] = []
@@ -427,6 +428,45 @@ describe("schema migration safety", () => {
 })
 
 describe("schema conversion", () => {
+  it("preserves optional Zod 3 inputs through wrappers", async () => {
+    const { z } = await import("zod/v3")
+    const schema = z.object({
+      readonly: z.string().optional().readonly(),
+      branded: z.string().optional().brand(),
+      transformed: z.string().optional().transform(value => value),
+      piped: z.string().optional().pipe(z.string().optional()),
+      defaulted: z.string().default("fallback").readonly(),
+    })
+    expect(schema.parse({})).toEqual({ defaulted: "fallback" })
+    const jsonSchema = await schemaToJsonSchema(schema)
+    const plan = planFromJsonSchema({ jsonSchema, issues: schemaIssues(schema), runtimeConfig: new Map() })
+    expect(plan.fields).toHaveLength(5)
+    expect(plan.fields.every(field => !field.required)).toBe(true)
+    expect(plan.fields.find(field => field.configPath[0] === "defaulted")?.default).toBe("fallback")
+  })
+
+  it.each<{ name: string, values: EnumLike, expected: (string | number)[], supported: boolean }>([
+    { name: "numeric", values: { 0: "Off", 1: "On", Off: 0, On: 1 }, expected: [0, 1], supported: false },
+    { name: "mixed", values: { 0: "Off", Off: 0, On: "on" }, expected: [0, "on"], supported: false },
+    { name: "string", values: { Off: "off", On: "on" }, expected: ["off", "on"], supported: true },
+  ])("uses values rather than reverse mappings for $name Zod 3 native enums", async ({ values, expected, supported }) => {
+    const { z } = await import("zod/v3")
+    const schema = z.object({ mode: z.nativeEnum(values) })
+    for (const value of expected) expect(schema.safeParse({ mode: value }).success).toBe(true)
+    const jsonSchema = await schemaToJsonSchema(schema)
+    expect(jsonSchema).toMatchObject({ properties: { mode: { enum: expected } } })
+    const plan = planFromJsonSchema({ jsonSchema, issues: schemaIssues(schema), runtimeConfig: new Map() })
+    if (supported) {
+      expect(plan.fields[0]).toMatchObject({ kind: "enum", values: expected })
+      expect(plan.unmigrated).toEqual([])
+    }
+    else {
+      expect(plan.fields).toEqual([])
+      expect(plan.unmigrated).toEqual(["mode"])
+      expect(plan.followUps[0]?.message).toContain("stays in runtimeConfig")
+    }
+  })
+
   it("reads Zod 3 schemas, which have no JSON Schema output", async () => {
     const { z } = await import("zod/v3")
     const schema = z.object({
