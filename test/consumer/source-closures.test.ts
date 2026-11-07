@@ -25,6 +25,10 @@ const commandErrorSchema = object({
 })
 
 async function run(command: string, args: string[], cwd: string) {
+  if (command === "pnpm") {
+    command = "corepack"
+    args = ["pnpm", ...args]
+  }
   try {
     return await execFileAsync(command, args, { cwd, maxBuffer: 64 * 1024 * 1024 })
   }
@@ -57,6 +61,20 @@ function workspaceConfig(overrides: Record<string, string>) {
     "  - .",
     "allowBuilds:",
     "  esbuild: true",
+    "  \"@mongodb-js/zstd\": false",
+    "  \"@nestjs/core\": false",
+    "  \"@parcel/watcher\": false",
+    "  \"@swc/core\": false",
+    "  \"better-sqlite3\": false",
+    "  \"cbor-extract\": false",
+    "  \"core-js-pure\": false",
+    "  \"cpu-features\": false",
+    "  \"msgpackr-extract\": false",
+    "  \"node-liblzma\": false",
+    "  \"sharp\": false",
+    "  \"ssh2\": false",
+    "  \"vue-demi\": false",
+    "  \"workerd\": false",
     "blockExoticSubdeps: false",
     "overrides:",
     // Match the verified lockfile instead of selecting a freshly published tarball.
@@ -116,6 +134,7 @@ describe("packed Source capability closures", () => {
       await Promise.all([
         writeFile(join(appDir, "package.json"), JSON.stringify({
           name: "vitehub-source-closure-consumer",
+          packageManager: "pnpm@10.33.0",
           private: true,
           type: "module",
           dependencies: { "vite-hub": overrides["vite-hub"] },

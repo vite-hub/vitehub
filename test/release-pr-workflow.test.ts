@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { resolve, join } from "node:path"
 
 import { describe, expect, it } from "vitest"
-import { parse } from "yaml"
+import { parseAllDocuments } from "yaml"
 
 const root = resolve(import.meta.dirname, "..")
 const workflow = readFileSync(resolve(root, ".github/workflows/release-pr.yml"), "utf8")
@@ -95,7 +95,7 @@ describe("release PR workflow", () => {
     const readManifest = (path: string) => JSON.parse(readFileSync(join(directory, path), "utf8"))
     try {
       // uppt has already bumped package versions when the completion step runs.
-      writeManifest("package.json", { name: "release-fixture", private: true, version, packageManager: "pnpm@10.34.6" })
+      writeManifest("package.json", { name: "release-fixture", private: true, version })
       writeManifest("packages/agent/package.json", { name: "@vite-hub/agent", version })
       writeManifest("packages/vite-hub/package.json", { name: "vite-hub", version })
       writeManifest("packages/codemods/package.json", { name: "@vite-hub/codemods", version })
@@ -147,12 +147,14 @@ describe("release PR workflow", () => {
       execFileSync("node", [checker, `release/v${version}`], { cwd: directory })
 
       writeFileSync(join(directory, "pnpm-workspace.yaml"), "packages:\n  - packages/*\nlinkWorkspacePackages: true\n")
-      execFileSync("corepack", ["pnpm", "install", "--lockfile-only", "--ignore-scripts", "--no-frozen-lockfile", "--offline"], {
+      // Select pnpm explicitly without adding it as an offline config dependency.
+      execFileSync("corepack", ["pnpm@12.16.1", "install", "--lockfile-only", "--ignore-scripts", "--no-frozen-lockfile", "--offline"], {
         cwd: directory,
         stdio: "pipe",
-        env: { ...process.env, CI: "true" },
+        env: { ...process.env, CI: "true", COREPACK_ENABLE_AUTO_PIN: "0" },
       })
-      const lockfile = parse(readFileSync(join(directory, "pnpm-lock.yaml"), "utf8"))
+      // Accept a package-manager document before the project document, too.
+      const lockfile = parseAllDocuments(readFileSync(join(directory, "pnpm-lock.yaml"), "utf8")).at(-1)?.toJS()
       expect(lockfile.importers["packages/env"].dependencies["@vite-hub/agent"]).toEqual({ specifier: `^${version}`, version: "link:../agent" })
     }
     finally {

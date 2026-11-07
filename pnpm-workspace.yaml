@@ -19,6 +19,25 @@ catalog:
 
 catalogMode: prefer
 linkWorkspacePackages: true
+# `@t3tools/provider-runtime` declares `@t3tools/contracts` by tarball URL.
+blockExoticSubdeps: false
+
+# pnpm 10 skipped these build scripts, and nothing depends on them running.
+allowBuilds:
+  "@mongodb-js/zstd": false
+  "@nestjs/core": false
+  "@parcel/watcher": false
+  "@swc/core": false
+  better-sqlite3: false
+  cbor-extract: false
+  core-js-pure: false
+  cpu-features: false
+  esbuild: false
+  msgpackr-extract: false
+  node-liblzma: false
+  ssh2: false
+  vue-demi: false
+  workerd: false
 
 catalogs:
   ai:
