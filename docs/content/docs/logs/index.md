@@ -24,7 +24,10 @@ icon: i-lucide-logs
   import { vitehub } from 'vite-hub'
 
   export default defineConfig({
-    plugins: [vitehub({ preset: 'node', logs: true }), nitro()],
+    plugins: [
+      vitehub({ preset: 'node', logs: true }),
+      nitro(),
+    ],
   })
   ```
   ::::

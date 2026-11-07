@@ -103,7 +103,7 @@ import {
 import { createAgentWebhookQueue, hasAgentWebhookQueue, webhookQueueStopGraceMs } from "../internal/webhook-queue.ts"
 import { channelTaskDebounceKey, registerChannelTaskQueue } from "../channel-tasks.ts"
 import type { ChannelTaskQueue } from "../channel-tasks.ts"
-import { sendAgentInvocationInput, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
+import { agentInvocationInputSupport, sendAgentInvocationInput, activeAgentInvocation, registerActiveAgentInvocation } from "../internal/agent-invocation-control.ts"
 import { captureAgentInboundBody } from "./request-body.ts"
 import {
   agentWebhookRegistrations,
@@ -6380,6 +6380,7 @@ async function handleChatSdkMessage(
           let timeoutEvidence: Promise<void> | undefined
           const submitted = (active.steering ?? Promise.resolve()).then(() => {
             if (!inlineKey || inlineChatTurns.get(inlineKey) !== active) return "unavailable" as const
+            if (agentInvocationInputSupport(activeRunId).steer === false) return "unavailable" as const
             return steerMessage
               ? sendAgentInvocationInput(activeRunId, { message: steerMessage, messages: [steerMessage] }, { mode: "steer" })
               : "unsupported" as const

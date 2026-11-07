@@ -84,7 +84,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 - `kv.set('settings', settings)` saves the object under the key `settings`. A new write replaces the old value.
-- `kv.set()` does not throw. It returns `[error, value]`. Check `error` first.
+- `kv.set()` returns `[error, value]`. Check `error` for operation failures. Configuration errors can throw.
 
 ::
 
