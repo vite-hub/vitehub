@@ -288,6 +288,16 @@ export function docsRailIcon(icons: DocsIcons, section: Pick<DocsSection, "id" |
   return icons.rail[section.id] ?? docsSectionIcon(icons, section)
 }
 
+/**
+ * Draws a 2px line icon with `stroke` instead. @nuxt/icon passes only the icon body in its CSS mode, so the icon is
+ * recognized by its body: Lucide draws `stroke-width="2"` with round joins. Filled icons, such as brand logos, have no
+ * stroke and stay as they are.
+ */
+export function docsIconStroke(body: string, stroke: number): string {
+  if (!body.includes('stroke-linejoin="round"')) return body
+  return body.replaceAll('stroke-width="2"', `stroke-width="${stroke}"`)
+}
+
 /** URL of the raw Markdown twin of a page path, such as `/raw/docs/kv.md`. `/` has `/raw/index.md`. */
 export function docsRawPath(path: string): string {
   const normalized = normalizeDocsPath(path)

@@ -1,8 +1,6 @@
-import { describe, expect, it, vi } from "vitest"
+import { describe, expect, it } from "vitest"
 
-vi.mock("#imports", () => ({ defineNuxtPlugin: (plugin: unknown) => plugin, useAppConfig: vi.fn(), useDocsConfig: vi.fn() }))
-
-const { docsIconStroke } = await import("../runtime/app/plugins/icon-stroke.ts")
+import { docsIconStroke } from "../src/navigation.ts"
 
 // Bodies as @iconify-json/lucide, @iconify-json/simple-icons, and @vite-hub/icons ship them.
 const lucideSun = `<g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2"/></g>`
