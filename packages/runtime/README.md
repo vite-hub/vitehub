@@ -147,7 +147,7 @@ task, so both would wait indefinitely. Await child promises directly inside a
 task. If the task needs its own background-work controller, create a separate
 Runtime Context and flush that context instead.
 
-For H3 1, H3 2, and Nuxt routes, use `getRuntimeContext(event, options?)` from
+For H3 2 and Nuxt routes, use `getRuntimeContext(event, options?)` from
 `@vite-hub/runtime/h3` or `vite-hub/runtime/h3`. This framework entry normalizes
 event bindings and lifetime methods. It reads the event by shape, so the Runtime
 owner package has no H3 dependency.

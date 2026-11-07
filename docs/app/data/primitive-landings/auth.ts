@@ -68,7 +68,7 @@ export default defineConfig({
         {
           path: "nuxt.config.ts",
           language: "typescript",
-          content: `// Install: pnpm add vite-hub better-auth nuxt@^4.5.2
+          content: `// Install: pnpm add vite-hub better-auth nuxt@npm:nuxt-nightly@5x
 import { defineNuxtConfig } from "nuxt/config"
 import viteHubNuxt from "vite-hub/nuxt"
 

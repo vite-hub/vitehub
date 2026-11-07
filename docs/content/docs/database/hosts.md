@@ -136,8 +136,7 @@ Cloudflare Workers cannot use a socket from one request in a different request. 
 ViteHub finds the request through a request scope:
 
 - Direct Vite Cloudflare output runs each request in its own scope.
-- Nitro 3 apps, including Nuxt apps on Nitro 3, get a generated middleware that runs each request in its own scope.
-- Nitro 2 apps, such as Nuxt 4, cannot wrap the request. The Nuxt bridge installs a new env object for each request, and ViteHub uses it as the scope. Concurrent requests in one isolate can replace that object before a query starts. Use Nitro 3 for high-concurrency Postgres traffic on Workers.
+- Nitro 3 apps, including Nuxt apps, get a generated middleware that runs each request in its own scope.
 
 ```ts [server/databases/config.ts]
 import { defineDatabase } from '@vite-hub/database'

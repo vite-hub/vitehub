@@ -44,7 +44,7 @@ function setup(nuxt: boolean): PrimitiveProjectFile {
     language: "markdown",
     content: `# Database setup
 
-${nuxt ? "Start from a Nuxt 4.5.2 or newer application." : "Use Vite 8 with Nitro 3's Vite integration for server execution."}
+${nuxt ? "Start from a Nuxt 5 application. Until Nuxt 5 is stable, install it as nuxt-nightly@5x." : "Use Vite 8 with Nitro 3's Vite integration for server execution."}
 ${nuxt ? "Requires Node.js 22.22+ on 22.x, 24.11+ on 24.x, or 26+." : "Requires Node.js 22.22 or newer."}
 
 \`\`\`sh

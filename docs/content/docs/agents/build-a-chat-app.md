@@ -58,8 +58,8 @@ The checkout already contains the finished files. Read and edit them as you foll
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "ai": "7.0.130",
-    "h3": "1.15.11",
-    "nuxt": "4.5.2",
+    "h3": "2.0.8",
+    "nuxt": "npm:nuxt-nightly@5.0.0-2611052317-a04317f",
     "tailwindcss": "4.3.3",
     "vite-hub": "workspace:*",
     "vue": "3.5.44",
@@ -76,7 +76,7 @@ The checkout already contains the finished files. Read and edit them as you foll
 
 The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the Node preset once. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before the ViteHub UI module so Nuxt installs its Icon and color-mode dependencies. The ViteHub UI module registers the chat components. Disable font downloads so the offline app does not need a font service.
 
-Set `buildDir: ".nuxt"` to keep generated TypeScript inside the project. The pinned Nitro version skips TypeScript transforms under `node_modules`, where this Nuxt version puts its default build directory.
+Set `buildDir: ".nuxt"` to keep generated TypeScript inside the project.
 
 ```ts [nuxt.config.ts]
 import viteHub from "vite-hub/nuxt";
@@ -507,8 +507,8 @@ export default defineEventHandler(async (event) => {
   const user = textMessage("user", text);
   const reply = textMessage("assistant", "");
   const controller = new AbortController();
-  const abort = () => { if (!event.node.res.writableEnded) controller.abort(); };
-  event.node.res.once("close", abort);
+  const abort = () => controller.abort();
+  event.req.signal.addEventListener("abort", abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), 60_000);
   const runtime = getRuntimeContext(event);
   activeChats.add(id);
@@ -544,7 +544,7 @@ export default defineEventHandler(async (event) => {
         writer.write({ type: "finish", finishReason: "stop" });
       } finally {
         clearTimeout(timeout);
-        event.node.res.off("close", abort);
+        event.req.signal.removeEventListener("abort", abort);
         activeChats.delete(id);
         await runtime.flushWaitUntil();
       }

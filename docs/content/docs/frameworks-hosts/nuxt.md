@@ -13,10 +13,12 @@ imports as a Vite application.
 
 ## Install the module
 
-Use Nuxt 4.5.2 or newer. Nuxt provides its own Nitro integration, so install
-only `vite-hub`.
+Use Nuxt 5, which runs Nitro 3. Nuxt 5 is not stable yet. Until it is, install
+the nightly release `nuxt-nightly@5x` as `nuxt`. Nuxt provides its own Nitro
+integration, so add only `vite-hub`.
 
 ```bash [Terminal]
+pnpm add nuxt@npm:nuxt-nightly@5x
 pnpm add vite-hub
 ```
 

@@ -1,45 +1,33 @@
 ---
-title: Run a daily report with Schedule
-description: Write a job that runs every day at 08:00 UTC, then run it once to test it now.
+title: Run a daily report once with Schedule
+description: Declare a UTC schedule and execute one occurrence with the direct runtime API.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-You write a job that runs every day at 08:00 UTC. Then you run it once from a script, so you can test it now and not wait until tomorrow.
+Run one occurrence of a daily report and check that it finishes with `succeeded`. You will declare its UTC cron expression, then trigger a fixed occurrence from a script. This lets you test the handler without waiting until tomorrow.
 
-You need:
-
-- Node.js 22.18 or newer
-- pnpm
-- an empty folder
-
-You do not need a Vite app or a cloud account.
+You need Node.js 22.18 or newer and pnpm. Start in an empty directory. The script uses an in-memory run store and needs no Vite server or provider account. It runs once; [host configuration](/docs/schedule/hosts) supplies the recurring trigger in a deployed app.
 
 ::tutorial-step{title="Install"}
 ## Install
 
-Create a `package.json` file with this content. `"type": "module"` tells Node.js that your files use `import` and `export`.
-
-```json [package.json]
-{
-  "type": "module"
-}
-```
-
-Then install Schedule:
+Initialize an ESM package so Node can load the TypeScript modules below:
 
 ```bash [commands/install]
+pnpm init
+pnpm pkg set type=module
 pnpm add @vite-hub/schedule
 ```
 
 ::
 
-::tutorial-step{title="Write the job"}
-## Write the job
+::tutorial-step{title="Declare the schedule"}
+## Declare the schedule
 
-Create `server/schedules/daily-report.ts`:
+`0 8 * * *` means every day at 08:00 UTC. `manual: true` allows a manual occurrence. The handler logs the occurrence time rather than the current wall-clock time.
 
 ```ts [server/schedules/daily-report.ts]
 import { defineSchedule } from '@vite-hub/schedule'
@@ -53,18 +41,16 @@ export default defineSchedule({
 })
 ```
 
-- `cron` sets when the job runs. `0 8 * * *` means minute 0 of hour 8, every day. The time is in UTC. To use your own time zone, see [Configure](/docs/schedule/configure#run-a-static-schedule-in-a-time-zone).
-- `manual: true` lets you run the job yourself, at a time that is not in `cron`.
-- `handler` is the job. `scheduledAt` is the time that the run was planned for. It is not the current time.
-
-Later, replace the `console.log` with your report code.
+Create the `server/schedules` directory and save this as `daily-report.ts`. After the manual run works, replace the log with your report code.
 
 ::
 
-::tutorial-step{title="Run it once"}
-## Run it once
+::tutorial-step{title="Execute one occurrence"}
+## Execute one occurrence
 
-Create `run.ts` next to `package.json`. It runs the job one time, as if the clock showed 08:00 UTC on 27 August 2026:
+Create a script that imports the Definition and executes a fixed occurrence:
+
+The fixed timestamp makes the result repeatable. Importing and executing this Definition does not create a recurring timer.
 
 ```ts [run.ts]
 import { executeStaticSchedule } from '@vite-hub/schedule/runtime'
@@ -80,26 +66,24 @@ const run = await executeStaticSchedule({
 console.log(run.status)
 ```
 
-A fixed date gives the same output each time. This script does not start a timer, so the job does not run again tomorrow.
-
-Run the script. Node.js 22.18 and newer run TypeScript files directly:
+Node.js can run this TypeScript script directly:
 
 ```bash [commands/run]
 node run.ts
 ```
 
-You see:
+The process prints:
 
 ```txt [output/daily-report.txt]
 Daily report scheduled for 2026-08-27T08:00:00.000Z
 succeeded
 ```
 
-The first line comes from your job. `succeeded` means that the job finished without an error.
+The handler ran for the exact timestamp you supplied. To run it every day, add the Schedule integration to your app and configure a hosted scheduler or a long-lived Node process. [Hosts](/docs/schedule/hosts) explains those options.
 
 ::
 
-## Next steps
+## Choose the next path
 
-- [Configure](/docs/schedule/configure): add Schedule to a Vite app, so the app finds every file in `server/schedules/`.
-- [Hosts](/docs/schedule/hosts): run the job every day on Cloudflare, Vercel, Netlify, or your own Node.js server.
+- Read [Configure](/docs/schedule/configure) to add the Schedule integration to an app.
+- Read [Hosts](/docs/schedule/hosts) for provider wake output and long-running Node processes.

@@ -6,7 +6,7 @@ description: Hosts for ViteHub Logs, powered by Evlog.
 icon: i-lucide-logs
 ---
 
-Local Evlog capture currently supports Nitro 3 and registers `evlog/nitro/v3`. Nuxt with Nitro 2 must register Evlog separately through `evlog/nuxt` and use an [existing backend source](/docs/logs/configure#read-an-existing-backend) for ViteHub Logs. Do not enable local `logs: true` capture on Nitro 2. Keep request logger imports aligned with the installed Nitro version: `evlog/nitro/v3` for Nitro 3 and `evlog/nitro` for Nitro 2.
+Local Evlog capture currently supports Nitro 3 and registers `evlog/nitro/v3`. Import request loggers from `evlog/nitro/v3` too.
 
 ## Cloudflare
 

@@ -38,8 +38,8 @@ export default defineEventHandler(async (event) => {
   const user = textMessage("user", text);
   const reply = textMessage("assistant", "");
   const controller = new AbortController();
-  const abort = () => { if (!event.node.res.writableEnded) controller.abort(); };
-  event.node.res.once("close", abort);
+  const abort = () => controller.abort();
+  event.req.signal.addEventListener("abort", abort, { once: true });
   const timeout = setTimeout(() => controller.abort(), 60_000);
   const runtime = getRuntimeContext(event);
   activeChats.add(id);
@@ -75,7 +75,7 @@ export default defineEventHandler(async (event) => {
         writer.write({ type: "finish", finishReason: "stop" });
       } finally {
         clearTimeout(timeout);
-        event.node.res.off("close", abort);
+        event.req.signal.removeEventListener("abort", abort);
         activeChats.delete(id);
         await runtime.flushWaitUntil();
       }
