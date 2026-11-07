@@ -48,7 +48,9 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SETUP_SERVER_DIR_MANUAL: {
       docs: "https://vitehub.dev/docs/development/cli#setup_server_dir_manual",
-      fix: "Create the Definition in your evaluated Nuxt server directory and rerun without --name, or use literal rootDir and serverDir options without layers.",
+      fix: ({ command }: { command?: unknown }) => command === "remove"
+        ? "Use literal rootDir and serverDir options without layers, or pass --force to turn the features off without checking unresolved Definition files."
+        : "Create the Definition in your evaluated Nuxt server directory and rerun without --name, or use literal rootDir and serverDir options without layers.",
       why: "ViteHub cannot determine the Nuxt application server directory without running the config.",
     },
     SETUP_INPUT_NEEDED: {
@@ -59,6 +61,21 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     SETUP_INSTALL_FAILED: {
       docs: "https://vitehub.dev/docs/development/cli#setup_install_failed",
       fix: "Run the install command by hand to see the error, then run the command again. ViteHub did not write starter or config files; the package manager may have changed package manifests or lockfiles.",
+      why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
+    },
+    SETUP_FEATURE_IMPLIED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_feature_implied",
+      fix: ({ by, feature }: { by?: unknown, feature?: unknown }) => `Remove ${String(by)} too, or pass --force to write \`${String(feature)}: false\`.`,
+      why: ({ by, feature }: { by?: unknown, feature?: unknown }) => `${String(feature)} stays on because ${String(by)} turns it on.`,
+    },
+    SETUP_FEATURE_IN_USE: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_feature_in_use",
+      fix: "Delete or move the files in `references`, then run the command again. Pass --force to turn the feature off and keep the files.",
+      why: ({ features, references }: { features?: unknown, references?: unknown }) => `The app still uses ${String(features)}:\n${String(references)}`,
+    },
+    SETUP_UNINSTALL_FAILED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_uninstall_failed",
+      fix: "Run the uninstall command by hand to see the error. ViteHub already changed the config and deleted the starter files.",
       why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
     },
     SETUP_STALE_PLAN: {

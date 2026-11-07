@@ -6,6 +6,7 @@ import { setupCatalog } from "./catalog.ts"
 import { readSetupArgs, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { linkSetupProject, readSetupLinkStatus, SETUP_LINK_FILE, unlinkSetupProject } from "./link.ts"
 import { readSetupProject } from "./project.ts"
+import { removeCommand } from "./remove.ts"
 import { setupStatus } from "./status.ts"
 
 import type { ViteHubCliCommand, ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -178,4 +179,4 @@ const unlinkCommand: ViteHubCliCommand = {
 }
 
 /** The setup commands. They run before the CLI loads the project config. */
-export const setupCommands: readonly ViteHubCliCommand[] = [addCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand]
+export const setupCommands: readonly ViteHubCliCommand[] = [addCommand, removeCommand, catalogCommand, statusCommand, linkCommand, unlinkCommand]
