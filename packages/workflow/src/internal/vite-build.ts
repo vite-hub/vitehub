@@ -1018,12 +1018,10 @@ export function createWorkflowRegistryContents(
 }
 
 /**
- * Write the registry index that hosts import at startup. It knows the Workflow
- * names and their metadata, and it imports the definition loaders on the first
- * run. A Cloudflare Worker exports its Workflow classes from the entry, so a
- * static import here would load every Workflow runtime when the Worker starts.
+ * Hosts import this index at startup. It holds the Workflow names and metadata, and imports the
+ * definition loaders on the first run: Cloudflare Workers export the Workflow classes from the entry.
  */
-export function createWorkflowRegistryIndexContents(definitions: DiscoveredWorkflowDefinition[]): string {
+function createWorkflowRegistryIndexContents(definitions: DiscoveredWorkflowDefinition[]): string {
   return [
     `const loadRegistryRuntime = () => import(${JSON.stringify(`./${generatedRegistryRuntimeFileName}`)})`,
     "",
