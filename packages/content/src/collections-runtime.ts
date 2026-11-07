@@ -146,7 +146,8 @@ export interface ContentDerivedFrom {
 /**
  * How a translation compares with its source locale document on the draft:
  * - `current`: its `derivedFrom` names the source version on the draft.
- * - `stale`: the source changed since, or the translation has no `derivedFrom`.
+ * - `stale`: the source changed since, or the translation has no `derivedFrom`, or its `derivedFrom` names a file other
+ *   than the source locale file of the same id.
  * - `missing`: the locale has no translation of the document.
  */
 export type ContentTranslationState = "current" | "stale" | "missing"
@@ -1836,13 +1837,18 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       return (await commitDocument(id, path, { text, digest: opened.files.get(path)!, data: parsed.data, body: parsed.body, issues: parsed.issues, derivedFrom: parsed.derivedFrom }, writeOptions, "restore", locale))!
     }
 
-    /** How the translation of a document in one locale compares with its source locale version on the draft. */
+    /**
+     * How the translation of a document in one locale compares with its source locale version on the draft. Only the
+     * source locale file of the same id counts: a `derivedFrom` that names another file, which a Workspace write can
+     * record, is stale.
+     */
     async function translationState(opened: OpenedRevision, id: string, locale: string): Promise<ContentTranslationState> {
       const path = pathFor(id, locale)
       if (!opened.files.has(path)) return "missing"
       const { derivedFrom } = await lineageOf(opened, path)
-      if (!derivedFrom || !opened.files.has(derivedFrom.path)) return "stale"
-      return (await lineageOf(opened, derivedFrom.path)).digest === derivedFrom.digest ? "current" : "stale"
+      const source = pathFor(id, sourceLocale)
+      if (derivedFrom?.path !== source || !opened.files.has(source)) return "stale"
+      return (await lineageOf(opened, source)).digest === derivedFrom.digest ? "current" : "stale"
     }
 
     function status(id: string, options?: ContentStatusOptions): Promise<ContentDocumentStatus | null>
