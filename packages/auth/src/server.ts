@@ -855,7 +855,8 @@ export function getAuthorization(event: AuthRequestInput): AuthAuthorization {
   return authorizationGrant.verify(grant)
 }
 
-// Middleware records success for an opted-in guard; that guard also lets later middleware reuse its check.
+// Middleware records success for an opted-in guard; that guard also lets later middleware reuse its check. The key is
+// the Request of the Standard Context, so an H3 middleware and the Fetchable route of one request share the check.
 const reusableAccessChecks = new WeakMap<object, WeakMap<AuthDefinition, Map<string, boolean>>>()
 
 async function checkAuthAccessRequest(
@@ -866,13 +867,14 @@ async function checkAuthAccessRequest(
   options: { redirectToSignIn?: boolean, reuse?: boolean, remember?: boolean } = {},
 ): Promise<Response | undefined> {
   const key = JSON.stringify([routeIndexes, requiredAuthorizeRouteIndexes])
-  let definitions = reusableAccessChecks.get(input)
+  const request = unwrapAuthRequest(input)
+  let definitions = reusableAccessChecks.get(request)
   let accepted = definitions?.get(definition)
   const reusable = accepted?.get(key)
   if (reusable === true || (options.reuse && reusable === false)) return
-  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false, getAuthRuntimeState().accessIdentityResolvers?.get(new URL(unwrapAuthRequest(input).url).pathname))
+  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false, getAuthRuntimeState().accessIdentityResolvers?.get(new URL(request.url).pathname))
   if (!response && (options.reuse || options.remember)) {
-    if (!definitions) reusableAccessChecks.set(input, definitions = new WeakMap())
+    if (!definitions) reusableAccessChecks.set(request, definitions = new WeakMap())
     if (!accepted) definitions.set(definition, accepted = new Map())
     accepted.set(key, options.reuse === true)
   }
