@@ -4,7 +4,8 @@ import { docsIcons } from "./app/utils/docs-sidebar-icons";
 import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-docs/capability-references";
 
 export default defineNuxtConfig({
-  modules: ["@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
+  // The diagnostics module writes its pages before `@vite-hub/docs` reads the content folder.
+  modules: ["./modules/diagnostics", "@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
   // Motion components must use the same Vue runtime as Nuxt's server renderer.
   build: { transpile: ["motion-v"] },
   docs: {
