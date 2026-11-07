@@ -155,6 +155,23 @@ export function docsSectionGroup(section: Pick<DocsSection, "id" | "group">, gro
   return groups.find(group => group.sections?.includes(section.id))?.title ?? section.group ?? null
 }
 
+/**
+ * The sections that share a section's sidebar under the rail, or `null` when it lists its own pages. A group lists all
+ * its sections. A section whose only listed page is its home would list that one link, so it lists its category.
+ */
+export function docsSidebarGroup(manifest: DocsManifest, section: DocsSection, groups: readonly DocsGroup[]): { title: string, sections: DocsSection[] } | null {
+  const title = docsSectionGroup(section, groups)
+  if (title !== null) {
+    const sections = manifest.sections.filter(candidate => docsSectionGroup(candidate, groups) === title)
+    return sections.length > 1 ? { title, sections } : null
+  }
+  const { category } = section
+  const pages = section.pages.filter(page => page.navigation)
+  if (!category || pages.length !== 1 || pages[0]?.path !== docsSectionHome(section)) return null
+  const sections = manifest.sections.filter(candidate => candidate.category === category)
+  return sections.length > 1 ? { title: category, sections } : null
+}
+
 /** Sections grouped by category, in the order of `categories`. Sections of other categories are left out. */
 export function docsCatalog(manifest: DocsManifest, categories: readonly string[]): DocsCatalogGroup[] {
   return categories
