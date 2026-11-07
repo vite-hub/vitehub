@@ -457,6 +457,12 @@ describe("generated Console access", () => {
     await expect(generatedPlugin({}, "serve")).resolves.toContain('installConsoleAccess({ mode: "local" })')
   })
 
+  it("installs the Console origins even when the list is empty, so a reload revokes removed origins", async () => {
+    await expect(generatedPlugin({ console: { auth: "token", origins: [] } }, "build")).resolves.toContain("vitehubInstallConsoleOrigins([])")
+    await expect(generatedPlugin({ console: { auth: "token" } }, "build")).resolves.toContain('vitehubInstallConsoleOrigins(["https://console.vitehub.dev"])')
+    await expect(generatedPlugin({}, "serve")).resolves.toContain("vitehubInstallConsoleOrigins([])")
+  })
+
   it("serves development operations without Console pages or assets", async () => {
     const assets = [{ baseURL: "/public", dir: "/user-owned-assets" }]
     const config = { base: "/portal/", nitro: { handlers: [], publicAssets: assets } }
