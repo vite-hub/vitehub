@@ -164,7 +164,7 @@ describe("route report", () => {
       return { code, stdout }
     }
     const report = await run("report", [])
-    expect(report.stdout).toContain("Largest routes (first visit, page files only):\n    2.1 kB  650 B  /docs/:slug()\n    1.6 kB  150 B  /docs\n    1.5 kB   20 B  /")
+    expect(report.stdout).toContain("Largest routes (first visit, page files only):\n    2.1 kB   650 B  /docs/:slug()\n    1.6 kB   150 B  /docs\n    1.5 kB    20 B  /")
     const why = await run("why", ["/docs/kv"])
     expect(why.stdout).toContain("Route /docs/:slug(): 2.1 kB of JavaScript on a first visit")
     expect(why.stdout).toContain("Startup files: 1.5 kB in 2 files. Page files: 650 B in 4 files.")
@@ -187,10 +187,11 @@ describe("real Vite build", () => {
     writeFileSync(join(dir, "pages/a.css"), ".a { color: red }")
     writeFileSync(join(dir, "pages/a.js"), `import "./a.css"\nimport { shared } from "../shared.js"\nexport default () => [shared, import("../lazy.js")]`)
     writeFileSync(join(dir, "pages/b.js"), `import { shared } from "../shared.js"\nexport default () => shared + "b"`)
-    writeFileSync(join(dir, "main.js"), `const pages = { "/a": () => import("./pages/a.js"), "/b": () => import("./pages/b.js") }\nexport default pages`)
+    writeFileSync(join(dir, "main.js"), `window.pages = { "/a": () => import("./pages/a.js"), "/b": () => import("./pages/b.js") }`)
+    writeFileSync(join(dir, "index.html"), `<script type="module" src="/main.js"></script>`)
     const plugin = hubBundle()
     plugin.api.setRoutes([{ path: "/a", files: [join(dir, "pages/a.js")] }, { path: "/b", files: [join(dir, "pages/b.js")] }])
-    await build({ configFile: false, root: dir, plugins: [plugin], logLevel: "silent", build: { manifest: true, rollupOptions: { input: join(dir, "main.js") } } })
+    await build({ configFile: false, root: dir, plugins: [plugin], logLevel: "silent", build: { manifest: true } })
 
     const out = join(dir, "dist")
     const manifest = JSON.parse(readFileSync(join(out, ".vite/manifest.json"), "utf8")) as Record<string, { file: string, imports?: string[], css?: string[] }>
@@ -210,7 +211,7 @@ describe("real Vite build", () => {
     const routes = createBundleReport(readEnvironmentReports(dir))!.client!.routes!
     for (const [path, page] of [["/a", "pages/a.js"], ["/b", "pages/b.js"]] as const) {
       const route = routes.find(candidate => candidate.path === path)!
-      const expected = loads(["main.js", page])
+      const expected = loads(["index.html", page])
       expect(new Set(route.files.map(file => file.file))).toEqual(expected)
       const size = [...expected].reduce((sum, file) => sum + statSync(join(out, file)).size, 0)
       expect(route.bytes + route.cssBytes).toBe(size)
