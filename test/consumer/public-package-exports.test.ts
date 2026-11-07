@@ -21,8 +21,10 @@ const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
-const optionalPeers = ["@json-render/core", "@json-render/vue", "@nuxt/ui", "@upstash/redis", "@vueuse/core", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
-const optionalPeerProbes = optionalPeers
+const markdownEditorTiptapPeers = ["@tiptap/core", "@tiptap/extension-image", "@tiptap/extension-list", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@tiptap/vue-3"]
+const optionalPeers = ["@json-render/core", "@json-render/vue", "@nuxt/ui", ...markdownEditorTiptapPeers, "@upstash/redis", "@vueuse/core", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+// ProseMirror's package has no root export; probe the entry used by the editor.
+const optionalPeerProbes = optionalPeers.map(peer => peer === "@tiptap/pm" ? "@tiptap/pm/state" : peer)
 // Every fixture and export runs in its own child process. Independent fixtures
 // run side by side, bounded by the CPU count so CI runners are not overloaded.
 const parallelism = availableParallelism()
@@ -616,10 +618,12 @@ async function assertResolution(appDir: string, specifiers: readonly string[], e
 async function addOptionalPeers(appDir: string) {
   const agentManifest = await readManifest(join(appDir, "node_modules/@vite-hub/agent/package.json"))
   const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
+  const tiptapVersion = await installedVersion(join(repoRoot, "packages/ui/node_modules/@tiptap/vue-3/package.json"))
   const peers = {
     "@json-render/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/core/package.json")),
     "@json-render/vue": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/vue/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
+    ...Object.fromEntries(markdownEditorTiptapPeers.map(name => [name, tiptapVersion])),
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
     "@vueuse/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@vueuse/core/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
@@ -784,6 +788,20 @@ async function packageTypeDependenciesFrom(runnerDir: string, packageName: strin
 }
 
 describe("published declaration diagnostics", () => {
+  it("probes optional peers that only export subpaths", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-peer-probe-"))
+    const probe = optionalPeerProbes[optionalPeers.indexOf("@tiptap/pm")]!
+    try {
+      await assertResolution(root, [probe], false)
+      await mkdir(join(root, "node_modules/@tiptap"), { recursive: true })
+      await symlink(await realpath(join(repoRoot, "packages/ui/node_modules/@tiptap/pm")), join(root, "node_modules/@tiptap/pm"), "dir")
+      await assertResolution(root, [probe], true)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("reports package diagnostics without adopting dependency diagnostics", () => {
     expect(isPackageDeclarationFile("/consumer/node_modules/@vite-hub/ui/dist/index.d.ts", "@vite-hub/ui")).toBe(true)
     expect(isPackageDeclarationFile("/consumer/node_modules/@comark/vue/dist/index.d.ts", "@vite-hub/ui")).toBe(false)
