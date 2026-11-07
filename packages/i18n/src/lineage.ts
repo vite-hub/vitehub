@@ -1,3 +1,6 @@
+import { compileMessageOrThrow } from "@lingui/message-utils/compileMessage"
+
+import type { CompiledMessage } from "@lingui/message-utils/compileMessage"
 import type { SourceMessages } from "./manifest.ts"
 import type { TranslationRecord, TranslationRecords } from "./record-format.ts"
 
@@ -39,8 +42,31 @@ export function similarity(left: string, right: string): number {
 }
 
 /** Placeholders such as `{name}` and tags such as `<0>`. A translation with other placeholders does not fit. */
-function placeholders(text: string): string {
-  return [...text.matchAll(/\{(\w+)|<\/?(\d+)\/?>/g)].map(match => match[1] ?? `<${match[2]}>`).sort().join(",")
+function placeholders(text: string): string | undefined {
+  const result: string[] = []
+  function collect(tokens: CompiledMessage): void {
+    for (const token of tokens) {
+      if (typeof token === "string") {
+        for (const match of token.matchAll(/<\/?(\d+)\/?>/g)) result.push(`<${match[1]}>`)
+        continue
+      }
+      const [name, type, choices] = token
+      result.push(name)
+      if ((type === "plural" || type === "select" || type === "selectordinal") && choices && typeof choices === "object") {
+        for (const branch of Object.values(choices)) {
+          if (Array.isArray(branch)) collect(branch)
+        }
+      }
+    }
+  }
+  try {
+    collect(compileMessageOrThrow(text))
+  }
+  catch {
+    // An invalid ICU message cannot establish compatible placeholders.
+    return undefined
+  }
+  return result.sort().join(",")
 }
 
 /**
@@ -52,8 +78,10 @@ export function findPreviousTranslations(messages: SourceMessages, records: Tran
   const unused = Object.entries(records).filter(([id]) => !(id in messages))
   const candidates: Array<{ next: string } & PreviousTranslation> = []
   for (const [next, message] of missing) {
+    const signature = placeholders(message.message)
+    if (signature === undefined) continue
     for (const [id, record] of unused) {
-      if ((record.context ?? "") !== (message.context ?? "") || placeholders(record.source) !== placeholders(message.message)) continue
+      if ((record.context ?? "") !== (message.context ?? "") || placeholders(record.source) !== signature) continue
       const score = similarity(record.source, message.message)
       if (score >= threshold) candidates.push({ next, id, record, similarity: score })
     }

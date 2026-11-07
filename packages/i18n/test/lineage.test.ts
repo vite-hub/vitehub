@@ -39,4 +39,32 @@ describe("previous translations of changed messages", () => {
     expect(findPreviousTranslations(messages("Hello {name}, welcome"), records({ "Hello {user}, welcome": "Hola {user}" })).size).toBe(0)
     expect(findPreviousTranslations(messages("Read the <0>docs</0> first"), records({ "Read the <0>docs</0>": "Lee la <0>documentación</0>" })).size).toBe(1)
   })
+
+  it.each([
+    ["{role, select, admin {Admin} other {Member}}", "{role, select, admin {Administrator} other {Member}}"],
+    ["{count, plural, one {A deployment} other {# deployments}}", "{count, plural, one {One deployment} other {# deployments}}"],
+    ["{rank, selectordinal, one {First place} other {#th place}}", "{rank, selectordinal, one {Top place} other {#th place}}"],
+    ["Hello '{name}' {user}", "Hello '{nickname}' {user}"],
+  ])("matches edits to ICU literal text: %s", (source, next) => {
+    expect(findPreviousTranslations(messages(next), records({ [source]: "Previous translation" })).get(messageId(next)))
+      .toMatchObject({ id: messageId(source) })
+  })
+
+  it.each([
+    ["{count, plural, one {total} other {Deployments for {user}}}", "{total, plural, one {count} other {Deployments for {user}}}"],
+    ["{count, plural, one {A deployment for {user}} other {# deployments}}", "{count, plural, one {A deployment for {owner}} other {# deployments}}"],
+    ["{role, select, admin {<0>Admin</0>} other {Member}}", "{role, select, admin {<1>Admin</1>} other {Member}}"],
+  ])("rejects changed ICU arguments or tags: %s", (source, next) => {
+    expect(similarity(source, next)).toBeGreaterThan(0.6)
+    expect(findPreviousTranslations(messages(next), records({ [source]: "Previous translation" })).size).toBe(0)
+  })
+
+  it.each([
+    ["Hello {name}", "Hello {name}, {count, plural, one {Hi}"],
+    ["Hello {name}, {count, plural, one {Hi}", "Hello {name}"],
+    ["Hello {name}, {count, plural, one {Hi}", "Hello {name}, {count, plural, one {Welcome}"],
+  ])("skips invalid ICU without interrupting matching: %s", (source, next) => {
+    const previous = findPreviousTranslations(messages(next, "Search all agents"), records({ [source]: "Previous translation", "Search agents": "Buscar agentes" }))
+    expect([...previous.keys()]).toEqual([messageId("Search all agents")])
+  })
 })
