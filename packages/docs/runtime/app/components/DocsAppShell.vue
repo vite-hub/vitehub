@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { docsAppPath, normalizeDocsPath } from "#docs/navigation"
 import { ownsApp } from "#docs/shell"
+import theme from "#docs/theme"
 
 const props = defineProps<{
   /** Set by the docs layouts. They draw the shell only in an app with its own `app.vue`, where the docs `app.vue` does not. */
@@ -21,6 +22,8 @@ if (active) {
     link: site.url ? [{ rel: "canonical", href: () => `${site.url}${docsAppPath(normalizeDocsPath(route.path), appBase).replace(/\/+$/, "")}` }] : [],
     // In an app with its own `app.vue`, the app's head stays on its pages, and the docs pages add what they need.
     meta: ownsApp ? [] : [{ name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" }],
+    // The theme's CSS applies below `.vh-docs`. A docs site sets it on every page in its head config.
+    htmlAttrs: ownsApp ? {} : { class: "vh-docs" },
   })
 
   useSeoMeta({
@@ -32,16 +35,19 @@ if (active) {
 </script>
 
 <template>
-  <div v-if="active" class="flex">
-    <div class="min-w-0 flex-1">
-      <AppHeader v-if="$route.meta.header !== false" />
-      <slot />
+  <!-- In an app with its own `app.vue`, the theme reaches the docs pages through `<UTheme>`. Its maps are empty in a docs site. -->
+  <UTheme v-if="active" :ui="theme.ui" :props="theme.props">
+    <div class="flex">
+      <div class="min-w-0 flex-1">
+        <AppHeader v-if="$route.meta.header !== false" />
+        <slot />
 
-      <ClientOnly>
-        <AppSearch />
-      </ClientOnly>
-      <DocsAssistant />
+        <ClientOnly>
+          <AppSearch />
+        </ClientOnly>
+        <DocsAssistant />
+      </div>
     </div>
-  </div>
+  </UTheme>
   <slot v-else />
 </template>

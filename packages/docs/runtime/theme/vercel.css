@@ -1,6 +1,11 @@
-/* The `vercel` theme: Geist, black and white with zinc grays, square corners, and hairline borders. */
+/*
+ * The `vercel` theme: Geist, black and white with zinc grays, square corners, and hairline borders. Every rule that
+ * reaches past the docs classes is below `.vh-docs`, the class of `<html>` on docs pages. A docs site has it on every
+ * page; an app with its own `app.vue` has it only on its docs pages, so its own pages keep their look. `:where()` keeps
+ * the specificity of the plain selectors, so an app's own `:root` rules still win.
+ */
 
-:root {
+:root:where(.vh-docs) {
   --ui-radius: 0.125rem;
   --ui-header-height: 44px;
   --ui-container: 90rem;
@@ -19,15 +24,15 @@
 }
 
 /* Nuxt UI dims text with zinc-400, 2.5:1 on white. Zinc-500 is 4.6:1 or more on the page and muted backgrounds. */
-:root:not(.dark) {
+:root:where(.vh-docs):not(.dark) {
   --ui-text-dimmed: #71717a;
 }
 
-:root.light {
+:root:where(.vh-docs).light {
   color-scheme: light;
 }
 
-:root.dark {
+:root:where(.vh-docs).dark {
   color-scheme: dark;
   --ui-bg: var(--vh-ink);
   --ui-bg-muted: #18181b;
@@ -47,11 +52,11 @@
   --ui-text-inverted: var(--vh-ink);
 }
 
-html {
+html:where(.vh-docs) {
   background: var(--ui-bg);
 }
 
-body {
+:where(.vh-docs) body {
   background: var(--ui-bg);
 }
 
@@ -59,13 +64,13 @@ body {
  * One focus ring for every control. Nuxt UI draws a 3px outline at 25% alpha, about 2:1 against the page. The
  * theme is unlayered, so this rule wins over the outline utilities of Nuxt UI.
  */
-:where(a, button, input[type="checkbox"], input[type="radio"], select, summary, [role="menuitem"], [role="option"], [role="tab"], [tabindex]:not([tabindex="-1"])):focus-visible {
+:where(.vh-docs) :where(a, button, input[type="checkbox"], input[type="radio"], select, summary, [role="menuitem"], [role="option"], [role="tab"], [tabindex]:not([tabindex="-1"])):focus-visible {
   outline: 2px solid var(--ui-text-highlighted);
   outline-offset: 2px;
 }
 
 /* Menu items and tabs fill a box that clips its overflow, so their ring sits inside. */
-:where([role="menuitem"], [role="option"], [role="tab"]):focus-visible {
+:where(.vh-docs) :where([role="menuitem"], [role="option"], [role="tab"]):focus-visible {
   outline-offset: -2px;
 }
 
@@ -73,25 +78,25 @@ body {
  * Nuxt UI also rings the `::before` of a focused link, the code in it, or the card and list around it. The ring
  * above is enough, so those second rings go.
  */
-:where([class*="focus-visible:before:outline"]):focus-visible::before,
-:where(a:focus-visible > code),
-:where([class*="has-focus-visible:outline"]):has(:is(a, button, [role="menuitem"], [role="option"], [role="tab"]):focus-visible) {
+:where(.vh-docs) :where([class*="focus-visible:before:outline"]):focus-visible::before,
+:where(.vh-docs) :where(a:focus-visible > code),
+:where(.vh-docs) :where([class*="has-focus-visible:outline"]):has(:is(a, button, [role="menuitem"], [role="option"], [role="tab"]):focus-visible) {
   outline: none;
 }
 
-::selection {
+:where(.vh-docs) ::selection {
   background: var(--ui-text-highlighted);
   color: var(--ui-bg);
 }
 
 /* Highlighted code carries the light colors inline and the dark colors in variables. */
-html .shiki span {
+html:where(.vh-docs) .shiki span {
   font-style: var(--shiki-light-font-style);
   font-weight: var(--shiki-light-font-weight);
   text-decoration: var(--shiki-light-text-decoration);
 }
 
-html.dark .shiki span {
+html:where(.vh-docs).dark .shiki span {
   color: var(--shiki-dark) !important;
   background-color: var(--shiki-dark-bg) !important;
   font-style: var(--shiki-dark-font-style) !important;
@@ -387,7 +392,7 @@ html.dark .shiki span {
   }
 }
 
-.code-block-wrapper pre {
+:where(.vh-docs) .code-block-wrapper pre {
   margin: 0 !important;
   overflow-x: auto;
   border: none !important;
@@ -396,13 +401,13 @@ html.dark .shiki span {
   font-size: 0.8125rem;
 }
 
-.code-block-wrapper .shiki {
+:where(.vh-docs) .code-block-wrapper .shiki {
   min-height: 100%;
   background-color: transparent !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  :where(.vh-docs) *, :where(.vh-docs) *::before, :where(.vh-docs) *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;

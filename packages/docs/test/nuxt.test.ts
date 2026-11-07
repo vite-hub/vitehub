@@ -132,6 +132,9 @@ describe("docs in an existing app", () => {
     const options = await setupDocs({ dir: app.dir }, "/", false, { srcDir: app.srcDir }) as Awaited<ReturnType<typeof setupDocs>> & { app: { head: Record<string, unknown> } }
     expect(options.app.head).toEqual({})
     expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = false\n")
+    // The app config keeps the app's colors and slot classes. The docs layouts scope the theme with <UTheme>.
+    expect(options.appConfig).toEqual({ ui: { prose: { codeIcon: expect.any(Object) } } })
+    expect(templates.get("docs/theme.mjs")?.()).toContain('"pageHeader":{')
     const layouts: Record<string, { file: string }> = {}
     await callHook("app:templates", { layouts, templates: [] })
     expect(Object.keys(layouts).sort()).toEqual(["docs", "docs-article"])
@@ -144,8 +147,11 @@ describe("docs in an existing app", () => {
   })
 
   it("draws the site with the docs app.vue when the app has none", async () => {
-    const options = await setupDocs({}) as Awaited<ReturnType<typeof setupDocs>> & { app: { head: { titleTemplate?: string } } }
+    const options = await setupDocs({}) as Awaited<ReturnType<typeof setupDocs>> & { app: { head: { titleTemplate?: string, htmlAttrs?: { class?: string } } } }
     expect(options.app.head.titleTemplate).toBe("%s · Docs")
+    expect(options.app.head.htmlAttrs?.class).toBe("vh-docs")
+    expect(options.appConfig).toMatchObject({ ui: { colors: { primary: "neutral", neutral: "zinc" } } })
+    expect(templates.get("docs/theme.mjs")?.()).toBe('export default {"ui":{},"props":{}}\n')
     expect(templates.get("docs/shell.mjs")?.()).toBe("export const ownsApp = true\n")
     const layouts: Record<string, { file: string }> = {}
     await callHook("app:templates", { layouts, templates: [] })
