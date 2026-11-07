@@ -40,6 +40,7 @@ Available namespaces:
   push        Pull, then commit the local changes of a checkout folder to its ref.
   status      Show local and remote changes of each checkout folder.
   resolve     Keep the local version of binary files that both sides changed.
+  hooks       Git hooks that check checkout folders before a commit and push them with the default branch.
   console     Console development workflows.
   agent       Agent development workflows.
   blob        Read and write blobs of the Blob stores of the app, on the dev server or on a deployed app.
@@ -150,6 +151,10 @@ Available namespaces:
 | `vitehub pull` | Available | Workspace Package | Merge the remote changes of each checked-out Workspace ref into its local folder, and update `vitehub.lock`. |
 | `vitehub push` | Available | Workspace Package | Pull, then commit the local changes of each checkout folder to its ref. It never publishes or deploys. |
 | `vitehub status` | Available | Workspace Package | Show local changes, conflicts, and with `--remote` the remote changes of each checkout folder. |
+| `vitehub hooks install` | Available | Workspace Package | Write `.git/hooks/pre-commit` and `pre-push`, or print the commands for Husky, lefthook, pre-commit, simple-git-hooks, or `core.hooksPath`. |
+| `vitehub hooks uninstall` | Available | Workspace Package | Remove the hooks that `vitehub hooks install` wrote. |
+| `vitehub hooks pre-commit` | Available | Workspace Package | Fail while a checkout folder has conflicts. Works offline. |
+| `vitehub hooks pre-push` | Available | Workspace Package | Run `vitehub push` when the Git push updates the default branch. |
 | `vitehub resolve` | Available | Workspace Package | Keep the local version of binary files that both sides changed. |
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub inspect definitions` | Available | ViteHub CLI plus package inspection contributors | List the Definitions that each active package discovered. |
@@ -829,6 +834,8 @@ pnpm vitehub pull site --dir content --ref draft --url https://docs.example.com
 pnpm vitehub status --remote
 pnpm vitehub push --message "Fix the install guide"
 ```
+
+Run `pnpm vitehub hooks install` once to check for conflicts before each commit and to push the checkout folders when you push the default branch. A push of another branch leaves the remote ref alone, so work in progress does not reach the shared draft. Skip the hooks for one Git command with `--no-verify`.
 
 ## Read Workspace history during development
 

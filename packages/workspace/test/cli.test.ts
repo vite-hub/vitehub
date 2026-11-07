@@ -66,7 +66,7 @@ describe("workspace CLI", () => {
         description: "Workspace development workflows.",
         features: [expect.objectContaining({ name: "dev", usage: "vitehub workspace dev <workspace> [exec <command...>]" })],
         name: "workspace",
-      }, command("pull"), command("push"), command("status"), command("resolve")],
+      }, command("pull"), command("push"), command("status"), command("resolve"), expect.objectContaining({ name: "hooks" })],
     })
   })
 

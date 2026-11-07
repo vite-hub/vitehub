@@ -188,6 +188,8 @@ The first pull of a Workspace needs `--dir`, and `--ref` when the ref is not `ma
 - **Binary files.** When both sides change one, the pull keeps your file and lists the path in `conflicts` of the lock file. Run `vitehub resolve <workspace> <path>` to keep your file, or pull with `--theirs <path>`.
 - **Status.** `status` lists added, modified, deleted, and conflicting files. `--remote` also lists what changed on the ref since the last pull. `--check` exits with `1` while a conflict is open, so a pre-commit hook can run it.
 
+`pnpm vitehub hooks install` adds two Git hooks. Before a commit, `vitehub hooks pre-commit` fails while a checkout folder has conflicts; it works offline. Before a push, `vitehub hooks pre-push` runs `vitehub push` when the Git push updates the default branch (`origin/HEAD`, else `init.defaultBranch`, else `main`), and fails the Git push when the Workspace push fails. Other branches push nothing. Without `vitehub.lock`, both hooks do nothing. When Husky, lefthook, pre-commit, simple-git-hooks, or `core.hooksPath` runs the hooks of the repository, `install` writes no file and prints the two commands to add there. It never replaces a hook that it did not write. `vitehub hooks uninstall` removes its hooks.
+
 The commands call two operations of the app, which the Console section `workspaces` grants:
 
 | Operation | Kind | Result |
