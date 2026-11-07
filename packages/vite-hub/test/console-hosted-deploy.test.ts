@@ -32,7 +32,7 @@ describe("hosted Console deploy", () => {
     const csp = directives(page.get("content-security-policy") ?? "");
 
     expect(csp.get("default-src")).toEqual(["'self'"]);
-    expect(csp.get("script-src")).toEqual(["'self'"]);
+    expect(csp.get("script-src")).toEqual(["'self'", "'wasm-unsafe-eval'"]);
     expect(csp.get("object-src")).toEqual(["'none'"]);
     expect(csp.get("base-uri")).toEqual(["'none'"]);
     expect(csp.get("frame-ancestors")).toEqual(["'none'"]);

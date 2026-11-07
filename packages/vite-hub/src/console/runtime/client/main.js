@@ -32,9 +32,9 @@ import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSection
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { consoleProjectReady, isConsoleNewProjectPath, startConsoleLink, startConsoleNewProject, startConsoleProjects } from "./project-session";
+import { consoleProjectReady, isConsoleNewProjectPath, noteConsoleProjectsVolatile, startConsoleLink, startConsoleNewProject, startConsoleProjects } from "./project-session";
 import { takeConsoleLinkHash } from "./pending-links";
-import { memoryProjectStorage } from "./projects";
+import { browserProjectStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
 // The hosted build marks its static page. There the Console opens the projects that this browser linked. Otherwise the
@@ -44,16 +44,8 @@ const hosted = document.querySelector('meta[name="vitehub-console-mode"]')?.getA
 const hostBase = hosted ? "" : consoleMountBase(window.location.pathname);
 const consoleBase = hosted ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
 
-function projectStorage() {
-  try {
-    const storage = window.localStorage;
-    storage.getItem("vitehub-console:projects");
-    return { storage, storagePersistent: true };
-  } catch {
-    // A browser that blocks storage keeps the projects for this tab only.
-    return { storage: memoryProjectStorage(), storagePersistent: false };
-  }
-}
+// A browser that blocks or fills storage keeps the projects in memory until the page reloads.
+const storage = browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile);
 
 // A one-time link of a new project: /link#p=<pendingId>&url=<appOrigin>. Only the hosted Console links new projects.
 const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
@@ -64,7 +56,8 @@ startConsoleProjects({
   mode: hosted ? "hosted" : "embedded",
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
-  ...projectStorage(),
+  storage,
+  storagePersistent: storage.persistent !== false,
   pendingLinkLocks: navigator.locks,
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);

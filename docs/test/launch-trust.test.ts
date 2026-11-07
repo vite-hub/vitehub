@@ -105,11 +105,11 @@ describe("launch documentation trust boundaries", () => {
     }
     expect(matrix).toContain("Cloudflare Queues");
     expect(matrix).toContain("Vercel Queues");
-    expect(matrix).toMatch(/\| Queue\s+\|[^\n]+\| Cloudflare or Vercel \| —\s+\|/);
+    expect(matrix).toMatch(/\| Queue\s+\| Local provider\s+\|[^\n]+\| Cloudflare or Vercel \| Local provider\s+\|/);
     expect(matrixData).toContain(
       "Cloudflare Queue bindings or the Vercel Queues runtime client can be composed through Nitro output",
     );
-    expect(matrix).toContain("Discovery only");
+    expect(matrix).toContain("Local Vite delivers Queue Jobs in the dev server");
     expect(matrix).toContain("Netlify requires an explicit Cloudflare or Vercel Queue Provider");
     expect(matrix).toContain("every other host requires the explicit built-in Resend driver or a programmatic custom driver");
     expect(matrix).toContain("distributed Vercel, Netlify, and Deno presets reject memory");

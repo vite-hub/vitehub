@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -13,7 +13,7 @@ const workflowSchema = object({ permissions: record(string(), string()), jobs: r
   needs: optional(pipe(union([string(), array(string())]), transform(value => typeof value === "string" ? [value] : value))),
   if: optional(string()),
   "continue-on-error": optional(boolean()),
-  steps: array(object({ run: optional(string()), env: optional(record(string(), string())) })),
+  steps: array(object({ name: optional(string()), run: optional(string()), env: optional(record(string(), string())) })),
 })) })
 const workflow = parse(workflowSchema, parseYaml(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")))
 const jobNames = Object.keys(workflow.jobs).filter(name => name !== "ci")
@@ -146,6 +146,50 @@ describe("CI merge gate", () => {
     const hosted = workflow.jobs.console
     expect(hosted?.if).toBeUndefined()
     expect(hosted?.steps.some(step => step.run === "vp run --filter vite-hub build:console-hosted")).toBe(true)
+  })
+
+  it("rejects a stale hosted Console with the same entry script, including workflow reruns", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-console-deploy-"))
+    const output = join(directory, "packages/vite-hub/.vitehub/console-hosted")
+    const live = join(directory, "live.html")
+    const identify = workflow.jobs.console?.steps.find(step => step.name === "Identify hosted Console build")?.run
+    const check = workflow.jobs["console-deploy"]?.steps.find(step => step.name === "Check the live site")?.run
+    if (!check) throw new Error("The Console deployment must check the live site")
+    const html = '<html><head><script type="module" src="/assets/console-unchanged.js"></script></head></html>'
+    const run = (command: string, attempt: string, curlStatus = "0") => spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", command], {
+      cwd: directory,
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, GITHUB_SHA: "same-commit", GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: attempt, LIVE_HTML: live, CURL_STATUS: curlStatus },
+    })
+    try {
+      mkdirSync(output, { recursive: true })
+      for (const [name, contents] of Object.entries({ curl: '#!/bin/sh\ncat "$LIVE_HTML"\nexit "$CURL_STATUS"\n', sleep: "#!/bin/sh\nexit 0\n" })) {
+        const path = join(directory, name)
+        writeFileSync(path, contents)
+        chmodSync(path, 0o755)
+      }
+      for (const attempt of ["1", "2"]) {
+        for (const name of ["index.html", "404.html"]) writeFileSync(join(output, name), html)
+        if (identify) {
+          const result = run(identify, attempt)
+          expect(result.status, result.stderr).toBe(0)
+        }
+        if (attempt === "1") writeFileSync(live, readFileSync(join(output, "index.html")))
+      }
+
+      const stale = run(check, "2")
+      expect(stale.status, "An older deployment with an unchanged entry must fail").not.toBe(0)
+      expect(stale.stderr).toContain("does not serve this build")
+      expect(readFileSync(join(output, "404.html"), "utf8")).toBe(readFileSync(join(output, "index.html"), "utf8"))
+
+      writeFileSync(live, readFileSync(join(output, "index.html")))
+      const current = run(check, "2")
+      expect(current.status, current.stderr).toBe(0)
+      expect(run(check, "2", "22").status, "An unsuccessful HTTP response must fail even with the expected marker").not.toBe(0)
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it.each(["push", "workflow_dispatch"])("rejects a partial package test rerun with failed shards on %s", (event) => {

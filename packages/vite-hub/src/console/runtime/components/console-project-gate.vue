@@ -2,7 +2,8 @@
 import { computed, defineAsyncComponent, onMounted, ref, shallowRef } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
-import { forgetConsoleProject, openConsoleNewProject, openConsoleProject, signInConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
+import { consoleTokenRefused } from "../client/project-link";
+import { consoleProjectsVolatileNote, forgetConsoleProject, openConsoleNewProject, openConsoleProject, signInConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleProjectLink from "./console-project-link.vue";
@@ -39,7 +40,7 @@ async function signIn(token: string): Promise<void> {
   const next = await signInConsoleProject(token).catch(() => undefined);
   busy.value = false;
   if (!next) tokenError.value = `Could not reach ${host.value}. Check the connection and try again.`;
-  else if (next.kind === "token") tokenError.value = `${host.value} refused this token. Copy the current value of VITEHUB_CONSOLE_TOKEN from the server and try again.`;
+  else if (next.kind === "token") tokenError.value = consoleTokenRefused(host.value);
   else if (next.kind === "problem") tokenError.value = next.problem.message;
 }
 
@@ -93,7 +94,7 @@ onMounted(() => {
         <div class="grid gap-1.5">
           <h1 class="vitehub-project-gate__title">Enter the Console token for {{ host }}</h1>
           <p class="vitehub-project-gate__text">
-            {{ gate.rejected && !tokenError ? `The saved token no longer works for ${host}. Paste the current value of VITEHUB_CONSOLE_TOKEN.` : "This project uses auth: \"token\"." }}
+            {{ gate.rejected && !tokenError ? `The saved token no longer works for ${host}. Paste the current token.` : "This project uses auth: \"token\"." }}
           </p>
         </div>
         <ConsoleProjectToken :busy="busy" :error="tokenError" @submit="signIn" />
@@ -108,6 +109,11 @@ onMounted(() => {
         </div>
         <UButton icon="i-lucide-refresh-cw" label="Try again" class="justify-self-start" :loading="busy" @click="retry" />
       </template>
+
+      <p v-if="!projects.persistent.value" class="vitehub-project-gate__note">
+        <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+        {{ consoleProjectsVolatileNote }}
+      </p>
 
       <div v-if="projects.mode === 'hosted' && current && gate.kind !== 'empty' && gate.kind !== 'link'" class="vitehub-project-gate__host">
         <span class="min-w-0 truncate font-mono">{{ current.url }}</span>
@@ -148,6 +154,15 @@ onMounted(() => {
   font-size: 0.875rem;
   line-height: 1.25rem;
   overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.vitehub-project-gate__note {
+  color: var(--ui-text-muted);
+  display: flex;
+  font-size: 0.75rem;
+  gap: 0.375rem;
+  line-height: 1rem;
   text-wrap: pretty;
 }
 

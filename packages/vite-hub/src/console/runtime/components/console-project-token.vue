@@ -33,8 +33,8 @@ function submit(): void {
     <UFormField
       label="Console token"
       name="token"
-      description="The value of VITEHUB_CONSOLE_TOKEN on the server. This browser keeps it with the project."
-      :error="empty ? 'Paste the token first. It is the value of VITEHUB_CONSOLE_TOKEN on the server.' : error"
+      description="The token you created for this project. The server keeps only its SHA-256 hash in VITEHUB_CONSOLE_TOKEN_SHA256. This browser keeps the token with the project."
+      :error="empty ? 'Paste the token first.' : error"
     >
       <UInput
         v-model="token"
