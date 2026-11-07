@@ -620,6 +620,53 @@ describe("content capability", () => {
       name: "content",
     }))
   })
+
+  it("lists missing and stale translations and saves them with locale", async () => {
+    const runtime = defineContent({
+      workspace: await historyWorkspace(cleanup),
+      collections: {
+        docs: documents({ path: "docs/{locale}/*.md", locales: ["en", "es"], fields: { title: z.string().min(1) } }),
+        posts: documents({ path: "posts/*.md", fields: { title: z.string().min(1) } }),
+      },
+      authorize: editorsOnly,
+      logger: false,
+    })
+    cleanup.push(() => runtime.dispose())
+    const all = await tools(content(), runtime)
+    expect((all.content_save_draft!.inputSchema as any).required).toEqual(["body", "collection", "data", "id", "ifDigest", "locale"])
+    expect((all.content_list_translations!.inputSchema as any).properties).toMatchObject({ collection: { enum: ["docs"] }, locale: { enum: ["en", "es"] } })
+    expect((await run(all.content_list_collections, {})).collections).toContainEqual(expect.objectContaining({ name: "docs", locales: ["en", "es"] }))
+
+    const docs = runtime.collection("docs")
+    await docs.save("guide", { data: { title: "Guide" }, body: "Hello.\n" })
+    await docs.save("intro", { data: { title: "Intro" } })
+    expect(await run(all.content_list_translations, { collection: "docs", locale: "es" })).toEqual({
+      collection: "docs",
+      locale: "es",
+      translations: [
+        { id: "guide", state: "missing" },
+        { id: "intro", state: "missing" },
+      ],
+    })
+    expect(await run(all.content_get_document, { collection: "docs", id: "guide", ref: "draft", locale: "es" }))
+      .toMatchObject({ ok: true, document: { locale: "en", fallback: true } })
+
+    const saved = await run(all.content_save_draft, { collection: "docs", id: "guide", data: { title: "Guía" }, body: "Hola.\n", ifDigest: null, locale: "es" })
+    expect(saved).toMatchObject({ ok: true, document: { id: "guide", locale: "es", derivedFrom: { path: "docs/en/guide.md" } } })
+    expect((await run(all.content_list_translations, { collection: "docs", locale: "es" })).translations.map((entry: any) => entry.id)).toEqual(["intro"])
+    await docs.save("guide", { data: { title: "Guide" }, body: "Hello again.\n" })
+    expect((await run(all.content_list_translations, { collection: "docs", locale: "es" })).translations)
+      .toEqual([{ id: "guide", state: "stale" }, { id: "intro", state: "missing" }])
+
+    expect(await run(all.content_status, { collection: "docs", locale: "es" })).toMatchObject({ documents: [{ id: "guide", locale: "es", state: "draft" }] })
+    expect(await run(all.content_save_draft, { collection: "posts", id: "x", data: { title: "X" }, body: "", ifDigest: null, locale: "es" }))
+      .toMatchObject({ ok: false, error: { code: "CONTENT_INVALID", issues: [{ path: ["locale"] }] } })
+    expect(await run(all.content_list_translations, { collection: "docs", locale: "en" })).toMatchObject({ ok: false, error: { code: "CONTENT_INVALID" } })
+    const published = await run(applyAgentToolPolicies(await tools(content({ policy: "allow" }), runtime))!.content_publish, {
+      documents: [{ collection: "docs", digest: saved.document.digest, id: "guide", locale: "es" }],
+    })
+    expect(published).toMatchObject({ ok: true, documents: [{ collection: "docs", id: "guide", locale: "es", change: "add" }] })
+  })
 })
 
 describe("content capability with the Actor of a chat", () => {

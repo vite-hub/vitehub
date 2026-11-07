@@ -38,6 +38,8 @@ Every read of a routable collection carries `url`: `get()`, `list()`, `save()`, 
 
 A pattern must start with `/` and may only name `:id` and defined fields; anything else throws `CONTENT_R0006` when the definition loads.
 
+In a collection with [locales](/docs/content/configure#locales), a pattern without `:locale` puts `/<locale>` before the URL of every locale but the source locale, so `/docs/:id` gives `/docs/guide` and `/es/docs/guide`. Write `:locale` in the pattern, such as `/:locale/docs/:id`, to place the locale yourself. A `url()` function receives `{ id, data, locale }`.
+
 ### Source URLs
 
 A read-only Source has no `url` until you give it one with `contentSource(input, { url })`. The id of a Source document is its path without the leading slash, so `content/guides/start.md` read by `glob({ cwd: 'content' })` has the id `guides/start`. A `:<name>` in the pattern reads a frontmatter value.

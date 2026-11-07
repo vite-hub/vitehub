@@ -54,6 +54,7 @@ ViteHub passes the `content` export of `server/content.ts` to the Capability as 
 | `content_get_document` | `read` | `read` for the document | `allow` | Returns one document with `data`, `body`, `digest`, `updatedAt`, and the field `issues` of a draft. |
 | `content_status` | `read` | `read`, then `read` for each document | `allow` | Compares draft and published documents: `draft`, `published`, `changed`, or `deleted`, with each draft digest, the `issues` count, and the `schedule`. |
 | `content_list_schedules` | `read` | `read` for each document of a schedule | `allow` | Lists pending, overdue, and failed schedules. Filter by `collection`, `id`, and `status`. |
+| `content_list_translations` | `read` | `read`, then `read` for each document | `allow` | Lists the documents whose translation in a locale is `missing` or `stale`. Only when a collection in scope has [locales](/docs/content/configure#locales). |
 | `content_save_draft` | `write` | `write` for the document | `allow` | Saves one document to the `draft` ref. |
 | `content_publish` | `publish` | `publish` for each document | `require-approval` | Copies the listed drafts to the `published` ref, pinned to their digests. |
 | `content_schedule` | `publish` | `publish` for each document | `require-approval` | Publishes the listed drafts at `at`, pinned to their digests. |
@@ -73,6 +74,12 @@ The following Agent-visible definitions are resolved from the real Capability du
 ::
 
 With more than one collection, `data` lists each collection's fields as an alternative whose `title` is the collection name. The runtime validates `data` against the collection named in `collection`. The top level of each input schema stays a plain object, because some model providers reject a top-level `anyOf`. When a singleton is in scope, `id` is optional in the schema. When a JSON or YAML collection is in scope, `body` is optional. The tools then check both for the named collection.
+
+## Translations
+
+When a collection in scope has [locales](/docs/content/configure#locales), `content_list_documents`, `content_get_document`, `content_status`, `content_save_draft`, and the `documents` of `content_publish` and `content_schedule` take `locale`. `null` is the source locale. `content_list_collections` lists the `locales` of each collection, source locale first.
+
+To translate, the Agent calls `content_list_translations` with `{ collection, locale }`, reads each source document with `content_get_document` and `ref: 'draft'`, and saves the translation with `content_save_draft` and the `locale`. Set `ifDigest` to `null` for a missing translation, or to the `digest` that `content_get_document` returns for the stale one with `locale` and `ref: 'draft'`. The save records the source version as `derivedFrom`, so the translation is `current` until the source changes again. Collections without locales keep the same input schemas as before.
 
 ## Field issues
 

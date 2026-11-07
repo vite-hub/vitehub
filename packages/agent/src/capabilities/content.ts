@@ -60,8 +60,10 @@ interface ContentDocumentRecord {
   collection: string
   data: Record<string, unknown>
   digest: string
+  fallback?: true
   id: string
   issues?: unknown[]
+  locale?: string
   path: string
   revision: string
   updatedAt: string | null
@@ -79,9 +81,11 @@ interface ContentStatusRecord {
   draft: string | null
   id: string
   issues?: number
+  locale?: string
   published: string | null
   schedule?: Record<string, unknown>
   state: string
+  translations?: Record<string, string>
 }
 
 interface ContentListPage {
@@ -93,7 +97,13 @@ interface ContentListPage {
 interface ContentWriteOptions {
   ifDigest?: string | null
   lease?: "override"
+  locale?: string
   metadata?: Record<string, unknown>
+}
+
+interface ContentReadOptions {
+  locale?: string
+  ref?: ContentRef
 }
 
 /**
@@ -103,18 +113,20 @@ interface ContentWriteOptions {
 interface ContentCollectionHandle {
   fields: readonly string[]
   format: "json" | "markdown" | "yaml"
-  get: (id: string, options?: { ref?: ContentRef }) => Promise<ContentDocumentRecord | null>
+  get: (id: string, options?: ContentReadOptions) => Promise<ContentDocumentRecord | null>
   /** The document id of a singleton. */
   id?: string
   kind: "documents" | "singleton"
   label: string
   list: (options?: Record<string, unknown>) => Promise<ContentListPage>
+  /** Locales of a translated collection, source locale first. */
+  locales?: readonly string[]
   name: string
   path: string
-  raw: (id: string, options?: { ref?: ContentRef }) => Promise<ContentRawRecord | null>
+  raw: (id: string, options?: ContentReadOptions) => Promise<ContentRawRecord | null>
   save: (id: string, input: { body?: string, data: Record<string, unknown> }, options?: ContentWriteOptions) => Promise<ContentDocumentRecord>
   schema: Record<string, unknown>
-  status: (id?: string) => Promise<ContentStatusRecord | ContentStatusRecord[] | null>
+  status: (id?: string | { locale?: string }, options?: { locale?: string }) => Promise<ContentStatusRecord | ContentStatusRecord[] | null>
   titleField?: string
 }
 
@@ -122,6 +134,7 @@ interface ScheduledDocument {
   collection: string
   digest: string | null
   id: string
+  locale?: string
 }
 
 interface ContentScheduleRecord {
@@ -157,6 +170,7 @@ interface ListDocumentsInput {
   cursor?: string
   filter?: Record<string, unknown>
   limit?: number
+  locale?: string | null
   ref?: ContentRef
   search?: string
   sort?: { direction?: "asc" | "desc", field: string }
@@ -165,6 +179,7 @@ interface ListDocumentsInput {
 interface GetDocumentInput {
   collection: string
   id?: string
+  locale?: string | null
   ref?: ContentRef
 }
 
@@ -174,17 +189,25 @@ interface SaveDraftInput {
   data: Record<string, unknown>
   id?: string
   ifDigest: string | null
+  locale?: string | null
 }
 
 interface StatusInput {
   collection: string
   id?: string
+  locale?: string | null
+}
+
+interface ListTranslationsInput {
+  collection: string
+  locale: string
 }
 
 interface DocumentEntry {
   collection: string
   digest: string | null
   id?: string
+  locale?: string | null
 }
 
 interface PublishInput {
@@ -236,6 +259,18 @@ function collectionSchema(names: readonly string[]): JsonSchema {
   return { description: "Content collection or singleton name.", enum: [...names], type: "string" }
 }
 
+/** Every locale of the collections that have locales. */
+function localesOf(collections: readonly ContentCollectionHandle[]): string[] {
+  return [...new Set(collections.flatMap(collection => collection.locales ?? []))]
+}
+
+/** The `locale` input of collections with locales, null for the source locale. Absent when no collection has locales. */
+function localeProperty(collections: readonly ContentCollectionHandle[], description: string): Record<string, JsonSchema> {
+  const locales = localesOf(collections)
+  if (!locales.length) return {}
+  return { locale: { anyOf: [{ enum: locales, type: "string" }, { type: "null" }], description } }
+}
+
 function idSchema(singletons: boolean, suffix = ""): JsonSchema {
   const description = "Document id: the path below the collection folder without the extension, such as `hello` or `2026/hello`."
   return {
@@ -264,12 +299,13 @@ function nullableIdSchema(allowNull: boolean): JsonSchema {
 function documentsSchema(collections: readonly ContentCollectionHandle[], description: string): JsonSchema {
   const names = collections.map(collection => collection.name)
   const allSingletons = collections.every(collection => collection.kind === "singleton")
+  const locale = localeProperty(collections, "The locale of the document in a collection with locales, from content_status. Null for the source locale.")
   return {
     description,
     items: {
       additionalProperties: false,
-      properties: { collection: collectionSchema(names), digest: digestSchema, id: nullableIdSchema(allSingletons) },
-      required: ["collection", "digest", "id"],
+      properties: { collection: collectionSchema(names), digest: digestSchema, id: nullableIdSchema(allSingletons), ...locale },
+      required: ["collection", "digest", "id", ...Object.keys(locale)],
       type: "object",
     },
     minItems: 1,
@@ -394,9 +430,9 @@ async function authUser(context: AgentCapabilityContext): Promise<ContentCapabil
   return isRuntimeRecord(user) ? user : null
 }
 
-/** Every document status of a collection, or the one status of a singleton. */
-async function statusesOf(collection: ContentCollectionHandle, id?: string): Promise<ContentStatusRecord[]> {
-  const result = await collection.status(id)
+/** Every document status of a collection in one locale, or the one status of a singleton. */
+async function statusesOf(collection: ContentCollectionHandle, id?: string, locale?: string): Promise<ContentStatusRecord[]> {
+  const result = locale === undefined ? await collection.status(id) : id === undefined ? await collection.status({ locale }) : await collection.status(id, { locale })
   return Array.isArray(result) ? result : result ? [result] : []
 }
 
@@ -473,6 +509,14 @@ function contentTools(
   const idProblem = (target: ContentCollectionHandle, path = "id") => target.kind === "singleton"
     ? invalidInput(path, `${target.name} is a singleton with the id ${JSON.stringify(target.id)}. Omit id.`)
     : invalidInput(path, `${target.name} is a collection. Pass the document id.`)
+  /** The `locale` option of an input: none for null or a missing locale, else one of the collection's locales. */
+  const localeOption = (target: ContentCollectionHandle, locale: unknown, path = "locale"): { locale?: string } | ReturnType<typeof invalidInput> => {
+    if (locale === undefined || locale === null) return {}
+    if (!target.locales?.length) return invalidInput(path, `${target.name} has no locales. Omit locale.`)
+    if (String(locale) !== locale || !target.locales.includes(locale)) return invalidInput(path, `${target.name} has the locales ${target.locales.join(", ")}.`)
+    return { locale }
+  }
+  const isProblem = (value: object): value is ReturnType<typeof invalidInput> => "ok" in value
   /** Pinned entries of `content_publish` and `content_schedule`, with the id of each singleton filled in. */
   const pinned = (documents: unknown): ScheduledDocument[] | ReturnType<typeof invalidInput> => {
     if (!Array.isArray(documents) || !documents.length) return invalidInput("documents", "List at least one document with its reviewed draft digest.")
@@ -485,7 +529,9 @@ function contentTools(
       if (document.digest !== null && (String(document.digest) !== document.digest || !document.digest)) {
         return invalidInput(`documents.${index}.digest`, "digest must be the draft digest from content_status, or null.")
       }
-      expected.push({ collection: target.name, digest: document.digest, id })
+      const locale = localeOption(target, document.locale, `documents.${index}.locale`)
+      if (isProblem(locale)) return locale
+      expected.push({ collection: target.name, digest: document.digest, id, ...locale })
     }
     return expected
   }
@@ -542,7 +588,7 @@ function contentTools(
   const tools: AgentToolSet = {}
   if (options.enabled.has("read")) {
     tools.content_list_collections = defineInternalTool<Record<string, never>>({
-      description: "List the Content collections and singletons this Agent can use, with their fields, format, and what the current user may do in each.",
+      description: "List the Content collections and singletons this Agent can use, with their fields, format, locales (source locale first), and what the current user may do in each.",
       execute: async () => ({
         collections: await Promise.all(scoped.map(async entry => ({
           access: Object.fromEntries(await Promise.all(operationNames.map(async action => [action, await can(action, entry.name)] as const))),
@@ -553,6 +599,7 @@ function contentTools(
           name: entry.name,
           path: entry.path,
           ...(entry.kind === "singleton" ? { id: entry.id } : {}),
+          ...(entry.locales?.length ? { locales: [...entry.locales] } : {}),
           ...(entry.titleField ? { titleField: entry.titleField } : {}),
         }))),
       }),
@@ -567,8 +614,11 @@ function contentTools(
       execute: async (input, execution) => {
         const target = collection(input?.collection)
         const ref = input?.ref ?? "published"
+        const locale = localeOption(target, input?.locale)
+        if (isProblem(locale)) return locale
         await authorize("read", target.name)
-        const statuses = await statusesOf(target)
+        // A locale lists its translations and, for documents without one, the source locale version.
+        const statuses = [...await statusesOf(target), ...locale.locale ? await statusesOf(target, undefined, locale.locale) : []]
         const readable = await readableIds(target.name, statuses.map(status => status.id))
         const filter = isRuntimeRecord(input.filter) ? { ...input.filter } : {}
         const requested = filter.id === undefined ? undefined : new Set((Array.isArray(filter.id) ? filter.id : [filter.id]).map(String))
@@ -576,6 +626,7 @@ function contentTools(
         if (!ids.length) return { items: [], nextCursor: null, ref, total: 0 }
         const page = await target.list({
           ref,
+          ...locale,
           filter: { ...filter, id: ids },
           ...(input.search ? { search: input.search } : {}),
           ...(input.sort ? { sort: input.sort } : {}),
@@ -598,6 +649,7 @@ function contentTools(
             type: "object",
           },
           limit: { maximum: 100, minimum: 1, type: "integer" },
+          ...localeProperty(scoped, "The locale to list in a collection with locales. A document without a translation is listed in the source locale with fallback: true. Null for the source locale."),
           ref: refSchema,
           search: { description: "Case-insensitive text to find in the collection's search fields.", type: "string" },
           sort: {
@@ -621,9 +673,11 @@ function contentTools(
         const id = documentId(target, input.id)
         if (id === undefined) return idProblem(target)
         const ref = input.ref ?? "published"
+        const locale = localeOption(target, input.locale)
+        if (isProblem(locale)) return locale
         await authorize("read", target.name, id)
         try {
-          const document = await target.get(id, { ref })
+          const document = await target.get(id, { ref, ...locale })
           if (!document) {
             return { error: { code: "CONTENT_NOT_FOUND", message: `No document ${JSON.stringify(id)} on the ${ref} ref of ${target.name}.` }, ok: false as const }
           }
@@ -632,14 +686,19 @@ function contentTools(
         catch (error) {
           const result = recoverable(error, "get")
           // A stored file that no longer validates is returned as text, with the digest to save the repair over.
-          const raw = result.error.code === "CONTENT_INVALID" ? await target.raw(id, { ref }) : null
+          const raw = result.error.code === "CONTENT_INVALID" ? await target.raw(id, { ref, ...locale }) : null
           return raw ? { ...result, error: { ...result.error, digest: raw.digest, text: raw.text } } : result
         }
       },
       icon: "i-lucide-file-text",
       inputSchema: {
         additionalProperties: false,
-        properties: { collection: collectionSchema(names), id: nullableIdSchema(allSingletons), ref: refSchema },
+        properties: {
+          collection: collectionSchema(names),
+          id: nullableIdSchema(allSingletons),
+          ...localeProperty(scoped, "The locale to read in a collection with locales. Without a translation, the result is the source locale version with fallback: true. Null for the source locale."),
+          ref: refSchema,
+        },
         required: ["collection", "id"],
         type: "object",
       },
@@ -648,20 +707,26 @@ function contentTools(
       title: "Read a Content document",
     })
     tools.content_status = defineInternalTool<StatusInput>({
-      description: "Compare draft and published documents in a collection. Each entry has a state: draft (never published), published (no changes), changed (unpublished edits), or deleted (removed from the draft). Its draft digest is what content_publish and content_schedule take. `issues` counts field issues that block publishing, and `schedule` names a scheduled publish. Requires read access, and lists only the documents the user may read.",
+      description: "Compare draft and published documents in a collection. Each entry has a state: draft (never published), published (no changes), changed (unpublished edits), or deleted (removed from the draft). Its draft digest is what content_publish and content_schedule take. `issues` counts field issues that block publishing, `schedule` names a scheduled publish, and in a collection with locales `translations` gives each translation as current, stale, or missing. Requires read access, and lists only the documents the user may read.",
       execute: async (input) => {
         const target = collection(input?.collection)
         if (input.id !== undefined && documentId(target, input.id) === undefined) return idProblem(target)
         const id = input.id === undefined ? undefined : documentId(target, input.id)
+        const locale = localeOption(target, input.locale)
+        if (isProblem(locale)) return locale
         await authorize("read", target.name, id)
-        const statuses = await statusesOf(target, id)
+        const statuses = await statusesOf(target, id, locale.locale)
         const readable = await readableIds(target.name, statuses.map(status => status.id))
         return { collection: target.name, documents: statuses.filter(status => readable.has(status.id)) }
       },
       icon: "i-lucide-git-compare",
       inputSchema: {
         additionalProperties: false,
-        properties: { collection: collectionSchema(names), id: { ...nullableIdSchema(allSingletons), description: `${idSchema(allSingletons).description} Omit it to compare every document.` } },
+        properties: {
+          collection: collectionSchema(names),
+          id: { ...nullableIdSchema(allSingletons), description: `${idSchema(allSingletons).description} Omit it to compare every document.` },
+          ...localeProperty(scoped, "The locale to compare in a collection with locales. Null for the source locale, whose entries also list the state of each translation."),
+        },
         required: ["collection", "id"],
         type: "object",
       },
@@ -669,6 +734,41 @@ function contentTools(
       name: "content_status",
       title: "Compared Content drafts",
     })
+    const localized = scoped.filter(entry => entry.locales && entry.locales.length > 1)
+    if (localized.length) {
+      tools.content_list_translations = defineInternalTool<ListTranslationsInput>({
+        description: "List the documents whose translation in a locale is missing, or stale because the source locale document changed since it was translated. To translate one, read the source with content_get_document (ref: draft), then save the translation with content_save_draft and the locale. The save records which source version it was made from. Requires read access, and lists only the documents the user may read.",
+        execute: async (input) => {
+          const target = collection(input?.collection)
+          const locale = localeOption(target, input?.locale)
+          if (isProblem(locale)) return locale
+          if (!locale.locale || locale.locale === target.locales?.[0]) {
+            return invalidInput("locale", `Pass a translation locale of ${target.name}: ${target.locales?.slice(1).join(", ") ?? "none"}.`)
+          }
+          await authorize("read", target.name)
+          const statuses = await statusesOf(target)
+          const readable = await readableIds(target.name, statuses.map(status => status.id))
+          const translations = statuses.flatMap((status) => {
+            const state = status.translations?.[locale.locale!]
+            return readable.has(status.id) && (state === "missing" || state === "stale") ? [{ id: status.id, state }] : []
+          })
+          return { collection: target.name, locale: locale.locale, translations }
+        },
+        icon: "i-lucide-languages",
+        inputSchema: {
+          additionalProperties: false,
+          properties: {
+            collection: collectionSchema(localized.map(entry => entry.name)),
+            locale: { description: "A translation locale: any locale of the collection but the first, its source locale.", enum: localesOf(localized), type: "string" },
+          },
+          required: ["collection", "locale"],
+          type: "object",
+        },
+        metadata: metadata("translations"),
+        name: "content_list_translations",
+        title: "Listed Content translations",
+      })
+    }
     tools.content_list_schedules = defineInternalTool<ListSchedulesInput>({
       description: "List scheduled publishes, earliest first: pending, overdue (late without a run), and failed (a draft changed or became invalid, so nothing was published). Lists only schedules whose documents the user may read.",
       execute: async (input) => {
@@ -707,11 +807,13 @@ function contentTools(
   }
   if (options.enabled.has("write")) {
     tools.content_save_draft = defineInternalTool<SaveDraftInput>({
-      description: `Save a document to the draft ref. Publishing is a separate step. Send every field and, for a Markdown collection, the full body. JSON and YAML collections have no body. Set ifDigest to the digest from content_get_document (ref: draft), or null for a new document. A draft with invalid fields is saved and returns issues to fix before it can be published. Conflicts and a person editing the document come back as ok: false with what to do.`,
+      description: `Save a document to the draft ref, in a locale for a translation. Publishing is a separate step. Send every field and, for a Markdown collection, the full body. JSON and YAML collections have no body. Set ifDigest to the digest from content_get_document (ref: draft), or null for a new document. A draft with invalid fields is saved and returns issues to fix before it can be published. Conflicts and a person editing the document come back as ok: false with what to do.`,
       execute: async (input) => {
         const target = collection(input?.collection)
         const id = documentId(target, input.id)
         if (id === undefined) return idProblem(target)
+        const locale = localeOption(target, input.locale)
+        if (isProblem(locale)) return locale
         await authorize("write", target.name, id)
         if (input.ifDigest !== null && (String(input.ifDigest) !== input.ifDigest || !input.ifDigest)) {
           return invalidInput("ifDigest", "ifDigest must be the draft digest you edited, or null for a new document.")
@@ -730,7 +832,7 @@ function contentTools(
           const { body: _body, issues, ...document } = await target.save(
             id,
             { data: input.data, ...(target.format === "markdown" ? { body: input.body } : {}) },
-            { ifDigest: input.ifDigest, metadata: await authorMetadata(), ...(options.lease ? { lease: options.lease } : {}) },
+            { ifDigest: input.ifDigest, metadata: await authorMetadata(), ...locale, ...(options.lease ? { lease: options.lease } : {}) },
           )
           return issues?.length
             ? { document, hint: hints.savedWithIssues, issues, ok: true as const }
@@ -752,8 +854,9 @@ function contentTools(
             anyOf: [{ minLength: 1, type: "string" }, { type: "null" }],
             description: "Digest of the draft you edited, or null to create a new document.",
           },
+          ...localeProperty(scoped, "The locale to save in a collection with locales. Null for the source locale. A translation records the source locale draft it was made from, so it counts as current."),
         },
-        required: ["body", "collection", "data", "id", "ifDigest"],
+        required: ["body", "collection", "data", "id", "ifDigest", ...Object.keys(localeProperty(scoped, ""))],
         type: "object",
       },
       metadata: metadata("save"),
