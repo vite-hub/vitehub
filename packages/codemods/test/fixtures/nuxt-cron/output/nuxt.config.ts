@@ -4,5 +4,6 @@ export default defineNuxtConfig({
   vitehub: {
     preset: "node",
     schedule: { runtime: { driver: "process" } },
+    kv: true,
   },
 });

@@ -209,8 +209,15 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   }
   const style = editor.style
   const scheduleValue = processDriver ? `{ runtime: { driver: ${quoteString("process", style)} } }` : "true"
+  // The Process Runtime records Schedule Runs in the default KV store, so it needs KV.
+  const existingOptions = findProperty(config.root, "vitehub")
+  const hasKv = existingOptions?.value.type === "ObjectExpression" && Boolean(findProperty(existingOptions.value, "kv"))
+  const addKv = processDriver && !hasKv
   const { preset: added, presetNote } = addViteHubOptions(editor, config, {
-    options: [{ key: "schedule", label: "the Schedule options", value: () => scheduleValue }],
+    options: [
+      { key: "schedule", label: "the Schedule options", value: () => scheduleValue },
+      ...(addKv ? [{ key: "kv", label: "the KV options", value: () => "true" }] : []),
+    ],
     rootEntries,
     removedRootProperties,
   })
@@ -229,7 +236,9 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     processDriver
       ? "On Node, the Process Runtime runs each Schedule in the server process, as nuxt-cron did. Run one server process or replica: the runtime does not lock across processes."
       : `On ${preset}, the host runs each Schedule from its own cron, so jobs keep running on serverless hosts. Schedules run in UTC.`,
-    "Schedule Runs are kept in memory unless a KV store is configured. Run a Schedule by hand with `vitehub schedule run <name>` while vite dev runs.",
+    addKv
+      ? "The Process Runtime records Schedule Runs in KV, so the codemod set vitehub.kv to true. On Node that stores them under .vitehub/data/kv. Run a Schedule by hand with `vitehub schedule run <name>` while vite dev runs."
+      : "Run a Schedule by hand with `vitehub schedule run <name>` while vite dev runs.",
   ]
   if (kept) notes.push(`${moduleName} stays because ${kept} job${kept === 1 ? "" : "s"} could not be moved. Remove it after the follow-ups.`)
   return {

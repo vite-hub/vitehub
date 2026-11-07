@@ -14,7 +14,7 @@ Manual follow-ups (0):
 
 Notes:
   - On Node, the Process Runtime runs each Schedule in the server process, as nuxt-cron did. Run one server process or replica: the runtime does not lock across processes.
-  - Schedule Runs are kept in memory unless a KV store is configured. Run a Schedule by hand with `vitehub schedule run <name>` while vite dev runs.
+  - The Process Runtime records Schedule Runs in KV, so the codemod set vitehub.kv to true. On Node that stores them under .vitehub/data/kv. Run a Schedule by hand with `vitehub schedule run <name>` while vite dev runs.
 
 Next steps:
   - Run `pnpm install` to install vite-hub and remove nuxt-cron.

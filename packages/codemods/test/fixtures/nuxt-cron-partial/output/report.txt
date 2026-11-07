@@ -14,7 +14,7 @@ Manual follow-ups (3):
 
 Notes:
   - On cloudflare, the host runs each Schedule from its own cron, so jobs keep running on serverless hosts. Schedules run in UTC.
-  - Schedule Runs are kept in memory unless a KV store is configured. Run a Schedule by hand with `vitehub schedule run <name>` while vite dev runs.
+  - Run a Schedule by hand with `vitehub schedule run <name>` while vite dev runs.
   - nuxt-cron stays because 1 job could not be moved. Remove it after the follow-ups.
 
 Next steps:
