@@ -66,7 +66,7 @@
   "dependencies": {
     "@comark/vue": "0.8.1",
     "@nuxt/kit": "4.6.2",
-    "@nuxtjs/mcp-toolkit": "^0.22.0",
+    "@nuxtjs/mcp-toolkit": "^0.24.3",
     "@takumi-rs/core": "catalog:nuxt",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
@@ -82,9 +82,11 @@
     "nuxt-og-image": "^7.0.7",
     "nuxt-schema-org": "catalog:nuxt",
     "nuxt-site-config": "^5.0.3",
+    "rou3": "^1.0.0",
     "shiki": "^4.5.0",
     "yaml": "catalog:tooling",
-    "zod": "catalog:runtime"
+    "zod": "catalog:runtime",
+    "ultrahtml": "^1.7.0"
   },
   "devDependencies": {
     "@nuxt/ui": "catalog:nuxt",

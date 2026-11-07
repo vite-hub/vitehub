@@ -71,7 +71,7 @@ export default defineAuth({
 });
 ```
 
-`authDatabase(name = "default")` is a Better Auth adapter for a `@vite-hub/database` Database. It uses the Drizzle client of each request and picks the SQLite or Postgres provider from it. The Auth Vite plugin reads the call from the Definition, so write it inline, in the object or in the object that the callback returns. The plugin then contributes the Better Auth tables to that Database through `vitehub.databases`: the core tables, the `admin()` fields, and the `jwks` and `oauth*` tables that `consoleMcpOAuth()` needs, in the dialect of the target Database (`@vite-hub/auth/schema` exports `authSqliteSchema` and `authPostgresSchema`). `vitehub db generate` writes their migration, and `vitehub inspect definitions --kind database` lists them. Without the tables, the adapter fails with `AUTH_R0019`. Tables of other plugins, such as `organization()`, go in the Database Definition.
+`authDatabase(name = "default")` is a Better Auth adapter for a `@vite-hub/database` Database. It uses the Drizzle client of each request and picks the SQLite or Postgres provider from it. The Auth Vite plugin reads the call from the Definition, so write it inline, in the object or in the object that the callback returns. The plugin then contributes the Better Auth tables to that Database through `vitehub.databases`: the core tables, the `admin()` fields, the `jwks` and `oauth*` tables that `consoleMcpOAuth()` needs, and the `rate_limit` table where Better Auth's limiter keeps its counters, in the dialect of the target Database (`@vite-hub/auth/schema` exports `authSqliteSchema` and `authPostgresSchema`). `vitehub db generate` writes their migration, and `vitehub inspect definitions --kind database` lists them. Without the tables, the adapter fails with `AUTH_R0019`. Tables of other plugins, such as `organization()`, go in the Database Definition.
 
 The owned core tables have fixed columns. `authDatabase()` rejects `additionalFields` on `user`, `session`, `account`, and `verification` with `AUTH_C0055`. It also rejects plugins that add unsupported columns to owned tables, and model or field remapping, with `AUTH_C0056`. Use another Better Auth adapter with a schema that matches those options. A Database contribution cannot extend the owned tables.
 
@@ -178,7 +178,7 @@ export default defineAuth({
 });
 ```
 
-Generated route middleware uses `createAuthAccessHandler(routes, definition?)` from `@vite-hub/auth/server`. The handler owns path and method matching, overlapping rules, and required authorization callbacks. Manual hosts can use the same handler with a Web `Request`, `{ req: Request }`, or an H3 1 event such as a Nuxt 4 server event. Its route metadata must follow the Definition's `access.routes` order; set `authorize: true` for each route that requires a callback so a missing runtime callback returns `403`. Unmatched requests do not resolve Auth.
+Generated route middleware uses `createAuthAccessHandler(routes, definition?)` from `@vite-hub/auth/server`. The handler owns path and method matching, overlapping rules, and required authorization callbacks. Manual hosts can use the same handler with a Web `Request` or a request event with Standard Context properties, such as an H3 2 event in a ViteHub app. Its route metadata must follow the Definition's `access.routes` order; set `authorize: true` for each route that requires a callback so a missing runtime callback returns `403`. Unmatched requests do not resolve Auth.
 
 ViteHub runs `authorize` only after authentication. Return `true` to allow the request, `false` for a `403`, or a `Response` for a custom result. The callback receives the authenticated `user`, `session`, and request; role semantics remain owned by the host. Only `true` grants access. ViteHub sends a `Response` unchanged when it is a Response of this runtime: the native `Response.prototype.status` getter accepts it. Create it with the global `Response`. Every other value gets `403`, including a Response from another Fetch implementation such as the `undici` package, a proxy, and an object shaped like a Response.
 
@@ -243,7 +243,7 @@ const app = new H3()
   });
 ```
 
-`getAuthorization(event)` returns only what the Auth middleware attached to that event. It does not read `event.context`, so other code cannot set it. On a route without the middleware, it throws `AUTH_R0017`, so the handler fails closed. The middleware accepts any host with the same `(event, next)` contract and an event with an own `req` request.
+`getAuthorization(event)` returns only what the Auth middleware attached to that event. It does not read `event.context`, so other code cannot set it. On a route without the middleware, it throws `AUTH_R0017`, so the handler fails closed. The middleware accepts any host with the same `(event, next)` contract and an event with Standard Context properties. Auth reads the request and the Cloudflare bindings from `event["~standard"]`.
 
 ## Vite Integration
 
@@ -258,6 +258,8 @@ export default defineAuth({
 ```
 
 Manual hosts can mount the stable `#vitehub/auth/server` handler directly.
+
+For a manual adapter that creates plain Web `Request` objects, use `createAuthHandler(definition)` from `@vite-hub/auth/server` and call the returned handler as `handler(request, { clientAddress })`. Read `clientAddress` from the host's peer address, such as Node's `incomingMessage.socket.remoteAddress`, never from a client-sent header. Auth uses it for per-client rate limiting and `session.ipAddress`; without it, plain Web requests share an addressless rate-limit bucket. srvx requests already carry their host address as `ip`.
 
 App Auth loads Better Auth on demand. Nitro imports the Auth route on its first request. The generated access middleware imports `#vitehub/auth/server` only for a request that an access route matches, and the Console with `console: { auth: "app" }` imports it on its first request. An independent `console.auth` Definition still loads Better Auth at startup. Generated app Auth startup code imports `@vite-hub/auth/runtime/server`, which has no Better Auth import. Your own code loads Better Auth when it imports `@vite-hub/auth/server`, so import it in routes, not in plugins or global middleware, to keep it out of the startup.
 

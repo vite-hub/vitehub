@@ -1,8 +1,7 @@
 import { spawn } from "node:child_process"
 import { readFileSync } from "node:fs"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { createRequire } from "node:module"
-import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 
 export type CredentialHost = "cloudflare" | "vercel" | "netlify" | "deno"
@@ -26,6 +25,7 @@ export interface HostCliRunResult {
 export type HostCliRun = (command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv }) => Promise<HostCliRunResult>
 
 export interface HostCredentialsContext {
+  /** Directory whose activated Wrangler profile is used. Defaults to the process cwd. */
   cwd?: string
   /** Only this object is read. A project `.env` file is never read. */
   env: NodeJS.ProcessEnv
@@ -116,11 +116,13 @@ async function runJson(context: HostCredentialsContext, command: string, args: r
   let result: HostCliRunResult
   let cwd: string | undefined
   try {
-    // Wrangler loads dotenv files from its working directory even for auth commands.
-    // Keep the supplied environment (including the login's HOME), but isolate project files.
+    // Keep the activated profile in the caller's directory while isolating project env and config files.
     const local = command === "wrangler" ? localWrangler(context.cwd) : undefined
-    cwd = await mkdtemp(join(tmpdir(), "vitehub-host-login-"))
-    result = await run(local ? process.execPath : command, local ? [local, ...args] : args, { cwd, env: context.env })
+    cwd = await mkdtemp(join(context.cwd ?? process.cwd(), ".vitehub-wrangler-auth-"))
+    await writeFile(join(cwd, ".env"), "")
+    await writeFile(join(cwd, "wrangler.json"), "{}")
+    const isolatedArgs = [...args, "--env-file", ".env", "--config", "wrangler.json"]
+    result = await run(local ? process.execPath : command, local ? [local, ...isolatedArgs] : isolatedArgs, { cwd, env: context.env })
   }
   catch {
     return

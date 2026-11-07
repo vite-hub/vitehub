@@ -67,6 +67,7 @@ export default defineConfig({
       "src/observability/posthog.ts",
       "src/operations.ts",
       "src/invocations/d1.ts",
+      "src/invocations/default.ts",
       "src/invocations/sqlite.ts",
       "src/state/sqlite.ts",
       "src/cloudflare/state.ts",

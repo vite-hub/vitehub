@@ -1,6 +1,7 @@
 import { Readable } from "node:stream"
 
 import { defineHandler } from "h3"
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -49,8 +50,10 @@ describe("Console RPC", () => {
     installConsoleSections("/console-rpc-env", ["env"])
     const binding = "request-only-secret"
     installConsoleEnv("/console-rpc-env", { entries: [] }, undefined, async event => {
+      expect(event).toHaveProperty("~standard")
+      installStandardContext(event)
       expect(getCloudflareEnv(event, { fallback: false })).toEqual({ RPC_TOKEN: binding })
-      return inspectServerEnv({ token: { required: true, schema: { kind: "string" }, secret: true, source: { kind: "env", label: "env:RPC_TOKEN", name: "RPC_TOKEN", serializable: true } } }, event)
+      return inspectServerEnv({ token: { required: true, schema: { kind: "string" }, secret: true, source: { kind: "env", label: "env:RPC_TOKEN", name: "RPC_TOKEN", serializable: true } } })
     })
     const request = Object.assign(new Request(callURL, {
       body: JSON.stringify({ input: { status: true }, operation: "env.get" }),

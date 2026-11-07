@@ -5,6 +5,7 @@ import { defineAuth } from "../src/index.ts"
 import { getAuthorization, requireAuth, requireAuthorization } from "../src/server.ts"
 
 import type { H3Event } from "h3"
+import { requestEvent } from "./request-event.ts"
 
 const providerMocks = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -143,19 +144,19 @@ describe("Auth route middleware", () => {
 
       expect(response.status).toBe(500)
       expect(providerMocks.getSession).not.toHaveBeenCalled()
-      expect(() => getAuthorization({ req: new Request("https://example.com/me") })).toThrow(expect.objectContaining({ code: "AUTH_R0017" }))
+      expect(() => getAuthorization(requestEvent(new Request("https://example.com/me")))).toThrow(expect.objectContaining({ code: "AUTH_R0017" }))
     })
 
     it("ignores an authorization that other code puts on the event", async () => {
-      const event = { context: { auth: signedIn, authorization: signedIn }, req: new Request("https://example.com/me") }
+      const event = Object.assign(requestEvent(new Request("https://example.com/me")), { context: { auth: signedIn, authorization: signedIn } })
 
       expect(() => getAuthorization(event)).toThrow(expect.objectContaining({ code: "AUTH_R0017" }))
     })
 
     it("keeps the authorization with the event that the middleware checked", async () => {
       const middleware = requireAuth(definition)
-      const checked = { req: new Request("https://example.com/me") }
-      const other = { req: new Request("https://example.com/me") }
+      const checked = requestEvent(new Request("https://example.com/me"))
+      const other = requestEvent(new Request("https://example.com/me"))
       providerMocks.getSession.mockResolvedValue(signedIn)
 
       await expect(middleware(checked, () => "next")).resolves.toBe("next")

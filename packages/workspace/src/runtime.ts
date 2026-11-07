@@ -18,7 +18,9 @@ export {
   resolveRegisteredWorkspaceDefinition,
   setWorkspaceRuntimeAssetsRegistry,
   setWorkspaceRuntimeRegistry,
+  setWorkspaceRuntimeDefinitions,
   useWorkspace,
+  useWorkspaceFiles,
 } from "./runtime/state.ts"
 export {
   createWorkspaceSourceResolutionFacade,
@@ -46,8 +48,10 @@ export {
 } from "./sources/request-execution.ts"
 export type {
   ReadonlyWorkspaceFacade,
+  ReadonlyWorkspaceFiles,
   UseWorkspaceOptions,
   WritableWorkspaceFacade,
+  WritableWorkspaceFiles,
 } from "./core/use.ts"
 export type {
   WorkspaceSourceResolutionFacade,

@@ -59,7 +59,7 @@ Add `instructions.md` next to `agent.ts` for project-specific guidance. It fills
 | `reviewChecks` | `[]` | Check names, such as a review bot's check, that keep a PR waiting while they run. |
 | `noFindingsReviews` | `[]` | Body prefixes of comment-only reviews that report no findings, such as `'> ✅ No new issues found.'`. They do not wake a waiting PR. |
 | `ignoreFeedbackAuthors` | `[]` | Logins, such as deployment preview bots, whose comments and reviews never need an assessment. They do not block a direct merge or wake a waiting PR. |
-| `deferWhilePending` | `true` | Wait for running current-head checks before a pass, so one pass handles CI and review results together. A fast failure also waits for the checks that still run. A conflict starts the pass at once. A check that runs for 30 minutes counts as stuck. |
+| `deferWhilePending` | `true` | Wait for running current-head checks before a pass, so one pass handles CI and review results together. A fast failure also waits for the checks that still run. A conflict starts the pass at once. A GitHub Actions check run counts as stuck after 24 hours in the queue or 8 hours running; other checks after 30 minutes. |
 | `noProgressBudget` | `3` | Passes on one head that can end without a push or a recorded wait. Then the PR waits until its head changes or a person comments. `false` disables the budget. |
 | `dailyPassBudget` | `16` | Model passes on one PR in a rolling 24 hours. Then the PR parks until the oldest pass is 24 hours old. See [Limit passes per pull request](#limit-passes-per-pull-request). `false` disables the budget. |
 | `reviewPushBudget` | `3` | Review-driven pushes on one PR. After that many, bot feedback and failed `reviewChecks` no longer start a model pass. See [Stop review ping-pong](#stop-review-ping-pong). `false` disables the budget. |
@@ -142,9 +142,9 @@ To add capacity beyond one host, set `options.placement`. Its `place({ repositor
 
 Admission only gates new work. Configure [Sandbox memory limits](/docs/agents/sandboxes) to contain provider commands and native tools. The preset runs focused local tests and lint, then uses hosted CI for full typechecks and builds. A maintainer can require a bounded local reproduction. A memory-limit failure must lead to a smaller workload or a different budget before retrying.
 
-## Share the Console journal
+## Share the Agent journal
 
-The Babysitter uses the invocation journal assigned to its discovered Agent. Set the Console journal in the ViteHub project configuration so the Console and the long-lived worker inspect the same records:
+The Babysitter uses the invocation journal assigned to its discovered Agent. Set the location of the [default journal](/docs/agents/invocation-storage#use-the-default-journal) in the ViteHub project configuration, so the Console and the long-lived worker inspect the same records:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -153,10 +153,10 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [vitehub({
     preset: 'node',
+    agent: { invocations: { databaseUrl: 'file:/var/lib/babysitter/agent-invocations.sqlite' } },
     console: {
       auth: false,
       authorize: './server/console-authorize.ts',
-      databaseUrl: 'file:/var/lib/babysitter/console.sqlite',
     },
   })],
 })
