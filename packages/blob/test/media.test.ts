@@ -95,12 +95,22 @@ describe("media records on the fs driver", () => {
     expect(copy).toMatchObject({ hash: first.hash, pathname: "b/two.jpg" })
   })
 
+  it("stores uploads from a host Standard Context request", async () => {
+    const form = new FormData()
+    form.append("files", new File([await photo(16, 16)], "photo.jpg", { type: "image/jpeg" }))
+    const event = { "~standard": { vendor: "test", req: new Request("https://example.test/upload", { body: form, method: "POST" }), res: {} } }
+
+    const [record] = ok(await storage.media.handleUpload(event, { folder: "uploads" }))
+
+    expect(record).toMatchObject({ height: 16, pathname: "uploads/photo.jpg", width: 16 })
+  })
+
   it("dedupes multipart uploads into a folder by default", async () => {
     const bytes = await photo(32, 32)
     const upload = async () => {
       const form = new FormData()
       form.append("files", new File([bytes], "../photo.jpg", { type: "image/jpeg" }))
-      return ok(await storage.media.handleUpload({ req: new Request("https://example.test/upload", { body: form, method: "POST" }) }, { folder: "uploads/2026" }))
+      return ok(await storage.media.handleUpload(new H3Event(new Request("https://example.test/upload", { body: form, method: "POST" })), { folder: "uploads/2026" }))
     }
     const [first] = await upload()
     const [second] = await upload()
