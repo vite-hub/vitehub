@@ -10,7 +10,7 @@ Turn text into choices over options that you declare. A person types "nord parts
 pnpm add @vite-hub/decisions @vite-hub/gateways advocaat
 ```
 
-The model call goes through an AI gateway that has `ask()`, such as `typesafe()` or `vercel()` from `@vite-hub/gateways`. The gateway reads its key from the environment. The key stays on your server.
+The model call goes through an AI gateway that has `ask()`, such as `typesafe()` or `vercel()` from `@vite-hub/gateways`, to TypeSafe Jev. The gateway reads its key from the environment. The key stays on your server. To use another model, pass any AI SDK model as `model` instead of `gateway`, and install `ai`.
 
 ## Use
 
