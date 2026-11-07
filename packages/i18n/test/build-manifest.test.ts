@@ -45,6 +45,7 @@ const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 const roots: string[] = []
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   manifestIO.enabled = false
   manifestIO.beforeWrite = undefined
   manifestIO.files.clear()
@@ -69,6 +70,31 @@ function deferred() {
 }
 
 describe("build message snapshots", () => {
+  it("collects query-suffixed source modules for browser catalogs", async () => {
+    vi.stubEnv("NODE_ENV", "production")
+    const root = await project()
+    await writeFile(join(root, "labels.ts"), "import { t } from '@vite-hub/i18n'; export default t`Query message`")
+    await writeFile(join(root, "main.ts"), [
+      "import { createI18n } from '@vite-hub/i18n/vue'",
+      "import label from './labels.ts?tenant=a'",
+      "console.log(createI18n, label)",
+    ].join("\n"))
+    const result = await build({
+      root,
+      configFile: false,
+      logLevel: "silent",
+      resolve: { alias: [{ find: /^@vite-hub\/i18n(\/.*)?$/, replacement: `${resolve(packageRoot, "dist")}$1` }] },
+      plugins: [hubI18n({ locales: ["en", "es"], projectRoot: root })],
+      build: { minify: false, rollupOptions: { input: join(root, "main.ts") } },
+    })
+    const manifest = JSON.parse(await readFile(join(root, ".vitehub/i18n/manifest.json"), "utf8")) as I18nManifest
+    expect(manifest.environments.client![messageId("Query message")]).toEqual({ message: "Query message", origins: ["labels.ts:1"] })
+    const outputs = Array.isArray(result) ? result : "output" in result ? [result] : []
+    const chunks = outputs.flatMap(output => output.output).filter(chunk => chunk.type === "chunk")
+    expect(chunks.find(chunk => chunk.code.includes("console.log"))!.code).not.toContain("Query message")
+    expect(chunks.filter(chunk => chunk.code.includes("Query message"))).toHaveLength(2)
+  })
+
   it("keeps every environment when an earlier manifest write finishes last", async () => {
     const root = await project()
     const plugin = hubI18n({ locales: ["en", "es"], projectRoot: root })

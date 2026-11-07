@@ -59,6 +59,44 @@ function deferred() {
 }
 
 describe("Workspace records", () => {
+  it("publishes valid translations alongside invalid ICU in later revisions", async () => {
+    const store = memoryWorkspace()
+    const snapshot = { [note.id]: compileMessage("Nota del servidor") }
+    const live = createLiveTranslations({
+      workspace: () => store.workspace,
+      locales: ["en", "es"],
+      sourceLocale: "en",
+      snapshot: { es: snapshot },
+      clientIds: [deploy.id, note.id],
+      interval: 0,
+    })
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      let head: string | null = null
+      for (const translation of ["Primera", "Segunda"]) {
+        const revision = await store.workspace.history.commit({
+          ref: "published",
+          ifHead: head,
+          changes: { put: {
+            [recordPath("es", note.id)]: JSON.stringify({ source: note.message, translation: "{count, plural," }),
+            [recordPath("es", deploy.id)]: JSON.stringify({ source: deploy.message, translation }),
+          } },
+        })
+        head = revision.id
+        await live.refresh()
+        expect(live.revision).toBe(revision.id)
+        // Lingui logs invalid ICU and keeps it as literal text; other records still become live.
+        const messages = { [note.id]: ["{count, plural,"], [deploy.id]: compileMessage(translation) }
+        expect(live.messages("es")).toEqual(messages)
+        expect(live.clientMessages("es")).toEqual(messages)
+      }
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("Message: {count, plural,"))
+    }
+    finally {
+      log.mockRestore()
+    }
+  })
+
   it.each([undefined, "checkout"])("skips records whose source and context %s do not match their filename", async (context) => {
     const store = memoryWorkspace()
     const valid = { source: deploy.message, ...(context === undefined ? {} : { context }), translation: "Publica tu agente" }
