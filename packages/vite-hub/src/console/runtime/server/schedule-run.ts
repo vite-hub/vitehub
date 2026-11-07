@@ -58,9 +58,9 @@ export async function runConsoleSchedule(body: unknown): Promise<ConsoleSchedule
   if (!Object.hasOwn(registry, name)) {
     return { message: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.", ok: false, status: 404 }
   }
-  const { runSchedule } = await import("@vite-hub/schedule/runtime")
+  const { runScheduleFrom } = await import("@vite-hub/schedule/runtime")
   try {
-    return { ok: true, run: consoleScheduleRun(await runSchedule(name, { registry, scheduledAt: at })) }
+    return { ok: true, run: consoleScheduleRun(await runScheduleFrom(registry, name, { scheduledAt: at })) }
   }
   catch (error) {
     const code = Reflect.get(Object(error), "code")
