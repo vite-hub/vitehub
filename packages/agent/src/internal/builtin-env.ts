@@ -1,3 +1,4 @@
+import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getViteHubErrorShape } from "@vite-hub/runtime"
 
 import { isRuntimeRecord } from "./runtime-type.ts"
@@ -27,7 +28,7 @@ function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
 }
 
 interface ServerEnvModule {
-  loadServerEnv?: (event?: unknown, options?: { signal?: AbortSignal }) => Promise<unknown>
+  loadServerEnv?: (event?: undefined, options?: { signal?: AbortSignal }) => Promise<unknown>
   useServerEnv?: (event?: unknown) => unknown
 }
 
@@ -95,10 +96,12 @@ export async function readBuiltInEnv(
   context: BuiltInEnvContext,
 ): Promise<Partial<Record<string, unknown>>> {
   const cloudflareEnv = context.cloudflare?.env
-  const event = cloudflareEnv ? { env: cloudflareEnv } : undefined
+  // Server Env reads the active Cloudflare bindings when it gets no request event.
+  const withBindings = <T>(read: () => T): T => cloudflareEnv ? runWithActiveCloudflareEnv(cloudflareEnv, read) : read()
   const module = await importServerEnvModule()
+  const useServerEnv = module?.useServerEnv
   // Resolution errors, such as a missing required value, are configuration errors and stay visible.
-  const declared = module?.useServerEnv ? envGroup(module.useServerEnv(event), group) : undefined
+  const declared = useServerEnv ? envGroup(withBindings(() => useServerEnv()), group) : undefined
   let loaded: Promise<Record<PropertyKey, unknown> | undefined> | undefined
   const values: Partial<Record<string, unknown>> = {}
   for (const field of fields) {
@@ -112,7 +115,7 @@ export async function readBuiltInEnv(
         const loadServerEnv = module.loadServerEnv
         loaded ??= loadedServerEnv.get(context)?.then(env => envGroup(env, group))
         if (!loaded) {
-          const snapshot = loadServerEnv(event, { signal: context.abortSignal })
+          const snapshot = withBindings(() => loadServerEnv(undefined, { signal: context.abortSignal }))
           loadedServerEnv.set(context, snapshot.then(env => isRecord(env) ? env : undefined))
           loaded = snapshot.then(env => envGroup(env, group))
         }
