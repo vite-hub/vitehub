@@ -7702,6 +7702,8 @@ async function createChannelChat(
   },
   resolveDelivery?: () => Promise<AgentChannelDeliveryTracker>,
 ): Promise<Chat> {
+  // The simulated web adapter can reply only within its inbound request, so delivery cannot transfer to a Workflow.
+  if (isSimulatedChatAdapter(adapter)) options = { ...options, durable: false }
   const resolvedState = providedState || (await resolveChatState(options, context, registration, handlerOptions))
   const lockTracker = createChatLockTracker(resolvedState.state)
   const transcripts = effectiveTranscripts(options, resolvedState.state)

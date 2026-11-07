@@ -192,23 +192,24 @@ describe("hubQueue", () => {
     const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "queue", "plugin.ts"), "utf8")
     const nitroMiddleware = await readFile(join(root, ".vitehub", "nitro", "queue", "middleware.ts"), "utf8")
     const registry = await readFile(join(root, ".vitehub", "queue", "registry.mjs"), "utf8")
-    expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createCloudflareQueueRuntimeClient)")
+    // `vite dev` runs the jobs in the dev server with the local provider and the Cloudflare rules.
+    expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createLocalQueueRuntimeClient)")
+    expect(nitroPlugin).toContain(`"base": ${JSON.stringify(join(root, ".vitehub/data/queue"))}`)
+    expect(nitroPlugin).toContain('"provider": "local"')
+    expect(nitroPlugin).toContain('"rules": "cloudflare"')
+    expect(nitroPlugin).toContain("startLocalQueue(queueConfig)")
     expect(nitroPlugin).toContain("setQueueRuntimeRegistry(queueRegistry)")
+    expect(nitroPlugin).not.toContain("createCloudflareQueueRuntimeClient")
     expect(nitroPlugin).not.toContain("enterQueueRuntimeEvent")
     expect(nitroPlugin).not.toContain("hooks.hook('request'")
     expect(nitroPlugin).not.toContain("cloudflare:workers")
+    expect(nitroPlugin).not.toContain("cloudflare:queue")
     expect(nitroPlugin).not.toContain("setQueueRuntimeEventDefaults({")
     expect(nitroMiddleware).toContain("defineMiddleware((event) =>")
     expect(nitroMiddleware).not.toContain("cloudflare:workers")
-    expect(nitroMiddleware).toContain("const runtimeEvent = event as any")
-    expect(nitroMiddleware).toContain("runtimeEvent.node?.req?.runtime?.cloudflare?.env")
-    expect(nitroMiddleware).not.toContain("?? vitehubEnv")
-    expect(nitroMiddleware).not.toContain("waitUntil: vitehubWaitUntil")
+    expect(nitroMiddleware).not.toContain("runtimeEvent")
     expect(nitroMiddleware).toContain("enterQueueRuntimeEvent(event)")
-    expect(nitroMiddleware).not.toContain("enterQueueRuntimeEvent(runtimeEvent)")
     expect(nitroMiddleware).not.toContain("next")
-    expect(nitroPlugin).toContain("cloudflare:queue")
-    expect(nitroPlugin).toContain("queueWorker.queue(batch, env, context)")
     expect(registry).toContain("welcome.queue.ts")
 
     await symlink(join(workspaceRoot, "node_modules"), join(root, "node_modules"), "dir")
@@ -263,6 +264,11 @@ describe("hubQueue", () => {
     expect(nitroPlugin).toContain("import * as vitehubCloudflareWorkers from 'cloudflare:workers'")
     expect(nitroPlugin).toContain("const { env: vitehubEnv, waitUntil: vitehubWaitUntil } = vitehubCloudflareWorkers as unknown as")
     expect(nitroPlugin).toContain("setQueueRuntimeEventDefaults({ env: vitehubEnv, waitUntil: vitehubWaitUntil })")
+    // A build keeps the Cloudflare runtime. Local delivery is only for `vite dev`.
+    expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createCloudflareQueueRuntimeClient)")
+    expect(nitroPlugin).toContain("queueWorker.queue(batch, env, context)")
+    expect(nitroPlugin).not.toContain("local-client")
+    expect(nitroPlugin).not.toContain("data/queue")
     expect(nitroMiddleware).toContain("import * as vitehubCloudflareWorkers from 'cloudflare:workers'")
     expect(nitroMiddleware).toContain("Object.assign(event, { env: runtimeEvent.env")
 
@@ -288,6 +294,42 @@ describe("hubQueue", () => {
         const output = Reflect.get(Object(error), "stdout") || Reflect.get(Object(error), "stderr")
         throw new Error(String(output || error))
       })
+  })
+
+  it("runs Vercel jobs in vite dev with the Vercel rules, and keeps the Vercel runtime in a build", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-vercel-dev-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const pluginFile = join(root, ".vitehub", "nitro", "queue", "plugin.ts")
+    const middlewareFile = join(root, ".vitehub", "nitro", "queue", "middleware.ts")
+
+    for (const command of ["serve", "build"] as const) {
+      const plugin = hubQueue({ provider: "vercel", region: "iad1" })
+      await (plugin.configResolved as (config: unknown) => Promise<void>)({
+        build: { outDir: "dist" },
+        command,
+        nitro: { preset: "vercel" },
+        plugins: [{ name: "nitro:main" }],
+        resolve: { alias: [] },
+        root,
+      } as never)
+      const nitroPlugin = await readFile(pluginFile, "utf8")
+      const nitroMiddleware = await readFile(middlewareFile, "utf8")
+      // The consumer route of each Definition stays, so the Nitro config is the same in dev and in the build.
+      expect(existsSync(join(root, ".vitehub", "nitro", "queue", "vercel"))).toBe(true)
+      if (command === "serve") {
+        expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createLocalQueueRuntimeClient)")
+        expect(nitroPlugin).toContain('"rules": "vercel"')
+        expect(nitroPlugin).not.toContain("@vercel/queue")
+        expect(nitroMiddleware).not.toContain("@vercel/functions")
+      }
+      else {
+        expect(nitroPlugin).toContain("setQueueRuntimeConfig(queueConfig, createVercelQueueRuntimeClient)")
+        expect(nitroPlugin).toContain('"region": "iad1"')
+        expect(nitroPlugin).not.toContain("local-client")
+        expect(nitroMiddleware).toContain("@vercel/functions")
+      }
+    }
   })
 
   it("keeps inferred Cloudflare queue prefixes aligned across bindings and runtime definitions", async () => {

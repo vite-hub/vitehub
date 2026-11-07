@@ -54,6 +54,27 @@ export async function savePreferences(tenantId: string, value: unknown) {
 }
 ```
 
+### Read-only handles
+
+Pass `{ mode: 'read' }` to `kv.store()` when code only reads. The handle has `get()`, `has()`, `keys()`, and `list()`. It has no `set()`, `setIfAbsent()`, `del()`, `clear()`, `increment()`, or `getAndDelete()`, so calling them is a type error, and they are absent at runtime. The Default KV Store is `kv.store('default', { mode: 'read' })`.
+
+```ts [server/api/flags.get.ts]
+import { kv } from '@vite-hub/kv'
+
+const flags = kv.store('default', { mode: 'read' })
+
+export default defineEventHandler(async () => {
+  const [error, value] = await flags.get('flags')
+  if (error) throw error
+  // flags.set() is a type error.
+  return value
+})
+```
+
+`mode` defaults to `'write'`. Another value throws [`KV_INVALID_STORE_MODE`](/docs/kv/limits-and-errors#kv_invalid_store_mode).
+
+The mode limits this API, not the host. The Cloudflare KV binding, the Upstash token, and the files of `fs-lite` keep full access, and the full `kv` export stays importable. It is not a security boundary against code that reads the binding or imports `kv` directly. Use it to show intent and to keep write calls out of code that only reads.
+
 Upstash provides atomic single-use reads and counters:
 
 ```ts [server/verification.ts]
@@ -99,7 +120,7 @@ if (!claimed) throw createError({ statusCode: 409, statusMessage: 'Ticket alread
 | `kv.keys(base?)` | Lists keys under an optional base prefix. |
 | `kv.list({ limit, prefix?, cursor? })` | Reads one page of keys. Pass the returned `cursor` to read the next page. |
 | `kv.clear(base?)` | Deletes keys under an optional base prefix. |
-| `kv.store(name)` | Selects a named KV Store. |
+| `kv.store(name, options?)` | Selects a named KV Store. `{ mode: 'read' }` returns a [read-only handle](#read-only-handles). |
 
 Every async method returns `[error, value]`. The type of `error.code` lists the codes that the method can return, and `error.why`, `error.fix`, and `error.docs` explain each failure. A provider failure has the code `KV_OPERATION_FAILED` and keeps the provider error in `cause`. Application code can log, retry, ignore, or translate the error without `try/catch`. Configuration errors, for example an unknown named store, throw. See [Limits and errors](/docs/kv/limits-and-errors) for each code.
 
