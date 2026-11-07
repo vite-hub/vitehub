@@ -3,12 +3,17 @@
 // with a path, such as ```ts [server/workspaces/docs.ts]```. The tree lists folders first, like an
 // editor, and the first code block opens first. In a narrow panel, such as a hero beside its copy, the
 // tree becomes one row of file tabs above the code, so the code keeps the width.
+import { useElementSize } from "@vueuse/core";
 import type { VNode } from "vue";
 
 const slots = defineSlots<{ default?: () => VNode[] }>();
 const id = useId();
 const selected = ref(0);
 const tree = useTemplateRef<HTMLElement>("tree");
+const frame = useTemplateRef<HTMLElement>("frame");
+// The tree is a column from 44rem of panel width, the same width as the container query below.
+const { width } = useElementSize(frame);
+const orientation = computed(() => (width.value === 0 ? undefined : width.value >= 704 ? "vertical" : "horizontal"));
 
 function flatten(nodes: VNode[]): VNode[] {
   return nodes.flatMap((node) =>
@@ -23,6 +28,17 @@ const files = computed(() =>
 );
 
 const rows = computed(() => buildFileTree(files.value.map((file) => file.path)));
+
+// The row of tabs hides the folders, so two files with the same name also show their folder.
+const sharedNames = computed(() => {
+  const names = files.value.map((file) => file.path.split("/").at(-1));
+  return new Set(names.filter((name, index) => names.indexOf(name) !== index));
+});
+
+function folderOf(path: string) {
+  const parts = path.split("/");
+  return sharedNames.value.has(parts.at(-1)) && parts.length > 1 ? `${parts.at(-2)}/` : "";
+}
 
 // The file rows are tabs. Arrow keys move through them in tree order. The tree is a column or a row,
 // depending on the panel width, so both arrow pairs work.
@@ -39,9 +55,9 @@ function onTreeKeydown(event: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="vh-files-frame">
+  <div ref="frame" class="vh-files-frame">
   <div class="vh-files">
-    <div ref="tree" class="vh-files-tree" role="tablist" aria-label="Example files" @keydown="onTreeKeydown">
+    <div ref="tree" class="vh-files-tree" role="tablist" aria-label="Example files" :aria-orientation="orientation" @keydown="onTreeKeydown">
       <template v-for="row in rows" :key="row.path">
         <div v-if="row.kind === 'folder'" class="vh-files-row is-folder" role="presentation" :style="{ '--depth': row.depth }">
           <UIcon name="i-lucide-folder-open" class="size-3.5 shrink-0" aria-hidden="true" />
@@ -63,7 +79,7 @@ function onTreeKeydown(event: KeyboardEvent) {
           @click="selected = row.index"
         >
           <UIcon name="i-lucide-file" class="size-3.5 shrink-0" aria-hidden="true" />
-          <span>{{ row.name }}</span>
+          <span><span v-if="folderOf(row.path)" class="vh-files-folder">{{ folderOf(row.path) }}</span>{{ row.name }}</span>
         </button>
       </template>
     </div>
@@ -129,6 +145,10 @@ function onTreeKeydown(event: KeyboardEvent) {
   display: none;
 }
 
+.vh-files-folder {
+  color: var(--ui-text-dimmed);
+}
+
 /* Wide panels: the tree column fits its longest name, so file names never truncate. The code takes the rest. */
 @container (min-width: 44rem) {
   .vh-files {
@@ -147,6 +167,10 @@ function onTreeKeydown(event: KeyboardEvent) {
 
   .vh-files-row.is-folder {
     display: flex;
+  }
+
+  .vh-files-folder {
+    display: none;
   }
 
   .vh-files-code {
