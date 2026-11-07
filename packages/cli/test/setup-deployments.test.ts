@@ -230,10 +230,11 @@ describe("vitehub deployments", () => {
     })
     expect(api.requests.every(request => request.authorization === `Bearer ${TOKEN}`)).toBe(true)
     expect(api.requests.some(request => request.url.includes(TOKEN))).toBe(false)
-    expect(api.requests.find(request => request.url.includes("/versions?"))?.url).toContain("deployable=true")
+    const versions = new URL(api.requests.find(request => request.url.includes("/versions?"))!.url)
+    expect(Object.fromEntries(versions.searchParams)).toEqual({ per_page: "10" })
   })
 
-  it("honors a Cloudflare limit larger than the default deployment page", async () => {
+  it.each([1, 25])("honors a Cloudflare history limit of %i", async (limit) => {
     const root = await createProject(projectFiles("cloudflare"))
     const api = hostApi(cloudflareRoutes())
     const deployments = Array.from({ length: 25 }, (_, index) => ({
@@ -251,10 +252,12 @@ describe("vitehub deployments", () => {
       return api.fetch(input, init)
     }
 
-    const { exitCode, json } = await runSetup<SetupDeploymentsOutput>(["deployments", "--limit", "25", "--json"], root, credentials.cloudflare, { fetch: pagedFetch })
+    const { exitCode, json } = await runSetup<SetupDeploymentsOutput>(["deployments", "--limit", String(limit), "--json"], root, credentials.cloudflare, { fetch: pagedFetch })
 
     expect(exitCode).toBe(0)
-    expect(json.deployments.map(item => item.id)).toEqual(deployments.map(item => item.id))
+    expect(json.deployments.map(item => item.id)).toEqual(deployments.slice(0, limit).map(item => item.id))
+    const versions = new URL(api.requests.find(request => request.url.includes("/versions?"))!.url)
+    expect(Object.fromEntries(versions.searchParams)).toEqual({ per_page: String(limit) })
   })
 
   it.each([links.vercel.account.id, "user_personal"])("keeps Vercel listing scoped to linked owner %s when the environment names another team", async (owner) => {

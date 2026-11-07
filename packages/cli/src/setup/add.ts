@@ -1,9 +1,10 @@
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import process from "node:process"
 import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
+import { listMatchingFiles, normalizeSuffixDefinitionName } from "@vite-hub/internal/definition-catalog"
 import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
 import { basename, dirname, join, relative, resolve } from "pathe"
@@ -90,7 +91,19 @@ const booleanFeatures: readonly FeatureId[] = ["queue", "sandboxTask"]
 /** The value that turns a feature on, when `true` is not valid for its key. */
 const enabledValues: Partial<Record<FeatureId, JsonValue>> = { env: {} }
 /** Options without a default that the feature key needs. */
-const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { observability: ["service"] }
+const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { console: ["auth"], observability: ["service"] }
+
+/** Keep owner packages on the running CLI's pkg.pr.new preview. */
+function installSpecifiers(packages: readonly string[]): string[] {
+  const manifest: JsonValue = JSON.parse(readFileSync(new URL(import.meta.resolve("@vite-hub/cli/package.json")), "utf8"))
+  const dependencies = isRecord(manifest) && isRecord(manifest.dependencies) ? manifest.dependencies : {}
+  const preview = Object.entries(dependencies).flatMap(([name, specifier]) => {
+    if (!name.startsWith("@vite-hub/") || typeof specifier !== "string" || !specifier.startsWith("https://pkg.pr.new/")) return []
+    const [base, ref] = specifier.split(`/${name}@`)
+    return base && ref ? [{ base, ref }] : []
+  })[0]
+  return packages.map(name => preview && name.startsWith("@vite-hub/") ? `${preview.base}/${name}@${preview.ref}` : name)
+}
 
 function invalid(message: string, commandUsage = usage): Error {
   return cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${message} Usage: ${commandUsage}` })
@@ -233,6 +246,18 @@ export function setupDiff(path: string, before: string, after: string): string {
     .replace(/^=+\n/u, "")
 }
 
+/** The Database owner rejects any Named Definition beside a Default Definition. */
+function namedDatabaseFiles(project: SetupProject, root: string): string[] {
+  const suffix = /\.database\.(?:c|m)?[jt]s$/i
+  return [
+    ...(project.serverDirs ?? [join(project.root, "server")]).flatMap((serverDir) => {
+      const directory = join(serverDir, "databases")
+      return listMatchingFiles(directory, name => /^config\.(?:c|m)?[jt]s$/i.test(name)).filter(file => dirname(file) !== directory)
+    }),
+    ...listMatchingFiles(root, name => suffix.test(name)).filter(file => normalizeSuffixDefinitionName(root, file, suffix, { stripPrefix: "src/" }) !== "database"),
+  ].map(file => relative(project.root, file))
+}
+
 /**
  * The config value that `add` writes for `id`, `undefined` when the config already turns it on, or `expression` when
  * the key is an expression that only a person can edit.
@@ -325,7 +350,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       if (options && key in options) continue
       if (setsOption(project, `${id}.${key}`)) continue
       missing.push({ field: `${id}.${key}` })
-      setPath(defaults[id] ??= {}, [key], basename(project.root).toLowerCase().replace(/[^a-z0-9]+/gu, "-") || "app")
+      if (id === "console") rerunnable = false
+      else setPath(defaults[id] ??= {}, [key], basename(project.root).toLowerCase().replace(/[^a-z0-9]+/gu, "-") || "app")
     }
   }
   for (const id of Object.keys(args.options) as FeatureId[]) {
@@ -359,6 +385,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   if (args.name !== undefined) {
     const withStarter = args.features.filter(id => features[id].definition)
     if (!withStarter.length) throw invalid(`${args.features.join(", ")} has no Definition files, so --name has no effect. Features with Definitions: ${featureIds.filter(id => features[id].definition).join(", ")}.`)
+    if (project.framework === "nuxt" && !project.serverDirs?.length) {
+      throw new SetupFailure(cliErrorDiagnostics.SETUP_SERVER_DIR_MANUAL(), setupExitCodes.conflict)
+    }
     for (const id of withStarter) {
       const starter = features[id].definition!
       const path = join(serverDir, relative("server", starter.file(args.name)))
@@ -368,9 +397,11 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
         if (await readFile(file, "utf8") === content) continue
         throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ file: path }), setupExitCodes.conflict)
       }
-      const conflict = starter.conflicts(args.name).flatMap(other => other.startsWith("server/")
+      const conflicts = starter.conflicts(args.name).flatMap(other => other.startsWith("server/")
         ? (project.serverDirs ?? [join(project.root, "server")]).map(directory => relative(project.root, join(directory, relative("server", other))))
-        : [relative(project.root, join(definitionRoot, other))]).find(other => existsSync(join(project.root, other)))
+        : [relative(project.root, join(definitionRoot, other))])
+      if (id === "database" && args.name === "default") conflicts.push(...namedDatabaseFiles(project, definitionRoot))
+      const conflict = conflicts.find(other => existsSync(join(project.root, other)))
       if (conflict) throw new SetupFailure(cliErrorDiagnostics.SETUP_FILE_EXISTS({ definition: features[id].title, file: conflict, starter: path }), setupExitCodes.conflict)
       files.push({ content, path })
       changes.push({ after: content, diff: setupDiff(path, "", content), kind: "create", path })
@@ -402,6 +433,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     for (const name of featurePackages(id, configured(id), host)) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
     for (const name of features[id].devPackages) if (!project.declared(name, true) && !install.dev.includes(name)) install.dev.push(name)
   }
+  install.prod = installSpecifiers(install.prod)
+  install.dev = installSpecifiers(install.dev)
   const command = installCommand(project.packageManager, install.prod, install.dev)
 
   const nextSteps: string[] = []

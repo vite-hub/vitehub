@@ -140,16 +140,21 @@ async function runJson(context: HostCredentialsContext, command: string, args: r
 /** Resolve a project dependency before changing cwd, as package-manager invocations do. */
 function localWrangler(cwd: string | undefined): string | undefined {
   if (!cwd) return
-  try {
-    const require = createRequire(join(resolve(cwd), "package.json"))
-    const manifest = require.resolve("wrangler/package.json")
-    const pkg: unknown = JSON.parse(readFileSync(manifest, "utf8"))
-    if (!isRecord(pkg)) return
-    const bin = typeof pkg.bin === "string" ? pkg.bin : isRecord(pkg.bin) ? pkg.bin.wrangler : undefined
-    return typeof bin === "string" ? resolve(dirname(manifest), bin) : undefined
-  }
-  catch {
-    return
+  const require = createRequire(join(resolve(cwd), "package.json"))
+  let directory = resolve(cwd)
+  // Explicit node_modules paths include hoisted dependencies and symlinks, but never NODE_PATH copies.
+  while (true) {
+    try {
+      const manifest = require.resolve(join(directory, "node_modules", "wrangler", "package.json"))
+      const pkg: unknown = JSON.parse(readFileSync(manifest, "utf8"))
+      if (!isRecord(pkg)) return
+      const bin = typeof pkg.bin === "string" ? pkg.bin : isRecord(pkg.bin) ? pkg.bin.wrangler : undefined
+      return typeof bin === "string" ? resolve(dirname(manifest), bin) : undefined
+    }
+    catch {}
+    const parent = dirname(directory)
+    if (parent === directory) return
+    directory = parent
   }
 }
 

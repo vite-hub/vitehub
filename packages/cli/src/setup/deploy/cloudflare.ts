@@ -225,7 +225,7 @@ async function optional<T>(request: Promise<T>): Promise<T | undefined> {
  * Workers API, newest first:
  * - `GET /accounts/{account_id}/workers/scripts/{script_name}/deployments`: the first one gets the traffic, as in
  *   `wrangler deployments list`. https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/deployments/methods/list/
- * - `GET .../versions?deployable=true`: the versions, with the `workers/message` annotation. A version in no
+ * - `GET .../versions?per_page=`: a bounded page of versions, with the `workers/message` annotation. A version in no
  *   deployment is a preview (`wrangler versions upload`). https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/versions/methods/list/
  * - `GET /accounts/{account_id}/workers/subdomain`: the account's `workers.dev` suffix. https://developers.cloudflare.com/api/resources/workers/subresources/subdomains/methods/get/
  * - `GET .../scripts/{script_name}/subdomain`: whether production and preview `workers.dev` URLs are enabled. https://developers.cloudflare.com/api/resources/workers/subresources/scripts/subresources/subdomain/methods/get/
@@ -237,7 +237,7 @@ export const listCloudflareDeployments: ListDeployments = async (context, { limi
   const script = `/workers/scripts/${encodeURIComponent(context.link.project.name)}`
   const [deployments, versions, subdomain, settings] = await Promise.all([
     client(`${script}/deployments`, { parse: parseDeployments, query: { per_page: String(limit) } }),
-    client(`${script}/versions`, { parse: parseVersions, query: { deployable: "true", per_page: String(Math.max(limit, 10)) } }),
+    client(`${script}/versions`, { parse: parseVersions, query: { per_page: String(limit) } }),
     optional(client("/workers/subdomain", { parse: value => isRecord(value) ? optionalString(value.subdomain) : undefined })),
     optional(client(`${script}/subdomain`, { parse: value => isRecord(value) ? { enabled: value.enabled === true, previewsEnabled: value.previews_enabled === true } : undefined })),
   ])
