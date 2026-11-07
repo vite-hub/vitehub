@@ -702,19 +702,27 @@ describe("content capability", () => {
         },
       },
     }))
-    // The translator Agent without a model: it reads the English draft and saves the Spanish page with the same tools.
+    // The translator Agent without a model: it follows the steps of its instructions with the same tools.
     const all = await tools(content({ collections: ["docs"], operations: ["read", "write"] }), runtime)
-    async function translate(id: string) {
-      const english = await run(all.content_get_document, { collection: "docs", id, ref: "draft" })
+    const docs = runtime.collection("docs")
+    /** The job of playground/content/server/queues/translate.ts: it binds to the English version on the draft when it starts. */
+    async function job(id: string) {
+      const sourceDigest = (await docs.get(id, { ref: "draft" }))!.source!.digest
+      return { id, sourceDigest }
+    }
+    /** One pass of the instructions. */
+    async function translate({ id, sourceDigest }: { id: string, sourceDigest: string }) {
       const spanish = await run(all.content_get_document, { collection: "docs", id, ref: "draft", locale: "es" })
+      if (!spanish.document.fallback && spanish.document.derivedFrom?.digest === sourceDigest) return "translated"
+      const english = await run(all.content_get_document, { collection: "docs", id, ref: "draft" })
+      if (english.document.source.digest !== sourceDigest) return "moved"
       const ifDigest = spanish.document.fallback ? null : spanish.document.digest
-      return await run(all.content_save_draft, { collection: "docs", id, locale: "es", data: { title: `ES ${english.document.data.title}` }, body: `ES ${english.document.body}`, ifDigest })
+      return await run(all.content_save_draft, { collection: "docs", id, locale: "es", data: { title: `ES ${english.document.data.title}` }, body: `ES ${english.document.body}`, ifDigest, sourceDigest })
     }
 
-    const docs = runtime.collection("docs")
     await docs.save("guides/install", { data: { title: "Install" }, body: "Run it.\n" })
     expect(queued).toEqual(["guides/install"])
-    expect(await translate(queued[0]!)).toMatchObject({ ok: true, document: { locale: "es", derivedFrom: { path: "docs/en/guides/install.md" } } })
+    expect(await translate(await job(queued[0]!))).toMatchObject({ ok: true, document: { locale: "es", derivedFrom: { path: "docs/en/guides/install.md" } } })
     expect(queued).toEqual(["guides/install"])
     expect((await docs.status("guides/install"))?.translations).toEqual({ es: "current" })
 
@@ -724,10 +732,59 @@ describe("content capability", () => {
     await history.commit({ ref: "draft", ifHead: head!.id, changes: { put: { "docs/en/guides/install.md": { content: "---\ntitle: Install\n---\nRun it twice.\n" } } } })
     expect(queued).toEqual(["guides/install", "guides/install"])
     expect((await docs.status("guides/install"))?.translations).toEqual({ es: "stale" })
-    await translate("guides/install")
+    expect(await translate(await job("guides/install"))).toMatchObject({ ok: true })
     await runtime.publish()
     expect(queued).toEqual(["guides/install", "guides/install"])
     expect((await docs.status("guides/install"))?.translations).toEqual({ es: "current" })
+  })
+
+  it("lets the job of the newer English version win when two translation jobs overlap", async () => {
+    const runtime = defineContent({
+      workspace: await historyWorkspace(cleanup),
+      collections: { docs: documents({ path: "docs/{locale}/**/*.md", locales: ["en", "es"], fields: { title: z.string().min(1) } }) },
+      authorize: editorsOnly,
+      logger: false,
+    })
+    cleanup.push(() => runtime.dispose())
+    const all = await tools(content({ collections: ["docs"], operations: ["read", "write"] }), runtime)
+    const docs = runtime.collection("docs")
+    async function job(id: string) {
+      return { id, sourceDigest: (await docs.get(id, { ref: "draft" }))!.source!.digest }
+    }
+    async function translate({ id, sourceDigest }: { id: string, sourceDigest: string }, between?: () => Promise<unknown>) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const spanish = await run(all.content_get_document, { collection: "docs", id, ref: "draft", locale: "es" })
+        if (!spanish.document.fallback && spanish.document.derivedFrom?.digest === sourceDigest) return "translated"
+        const english = await run(all.content_get_document, { collection: "docs", id, ref: "draft" })
+        if (english.document.source.digest !== sourceDigest) return "moved"
+        if (attempt === 0) await between?.()
+        const ifDigest = spanish.document.fallback ? null : spanish.document.digest
+        const saved = await run(all.content_save_draft, { collection: "docs", id, locale: "es", data: { title: `ES ${english.document.data.title}` }, body: `ES ${english.document.body}`, ifDigest, sourceDigest })
+        if (saved.ok || saved.error.code !== "WORKSPACE_CONFLICT") return saved
+      }
+      return "gave up"
+    }
+
+    await docs.save("guide", { data: { title: "A" }, body: "Version A.\n" })
+    const a = await job("guide")
+    // Job A reads English A. Before it saves, English B is saved, and job B translates B and saves first.
+    const result = await translate(a, async () => {
+      const english = await docs.get("guide", { ref: "draft" })
+      await docs.save("guide", { data: { title: "B" }, body: "Version B.\n" }, { ifDigest: english!.digest })
+      expect(await translate(await job("guide"))).toMatchObject({ ok: true, document: { data: { title: "ES B" } } })
+    })
+    // Job A conflicts, reads again, sees that English moved, and stops. Job B's translation stays, and it is current.
+    expect(result).toBe("moved")
+    expect(await docs.get("guide", { ref: "draft", locale: "es" })).toMatchObject({ data: { title: "ES B" } })
+    expect((await docs.status("guide"))?.translations).toEqual({ es: "current" })
+
+    // Without the bound digest, job A would save its old text over B and mark it current. With it, a late save stays stale.
+    const late = await run(all.content_save_draft, {
+      collection: "docs", id: "guide", locale: "es", data: { title: "ES A" }, body: "ES Version A.\n",
+      ifDigest: (await docs.get("guide", { ref: "draft", locale: "es" }))!.digest, sourceDigest: a.sourceDigest,
+    })
+    expect(late).toMatchObject({ ok: true })
+    expect((await docs.status("guide"))?.translations).toEqual({ es: "stale" })
   })
 })
 

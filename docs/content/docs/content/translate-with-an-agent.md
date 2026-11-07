@@ -12,7 +12,7 @@ The wiring has three parts:
 
 1. A `write:after` hook on the Workspace sees that an English page changed on `draft`.
 2. The hook enqueues a Queue job with the id of the page.
-3. The job runs a translator Agent with the [`content()` Capability](/docs/content/agent-capability#translations). The Agent saves the page with `locale: 'es'`, and Content writes `derivedFrom`.
+3. The job reads the source digest of the English page on `draft` and runs a translator Agent with the [`content()` Capability](/docs/content/agent-capability#translations). The Agent saves the page with `locale: 'es'` and that `sourceDigest`, and Content writes `derivedFrom`.
 
 The [content playground](https://github.com/vite-hub/vitehub/tree/main/playground/content) runs this setup.
 
@@ -41,7 +41,7 @@ Turn on Agents and Queue in the existing `vitehub()` options, and set `AI_GATEWA
 
 ## Define the translator
 
-The Agent reads the English page, reads the Spanish page for its digest, and saves the translation. `runtime: false` runs it inside the Queue job. The `user` option gives the Agent the CMS role that your `authorize` policy checks: here an editor, which saves drafts and cannot publish.
+The Agent reads the Spanish page for its digest, reads the English page, and saves the translation with the source digest that the job gives it. It stops when the English page changed after the job started, because the change started a newer job. `runtime: false` runs it inside the Queue job. The `user` option gives the Agent the CMS role that your `authorize` policy checks: here an editor, which saves drafts and cannot publish.
 
 ```ts [server/agents/translator.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -52,10 +52,11 @@ export default defineAgent({
   driver: {
     model: 'anthropic/claude-haiku-5.5',
     instructions: [
-      'Translate pages of the `docs` collection from English (en) into Spanish (es).',
-      '1. Read the English page with content_get_document and ref "draft".',
-      '2. Read the Spanish page with locale "es" and ref "draft". Use ifDigest null when it has fallback: true, otherwise its digest.',
-      '3. Save with content_save_draft and locale "es". Keep the data keys and the Markdown structure.',
+      'Translate pages of the `docs` collection from English (en) into Spanish (es). The task gives a page id and the source digest of the English version.',
+      '1. Read the Spanish page with content_get_document, locale "es", and ref "draft". Use ifDigest null when it has fallback: true, otherwise its digest. Stop when its derivedFrom.digest is the source digest of the task.',
+      '2. Read the English page with ref "draft". Stop when its source.digest is not the source digest of the task: a newer job translates it.',
+      '3. Save with content_save_draft, locale "es", and sourceDigest set to the source digest of the task. Keep the data keys and the Markdown structure.',
+      'On WORKSPACE_CONFLICT, start again at step 1. Do not save more than twice.',
     ].join('\n'),
   },
   capabilities: [content({
@@ -68,15 +69,19 @@ export default defineAgent({
 
 ## Run it from a Queue job
 
-A standalone `runAgent()` inside the server gets the `content` primitive, as the generated Agent routes do. The job throws when the Agent fails, so the Queue tries it again.
+A standalone `runAgent()` inside the server gets the `content` primitive, as the generated Agent routes do. The job reads the English page when it starts, and gives the Agent its `source.digest`: the version that this job translates. The job throws when the Agent fails, so the Queue tries it again.
 
 ```ts [server/queues/translate.ts]
 import { runAgent } from 'vite-hub/agent'
 import { defineQueue } from 'vite-hub/queue'
 import translator from '../agents/translator'
+import { content } from '../content'
 
 export default defineQueue<{ id: string }>(async ({ payload }) => {
-  const [error] = await runAgent(translator, { prompt: `Translate the docs page with id "${payload.id}" into Spanish.` }, { output: 'drained' })
+  const english = await content.collection('docs').get(payload.id, { ref: 'draft' })
+  if (!english?.source) return
+  const prompt = `Translate the docs page with id "${payload.id}" into Spanish. The source digest of the English version to translate is ${english.source.digest}.`
+  const [error] = await runAgent(translator, { prompt }, { output: 'drained' })
   if (error) throw error
 })
 ```
@@ -160,8 +165,8 @@ Commit the English pages, the translations, and `vitehub.lock` to your repositor
 
 ## Limits
 
-- The Queue delivers a job at least once. A retried job runs the model again. Make the Agent safe to repeat: it reads the current Spanish digest before each save.
-- A save records the English version on the draft when the Agent saves. If someone changes the English page while the Agent works, that change enqueues a second job, which translates the new version.
+- The Queue delivers a job at least once. A retried job runs the model again. Make the Agent safe to repeat: it reads the current Spanish digest before each save, and it stops when the Spanish page already records the source digest of the job.
+- A save records the English version that the job gave the Agent, not the one on the draft when it saves. If someone changes the English page while the Agent works, that change enqueues a second job. The first job stops when it sees the change, or its save shows as stale until the second job saves the new translation. When the two saves race, the second gets `WORKSPACE_CONFLICT`, reads both pages again, and stops if the English page moved.
 - In `vite dev` and with `preset: 'node'`, the job runs in the server process, so that process needs `AI_GATEWAY_API_KEY`. See [Queue hosts](/docs/queue/hosts) for the other providers.
 - The Agent output is a draft. Review translations before you publish them.
 
