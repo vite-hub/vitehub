@@ -1530,10 +1530,10 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
                 },
               });
               const resolveThread = operations.resolveThread;
-              operations.resolveThread = id => repairOperation.run(true, async () => {
+              operations.resolveThread = (id, answer) => repairOperation.run(true, async () => {
                 const current = await assertLease();
                 const reopens = current.threadReopens?.[id] ?? 0;
-                await resolveThread(id);
+                await resolveThread(id, answer);
                 await pullRequestInbox.recordThreadResolution(inboxClaim, id, current);
                 // Record only a successful, PR-owned resolution. New comments
                 // remain in the evidence hash; any external reopen revokes it.

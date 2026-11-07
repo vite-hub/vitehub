@@ -4,6 +4,7 @@ import type { ComarkPlugin, MarkdownExitPlugin, Node as MarkdownNode } from "com
 import * as v from "valibot"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
 import { forgeBranchRules, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
+import type { ReviewThread } from "forges"
 import type { GitHubHost } from "./github-host.ts"
 import type { GitHubRepairCommit } from "./github-repair.ts"
 
@@ -112,6 +113,26 @@ export interface GitHubBaseCheckEvidence {
   truncated: { checkRuns: boolean, statuses: boolean, workflowRuns: boolean }
 }
 
+/** How a review thread was answered. "fixed" may omit the reason; every other outcome states it. */
+export const reviewThreadOutcomes = {
+  fixed: "Fixed",
+  disproved: "Disproved",
+  declined: "Declined",
+  "pre-existing": "Pre-existing",
+  duplicate: "Duplicate",
+} as const
+
+export type ReviewThreadOutcome = keyof typeof reviewThreadOutcomes
+
+export function isReviewThreadOutcome(value: string): value is ReviewThreadOutcome {
+  return Object.hasOwn(reviewThreadOutcomes, value)
+}
+
+export interface ReviewThreadAnswer {
+  outcome: ReviewThreadOutcome
+  reason?: string
+}
+
 export interface GitHubPullRequestOperations {
   requestAutoMerge(): Promise<GitHubAutoMergeResult>
   comment(body: string): Promise<void>
@@ -119,7 +140,8 @@ export interface GitHubPullRequestOperations {
   readCheckLogs(runId: number): Promise<{ text: string, truncated: boolean }>
   readBaseCheckEvidence(): Promise<GitHubBaseCheckEvidence>
   readBaseCheckLogs(runId: number): Promise<{ repository: string, headSha: string, text: string, truncated: boolean }>
-  resolveThread(id: string): Promise<void>
+  /** Posts the outcome and its reason as a thread reply, then resolves the thread. */
+  resolveThread(id: string, answer?: ReviewThreadAnswer): Promise<void>
   updateMetadata(input: { title?: string, body?: string }): Promise<void>
   push(): Promise<string>
   refreshDependencies(): Promise<void>
@@ -439,20 +461,31 @@ export function createGitHubPullRequestOperations(
       // Keep block Markdown at the start of the validated body on its own line.
       await provider.threads.createComment(pullRequest, `${options.commentPrefix ?? ""}@${targetLogin}\n\n${message}`, { signal })
     },
-    async resolveThread(id) {
+    async resolveThread(id, answer) {
       nonempty(id, "Review thread ID")
+      const outcome = answer?.outcome
+      if (outcome !== undefined && !isReviewThreadOutcome(outcome)) throw new Error(`Review thread outcome must be one of ${Object.keys(reviewThreadOutcomes).join(", ")}.`)
+      const reason = answer?.reason?.trim()
+      // A finding closed without a code change needs its reason on the thread: it is the record the
+      // author and the reviewer read, and the outcome marker is what review metrics count.
+      if (outcome !== undefined && outcome !== "fixed" && !reason) throw new Error(`A ${outcome} review thread needs a one-sentence reason.`)
       await snapshot()
       const reader = await forge()
-      let resolved: boolean | undefined
+      let found: ReviewThread | undefined
       for await (const thread of reader.provider.threads.reviewThreads(reader.pullRequest, { signal })) {
-        if (thread.id === id) { resolved = thread.resolved; break }
+        if (thread.id === id) { found = thread; break }
       }
-      if (resolved === undefined) throw new Error("Review thread does not belong to this pull request.")
-      if (resolved) return
+      if (!found) throw new Error("Review thread does not belong to this pull request.")
+      if (found.resolved) return
       // The thread lookup may race a push or closure. Its ownership is not evidence
       // that this pass still owns the current PR head.
       await snapshot()
       const { provider: writer, pullRequest } = await forge()
+      const first = found.comments[0]
+      if (outcome !== undefined && first) {
+        const body = `${options.commentPrefix ?? ""}<!-- vitehub-babysitter-outcome:${outcome} -->\n**${reviewThreadOutcomes[outcome]}.**${reason ? ` ${reason}` : ""}`
+        await writer.threads.replyToReviewComment(pullRequest, first, body, { signal })
+      }
       await writer.threads.resolveReviewThread(pullRequest, id, { signal })
     },
     async updateMetadata(input) {

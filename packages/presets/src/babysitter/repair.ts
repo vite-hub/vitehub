@@ -2,7 +2,7 @@ import type { AgentInvocationContextStore } from "@vite-hub/agent";
 import { defineCapability } from "@vite-hub/agent";
 import type { GitHubPullRequestOperations } from "@vite-hub/agent/server/github";
 import { isRuntimeRecord, hasRuntimeType } from "../internal/runtime-type.ts";
-import { normalizeGitHubMentionAllowlist } from "@vite-hub/agent/server/github";
+import { isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewThreadOutcomes } from "@vite-hub/agent/server/github";
 
 const noArguments = { type: "object", properties: {}, additionalProperties: false } as const;
 
@@ -149,15 +149,22 @@ export function repairCapability(operations: GitHubPullRequestOperations, autoMe
       } : {}),
       resolveReviewThread: {
         name: "resolveReviewThread",
-        description: "Resolve an addressed review thread belonging to this PR.",
+        description: "Answer and resolve a review thread belonging to this PR. The outcome and reason are posted as a reply on the thread before it is resolved: fixed (the current code fixes it; reason optional, name the commit), disproved (the finding is wrong for the current code), declined (valid, but out of this PR's scope or below the severity bar; name the class, for example P2), pre-existing (the PR did not introduce it) or duplicate (already answered in another thread). Every outcome other than fixed needs a one-sentence reason.",
         inputSchema: {
           type: "object",
-          properties: { id: { type: "string" } },
-          required: ["id"],
+          properties: {
+            id: { type: "string" },
+            outcome: { type: "string", enum: Object.keys(reviewThreadOutcomes) },
+            reason: { type: "string" },
+          },
+          required: ["id", "outcome"],
           additionalProperties: false,
         },
         execute: async (input: unknown) => {
-          await operations.resolveThread(stringField(input, "id"));
+          const outcome = stringField(input, "outcome");
+          if (!isReviewThreadOutcome(outcome)) throw new Error(`outcome must be one of ${Object.keys(reviewThreadOutcomes).join(", ")}.`);
+          const reason = isRuntimeRecord(input) && "reason" in input ? stringField(input, "reason", true) : undefined;
+          await operations.resolveThread(stringField(input, "id"), { outcome, reason });
           return { resolved: true };
         },
       },

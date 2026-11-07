@@ -29,6 +29,7 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
     protectionReadable: true,
     children: 0,
     thread: { id: "THREAD_1", isResolved: false },
+    threadComments: [] as { databaseId: number, body: string, author: { login: string, __typename: string }, createdAt: string, url: string }[],
     reviewPage: { nodes: [] as typeof pullRequest.latestOpinionatedReviews.nodes, pageInfo: page() },
     labelPage: { nodes: [] as { name: string }[], pageInfo: page() },
     run: { id: 123, head_sha: head, repository: { full_name: "acme/app" }, pull_requests: [] as { number: number, head: { sha: string } }[] },
@@ -43,7 +44,7 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
         if (state.mutationError) return Response.json({ data: null, errors: [{ message: "Head oid mismatch" }] })
         return { enablePullRequestAutoMerge: { pullRequest: { id: pullRequest.id, state: state.merged ? "MERGED" : "OPEN", headRefOid: pullRequest.headRefOid, autoMergeRequest: state.merged ? null : { enabledAt: "2026-09-13T00:00:00Z" } } } }
       case "PullRequestOperationChildren": return { repository: { pullRequests: { totalCount: state.children } } }
-      case "ReviewThreadPage": return { repository: { pullRequest: { reviewThreads: { nodes: [{ ...state.thread, comments: { nodes: [] } }], pageInfo: page() } } } }
+      case "ReviewThreadPage": return { repository: { pullRequest: { reviewThreads: { nodes: [{ ...state.thread, comments: { nodes: state.threadComments } }], pageInfo: page() } } } }
       case "ResolveReviewThread": return { resolveReviewThread: { thread: { isResolved: true } } }
       case "PullRequestOperationLabels": return { node: { labels: state.labelPage } }
       case "PullRequestOperationReviews": return { node: { latestOpinionatedReviews: state.reviewPage } }
@@ -67,6 +68,7 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
     if (path === "/repos/acme/app/actions/runs/123/jobs") return { total_count: 2, jobs: [{ id: 7, name: "test", status: "completed", conclusion: "failure" }, { id: 8, name: "lint", status: "completed", conclusion: "success" }] }
     if (path === "/repos/acme/app/actions/jobs/7/logs") return state.logs
     if (request.method === "POST" && path === "/repos/acme/app/issues/12/comments") return { id: 1, body: (request.body as { body: string }).body }
+    if (request.method === "POST" && path === "/repos/acme/app/pulls/12/comments/501/replies") return { id: 502, body: (request.body as { body: string }).body, user: { login: "worker[bot]", type: "Bot" }, created_at: "2026-11-07T00:00:00Z", html_url: "https://github.com/acme/app/pull/12#discussion_r502", in_reply_to_id: 501 }
     if (request.method === "PATCH" && path === "/repos/acme/app/pulls/12") return { number: 12, title: "Fix bug", state: "open", head: { sha: head } }
     return undefined
   }
@@ -491,6 +493,25 @@ describe("host-owned repair operations", () => {
     expect(f.mutations()[0]!.variables).toEqual({ id: "THREAD_1" })
     f.state.thread.isResolved = true
     await f.operations.resolveThread("THREAD_1")
+    expect(f.mutations()).toHaveLength(1)
+  })
+
+  it("posts a declined thread's outcome and reason as a reply before resolving it", async () => {
+    const commentPrefix = "<!-- vitehub-babysitter-repair:repair -->\n"
+    const f = await fixture({ commentPrefix })
+    f.state.threadComments = [{ databaseId: 501, body: "P2: config spread", author: { login: "pullfrog", __typename: "Bot" }, createdAt: "2026-11-07T00:00:00Z", url: "https://github.com/acme/app/pull/12#discussion_r501" }]
+    await f.operations.resolveThread("THREAD_1", { outcome: "declined", reason: "P2: outside this PR's scope." })
+    const replies = f.calls.filter(call => call.method === "POST" && call.path === "/repos/acme/app/pulls/12/comments/501/replies")
+    expect(replies.map(call => (call.body as { body: string }).body)).toEqual([`${commentPrefix}<!-- vitehub-babysitter-outcome:declined -->\n**Declined.** P2: outside this PR's scope.`])
+    expect(f.calls.indexOf(replies[0]!)).toBeLessThan(f.calls.findIndex(call => call.operationName === "ResolveReviewThread"))
+    expect(f.mutations()).toHaveLength(1)
+  })
+
+  it("requires a reason for every outcome except fixed", async () => {
+    const f = await fixture()
+    await expect(f.operations.resolveThread("THREAD_1", { outcome: "disproved", reason: " " })).rejects.toThrow(/needs a one-sentence reason/)
+    expect(f.mutations()).toHaveLength(0)
+    await f.operations.resolveThread("THREAD_1", { outcome: "fixed" })
     expect(f.mutations()).toHaveLength(1)
   })
 

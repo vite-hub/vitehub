@@ -22,8 +22,8 @@ export type { GitHubWorkspaceRevision, GitHubWorkspaceInspector } from "./github
 export { createGitHubPullRequests, createGitHubPullRequestRun, pullRequestCheckState } from './github-pull-requests.ts'
 export type { PullRequest, PullRequestFeedback, GitHubPullRequestComment } from './github-pull-requests.ts'
 
-export { createGitHubPullRequestOperations, normalizeGitHubMentionAllowlist } from './github-auto-merge.ts'
-export type { GitHubAutoMergeResult, GitHubBaseCheckEvidence, GitHubPullRequestOperations, GitHubPullRequestOperationsOptions, GitHubPullRequestOperationSnapshot } from './github-auto-merge.ts'
+export { createGitHubPullRequestOperations, isReviewThreadOutcome, normalizeGitHubMentionAllowlist, reviewThreadOutcomes } from './github-auto-merge.ts'
+export type { GitHubAutoMergeResult, GitHubBaseCheckEvidence, GitHubPullRequestOperations, GitHubPullRequestOperationsOptions, GitHubPullRequestOperationSnapshot, ReviewThreadAnswer, ReviewThreadOutcome } from './github-auto-merge.ts'
 export { prepareGitHubPullRequestWorkspace } from "./github-checkout.ts"
 export { validateGitHubInstallInputs } from "./github-install-inputs.ts"
 

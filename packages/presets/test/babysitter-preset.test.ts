@@ -422,7 +422,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
           }
           if (preset.resolveAfterPush) {
             await runtime.inbox.ingest("push-before-resolution", "pull_request", { repository: { full_name: "acme/app" }, action: "synchronize", pull_request: pr() });
-            const result = await client.callTool({ name: "resolveReviewThread", arguments: { id: preset.resolveAfterPush } });
+            const result = await client.callTool({ name: "resolveReviewThread", arguments: { id: preset.resolveAfterPush, outcome: "fixed" } });
             expect(result.isError, JSON.stringify(result)).not.toBe(true);
           }
         } finally {
@@ -2617,7 +2617,7 @@ describe("Babysitter preset runtime", () => {
     const head = "a".repeat(40);
     const f = await fixture(false, false, { result: { disposition: "park", text: "Reviewed this head.", reviewedHead: head,
       wait: { kind: "checks", headSha: head } } });
-    f.choose("resolveReviewThread", { id: "PRRT_1" });
+    f.choose("resolveReviewThread", { id: "PRRT_1", outcome: "fixed" });
     let resolved = alreadyResolved;
     const command = f.command.getMockImplementation()!;
     f.command.mockImplementation(async (args, request) => {
@@ -2645,7 +2645,7 @@ describe("Babysitter preset runtime", () => {
   });
 
   it.each([false, true])("keeps owned thread resolutions while fencing external reopens=%s", async reopen => {
-    const f = await fixture(false, false, { operationCount: 2, operationInputs: [{ id: "PRRT_1" }, { id: "PRRT_2" }],
+    const f = await fixture(false, false, { operationCount: 2, operationInputs: [{ id: "PRRT_1", outcome: "fixed" }, { id: "PRRT_2", outcome: "fixed" }],
       ...(reopen ? { expectedOperationErrorAt: 1 } : {}) });
     f.choose("resolveReviewThread");
     const resolved = new Set<string>();
