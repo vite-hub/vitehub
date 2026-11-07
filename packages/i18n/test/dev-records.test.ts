@@ -4,7 +4,7 @@ import { join } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { recordPath, writeRecord } from "../src/records.ts"
+import { messageSegment, recordPath, saveTranslation } from "../src/records.ts"
 import { hubI18n } from "../src/vite.ts"
 
 const recordIO = vi.hoisted(() => ({
@@ -50,7 +50,8 @@ describe("record changes in development", () => {
     const pending: Promise<unknown>[] = []
     try {
       const records = join(root, "locales")
-      const id = await writeRecord(records, "es", { source: "Save", translation: "Original" })
+      const { hash } = messageSegment("Save")
+      await saveTranslation(records, "es", { message: "Save" }, "Original", { by: "ana" })
       const plugin = hubI18n({ locales: ["en", "es"], projectRoot: root })
       await hook(plugin.config!).call({} as never, { root }, { command: "serve", mode: "development" } as never)
       let onRecord!: (event: string, file: string) => Promise<void>
@@ -63,11 +64,11 @@ describe("record changes in development", () => {
       const entered = deferred()
       recordIO.maximum = 0
       recordIO.pause = async () => { entered.resolve(); await release.promise }
-      await writeRecord(records, "es", { source: "Save", translation: "Older" })
-      pending.push(onRecord("change", join(records, recordPath("es", id))))
+      await saveTranslation(records, "es", { message: "Save" }, "Older", { by: "ana" })
+      pending.push(onRecord("change", join(records, recordPath("es", hash))))
       await entered.promise
-      await writeRecord(records, "es", { source: "Save", translation: "Newest" })
-      pending.push(onRecord("change", join(records, recordPath("es", id))))
+      await saveTranslation(records, "es", { message: "Save" }, "Newest", { by: "ana" })
+      pending.push(onRecord("change", join(records, recordPath("es", hash))))
       await new Promise<void>(done => setImmediate(done))
       release.resolve()
       await Promise.all(pending)

@@ -523,6 +523,43 @@ export default ({ mode }) => ({
     expect(stdout.output()).toContain("  provision")
   })
 
+  it("lists a namespace once when a runtime namespace replaces a project one", async () => {
+    const stdout = stream()
+    const loadConfig = vi.fn(async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [{ description: "Project secrets.", features: [], name: "secret" }] } } }],
+      root: "/repo",
+    }))
+    const runtimeNamespaces = [{ description: "Runtime secrets.", features: [], name: "secret" }]
+
+    expect(await runViteHubCli({ args: ["--help"], cwd: "/app", loadConfig, runtimeNamespaces, stdout })).toBe(0)
+    expect(stdout.output().match(/^  secret /gm)).toHaveLength(1)
+    expect(stdout.output()).toContain("  secret       Runtime secrets.")
+  })
+
+  it("lists project commands in root help", async () => {
+    const stdout = stream()
+    const loadConfig = vi.fn(async () => ({ plugins: [], root: "/repo" }))
+
+    expect(await runViteHubCli({ args: ["--help"], cwd: "/app", loadConfig, stdout })).toBe(0)
+    const help = stdout.output()
+    expect(help).toContain("Project:\n  catalog      List every ViteHub feature")
+    expect(help).toContain("  status       Show the host")
+    expect(help.indexOf("Project:")).toBeLessThan(help.indexOf("Available namespaces:"))
+  })
+
+  it("dispatches setup commands before config loading", async () => {
+    const stdout = stream()
+    const run = vi.fn(async () => 3)
+    const loadConfig = vi.fn(async () => {
+      throw new Error("config must not load")
+    })
+    const commands = [{ description: "Show status.", name: "status", run, usage: "vitehub status" }]
+
+    expect(await runViteHubCli({ args: ["status", "--json"], commands, cwd: "/app", loadConfig, stdout })).toBe(3)
+    expect(run).toHaveBeenCalledWith(["--json"], expect.objectContaining({ cwd: "/app", rootDir: "/app" }))
+    expect(loadConfig).not.toHaveBeenCalled()
+  })
+
   it("prints namespace help", async () => {
     const stdout = stream()
     const exitCode = await runViteHubCli({

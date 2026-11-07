@@ -94,6 +94,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/browser/actions` | ViteHub Browser actions backed by Cloudflare Browser Run. |
 | `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Advanced raw CDP and Playwright Browser Session controllers. |
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
+| `vite-hub/bundle` | Read the bundle report of the last build: `readBundleReport()` and `explainBundleTarget()`. Re-exports `@vite-hub/bundle`. |
 | `vite-hub/channels` and `vite-hub/channels/server` | Outbound Channel Definitions with `defineOutboundChannel()` and discovered named delivery. |
 | `vite-hub/comments` | `defineComments()` for `server/comments.ts`, as the `comments` export or the default export. One definition runs the overlay, the Comments API, presence, MCP, and the [comment operations](/docs/comments/operations/get-started). |
 | `vite-hub/comments/anchor`, `vite-hub/comments/database`, `vite-hub/comments/realtime`, `vite-hub/comments/runtime`, and `vite-hub/comments/runtime/auth` | Pin anchors for the browser, the Comments tables, and the presence room, API handler, Nitro plugin, and Auth session reader that generated output imports. |
@@ -144,6 +145,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | AI interface components, headless message scrolling, and default styles. |
 | `vite-hub/ui/chat`, `vite-hub/ui/chat-message`, `vite-hub/ui/prompt-input`, `vite-hub/ui/message-parts`, `vite-hub/ui/markdown`, `vite-hub/ui/chat-session` | Focused imports for chat components. |
 | `vite-hub/ui/filter-search` and `vite-hub/ui/choices-input` | The `FilterSearch` text box for `useChoices()`, and its headless parts. |
+| `vite-hub/ui/markdown-editor` | `MarkdownEditor`, a Markdown editor with uploads to Blob, outside the root barrel so it loads Tiptap only where it's used. |
 | `vite-hub/ui/message`, `vite-hub/ui/bubble`, `vite-hub/ui/marker`, `vite-hub/ui/attachment`, `vite-hub/ui/trace`, `vite-hub/ui/code-block` | shadcn/ui part families. |
 | `vite-hub/ui/tool-list`, `vite-hub/ui/trace-run` | Focused imports for tool contract and trace run components. |
 | `vite-hub/ui/code-view`, `vite-hub/ui/file-view`, `vite-hub/ui/file-diff`, `vite-hub/ui/multi-file-diff`, `vite-hub/ui/patch-diff`, `vite-hub/ui/unresolved-file` | Focused imports for code and diff components. |
