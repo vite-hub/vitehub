@@ -7,12 +7,10 @@ import { Chat, Message, StreamingPlan, ThreadImpl, convertEmojiPlaceholders } fr
 import {
   portableAgentWorkflowInput,
   resolveAgentTriggerInvocation,
-  runAgent,
-  runAgentInline,
   startAgentInvocation,
-  streamAgent,
   streamAgentTrigger,
 } from "../index.ts"
+import { runAgentInline, runAgentWithContext, streamAgentInline } from "../internal/agent-run.ts"
 import { awaitAgentInvocationResult } from "../agent-invocation.ts"
 import type { AgentInvocationController } from "../agent-invocation.ts"
 import { appendLatestFinalText, hasTraceableStreamResult, isAsyncIterable, streamAgentOutputToEvents } from "../agent-output.ts"
@@ -3763,7 +3761,7 @@ export const agentChannelDeliveryWorkflowOwnershipResolver: Parameters<typeof se
       }
       queuedAcknowledged = true
       successorStartAttempted = true
-      await runAgent(
+      await runAgentWithContext(
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
         agent as never,
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -6800,7 +6798,7 @@ async function handleChatSdkMessage(
           ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
           : workflowInput
         // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-        await runAgent(agent as never, workflowRunContext as never, workflowStartInput as never)
+        await runAgentWithContext(agent as never, workflowRunContext as never, workflowStartInput as never)
         durableHandoff = true
         if (steerStartOwnershipLost && steerLock && !(await state.state.extendLock(steerLock, steerTtlMs))) {
           throw agentDiagnostics.AGENT_R0827({ message: "[vitehub] Durable steered Channel delivery lost ownership while its Agent Workflow was starting." })
@@ -6911,7 +6909,7 @@ async function handleChatSdkMessage(
                         ? restoreParsedAgentMessageMeta(agent, recoveryInput, workflowRun, workflowInputHasParsedMessageMeta)
                         : recoveryInput
                       // SAFETY: recovery reuses the input and context accepted by this Agent's initial run.
-                      await runAgent(agent as never, workflowRunContext as never, recoveryStartInput as never)
+                      await runAgentWithContext(agent as never, workflowRunContext as never, recoveryStartInput as never)
                       return
                     } catch (recoveryError) {
                       if (isAmbiguousAgentWorkflowStartFailure(recoveryError)) return
@@ -6951,7 +6949,7 @@ async function handleChatSdkMessage(
                 ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
                 : workflowInput
               // SAFETY: ownership recovery reuses the input and context accepted by this Agent's initial run.
-              await runAgent(agent as never, workflowRunContext as never, recoveredWorkflowInput as never)
+              await runAgentWithContext(agent as never, workflowRunContext as never, recoveredWorkflowInput as never)
               durableHandoff = true
             } catch (retryError) {
               if (isAmbiguousAgentWorkflowStartFailure(retryError)) {
@@ -7023,7 +7021,7 @@ async function handleChatSdkMessage(
                     ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
                     : workflowInput
                   // SAFETY: settlement retry reuses the input and context accepted by this Agent's initial run.
-                  await runAgent(agent as never, workflowRunContext as never, settlementRetryInput as never)
+                  await runAgentWithContext(agent as never, workflowRunContext as never, settlementRetryInput as never)
                 } catch (retryError) {
                   if (!isAmbiguousAgentWorkflowStartFailure(retryError)) {
                     detachAgentChannelDelivery(delivery)
@@ -7053,7 +7051,7 @@ async function handleChatSdkMessage(
                     ? restoreParsedAgentMessageMeta(agent, workflowInput, workflowRun, workflowInputHasParsedMessageMeta)
                     : workflowInput
                   // SAFETY: this terminal settlement path reuses the input and context accepted by the initial run.
-                  await runAgent(agent as never, workflowRunContext as never, settlementRetryInput as never)
+                  await runAgentWithContext(agent as never, workflowRunContext as never, settlementRetryInput as never)
                 } catch (retryError) {
                   if (!isAmbiguousAgentWorkflowStartFailure(retryError)) {
                     detachAgentChannelDelivery(delivery)
@@ -7175,7 +7173,7 @@ async function handleChatSdkMessage(
         (async () => {
           const result = bufferedDelivery
             ? // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
-              await streamAgent(agent as never, inlineRunContext as never, invocationInput as never, {
+              await streamAgentInline(agent as never, inlineRunContext as never, invocationInput as never, {
                 output: "events",
               })
             : // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
@@ -7220,7 +7218,7 @@ async function handleChatSdkMessage(
       await enforceChatInvocationTimeout(
         (async () => {
           // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
-          const result = streamAgent(agent as never, inlineRunContext as never, invocationInput as never, {
+          const result = streamAgentInline(agent as never, inlineRunContext as never, invocationInput as never, {
             output: "events",
           })
           try {
@@ -9940,7 +9938,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               let durableHandoff = false
               await runWithRuntimeCloudflareEnv(runContext, async () => {
                 try {
-                  const result = await runAgent(
+                  const result = await runAgentWithContext(
                     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
                     executionAgent as never,
                     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.

@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 import { deriveTraceRuns } from "@vite-hub/runtime"
 import { title } from "../src/capabilities/title.ts"
-import { defineAgent, runAgent, streamAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { runAgentWithContext, streamAgentInline } from "../src/internal/agent-run.ts"
 import { createMessage } from "../src/messages.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/server.ts"
 
@@ -20,7 +21,7 @@ describe("title journal ownership", () => {
   it.each(["run.error", "agent.invocation.error", "agent.stream.error", "agent.invocation.cancelled"])("preserves title trace order around %s", async (failure) => {
     const invocations = journal()
     let checked = false
-    await runAgent(defineAgent({
+    await runAgentWithContext(defineAgent({
       capabilities: [title({ driver: { async run(context) {
         const names = ["agent.invocation.start", "agent.model.request", failure]
         for (const name of names) {
@@ -56,10 +57,10 @@ describe("title journal ownership", () => {
       } },
       invocations,
     })
-    if (mode === "failure") await expect(runAgent(agent, runtime(mode), { prompt: "Explain safety stock." })).rejects.toThrow("Driver failed")
-    else if (mode === "text") await runAgent(agent, runtime(mode), { prompt: "Explain safety stock." })
+    if (mode === "failure") await expect(runAgentWithContext(agent, runtime(mode), { prompt: "Explain safety stock." })).rejects.toThrow("Driver failed")
+    else if (mode === "text") await runAgentWithContext(agent, runtime(mode), { prompt: "Explain safety stock." })
     else {
-      const stream = await streamAgent(agent, runtime(mode), { prompt: "Explain safety stock." })
+      const stream = await streamAgentInline(agent, runtime(mode), { prompt: "Explain safety stock." })
       for await (const _event of stream as AsyncIterable<unknown>) {}
     }
     expect(execute).toHaveBeenCalledOnce()
@@ -83,7 +84,7 @@ describe("title journal ownership", () => {
       })() },
       invocations,
     })
-    const stream = await streamAgent(agent, runtime("stream-secret-title"), { prompt: "Explain safety stock." })
+    const stream = await streamAgentInline(agent, runtime("stream-secret-title"), { prompt: "Explain safety stock." })
     const events: unknown[] = []
     for await (const event of stream as AsyncIterable<unknown>) events.push(event)
     expect(JSON.stringify(events)).toContain("password=hunter2")
@@ -98,7 +99,7 @@ describe("title journal ownership", () => {
   it("uses the T3 editorial prompt and normalizes a structured title", async () => {
     const invocations = journal()
     const generate = vi.fn((_context: unknown) => '{"title":"Resolve snapshot mismatch"}')
-    await runAgent(defineAgent({
+    await runAgentWithContext(defineAgent({
       capabilities: [title({ driver: { run: generate } })],
       driver: { run: () => "Done." }, invocations,
     }), runtime("compact-title"), { prompt: "Company: Back II Basic. Latest customer message: Why do these snapshots disagree?" })
@@ -111,7 +112,7 @@ describe("title journal ownership", () => {
 
   it("keeps a short fallback when the title provider has no capacity", async () => {
     const invocations = journal()
-    await runAgent(defineAgent({
+    await runAgentWithContext(defineAgent({
       capabilities: [title({ fallback: "New conversation", driver: { run: () => { throw new Error("Spend cap reached") } } })],
       driver: { run: () => "Done." }, invocations,
     }), runtime("title-cap"), { prompt: "Company: Back II Basic. Latest customer message: a long wrapped question" })
@@ -120,7 +121,7 @@ describe("title journal ownership", () => {
 
   it("retains title provider errors without failing the primary invocation", async () => {
     const invocations = journal()
-    await runAgent(defineAgent({
+    await runAgentWithContext(defineAgent({
       capabilities: [title({ fallback: "New conversation", driver: { async run(context) {
         await context.traceLog?.append({
           name: "agent.stream.error",
@@ -147,7 +148,7 @@ describe("title journal ownership", () => {
 
   it("redacts title error credentials before persisting metadata", async () => {
     const invocations = journal()
-    await runAgent(defineAgent({
+    await runAgentWithContext(defineAgent({
       capabilities: [title({ driver: { async run(context) {
         await context.traceLog?.append({
           name: "agent.stream.error",
@@ -179,7 +180,7 @@ describe("title journal ownership", () => {
 
   it("bounds generated titles and strips multiline commentary", async () => {
     const invocations = journal()
-    await runAgent(defineAgent({
+    await runAgentWithContext(defineAgent({
       capabilities: [title({ execute: () => "A very long customer snapshot investigation title that overflows\nMore commentary" })],
       driver: { run: () => "Done." }, invocations,
     }), runtime("bounded-title"), { prompt: "Snapshot mismatch" })
@@ -197,7 +198,7 @@ describe("title journal ownership", () => {
       driver: { run: () => { main.resolve(); return "Done." } },
       invocations,
     })
-    const run = runAgent(agent, runtime("overlap"), { prompt: "Explain safety stock." })
+    const run = runAgentWithContext(agent, runtime("overlap"), { prompt: "Explain safety stock." })
     try {
       await main.promise
       expect((await invocations.getByRunId("overlap"))?.status).toBe("running")
@@ -215,7 +216,7 @@ describe("title journal ownership", () => {
   it.each(["run.finish", "agent.invocation.finish"])("keeps auxiliary %s out of the primary trace", async (name) => {
     const main = deferred<string>()
     const invocations = journal()
-    const run = runAgent(defineAgent({
+    const run = runAgentWithContext(defineAgent({
       capabilities: [title({ driver: { async run(context) {
         await context.traceLog?.append({ name, type: "run" })
         expect(context.traceLog?.entries().some(entry => entry.name === name)).toBe(true)
@@ -242,7 +243,7 @@ describe("title journal ownership", () => {
 
   it("uses the first user message with multi-turn history and a prompt", async () => {
     const execute = vi.fn(() => "First topic")
-    await runAgent(defineAgent({
+    await runAgentWithContext(defineAgent({
       capabilities: [title({ execute })],
       driver: { run: () => "Done." },
       invocations: journal(),
@@ -261,7 +262,7 @@ describe("title journal ownership", () => {
     const controller = new AbortController()
     const main = deferred<void>()
     const invocations = journal()
-    const run = runAgent(defineAgent({
+    const run = runAgentWithContext(defineAgent({
       capabilities: [title({ execute: () => new Promise<string>(() => {}) })],
       driver: { run: () => { main.resolve(); return "Done." } },
       invocations,

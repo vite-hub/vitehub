@@ -3,7 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { defineAgent as defineUpstreamAgent, runAgent } from "@vite-hub/agent"
+import { defineAgent as defineUpstreamAgent } from "@vite-hub/agent"
+import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 
 import { defineAgent } from "../src/agent.ts"
@@ -58,13 +59,13 @@ describe("defineAgent({ invocations })", () => {
   it("records runs in a memory journal and keeps one journal per Agent", async () => {
     const agent = defineAgent({ driver, invocations: "memory", name: "memory" })
     expect(agent.invocations).toBe(agent.invocations)
-    await runAgent(agent, context(), { prompt: "Hello" })
+    await runAgentWithContext(agent, context(), { prompt: "Hello" })
     await expect(recordedAgents(agent)).resolves.toEqual(["completed"])
   })
 
   it("accepts the long form with journal options", async () => {
     const agent = defineAgent({ driver, invocations: { content: "content", store: "memory" }, name: "long" })
-    await runAgent(agent, context(), { prompt: "Keep this prompt" })
+    await runAgentWithContext(agent, context(), { prompt: "Keep this prompt" })
     const { invocations: [summary] } = await agent.invocations!.list({ limit: 1 })
     const record = await agent.invocations!.get(summary!.id)
     expect(JSON.stringify(record?.observations)).toContain("Keep this prompt")
@@ -76,7 +77,7 @@ describe("defineAgent({ invocations })", () => {
 
     const database = databaseModule()
     installAgentInvocations({ database: database.load })
-    await runAgent(agent, context(), { prompt: "Hello" })
+    await runAgentWithContext(agent, context(), { prompt: "Hello" })
     await expect(recordedAgents(agent)).resolves.toEqual(["completed"])
     expect(database.createDatabaseAgentInvocationStore).toHaveBeenCalledExactlyOnceWith({ database: "journal" })
     expect(database.load).toHaveBeenCalledOnce()
@@ -97,7 +98,7 @@ describe("defineAgent({ invocations })", () => {
     const store = createMemoryAgentInvocationStore()
     const create = vi.spyOn(store, "create")
     const agent = defineAgent({ driver, invocations: { store }, name: "custom" })
-    await runAgent(agent, context(), { prompt: "Hello" })
+    await runAgentWithContext(agent, context(), { prompt: "Hello" })
     expect(create).toHaveBeenCalledOnce()
   })
 

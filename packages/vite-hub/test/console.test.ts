@@ -63,6 +63,7 @@ import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
 import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
 
 import { runAgent } from "@vite-hub/agent"
+import { runAgentWithContext } from "@vite-hub/agent/server/internal"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { agentWithColocatedSkills, workspaceAgentWithSourceRoot } from "@vite-hub/agent/runtime/workflow"
 import { VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
@@ -2306,7 +2307,7 @@ describe("Agent invocation console", () => {
     ], { invocations })).toEqual(["labeller"])
 
     const [error] = await runAgent(labeller, { prompt: "Label this email." })
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     const { invocations: records } = await invocations.list({ limit: 10 })
     expect(records).toEqual([expect.objectContaining({ agentName: "labeller", status: "completed" })])
     expect(labeller.name).toBeUndefined()
@@ -2330,18 +2331,18 @@ describe("Agent invocation console", () => {
     ], { invocations })
 
     const [error] = await runAgent(shared, { prompt: "Label this email." })
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     const { invocations: records } = await invocations.list({ limit: 10 })
     expect(records).toEqual([expect.objectContaining({ status: "completed" })])
     expect(records[0]?.agentName).toBeUndefined()
     for (const definition of [first, second]) {
-      await runAgent(definition, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Direct call" })
+      await runAgentWithContext(definition, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Direct call" })
     }
     const direct = await invocations.list({ limit: 10 })
     expect(direct.invocations).toHaveLength(3)
     expect(direct.invocations.every((record) => record.agentName === undefined)).toBe(true)
     for (const [definition, name] of [[first, "first"], [second, "second"]] as const) {
-      await runAgent(definition, { agentIdentity: { name }, memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Host call" })
+      await runAgentWithContext(definition, { agentIdentity: { name }, memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Host call" })
       const hosted = await invocations.list({ agentName: name, limit: 10 })
       expect(hosted.invocations).toEqual([expect.objectContaining({ agentName: name, status: "completed" })])
     }
@@ -2365,7 +2366,7 @@ describe("Agent invocation console", () => {
       { definition: { default: decorated }, fallbackName: "labeller" },
     ], { invocations })).toEqual(["labeller"])
 
-    await expect(runAgent(labeller, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Label this email." })).resolves.toBe("labelled")
+    await expect(runAgentWithContext(labeller, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, { prompt: "Label this email." })).resolves.toBe("labelled")
     const { invocations: records } = await invocations.list({ limit: 10 })
     expect(records).toEqual([expect.objectContaining({ agentName: "labeller", status: "completed" })])
   })
@@ -4606,7 +4607,7 @@ describe("Agent invocation console", () => {
       const writer = installConsoleInvocations(projectRoot, undefined, undefined, databaseUrl)
       expect(installConsoleInvocations(projectRoot, undefined, undefined, databaseUrl)).toBe(writer)
       const agent = defineAgent({ driver: { run: () => "stored at configured path" }, runtime: false })
-      await runAgent(agent, runtime("configured-console-storage"), {})
+      await runAgentWithContext(agent, runtime("configured-console-storage"), {})
       const readers = [createConsoleInvocations(projectRoot, undefined, databaseUrl), createConsoleInvocations(projectRoot, undefined, databaseUrl)]
       for (const reader of readers) {
         await expect(reader.getByRunId("configured-console-storage")).resolves.toMatchObject({ status: "completed" })
@@ -4634,7 +4635,7 @@ describe("Agent invocation console", () => {
     try {
       const writer = installConsoleInvocations(projectRoot)
       const agent = defineAgent({ driver: { run: () => "persisted" }, runtime: false, version: "1.0.0" })
-      await runAgent(agent, runtime("console-cross-realm"), {})
+      await runAgentWithContext(agent, runtime("console-cross-realm"), {})
 
       const reader = createConsoleInvocations(projectRoot)
       const invocation = await reader.getByRunId("console-cross-realm")
@@ -4667,7 +4668,7 @@ describe("Agent invocation console", () => {
     try {
       installConsoleInvocations(projectRoot)
       const agent = defineAgent({ driver: { run: () => "done" }, runtime: false })
-      await runAgent(agent, { ...runtime("console-drizzle"), agentIdentity: { name: "agent" } }, {})
+      await runAgentWithContext(agent, { ...runtime("console-drizzle"), agentIdentity: { name: "agent" } }, {})
 
       const database = await getConsoleInvocationsDatabase()
       const { db, schema } = database
@@ -4777,7 +4778,7 @@ describe("Agent invocation console", () => {
         if (processDescriptor) Object.defineProperty(globalThis, "process", processDescriptor)
       }
       const agent = defineAgent({ driver: { run: () => "in memory" }, runtime: false, version: "1.0.0", invocations })
-      await runAgent(agent, runtime("console-workers"), {})
+      await runAgentWithContext(agent, runtime("console-workers"), {})
 
       await expect(invocations.getByRunId("console-workers")).resolves.toMatchObject({ status: "completed" })
       expect(existsSync(join(projectRoot, ".vitehub"))).toBe(false)
@@ -4899,7 +4900,7 @@ describe("Agent invocation console", () => {
         invocations,
         runtime: false,
       })
-      await runAgent(agent, runtime("console-retention"), { prompt: "Find the receipt date." })
+      await runAgentWithContext(agent, runtime("console-retention"), { prompt: "Find the receipt date." })
       const invocation = await createConsoleInvocations(projectRoot).getByRunId("console-retention")
       expect(invocation?.observations).toContainEqual(expect.objectContaining({
         attributes: expect.objectContaining({ "vitehub.session.title": "Receipt date lookup" }),
@@ -4929,7 +4930,7 @@ describe("Agent invocation console", () => {
           })() },
         runtime: false,
       })
-      const result = await runAgent(agent, runtime("console-progress-summary"), {})
+      const result = await runAgentWithContext(agent, runtime("console-progress-summary"), {})
       // SAFETY: This Driver fixture always returns the async generator defined above.
       for await (const _event of result as AsyncIterable<unknown>) {}
 
@@ -4960,7 +4961,7 @@ describe("Agent invocation console", () => {
           })() },
         runtime: false,
       })
-      const result = await runAgent(agent, runtime("console-tool-error"), {})
+      const result = await runAgentWithContext(agent, runtime("console-tool-error"), {})
       // SAFETY: This Driver fixture always returns the async generator defined above.
       for await (const _event of result as AsyncIterable<unknown>) {}
 
@@ -4991,7 +4992,7 @@ describe("Agent invocation console", () => {
           })() },
         runtime: false,
       })
-      const result = await runAgent(agent, runtime("console-fixture-tool"), {})
+      const result = await runAgentWithContext(agent, runtime("console-fixture-tool"), {})
       // SAFETY: This Driver fixture always returns the async generator defined above.
       for await (const _event of result as AsyncIterable<unknown>) {}
 
