@@ -901,7 +901,7 @@ describe("Database Nuxt integration", () => {
       await mkdir(dirname(definition), { recursive: true })
       await writeFile(definition, `export default defineDatabase({ name: '${name}', schema: {} })\n`)
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ driver: "d1" })(undefined, nuxt)
+      await hubDb({ driver: "cloudflare" })(undefined, nuxt)
       const config = { alias: {}, preset: "cloudflare_module" }
 
       await expect(callHook(hooks, "nitro:config", config)).rejects.toMatchObject({
@@ -947,7 +947,7 @@ describe("Database Nuxt integration", () => {
       await mkdir(join(rootDir, "server/databases"), { recursive: true })
       await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
-      await hubDb({ driver: "d1" })(undefined, nuxt)
+      await hubDb({ driver: "cloudflare" })(undefined, nuxt)
       const config = { alias: { "@vite-hub/database/drizzle": "/custom/database.mjs" }, preset: "cloudflare_module" }
 
       await callHook(hooks, "nitro:config", config)
