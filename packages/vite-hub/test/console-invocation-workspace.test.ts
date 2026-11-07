@@ -83,6 +83,36 @@ describe("invocation Workspace inspection", () => {
     expect(mocks.readFile).toHaveBeenCalledWith("AGENTS.md", { encoding: "utf8" })
     expect(mocks.exists).not.toHaveBeenCalled()
   })
+  it("opens the revision that the run recorded and lists its changes since main", async () => {
+    const main = { id: "rev-main", ref: "main", parentId: null, createdAt: "2026-11-07T09:00:00.000Z", files: 2, bytes: 20 }
+    const run = { id: "rev-run", ref: "run-1", parentId: null, createdAt: "2026-11-07T10:00:00.000Z", files: 3, bytes: 30 }
+    const files = {
+      "rev-main": [{ path: "README.md", type: "file", digest: "a" }, { path: "server/old.ts", type: "file", digest: "b" }],
+      "rev-run": [{ path: "README.md", type: "file", digest: "a2" }, { path: "server/contact.ts", type: "file", digest: "c" }, { path: ".env", type: "file", digest: "d" }],
+    }
+    mocks.open.mockImplementation(async (id: "rev-main" | "rev-run") => ({ revision: id === "rev-main" ? main : run, list: async () => files[id], stat: mocks.stat, readFile: mocks.readFile }))
+    mocks.refs.mockResolvedValue([{ name: "main", head: main }, { name: "run-1", head: run }])
+    mocks.list.mockResolvedValue({ revisions: [run] })
+    // The Agent mounts no Workspace on this host. The recorded revision is enough.
+    mocks.definition.mockReturnValue(undefined)
+    mocks.get.mockResolvedValue({ agentName: "coding-agent", observations: [{ attributes: { "vitehub.agent.configuration": { workspace: { name: "meetups", ref: "run-1", revision: "rev-run" } } } }] })
+    mocks.useWorkspaceFiles.mockReturnValue({ fs: mocks, history: { refs: mocks.refs, list: mocks.list, open: mocks.open } })
+    expect(await handler(request())).toMatchObject({
+      base: { ref: "main", revision: "rev-main" },
+      changes: [
+        { path: "README.md", status: "modified" },
+        { path: "server/contact.ts", status: "added" },
+        { path: "server/old.ts", status: "deleted" },
+      ],
+      paths: ["README.md", "server/contact.ts"],
+      ref: "run-1",
+      repository: "meetups",
+      revision: "rev-run",
+    })
+    expect(mocks.useWorkspaceFiles).toHaveBeenCalledWith("meetups", { mode: "read", refresh: false })
+    expect(mocks.list).toHaveBeenCalledWith({ ref: "run-1", limit: 20 })
+    expect(mocks.glob).not.toHaveBeenCalled()
+  })
   it("reads a visible file", async () => {
     expect(await handler(request("AGENTS.md"))).toEqual({ path: "AGENTS.md", content: "test", size: 4, revision: "current" })
     expect(mocks.exists).toHaveBeenCalledWith("AGENTS.md")
