@@ -58,7 +58,7 @@ onBeforeUnmount(() => resizes?.disconnect())
       >
         {{ label }}
       </button>
-      <span v-if="line" class="vh-examples-line" :class="{ 'is-still': !line.slide }" :style="{ transform: `translateX(${line.left}px)`, width: `${line.width}px` }" aria-hidden="true" />
+      <span v-if="line" class="vh-examples-line" :class="{ 'is-still': !line.slide }" :style="{ transform: `translateX(${line.left}px) scaleX(${line.width})` }" aria-hidden="true" />
     </div>
     <div
       v-for="(item, at) in items"
@@ -110,19 +110,28 @@ onBeforeUnmount(() => resizes?.disconnect())
   border-bottom-color: var(--ui-text-highlighted);
 }
 
+@media (pointer: coarse) {
+  .vh-examples-tabs > button {
+    min-height: 2.75rem;
+  }
+}
+
 @media (hover: hover) {
   .vh-examples-tabs > button:hover {
     color: var(--ui-text-highlighted);
   }
 }
 
+/* A 1px line scaled to the tab's width, so the slide only moves a transform. */
 .vh-examples-line {
   position: absolute;
   bottom: 0;
   left: 0;
+  width: 1px;
   height: 1px;
   background: var(--ui-text-highlighted);
-  transition: transform 200ms var(--vh-ease-out), width 200ms var(--vh-ease-out);
+  transform-origin: left;
+  transition: transform 200ms var(--vh-ease-out);
 }
 
 .vh-examples-panel > :deep(.vh-example) {

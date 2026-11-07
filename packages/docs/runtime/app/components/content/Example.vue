@@ -129,10 +129,15 @@ onBeforeUnmount(() => resizes?.disconnect())
   outline-offset: -2px;
 }
 
+/* Touch screens get 44px targets. */
 @media (pointer: coarse) {
   .vh-seg button {
-    min-height: 2.5rem;
+    min-height: 2.75rem;
     padding: 0.45rem 0.85rem;
+  }
+
+  .vh-example-play {
+    min-height: 2.75rem;
   }
 }
 
