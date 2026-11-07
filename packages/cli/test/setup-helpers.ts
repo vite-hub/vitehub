@@ -7,6 +7,7 @@ import { afterEach, vi } from "vitest"
 import { runViteHubCli } from "../src/index.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
+import type { HostCliRun } from "@vite-hub/internal/host-credentials"
 
 const directories: string[] = []
 
@@ -45,8 +46,17 @@ const noSpawn: ViteHubCliSpawn = async (command) => {
   throw new Error(`setup tests must not spawn ${command}`)
 }
 
+/** A host CLI runner for a machine without a host CLI login. Tests never run a real host CLI. */
+export const noHostCli: HostCliRun = async () => ({ exitCode: 1, stdout: "" })
+
+interface SetupRunOptions {
+  fetch?: typeof fetch
+  runHostCli?: HostCliRun
+  spawn?: ViteHubCliSpawn
+}
+
 /** Runs one setup command with a config loader that throws, and parses stdout as exactly one JSON document. */
-export async function runSetup<T = Record<string, unknown>>(args: string[], cwd: string, env: NodeJS.ProcessEnv = {}, spawn: ViteHubCliSpawn = noSpawn): Promise<SetupRun<T>> {
+export async function runSetup<T = Record<string, unknown>>(args: string[], cwd: string, env: NodeJS.ProcessEnv = {}, options: SetupRunOptions = {}): Promise<SetupRun<T>> {
   let stdout = ""
   let stderr = ""
   const loadConfig = vi.fn(async () => {
@@ -56,8 +66,13 @@ export async function runSetup<T = Record<string, unknown>>(args: string[], cwd:
     args,
     cwd,
     env,
+    // A fetch that fails, so no test reaches a real host.
+    fetch: options.fetch ?? (async (input: string | URL | Request) => {
+      throw new Error(`unexpected request to ${String(input)}`)
+    }),
     loadConfig,
-    spawn,
+    runHostCli: options.runHostCli ?? noHostCli,
+    spawn: options.spawn ?? noSpawn,
     stderr: { write: (chunk: string | Uint8Array) => { stderr += String(chunk) } },
     stdout: { write: (chunk: string | Uint8Array) => { stdout += String(chunk) } },
   })
