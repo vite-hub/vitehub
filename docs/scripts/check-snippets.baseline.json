@@ -265,21 +265,6 @@
     "error": "TS2339 Property 'gmail' does not exist on type 'ConnectionClient<object, object, false>'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<object, object, false>', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
   },
   {
-    "id": "docs/content/docs/connections/index.md#b5254d8a047e",
-    "label": "server/connections/google.ts",
-    "error": "TS2322 Type 'false' is not assignable to type 'true | \"approve\" | readonly ConnectionActionPattern<GoogleApis>[] | undefined'.\nTS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
-  },
-  {
-    "id": "docs/content/docs/connections/index.md#9dddac474432",
-    "label": "server/api/labels.get.ts",
-    "error": "TS2339 Property 'gmail' does not exist on type 'ConnectionClient<object, object, false>'.\nTS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<object, object, false>', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/connections/index.md#718e1b0092b4",
-    "label": "server/api/contacts.get.ts",
-    "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: never, options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<object, object, false>', gave the following error.\n    Argument of type '\"crm\"' is not assignable to parameter of type 'never'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"crm\"' is not assignable to parameter of type 'never'."
-  },
-  {
     "id": "docs/content/docs/content/configure.md#23a4c159d075",
     "label": null,
     "error": "TS2304 Cannot find name 'content'."
