@@ -36,6 +36,22 @@ describe("built docs links", () => {
     );
   });
 
+  it.each(["/", "/portal/"])("preserves flat page slugs ending in index under %s", (appBase) => {
+    output(
+      {
+        "search-index.html": '<h2 id="intro">Introduction</h2><a href="#intro">Introduction</a>',
+        "docs/search-index.html": '<h2 id="intro">Introduction</h2><a href="#intro">Introduction</a>',
+      },
+      (dir) => {
+        expect(checkDocsLinks({ dir, siteUrl: "https://docs.test", appBase }).pages).toBe(2);
+        writeFileSync(join(dir, "docs/search-index.html"), '<a href="#intro">Introduction</a>');
+        expect(() => checkDocsLinks({ dir, siteUrl: "https://docs.test", appBase })).toThrow(
+          `links to ${appBase}docs/search-index#intro, but that page has no element with id "intro"`,
+        );
+      },
+    );
+  });
+
   it("resolves relative links, directory indexes, base URLs, assets and app prefixes", () => {
     output(
       {

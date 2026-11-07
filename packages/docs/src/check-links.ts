@@ -87,7 +87,7 @@ export function checkDocsLinks(options: DocsLinkCheckOptions): { pages: number }
   let pages = 0;
   for (const file of files) {
     const path = `${appBase}/${relative(root, file).replaceAll("\\", "/")}`
-      .replace(/index\.html$/, "")
+      .replace(/\/index\.html$/, "/")
       .replace(/\.html$/, "");
     if (matches(options.excludePages, path)) continue;
     pages++;
