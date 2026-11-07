@@ -1,3 +1,5 @@
+import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import { HTTPError, mockEvent } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -148,6 +150,8 @@ describe("managed Rate Limit guard", () => {
       const limit = vi.fn(async ({ key }: { key: string }) => ({ success: key !== "198.51.100.10" }))
       const app = createApp().use(eventHandler(async (event) => {
         event.context.cloudflare = { env: { [getCloudflareRateLimitBindingName("nuxt4-uploads")]: { limit } } }
+        // The test imports H3 1 as `h3-v1`, so the `~standard` type augmentation of `h3` does not reach it. Nitro sets it at runtime.
+        installStandardContext(event)
         await requireOnH3V1(event, "nuxt4-uploads", { limit: 1, window: "1m" })
         return "accepted"
       }))
@@ -175,6 +179,8 @@ describe("managed Rate Limit guard", () => {
       const { requireRateLimit: requireOnH3V1 } = await import("../src/index.ts")
       const { createApp, eventHandler, toWebHandler } = await import("h3-v1")
       const handle = toWebHandler(createApp().use(eventHandler(async (event) => {
+        // The test imports H3 1 as `h3-v1`, so the `~standard` type augmentation of `h3` does not reach it. Nitro sets it at runtime.
+        installStandardContext(event)
         await requireOnH3V1(event, "nuxt4-retry", { key: "user", limit: 1, window: "1m" })
         return "accepted"
       })))
@@ -191,11 +197,120 @@ describe("managed Rate Limit guard", () => {
     }
   })
 
+  it("reads only the Standard Context that the host set", async () => {
+    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    const limit = vi.fn(async () => ({ success: true }))
+    const event = {
+      "~standard": {
+        vendor: "test",
+        req: new Request("https://example.com/upload", { headers: { "cf-connecting-ip": "203.0.113.7" } }),
+        res: { headers: new Headers() },
+        runtime: { cloudflare: { env: { [getCloudflareRateLimitBindingName("standard-uploads")]: { limit } } } },
+      },
+      headers: new Headers({ "cf-connecting-ip": "192.0.2.99" }),
+      env: { [getCloudflareRateLimitBindingName("standard-uploads")]: { limit: vi.fn() } },
+    }
+
+    await requireRateLimit(event, "standard-uploads", { limit: 1, window: "1m" })
+
+    expect(limit).toHaveBeenCalledWith({ key: "203.0.113.7" })
+  })
+
+  it("limits a Web Request by its key", async () => {
+    const request = new Request("https://example.com/upload")
+
+    vi.spyOn(Date, "now").mockReturnValue(30_000)
+    await requireRateLimit(request, "request-uploads", { key: "user", limit: 1, window: "1m" })
+    const limited: unknown = await requireRateLimit(request, "request-uploads", { key: "user", limit: 1, window: "1m" }).catch((error: unknown) => error)
+
+    if (!(limited instanceof HTTPError)) throw new Error("Expected the request to be limited")
+    expect(limited).toMatchObject({ status: 429 })
+    expect(limited.headers?.get("Retry-After")).toBe("30")
+    await expect(checkRateLimit(request, "request-checks", { limit: 1, window: "1m" }))
+      .rejects.toThrow("`checkRateLimit()` could not determine a request key")
+  })
+
+  it("reads the Cloudflare address header and the active bindings for a Web Request", async () => {
+    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    const limit = vi.fn(async () => ({ success: true }))
+    const request = new Request("https://example.com/upload", { headers: { "cf-connecting-ip": "203.0.113.9" } })
+
+    await runWithActiveCloudflareEnv({ [getCloudflareRateLimitBindingName("request-cloudflare")]: { limit } }, () =>
+      requireRateLimit(request, "request-cloudflare", { limit: 1, window: "1m" }))
+
+    expect(limit).toHaveBeenCalledWith({ key: "203.0.113.9" })
+  })
+
+  it.each(["req", "node", "~standard"])("limits request-shaped inputs with unrelated %s metadata", async (property) => {
+    for (const inherited of [false, true]) {
+      const request = { headers: new Headers() }
+      const metadata = { [property]: { source: "application" } }
+      if (inherited) Object.setPrototypeOf(request, metadata)
+      else Object.assign(request, metadata)
+      const name = `request-metadata-${property}-${inherited}`
+      const options = { key: "user", limit: 1, window: "1m" } as const
+
+      await expect(checkRateLimit(request, name, options)).resolves.toMatchObject({ allowed: true })
+      await expect(requireRateLimit(request, name, options)).rejects.toMatchObject({ status: 429 })
+      await expect(checkRateLimit(request, name, { limit: 1, window: "1m" }))
+        .rejects.toThrow("`checkRateLimit()` could not determine a request key")
+    }
+  })
+
+  it("uses request headers and active Cloudflare bindings despite event-named metadata", async () => {
+    setRateLimitRuntimeConfig({ provider: "cloudflare" })
+    const limit = vi.fn(async () => ({ success: true }))
+    const request = {
+      headers: new Headers({ "cf-connecting-ip": "203.0.113.10" }),
+      req: { source: "application" },
+      node: { version: "24" },
+      "~standard": { vendor: "application" },
+    }
+
+    await runWithActiveCloudflareEnv({ [getCloudflareRateLimitBindingName("request-metadata-cloudflare")]: { limit } }, () =>
+      requireRateLimit(request, "request-metadata-cloudflare", { limit: 1, window: "1m" }))
+
+    expect(limit).toHaveBeenCalledWith({ key: "203.0.113.10" })
+  })
+
+  it("keeps the H3 1 rate-limit error for request-shaped inputs with event-named metadata", async () => {
+    vi.resetModules()
+    vi.doMock("h3", () => import("h3-v1"))
+    try {
+      const { requireRateLimit: requireOnH3V1 } = await import("../src/index.ts")
+      const request = { headers: new Headers(), req: {}, node: {}, "~standard": {} }
+      const options = { key: "user", limit: 1, window: "1m" } as const
+
+      await requireOnH3V1(request, "request-metadata-h3-v1", options)
+      await expect(requireOnH3V1(request, "request-metadata-h3-v1", options))
+        .rejects.toMatchObject({ statusCode: 429, statusMessage: "Too Many Requests" })
+    }
+    finally {
+      vi.doUnmock("h3")
+      vi.resetModules()
+    }
+  })
+
+  it("counts by the Standard Context client address", async () => {
+    const event = {
+      "~standard": {
+        vendor: "test",
+        req: new Request("https://example.com/upload"),
+        res: { headers: new Headers() },
+        runtime: { clientAddress: "203.0.113.8" },
+      },
+    }
+
+    await requireRateLimit(event, "standard-address", { limit: 1, window: "1m" })
+    await expect(peekRateLimit("standard-address", "203.0.113.8")).resolves.toMatchObject({ counters: [{ used: 1 }] })
+  })
+
   it("ignores inherited Cloudflare environment carriers", async () => {
     setRateLimitRuntimeConfig({ provider: "cloudflare" })
     const limit = vi.fn(async () => ({ success: true }))
     const inherited = Object.create({ env: { [getCloudflareRateLimitBindingName("inherited-uploads")]: { limit } } })
-    Object.assign(inherited, { req: requestEvent("192.0.2.30").req })
+    const { req, res } = requestEvent("192.0.2.30")
+    Object.assign(inherited, { req, res })
 
     await expect(requireRateLimit(inherited, "inherited-uploads", { key: "user", limit: 1, window: "1m" }))
       .rejects.toThrow("binding")

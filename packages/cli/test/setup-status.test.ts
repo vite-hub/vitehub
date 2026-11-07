@@ -36,6 +36,17 @@ describe("vitehub status", () => {
     expect(feature(json, "kv")).toMatchObject({ enabled: "on", reason: "config", support: { adapter: "cloudflare-kv-binding", level: "native" } })
   })
 
+  it.each([
+    'import * as hub from "vite-hub"; export default { plugins: [hub.vitehub({ kv: true })] }',
+    'import { vitehub } from "vite-hub"; const config = { plugins: [vitehub({ kv: true })] }; export { config as default }',
+  ])("reports configured features with alternate ESM syntax: %s", async (code) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": code })
+    const { json, loadConfig } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(json.config).toMatchObject({ file: "vite.config.ts", form: "vite-call" })
+    expect(feature(json, "kv")).toMatchObject({ enabled: "on", reason: "config" })
+    expect(loadConfig).not.toHaveBeenCalled()
+  })
+
   it("reads the host from the Nuxt module tuple", async () => {
     const root = await createProject({
       "nuxt.config.ts": `export default defineNuxtConfig({\n  modules: [["vite-hub/nuxt", { preset: "vercel" }]],\n})\n`,
