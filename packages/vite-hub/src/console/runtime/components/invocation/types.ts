@@ -58,6 +58,10 @@ export interface AgentInvocationConfiguration {
   workspace?: {
     mode?: string;
     name?: string;
+    /** The history ref that holds this run's files. */
+    ref?: string;
+    /** The Workspace history revision of this run's files. The session Workspace opens it. */
+    revision?: string;
     sources?: readonly (string | { id: string; repository?: string })[];
   };
 }
