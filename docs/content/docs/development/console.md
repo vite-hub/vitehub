@@ -79,7 +79,7 @@ Set `console` in the root ViteHub integration. Every environment must choose who
 
 | `auth` | Who can open the Console |
 | --- | --- |
-| `false` | Anyone who can reach `/_vitehub`. Use it on your own machine, or behind a host that already checks every request. |
+| `false` | Nobody signs in. Only for `vite dev`, where the Console answers loopback requests only. A production build fails. |
 | `'app'` | Users with a session from the app [Auth](/docs/auth). |
 | `'token'` | Callers that send a token as `Authorization: Bearer` whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`, such as the CLI or a Console on another origin. See [Use a Console token](#use-a-console-token). |
 | `{ ... }` | Users of a separate Console Auth: inline GitHub sign-in, a Console Auth server file, or Cloudflare Access. |
@@ -157,7 +157,41 @@ With independent Console Auth, the sign-in button opens authentication in the ma
 
 App Auth and the Console must use the same public origin, including the protocol and port. The Console rejects a different resolved Auth `baseURL` before starting sign-in or initializing its account client. Serve Auth on the Console origin or configure independent Console Auth when the app's Auth runs on another origin.
 
-`auth: false` also works in a production build. The build and the production server log a warning, because anyone who can reach the route can read Console data. Before you deploy, add `authorize` or choose another `auth`. See [Protect the Console route](#protect-the-console-route).
+`auth: false` is for development. A production build with `auth: false` fails with `VITE_HUB_B0022`, because anyone who can reach the app could read Console data. Use `auth: 'token'` with `VITEHUB_CONSOLE_TOKEN_SHA256`, or `auth: 'app'` with an app Auth Definition. See [Protect the Console route](#protect-the-console-route).
+
+### Open the Console of a production app
+
+A production build does not serve the Console pages. It keeps the Console data routes: the RPC at `/_vitehub/rpc/__call`, uploads, the manage routes, [ViteHub MCP](/docs/development/mcp) at `/_vitehub/mcp` with its OAuth metadata, the page tools session at `/_vitehub/page/session`, and the ViteHub skill at `/_vitehub/.well-known/skills`. The CLI and MCP clients use them. The build has no Console assets, so the server output is smaller and its startup loads less code.
+
+`/_vitehub` and its pages answer `404` with one line of plain text. Middleware that guards `/_vitehub/**`, such as Console Auth, Cloudflare Access, or app Auth access routes, still runs first.
+
+```txt
+The Console is not embedded in this app. Open it at https://console.vitehub.dev and link https://app.example.com, or set console.embed: true.
+```
+
+To open the Console of a production app, open `https://console.vitehub.dev`, select **Link project**, and enter the app URL. The hosted Console calls the data routes of the app with a Console token.
+
+To serve the Console pages from the app, as in development, set `embed: true`:
+
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    agent: true,
+    auth: true,
+    console: { auth: 'app', authorize: './server/console-authorize.ts', embed: true },
+    preset: 'node',
+  })],
+})
+```
+
+`embed: true` adds the Console page handler, the redirect of a signed-out page visit to the sign-in page, and about 600 hashed files at `/_vitehub/assets`. It changes nothing in `vite dev`, which always serves the Console pages, so the [DevTools entry](#open-the-console-in-devtools) keeps working. These features need the Console pages on the app origin, so a production build has them only with `embed: true`:
+
+- The **Console** and **Content** buttons of the [ViteHub tools pill](#open-the-console-from-the-apps-pages).
+
+Links that open an Agent Invocation in the Console, such as the `/debug` reply, the session link of a Channel reply, GitHub activity, and log events, follow the same choice. In `vite dev` and with `embed: true`, they open `/_vitehub/agents/<agent>/invocations/<id>` on the app. Without the embed, they open the hosted Console at `https://console.vitehub.dev/open?project=<app URL>&path=/agents/<agent>/invocations/<id>`, which switches to the project when this browser linked it, or asks to link it. An app on an `http:` origin that is not loopback cannot be a hosted Console project, so its links keep the `/_vitehub` URL.
 
 If `console` is omitted or set to `false`, ViteHub does not register a Console page, RPC route, Nitro plugin, or public asset path. A disabled Console returns the host's normal not-found response.
 
@@ -807,7 +841,7 @@ Console access tokens are signed JWTs that are valid for 15 minutes. A refresh t
 
 ### Use another authentication library
 
-Apps that use another authentication library set `auth: false` and give the Console an `authorize` function:
+In `vite dev`, apps that use another authentication library can set `auth: false` and give the Console an `authorize` function. A production build refuses `auth: false`. In production, use `auth: 'token'` with `VITEHUB_CONSOLE_TOKEN_SHA256`, or `auth: 'app'` with an app Auth Definition. `authorize` still runs after authentication.
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -890,7 +924,7 @@ Each Console data route checks access itself. The Console Auth middleware stays 
 
 | Configuration | Check in each Console data route |
 | --- | --- |
-| `auth: false` | Allows the request. A production build and a production server log a warning. |
+| `auth: false` | Allows a loopback request in `vite dev`. A production build fails with `VITE_HUB_B0022`. |
 | `auth: 'app'` | Checks the Primary Auth Session and every Auth access route that protects the Console. Returns `401` or `403`. With `consoleMcpOAuth()`, also accepts an OAuth access token for the Console resource, also from `console.origins`. |
 | `auth: 'token'` | Compares the SHA-256 of `Authorization: Bearer` with `VITEHUB_CONSOLE_TOKEN_SHA256`. Returns `401`, or `500` when the hash is not set or is malformed. Accepts a cross-origin call from `console.origins`. |
 | `auth: { ... }` | Checks the Console Auth Session and its `authorize` callback with `withAuthorization()`. Returns `401` or `403`. It does not redirect to sign-in. |
@@ -905,7 +939,7 @@ The ViteHub tools pill shows at the bottom of the app's pages for people that th
 
 With `auth: 'app'`, sign in to the app and open any page: the pill is there. You do not have to open `/_vitehub` first. It also shows when you open the Console, or a page with the `?vitehub` query.
 
-The button uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the pill. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows it. With the development default, the Console and its button exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, removes the pill until you open the Console, use `?vitehub`, or sign in again. The ViteHub mark at the start of the pill collapses it to a small hexagon 2px from the edge of the screen, and the browser keeps it collapsed on the next pages until you select the mark again. Open windows and comment mode stay as they are. Drag the mark to dock the pill to another edge of the screen: top, right, bottom, or left, at the place where you release it. On the left and right edges the mark and the **×** share the first row and the tools stack under them, and windows open from the edge where the pill docks. The browser remembers the place on the next pages. You can also drag the small mark that stays after **Turn off ViteHub tools**: the pill opens where you drop it.
+The button uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the pill. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows it. With the development default, the Console and its button exist on the development server only. A production build shows the **Console** button only with [`embed: true`](#open-the-console-of-a-production-app). **Turn off ViteHub tools**, the **×** of the pill, removes the pill until you open the Console, use `?vitehub`, or sign in again. The ViteHub mark at the start of the pill collapses it to a small hexagon 2px from the edge of the screen, and the browser keeps it collapsed on the next pages until you select the mark again. Open windows and comment mode stay as they are. Drag the mark to dock the pill to another edge of the screen: top, right, bottom, or left, at the place where you release it. On the left and right edges the mark and the **×** share the first row and the tools stack under them, and windows open from the edge where the pill docks. The browser remembers the place on the next pages. You can also drag the small mark that stays after **Turn off ViteHub tools**: the pill opens where you drop it.
 
 #### Keep the pill off your own toolbar
 
@@ -1032,7 +1066,7 @@ vitehub({
 
 Every user that passes the Console access policy with the `connections` section can then manage every Connection. Restrict the policy to the people who own the provider accounts.
 
-In `vite dev`, a Console without sign-in (`local` access, or `console: { auth: false }`) answers only loopback requests. A request whose `Host` is not `localhost`, `127.0.0.1`, or `[::1]`, or whose peer address is not loopback, gets `403` with `CONSOLE_LOOPBACK_ONLY`. Production servers are not affected, so set `console.auth` or `console.authorize` for them.
+In `vite dev`, a Console without sign-in (`local` access, or `console: { auth: false }`) answers only loopback requests. A request whose `Host` is not `localhost`, `127.0.0.1`, or `[::1]`, or whose peer address is not loopback, gets `403` with `CONSOLE_LOOPBACK_ONLY`. A production build refuses `auth: false`.
 
 Console RPC requests must come from the same origin. The RPC route rejects opaque origins and browser requests marked `same-site` or `cross-site`. Browser Fetch Metadata permits same-origin requests through reverse proxies. When that metadata is absent, the RPC route compares the `Origin` header with the request URL. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata.
 
@@ -1172,6 +1206,7 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Symptom | Check |
 | --- | --- |
 | `/_vitehub` returns `404` | Confirm that `console` is set with an `auth` choice, then restart the development server. Omitted and false configurations register no route. |
+| `/_vitehub` says that the Console is not embedded | A production build serves no Console pages. Open the hosted Console at `https://console.vitehub.dev` and link the app, or set `console.embed: true`. |
 | Agents is absent from the Console home | Configure `agent`. The Console only lists primitives active in the same ViteHub configuration. |
 | KV is absent from the Console home | Configure `kv`. The Console only lists stores from the active KV configuration. |
 | A KV key page stops at 200 entries | Load the next page or enter a key prefix to narrow the list. The Console does not fetch values until selection. |
@@ -1185,11 +1220,11 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
 | Sandboxes is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox Tasks. |
 | A production build fails with `VITE_HUB_B0014` | Set `console.authorize` to a server file that default-exports `defineConsoleAuthorize()`. |
-| `console: true` reports missing app Auth or Console access policy | Enable `auth: true` and authorize the Console routes in the app Auth Definition. The shorthand uses app Auth; use `console: { auth: false }` only when you want no sign-in. |
-| ViteHub reports that `console.auth` is required (`VITE_HUB_B0004`) | Add `auth` to the `console` object. Use `false`, `'app'`, or a Console Auth config. |
+| `console: true` reports missing app Auth or Console access policy | Enable `auth: true` and authorize the Console routes in the app Auth Definition. The shorthand uses app Auth; use `console: { auth: false }` only in development. |
+| ViteHub reports that `console.auth` is required (`VITE_HUB_B0004`) | Add `auth` to the `console` object. Use `'app'`, a Console Auth config, or `false` for development. |
 | `auth: 'app'` fails with `VITE_HUB_B0005` | Set `auth: true` and add a discovered Auth Definition, such as `server/auth.ts`. |
 | `auth: 'app'` fails with `VITE_HUB_B0006` | Set `console.authorize`, or add Auth access routes with an `authorize` callback for the routes in the message. |
-| The build or server warns that `auth: false` has no sign-in | Add `console.authorize`, or set `console.auth` to `'app'` or a Console Auth config. |
+| A production build fails with `VITE_HUB_B0022` | `auth: false` is for development. Use `auth: 'token'` with `VITEHUB_CONSOLE_TOKEN_SHA256`, or `auth: 'app'` with an app Auth Definition. |
 | Console data routes return `500` with "console.authorize must return" | Return `true`, `false`, a `Response`, or `{ sections: string[] }` from `authorize`. Create the `Response` with the global `Response`. An object shaped like a Response, or a Response from another Fetch implementation, is an invalid result. |
 | Agent Console startup fails on a hosted preset | Set `agent.invocations: 'database'`, or attach one durable Agent Invocations journal to every discovered Agent Definition. The local SQLite fallback requires a writable, persistent filesystem. |
 | The page returns `401` | Sign in through the Auth provider configured by the host. |
@@ -1259,7 +1294,7 @@ On the draft page, a **Draft** tab stands on top of the pill, on the side that f
 
 Expand or minimize the window without losing the selected document or unsaved text. **Open in new tab** in the title bar opens the page that the window shows in a full browser tab, with the same section, record, and filters. A middle-click or <kbd>Cmd</kbd>/<kbd>Ctrl</kbd>-click opens it in the background, and **Copy link** copies it. The window stays open with its unsaved text. On a phone the editor fills the available screen. Client-side page navigation leaves the editor open on its current document. A full page reload cannot retain unsaved memory; the editor asks before leaving when it has unsaved changes. Window size and the selected editor route are remembered locally; document values are not stored by the pill.
 
-The editor loads on first use. Production embedding uses a same-origin iframe and requires an accepted Console session. A normal Console page still denies framing; `?embed=1` permits same-origin framing only after the Console access check. Hosts must permit the same-origin frame in their own Content Security Policy.
+The editor loads on first use. In production, the window needs [`console.embed: true`](#open-the-console-of-a-production-app). Production embedding uses a same-origin iframe and requires an accepted Console session. A normal Console page still denies framing; `?embed=1` permits same-origin framing only after the Console access check. Hosts must permit the same-origin frame in their own Content Security Policy.
 
 Comments uses the same expandable window for the current page's thread list and replies. Its title bar has no **Open in new tab** link. When the Content editing tool is available, Comments' **Edit** action opens the document editor. Otherwise its existing plain-text field editing remains available according to the Comments and Content policies.
 

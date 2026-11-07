@@ -11,7 +11,7 @@ import { consoleVitePlugin } from "../src/console/vite.ts"
 
 import type { Client } from "@libsql/client"
 import type { AgentInvocationStoreCreateInput, AgentRetentionPolicy } from "@vite-hub/agent/server"
-import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { productionConsole } from "./support/console-authorize.ts"
 
 const day = 24 * 60 * 60 * 1000
 const ago = (milliseconds: number) => new Date(Date.now() - milliseconds).toISOString()
@@ -66,7 +66,7 @@ async function projectedUsageIds() {
 
 async function generatedPlugin(retention: AgentRetentionPolicy, options: { d1?: string } = {}) {
   const plugin = consoleVitePlugin({
-    console: { auth: false, authorize: hostManagedAuthorize, ...(options.d1 ? {} : { databaseUrl: url }), retention },
+    console: { ...productionConsole, ...(options.d1 ? {} : { databaseUrl: url }), retention },
     ...(options.d1 ? { resolveD1Binding: () => options.d1 } : {}),
     sections: ["agents"],
   })

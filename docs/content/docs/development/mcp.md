@@ -109,7 +109,7 @@ The Needs column names the `authorize` action of [`defineComments()`](/docs/comm
 | --- | --- |
 | `console: { auth: 'app' }` or a session Console Auth | OAuth 2.1. The client registers itself, opens the browser once, and sends a bearer token. |
 | `console: { auth: { provider: 'cloudflare-access' } }` | The Cloudflare Access service token headers (`CF-Access-Client-Id` and `CF-Access-Client-Secret`) that the Console already accepts. There is no OAuth flow, so the `401` has no `resource_metadata`. |
-| `console: { auth: false }`, or `vite dev` with no `console` option | None. Only loopback requests are served in development, as for the [RPC](/docs/development/console). |
+| `console: { auth: false }` in `vite dev`, or `vite dev` with no `console` option | None. Only loopback requests are served in development, as for the [RPC](/docs/development/console). A production build refuses `auth: false`. |
 
 A request without a valid sign-in gets `401` and a `WWW-Authenticate: Bearer resource_metadata="…"` header. A token that is not valid gets `error="invalid_token"` in the same header. The metadata is at `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/_vitehub/mcp`, and names the authorization server.
 
