@@ -2,6 +2,8 @@
 // @ts-expect-error The package's standalone typecheck has no Nuxt virtual modules.
 import { addRouteMiddleware, defineNuxtPlugin, navigateTo, tryUseNuxtApp, useRequestEvent, useRequestFetch, useRuntimeConfig, useState } from "#app"
 
+import { viteHubSessionMarkerCookie } from "@vite-hub/internal/runtime/page-tools-shared"
+
 import { resolveAuthMountPath } from "../application-path.ts"
 import { authClient, loadAuthClient, setNuxtAppResolver, setSessionSeedResolver, useUserSession } from "../vue.ts"
 
@@ -17,9 +19,14 @@ type EventLike = { node?: { res?: { appendHeader?: (name: string, value: string)
 
 const stateKey = "vitehub:auth:session"
 
-/** Better Auth names its session cookie `<prefix>.session_token`, and keeps a cached copy in `<prefix>.session_data`. */
+/**
+ * True when the request may have a session: ViteHub's `vitehub_session` marker cookie, which Auth sets next to the
+ * session cookie, or Better Auth's own `<prefix>.session_token` and `<prefix>.session_data` cookies.
+ */
 function hasSessionCookie(cookie: string | undefined): boolean {
-  return Boolean(cookie && /(?:^|;\s*)[^=;]*(?:session_token|session_data)=/.test(cookie))
+  if (!cookie) return false
+  const names = cookie.split(";").map(part => part.split("=")[0]?.trim() ?? "")
+  return names.some(name => name === viteHubSessionMarkerCookie || /(?:^|\.)session_(?:token|data)$/.test(name))
 }
 
 const isoDate = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/
@@ -42,9 +49,10 @@ function appendSetCookies(event: EventLike, response: ResponseLike): void {
 
 /** Reads the session of the request once, so server rendering and hydration start signed in or signed out. */
 async function readServerSession(): Promise<unknown> {
-  const event = useRequestEvent() as (EventLike & { headers?: Headers, node?: { req?: { headers?: Record<string, string | string[] | undefined> } } }) | undefined
+  const event = useRequestEvent() as (EventLike & { req?: { headers?: Headers }, headers?: Headers, node?: { req?: { headers?: Record<string, string | string[] | undefined> } } }) | undefined
   if (!event) return undefined
-  const cookie = event.headers?.get("cookie") ?? [event.node?.req?.headers?.cookie].flat().join("; ")
+  // H3 2 (Nuxt 5) keeps the request on `event.req`. H3 1 exposes `event.headers` and the Node request.
+  const cookie = event.req?.headers?.get("cookie") ?? event.headers?.get("cookie") ?? [event.node?.req?.headers?.cookie].flat().join("; ")
   // Without a session cookie the request has no session. Skip the lookup, so signed-out pages do not load Better Auth.
   if (!hasSessionCookie(cookie)) return null
   try {
@@ -87,8 +95,14 @@ const viteHubAuthPlugin: unknown = defineNuxtPlugin({
     const stale = "window" in globalThis && Boolean(nuxtApp.payload.prerenderedAt || nuxtApp.payload.isCached)
     setSessionSeedResolver(() => {
       if (stale) return undefined
-      const app = tryUseNuxtApp() as NuxtApp | undefined
-      return app ? app.runWithContext(() => (useState(stateKey, () => undefined) as { value: unknown }).value) : undefined
+      // Read the state directly: on Nuxt 5, `runWithContext()` returns a Promise even for a sync callback.
+      // Outside a Nuxt context, such as module scope, the session is unknown.
+      try {
+        return (useState(stateKey, () => undefined) as { value: unknown }).value
+      }
+      catch {
+        return undefined
+      }
     })
 
     const redirects: AuthRedirects = useRuntimeConfig().public?.vitehubAuth?.redirects ?? {}
