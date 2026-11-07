@@ -1,8 +1,6 @@
 import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises"
-import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
-import { pathToFileURL } from "node:url"
+import { join } from "node:path"
 
 import { H3, H3Event } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -61,19 +59,13 @@ describe("Blob response transforms", () => {
     expect(missing.res.headers.has("x-frame-options")).toBe(false)
   })
 
-  it("serves Nuxt H3 v1 requests with cache validators, HEAD, and byte ranges", async () => {
-    const h3 = join(dirname(createRequire(import.meta.resolve("nitropack/package.json")).resolve("h3/package.json")), "dist/index.mjs")
-    const { createApp, toWebHandler } = await import(pathToFileURL(h3).href) as {
-      createApp: () => { use: (path: string, handler: (event: Parameters<BlobStorage["serve"]>[0]) => unknown) => void }
-      toWebHandler: (app: unknown) => (request: Request) => Promise<Response>
-    }
-    const app = createApp()
-    app.use("/photo", async (event) => {
+  it("serves H3 requests with cache validators, HEAD, and byte ranges", async () => {
+    const app = new H3().all("/photo", async (event) => {
       const [error, body] = await storage.serve(event, "private/original")
       if (error) throw error
-      return body
+      return body ?? new Response(null, { status: 304 })
     })
-    const fetch = toWebHandler(app)
+    const fetch = (request: Request) => app.fetch(request)
     const response = await fetch(new Request("https://example.test/photo"))
     expect(response.status).toBe(200)
     expect(await response.text()).toBe("public:private-camera-data")
@@ -139,6 +131,24 @@ describe("Blob response transforms", () => {
     const [, response] = await storage.serve(conditional, "private/original", options)
     expect(response).toBeNull()
     expect(conditional["~standard"].res.status).toBe(304)
+  })
+
+  it.each(["missing", "read failure", "invalid pathname"])("restores caller headers after a failed serve: %s", async (failure) => {
+    const request = event()
+    request.res.headers.set("x-frame-options", "DENY")
+    request.res.headers.set("x-empty", "")
+    request.res.headers.set("x-caller", "preserved")
+    const cookies = ["session=original; Path=/; HttpOnly", "theme=dark; Expires=Wed, 01 Jan 2031 00:00:00 GMT; Path=/"]
+    for (const cookie of cookies) request.res.headers.append("set-cookie", cookie)
+    const previous = [...request.res.headers]
+    if (failure === "read failure") vi.spyOn(driver, "get").mockRejectedValue(new Error("storage unavailable"))
+    const result = storage.serve(request, failure === "missing" ? "missing.txt" : failure === "invalid pathname" ? "../private/original" : "private/original", {
+      headers: { "X-Frame-Options": "SAMEORIGIN", "x-frame-options": "SAMEORIGIN", "X-Empty": "configured", "X-Blob": "temporary", "Set-Cookie": "session=temporary; Path=/" },
+    })
+    if (failure === "invalid pathname") await expect(result).rejects.toThrow()
+    else expect((await result)[0]?.code).toBe(failure === "missing" ? "BLOB_NOT_FOUND" : "BLOB_OPERATION_FAILED")
+    expect([...request.res.headers]).toEqual(previous)
+    expect(request.res.headers.getSetCookie()).toEqual(cookies)
   })
 
   it.each(["size", "contentType"] as const)("reads the body for HEAD when metadata lacks %s", async (field) => {

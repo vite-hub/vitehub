@@ -1,15 +1,16 @@
-import { installOperationSectionResolver, operationAccessAllows } from "@vite-hub/internal/operations"
+import { installOperationSectionResolver, operationAccessAllows, operationListed } from "@vite-hub/internal/operations"
 import { getStandardContext } from "@vite-hub/runtime/h3"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { isRuntimeResponse } from "@vite-hub/runtime/internal/runtime-type"
 
 import { consoleMountBase } from "../console-route.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection, type ConsoleDiagnosticCode } from "../diagnostics.ts"
-import { markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
+import { consoleMcpReadScope, consoleMcpWriteScope, markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
+import { checkConsoleToken } from "./console-token.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 import { loadConsoleRuntime } from "./runtime.ts"
 
-import type { OperationContext } from "@vite-hub/internal/operations"
+import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth-types.ts"
 import type { AgentActor } from "@vite-hub/agent"
 import type { ConsoleSectionId } from "../sections.ts"
@@ -20,11 +21,13 @@ import type { ConsoleSectionId } from "../sections.ts"
  * - `local`: the development server only. Production requests fail closed.
  * - `auth`: a ViteHub Auth Session. `check` is built on `withAuthorization()`.
  * - `cloudflare-access`: the Cloudflare Access application token.
+ * - `token`: `Authorization: Bearer` with a token whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`. See `checkConsoleToken()`.
  * `impersonation: true` is `console.impersonation`. The Auth section can then start and stop impersonation.
  */
 export type ConsoleAccessPolicy =
   | { mode: "open", authorize?: ConsoleAuthorize, impersonation?: boolean, signInPage?: string }
   | { mode: "local" }
+  | { mode: "token", authorize?: ConsoleAuthorize }
   | {
     mode: "auth" | "cloudflare-access"
     authorize?: ConsoleAuthorize
@@ -81,7 +84,7 @@ const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
 // Responses that `console.authorize` returned, so a page visit gets them as they are.
 const authorizeResponses = new WeakSet<Response>()
-const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "local", "open"])
+const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "local", "open", "token"])
 
 export const consoleOpenAccessWarning = "[vitehub] console: { auth: false } has no sign-in. Anyone who can reach /_vitehub can use the Console. Set console.auth to \"app\" or a Console Auth config, or set console.authorize."
 
@@ -120,9 +123,10 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   scope[policyKey] = Object.freeze({ ...policy })
   installOperationSectionResolver(async ({ user }) => {
     if (policy.mode === "local" || !policy.authorize) return "all"
-    // Agents have no browser request, so `authorize` gets one without headers and the user that the Actor stands for.
+    // Agents have no browser request and no token, so `authorize` gets a request without headers, `via: "agent"`, and
+    // the user that the Actor stands for. It never sees `via: "token"` here: that means a verified Console token.
     const request = new Request("http://vitehub.local/_vitehub/rpc/__call", { method: "POST" })
-    const result: unknown = await policy.authorize(user ? { request, user: user as ConsoleUser } : { request })
+    const result: unknown = await policy.authorize(user ? { request, user: user as ConsoleUser, via: "agent" } : { request, via: "agent" })
     if (result === true) return "all"
     return isRuntimeResponse(result) ? [] : authorizedSections(result) ?? []
   })
@@ -289,6 +293,11 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   else if (policy.mode === "open") {
     // open access intentionally performs no authentication
   }
+  else if (policy.mode === "token") {
+    // The token is the only way in. A cookie or a session never counts.
+    const token = await checkConsoleToken(consoleRequest(event), event)
+    if (!token.ok) return token.response
+  }
   else {
     const bearer = policy.mode === "auth" && policy.oauth ? await verifyConsoleBearer(consoleRequest(event), event, policy.oauth, isConsoleDevelopmentRuntime()) : undefined
     // A token that fails is a rejection, not a fall back to the session: the client has to sign in again.
@@ -318,7 +327,8 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   }
   let sections: ConsoleAccess["sections"] = "all"
   if (policy.mode !== "local" && policy.authorize) {
-    const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
+    const request = consoleRequest(event)
+    const result: unknown = await policy.authorize(policy.mode === "token" ? { request, via: "token" } : user ? { request, user } : { request })
     if (isRuntimeResponse(result)) {
       authorizeResponses.add(result)
       return result
@@ -373,6 +383,24 @@ export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSecti
 export function consoleAccessWrites(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
   if (!consoleAccessGrant.isValid(access)) return false
   return operationAccessAllows(access, section, { kind: "write" })
+}
+
+/** The OAuth scope that an operation call needs: `vitehub:read` to read, `vitehub:write` to change state. */
+export function consoleOperationScope(operation: Pick<AnyOperation, "kind">): string {
+  return operation.kind === "read" ? consoleMcpReadScope : consoleMcpWriteScope
+}
+
+/**
+ * Whether the section grants of the access allow the kind of the operation, for a list of what it may call. An operation
+ * with `readOnlyWhen` shows with a read-only grant, because some of its calls only read. Each call checks again.
+ */
+export function consoleOperationGranted(access: ConsoleAccess, operation: AnyOperation): boolean {
+  return operationListed(access, operation, operation.readOnlyWhen ? undefined : operation)
+}
+
+/** Whether the access may call the operation: its section grants allow it, and an access token holds its scope. */
+export function consoleOperationOffered(access: ConsoleAccess, operation: AnyOperation): boolean {
+  return consoleOperationGranted(access, operation) && (!access.scopes || access.scopes.includes(consoleOperationScope(operation)))
 }
 
 export function allowedConsoleSections(access: ConsoleAccess, available: readonly ConsoleSectionId[]): ConsoleSectionId[] {
@@ -556,7 +584,7 @@ export async function consoleOperationAccess(context: OperationContext): Promise
   let allowed: ConsoleAccess["sections"] = "all"
   if (policy.mode !== "local" && policy.authorize) {
     const request = new Request("http://vitehub.local/_vitehub/rpc/__call", { method: "POST" })
-    const result = await policy.authorize({ request, ...(context.user ? { user: context.user } : {}) })
+    const result = await policy.authorize({ request, via: "agent", ...(context.user ? { user: context.user } : {}) })
     if (result !== true) {
       const sections = authorizedSections(result)
       if (!sections?.length) throw consoleRequestError(403, "This user cannot use Console operations.")

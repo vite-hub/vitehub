@@ -38,6 +38,16 @@
       "import": "./dist/env.js",
       "default": "./dist/env.js"
     },
+    "./ast": {
+      "types": "./dist/ast.d.ts",
+      "import": "./dist/ast.js",
+      "default": "./dist/ast.js"
+    },
+    "./config-edit": {
+      "types": "./dist/config-edit.d.ts",
+      "import": "./dist/config-edit.js",
+      "default": "./dist/config-edit.js"
+    },
     "./arrays": {
       "types": "./dist/arrays.d.ts",
       "import": "./dist/arrays.js",
@@ -57,6 +67,11 @@
       "types": "./dist/deployment.d.ts",
       "import": "./dist/deployment.js",
       "default": "./dist/deployment.js"
+    },
+    "./features": {
+      "types": "./dist/features.d.ts",
+      "import": "./dist/features.js",
+      "default": "./dist/features.js"
     },
     "./dev-endpoint": {
       "types": "./dist/dev-endpoint.d.ts",
@@ -97,6 +112,16 @@
       "types": "./dist/owned-paths.d.ts",
       "import": "./dist/owned-paths.js",
       "default": "./dist/owned-paths.js"
+    },
+    "./host-credentials": {
+      "types": "./dist/host-credentials.d.ts",
+      "import": "./dist/host-credentials.js",
+      "default": "./dist/host-credentials.js"
+    },
+    "./provider-failure": {
+      "types": "./dist/provider-failure.d.ts",
+      "import": "./dist/provider-failure.js",
+      "default": "./dist/provider-failure.js"
     },
     "./provision": {
       "types": "./dist/provision.d.ts",
@@ -351,6 +376,7 @@
     "typecheck": "vp run --cache -t @vite-hub/internal#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.browser.json"
   },
   "dependencies": {
+    "@babel/parser": "^7.29.9",
     "@sqlite.org/sqlite-wasm": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
     "@types/node": "catalog:tooling",
@@ -358,11 +384,13 @@
     "effect": "catalog:effect",
     "esbuild": "catalog:esbuild-v27",
     "h3": "catalog:unjs",
+    "magic-string": "^0.30.21",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "semver": "^7.8.5"
   },
   "devDependencies": {
+    "@babel/types": "^7.29.8",
     "@cloudflare/vitest-plugin": "catalog:",
     "@types/semver": "^7.8.0",
     "@valibot/to-json-schema": "catalog:runtime",

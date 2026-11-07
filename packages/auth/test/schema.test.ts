@@ -10,9 +10,9 @@ import { assertAuthDatabaseSchema } from "../src/database-schema-options.ts"
 
 import type { AuthTableField, AuthTableSpec } from "../src/schema.ts"
 
-/** Better Auth's tables for the plugins that ViteHub ships, in the shape of `authTableSpecs`. */
+/** Better Auth's tables for the plugins that ViteHub ships and the database limiter, in the shape of `authTableSpecs`. */
 function betterAuthTables(): Record<string, AuthTableSpec> {
-  const tables = getAuthTables({ plugins: [admin(), jwt(), oauthProvider({ consentPage: "/sign-in", loginPage: "/sign-in" })] })
+  const tables = getAuthTables({ plugins: [admin(), jwt(), oauthProvider({ consentPage: "/sign-in", loginPage: "/sign-in" })], rateLimit: { storage: "database" } })
   return Object.fromEntries(Object.entries(tables).map(([model, table]) => {
     const fields = Object.fromEntries(Object.entries(table.fields).map(([key, field]) => {
       const spec: AuthTableField = { type: field.type as AuthTableField["type"] }
@@ -22,6 +22,7 @@ function betterAuthTables(): Record<string, AuthTableSpec> {
       const value: unknown = field.defaultValue
       if (value !== undefined) spec.defaultValue = typeof value === "function" ? "now" : value as AuthTableField["defaultValue"]
       if (field.onUpdate) spec.onUpdate = true
+      if (field.bigint) spec.bigint = true
       if (field.references) spec.references = { model: field.references.model as never, field: field.references.field, onDelete: (field.references.onDelete ?? "cascade") as "cascade" }
       return [key, spec]
     }))

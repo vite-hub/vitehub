@@ -1,0 +1,15 @@
+{
+  "loggedIn": true,
+  "authType": "OAuth Token",
+  "email": "developer@example.com",
+  "accounts": [
+    {
+      "id": "fake-account-id",
+      "name": "Example Account"
+    }
+  ],
+  "tokenPermissions": [
+    "account:read",
+    "workers:write"
+  ]
+}

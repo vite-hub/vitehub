@@ -29,10 +29,15 @@ can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
-The Agent Package contributes `agent`, `channels`, and `conversations` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Rate Limit contributes `rate-limit` when `hubRateLimit()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `sandbox` does not load the project config, so it also runs in a deployed container without Vite.
+The Agent Package contributes `agent`, `channels`, and `conversations` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Rate Limit contributes `rate-limit` when `hubRateLimit()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, `decisions`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `decisions` and `sandbox` do not load the project config. `sandbox` also runs in a deployed container without Vite.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
+       vitehub <command> [args...]
+
+Project:
+  catalog     List every ViteHub feature and how each host supports it. Needs no project.
+  status      Show the host, the enabled features, and what each one still needs. Reads the config without running it.
 
 Available namespaces:
   workspace   Workspace development workflows and retained history.
@@ -54,6 +59,7 @@ Available namespaces:
   workflow    Start and inspect Workflow runs in development.
   task        List and run Nitro tasks, such as server/tasks/seed.ts, in the running app.
   types       Generate ViteHub TypeScript declarations.
+  decisions   List the Decisions of the app and run one with a text. Does not load the project config.
   sandbox     Serve and check an SSH Sandbox runner. Does not load the project config.
   inspect     Inspect discovered Definitions and generated Provider Output.
   provision   Idempotently create missing provider resources.
@@ -63,6 +69,8 @@ Available namespaces:
 
 | Command | Status | Owner | Use it for |
 | --- | --- | --- | --- |
+| `vitehub catalog` | Available | ViteHub CLI | List every feature and how each host supports it. Does not load the project config. |
+| `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, and what each one still needs. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent codex-home` | Available | Agent Package | Inspect or manage the Agent Codex home. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
@@ -122,8 +130,11 @@ Available namespaces:
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with `--url`. |
+| `vitehub decisions list` | Available | Decisions Package | List the exports of `defineChoices()` results, by file. |
+| `vitehub decisions run` | Available | Decisions Package | Run one Decision with a text and print the selection as JSON, or the questions with `--inspect`. |
 | `vitehub queue list` | Available | Queue Package | List the Queue Definitions of the app and the provider that sends their jobs. |
 | `vitehub queue send` | Available | Queue Package | Send one job to a Queue Definition. |
+| `vitehub queue jobs` | Available | Queue Package | List, show, retry, or clear stored jobs in development or on a Node server with the local provider. Supports `--json` and `--url`. Clearing jobs asks for confirmation, or needs `--yes` without a terminal. |
 | `vitehub task list` | Available | ViteHub Framework | List the Nitro tasks that the app registers. |
 | `vitehub task run` | Available | ViteHub Framework | Run one Nitro task, such as a seed or a backfill, with the app's bindings. |
 | `vitehub usage` | Available | ViteHub Framework | Read token use and cost of Agent Invocations over a time window. |
@@ -142,6 +153,34 @@ Available namespaces:
 | `vitehub inspect provider-output` | Available | ViteHub CLI plus package inspection contributors | List generated Provider Output files with secrets redacted. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
 | `vitehub provision status` | Available | ViteHub CLI plus package Provision Steps | Inspect the latest provider provisioning result. |
+
+## Read a project without loading it
+
+`vitehub catalog` and `vitehub status` run before the CLI loads the project config. They work in an empty folder and on a config that throws, because they parse the config file and never run it.
+
+```bash [Terminal]
+pnpm vitehub catalog --json
+pnpm vitehub status --json
+```
+
+`catalog` lists every feature key of `vitehub({...})`, the packages that it needs, and how each host supports it: `native`, `explicit` (an option chooses the provider), or `unsupported`. It needs no project.
+
+`status` reads `vite.config.*` or `nuxt.config.*` in the current folder and reports:
+
+- `framework`: `vite`, `nuxt`, or `none`, from the config files and the dependencies.
+- `config`: the file and the config form, or `manual` with the reason when the options are not an object literal.
+- `host`: the `preset` from the config, else the host from the environment, as `detectPreset()` reads it, else `node`. `source` tells which one. A dynamic preset or config reports `name: "unknown"` and feature support with `level: "unknown"`.
+- `features`: each feature as `on`, `off`, or `unknown`. The reason is `config` when the config sets the key, `default` when it does not (including file discovery in `server/`), and `implied` when another feature turns it on or may turn it on. Expressions and keys overridden by a spread are `unknown`; their implications remain uncertain, respecting explicit `false`. An enabled feature lists `missingPackages` and a `fix`, such as the install command.
+
+With `--json`, a command prints exactly one JSON document on stdout, `{ "schemaVersion": 1, ... }`. A failure prints `{ "schemaVersion": 1, "error": { "code", "message", "why", "fix", "docs" } }`. The exit code is `0` when the command is done, `1` for an error, `2` when input is needed, `3` for an unsupported or conflicting change, and `4` for a stale plan.
+
+### `SETUP_NOT_A_PROJECT`
+
+The folder has no `package.json`, no `vite.config.*`, and no `nuxt.config.*`. Run the command in the folder of your Vite or Nuxt app.
+
+### `SETUP_CONFIG_NOT_LITERAL`
+
+The `vitehub()` options are not an object literal, for example a variable, a function call, or `mergeConfig()`. ViteHub does not run the config to read them. Write the options as an object literal, such as `vitehub({ kv: true })`, or edit the config by hand. `vitehub status` reports this case as `config.manual` and exits with `0`.
 
 ## Read and write blobs
 
@@ -215,16 +254,10 @@ The Env integration contributes commands that report the status of declared Serv
 
 ```bash [Terminal]
 pnpm vitehub env inspect [--stage <name>] [--json]
-pnpm vitehub env check [--stage <name>] [--json] [--allow-missing-secrets]
+pnpm vitehub env check [--stage <name>] [--json]
 ```
 
 Both commands load the Vite config in the selected stage mode, including `.env.<stage>` files, with process environment values taking precedence. They list each declared variable with its status, source, required, and secret flags. `env check` exits with status `1` when loading Server Env would fail, so it can gate CI or deployment steps.
-
-Some hosts add secrets at runtime, so the build environment does not have them. Cloudflare Worker secrets are an example. To check such a build, add `--allow-missing-secrets`. A missing secret from the host environment then passes. A missing value that is not secret, an invalid value, or a missing provider value still fails the check:
-
-```bash [Terminal]
-pnpm vitehub env check --stage production --allow-missing-secrets
-```
 
 ## Generate and derive secrets
 
@@ -362,10 +395,11 @@ The Database commands refresh the discovered Database Definitions before running
 pnpm vitehub db generate
 pnpm vitehub db generate --name add-audit-log
 pnpm vitehub db generate --custom --name backfill-state
+pnpm vitehub db generate --custom --schema-snapshot --name move-tables
 pnpm vitehub db migrate
 ```
 
-`db generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. `db migrate` accepts forwarded Drizzle Kit migration arguments.
+`db generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. Drizzle Kit copies the previous snapshot into a custom migration, for SQL that changes only data. When the SQL changes the tables to the current Database Definitions, add `--schema-snapshot`: the migration then gets the snapshot of those Definitions, so the next `db generate` has nothing to add. `db migrate` accepts forwarded Drizzle Kit migration arguments.
 
 ## Export a Database
 
@@ -434,6 +468,46 @@ Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with
 
 The operations are `kv.list`, `kv.get`, `kv.has`, `kv.set`, and `kv.del`, in the `kv` Console section. They run in the Nitro runtime, which owns the KV storage, and answer through the Console RPC, so a person or an agent needs access to the `kv` section. `kv.del` is destructive. `vitehub kv del` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). The Console KV page uses the same operations to list keys, show a value, edit it, and delete a key.
 
+
+## Run a Decision
+
+`decisions list` finds the source files that call `defineChoices()`, loads each one, and prints the exports that hold its result. It skips `node_modules`, `dist`, `build`, `coverage`, and folders that start with a dot. There is no registry: the file path is the address. A file that fails to load is listed with its error, and the command exits with status `1`.
+
+```sh
+pnpm vitehub decisions list
+```
+
+```txt [Output]
+FILE                              EXPORT    NAME
+server/utils/forecast-choices.ts  forecast  forecast
+
+Run one with: vitehub decisions run server/utils/forecast-choices.ts "<text>"
+```
+
+`decisions run <file> <text>` loads that file, calls `resolve()` with the text, and prints the selection as JSON. It calls the gateway of the definition, so it reads the same keys as the app, such as `AI_GATEWAY_API_KEY` or `TYPESAFE_API_KEY`, from the shell or the `.env` files of the project. Add `--inspect` to print the questions and the state that `resolve()` would send, without a model call.
+
+```sh
+pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts except vak supply"
+pnpm vitehub decisions run server/utils/forecast-choices.ts "nord parts" --inspect
+```
+
+The output of the first command, with the offline gateway of the [Decisions tutorial](/docs/decisions/get-started):
+
+```json [Output]
+{
+  "supplier": { "exclude": ["vak"], "include": ["nord"] },
+  "chart": { "confidence": 0.8, "ranked": [{ "probability": 0.1, "value": "line" }, { "probability": 0.1, "value": "bar" }], "value": null }
+}
+```
+
+| Option | Meaning |
+| --- | --- |
+| `--export <name>` | The export to run when the file has more than one `defineChoices()` export. |
+| `--context <json>` | The `context` for `options` functions, such as `'{"tenantId":"t1"}'`. |
+| `--inspect` | Print the plan of `inspect()` instead of calling the gateway. |
+| `--json` | `decisions list` only: print the files as JSON. |
+
+A Decision error prints `{ "error": { "code", "message" } }` and exits with status `1`. The command loads the file with Vite but without the project config, so the file must import with relative paths or package names. Nuxt aliases such as `~~` and auto-imports do not resolve. Read [Decisions server API](/docs/decisions/server-api) for `resolve()` and `inspect()`.
 
 ## Run app tasks
 
@@ -519,7 +593,7 @@ The generated commands need the Console RPC. `vitehub()` installs it, and standa
 
 An operation that runs code of the app, `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, and `schedule.run`, is registered only when `console.invoke` is on. That is the default in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
 
-The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|del`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub search query`, `vitehub sections list`, `vitehub usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
+The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|del`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub project info`, `vitehub search query`, `vitehub sections list`, `vitehub usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
 
 | Option | Use it for |
 | --- | --- |
@@ -537,12 +611,15 @@ A failed command prints `<code>: <message>` and a `Fix:` line on stderr, and exi
 
 ## Run a Schedule on demand
 
-`schedule run` starts a Static Schedule Definition that sets `manual: true`. It prints the run status, duration, and run id. Add `--json` to print the run record. A run that fails still prints and exits with `0`: read `status` or `error` to tell. A name that is not available fails with `SCHEDULE_DEFINITION_NOT_FOUND` (`404`), and a definition without `manual: true` with `SCHEDULE_MANUAL_RUN_DISABLED` (`403`).
+`schedule run` starts a Static Schedule Definition that sets `manual: true`. It prints the run status, duration, run id, and scheduled time. Add `--json` to print the run record. A run that fails still prints and exits with `0`: read `status` or `error` to tell. A name that is not available fails with `SCHEDULE_DEFINITION_NOT_FOUND` (`404`), and a definition without `manual: true` with `SCHEDULE_MANUAL_RUN_DISABLED` (`403`).
 
 ```bash [Terminal]
 pnpm vitehub schedule run sync
+pnpm vitehub schedule run sync --at 2026-01-31T23:59:00Z
 pnpm vitehub schedule run sync --url https://app.example.com
 ```
+
+`--at` runs the definition as if its cron fired at that time. The handler gets it as `scheduledAt`, and `vitehub schedule runs <name>` lists the run under that time. Use it to test code that depends on the fire time, such as a daily job near midnight or a job on the last day of a month. The value is an ISO 8601 date-time with `Z` or an offset, such as `2026-01-31T23:59:00+01:00`. A value without a time zone, a date only, or a day that does not exist, such as `2026-02-30`, fails with `SCHEDULE_INVALID_SCHEDULED_AT` (`400`) and the run does not start. `--at` does not check the cron: the run starts at any time that you pass.
 
 `schedule run` is the `schedule.run` [operation](/docs/development/operations) of the Schedules section. Without `--url`, it calls the dev server of the project, which runs the definition in its Nitro runtime, so the handler has the Nitro plugins and dev bindings of the app, and the run appears in `vitehub schedule runs <name>`. With `--url`, it calls the deployment with the credentials in the [table above](#run-any-operation). The deployment runs only definitions that the Console installed, which needs the [Console](/docs/development/console) with `invoke: true`. `invoke` is on in development and off in a production build.
 
@@ -829,6 +906,7 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 | `INTERNAL_R0024` from an operation command | The command could not reach the app, or the app asked for sign-in. | Start `vite dev`, or pass `--url` and set `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or the Cloudflare Access variables. |
 | `vitehub schedule run` fails with `SCHEDULE_DEFINITION_NOT_FOUND` | The Definition does not set `manual: true`, is not discovered, or the Console did not install it because `console.invoke` is off. | Set `manual: true`, and keep `console.invoke` on. |
 | `vitehub schedule run` fails with `SCHEDULE_MANUAL_RUN_DISABLED` | The Definition exists but does not set `manual: true`. | Set `manual: true` in `defineSchedule()`. |
+| `vitehub schedule run --at` fails with `SCHEDULE_INVALID_SCHEDULED_AT` | The time has no time zone, has no time, or names a day that does not exist. | Pass an ISO 8601 date-time with `Z` or an offset, such as `2026-01-31T23:59:00Z`. |
 | `Unknown Workspace Dev target` | The named Workspace is not discovered by the running Vite dev server. | Check the Workspace Definition name and make sure `hubWorkspace()` is active. |
 | `Agent Dev Loop command requires workspace.mode: "write"` | A `!` command targeted an Agent without writable Workspace access. | Configure the selected Agent with `workspace: { mode: 'write' }`, or send a normal Agent message instead. |
 | Agent Dev Loop request times out | A streamed invocation emitted no events before the inactivity timeout, or a Capability CLI/Workspace command exceeded its wall-clock deadline. | Pass `--timeout <ms>` for the dev-loop operation or inspect the stalled work. |
