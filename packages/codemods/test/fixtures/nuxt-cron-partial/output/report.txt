@@ -1,0 +1,22 @@
+nuxt-cron: moved 1 cron job from server/cron to server/schedules.
+Dry run: no files were written.
+
+Files to change (4):
+  nuxt.config.ts
+  server/cron/digest.ts (deleted)
+  server/schedules/digest.ts (new)
+  package.json
+
+Manual follow-ups (3):
+  1. server/cron/digest.ts:1 This job ran in Europe/Madrid. Hosts other than Node run Schedules in UTC, so the codemod dropped timeZone and the cron now runs in UTC. Convert the cron to UTC.
+  2. server/cron/digest.ts:1 runOnInit ran this job when the server started. Schedule has no such option. Call the job from a Nitro plugin if it must run at startup.
+  3. server/cron/peers.ts:3 "*/5 * * * * *" has six fields, so it runs every few seconds. Schedule runs at most once a minute. Keep this job on a timer, such as setInterval() in a Nitro plugin, or choose a five-field cron.
+
+Notes:
+  - On cloudflare, the host runs each Schedule from its own cron, so jobs keep running on serverless hosts. Schedules run in UTC.
+  - Schedule Runs are kept in memory unless a KV store is configured. Run a Schedule by hand with `vitehub schedule run <name>` while vite dev runs.
+  - nuxt-cron stays because 1 job could not be moved. Remove it after the follow-ups.
+
+Next steps:
+  - Run `pnpm install` to install vite-hub.
+  - Run `npx nuxi prepare`, then type-check the app.
