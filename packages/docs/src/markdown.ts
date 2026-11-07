@@ -5,6 +5,7 @@ import components from "comark/plugins/components"
 import shiki from "comark/plugins/shiki"
 import taskList from "comark/plugins/task-list"
 import toc from "comark/plugins/toc"
+import comarkUi from "comark-ui/vue"
 import css from "shiki/dist/langs/css.mjs"
 import diff from "shiki/dist/langs/diff.mjs"
 import html from "shiki/dist/langs/html.mjs"
@@ -33,13 +34,26 @@ const languages = [css, diff, html, markdownLanguage, mdc]
 const themes = { light: githubLight, dark: githubDark }
 
 /**
- * Parse Markdown with components (`::name`), GitHub alerts, task lists, highlighted code, and a heading outline.
- * The theme renders the nodes with Nuxt UI prose components, so the parser adds no blocks of its own.
+ * The blocks of comark-ui: callouts, tabs, steps, code with its toolbar, zoomable images, charts, and the rest. The
+ * site's CSS styles the prose, so comark-ui's typeset is off. Chips are off too: they turn every web link into a chip
+ * and fetch its favicon. A site turns them on by passing `comark-chips` in `docs.parser`.
+ */
+function docsBlocks() {
+  return comarkUi({ typeset: false, chips: false, badge: { download: false } })
+}
+
+/**
+ * Parse Markdown with components (`::name`), comark-ui's blocks, GitHub alerts, task lists, highlighted code, and a
+ * heading outline. The client renders the nodes with comark-ui's components.
  */
 export function createDocsParser(options: DocsParserOptions = {}): (markdown: string) => Promise<DocsDocument> {
   const extra = options.plugins ?? []
-  const builtIn = [alert(), taskList(), components(), attributes(), shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 })]
-  const parse = createMarkdownParser({ plugins: [...builtIn.filter(plugin => !extra.some(added => added.name === plugin.name)), ...extra] })
+  // A later plugin with the same name wins: comark-ui's GitHub callouts replace Comark's alert plugin, and the site's
+  // plugins replace both.
+  const ordered = [alert(), taskList(), components(), attributes(), ...docsBlocks().plugins, shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 }), ...extra]
+  const byName = new Map(ordered.map(plugin => [plugin.name, plugin]))
+  const plugins = ordered.filter(plugin => byName.get(plugin.name) === plugin)
+  const parse = createMarkdownParser({ plugins })
   return async (markdown) => {
     const document = await parse(markdown)
     return { nodes: unwrapListParagraphs(document.nodes), toc: tocOf(document) }

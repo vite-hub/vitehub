@@ -95,3 +95,34 @@ describe("docs search sections", () => {
     expect(sections.some(section => section.content.includes("Only agents"))).toBe(false)
   })
 })
+
+describe("comark-ui blocks", () => {
+  function find(nodes: ComarkNode[], tag: string): Extract<ComarkNode, unknown[]> | undefined {
+    for (const node of nodes) {
+      if (typeof node === "string" || node[0] === null) continue
+      if (node[0] === tag) return node
+      const found = find(node.slice(2) as ComarkNode[], tag)
+      if (found) return found
+    }
+    return undefined
+  }
+
+  it("turns a GitHub alert into comark-ui's callout", async () => {
+    const { nodes } = await parse("> [!WARNING]\n> Rotate the key first.\n")
+
+    expect(find(nodes, "github-callout")?.[1]).toMatchObject({ type: "warning" })
+  })
+
+  it("gives each tab its label", async () => {
+    const { nodes } = await parse("::tabs\n:::tabs-item{label=\"npm\"}\nnpm i\n:::\n:::tabs-item{label=\"pnpm\"}\npnpm add\n:::\n::\n")
+
+    expect(find(nodes, "tabs")?.[1]).toMatchObject({ labels: ["npm", "pnpm"] })
+  })
+
+  it("keeps the site's plugin when it has a built-in name", async () => {
+    const own = { name: "alert", markdownItPlugins: [] }
+    const { nodes } = await createDocsParser({ plugins: [own] })("> [!WARNING]\n> Rotate the key first.\n")
+
+    expect(find(nodes, "github-callout")).toBeUndefined()
+  })
+})
