@@ -103,7 +103,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/sandbox` | Sandbox Definitions and built-in runtime selection for trusted-host, Crabbox, Cloudflare Sandbox, and Vercel Sandbox execution. |
 | `vite-hub/sandbox/ssh` | `sshLaunch` for provider Driver launch callbacks and `serveSsh` for a trusted SSH runner. |
 | `vite-hub/database` and `vite-hub/database/drizzle` | Database Definitions and generated `useDatabase()` access. |
-| `vite-hub/env` | Env Declaration helpers and authoring types. |
+| `vite-hub/env` | Env Declaration helpers and authoring types, and `seal` and `unseal` for purpose-bound sealed values. |
 | `vite-hub/env/http` | Authenticated HTTP adapter for declared Env Bridge credentials. |
 | `vite-hub/env/auth` | Env Bridge authentication adapters |
 | `vite-hub/env/bridge` | Runtime credential replacement, scoped grants, and durable activity. |
@@ -112,7 +112,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email clients, configured runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
 | `vite-hub/env/presets` and `vite-hub/env/schema` | Reusable Env presets and schema helpers. |
 | `vite-hub/env/secret` and `vite-hub/env/server` | Secret declarations and server-only Env access. |
-| `vite-hub/env/seal` | AES-GCM `seal`, `unseal`, `importSealKey`, and `sealKeyId` in the Env Bridge database store format. |
+| `vite-hub/env/seal` | AES-GCM `sealWithKey`, `unsealWithKey`, `importSealKey`, and `sealKeyId` in the Env Bridge database store format. To seal an app value with `VITEHUB_SECRET`, use `seal` and `unseal` from `vite-hub/env`. |
 | `vite-hub/kv` | KV Runtime Helper. |
 | `vite-hub/markdown-template` | Portable Markdown rendering from template strings. |
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
