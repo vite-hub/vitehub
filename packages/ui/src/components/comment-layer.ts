@@ -249,6 +249,7 @@ export const CommentLayer = defineComponent({
                     modelValue: draft.body,
                     onCancel: () => state.cancelDraft(),
                     files: draftFiles.value,
+                    layout: "row",
                     onSubmit: async (submit: CommentComposerSubmit) => {
                       if (draft.busy || uploadingDraft.value === draft || state.draft.value !== draft) return;
                       uploadingDraft.value = draft;

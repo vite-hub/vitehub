@@ -946,4 +946,19 @@ describe("composer layout", () => {
     expect(box()).toBe("box");
     expect(box("row")).toBe("row");
   });
+
+  it("opens a new comment on the layer as a one-line bubble", async () => {
+    const comments = client();
+    let state!: ReturnType<typeof useComments>;
+    const wrapper = keep(mount(defineComponent({
+      setup() {
+        state = useComments({ client: comments, subject: pricing });
+        return () => h(CommentLayer, { comments: state });
+      },
+    }), { attachTo: document.body, global }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    state.startDraft("page");
+    await flushPromises();
+    expect(wrapper.get("[data-draft=true] > [data-slot=comment-layer-popover] > [data-slot=comment-composer]").attributes("data-layout")).toBe("row");
+  });
 });

@@ -1984,6 +1984,56 @@
     top: auto;
   }
 
+  /* A new comment is one line beside its pin, as in Drop: no card around a field, a hairline and a soft shadow instead
+     of a border, and the corner nearest the pin kept small so the bubble points at it. The 1.4375rem radius is the send
+     button's 1rem plus the 0.4375rem between it and the edge, so a one-line bubble is a capsule. It pops in from that
+     corner. The bubble is the field, so the field draws no ring of its own while it has the focus. */
+  [data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"] {
+    --vh-bubble-radius: 1.4375rem;
+    animation: vh-comment-bubble-in 150ms cubic-bezier(0.23, 1, 0.32, 1);
+    border: 0;
+    border-radius: 0.375rem var(--vh-bubble-radius) var(--vh-bubble-radius);
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--vh-highlighted) 8%, transparent),
+      0 2px 4px rgb(0 0 0 / 0.06),
+      0 10px 24px -6px rgb(0 0 0 / 0.18);
+    transform-origin: top left;
+    width: 18rem;
+
+    & [data-slot="prompt-input-group"]:has([data-slot="prompt-input-textarea"]:focus-visible) {
+      border-color: transparent;
+      box-shadow: none;
+    }
+  }
+
+  [data-slot="comment-layer-item"][data-draft="true"][data-flip-x="true"] > [data-slot="comment-layer-popover"] {
+    border-radius: var(--vh-bubble-radius) 0.375rem var(--vh-bubble-radius) var(--vh-bubble-radius);
+    transform-origin: top right;
+  }
+
+  [data-slot="comment-layer-item"][data-draft="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
+    border-radius: var(--vh-bubble-radius) var(--vh-bubble-radius) var(--vh-bubble-radius) 0.375rem;
+    transform-origin: bottom left;
+  }
+
+  [data-slot="comment-layer-item"][data-draft="true"][data-flip-x="true"][data-flip-y="true"] > [data-slot="comment-layer-popover"] {
+    border-radius: var(--vh-bubble-radius) var(--vh-bubble-radius) 0.375rem;
+    transform-origin: bottom right;
+  }
+
+  @keyframes vh-comment-bubble-in {
+    from {
+      opacity: 0;
+      scale: 0.96;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="comment-layer-item"][data-draft="true"] > [data-slot="comment-layer-popover"] {
+      animation: none;
+    }
+  }
+
   [data-slot="comment-composer"] {
     align-items: flex-start;
     display: flex;
@@ -2551,6 +2601,14 @@
 
     & [data-slot="prompt-input-toolbar"] > button:last-child {
       order: 2;
+    }
+
+    /* The buttons are as tall as one line of the field, 2rem, whatever size the button component draws. So the
+       placeholder and the first line sit on the buttons' center line. */
+    & [data-slot="prompt-input-toolbar"] > button {
+      height: 2rem;
+      justify-content: center;
+      min-width: 2rem;
     }
 
     /* Attach is a quiet icon here, not an outlined button. Nuxt UI draws the outline with utility classes, which sit in
