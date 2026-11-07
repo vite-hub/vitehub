@@ -1,15 +1,5 @@
 import { defineCapability } from "../capability-runtime.ts"
-import {
-  confidence,
-  decisionPrompt,
-  generateDecision,
-  jevDecision,
-  latestUserText,
-  normalizeChoices,
-  objectSchema,
-  optionalString,
-  renderHistory,
-} from "./llm-decision-shared.ts"
+import { decide, normalizeChoices } from "./llm-decision-shared.ts"
 
 import type { AiGateway } from "@vite-hub/gateways"
 import type {
@@ -23,20 +13,19 @@ import { isRuntimeString } from "../internal/runtime-value.ts"
 
 export interface LlmRouteDecision<TChoice extends string = string> {
   choice: TChoice
-  confidence?: number
-  /** Probability of each choice. Only Jev decisions set it. */
-  probabilities?: Record<string, number>
-  /** The model's reason. Jev decisions have no reason. */
-  reason?: string
+  /** How much the choice stands out, from 0 to 1. */
+  confidence: number
+  /** Probability of each choice. A chat model sets one number on its answer and shares the rest. */
+  probabilities: Record<string, number>
 }
 
 export interface LlmRouteOptions<TChoices extends LlmDecisionChoiceMap = LlmDecisionChoiceMap> {
   choices: TChoices
   history?: boolean | number
   id?: string
-  /** Decide with TypeSafe Jev through this gateway: `typesafe()`, `vercel()`, or `cloudflare()`. Ask Driver Agents use Jev through `typesafe()` without it. Ignored when `model` is set. */
+  /** Ask TypeSafe Jev through this gateway instead of a chat model: `typesafe()`, `vercel()`, or `cloudflare()`. Ask Driver Agents use `typesafe()` without it. Ignored when `model` is set. */
   gateway?: AiGateway<{ ask: true }>
-  /** Chat model for the decision. Default: the Agent model, or Jev when `gateway` is set or the Agent uses `driver.ask`. */
+  /** Model that answers the decision. Default: the Agent model. Set `gateway` to ask TypeSafe Jev instead. */
   model?: AgentModelResolver
   prompt?: string
 }
@@ -67,43 +56,12 @@ export function llmRoute<
       context.finish.provide(() => context.context.get(id))
     },
     async input(context) {
-      const input = context.input.get()
-      const messages = context.input.messages()
       if (context.context.has(id)) {
         throw agentDiagnostics.AGENT_R0112({ message: `[vitehub] Invocation context value "${id}" is already set.` })
       }
       const task = "Select exactly one route for the user request."
-      const jev = await jevDecision(context, options, { choices, label: "Route", task })
-      const output = jev
-        ? toDecision(jev.choice, { confidence: jev.confidence, probabilities: jev.probabilities })
-        : await generateDecision<LlmRouteDecision<Extract<keyof TChoices, string>>>({
-          id,
-          model: await context.model.resolve(options.model),
-          prompt: decisionPrompt({
-            choices,
-            history: renderHistory(messages, options.history),
-            prompt: options.prompt,
-            task,
-            userMessage: latestUserText(input.prompt, messages),
-          }),
-          schema: objectSchema({
-            additionalProperties: false,
-            properties: {
-              choice: { enum: choiceKeys, type: "string" },
-              confidence: { maximum: 1, minimum: 0, type: "number" },
-              reason: { type: "string" },
-            },
-            required: ["choice"],
-            type: "object",
-          }, (value) => {
-            // SAFETY: objectSchema validates this callback value as an object before invoking it.
-            const record = value as { choice?: unknown, confidence?: unknown, reason?: unknown }
-            return toDecision(record?.choice, {
-              ...(confidence(record?.confidence) !== undefined ? { confidence: confidence(record?.confidence) } : {}),
-              ...(optionalString(record?.reason) ? { reason: optionalString(record?.reason) } : {}),
-            })
-          }),
-        })
+      const decision = await decide(context, options, { choices, label: "Route", task })
+      const output = toDecision(decision.choice, { confidence: decision.confidence, probabilities: decision.probabilities })
       context.context.set(id, output)
     },
   })
