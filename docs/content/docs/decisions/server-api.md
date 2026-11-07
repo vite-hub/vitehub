@@ -50,9 +50,10 @@ Each group takes these settings:
 | `label` | What people call the group. The model reads it. |
 | `options` | A list, or a function that loads the list for one request. |
 | `multiple` | `true` (default): any number of options. `false`: at most one. |
+| `infer` | `false` (default): choose only an option that the text names. `true`: choose the option that fits the text best, also when the text does not name it. Needs `multiple: false`. See [Infer one option](/docs/decisions/concepts#infer-one-option). |
 | `hints` | A short note for the model about this group. |
 
-`toOptions(items, { value, label, aliases? })` turns your data into options. An option is `{ value, label, aliases? }`. The `value` is a string or a number, and it must be unique in its group.
+`toOptions(items, { value, label, aliases?, description? })` turns your data into options. An option is `{ value, label, aliases?, description? }`. The `value` is a string or a number, and it must be unique in its group. The `description` tells the model what the option is about. An `infer` group needs it.
 
 ## Resolve text
 
@@ -114,7 +115,7 @@ await forecast.resolve(text, { signal: AbortSignal.timeout(10_000) })
 
 ```ts
 const [error, plan] = await forecast.inspect("nord parts except vak supply")
-plan.questions // one question for each option of a multiple group, one for each single group, and `supported`
+plan.questions // one question for each option of a multiple group, one for each single group, and `supported` unless every group infers
 ```
 
 The CLI runs the same two functions on a file, without a route or a dev server:
