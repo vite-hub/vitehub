@@ -216,6 +216,8 @@ vitehub push              # pull, then commit the local changes to `draft`
 The first pull writes `vitehub.lock`: commit it. Pull merges text by line and writes
 Git conflict markers where both sides changed the same lines; push refuses until they
 are gone. The commands call the `workspace.changes` and `workspace.commit` operations.
+`vitehub hooks install` adds a pre-commit hook that fails on conflicts and a pre-push hook
+that runs `vitehub push` when Git pushes the default branch.
 See [Work on a ref in a local folder](https://vitehub.dev/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
 
 ## JSON Collections
