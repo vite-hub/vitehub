@@ -15,6 +15,7 @@ import {
 import ConsoleConnectionsActivity from "./console-connections-activity.vue";
 import ConsoleConnectionsApprovals from "./console-connections-approvals.vue";
 import { consoleDateTime } from "../client/time";
+import { isRemoteProject } from "../client/project";
 import ConsoleState from "./console-state.vue";
 import ConsoleStatus from "./console-status.vue";
 
@@ -26,6 +27,9 @@ const props = defineProps<{
   /** The Console page that the provider flow returns to. */
   returnTo?: string;
 }>();
+
+// The connect flow needs the app session, so a Console on another origin sends it to the app's own Console.
+const remote = isRemoteProject();
 const emit = defineEmits<{ changed: [] }>();
 const current = ref<ConnectionInspection>(props.connection);
 watch(
@@ -209,9 +213,11 @@ onMounted(async () => {
         <UButton
           v-else-if="current.credential !== 'chatgpt'"
           :label="
-            current.status === 'disconnected' || current.status === 'revoked'
-              ? 'Connect'
-              : 'Reconnect'
+            remote
+              ? 'Connect in the app'
+              : current.status === 'disconnected' || current.status === 'revoked'
+                ? 'Connect'
+                : 'Reconnect'
           "
           :to="connectionConnectURL(endpoint, current.name, returnTo)"
           external
