@@ -290,6 +290,12 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
     const value = valueFor(id)
     const invocations = id === "agent" && isRecord(value) ? value.invocations : undefined
+    if (host === "netlify" && invocations !== undefined && invocations !== false) {
+      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "agent.invocations requires Nitro-hosted Agents. Set invocations on each Agent Definition instead, or use agent.invocations=false.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+    }
+    if (id === "console" && host !== "node" && isRecord(value) && isRecord(value.auth) && "provider" in value.auth && value.auth.provider !== "cloudflare-access") {
+      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Inline Console Auth requires the Node deployment preset. Use a file-based Console Auth Definition on this host.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+    }
     if (invocations === "database" || (isRecord(invocations) && invocations.store === "database")) {
       if (!inputFeatures.includes("database")) inputFeatures.push("database")
       if (!args.features.includes("database") && !requires.includes("database") && status.features.find(item => item.id === "database")?.enabled !== "on") requires.push("database")
@@ -393,7 +399,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const alreadyOn = new Set(status.features.filter(item => item.enabled === "on").map(item => item.id))
   const implied = impliedFeatures([...new Set([...alreadyOn, ...addedFeatures])], host, keep.filter(id => !requires.includes(id))).filter(id => !addedFeatures.includes(id))
   const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
-  const packages = [...addedFeatures, ...implied].flatMap(id => features[id].packages)
+  const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures])]
+  const packages = packageFeatures.flatMap(id => features[id].packages)
   if (enabled.has("console")) {
     if (enabled.has("agent")) packages.push(...consoleFeaturePackages.agents)
     const consoleValue = valueFor("console")
@@ -401,7 +408,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     if ((isRecord(auth) && auth.provider !== "cloudflare-access") || (auth === "app" && enabled.has("auth"))) packages.push(...consoleFeaturePackages.signIn)
   }
   const install: Planned["install"] = {
-    dev: [...new Set([...addedFeatures, ...implied].flatMap(id => features[id].devPackages))].filter(name => !project.declared(name, true)),
+    dev: [...new Set(packageFeatures.flatMap(id => features[id].devPackages))].filter(name => !project.declared(name, true)),
     prod: [...new Set(packages)].filter(name => !project.declared(name, false)),
   }
   install.prod = installSpecifiers(install.prod)

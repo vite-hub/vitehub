@@ -157,6 +157,21 @@ describe("editViteHubConfig", () => {
       .toMatchObject({ ok: false, reason: "dynamic-options" })
   })
 
+  it.each([
+    'import * as hub from "vite-hub"; export default { plugins: [hub.vitehub({ kv: true })] }',
+    'import { vitehub } from "vite-hub"; const config = { plugins: [vitehub({ kv: true })] }; export { config as default }',
+  ])("reads and edits namespace imports and named default exports: %s", (code) => {
+    expect(locateViteHubConfig("vite.config.ts", code)).toMatchObject({ ok: true, site: { keys: { kv: { kind: "literal", value: true } } } })
+    expect(edit("vite.config.ts", code, [{ op: "set", key: "kv", value: false }])).toBe(code.replace("kv: true", "kv: false"))
+  })
+
+  it.each([
+    'export default { plugins: enabled ? [hub.vitehub({ kv: true })] : [] }',
+    'const plugin = hub.vitehub({ kv: true }); export default { plugins: [plugin] }',
+  ])("keeps unresolved namespace plugin calls manual: %s", (body) => {
+    expect(locateViteHubConfig("vite.config.ts", `import * as hub from "vite-hub"; ${body}`)).toMatchObject({ ok: false, reason: "dynamic-options" })
+  })
+
   it("accepts aliased and default imports", () => {
     const aliased = "import { vitehub as hub } from \"vite-hub\"\nexport default defineConfig(() => ({ plugins: [hub({ kv: true })] }))\n"
     expect(locateViteHubConfig("vite.config.ts", aliased)).toEqual({
@@ -165,6 +180,25 @@ describe("editViteHubConfig", () => {
     })
     const fallback = "import hub from \"vite-hub\"\nconst config = { plugins: [hub()] }\nexport default config\n"
     expect(locateViteHubConfig("vite.config.ts", fallback)).toMatchObject({ ok: true, site: { form: "vite-call", keys: {} } })
+  })
+
+  it.each([
+    "enabled ? [vitehub({ kv: true })] : []",
+    "enabled && vitehub({ kv: true })",
+  ])("keeps conditional plugin calls manual: %s", (plugins) => {
+    const code = `import { vitehub } from "vite-hub"; export default { plugins: ${plugins} }`
+    expect(locateViteHubConfig("vite.config.ts", code)).toMatchObject({ ok: false, reason: "dynamic-options" })
+    expect(editViteHubConfig("vite.config.ts", code, [{ op: "set", key: "kv", value: false }]))
+      .toMatchObject({ ok: false, reason: "dynamic-options" })
+  })
+
+  it.each([
+    `modules: [...(enabled ? ["vite-hub/nuxt"] : [])]`,
+    `modules: [enabled ? "vite-hub/nuxt" : "other-module"]`,
+    `extends: ["./base"]`,
+  ])("keeps unresolved Nuxt module registration manual: %s", (options) => {
+    expect(locateViteHubConfig("nuxt.config.ts", `export default defineNuxtConfig({ ${options} })`))
+      .toMatchObject({ ok: false, reason: "dynamic-options" })
   })
 
   it.each(["vite.config.cjs", "nuxt.config.cts"])("leaves CommonJS exports manual in %s", (file) => {

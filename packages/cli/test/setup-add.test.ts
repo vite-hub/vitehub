@@ -81,6 +81,54 @@ describe("vitehub add", () => {
     }
   })
 
+  it.each(["agent.invocations=memory", "agent.invocations=database", "agent.invocations.store=database"])("rejects %s on Netlify before installing or writing", async (option) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ preset: "netlify", database: { connection: { url: "libsql://example.com" } } }') })
+    const before = await snapshot(root)
+    let spawned = false
+    const result = await add(["agent", "--option", option, "--name", "helper", "--yes"], root, async () => {
+      spawned = true
+      return { exitCode: 0 }
+    })
+    expect(result.exitCode, result.stdout).toBe(3)
+    expect(result.json.error?.code).toBe("SETUP_FEATURE_UNSUPPORTED")
+    expect(result.json.error?.why).toContain("agent.invocations")
+    expect(spawned).toBe(false)
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it("allows disabled Agent invocations on Netlify", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ preset: "netlify" }') })
+    const result = await add(["agent", "--option", "agent.invocations=false", "--no-install", "--yes"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain("agent: { invocations: false }")
+  })
+
+  it.each(["cloudflare", "vercel", "netlify", "deno"])("rejects inline Console Auth on %s before installing or writing", async (host) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}", database: { connection: { url: "libsql://example.com" } } }`) })
+    const before = await snapshot(root)
+    let spawned = false
+    const result = await add(["console", "--option", "console.auth.provider=github", "--option", "console.auth.org=vite-hub", "--yes"], root, async () => {
+      spawned = true
+      return { exitCode: 0 }
+    })
+    expect(result.exitCode, result.stdout).toBe(3)
+    expect(result.json.error?.code).toBe("SETUP_FEATURE_UNSUPPORTED")
+    expect(result.json.error?.why).toContain("file-based Console Auth")
+    expect(spawned).toBe(false)
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it("plans packages for an already-enabled Database prerequisite", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ preset: "cloudflare", database: true }') })
+    const before = await snapshot(root)
+    const result = await add(["comments", "--dry-run"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.implied).not.toContain("database")
+    expect(result.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/comments", "@vite-hub/database", "drizzle-orm"]))
+    expect(result.json.install.devPackages).toContain("drizzle-kit")
+    expect(await snapshot(root)).toEqual(before)
+  })
+
   it("plans sign-in packages for inline Console Auth options", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ preset: "node" }') })
     const before = await snapshot(root)
