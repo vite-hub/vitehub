@@ -159,11 +159,15 @@ const scheduleRunStore = createKVScheduleRunStore({ kvStore: scheduleKVStorage }
 
 Generated Process Runtime wiring selects this adapter automatically. Applications using the framework can import it from `vite-hub/schedule/runtime/kv`. Use `setScheduleRunStore(store)` to install a custom `ScheduleRunStore`.
 
+Custom stores must apply the `listRuns({ scheduleId, idPrefix, limit })` filters before the limit. The Process Runtime requests `idPrefix: "srun_static_"` with `limit: 1` to read its newest cron run without loading manual run history.
+
 ## Run and inspect schedules
 
 `hubSchedule()` contributes the `schedule.runs`, `schedule.attempts`, and `schedule.run` operations. They are the `vitehub schedule runs <id> [--limit <n>]`, `attempts <runId>`, and `run <name>` commands, and the Console runs them too. Each command accepts `--json` and `--url`. Without `--url` the command calls the dev server of the project, whose Nitro runtime owns the same stores and registry as the running app. The operations import from `@vite-hub/schedule/operations`.
 
 Set `manual: true` on a Static Schedule Definition to allow an on-demand run, then invoke it with `vitehub schedule run <name>`. The name is the discovered schedule file name. Add `--url <app-url>` with the Console credentials to run it on a deployment that enables `console.invoke`. A CI job can post a signed dispatch (`vitehub secret derive vitehub:dispatch`) to `/_vitehub/schedules/run` instead. Server code can call `runSchedule(name, { registry })` from `@vite-hub/schedule/runtime`. Each manual run gets a new `srun_manual_` id.
+
+Add `--at <ISO date-time>` to run it as if the cron fired at that time, for example `vitehub schedule run close-month --at 2026-01-31T23:59:00Z`. The handler gets the time as `scheduledAt`, and the run records it, so `vitehub schedule runs` lists it under that time. `runSchedule()` takes the same value as `scheduledAt`. The value needs `Z` or an offset. A value without a time zone, a date only, or a day that does not exist fails with `SCHEDULE_INVALID_SCHEDULED_AT` before the handler runs. The time is not checked against the cron. Manual runs do not advance the Process Runtime's catch-up cursor, even when their scheduled time is in the future.
 
 Discovery reads `manual` as a literal boolean from directly exported Definitions. Use identifier keys or quoted keys without escape sequences. Spreads, computed keys, escaped keys, and metadata getters or methods fail with the source file and line.
 
