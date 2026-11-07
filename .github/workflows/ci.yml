@@ -531,18 +531,29 @@ jobs:
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          DOCS_DEMO_GITHUB_CLIENT_ID: ${{ vars.DOCS_DEMO_GITHUB_CLIENT_ID }}
+          DOCS_DEMO_GITHUB_CLIENT_SECRET: ${{ secrets.DOCS_DEMO_GITHUB_CLIENT_SECRET }}
+          DOCS_DEMO_VITEHUB_ADMIN_EMAILS: ${{ secrets.DOCS_DEMO_VITEHUB_ADMIN_EMAILS }}
+          DOCS_DEMO_VITEHUB_CONNECTIONS_KEY: ${{ secrets.DOCS_DEMO_VITEHUB_CONNECTIONS_KEY }}
+          DOCS_DEMO_VITEHUB_CONTENT_KEY: ${{ secrets.DOCS_DEMO_VITEHUB_CONTENT_KEY }}
+          DOCS_DEMO_VITEHUB_SECRET: ${{ secrets.DOCS_DEMO_VITEHUB_SECRET }}
         run: |
-          for required in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN; do
+          for required in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN DOCS_DEMO_VITEHUB_SECRET DOCS_DEMO_VITEHUB_CONTENT_KEY DOCS_DEMO_VITEHUB_CONNECTIONS_KEY; do
             if [ -z "${!required}" ]; then
-              echo "The docs demo deploy needs the $required secret in the Production environment." >&2
+              echo "The docs demo deploy needs $required in the Production environment." >&2
               exit 1
             fi
           done
           wrangler=./.github/ci-tools/node_modules/.bin/wrangler
           config=packages/docs/playground/.output/server/wrangler.json
+          # The Worker secrets live in the Production environment as DOCS_DEMO_<name>. Wrangler adds them to the deployed
+          # version and keeps secrets that the file leaves out.
+          secrets="$RUNNER_TEMP/docs-demo-secrets.json"
+          (umask 077; jq -n 'env | with_entries(select((.key | startswith("DOCS_DEMO_")) and .value != "") | .key |= ltrimstr("DOCS_DEMO_"))' > "$secrets")
           "$wrangler" d1 migrations apply vitehub-docs-demo-users --remote --config "$config"
           "$wrangler" d1 migrations apply vitehub-docs-demo-content --remote --config "$config"
-          "$wrangler" deploy --config "$config"
+          "$wrangler" deploy --config "$config" --secrets-file "$secrets"
+          rm -f "$secrets"
 
       - name: Check the live site
         run: |
