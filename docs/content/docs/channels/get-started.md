@@ -13,18 +13,12 @@ A Channel is a named place that your server sends messages to, such as a Slack r
 In this tutorial, you make a Channel named `alerts` and send a "Build finished." message through it. The message goes to your terminal, not to a real service, so you can test your code first.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Vite app. Run the commands from the root of the app. You need no account and no API key. No message leaves your computer.
+> Use the app from [Installation](/docs/getting-started/installation). Run the commands from the root of the app. You need no account and no API key. No message leaves your computer.
 
-::tutorial-step{title="Install and enable discovery"}
-## Install and enable discovery
+::tutorial-step{title="Enable discovery"}
+## Enable discovery
 
-Install ViteHub. Nitro is the server that runs your API routes.
-
-```bash pm [commands/install]
-pnpm add vite-hub nitro h3 vite
-```
-
-Then add `channels: true` to `vitehub()` in `vite.config.ts`. Keep the other plugins of your app.
+Add `channels: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app. `vite-hub` already includes the Channels package, so you install nothing.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -36,6 +30,8 @@ export default defineConfig({
 ```
 
 ViteHub now finds each Channel file in `server/channels`.
+
+Did you choose Nuxt in Installation? Then add `channels: true` to the options of the `vite-hub/nuxt` module.
 
 :::details{summary="How ViteHub finds Channel files"}
 ViteHub discovers files below `server/channels` and files that end in `.channel.ts`. A folder with an `index` module, such as `server/channels/teams/index.ts`, is one Channel named after the folder. Other files in that folder are helpers that the Channel imports. Discovery reads each module without running it and skips modules that cannot be outbound Channels: a default export that is a function, a class, a primitive value, an array, a call to the Agent `defineChannel()`, or a statically known object literal without `connectors`, and modules with neither a default nor a `connectors` export. Agent Channels can live in `server/channels` next to outbound Channels. An Agent `defineChannel()` with a `webhooks.path` there [serves its own webhook route](/docs/agents/channels#give-a-channel-its-own-route).
@@ -96,13 +92,13 @@ export default defineEventHandler(async () => {
 Start the dev server:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
 Keep the server running. Open a second terminal and send a request:
 
 ```bash [commands/request]
-curl -X POST http://localhost:5173/api/build-finished
+curl -X POST http://localhost:3000/api/build-finished
 ```
 
 The response is the receipt. `deliveryId` is a new id that ViteHub makes for each send. `id` comes from your connector.

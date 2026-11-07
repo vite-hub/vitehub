@@ -13,34 +13,36 @@ Shell lets your server run simple shell commands, such as `ls`, `cat`, and `rg`,
 In this tutorial, you write a Markdown file, search it with `rg`, and return the matching line from an API route. You check the exit code and the output of the command.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Vite app. Run every command from the app root. You need no account. This tutorial uses Just Bash, which runs the commands inside your server process, only on the files you give it. It is not a separate machine. To run other programs in isolation, use [Sandbox](/docs/sandbox).
+> Use the app from [Installation](/docs/getting-started/installation). Run every command from the app root. You need no account. This tutorial uses Just Bash, which runs the commands inside your server process, only on the files you give it. It is not a separate machine. To run other programs in isolation, use [Sandbox](/docs/sandbox).
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Add Shell, Workspace, and Nitro to your app. A Workspace is a folder of files that your server can read and write. Shell runs its commands on those files.
+Shell runs its commands on the files of a Workspace. A Workspace is a folder of files that your server can read and write.
+
+Install Shell and Workspace:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/shell @vite-hub/workspace nitro h3
-pnpm add -D vite
+pnpm add @vite-hub/shell @vite-hub/workspace
 ```
 
-Add the Workspace plugin and Nitro to `vite.config.ts`. Keep the other plugins of your app. Shell needs no plugin, because your route creates it.
+Add `workspace: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app. Shell needs no option, because your route creates it.
 
 ```ts [vite.config.ts]
-import { hubWorkspace } from '@vite-hub/workspace/vite'
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [hubWorkspace(), nitro()],
+  plugins: [vitehub({ preset: 'node', workspace: true })],
 })
 ```
+
+Did you choose Nuxt in Installation? Then add `workspace: true` to the options of the `vite-hub/nuxt` module.
 
 Create `server/workspaces/docs.ts`. This is the `docs` Workspace that holds your file:
 
 ```ts [server/workspaces/docs.ts]
-import { defineWorkspace } from '@vite-hub/workspace'
+import { defineWorkspace } from 'vite-hub/workspace'
 
 export default defineWorkspace({
   store: { provider: 'memory' },
@@ -62,10 +64,10 @@ Create `server/api/search-docs.get.ts`. This route writes `README.md` to the Wor
 
 ```ts [server/api/search-docs.get.ts]
 import { defineEventHandler } from 'h3'
-import { createShellRuntime } from '@vite-hub/shell'
-import { createJustBashProvider } from '@vite-hub/shell/providers/just-bash'
-import { createReadonlyWorkspaceFs, workspaceMountPoint } from '@vite-hub/shell/workspace'
-import { useWorkspace } from '@vite-hub/workspace'
+import { createShellRuntime } from 'vite-hub/shell'
+import { createJustBashProvider } from 'vite-hub/shell/providers/just-bash'
+import { createReadonlyWorkspaceFs, workspaceMountPoint } from 'vite-hub/shell/workspace'
+import { useWorkspace } from 'vite-hub/workspace'
 
 export default defineEventHandler(async () => {
   const workspace = useWorkspace('docs', { mode: 'write' })
@@ -102,13 +104,13 @@ export default defineEventHandler(async () => {
 Start the dev server:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
 Open a second terminal, and call the route:
 
 ```bash [commands/request]
-curl http://localhost:5173/api/search-docs
+curl http://localhost:3000/api/search-docs
 ```
 
 The response shows that the command worked. Exit code `0` means success, and `stdout` has the matching line:

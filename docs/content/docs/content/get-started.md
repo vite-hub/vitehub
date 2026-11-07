@@ -13,32 +13,18 @@ Content turns your Markdown files into documents that your app can read. A docum
 In this tutorial, you write `docs/intro.md`. Then you read it as a document from an API route.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Vite app. Run the commands in the root folder of the app. You need no account and no API key.
+> Use the app from [Installation](/docs/getting-started/installation). Run the commands in the root folder of the app. You need no account and no API key.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Add ViteHub, Content, and the server packages to your app:
+Add Content to your app:
 
 ```bash pm [commands/install]
-pnpm add vite-hub @vite-hub/content nitro h3
-pnpm add -D vite
+pnpm add @vite-hub/content
 ```
 
-Add `vitehub()` and `nitro()` to `vite.config.ts`:
-
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
-import { vitehub } from 'vite-hub'
-
-export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), nitro()],
-})
-```
-
-- `vitehub()` finds the `server/content.ts` file that you write in the next step.
-- `nitro()` gives your app a server for its API routes.
+You do not change `vite.config.ts`. `vitehub()` finds the `server/content.ts` file that you write in the next step, and turns on Content.
 
 ::
 
@@ -91,7 +77,7 @@ export const content = createContentClient()
 await content.get('/intro')
 ```
 
-`createContentClient()` calls the routes that Content adds to your server. It has the same `get()` method.
+`createContentClient()` calls the routes that Content adds to your server under `/api/content`. It has the same `get()` method.
 
 ::
 
@@ -101,16 +87,22 @@ await content.get('/intro')
 Start the dev server:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
 Keep the server running. Open a second terminal, and call your route:
 
 ```bash [commands/request]
-curl http://localhost:5173/api/guide
+curl http://localhost:3000/api/guide
 ```
 
-The response is the `Hello from Content` document, as JSON.
+The response is the `Hello from Content` document, as JSON:
+
+```json [output/guide.json]
+{"path":"/intro","data":{},"meta":{"issues":[],"issueRules":{},"readingTime":{"words":10,"minutes":1},"key":"docs/intro.md","source":"docs","stem":"intro","extension":".md","kind":"document","type":"text/markdown","partial":false,"hash":"5760765759451925"},"nodes":[["h1",{"id":"hello-from-content"},"Hello from Content"],["p",{},"This page came from a local Source."],["typeset-styles",{}]]}
+```
+
+`nodes` is the body of the file. The first node is the `# Hello from Content` heading.
 
 To show the document on a page, use [ViteHub UI Markdown](/docs/ui/markdown#content-pages). To search your documents, add [full-text search](/docs/content/configure#providers).
 

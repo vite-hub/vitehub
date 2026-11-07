@@ -13,7 +13,7 @@ ViteHub UI is a set of Vue components for AI apps, such as a chat view and a pro
 In this tutorial, you show a short chat with one question and one reply. The messages are written in your code, so you can check the view before you connect an Agent.
 
 > [!NOTE] Before you start
-> You need Node.js 22.22 or newer, pnpm, and a Nuxt app. Run the commands from the root of the app. You need no account and no API key. For Vue with Vite, follow [Installation](/docs/ui/installation) first.
+> You need Node.js 22.22 or newer, pnpm, and a Nuxt 5 app. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`. Run the commands from the root of the app. You need no account and no API key. For Vue with Vite, follow [Installation](/docs/ui/installation) first.
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
@@ -24,15 +24,23 @@ Install the UI package and the packages that it needs:
 pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
 ```
 
-Add the module to `nuxt.config.ts`. Keep the other modules of your app.
+Nuxt UI needs Tailwind CSS. Create a stylesheet that loads both:
+
+```css [assets/css/main.css]
+@import "tailwindcss";
+@import "@nuxt/ui";
+```
+
+Add the module and the stylesheet to `nuxt.config.ts`. Keep the other modules of your app.
 
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ["@vite-hub/ui/nuxt"],
+  css: ["~/assets/css/main.css"],
 });
 ```
 
-The module loads the styles and imports the components for you. You do not need to register a Vue plugin.
+The module installs Nuxt UI, loads the ViteHub UI styles, and imports the components for you. You do not need to register a Vue plugin. Without the stylesheet, the Tailwind classes of your app, such as `h-[32rem]` in the next step, do nothing.
 ::
 
 ::tutorial-step{title="Render one message"}
@@ -93,7 +101,7 @@ To send messages, your app needs a chat endpoint, an API route that answers. Whe
 pnpm add @ai-sdk/vue
 ```
 
-```ts [src/composables/use-chat.ts]
+```ts [composables/use-chat.ts]
 import { useChat } from "@ai-sdk/vue";
 
 export function useAppChat() {
@@ -104,8 +112,8 @@ export function useAppChat() {
 Then:
 
 1. Configure `useChat()` for your endpoint.
-2. Call `useAppChat()` in `<script setup>` of your component.
-3. Pass the values that it returns to [`Chat`](/docs/ui/chat).
+2. Call `useAppChat()` in `<script setup>` of your component. Nuxt imports the files in `composables/` for you.
+3. Pass the values that it returns to [`Chat`](/docs/ui/chat), such as `const { messages, status } = useAppChat()`.
 4. Put [`PromptInput`](/docs/ui/prompt-input) in the `composer` slot of `Chat`, so users can type.
 
 ::

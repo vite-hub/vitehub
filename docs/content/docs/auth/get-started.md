@@ -12,7 +12,7 @@ Auth lets people sign up and sign in to your app. It uses [Better Auth](https://
 In this tutorial, you sign up a user with an email and a password. Then you use the cookie from the sign-up to read the user's session.
 
 > [!NOTE] Before you start
-> You need Node.js 22.18 or newer, pnpm, and a Vite app. Run the commands in the root folder of the app. You need no account and no API key.
+> Use the app from [Installation](/docs/getting-started/installation). Run the commands in the root folder of the app. You need no account and no API key.
 >
 > This tutorial keeps users and sessions in memory. When the server restarts, they are gone. Before you use Auth in production, keep users in a database with [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database).
 
@@ -22,20 +22,21 @@ In this tutorial, you sign up a user with an email and a password. Then you use 
 Add Auth and Better Auth to your app:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/auth @vite-hub/runtime better-auth h3
-pnpm add -D vite
+pnpm add @vite-hub/auth better-auth
 ```
 
-Add `hubAuth()` to the plugins in `vite.config.ts`. Keep the other plugins of your app.
+Add `auth: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
 
 ```ts [vite.config.ts]
-import { hubAuth } from '@vite-hub/auth/vite'
 import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [hubAuth()],
+  plugins: [vitehub({ preset: 'node', auth: true })],
 })
 ```
+
+Did you choose Nuxt in Installation? Then add `auth: true` to the options of the `vite-hub/nuxt` module.
 
 ::
 
@@ -45,7 +46,7 @@ export default defineConfig({
 Create `server/auth.ts`:
 
 ```ts [server/auth.ts]
-import { defineAuth } from '@vite-hub/auth'
+import { defineAuth } from 'vite-hub/auth'
 
 export default defineAuth({
   appName: 'Acme',
@@ -53,7 +54,7 @@ export default defineAuth({
 })
 ```
 
-- `hubAuth()` finds this file. Better Auth then answers all requests to `/api/auth/**`.
+- ViteHub finds this file. Better Auth then answers all requests to `/api/auth/**`.
 - `emailAndPassword.enabled` turns on sign-up and sign-in with an email and a password. You do not write these routes yourself.
 
 ::
@@ -64,13 +65,13 @@ export default defineAuth({
 Start the dev server:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
 Keep the server running. Open a second terminal, and sign up a user:
 
 ```bash [commands/sign-up]
-curl -i -c cookies.txt -X POST http://localhost:5173/api/auth/sign-up/email \
+curl -i -c cookies.txt -X POST http://localhost:3000/api/auth/sign-up/email \
   -H 'content-type: application/json' \
   -d '{"name":"Ada Lovelace","email":"ada@example.com","password":"correct-horse-battery-staple"}'
 ```
@@ -78,15 +79,19 @@ curl -i -c cookies.txt -X POST http://localhost:5173/api/auth/sign-up/email \
 - `-c cookies.txt` saves the session cookie of the response in a file.
 - The password is example data. Use a different password for a real account.
 
-The response status is `200`. The body has the new user and the session. The `set-cookie` header has the session cookie.
+The response status is `200`. The body has the session token and the new user. The `set-cookie` header has the session cookie, `better-auth.session_token`:
+
+```json [output/sign-up.json]
+{"token":"NTWzzKcdSkNKwQpbjhNLNmB5ZtLMYc02","user":{"name":"Ada Lovelace","email":"ada@example.com","emailVerified":false,"createdAt":"2026-11-07T14:32:09.084Z","updatedAt":"2026-11-07T14:32:09.084Z","id":"CWbbjvJcxFqsNk4gJaVzO8uo0RADDsTY"}}
+```
 
 Now send the saved cookie back, and read the session:
 
 ```bash [commands/session]
-curl -i -b cookies.txt http://localhost:5173/api/auth/get-session
+curl -i -b cookies.txt http://localhost:3000/api/auth/get-session
 ```
 
-The response has the signed-in user and the time when the session ends. The cookie proved who you are.
+The response has the `session`, with `expiresAt`, the time when the session ends, and the signed-in `user`. The cookie proved who you are. Without the cookie, or after a restart of the server, the response is `null`.
 
 ::
 
