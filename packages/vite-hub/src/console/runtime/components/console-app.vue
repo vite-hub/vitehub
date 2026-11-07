@@ -442,25 +442,34 @@ const selectedProject = computed(() =>
 const selectedExternalUrl = computed(() =>
   selectedDisplay.value ? agentInvocationExternalUrl(selectedDisplay.value) : undefined,
 );
-const splitterItems: SplitterItem[] = [
-  {
-    id: "thread",
-    slot: "thread",
-    minSize: 360,
-    defaultSize: 720,
-    sizeUnit: "px",
-    class: "h-full min-h-0 min-w-0 overflow-hidden",
-  },
-  {
-    id: "details",
-    slot: "details",
-    minSize: 360,
-    maxSize: 1080,
-    defaultSize: 440,
-    sizeUnit: "px",
-    class: "h-full min-h-0 min-w-0 overflow-hidden",
-  },
-];
+const threadPanel: SplitterItem = {
+  id: "thread",
+  slot: "thread",
+  minSize: 360,
+  defaultSize: 720,
+  sizeUnit: "px",
+  order: 1,
+  class: "h-full min-h-0 min-w-0 overflow-hidden",
+};
+const detailsPanel: SplitterItem = {
+  id: "details",
+  slot: "details",
+  minSize: 360,
+  maxSize: 1080,
+  defaultSize: 440,
+  sizeUnit: "px",
+  order: 2,
+  class: "h-full min-h-0 min-w-0 overflow-hidden",
+};
+// The thread stays one mounted panel. Opening details adds a panel next to it, so the thread keeps its scroll
+// position and nothing in its header moves.
+const splitterItems = computed<SplitterItem[]>(() => detailsOpen.value ? [threadPanel, detailsPanel] : [threadPanel]);
+
+/** Opens or closes the details panel. It opens on the tab of the URL, Invocation by default. */
+function toggleDetails(): void {
+  detailsOpen.value = !detailsOpen.value;
+  if (detailsOpen.value && !inspectorActiveSurface.value) showInspectorSurface();
+}
 
 function selectActivity(id: string): void {
   selectedActivityId.value = undefined;
@@ -1397,7 +1406,7 @@ onBeforeUnmount(() => {
             />
           </div>
           <USplitter
-            v-else-if="isDesktop && detailsOpen && selectedInvocationId"
+            v-else-if="isDesktop && selectedInvocationId"
             id="agent-session-layout"
             auto-save-id="vitehub-agent-session-layout-v2"
             :items="splitterItems"
@@ -1418,7 +1427,7 @@ onBeforeUnmount(() => {
                   :tokens="selectedTokens"
                   @open-sessions="sessionsOpen = true"
                   @refresh="refresh"
-                  @toggle-details="detailsOpen = !detailsOpen"
+                  @toggle-details="toggleDetails"
                 >
                   <template v-if="selectedActions || selectedCancel" #actions>
                     <ConsoleSessionActions
@@ -1461,7 +1470,7 @@ onBeforeUnmount(() => {
                 />
               </div>
             </template>
-            <template #details>
+            <template v-if="detailsOpen" #details>
               <ConsoleSessionInspector
                 :workspace-base="apiBase"
                 v-if="invocationView"
@@ -1514,7 +1523,7 @@ onBeforeUnmount(() => {
               :tokens="selectedTokens"
               @open-sessions="sessionsOpen = true"
               @refresh="refresh"
-              @toggle-details="detailsOpen = !detailsOpen"
+              @toggle-details="toggleDetails"
             >
               <template v-if="selectedActions || selectedCancel" #actions>
                 <ConsoleSessionActions

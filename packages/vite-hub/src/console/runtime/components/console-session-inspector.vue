@@ -579,15 +579,15 @@ function message(error: unknown) {
             :aria-pressed="props.maximized"
             @click="emit('toggleMaximized')"
         /></UTooltip>
-        <UTooltip text="Toggle right panel"
+        <!-- The session header holds the details toggle. A maximized panel hides that header, so it needs its own. -->
+        <UTooltip v-if="props.maximized" text="Close session details"
           ><UButton
             class="session-inspector__icon-button"
             icon="i-lucide-panel-right"
             color="neutral"
             variant="ghost"
             size="xs"
-            aria-label="Toggle right panel"
-            aria-pressed="true"
+            aria-label="Close session details"
             @click="emit('close')"
         /></UTooltip>
       </div>

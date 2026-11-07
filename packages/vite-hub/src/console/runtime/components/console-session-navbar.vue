@@ -86,6 +86,20 @@ onBeforeUnmount(() => {
           @click="$emit('openSessions')"
         />
       </UTooltip>
+      <!-- The toggle sits before the title, so it keeps its place when the details panel opens or closes. -->
+      <UTooltip :text="hasSelection ? (detailsOpen ? 'Hide session details' : 'Show session details') : 'Select a session to inspect'">
+        <UButton
+          data-slot="session-details-toggle"
+          icon="i-lucide-panel-right"
+          color="neutral"
+          :variant="detailsOpen ? 'soft' : 'ghost'"
+          size="xs"
+          :disabled="!hasSelection"
+          aria-label="Session details"
+          :aria-pressed="detailsOpen"
+          @click="$emit('toggleDetails')"
+        />
+      </UTooltip>
     </template>
     <template #right>
       <span class="sr-only" role="status" aria-live="polite">{{ linkCopy ? linkCopyLabel : "" }}</span>
@@ -120,19 +134,6 @@ onBeforeUnmount(() => {
           :loading="loading"
           aria-label="Refresh session"
           @click="$emit('refresh')"
-        />
-      </UTooltip>
-      <UTooltip :text="hasSelection ? 'Session details' : 'Select a session to inspect'">
-        <UButton
-          data-slot="session-details-toggle"
-          icon="i-lucide-panel-right"
-          color="neutral"
-          :variant="detailsOpen ? 'soft' : 'ghost'"
-          size="xs"
-          :disabled="!hasSelection"
-          aria-label="Session details"
-          :aria-pressed="detailsOpen"
-          @click="$emit('toggleDetails')"
         />
       </UTooltip>
     </template>
