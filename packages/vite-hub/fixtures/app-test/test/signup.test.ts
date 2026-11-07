@@ -57,5 +57,5 @@ test("the nightly Schedule resets the counter", async () => {
 
   expect(run.status).toBe("succeeded")
   expect(await kv.get("signups")).toEqual([undefined, null])
-  expect(await kv.get("signups:reset-at")).toEqual([undefined, "2026-11-08T00:00:00.000Z"])
+  expect(await kv.get("last-reset")).toEqual([undefined, "2026-11-08T00:00:00.000Z"])
 })
