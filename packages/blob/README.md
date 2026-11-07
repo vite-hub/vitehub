@@ -61,7 +61,7 @@ For an R2 bucket in a [jurisdiction](https://developers.cloudflare.com/r2/refere
 Core drivers include local `fs`, [Vercel Blob](https://vercel.com/docs/vercel-blob), [Cloudflare R2](https://developers.cloudflare.com/r2/), S3-compatible stores, and [files-sdk](https://files-sdk.dev/).
 At config time, the `fs` driver uses `BLOB_FS_BASE` when `blob.base` is omitted, then defaults to `.vitehub/data/blob`.
 
-Filesystem writes stage bytes under `<base>/.vitehub/blob-writes` and rename complete files into place. Each new payload inode has an immutable metadata sidecar prepared before the payload rename. Readers select that inode’s metadata and retry if the payload changes during the read, so replacements expose matching bytes, MIME types, size, and custom metadata. Legacy files and sidecars remain readable. Deletion removes metadata for the payload generation observed before deletion, preserving concurrent replacements that are still being prepared. Older generation sidecars and interrupted publications can leave small sidecars; deletion does not sweep these because a sweep could remove a concurrent writer’s metadata. These are internal metadata, not additional payload copies. Workspace history stores keep file MIME types in their immutable manifests.
+Filesystem writes stage bytes under `<base>/.vitehub/blob-writes` and rename complete files into place. Each new payload inode has an immutable metadata sidecar prepared before the payload rename. Readers select that inode’s metadata and retry if the payload changes during the read, so replacements expose matching bytes, MIME types, size, and custom metadata. Each sidecar also records the SHA-256 hash and size of its bytes. When you copy, restore, or move the data folder, the payloads get new inodes; a reader then accepts an older sidecar of the same pathname only if its recorded hash matches the current bytes, and saves it under the new inode. A sidecar that records a hash applies only while the bytes still match it, so a file you edit in place loses its metadata. Sidecars written before this hash was recorded do not survive a copy. Legacy files and sidecars remain readable. Deletion removes metadata for the payload generation observed before deletion, preserving concurrent replacements that are still being prepared. Older generation sidecars and interrupted publications can leave small sidecars; deletion does not sweep these because a sweep could remove a concurrent writer’s metadata. These are internal metadata, not additional payload copies. Workspace history stores keep file MIME types in their immutable manifests.
 
 A stopped process can leave staging files. After stopping every writer to the filesystem store, inspect this directory and remove it to reclaim unfinished writes. For the default base:
 
@@ -73,6 +73,19 @@ rm -rf .vitehub/data/blob/.vitehub/blob-writes
 This maintenance removes staging files. Published objects and their metadata remain in place. Do not run it while writers are active.
 
 On Vercel, the `vercel-blob` driver uses OIDC when the project has `BLOB_STORE_ID`, which Vercel adds when you connect a store. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`. Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Configured tokens always take precedence over OIDC.
+
+## Remote stores in development
+
+`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as Vercel Blob, from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel preset, uses the local `fs` driver in `.vitehub/data/blob`. On the Cloudflare preset, a store without a `driver` uses the R2 binding of the dev runner when it has one, which is a local emulation, and the local `fs` driver without one.
+
+```ts
+export default defineConfig({
+  blob: { remote: true },
+  plugins: [hubBlob(), nitro()],
+})
+```
+
+With `remote: true`, `vite dev` uses the real store and prints `Blob store "<name>" is remote` on first use. Writes then change real data. `vitehub inspect definitions --kind blob` shows `Development: Remote`. On a `cloudflare-r2` store, `remote: true` uses the R2 API and its HTTP credentials, not the local binding. Builds ignore `remote`. An explicit `driver` is used in `vite dev` as configured, with or without `remote`. A `remote` value that is not a boolean fails with `BLOB_C0017`, and `remote: true` on a local `fs` store fails with `BLOB_C0018`.
 
 Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.

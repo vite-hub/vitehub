@@ -513,6 +513,11 @@
       "import": "./dist/browser/providers/local.js",
       "default": "./dist/browser/providers/local.js"
     },
+    "./bundle": {
+      "types": "./dist/bundle.d.ts",
+      "import": "./dist/bundle.js",
+      "default": "./dist/bundle.js"
+    },
     "./channels": {
       "types": "./dist/channels.d.ts",
       "import": "./dist/channels.js",
@@ -1303,6 +1308,7 @@
     "@types/json-schema": "catalog:ai",
     "@types/node": "catalog:tooling",
     "@valibot/to-json-schema": "catalog:runtime",
+    "@vite-hub/bundle": "workspace:*",
     "@vite-hub/cli": "workspace:*",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
