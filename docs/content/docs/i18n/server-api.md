@@ -121,6 +121,30 @@ When calls overlap on the same page or server request, the latest selection wins
 
 On the server, `setLocale()` switches only the current request, for example to answer in the locale of a user profile. It does not write a cookie. To save the choice of a person from a server route, set the `locale` cookie in the response.
 
+## useTranslations
+
+`useTranslations()` from `vite-hub/i18n/server` reads, saves, and publishes translations in the Workspace of [`i18n.workspace`](/docs/i18n/configure#store-translations-in-a-workspace). A save goes to the `draft` ref, so people and Agents can prepare translations without changing the site. `publish()` copies the changed drafts to `published` in one revision, and the server uses them on the next request.
+
+```ts [server/routes/translations.post.ts]
+import { useTranslations } from 'vite-hub/i18n/server'
+
+export default async () => {
+  const translations = useTranslations()
+  const [error] = await translations.save({ locale: 'es', source: 'Payment received', translation: 'Pago recibido', by: 'ana' })
+  if (error) return { error }
+  return await translations.publish({ message: 'Spanish checkout' })
+}
+```
+
+| Method | Returns |
+| --- | --- |
+| `save({ locale, source, context?, translation, review?, by? })` | `[error, { id, revision }]`. `review` defaults to `edited`. |
+| `list(locale, { ref? })` | `[error, records]` by message ID. `ref: "draft"` shows the published records with the drafts on top. |
+| `publish({ message? })` | `{ revision, published }`. With no changed drafts, `published` is `0`. |
+| `revision()` | The published revision that the server uses, or `build` before the first publish. |
+
+`save()` and `list()` return [`I18N_UNKNOWN_LOCALE`](/docs/i18n/limits-and-errors#i18n_unknown_locale) for the source locale or a locale that is not in `i18n.locales`. Without `i18n.workspace`, `useTranslations()` throws [`I18N_NO_WORKSPACE`](/docs/i18n/limits-and-errors#i18n_no_workspace). Workspace errors, such as a conflict with another save at the same time, throw.
+
 ## Vue
 
 Import the Vue API from `vite-hub/i18n/vue`. Nuxt 5 apps get the plugin from `vite-hub/nuxt` and `useLocale()` as an auto-import.
@@ -136,7 +160,8 @@ Import the Vue API from `vite-hub/i18n/vue`. Nuxt 5 apps get the plugin from `vi
 
 | Type | Meaning |
 | --- | --- |
-| `I18nOptions` | The `i18n` option: `{ locales, cookie? }`. |
+| `I18nOptions` | The `i18n` option: `{ locales, cookie?, workspace? }`. |
+| `TranslationRecord` | One translation: `{ source, context?, translation, review?, updatedAt?, by? }`. |
 | `MessageDescriptor` | What `msg` returns and `translate()` takes. |
 | `MessageValue` | A value in a message: a string, a number, or `{ name: value }`. |
 | `PluralForms` | The forms of `plural()` and `selectOrdinal()`. |

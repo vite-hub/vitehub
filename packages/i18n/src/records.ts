@@ -1,6 +1,7 @@
-import { createHash } from "node:crypto"
 import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
+
+import { generateMessageId } from "@lingui/message-utils/generateMessageId"
 
 import { idFromFileName, isRecord, recordPath } from "./record-format.ts"
 
@@ -14,7 +15,7 @@ export { recordFileName, recordPath } from "./record-format.ts"
  * context. Two places with the same text and context share one ID and one translation.
  */
 export function messageId(source: string, context?: string): string {
-  return createHash("sha256").update(`${source}\u001F${context ?? ""}`).digest("base64url").slice(0, 6)
+  return generateMessageId(source, context)
 }
 
 export interface RecordProblem {

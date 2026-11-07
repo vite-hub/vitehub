@@ -129,6 +129,8 @@ describe("build message snapshots", () => {
     expect([...manifestIO.files.keys()]).toEqual([join(root, ".vitehub/i18n/manifest.json")])
     expect(Object.keys(manifest.environments).sort()).toEqual(["client", "ssr"])
     expect(manifest.environments.ssr![messageId("Server message")]?.message).toBe("Server message")
+    const clientIds = await hook(plugin.renderChunk!).call(server as never, 'export const clientIds = "__VITEHUB_I18N_CLIENT_IDS__"', {} as never, {} as never, {} as never)
+    expect(clientIds).toMatchObject({ code: `export const clientIds = ${JSON.stringify([messageId("Browser message")])}` })
   })
 
   it("replaces changed messages, retains cached modules, and removes modules that leave a watch build", async () => {
