@@ -163,6 +163,28 @@ describe("documents() with locales", () => {
     expect(await rejection(docs.save("guide", { data: { title: "Guide" } }, { sourceDigest: b }))).toMatchObject({ code: "CONTENT_R0008", message: expect.stringMatching(/translation/) })
   })
 
+  it("compares a translation written through Workspace with the source locale file of its id only", async () => {
+    const { docs, workspace } = await setup()
+    await docs.save("guide", { data: { title: "Guide" }, body: "Hello.\n" })
+    await docs.save("intro", { data: { title: "Intro" } })
+    const history = useWorkspace(workspace as never, { mode: "write" }).history
+    const write = async (derivedFrom: { path: string, digest: string }) => {
+      const head = await history.head({ ref: "draft" })
+      const text = `---\ntitle: Guía\nderivedFrom:\n  path: ${derivedFrom.path}\n  digest: ${derivedFrom.digest}\n---\nHola.\n`
+      await history.commit({ ref: "draft", ifHead: head!.id, changes: { put: { "docs/es/guide.md": { content: text } } } })
+    }
+    // derivedFrom names another file whose digest matches, so it says nothing about docs/en/guide.md.
+    const intro = { path: "docs/en/intro.md", digest: lineageDigest(await draftBytes(workspace, "docs/en/intro.md")) }
+    await write(intro)
+    expect(await docs.status("guide")).toMatchObject({ translations: { es: "stale" } })
+    await docs.save("guide", { data: { title: "Guide" }, body: "Hello again.\n" })
+    expect(await docs.status("guide")).toMatchObject({ translations: { es: "stale" } })
+
+    // The same write that names the source locale file of the id is current.
+    await write({ path: "docs/en/guide.md", digest: lineageDigest(await draftBytes(workspace, "docs/en/guide.md")) })
+    expect(await docs.status("guide")).toMatchObject({ translations: { es: "current" } })
+  })
+
   it("publishes a translation by id when the source locale has no version", async () => {
     const { content, docs } = await setup()
     await docs.save("only-es", { data: { title: "Solo" } }, { locale: "es" })

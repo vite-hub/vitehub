@@ -1,7 +1,7 @@
 import { defineOperation } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
-import { workspaceHistoryDefaultLimit, workspaceHistoryMaximumLimit } from "./results.ts"
+import { workspaceCommitRequestBytes, workspaceHistoryDefaultLimit, workspaceHistoryMaximumLimit } from "./results.ts"
 
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
 import type { WorkspaceChanges, WorkspaceCommitResult, WorkspaceStaleList, WorkspaceHistoryDetails, WorkspaceHistoryFile, WorkspaceHistoryList, WorkspaceHistoryRefs, WorkspaceHistoryRevision } from "./results.ts"
@@ -139,6 +139,8 @@ const commit = defineWorkspaceOperation<{ delete?: string[], ifHead: string | nu
     ref: v.optional(nonEmpty("The ref cannot be empty.")),
     workspace: name,
   }),
+  // A push sends whole files. 4 MiB fits the request body limit of every host; `vitehub push` refuses a larger push.
+  maxRequestBytes: workspaceCommitRequestBytes,
   name: "workspace.commit",
   run: async (input, context) => await (await runtime()).runWorkspaceCommit(input, context),
 }, "write")
@@ -160,5 +162,6 @@ const stale = defineWorkspaceOperation<{ ref?: string, workspace: string }, Work
 /** The `workspace.*` operations: history, refs, show, changes, commit, and stale. The Console, `vitehub workspace`, and agents run them. */
 export const workspaceOperations: readonly AnyOperation[] = [history, refs, show, changes, commit, stale]
 
+export { workspaceCommitRequestBytes } from "./results.ts"
 export type { WorkspaceStaleFile } from "./lineage.ts"
 export type { WorkspaceChangedFile, WorkspaceChanges, WorkspaceCommitResult, WorkspaceStaleList, WorkspaceHistoryContent, WorkspaceHistoryDetails, WorkspaceHistoryFile, WorkspaceHistoryList, WorkspaceHistoryRefs, WorkspaceHistoryRevision } from "./results.ts"
