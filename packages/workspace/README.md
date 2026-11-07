@@ -225,8 +225,9 @@ replace paths during an operation. Use an OS or container boundary for that isol
 See [Work on a ref in a local folder](https://vitehub.dev/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
 
 A derived file, such as a translation, can record its source as `derivedFrom: { path, digest }`
-in Markdown frontmatter, YAML, or JSON. `vitehub status` and `vitehub workspace stale <workspace>`
-list the derived files whose source changed. `@vite-hub/workspace/lineage` has the same checks.
+in Markdown frontmatter (`.md`, `.markdown`, `.mdx`), YAML, or JSON. `vitehub status` and
+`vitehub workspace stale <workspace>` list the derived files whose source changed. `workspace stale`
+also prints the source digest to write back as `derivedFrom.digest`. `@vite-hub/workspace/lineage` has the same checks.
 See [Derived files](https://vitehub.dev/docs/workspace/server-api#derived-files).
 
 ## JSON Collections
