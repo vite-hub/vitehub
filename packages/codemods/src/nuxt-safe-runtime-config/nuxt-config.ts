@@ -2,9 +2,9 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
+import { end, findProperty, keyName, line, parseProgram, start, walk } from "@vite-hub/internal/ast"
 import { createJiti } from "jiti"
 
-import { end, findProperty, keyName, line, parseProgram, start, walk } from "../ast.ts"
 import { CodemodError } from "../types.ts"
 
 import type { ArrayExpression, Expression, File, Node, ObjectExpression, ObjectProperty } from "@babel/types"

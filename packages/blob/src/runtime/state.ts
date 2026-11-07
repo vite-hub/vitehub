@@ -3,6 +3,7 @@ import {
   clearActiveCloudflareEnv,
   getActiveCloudflareBinding,
   getActiveCloudflareEnv,
+  installCloudflareRequestEnv,
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
 } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -40,6 +41,7 @@ export {
   clearActiveCloudflareEnv,
   getActiveCloudflareBinding,
   getActiveCloudflareEnv,
+  installCloudflareRequestEnv,
   runWithActiveCloudflareEnv,
   setActiveCloudflareEnv,
 }

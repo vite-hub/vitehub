@@ -470,7 +470,9 @@ function renderMessage(
   const sentAt = messageTimestamp(activity, messageRendering.now, messageRendering.mounted, activity.id === messageRendering.promptId ? messageRendering.sentAt : undefined);
   const copyStatus = messageRendering.copiedId === activity.id ? messageRendering.copyStatus : undefined;
   const commentary = activity.attributes["message.phase"] === "commentary";
-  const hasMessageMeta = (activity.role === "user" || activity.role === "assistant") && !(insideWork && commentary);
+  // Inside the work list, an assistant message is a progress note, even when the driver does not mark it as commentary.
+  const progressNote = insideWork && activity.role === "assistant";
+  const hasMessageMeta = (activity.role === "user" || activity.role === "assistant") && !progressNote;
   // The prompt names its known author; other user messages come from the viewer.
   const author = activity.id === messageRendering.promptId ? messageRendering.author : undefined;
   const roleLabel = author ?? messageRoleLabels[activity.role ?? "assistant"];
@@ -483,7 +485,7 @@ function renderMessage(
       key: activity.id,
     },
     [
-      insideWork && commentary
+      progressNote
         ? h("span", { class: "vh-visually-hidden" }, `${roleLabel} message`)
         : h("span", { class: "vh-invocation-message__role" }, roleLabel),
       activity.attributes["input.mode"] === "steer"
@@ -1441,6 +1443,14 @@ function renderActivitySequence(
   return rendered;
 }
 
+/** A model call without reasoning text or a token count has nothing to open, so the work list leaves it out. */
+function emptyModelStep(activity: InvocationActivity): boolean {
+  return (activity.kind === "model" || activity.kind === "reasoning")
+    && !activity.body?.trim()
+    && !activity.reasoningTokens
+    && !activity.truncated;
+}
+
 function renderWorkSummary(
   activities: readonly InvocationActivity[],
   invocation: AgentInvocationView,
@@ -1459,6 +1469,8 @@ function renderWorkSummary(
   const endedAt = invocation.completedAt ?? invocation.failedAt ?? invocation.cancelledAt ?? invocation.updatedAt;
   const duration = formatDuration(invocation.startedAt, endedAt);
   const elapsed = active ? formatElapsed(invocation.startedAt, messageRendering.liveNow) : undefined;
+  // A live session keeps its last step, so the list shows the model is still thinking.
+  const steps = activities.filter((activity, index) => !emptyModelStep(activity) || (active && index === activities.length - 1));
   return h("li", { class: "vh-invocation-work", key: "invocation-work" }, [
     h("details", {
       class: "vh-invocation-work__details",
@@ -1476,8 +1488,8 @@ function renderWorkSummary(
         renderDisclosureChevron("vh-invocation-work__disclosure"),
       ]),
       h("div", { "aria-hidden": "true", class: "vh-invocation-work__divider" }),
-      detailsOpen
-        ? h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen, true))
+      detailsOpen && steps.length
+        ? h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(steps, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen, true))
         : null,
     ]),
   ]);
