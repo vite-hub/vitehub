@@ -211,9 +211,9 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
     return { input: inputFromQuery({ numbers: ["limit"], operation: "kv.list", strings: ["cursor", "prefix", "store"] }, call.query), operation: "kv.list" }
   }
   if (route === "blob" && call.method === "POST") {
-    // The Blob page uploads and deletes through the same route as it lists.
+    // The Blob page uploads, deletes, and opens files through the same route as it lists.
     const { action, ...input } = body
-    if (action === "put" || action === "del") return { input, operation: `blob.${action}` }
+    if (action === "put" || action === "del" || action === "get") return { input, operation: `blob.${action}` }
     throw new ConsoleRequestError(400, "Unsupported Blob action.")
   }
   if (route === "rate-limit" && call.method === "POST") {
