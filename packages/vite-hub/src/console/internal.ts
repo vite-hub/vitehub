@@ -1,5 +1,6 @@
 import { createConsoleProjectRegistry, type ConsoleProjectRegistry } from "./project-registry.ts"
 import type { ServerEnvDescription, ServerEnvInspection } from "@vite-hub/env"
+import type { EnvBridgeRequestOptions } from "@vite-hub/env/http"
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
@@ -60,7 +61,7 @@ type ConsoleDefinitionsByRoot = ConsoleProjectRegistry<ConsoleSectionCatalog>
 
 export type ConsoleEnvInspection = ServerEnvDescription & {
   inspect?: (event: ConsoleRequestEvent) => Promise<ServerEnvInspection>
-  manage?: (request: Request) => Promise<Response>
+  manage?: (request: Request, options?: EnvBridgeRequestOptions) => Promise<Response>
 }
 
 export interface ConsoleDatabaseInspection {
@@ -376,6 +377,26 @@ export function resolveConsoleInvocations(scope: ConsoleInvocationScope = defaul
   // SAFETY: installConsoleInvocationFallback is the only writer for this process registry key.
   return processRegistry(scope)?.[consoleInvocationsKey] as AgentInvocations | undefined
     ?? scope[consoleInvocationsKey]
+}
+
+const consoleFixtureInvocationsKey: unique symbol = Symbol.for("vitehub.console.invocations.fixture")
+
+/**
+ * Marks a journal that the Console supplies to discovered Agents, such as the in-memory journal of fixture mode.
+ * It replaces the app-wide Agent journal in development.
+ */
+export function markConsoleFixtureInvocations(invocations: AgentInvocations): void {
+  Object.defineProperty(invocations, consoleFixtureInvocationsKey, { configurable: true, enumerable: false, value: true })
+}
+
+/** The Console journal when the Console supplies it, as in fixture mode. The Console reads every other journal from its owner. */
+export function resolveConsoleFixtureInvocations(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): AgentInvocations | undefined {
+  const invocations = resolveConsoleInvocations(scope)
+  if (!invocations) return undefined
+  if (Reflect.get(invocations, consoleFixtureInvocationsKey) === true) return invocations
+  // A fixture install also records its fixture revision.
+  const identity = scope[consoleInvocationsIdentityKey]
+  return identity && resolveConsoleInvocationsRevision(identity) ? invocations : undefined
 }
 
 export function installConsoleInvocationFallback(

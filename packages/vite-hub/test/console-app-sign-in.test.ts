@@ -3,6 +3,7 @@ import { defineAuth } from "@vite-hub/auth"
 import { createAuthForRequest, createAuthAccessHandler, requireAuthAccessRoutes, withAuthorization } from "@vite-hub/auth/server"
 import { getAuthForRequest, resetAuth } from "../../auth/src/server.ts"
 import { H3, H3Event } from "h3"
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
 import { createConsoleAppAuthAccess, createConsoleAppAuthPages } from "../src/console/auth-pages.ts"
@@ -77,9 +78,11 @@ function proxySignInEvent(host: "fetch" | "h3", browserOrigin = origin) {
     "x-forwarded-host": "app.example.com, proxy.internal",
     "x-forwarded-proto": "https, http",
   }
-  return host === "fetch"
-    ? { req: new Request(`http://internal:3000${path}`, { method: "POST", headers }) }
-    : { node: { req: { method: "POST", headers, url: path.slice("/portal".length), originalUrl: path, async *[Symbol.asyncIterator]() {} } } }
+  const event = host === "fetch"
+    ? new H3Event(new Request(`http://internal:3000${path}`, { method: "POST", headers }))
+    : { node: { req: { method: "POST", headers, url: path.slice("/portal".length), originalUrl: path, async *[Symbol.asyncIterator]() {} }, res: {} } }
+  installStandardContext(event)
+  return event
 }
 
 describe("Console reuses app Auth sign-in", () => {
@@ -118,12 +121,12 @@ describe("Console reuses app Auth sign-in", () => {
 
   it("opens static app Auth before its first HTTP request initializes a base URL", async () => {
     const pages = createConsoleAppAuthPages(getAuthForRequest)
-    const event = { req: new Request(`${origin}/portal/_vitehub/sign-in`) }
+    const event = new H3Event(new Request(`${origin}/portal/_vitehub/sign-in`))
     await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
     const response = await pages.signIn(event)
     expect(response.status).toBe(200)
     expect(await response.text()).toContain("Sign in with GitHub")
-    const start = await pages.signIn({ req: new Request(`${origin}/portal/_vitehub/sign-in?provider=github`, { method: "POST", headers: { origin } }) })
+    const start = await pages.signIn(new H3Event(new Request(`${origin}/portal/_vitehub/sign-in?provider=github`, { method: "POST", headers: { origin } })))
     expect(start.status).toBe(303)
     expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe(`${origin}/portal/api/auth/callback/github`)
   })

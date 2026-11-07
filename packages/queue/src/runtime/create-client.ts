@@ -8,7 +8,13 @@ export async function createQueueClient(options: QueueProviderOptions): Promise<
 
   if (options.provider === "local") {
     const { createLocalQueueRuntimeClient } = await import("../internal/runtime/local-client.ts")
-    return await createLocalQueueRuntimeClient(options)
+    return await createLocalQueueRuntimeClient({
+      base: options.base,
+      cache: options.cache,
+      provider: options.provider,
+      queue: options.queue,
+      rules: options.rules,
+    })
   }
 
   const { createVercelQueueRuntimeClient } = await import("../internal/runtime/vercel-client.ts")

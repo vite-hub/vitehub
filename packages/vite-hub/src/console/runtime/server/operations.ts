@@ -1,4 +1,5 @@
 import { defineOperation, operationAccessAllows, operationCall, operationSection } from "@vite-hub/internal/operations"
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot"
 
 import { bindConsoleAccess, consoleOperationAccess } from "./access.ts"
@@ -55,10 +56,15 @@ function legacyEvent(route: string, method: "GET" | "POST", request: LegacyReque
     env: context.env,
     context: Object.keys(params).length ? { params } : undefined,
     method,
-    req: { json: async () => request.body, method, signal: context.request?.signal, url },
-    res: context.response ?? {},
+    req: new Request(url, {
+      method,
+      signal: context.request?.signal,
+      ...(method === "POST" && request.body !== undefined ? { body: JSON.stringify(request.body), headers: { "content-type": "application/json" } } : {}),
+    }),
+    res: Object.assign(context.response ?? {}, { headers: new Headers() }),
   }
   if (context.waitUntil) event.waitUntil = context.waitUntil
+  installStandardContext(event)
   return bindConsoleAccess(context.access, event)
 }
 
@@ -287,6 +293,16 @@ const mediaAction = defineConsoleOperation({
   section: input => input.section,
 })
 
+const projectGet = defineConsoleOperation({
+  cli: { command: "info", namespace: "project" },
+  description: "Read the project: its name, the vite-hub version, and the sections and operations that this access may use.",
+  input: v.strictObject({}),
+  kind: "read",
+  name: "project.get",
+  run: async (_input, context) => (await import("./project.ts")).readConsoleProject(context.access),
+  section: false,
+})
+
 const searchQuery = defineConsoleOperation({
   cli: { namespace: "search", command: "query", positional: ["search"] },
   description: "Search the Agent Invocations of the Console.",
@@ -375,6 +391,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   invocationsWorkspace,
   logsList,
   mediaAction,
+  projectGet,
   searchQuery,
   sectionsList,
   skillsInspect,
