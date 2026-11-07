@@ -188,7 +188,7 @@ async function absoluteLinks(markdown: string, site: string | undefined): Promis
 const trimRoute = (route: string) => route.replace(/\/+$/, "") || "/"
 
 /** Find a public Markdown URL when `resolve()` misses a singleton or selects an ineligible collection. */
-async function routedMarkdown(collections: Iterable<AnyContentCollection>, page: string): Promise<{ collection: string, id: string } | null> {
+async function routedMarkdown(collections: Iterable<AnyContentCollection>, page: string): Promise<{ collection: string, id: string, locale?: string } | null> {
   for (const collection of collections) {
     if (!collection.routable || collection.format !== "markdown") continue
     let cursor: string | undefined
@@ -216,7 +216,7 @@ export async function contentMarkdownCopy(runtime: Pick<ContentCollectionsRuntim
   if (!resolved) return null
   const collection = runtime.collection(resolved.collection)
   if (!collection.routable || collection.format !== "markdown") return null
-  const document = await collection.get(resolved.id, { ref: "published" })
+  const document = await collection.get(resolved.id, { ref: "published", ...(resolved.locale === undefined ? {} : { locale: resolved.locale }) })
   if (!document) return null
   const seo: unknown = collection.seo ? document.data[collection.seo] : undefined
   const title = stringField(seo, "title") ?? stringField(document.data, collection.titleField)

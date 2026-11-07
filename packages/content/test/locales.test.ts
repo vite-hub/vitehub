@@ -8,6 +8,8 @@ import { documents } from "../src/collections.ts"
 import { defineContent } from "../src/index.ts"
 import { historyWorkspace } from "./history-workspace.ts"
 
+import type { DefineContentSeoOptions } from "../src/sitemap.ts"
+
 const cleanup: Array<() => Promise<void> | void> = []
 
 afterEach(async () => {
@@ -16,13 +18,14 @@ afterEach(async () => {
 
 const fields = { title: z.string().min(1) }
 
-async function setup(options: { url?: string } = {}) {
+async function setup(options: { url?: string, seo?: DefineContentSeoOptions } = {}) {
   const workspace = await historyWorkspace(cleanup)
   const content = defineContent({
     workspace,
     collections: {
       docs: documents({ path: "docs/{locale}/**/*.md", locales: ["en", "es"], fields, ...(options.url ? { url: options.url } : {}) }),
     },
+    ...(options.seo ? { seo: options.seo } : {}),
     logger: false,
   })
   cleanup.push(() => content.dispose())
@@ -150,6 +153,18 @@ describe("documents() with locales", () => {
       .toEqual([{ collection: "docs", id: "guide", locale: "es", change: "update" }])
     expect(await rejection(content.schedule({ at: new Date(Date.now() + 3_600_000).toISOString(), expect: [{ collection: "docs", id: "guide", locale: "es", digest: spanish.digest }] })))
       .toMatchObject({ code: "CONTENT_R0011" })
+  })
+
+  it("serves the Markdown copy of each locale", async () => {
+    const { content, docs } = await setup({ url: "/docs/:id", seo: { site: "https://example.com", markdown: true } })
+    await docs.save("guide", { data: { title: "Guide" }, body: "Hello." })
+    await docs.save("intro", { data: { title: "Intro" }, body: "Start." })
+    await docs.save("guide", { data: { title: "Guía" }, body: "Hola." }, { locale: "es" })
+    await content.publish({ collection: "docs" })
+    expect(await content.markdown("/docs/guide.md")).toBe("# Guide\n\nHello.\n")
+    expect(await content.markdown("/es/docs/guide.md")).toBe("# Guía\n\nHola.\n")
+    // A page without a translation shows the source locale, and so does its copy.
+    expect(await content.markdown("/es/docs/intro.md")).toBe("# Intro\n\nStart.\n")
   })
 
   it("puts :locale where the url pattern says", async () => {
