@@ -681,6 +681,9 @@ importers:
       '@vite-hub/docs':
         specifier: workspace:*
         version: link:../packages/docs
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../packages/internal
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../packages/ui

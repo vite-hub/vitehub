@@ -1,65 +1,85 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
+import { featureIds, featureSupport, impliedFeatures } from "@vite-hub/internal/features";
+import type { FeatureId } from "@vite-hub/internal/features";
 import { describe, expect, it } from "vitest";
 
-// The docs app reads the catalog from source until the matrix is generated from it.
-import type { FeatureHost, FeatureId, HostSupport } from "../../packages/internal/src/features.ts";
-import { featureSupport } from "../../packages/internal/src/features.ts";
-import { supportMatrixGroups } from "../app/data/support-matrix";
-import type { SupportLevel } from "../app/data/support-matrix";
+import {
+  renderSupportMatrixMarkdownTable,
+  supportLevel,
+  supportMatrixCatalogHosts,
+  supportMatrixGroups,
+} from "../app/data/support-matrix";
 
+const catalogGroups = ["server-primitives", "application-features"] as const;
 const rowFeatures: Record<string, FeatureId> = { "rate-limit": "rateLimit", sandbox: "sandboxTask" };
-const columnHosts: Record<string, FeatureHost> = {
-  cloudflare: "cloudflare",
-  deno: "deno",
-  local: "dev",
-  netlify: "netlify",
-  node: "node",
-  vercel: "vercel",
-};
+const supportPage = resolve(import.meta.dirname, "../content/docs/frameworks-hosts/support-matrix.md");
 
-/**
- * Cells where the docs matrix and the feature catalog disagree. The catalog describes what `vitehub({...})` does.
- * Each entry says why the cell differs, so a fix in either place removes the entry.
- */
-const knownDrift: Record<string, string> = {
-  "browser:dev": "The docs describe localBrowser() from code. Browser Definitions through vitehub() need the Cloudflare host.",
-  "browser:node": "The docs describe localBrowser() from code. vitehub() rejects browser on the Node host.",
-  "database:vercel": "The docs mark hosted libSQL or D1 as available. ViteHub's default SQLite file is rejected on Vercel, so the app must configure a hosted connection.",
-  "queue:netlify": "The docs describe an explicit Queue Provider. `queue` in vitehub() is a boolean with no provider option.",
-  "realtime:node": "The docs mark memory as local. The app must set realtime.authority to \"memory\" for a build.",
-  "sandboxTask:dev": "The docs say the provider is selected explicitly. Default Node development has no Sandbox Provider; Cloudflare or Vercel development uses that host's provider.",
-  "sandboxTask:netlify": "The docs describe an explicit Vercel Sandbox. vitehub() turns sandboxTask off where the host has no Sandbox.",
-  "sandboxTask:node": "The docs describe an explicit provider. vitehub() turns sandboxTask off where the host has no Sandbox.",
-  "schedule:deno": "The docs describe the standalone Deno.cron integration. vitehub() rejects schedule on the Deno host.",
-  "workflow:deno": "The docs describe explicit OpenWorkflow. The owner resolver defaults Deno hosting to Vercel Workflow.",
-  "workflow:dev": "The docs describe OpenWorkflow. The default Node host selects Vercel Workflow unless OpenWorkflow storage is configured.",
-  "workflow:node": "The docs describe OpenWorkflow. Node hosting defaults to Vercel Workflow unless OpenWorkflow storage is configured.",
-  "workspace:cloudflare": "The default store is memory in the Worker isolate. Durable state needs an explicit Artifacts or GitHub store.",
-  "workspace:vercel": "The default store is process-local memory without BLOB_READ_WRITE_TOKEN. A Blob token selects durable Vercel Blob storage.",
-};
-
-function docsLevel(support: HostSupport): SupportLevel {
-  if (support.level === "native") return support.guarantee === "process-local" ? "local" : "available";
-  return support.level === "explicit" ? "package" : "none";
+function catalogRows() {
+  return supportMatrixGroups
+    .filter((group) => catalogGroups.some((anchor) => anchor === group.anchor))
+    .flatMap((group) => group.rows);
 }
 
-function docsDisplay(support: HostSupport): string {
-  return support.level === "unsupported" ? "—" : support.display;
+function generatedTable(page: string, anchor: string): string | undefined {
+  const start = `<!-- support-matrix:${anchor}:start -->\n`;
+  const end = `\n<!-- support-matrix:${anchor}:end -->`;
+  const from = page.indexOf(start);
+  const to = page.indexOf(end);
+  return from === -1 || to === -1 ? undefined : page.slice(from + start.length, to);
 }
 
 describe("support matrix and feature catalog", () => {
-  it("maps every primitive cell of the docs matrix to the catalog", () => {
-    const group = supportMatrixGroups.find(entry => entry.anchor === "server-primitives");
-    expect(group).toBeDefined();
-    const drift: string[] = [];
-    for (const row of group!.rows) {
+  it("has one row for every catalog feature", () => {
+    const ids = catalogRows().map((row) => rowFeatures[row.id] ?? row.id);
+    expect(ids.sort()).toEqual([...featureIds].sort());
+  });
+
+  it("reads every catalog cell from the feature catalog", () => {
+    for (const row of catalogRows()) {
+      expect("values" in row, row.id).toBe(true);
       if (!("values" in row)) continue;
       const id = rowFeatures[row.id] ?? (row.id as FeatureId);
-      for (const [column, host] of Object.entries(columnHosts)) {
-        const cell = row.values[column as keyof typeof row.values];
+      for (const [column, host] of Object.entries(supportMatrixCatalogHosts)) {
         const support = featureSupport(id, host, "node");
-        if (docsLevel(support) !== cell.status || docsDisplay(support) !== (cell.display ?? "—")) drift.push(`${id}:${host}`);
+        const cell = row.values[column as keyof typeof supportMatrixCatalogHosts];
+        const requirements = impliedFeatures([id], host === "dev" ? "node" : host)
+          .map((dependency) => featureSupport(dependency, host, "node"))
+          .filter((dependency) => dependency.level !== "native");
+        if (requirements.length && support.level !== "unsupported") {
+          expect(cell.detail, `${id}:${host}`).toContain(support.detail);
+          for (const requirement of requirements) {
+            expect(cell.detail, `${id}:${host}`).toContain(requirement.detail);
+          }
+          continue;
+        }
+        expect(cell.status, `${id}:${host}`).toBe(supportLevel(support));
+        expect(cell.detail, `${id}:${host}`).toBe(support.detail);
+        expect(cell.display, `${id}:${host}`).toBe(support.level === "unsupported" ? "—" : support.display);
       }
     }
-    expect(drift.sort()).toEqual(Object.keys(knownDrift).sort());
+  });
+
+  it.each(["comments", "connections", "console"])("qualifies %s with its hosted Database requirement", (id) => {
+    const row = catalogRows().find((entry) => entry.id === id)!;
+    expect("values" in row).toBe(true);
+    if (!("values" in row)) return;
+    for (const host of ["vercel", "netlify", "deno"] as const) {
+      const cell = row.values[host];
+      expect(cell.status, `${id}:${host}`).toBe("package");
+      expect(cell.display, `${id}:${host}`).toContain("libSQL");
+      expect(cell.detail, `${id}:${host}`).toContain("database.connection");
+    }
+    for (const host of ["local", "cloudflare", "node"] as const) {
+      expect(row.values[host].status, `${id}:${host}`).toBe("available");
+    }
+  });
+
+  it("keeps the Markdown tables of the support page generated from the matrix", () => {
+    const page = readFileSync(supportPage, "utf8");
+    for (const anchor of catalogGroups) {
+      expect(generatedTable(page, anchor), anchor).toBe(renderSupportMatrixMarkdownTable(anchor));
+    }
   });
 });
