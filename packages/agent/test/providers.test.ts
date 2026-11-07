@@ -2021,7 +2021,7 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain(".replace(/(^|\\/):([^/]+)/g")
       expect(gatewayRoute).toContain("process.env.NODE_ENV === 'development'")
       expect(gatewayRoute).toContain("Discord Gateway route requires VITEHUB_DISCORD_GATEWAY_SECRET.")
-      expect(gatewayRoute).toContain('import { isViteHubBearerSecretEqual, toEventRequest } from "@vite-hub/agent/server/internal"')
+      expect(gatewayRoute).toContain('import { getStandardContext, isViteHubBearerSecretEqual } from "@vite-hub/agent/server/internal"')
       expect(gatewayRoute).not.toMatch(/from\s*["']h3["']/)
       expect(gatewayRoute).not.toContain("!== secret")
       expect(gatewayRoute).toContain("runtime: 'vite'")
@@ -2033,10 +2033,10 @@ describe("agent Vite plugin", () => {
       // the route. Run the generated handler with the real request helpers and an H3 1 event.
       const handlerSource = gatewayRoute.slice(gatewayRoute.indexOf("export default defineEventHandler(")).replace("export default ", "return ")
       const { code } = await transform(handlerSource, { loader: "ts" })
-      const { isViteHubBearerSecretEqual, toEventRequest } = await import("../src/server/internal.ts")
+      const { getStandardContext, isViteHubBearerSecretEqual } = await import("../src/server/internal.ts")
       const h3 = await import("h3")
       const gatewayHandler = new Function(
-        "defineEventHandler", "createError", "getRequestHeader", "getRouterParam", "toEventRequest", "isViteHubBearerSecretEqual",
+        "defineEventHandler", "createError", "getRequestHeader", "getRouterParam", "getStandardContext", "isViteHubBearerSecretEqual",
         "cloudflareFromEvent", "runtimeEnvValue", "agentNames", "handlers", "agentIdentities", "defaultDurationMs", "webhookRoute",
         "routePath", "waitUntilFromEvent", code,
       )(
@@ -2044,7 +2044,7 @@ describe("agent Vite plugin", () => {
         (input: { statusCode: number }) => Object.assign(new Error("H3 error"), input),
         h3.getRequestHeader,
         () => "support",
-        toEventRequest,
+        getStandardContext,
         isViteHubBearerSecretEqual,
         () => undefined,
         (_cloudflare: unknown, key: string) => key === "VITEHUB_DISCORD_GATEWAY_SECRET" ? "gateway-secret" : undefined,
@@ -2062,7 +2062,7 @@ describe("agent Vite plugin", () => {
           headers: { authorization, host: "app.example", "x-forwarded-proto": "https" },
           method: "POST",
           url: "/api/_vitehub/agents/support/discord/gateway",
-        }) },
+        }), res: {} },
       })
       await expect(gatewayHandler(h3V1Event("Bearer wrong"))).rejects.toMatchObject({ statusCode: 401 })
       const accepted = await gatewayHandler(h3V1Event("Bearer gateway-secret"))
@@ -2667,12 +2667,12 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain('["support"]: {"name":"support"}')
       expect(webhookRoute).not.toContain('import { createCloudflareAgentState } from "@vite-hub/agent/cloudflare"')
       expect(webhookRoute).toContain("async function toRequest(event: H3Event)")
-      expect(webhookRoute).toContain("const request = toEventRequest(event)")
+      expect(webhookRoute).toContain("const request = getStandardContext(event).req")
       expect(webhookRoute).toContain("body: request.body ?? undefined")
       expect(webhookRoute).not.toContain("readRawBody(event)")
       expect(webhookRoute).toContain("createAgentWebhookRequest({")
       expect(webhookRoute).toContain("node: event.node")
-      expect(webhookRoute).toContain("signal: event.req?.signal")
+      expect(webhookRoute).toContain("signal: request.signal")
       expect(webhookRoute).not.toContain("return event.request")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event: H3Event)")
       expect(webhookRoute).not.toContain("function chatStateFromCloudflare(cloudflare:")
@@ -2694,24 +2694,24 @@ describe("agent Vite plugin", () => {
 
       const requestHelpers = webhookRoute.slice(webhookRoute.indexOf("async function toRequest"), webhookRoute.indexOf("type ViteHubGeneratedCloudflare"))
       const { code } = await transform(requestHelpers, { loader: "ts", format: "esm" })
-      const { createAgentWebhookRequest, toEventRequest } = await import("../src/server/internal.ts")
-      const toRequest = new Function("toEventRequest", "createAgentWebhookRequest", `${code}\nreturn toRequest`)(
-        toEventRequest,
+      const { createAgentWebhookRequest, getStandardContext } = await import("../src/server/internal.ts")
+      const toRequest = new Function("getStandardContext", "createAgentWebhookRequest", `${code}\nreturn toRequest`)(
+        getStandardContext,
         createAgentWebhookRequest,
       ) as (event: unknown) => Promise<Request>
-      const request = await toRequest({ method: "GET", req: new Request("https://example.com/api/agents/support/chat", { headers: { authorization: "Bearer test-token", "x-empty": "" } }) })
+      const request = await toRequest({ method: "GET", req: new Request("https://example.com/api/agents/support/chat", { headers: { authorization: "Bearer test-token", "x-empty": "" } }), res: { headers: new Headers() } })
       expect([...request.headers]).toEqual([["authorization", "Bearer test-token"], ["x-empty", ""]])
       // Nitro 2, which Nuxt 4 runs, passes H3 1 events: the H3 2 helpers cannot read their Node request.
       const nodeBody = (async function* () { yield new TextEncoder().encode('{"messages":'); yield new TextEncoder().encode("[]}") })()
       const nodeRequest = Object.assign(nodeBody, { headers: { host: "127.0.0.1:4731", "set-cookie": ["a=1", "b=2"], "x-absent": undefined }, method: "POST", once: () => undefined, url: "/api/_vitehub/agents/support/chat?x=1" })
-      const fromNode = await toRequest({ method: "POST", node: { req: nodeRequest }, req: nodeRequest })
+      const fromNode = await toRequest({ method: "POST", node: { req: nodeRequest, res: { once: () => undefined } }, req: nodeRequest })
       expect(fromNode.url).toBe("http://127.0.0.1:4731/api/_vitehub/agents/support/chat?x=1")
       expect(fromNode.headers.get("set-cookie")).toBe("a=1, b=2")
       expect(fromNode.headers.has("x-absent")).toBe(false)
       await expect(fromNode.text()).resolves.toBe('{"messages":[]}')
       // Behind a TLS proxy, and after a middleware already read the body with H3's readBody().
       const proxiedRequest = Object.assign((async function* () {})(), { headers: { host: "app.example", "x-forwarded-proto": "https" }, method: "POST", once: () => undefined, url: "/api/_vitehub/agents/support/chat" })
-      const proxied = await toRequest({ _requestBody: Promise.resolve(new TextEncoder().encode('{"read":true}')), method: "POST", node: { req: proxiedRequest } })
+      const proxied = await toRequest({ _requestBody: Promise.resolve(new TextEncoder().encode('{"read":true}')), method: "POST", node: { req: proxiedRequest, res: { once: () => undefined } } })
       expect(proxied.url).toBe("https://app.example/api/_vitehub/agents/support/chat")
       await expect(proxied.text()).resolves.toBe('{"read":true}')
       expect(webhookRoute).not.toContain("getRequestHeaders(event)")
@@ -12251,8 +12251,8 @@ describe("server helpers", () => {
     { timeout: 1_800_000, inputTimeout: 1_200_000, deadline: 1_200_000 },
     { timeout: 2_147_483_648, inputTimeout: undefined, deadline: 900_000 },
     { timeout: 1_800_000, inputTimeout: 2_147_483_648, deadline: 900_000 },
-  ])("expires a queued webhook invocation at its configured deadline $deadline", async ({ timeout, inputTimeout, deadline }) => {
-    vi.useFakeTimers()
+  ])("expires a queued webhook invocation at its configured deadline $deadline", { timeout: 15_000 }, async ({ timeout, inputTimeout, deadline }) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -12288,8 +12288,9 @@ describe("server helpers", () => {
 
     try {
       // #2646: a queue waits one retry interval (1 s) before its first drain of a scope that it finds through its prefix.
+      await expect.poll(() => vi.getTimerCount(), { interval: 0, timeout: 5_000 }).toBeGreaterThan(0)
       await vi.advanceTimersByTimeAsync(1_000)
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await expect.poll(() => run.mock.calls.length, { interval: 0, timeout: 5_000 }).toBe(1)
       await vi.advanceTimersByTimeAsync(899_000)
       expect(complete).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(1_000)
@@ -12297,7 +12298,7 @@ describe("server helpers", () => {
         expect(complete).not.toHaveBeenCalled()
         await vi.advanceTimersByTimeAsync(deadline - 900_000)
       }
-      await vi.waitFor(() => expect(complete).toHaveBeenCalled())
+      await expect.poll(() => complete.mock.calls.length, { interval: 0, timeout: 5_000 }).toBe(1)
       expect(retry).not.toHaveBeenCalled()
     } finally {
       await stop()
@@ -12314,8 +12315,9 @@ describe("server helpers", () => {
     { rehydrate: false, deadline: 1_800_000, setupMs: 60_000 },
     { rehydrate: false, deadline: 120_000, setupMs: 60_000 },
     { rehydrate: true, deadline: 30_000, setupMs: 60_000 },
-  ])("honors replayed webhook timeout $deadline after $setupMs setup (rehydrate: $rehydrate)", async ({ rehydrate, deadline, setupMs }) => {
-    vi.useFakeTimers()
+  ])("honors replayed webhook timeout $deadline after $setupMs setup (rehydrate: $rehydrate)", { timeout: 15_000 }, async ({ rehydrate, deadline, setupMs }) => {
+    // Keep discovery polling on real time: advancing a long execution deadline must not enqueue thousands of SQLite reads.
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
@@ -12375,14 +12377,16 @@ describe("server helpers", () => {
     const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
     try {
       // #2646: a queue waits one retry interval (1 s) before its first drain of a scope that it finds through its prefix.
+      await expect.poll(() => vi.getTimerCount(), { interval: 0, timeout: 5_000 }).toBeGreaterThan(0)
       await vi.advanceTimersByTimeAsync(1_000)
       if (deadline > setupMs) {
-        await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+        // SQLite setup must settle without consuming the execution's fake-time budget.
+        await expect.poll(() => run.mock.calls.length, { interval: 0, timeout: 5_000 }).toBe(1)
         await vi.advanceTimersByTimeAsync(replayStartedAt + deadline - Date.now() - 1_000)
         expect(complete).not.toHaveBeenCalled()
         await vi.advanceTimersByTimeAsync(1_000)
       }
-      await vi.waitFor(() => expect(complete).toHaveBeenCalled())
+      await expect.poll(() => complete.mock.calls.length, { interval: 0, timeout: 5_000 }).toBe(1)
       if (deadline <= setupMs) expect(run).not.toHaveBeenCalled()
       expect(retry).not.toHaveBeenCalled()
       expect(consoleError.mock.calls.flat().map(String).join(" ")).toContain(`timed out after ${deadline}ms`)
@@ -13063,7 +13067,9 @@ describe("server helpers", () => {
     }
   })
 
-  it("delivers state-backed Chat SDK titles once per thread across handler recreation", async () => {
+  it.each([false, true])("delivers state-backed Chat SDK titles once per thread across handler recreation, journal: %s", async (journaled) => {
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const invocations = defineAgentInvocations({ metadataContent: ["vitehub.session.title"], store: createMemoryAgentInvocationStore() })
     const state = createLibsqlAgentState({ url: "file::memory:" })
     const setThreadTitle = vi.fn(async () => undefined)
     const execute = vi.fn(({ text }: { text: string }) => `Title: ${text}`)
@@ -13079,6 +13085,7 @@ describe("server helpers", () => {
             channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
           },
           driver: { run },
+          invocations: journaled ? invocations : undefined,
           hooks: { "agent:finish": finish },
           messages: { state, stream: false, triggerHistory: "none" },
         }) as never,
@@ -13089,10 +13096,10 @@ describe("server helpers", () => {
       await expect(first(chatWebhookRequest(101, 456, "first"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
       await expect(first(chatWebhookRequest(102, 456, "second"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
       expect(run).toHaveBeenCalledTimes(2)
-      expect(execute).toHaveBeenCalledOnce()
+      expect(execute).toHaveBeenCalledTimes(journaled ? 2 : 1)
       expect(setThreadTitle).toHaveBeenCalledOnce()
       expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: first" })
-      expect(finish.mock.calls[1]![0].extensions.get("title")).toBeUndefined()
+      expect(finish.mock.calls[1]![0].extensions.get("title")).toEqual(journaled ? { title: "Title: second" } : undefined)
 
       const recreated = createHandler()
       await expect(recreated(chatWebhookRequest(103, 456, "third"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
@@ -13101,7 +13108,11 @@ describe("server helpers", () => {
       expect(setThreadTitle).toHaveBeenCalledTimes(2)
       expect(setThreadTitle).toHaveBeenNthCalledWith(1, "telegram:456", "Title: first")
       expect(setThreadTitle).toHaveBeenNthCalledWith(2, "telegram:789", "Title: other thread")
-      expect(execute).toHaveBeenCalledTimes(2)
+      expect(execute).toHaveBeenCalledTimes(journaled ? 4 : 2)
+      if (journaled) {
+        const { invocations: records } = await invocations.list()
+        expect(records.map(record => record.title).sort()).toEqual(["Title: first", "Title: second", "Title: third", "Title: other thread"].sort())
+      }
       await expect(state.get("chat:mini:channel:channel-title:telegram:456:delivered")).resolves.toBe(true)
       await expect(state.get("chat:mini:channel:channel-title:telegram:789:delivered")).resolves.toBe(true)
     } finally {

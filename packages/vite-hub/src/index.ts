@@ -1,4 +1,4 @@
-import { consoleD1Binding, consoleDatabaseUrl, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
+import { defaultDatabaseD1Binding, withComments, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache.ts"
 import { existsSync, readFileSync } from "node:fs"
 import { basename, dirname, join, relative, resolve } from "node:path"
@@ -18,6 +18,7 @@ import { hubEnv } from "@vite-hub/env/vite"
 import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig, type KVVitePluginAPI } from "@vite-hub/kv/vite"
 import { hubQueue } from "@vite-hub/queue/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
+import { hubBundle } from "@vite-hub/bundle/vite"
 import { hubSandboxTask } from "@vite-hub/sandbox/task/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
@@ -86,7 +87,7 @@ export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
 export type { LogsOptions, LogsEvlogOptions } from "./logs-vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityOptions } from "./observability-vite.ts"
-export type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
+export type { AgentInvocationsDefault, AgentInvocationsDefaultJournal } from "./_internal/agent/invocations.ts"
 
 type FrameworkDependencyName = Extract<keyof typeof frameworkPackageManifest.dependencies | keyof typeof frameworkPackageManifest.peerDependencies, `@vite-hub/${string}`>
 type DeploymentServicesManifest = Record<DeploymentService, object>
@@ -110,6 +111,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/agent": true,
   "@vite-hub/auth": true,
   "@vite-hub/blob": true,
+  "@vite-hub/bundle": false,
   "@vite-hub/browser": true,
   "@vite-hub/sandbox": true,
   "@vite-hub/channels": true,
@@ -328,9 +330,11 @@ function frameworkDependencyResolver(
 /** Agent options of `vitehub()`. */
 export interface ViteHubAgentOptions extends AgentModuleOptions {
   /**
-   * Invocation journal for Agent Definitions from `vite-hub/agent` that do not set `invocations`.
-   * `"database"` uses the app's ViteHub Database. `"memory"` keeps records in the server process.
-   * Omit it or set `false` to record no journal outside the Console.
+   * Invocation journal for Agent Definitions from `vite-hub/agent` that do not set `invocations`. The Console reads it.
+   * Omit it, or pass `{ databaseUrl, observations, retention }`, for the default journal: local SQLite at
+   * `.vitehub/data/agent-invocations.sqlite`, or the D1 binding of the default Database in a Cloudflare production build.
+   * `"database"` uses the app's ViteHub Database. `"memory"` keeps records in the server process. `false` records no journal.
+   * Requires Nitro-hosted Agents. Netlify and `runtime: "deno"` require `false` and journals on each Agent Definition.
    */
   invocations?: AgentInvocationsDefault
 }
@@ -394,6 +398,11 @@ export interface ViteHubOptions {
   /** The ViteHub Console at `/_vitehub`. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
   console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
+  /**
+   * Writes a bundle report of each production build to `.vitehub/bundle/`: client and server size, the code that loads
+   * at startup, and why each package is there. Read it with `vitehub bundle`. Off by default.
+   */
+  bundle?: boolean
   database?: boolean | DBModulePublicOptions
   email?: boolean | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
@@ -989,6 +998,8 @@ function hasExplicitBlobStore(options: boolean | BlobModuleOptions | undefined):
   return Boolean(options && typeof options === "object" && ("driver" in options || "stores" in options))
 }
 
+const presetBlobConfigs = new WeakSet<object>()
+
 function presetBlobOptions(
   plan: DeploymentPlan,
   options: boolean | BlobModuleOptions | undefined,
@@ -996,15 +1007,19 @@ function presetBlobOptions(
 ): BlobModuleOptions {
   if (hasExplicitBlobStore(options)) return options as BlobModuleOptions
   const configured = options && typeof options === "object" ? options : {}
+  const fromPreset = (blob: Exclude<BlobModuleOptions, false>) => {
+    presetBlobConfigs.add(blob)
+    return blob
+  }
   switch (plan.services.blob.supported && plan.services.blob.adapter) {
-    case "cloudflare-r2": return {
+    case "cloudflare-r2": return fromPreset({
       bucketName: process.env.BLOB_BUCKET_NAME || process.env.CLOUDFLARE_R2_BUCKET_NAME || process.env.R2_BUCKET_NAME || deploymentName,
       ...configured,
       driver: "cloudflare-r2",
-    }
-    case "fs": return { ...configured, driver: "fs" }
-    case "netlify-blobs": return { name: "vitehub-blob", ...configured, driver: "netlify-blobs" }
-    case "vercel-blob": return { ...configured, driver: "vercel-blob" }
+    })
+    case "fs": return fromPreset({ ...configured, driver: "fs" })
+    case "netlify-blobs": return fromPreset({ name: "vitehub-blob", ...configured, driver: "netlify-blobs" })
+    case "vercel-blob": return fromPreset({ ...configured, driver: "vercel-blob" })
     default: throw viteHubErrorDiagnostics.VITE_HUB_R0084({ message: "[vitehub] Missing Blob adapter for deployment preset " + JSON.stringify(plan.preset) + "." })
   }
 }
@@ -1084,13 +1099,13 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   const configuredAgent = options.agent && options.agent !== true ? options.agent : undefined
   const defaultInvocations = configuredAgent?.invocations
-  if (defaultInvocations !== undefined && defaultInvocations !== false) {
-    const store = defaultInvocations === "database" || defaultInvocations === "memory" ? defaultInvocations : defaultInvocations.store
+  if (options.agent && defaultInvocations !== false) {
+    const store = typeof defaultInvocations === "object" ? defaultInvocations.store : defaultInvocations
     if (store === "database" && !options.database) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0131({ message: "[vitehub] agent.invocations \"database\" requires database. Set database in vitehub()." })
     }
     if (configuredAgent?.runtime === "deno" || plan.preset === "netlify") {
-      throw viteHubErrorDiagnostics.VITE_HUB_R0132({ message: "[vitehub] agent.invocations requires Nitro-hosted Agents. Netlify and Deno Agent output are not supported. Set invocations on each Agent Definition." })
+      throw viteHubErrorDiagnostics.VITE_HUB_R0132({ message: "[vitehub] agent.invocations requires Nitro-hosted Agents. Netlify and Deno Agent output are not supported. Set agent.invocations to false and configure invocations on each Agent Definition." })
     }
   }
   assertFeatureSupported("browser", plan.preset, options)
@@ -1217,8 +1232,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       rpcOnly: devOperationsOnly,
       connections: options.connections,
       runtimeCapabilityImports,
-      resolveD1Binding: (root, serverDirs) => consoleD1Binding(plan.preset, options.database, { implicitDefault: true, root, serverDirs }),
-      databaseUrl: consoleDatabaseUrl(options),
       databaseDiscoveryRoot: options.database && options.database !== true ? options.database.projectRoot : undefined,
       preset: plan.preset,
       rateLimitDiscoveryRoot: options.rateLimit && options.rateLimit !== true ? options.rateLimit.projectRoot : undefined,
@@ -1258,7 +1271,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       invocationRootState,
       operationSections: devOperationsOnly ? consoleSections : undefined,
       // The dev-only RPC lists no sections, so it starts no Agent journal or other Console state.
-      sections: devOperationsOnly ? [] : consoleSections,
+      // Schedules is the exception: `vitehub schedule run` runs only the manual Schedules that its section installs.
+      sections: devOperationsOnly ? consoleSections.filter(section => section === "schedules") : consoleSections,
     })
     if (devOperationsOnly) consolePlugin.apply = "serve"
     plugins.push(consolePlugin)
@@ -1282,10 +1296,15 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     } as SandboxTaskPublicOptions)))
   }
   if (options.agent) {
-    // The Agent package does not own journal selection; the generated plugin below installs it.
+    // The generated plugin installs the journal, with the Console on or off, so the Console only reads it.
     const { invocations: _invocations, ...agentOptions } = options.agent === true ? {} : options.agent
-    if (options.database || (defaultInvocations !== undefined && defaultInvocations !== false)) {
-      plugins.push(agentInvocationsVitePlugin({ database: Boolean(options.database), default: defaultInvocations }))
+    if (defaultInvocations !== false || options.database) {
+      plugins.push(agentInvocationsVitePlugin({
+        database: Boolean(options.database),
+        default: defaultInvocations,
+        preset: plan.preset,
+        resolveD1Binding: (root, serverDirs) => defaultDatabaseD1Binding(plan.preset, options.database, { implicitDefault: true, root, serverDirs }),
+      }))
     }
     plugins.push(requireOptionalOwner(ownerModules.agentVite, "agent").hubAgent({
       ...agentOptions,
@@ -1319,7 +1338,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else plugins.push(hubConnectionsTypesCleanup())
   if (options.database) plugins.push(requireOptionalOwner(ownerModules.databaseVite, "database").hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
-    plugins.push(afterApplicationConfig(hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob` })))
+    plugins.push(afterApplicationConfig(hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob`, presetDriver: blob => Boolean(blob && presetBlobConfigs.has(blob)) })))
   }
   if (options.email) {
     const emailOptions = options.email === true
@@ -1341,6 +1360,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.queue && plan.services.queue.supported) {
     plugins.push(afterApplicationConfig(hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" })))
   }
+  if (options.bundle) plugins.push(hubBundle())
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
     // SAFETY: ViteHub adds its private generated import base to the public Rate Limit options before calling the owned integration.

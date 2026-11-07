@@ -1,9 +1,11 @@
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { handleChannelReplayRequest } from "@vite-hub/agent/server/internal"
 import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-hub/runtime"
 
 import { console } from "../../server.ts"
 import { getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
 import { consoleAccessActor, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
+import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
 import { consoleRequestJSON, consoleRequestURL, setConsoleResponseHeaders } from "./request.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -17,8 +19,7 @@ function replayError(message: string, status: number): Response {
 }
 
 function header(event: ConsoleRequestEvent, name: string): string | undefined {
-  const raw = event.req?.headers?.get(name) ?? event.headers?.get(name) ?? event.node?.req?.headers?.[name]
-  return (Array.isArray(raw) ? raw[0] : raw) ?? undefined
+  return getStandardContext(event).req.headers.get(name) ?? undefined
 }
 
 function memo() {
@@ -36,13 +37,12 @@ function memo() {
  */
 async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleAccess): Promise<Response> {
   setConsoleResponseHeaders(event)
-  const method = event.method ?? event.req?.method ?? event.node?.req?.method
-  if (method !== "POST") return replayError("Method not allowed.", 405)
+  if (getStandardContext(event).req.method !== "POST") return replayError("Method not allowed.", 405)
   // A JSON content type and a same-origin check keep browsers from sending cross-site replay requests.
   if (!header(event, "content-type")?.toLowerCase().startsWith("application/json")) return replayError("Channel replay requires application/json.", 415)
   const url = consoleRequestURL(event)
   const origin = header(event, "origin")
-  if (origin && origin !== url.origin) return replayError("Channel replay origin is not allowed.", 403)
+  if (origin && origin !== url.origin && !isConsoleCrossOriginBearerCall(consoleRequest(event), access)) return replayError("Channel replay origin is not allowed.", 403)
   let body: unknown
   try {
     body = await consoleRequestJSON(event)
@@ -65,7 +65,7 @@ async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleA
   const agent = getConsoleAgentDefinition(name)
   if (!agent) return replayError("Channel replay is not available. Enable Console invocation for this Agent.", 404)
   const actor = consoleAccessActor(access.user)
-  const tasks = createRuntimeWaitUntilController({ forward: event.waitUntil })
+  const tasks = createRuntimeWaitUntilController({ forward: getStandardContext(event).waitUntil })
   const context = createExecutionContext<AgentRuntimeContext>({
     agentIdentity: { name },
     ...(actor ? { actor } : {}),
@@ -79,5 +79,5 @@ async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleA
   return await handleChannelReplayRequest(agent, replay, { actor, maxLimit: maximumReplayItemsPerRequest, runtime: context })
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleAccess(channelReplayHandler, { section: "agents", user: true, write: true })
+const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleCors(withConsoleAccess(channelReplayHandler, { section: "agents", user: true, write: true }))
 export default guardedHandler
