@@ -24,8 +24,8 @@ addNewProjectHostIcons();
 
 /**
  * The `/new` page of a hosted Console. The stack lives in the URL query, so the page is shareable and survives a reload.
- * It prints the `vite-hub init` command, or a prompt that asks a coding agent to run it and build the app. The one-time
- * link is made only on "Create command" or "Create prompt", and its id and verifier stay out of the URL.
+ * It prints the `vite-hub init` command, or a prompt that asks a coding agent to run it. The one-time link is made once
+ * the stack has no problems, one per page view, and its id and verifier stay out of the URL.
  */
 const projects = useConsoleProjects();
 
@@ -35,14 +35,13 @@ const ticket = shallowRef<ConsolePendingLinkTicket>();
 const commandParts = computed(() => ticket.value ? newProjectCommandParts(stack.value, ticket.value, plan.value) : undefined);
 const command = computed(() => commandParts.value?.join(" "));
 
-// How the person starts the project: the command in a terminal, or a prompt for a coding agent with what the app does.
+// How the person starts the project: the command in a terminal, or a prompt for a coding agent.
 const mode = ref<"command" | "prompt">("command");
 const modeItems = [
   { label: "Terminal", value: "command", icon: "i-lucide-terminal" },
   { label: "Agent prompt", value: "prompt", icon: "i-lucide-sparkles" },
 ];
-const idea = ref("");
-const prompt = computed(() => ticket.value ? newProjectPrompt(stack.value, ticket.value, idea.value, plan.value) : undefined);
+const prompt = computed(() => ticket.value ? newProjectPrompt(stack.value, ticket.value, plan.value) : undefined);
 const output = computed(() => mode.value === "prompt" ? prompt.value : command.value);
 
 // The search filters the feature cards only. A feature that it hides stays in the stack.
@@ -56,7 +55,8 @@ const shownFeatures = computed(() => {
   });
 });
 
-// Errors show after the first "Create command", and the folder error also after the field loses focus.
+// Field errors show after Enter in a field, and the folder error also after the field loses focus. The command box
+// names the first problem at once.
 const submitted = ref(false);
 const dirBlurred = ref(false);
 const creating = ref(false);
@@ -161,13 +161,8 @@ async function focusFirstProblem(): Promise<void> {
   (target?.matches("input, button, select, textarea") ? target : target?.querySelector<HTMLElement>("input, button"))?.focus();
 }
 
-async function create(): Promise<void> {
-  submitted.value = true;
+async function makeLink(): Promise<void> {
   if (creating.value || ticket.value) return;
-  if (plan.value.problems.length) {
-    await focusFirstProblem();
-    return;
-  }
   creating.value = true;
   createError.value = undefined;
   try {
@@ -177,6 +172,17 @@ async function create(): Promise<void> {
     createError.value = error instanceof Error ? error.message : "Could not make a link. Allow this Console to use browser storage, then try again.";
   }
   creating.value = false;
+}
+
+// The command shows as soon as the stack is complete. A change after that keeps the same link.
+watch(() => plan.value.problems.length === 0, (ready) => {
+  if (ready) void makeLink();
+}, { immediate: true });
+
+// Enter in a field marks the problems and focuses the first one.
+async function create(): Promise<void> {
+  submitted.value = true;
+  if (plan.value.problems.length) await focusFirstProblem();
 }
 
 async function copy(): Promise<void> {
@@ -396,56 +402,33 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
 
         <UTabs v-model="mode" :items="modeItems" :content="false" size="xs" class="w-full" :ui="{ trigger: 'flex-1 justify-center' }" />
 
-        <UFormField v-if="mode === 'prompt'" label="What should the app do?" hint="Optional" name="idea">
-          <UTextarea
-            v-model="idea"
-            :rows="3"
-            autoresize
-            :maxrows="8"
-            placeholder="A Slack bot that sums up long threads"
-            class="w-full"
-            @keydown.enter.meta.prevent="create"
-            @keydown.enter.ctrl.prevent="create"
-          />
-        </UFormField>
-
-        <template v-if="!ticket">
-          <p class="vitehub-new-project__text">The {{ mode === "prompt" ? "prompt" : "command" }} carries a one-time link to this Console. This browser keeps its key.</p>
-          <UButton type="submit" block :loading="creating" :label="creating ? 'Creating…' : mode === 'prompt' ? 'Create prompt' : 'Create command'" />
-          <p v-if="submitted && plan.problems.length" class="vitehub-new-project__error">
-            <UIcon name="i-lucide-circle-alert" class="vitehub-new-project__error-icon" aria-hidden="true" />
-            Fix the marked fields first.
-          </p>
-          <p v-if="createError" role="alert" class="vitehub-new-project__error">
-            <UIcon name="i-lucide-circle-alert" class="vitehub-new-project__error-icon" aria-hidden="true" />
-            {{ createError }}
-          </p>
-        </template>
-
-        <template v-else>
-          <div class="overflow-hidden rounded-lg border border-default">
-            <div class="flex items-center justify-between gap-3 border-b border-default py-1.5 pr-1.5 pl-3">
-              <span class="text-xs text-muted">{{ mode === "prompt" ? "Prompt" : "Terminal" }}</span>
-              <UButton
-                color="neutral"
-                variant="ghost"
-                size="xs"
-                :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
-                :label="copied ? 'Copied' : 'Copy'"
-                :disabled="!output"
-                @click="copy"
-              />
-            </div>
-            <pre v-if="mode === 'prompt' && prompt" class="vitehub-new-project__command vitehub-new-project__prompt"><code>{{ prompt }}</code></pre>
-            <!-- Each flag with its value is one box, so lines wrap between flags and not inside `--option`. -->
-            <pre v-else-if="mode === 'command' && commandParts" class="vitehub-new-project__command"><code><template v-for="(part, index) in commandParts" :key="index"><span>{{ part }}</span>{{ index < commandParts.length - 1 ? " " : "" }}</template></code></pre>
-            <p v-else class="p-3 text-sm text-muted">Fix the marked fields to update the {{ mode === "prompt" ? "prompt" : "command" }}.</p>
+        <div class="overflow-hidden rounded-lg border border-default">
+          <div class="flex items-center justify-between gap-3 border-b border-default py-1.5 pr-1.5 pl-3">
+            <span class="text-xs text-muted">{{ mode === "prompt" ? "Prompt" : "Terminal" }}</span>
+            <UButton
+              color="neutral"
+              variant="ghost"
+              size="xs"
+              :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
+              :label="copied ? 'Copied' : 'Copy'"
+              :disabled="!output"
+              @click="copy"
+            />
           </div>
-          <span class="sr-only" aria-live="polite">{{ copied ? `${mode === "prompt" ? "Prompt" : "Command"} copied` : "" }}</span>
-          <p v-if="mode === 'prompt'" class="vitehub-new-project__text text-default">Paste it into your coding agent, such as Claude Code or Codex. Open the link that it gives you in this browser.</p>
-          <p v-else class="vitehub-new-project__text text-default">Run it in your terminal, deploy the app, then open the link that the CLI prints in this browser.</p>
-          <p class="vitehub-new-project__text">The link works once, for 24 hours, in this browser profile. A change above updates the {{ mode === "prompt" ? "prompt" : "command" }} and keeps the same link.</p>
-        </template>
+          <pre v-if="mode === 'prompt' && prompt" class="vitehub-new-project__command vitehub-new-project__prompt"><code>{{ prompt }}</code></pre>
+          <!-- Each flag with its value is one box, so lines wrap between flags and not inside `--option`. -->
+          <pre v-else-if="mode === 'command' && commandParts" class="vitehub-new-project__command"><code><template v-for="(part, index) in commandParts" :key="index"><span>{{ part }}</span>{{ index < commandParts.length - 1 ? " " : "" }}</template></code></pre>
+          <div v-else-if="createError" role="alert" class="grid justify-items-start gap-2 p-3">
+            <p class="vitehub-new-project__error">
+              <UIcon name="i-lucide-circle-alert" class="vitehub-new-project__error-icon" aria-hidden="true" />
+              {{ createError }}
+            </p>
+            <UButton color="neutral" variant="outline" size="xs" label="Try again" @click="makeLink" />
+          </div>
+          <p v-else class="p-3 text-sm text-muted">{{ plan.problems[0]?.message ?? "Making the link…" }}</p>
+        </div>
+        <span class="sr-only" aria-live="polite">{{ copied ? `${mode === "prompt" ? "Prompt" : "Command"} copied` : "" }}</span>
+        <p v-if="mode === 'command' && commandParts" class="vitehub-new-project__text">Run it, deploy the app, then open the link that it prints in this browser.</p>
       </aside>
     </form>
   </div>
