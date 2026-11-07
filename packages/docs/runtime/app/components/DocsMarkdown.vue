@@ -33,7 +33,13 @@ const callouts: Record<string, Component> = {
   Callout: callout("note"),
 }
 
-const resolved = computed(() => ({ ...blocks, ...callouts, ...customComponents, ...props.components }))
+// Nuxt UI's global `ProseCodeTree` would draw `::code-tree` before the content components get a turn, so the package's
+// own, drawn in this design, is named here. A site's `components` still replace it.
+const own: Record<string, Component> = {
+  CodeTree: defineAsyncComponent(() => import("./content/CodeTree.vue")),
+}
+
+const resolved = computed(() => ({ ...blocks, ...callouts, ...own, ...customComponents, ...props.components }))
 const componentsManifest = (tag: string) => contentComponents[tag]?.()
 </script>
 

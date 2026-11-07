@@ -46,6 +46,7 @@ onBeforeUnmount(() => resizes?.disconnect())
 <template>
   <div class="vh-example" :data-view="view">
     <div class="vh-example-bar">
+      <p v-if="$slots.title" class="vh-example-title"><slot name="title" /></p>
       <a v-if="play" :href="play" class="vh-example-play">
         <UIcon name="i-lucide-flask-conical" class="size-3.5" />
         Playground
@@ -91,6 +92,17 @@ onBeforeUnmount(() => resizes?.disconnect())
   justify-content: flex-end;
   gap: 0.75rem;
   margin-bottom: 0.5rem;
+}
+
+/* A title, such as Correct or Incorrect on a lint rule's examples, leads the bar. */
+.vh-example-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin: 0 auto 0 0;
+  color: var(--ui-text-highlighted);
+  font-size: 0.875rem;
+  font-weight: 500;
 }
 
 .vh-example-play {

@@ -173,7 +173,7 @@ The shell is a set of Nuxt components. Create a component with the same name in 
 | `DocsCatalogFooter` | The catalog at the end of an Overview. |
 | `DocsCodePanel`, `DocsCodePre` | The tutorial code panel and code blocks. |
 
-Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, `::example` and `::examples`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, `layouts/default.vue`, or catch-all page also replaces the package one. A catch-all page replaces the docs page only when it answers every docs page, such as `pages/[...slug].vue`. One in another folder, such as `pages/blog/[...slug].vue`, does not.
+Markdown blocks are components in `components/content/`. The package has `::tutorial-step`, `::product-features` with `:::product-feature-item`, `::example` and `::examples`, `::correct` and `::incorrect`, `::code-tree`, `::page-list`, and `::agent-only`. Add your own in `app/components/content/`, for example `ProductHero.vue` for `::product-hero`. An app `app.vue`, `error.vue`, `layouts/docs.vue`, `layouts/default.vue`, or catch-all page also replaces the package one. A catch-all page replaces the docs page only when it answers every docs page, such as `pages/[...slug].vue`. One in another folder, such as `pages/blog/[...slug].vue`, does not.
 
 Components read the site with auto-imported composables: `useDocsConfig()`, `useDocsManifest()`, `useDocsPage()`, `useDocsSection()`, `useDocsIcons()`, and `useDocsAssistant()`.
 
@@ -192,6 +192,14 @@ Some **bold** text.
 With `name`, the preview is a Vue file in `app/examples/`, and Code shows its source. `::example{name="ButtonExample"}` renders `app/examples/ButtonExample.vue`. `height` keeps that many rem for it before its module loads, `flush` shows it edge to edge at that height, and `reset` adds a control that mounts it again. `play` links the example to a playground that opens it.
 
 `::examples` puts several `:::example` blocks in underlined tabs named by their `label`. The examples share one view, so a reader who picks Code keeps reading code from tab to tab. A site that renders the preview itself, as comark-ui does to write `play`, passes a parser plugin named `docs-examples`.
+
+`::correct` and `::incorrect` are examples titled Correct and Incorrect, as on a lint rule's page. Any example takes a `#title` slot that leads its bar, and these two fill it; `title` renames them. Markdown that doesn't parse, such as broken frontmatter on purpose, shows its source alone.
+
+### Code trees and page lists
+
+`::code-tree` shows its code blocks as a project: a file tree beside the open file. Each block names its file, such as ```` ```ts [server/api/kv.ts] ````, and `default-value` picks the file that opens first.
+
+`::page-list` lists the pages of the page's section under their sidebar groups, with their icons and descriptions, for an Overview. `section` lists another section, and `exclude="Start"` leaves groups out. Put a plain Markdown list inside it: the site doesn't show it, and agents read it in the Markdown copy.
 
 ### Comark plugins
 

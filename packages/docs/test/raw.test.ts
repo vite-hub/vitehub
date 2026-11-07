@@ -24,7 +24,7 @@ describe("toRawMarkdown", () => {
       'title: Storage',
       '---',
       '::product-hero{tagline="Save values by key." hosts="Node, Cloudflare"}',
-      '  :::product-files',
+      '  :::code-tree',
       '  ```ts [server/api/value.ts]',
       '  const value = "::literal"',
       '  ```',

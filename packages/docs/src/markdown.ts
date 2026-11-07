@@ -65,6 +65,8 @@ export function createDocsParser(options: DocsParserOptions = {}): (markdown: st
 }
 
 const markdownLanguages = new Set(["md", "markdown", "mdc"])
+/** `::correct` and `::incorrect` are examples with a title. */
+const exampleTags = new Set(["example", "correct", "incorrect"])
 
 /**
  * `::example` shows a preview and its source, a switch apart. Around a Markdown code block, the preview is that
@@ -77,7 +79,7 @@ function examples(parse: (markdown: string) => Promise<DocsDocument>, sources: R
       if (typeof node === "string" || node[0] === null) continue
       // SAFETY: an element node is [tag, attributes, ...children].
       const children = node.slice(2) as ComarkNode[]
-      if (node[0] !== "example") {
+      if (!exampleTags.has(node[0])) {
         await visit(children)
         continue
       }
@@ -94,8 +96,9 @@ function examples(parse: (markdown: string) => Promise<DocsDocument>, sources: R
       const pre = children.find((child): child is Extract<ComarkNode, unknown[]> => typeof child !== "string" && child[0] === "pre")
       const language = pre && typeof pre[1].language === "string" ? pre[1].language : ""
       if (!pre || !markdownLanguages.has(language)) continue
-      const { nodes: preview } = await parse(typeof pre[1].code === "string" ? pre[1].code : textContent(pre))
-      node.splice(2, 0, ["example-preview", {}, ...preview])
+      // A lint rule's example can be broken on purpose, such as invalid frontmatter, so it shows its source alone.
+      const preview = await parse(typeof pre[1].code === "string" ? pre[1].code : textContent(pre)).catch(() => undefined)
+      if (preview) node.splice(2, 0, ["example-preview", {}, ...preview.nodes])
     }
   }
   return { name: "docs-examples", post: state => visit(state.tree.nodes) }

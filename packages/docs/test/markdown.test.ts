@@ -176,6 +176,20 @@ describe("docs examples", () => {
     expect(textContent(find(nodes, "pre")!)).toBe(source)
   })
 
+  it("renders a lint rule's correct and incorrect examples like an example", async () => {
+    const { nodes } = await parse(["::incorrect", "```md", "A [link](./missing.md).", "```", "::", "", "::correct", "```md", "A [link](./ducks.md).", "```", "::"].join("\n"))
+
+    expect(find(find(nodes, "incorrect")?.slice(2) as ComarkNode[], "example-preview")).toBeDefined()
+    expect(find(find(nodes, "correct")?.slice(2) as ComarkNode[], "example-preview")).toBeDefined()
+  })
+
+  it("shows only the source of an example whose Markdown doesn't parse", async () => {
+    const { nodes } = await parse(["::incorrect", "````md", "---", "title: [unclosed", "---", "````", "::"].join("\n"))
+
+    expect(find(nodes, "example-preview")).toBeUndefined()
+    expect(find(nodes, "pre")).toBeDefined()
+  })
+
   it("names the missing file of an unknown example", async () => {
     await expect(parse("::example{name=\"MissingExample\"}\n::")).rejects.toThrow("no MissingExample.vue")
   })
