@@ -10,6 +10,7 @@ import { writeEnvironmentReport } from "./files.ts"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { Plugin } from "vite"
 import type { ModuleInfoLike } from "./collect.ts"
+import type { PageRoute } from "./routes.ts"
 
 interface BundlerConfig { plugins?: unknown }
 
@@ -25,8 +26,12 @@ interface BundleNitroModule {
 }
 
 export type BundleVitePlugin = Plugin & {
-  /** Frameworks such as Nuxt start one session before running their Vite and Nitro phases. */
-  api: { startBuild: () => string }
+  api: {
+    /** The page routes of the app. The client report keeps them, so `vitehub bundle` can say what each route loads. */
+    setRoutes: (routes: PageRoute[]) => void
+    /** Frameworks such as Nuxt start one session before running their Vite and Nitro phases. */
+    startBuild: () => string
+  }
   nitro: BundleNitroModule
   vitehub: ViteHubCliPluginMetadata
 }
@@ -53,7 +58,7 @@ function newBuildId(): string {
   return `${new Date().toISOString()}-${randomUUID()}`
 }
 
-function writeReport(context: OutputContext, bundle: Record<string, unknown>, options: { build: string, environment: string, outDir: string, root: string, side: "client" | "server" }): void {
+function writeReport(context: OutputContext, bundle: Record<string, unknown>, options: { build: string, environment: string, outDir: string, root: string, routes?: PageRoute[], side: "client" | "server" }): void {
   // Nitro's rootDir can end with a slash, and Vite's root can be Nuxt's srcDir. Both must name the same build.
   const root = resolve(options.root)
   const outDir = resolve(options.outDir)
@@ -103,6 +108,7 @@ function bundleNitroModule(buildId: () => string | undefined): BundleNitroModule
 export function hubBundle(options: BundleViteOptions = {}): BundleVitePlugin {
   let coordinatedBuild = options.buildId
   const builds = new WeakMap<object, string>()
+  let routes: PageRoute[] = []
   return {
     name: "@vite-hub/bundle/vite",
     enforce: "post",
@@ -124,12 +130,16 @@ export function hubBundle(options: BundleViteOptions = {}): BundleVitePlugin {
       writeReport(this, bundle as Record<string, unknown>, {
         build: coordinatedBuild ?? builds.get(environment)!,
         environment: environment.name,
+        routes,
         outDir: output.dir ?? resolve(config.root, config.build.outDir),
         root: resolveViteHubProjectRoot(config.root),
         side: config.consumer === "server" ? "server" : "client",
       })
     },
     api: {
+      setRoutes(next) {
+        routes = next
+      },
       startBuild() {
         coordinatedBuild = newBuildId()
         return coordinatedBuild
@@ -139,3 +149,6 @@ export function hubBundle(options: BundleViteOptions = {}): BundleVitePlugin {
     vitehub: { cli: bundleCliContributor },
   }
 }
+
+export { nuxtPageRoutes } from "./routes.ts"
+export type { NuxtPageLike, PageRoute } from "./routes.ts"

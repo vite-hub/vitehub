@@ -21,6 +21,7 @@ import { cloudflareExportConditions, detectPreset } from "./deployment.ts"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { isPlainObject as isRecord } from "@vite-hub/internal/object"
 import { resolveBlobViteConfig } from "@vite-hub/blob/vite"
+import { nuxtPageRoutes } from "@vite-hub/bundle/vite"
 import { resolveEmailTemplateModulePath } from "@vite-hub/email/vite"
 import { createEnvImportAliases } from "@vite-hub/env/vite"
 import { resolveKVViteConfig } from "@vite-hub/kv/vite"
@@ -50,7 +51,7 @@ import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleAccess, assertConsoleProductionAccess, closeConsoleInvocationRootState, consoleAuthConfig, consoleOpenAccessBuildWarning, resolveConsoleOptions, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 
 import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
-import type { BundleVitePlugin } from "@vite-hub/bundle/vite"
+import type { BundleVitePlugin, NuxtPageLike } from "@vite-hub/bundle/vite"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { CommentsVitePlugin } from "@vite-hub/comments/vite"
 import type { AuthModuleOptions } from "@vite-hub/auth"
@@ -170,7 +171,11 @@ function publishNuxtDevServer(nuxt: NuxtLike): void {
 type NuxtLike = {
   callHook?: (name: "restart") => Promise<void>
   hook?: {
-    (name: "app:templatesGenerated", callback: (app: { components: Parameters<CommentsVitePlugin["api"]["setComponents"]>[0] }) => Promise<void>): void
+    (name: "app:templatesGenerated", callback: (app: {
+      components: Parameters<CommentsVitePlugin["api"]["setComponents"]>[0]
+      layouts?: Record<string, { file: string }>
+      pages?: NuxtPageLike[]
+    }) => Promise<void> | void): void
     (name: "close" | "nitro:config", callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>)): void
     (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
     (name: "build:before" | "modules:done", callback: () => void): void
@@ -1268,7 +1273,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   ]
   // Nuxt runs separate Vite builds and then Nitro; all phases belong to this build command.
   const bundlePlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/bundle/vite") as BundleVitePlugin | undefined
-  if (bundlePlugin && !nuxt.options.dev) nuxt.hook?.("build:before", () => { bundlePlugin.api.startBuild() })
+  if (bundlePlugin && !nuxt.options.dev) {
+    nuxt.hook?.("build:before", () => { bundlePlugin.api.startBuild() })
+    // Nuxt resolves pages and layouts before the client build, so the client report can say what each route loads.
+    nuxt.hook?.("app:templatesGenerated", (app) => { bundlePlugin.api.setRoutes(nuxtPageRoutes(app.pages ?? [], app.layouts)) })
+  }
   // Nuxt rewrites production component names using its resolved registry, including directory prefixes and modes.
   // SAFETY: The plugin name identifies the Comments plugin and its public component registry API.
   const commentsPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/comments/vite") as CommentsVitePlugin | undefined
