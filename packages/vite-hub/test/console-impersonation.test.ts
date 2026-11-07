@@ -47,14 +47,11 @@ function jar(cookie: string, response: Response): string {
 }
 
 function manage(body: unknown, cookie = "") {
-  return authManage({
-    res: { headers: new Headers() },
-    req: new Request("http://localhost:5173/_vitehub/auth/manage", {
-      method: "POST",
-      body: JSON.stringify(body),
-      headers: { "content-type": "application/json", "x-vitehub-console": "1", origin: "http://localhost:5173", cookie },
-    }),
-  })
+  return authManage(new H3Event(new Request("http://localhost:5173/_vitehub/auth/manage", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json", "x-vitehub-console": "1", origin: "http://localhost:5173", cookie },
+  })))
 }
 
 describe("console.impersonation configuration", () => {
