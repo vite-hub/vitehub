@@ -8771,6 +8771,7 @@ export async function startAgentInvocation<
     onInputHandoff?: () => void
   } = {},
 ): Promise<AgentInvocationController<TOutput | Response | AgentRunResult, CALL_OPTIONS>> {
+  await loadAgentHost()
   const invocationContext = withAgentIdentityOwner(agent, withAgentRuntimeMemo(context))
   const workflowContext = invocationContext.run?.activity && !invocationContext.run.activity.runId
     ? {
@@ -8929,34 +8930,35 @@ export async function runAgent<
   // SAFETY: The Runtime Context overload returned above; the remaining third argument contains invocation options.
   const standaloneOptions = inputOrOptions as RunAgentOptions | undefined
   const schedule = standaloneOptions?.schedule
-  // The host routes load on their first request. A run that starts first, such as one in a Schedule, loads them here,
-  // so it gets their capabilities, Workflow loaders, and Workspaces.
-  await loadAgentHost()
-  // Preserve the caller's runtime-config subtype through standalone context creation.
-  const callerContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
-  // Inside a running host, a standalone run, such as one a Schedule starts, gets the runtime capabilities
-  // that the generated routes give Agents. Capabilities from the caller override them key by key.
-  const hostCapabilities = agentHostCapabilities()
-  const runtimeContext = hostCapabilities
-    ? { ...callerContext, capabilities: { ...hostCapabilities, ...callerContext?.capabilities } }
-    : callerContext
-  const runtime = createRuntimeContext({
-    ...runtimeContext,
-    runtimeConfig: runtimeContext?.runtimeConfig as TRuntimeConfig | undefined,
-    runtime: runtimeContext?.runtime || "unknown",
-    run: {
-      ...runtimeContext?.run,
-      runId: schedule?.runId || schedule?.id || runtimeContext?.run?.runId || createTraceId(),
-    },
-  })
-  const context: AgentRuntimeContext<TRuntimeConfig> = {
-    ...runtimeContext,
-    memo: runtime.memo,
-    run: runtime.run,
-    runtime: runtime.runtime,
-    waitUntil: schedule?.waitUntil ?? runtime.waitUntil,
-  }
+  let runtime: ReturnType<typeof createRuntimeContext> | undefined
   try {
+    // The host routes load on their first request. A run that starts first, such as one in a Schedule, loads them here,
+    // so it gets their capabilities, Workflow loaders, and Workspaces.
+    await loadAgentHost()
+    // Preserve the caller's runtime-config subtype through standalone context creation.
+    const callerContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
+    // Inside a running host, a standalone run, such as one a Schedule starts, gets the runtime capabilities
+    // that the generated routes give Agents. Capabilities from the caller override them key by key.
+    const hostCapabilities = agentHostCapabilities()
+    const runtimeContext = hostCapabilities
+      ? { ...callerContext, capabilities: { ...hostCapabilities, ...callerContext?.capabilities } }
+      : callerContext
+    runtime = createRuntimeContext({
+      ...runtimeContext,
+      runtimeConfig: runtimeContext?.runtimeConfig as TRuntimeConfig | undefined,
+      runtime: runtimeContext?.runtime || "unknown",
+      run: {
+        ...runtimeContext?.run,
+        runId: schedule?.runId || schedule?.id || runtimeContext?.run?.runId || createTraceId(),
+      },
+    })
+    const context: AgentRuntimeContext<TRuntimeConfig> = {
+      ...runtimeContext,
+      memo: runtime.memo,
+      run: runtime.run,
+      runtime: runtime.runtime,
+      waitUntil: schedule?.waitUntil ?? runtime.waitUntil,
+    }
     const binding = resolveAgentWorkflowRuntimeBinding(agent)
     const runsInline = requiresInlineInvocation(standaloneOptions)
     if (binding && "discoveryDefault" in binding && !runsInline) {
@@ -8972,7 +8974,7 @@ export async function runAgent<
   }
   catch (error) {
     // Finish owned background work without replacing the invocation's original failure.
-    await runtime.flushWaitUntil().catch(() => {})
+    await runtime?.flushWaitUntil().catch(() => {})
     return [isError(error) ? error : new Error(agentErrorMessage(error), { cause: error }), null]
   }
 }
@@ -8992,6 +8994,7 @@ async function runAgentWithContext<
   input: AgentRunInput<CALL_OPTIONS>,
   options: RunAgentOptions = {},
 ): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>> {
+  await loadAgentHost()
   if (options.schedule) {
     const schedule = options.schedule
     const runId = schedule.runId || schedule.id
