@@ -185,6 +185,7 @@ import { env } from 'vite-hub/env'
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
+    preset: 'node',
     env: {
       server: {
         gmail: {
@@ -211,7 +212,7 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub(), nitro()],
+  plugins: [vitehub({ preset: 'node' }), nitro()],
   env: {
     server: {
       gmail: {
@@ -236,7 +237,7 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub()],
+  plugins: [vitehub({ preset: 'node' })],
   env: {
     server: {
       gmail: {
