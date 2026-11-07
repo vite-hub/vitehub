@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
-import { cp, readdir, readFile, rm } from "node:fs/promises"
-import { basename, join, relative, resolve } from "node:path"
+import { cp, lstat, mkdtemp, readdir, readFile, rm } from "node:fs/promises"
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import { codemods } from "./registry.ts"
 import { applyEdit, editLabel } from "./runner.ts"
@@ -38,7 +38,7 @@ export interface Migration {
 /** Folders that the migration does not copy into its scratch directory. */
 const skippedFolders = new Set([".git", ".nuxt", ".output", ".data", ".vercel", ".netlify", ".wrangler", "node_modules"])
 
-/** Scratch directory inside the project, so that packages and the lockfile resolve as they do from the project. */
+/** Scratch directory prefix inside the project, so packages and the lockfile resolve as they do from the project. */
 export const scratchFolder = ".vitehub-migrate"
 
 /** The Nuxt major versions that a `nuxt` dependency range allows, when the range is a plain one. */
@@ -53,7 +53,7 @@ async function projectWarnings(cwd: string): Promise<string[]> {
   if (!nuxt) return []
   const majors = nuxtMajors(nuxt)
   if (majors && majors.every(major => major < 5)) {
-    return [`ViteHub supports Nuxt 5 and Nitro 3 only, and package.json requires nuxt "${nuxt}". The migration does not upgrade Nuxt. Move the app to Nuxt 5 before you build it, for example with "nuxt": "npm:nuxt-nightly@5x" until Nuxt 5 is released. Nuxt 5 does not auto-import Nitro helpers in server code, so import defineEventHandler and the other h3 helpers from "nitro/h3".`]
+    return [`ViteHub supports Nuxt 5 and Nitro 3 only, and package.json requires nuxt "${nuxt}". The migration does not upgrade Nuxt. Move the app to Nuxt 5 before you build it, for example with "nuxt": "npm:nuxt-nightly@5x" until Nuxt 5 is released. Nuxt 5 also stops auto-importing Nitro helpers such as defineEventHandler in server code. Set experimental: { nitroAutoImports: true } to keep them while you migrate, or import them as the Nuxt 5 build error lists.`]
   }
   return []
 }
@@ -72,6 +72,26 @@ async function readOptional(path: string): Promise<string | undefined> {
   return existsSync(path) ? readFile(path, "utf8") : undefined
 }
 
+async function checkScratchEdit(scratch: string, file: string): Promise<void> {
+  const local = relative(scratch, resolve(scratch, file))
+  if (local === ".." || local.startsWith(`..${sep}`) || isAbsolute(local)) {
+    throw new CodemodError(`Cannot migrate ${file}: the edit is outside the project.`)
+  }
+  let path = scratch
+  for (const part of local.split(sep)) {
+    path = join(path, part)
+    try {
+      if ((await lstat(path)).isSymbolicLink()) {
+        throw new CodemodError(`Cannot migrate ${file}: it is a symbolic link or is inside a symbolic link. Replace the link with a local file or directory before migrating.`)
+      }
+    }
+    catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return
+      throw error
+    }
+  }
+}
+
 /**
  * Detects every supported module in the project and runs its codemod. The codemods run one after another on a
  * scratch copy, so each one sees the edits of the ones before it. A codemod that fails adds an error and changes
@@ -84,16 +104,14 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
   const warnings = await projectWarnings(cwd)
   const found = await detectCodemods(cwd)
   const steps: MigrationStep[] = []
+  if (!found.length) return { cwd, dryRun, steps, edits: [], warnings }
   const touched = new Set<string>()
-  const scratch = join(cwd, scratchFolder)
-  await rm(scratch, { recursive: true, force: true })
+  const scratch = await mkdtemp(join(cwd, `${scratchFolder}-`))
   try {
-    if (found.length) {
-      // fs.cp refuses to copy a directory into itself, so copy each top-level entry.
-      for (const entry of await readdir(cwd)) {
-        if (skippedFolders.has(entry) || entry === scratchFolder) continue
-        await cp(join(cwd, entry), join(scratch, entry), { recursive: true, filter: source => !skippedFolders.has(basename(source)) })
-      }
+    // fs.cp refuses to copy a directory into itself, so copy each top-level entry.
+    for (const entry of await readdir(cwd)) {
+      if (skippedFolders.has(entry) || entry === scratchFolder || entry.startsWith(`${scratchFolder}-`)) continue
+      await cp(join(cwd, entry), join(scratch, entry), { recursive: true, filter: source => !skippedFolders.has(basename(source)) })
     }
     // Messages name files in the scratch copy. Show the project paths instead.
     const unscratch = (text: string) => text.replaceAll(scratch, cwd)
@@ -107,6 +125,8 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
           notes: planned.notes.map(unscratch),
           nextSteps: planned.nextSteps.map(unscratch),
         }
+        // Reject the full batch before writing: copied symlinks can still point at the original files.
+        for (const edit of result.edits) await checkScratchEdit(scratch, edit.path)
         for (const edit of result.edits) {
           await applyEdit(scratch, edit)
           touched.add(edit.path)
