@@ -32,6 +32,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | --- | --- |
 | `nuxt-safe-runtime-config` | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub Env through `vite-hub/nuxt` |
 | `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
+| `resend` | `nuxt-resend` and Resend SDK `emails.send()` calls to ViteHub Email through `vite-hub/nuxt` |
 
 ## `nuxt-safe-runtime-config`
 
@@ -61,6 +62,12 @@ The codemod finds the file that calls `createEnv()` from `@t3-oss/env-nuxt`, loa
 It rewrites `env.KEY` reads in files that import the env module, through relative paths or the `~`, `~~`, `@`, `@@`, `#shared`, and `#server` aliases. Server reads become `useServerEnv().key`, with `.unseal()` on secrets so the code keeps the raw string, and public reads become `usePublicEnv().key`. It removes the `import './env'` that validated the env module from `nuxt.config`.
 
 When no file imports the env module after the rewrite, the codemod deletes it and removes `@t3-oss/env-nuxt`. A file that runs outside Nuxt, such as `drizzle.config.ts`, keeps both, and the report names it. The report also lists what Env does not keep: formats, lengths, patterns, transforms, unions, server reads in browser code, template reads, and `createEnv()` options such as `skipValidation`.
+
+## `resend`
+
+The codemod rewrites `emails.send()` on `useResend()` clients of `nuxt-resend` and on `new Resend()` clients in server code to `email.send()` from `vite-hub/email/server`. It renames `reply_to` to `replyTo` and turns `const { data, error } = await ...send()` into `const [error, data] = await email.send()`. It replaces `nuxt-resend` with `vite-hub/nuxt` and sets `vitehub.email` to the Resend driver. The API key is Secret Env read from `NUXT_RESEND_API_KEY`, or from the variables that `runtimeConfig.resend.apiKey` and `new Resend()` read.
+
+Code that checks `runtimeConfig.resend.apiKey` keeps working: the codemod keeps or declares that key. `nuxt-resend` stays while a `useResend()` call is left that the codemod does not rewrite, such as a class field, and the `resend` package stays while code uses `batch`, contacts, or audiences. The report lists `react` payloads, fields outside the portable Email message, and results that code reads in another shape. In `vite dev`, Email keeps messages in the development outbox unless `vitehub.email.remote` is `true`.
 
 ## Check real apps
 
