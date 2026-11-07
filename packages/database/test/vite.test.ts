@@ -222,6 +222,39 @@ describe("hubDb", () => {
     }
   })
 
+  it("warns when the project's wrangler.json keeps NuxtHub's D1 migration history", { timeout: 30_000 }, async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "binding: 'DB', databaseName: 'app', databaseId: 'database-id'," })
+    await writeFile(join(rootDir, "wrangler.json"), JSON.stringify({ d1_databases: [{ binding: "DB", database_id: "database-id", migrations_table: "_hub_migrations", migrations_dir: ".output/server/db/migrations/sqlite/" }] }))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const plugin = hubDb()
+    const { createNitro } = await import("nitro/builder")
+    const nitro = await createNitro({
+      cloudflare: { deployConfig: true },
+      compatibilityDate: "2026-10-01",
+      dev: false,
+      logLevel: 0,
+      modules: [plugin.nitro],
+      preset: "cloudflare-module",
+      rootDir,
+    })
+    try {
+      await resolveConfigResolved(plugin)({ root: rootDir })
+      await nitro.hooks.callHook("compiled", nitro)
+      const wrangler = JSON.parse(await readFile(join(nitro.options.output.serverDir, "wrangler.json"), "utf8")) as { d1_databases: unknown[] }
+      expect(wrangler.d1_databases).toEqual([
+        { binding: "DB", database_id: "database-id", database_name: "app", migrations_dir: ".vitehub/database/migrations/DB", migrations_table: "_hub_migrations" },
+      ])
+      expect(warn.mock.calls.filter(([message]) => String(message).includes("`_hub_migrations`"))).toEqual([
+        [expect.stringContaining("The D1 binding \"DB\" uses NuxtHub's `_hub_migrations` table")],
+      ])
+    }
+    finally {
+      warn.mockRestore()
+      await nitro.close()
+    }
+  })
+
   it("merges Postgres Hyperdrive bindings into Cloudflare Nitro output", async () => {
     const rootDir = await createTempProject()
     await mkdir(join(rootDir, "server/databases"), { recursive: true })
