@@ -278,7 +278,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
 
 /** The module has no schema, so it validates nothing. Remove it unless code still calls its composable. */
 async function removeUnusedModule(cwd: string, config: NuxtConfigFile, safeProperty: ObjectProperty | undefined): Promise<CodemodResult> {
-  const sources = await glob(["**/*.{ts,mts,js,mjs,vue}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", config.fileName] })
+  const sources = await glob(["**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,vue}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", config.fileName] })
   for (const file of sources.sort()) {
     const lines = (await readFile(join(cwd, file), "utf8")).split("\n")
     const index = lines.findIndex(text => text.includes("useSafeRuntimeConfig"))

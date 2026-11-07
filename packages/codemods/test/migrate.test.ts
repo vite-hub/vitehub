@@ -21,6 +21,7 @@ async function copyFixture(name: string, target: string): Promise<string> {
 async function app(name: string, files: Record<string, string>): Promise<string> {
   const directory = join(scratch, name)
   await rm(directory, { recursive: true, force: true })
+  await mkdir(directory, { recursive: true })
   for (const [path, content] of Object.entries(files)) {
     await mkdir(join(directory, path, ".."), { recursive: true })
     await writeFile(join(directory, path), content)
@@ -106,6 +107,19 @@ describe("migrate", () => {
     const migration = await runMigration({ cwd: directory })
     expect(migration.steps).toEqual([])
     expect(formatMigrationReport(migration)).toContain(`No supported module found in ${directory}.\nSupported: nuxt-safe-runtime-config.`)
+  })
+
+  it.each([
+    ["empty directory", {}, "Cannot find nuxt.config"],
+    ["non-Nuxt project", { "package.json": '{"dependencies":{"vue":"^3.5.0"}}\n' }, "Cannot find nuxt.config"],
+    ["invalid config", { "nuxt.config.ts": "export default defineNuxtConfig({" }, "Cannot parse nuxt.config.ts"],
+  ])("rejects %s without supported modules", async (name, files, message) => {
+    const directory = await app(name, files)
+    const result = await cli([directory])
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain(message)
+    expect(result.stdout).toBe("")
+    expect((await readdir(directory)).sort()).toEqual(Object.keys(files).sort())
   })
 
   it("explains a codemod that cannot migrate, writes nothing for it, and exits with 1", async () => {

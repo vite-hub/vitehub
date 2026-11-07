@@ -4,6 +4,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 
 import { codemods } from "./registry.ts"
 import { readDependencies } from "./shared/detect.ts"
+import { readNuxtConfig } from "./shared/nuxt-config.ts"
 import { CodemodError } from "./types.ts"
 
 import type { Codemod, CodemodResult, Detection, FileEdit, FollowUp } from "./types.ts"
@@ -103,7 +104,10 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
   const warnings = await projectWarnings(cwd)
   const found = await detectCodemods(cwd)
   const steps: MigrationStep[] = []
-  if (!found.length) return { cwd, dryRun, steps, edits: [], warnings }
+  if (!found.length) {
+    await readNuxtConfig(cwd)
+    return { cwd, dryRun, steps, edits: [], warnings }
+  }
   const touched = new Set<string>()
   const scratch = await mkdtemp(join(cwd, `${scratchFolder}-`))
   try {
