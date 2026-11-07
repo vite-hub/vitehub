@@ -25,6 +25,8 @@ export default defineNuxtConfig({
         { label: "Playground", to: "/playground", icon: "i-ph-code-light" },
         { label: "Projects", to: "/projects", icon: "i-ph-folder-simple-light" },
         { label: "Templates", to: "/templates", icon: "i-ph-layout-light" },
+        // The hosted Console opens deployed ViteHub apps from the browser. See /docs/development/console#hosted-console.
+        { label: "Console", to: "https://console.vitehub.dev", icon: "i-ph-monitor-light" },
       ],
     },
     socials: [{ label: "ViteHub on Discord", icon: "i-ph-discord-logo-light", to: "https://discord.gg/YTRDsRP3" }],
