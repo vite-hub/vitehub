@@ -1220,6 +1220,15 @@ describe("ViteHub Nuxt integration", () => {
     await application.runCloseHook()
   })
 
+  it("rejects maxSize with a remote default journal before Nuxt code generation", async () => {
+    const application = createNuxt(false)
+    await expect(viteHubNuxtModule({
+      preset: "node",
+      agent: { invocations: { databaseUrl: "libsql://journal.example.com", retention: { maxSize: "500 MB" } } },
+    }, application.nuxt)).rejects.toThrow("agent.invocations.retention.maxSize needs a local SQLite file")
+    await application.runCloseHook()
+  })
+
   it("uses the resolved top-level Nuxt D1 Database configuration for the Console journal", async () => {
     await mkdir("/tmp/vitehub-nuxt/custom-server/databases", { recursive: true })
     await writeFile("/tmp/vitehub-nuxt/custom-server/databases/config.ts", 'export default defineDatabase({ schema: {} })\n')

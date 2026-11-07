@@ -67,10 +67,10 @@ async function projectedUsageIds() {
   return result.rows.map(row => row.id)
 }
 
-async function generatedPlugin(retention: AgentRetentionPolicy, options: { d1?: string } = {}) {
+async function generatedPlugin(retention: AgentRetentionPolicy, options: { d1?: string, databaseUrl?: string } = {}) {
   const plugin = agentInvocationsVitePlugin({
     database: false,
-    default: { ...(options.d1 ? {} : { databaseUrl: url }), retention },
+    default: { ...(options.d1 ? {} : { databaseUrl: options.databaseUrl ?? url }), retention },
     ...(options.d1 ? { resolveD1Binding: () => options.d1 } : {}),
   })
   const configHook = plugin.config
@@ -145,6 +145,13 @@ describe("Default Agent journal retention", () => {
   it("rejects maxSize with the D1 journal before code generation", async () => {
     await expect(generatedPlugin({ maxSize: "30%" }, { d1: "DB" })).rejects.toThrow("agent.invocations.retention.maxSize is not supported by the D1 journal")
     await expect(generatedPlugin({ maxAge: "14d", maxSize: false }, { d1: "DB" })).resolves.toContain('d1: { binding: "DB"')
+  })
+
+  it.each(["libsql://journal.example.com", "https://journal.example.com"])("rejects maxSize with the remote journal %s before code generation", async (databaseUrl) => {
+    const retention = { maxSize: "500 MB" } as const
+    await expect(createDefaultAgentInvocations({ databaseUrl, projectRoot: directory, retention }).list()).rejects.toThrow("maxSize needs a local SQLite file")
+    await expect(generatedPlugin(retention, { databaseUrl })).rejects.toThrow("agent.invocations.retention.maxSize needs a local SQLite file")
+    await expect(generatedPlugin({ maxAge: "14d", maxRecords: 100, maxSize: false }, { databaseUrl })).resolves.toContain(JSON.stringify(databaseUrl))
   })
 
   it("installs a new journal when only maxSize changes", () => {

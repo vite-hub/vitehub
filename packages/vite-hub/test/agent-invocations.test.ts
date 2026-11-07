@@ -296,7 +296,7 @@ describe("vitehub({ agent: { invocations } })", () => {
     {},
     { retention: { maxAge: "14d" } },
     { databaseUrl: "libsql://journal.example.com" },
-  ])("rejects the default journal %j on standalone Agent outputs", (invocations) => {
+  ] as const)("rejects the default journal %j on standalone Agent outputs", (invocations) => {
     const error = expect.objectContaining({ code: "VITE_HUB_R0132" })
     expect(() => vitehub({ agent: { invocations }, preset: "netlify" })).toThrow(error)
     expect(() => vitehub({ agent: { invocations, runtime: "deno" }, preset: "node" })).toThrow(error)

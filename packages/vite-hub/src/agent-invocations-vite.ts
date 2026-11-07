@@ -44,10 +44,10 @@ export interface AgentInvocationsPluginOptions {
 const presetsWithoutPersistentFiles = new Set(["deno", "netlify", "vercel"])
 
 /**
- * Validates `agent.invocations.retention` before code generation. The libSQL journal accepts every limit.
- * The D1 journal rejects maxSize, because D1 reports the size of the whole app database.
+ * Validates `agent.invocations.retention` before code generation. Only a local SQLite journal supports maxSize.
+ * D1 reports the size of the whole app database, and remote libSQL does not report file size.
  */
-export function assertAgentInvocationsRetention(retention: AgentRetentionPolicy | undefined, d1: boolean): void {
+export function assertAgentInvocationsRetention(retention: AgentRetentionPolicy | undefined, d1: boolean, databaseUrl?: string): void {
   if (retention === undefined) return
   const { maxSize } = requireOptionalOwner(ownerModules.agentVite, "agent").normalizeRetention(retention, {
     label: "agent.invocations.retention",
@@ -57,6 +57,9 @@ export function assertAgentInvocationsRetention(retention: AgentRetentionPolicy 
   })
   if (maxSize !== false && d1) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0016({ message: "[vitehub] agent.invocations.retention.maxSize is not supported by the D1 journal, because D1 reports the size of the whole app database. Use maxAge or maxRecords, or set agent.invocations.databaseUrl to a SQLite file." })
+  }
+  if (maxSize !== false && databaseUrl && !/^file:/i.test(databaseUrl)) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0016({ message: "[vitehub] agent.invocations.retention.maxSize needs a local SQLite file. Remote libSQL databases do not support it. Use maxAge or maxRecords, or set agent.invocations.databaseUrl to a SQLite file." })
   }
 }
 
@@ -126,7 +129,7 @@ export function agentInvocationsVitePlugin(options: AgentInvocationsPluginOption
         d1Binding = environment?.command === "build" && !setting?.databaseUrl
           ? hostD1 ? hostD1.binding : options.resolveD1Binding?.(root, viteConfig[VITEHUB_SERVER_DIRS])
           : undefined
-        assertAgentInvocationsRetention(setting?.retention, d1Binding !== undefined)
+        assertAgentInvocationsRetention(setting?.retention, d1Binding !== undefined, setting?.databaseUrl)
         if (environment?.command === "build") assertAgentInvocationsUrl(options.preset, setting?.databaseUrl)
         localFileWarning = environment?.command === "build" && !setting?.databaseUrl && presetsWithoutPersistentFiles.has(options.preset ?? "")
           ? `[vitehub] Agent Invocation journal: the ${options.preset} preset has no persistent filesystem, so the default journal file .vitehub/data/agent-invocations.sqlite does not keep records. Set agent.invocations to "database", or set agent.invocations.databaseUrl to a remote libSQL URL.`
