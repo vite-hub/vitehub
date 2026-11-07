@@ -2,10 +2,10 @@ import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { isAbsolute, join, posix, relative, resolve } from "node:path"
 
+import { findProperty, keyName, line, parseProgram, walk } from "@vite-hub/internal/ast"
 import { glob } from "tinyglobby"
 
 import packageJson from "../../package.json" with { type: "json" }
-import { findProperty, keyName, line, parseProgram, walk } from "../ast.ts"
 import { CodemodError } from "../types.ts"
 import { rewriteCallSites } from "./call-sites.ts"
 import { editNuxtConfig } from "./config-edit.ts"

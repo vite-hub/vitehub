@@ -1,3 +1,4 @@
+import { BlobNotFoundError } from "@vercel/blob"
 import { H3Event } from "h3"
 import sharp from "sharp"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -17,7 +18,7 @@ const vercel = vi.hoisted(() => {
     const object = objects.get(pathname)!
     return { contentType: object.contentType, etag: object.etag, pathname, size: object.body.byteLength, uploadedAt: object.uploadedAt, url: `https://store.public.blob.vercel-storage.com/${encodeURI(pathname)}` }
   }
-  const missing = () => Object.assign(new Error("Vercel Blob: The requested blob does not exist"), { name: "BlobNotFoundError" })
+  const missing = () => new BlobNotFoundError()
   return {
     calls: [] as Array<Record<string, unknown>>,
     objects,
@@ -60,7 +61,7 @@ const vercel = vi.hoisted(() => {
   }
 })
 
-vi.mock("@vercel/blob", () => vercel.module)
+vi.mock("@vercel/blob", async importOriginal => ({ ...vercel.module, BlobNotFoundError: (await importOriginal<typeof import("@vercel/blob")>()).BlobNotFoundError }))
 
 function ok<TResult>(result: BlobResult<TResult>): TResult {
   expect(result[0]).toBeNull()
