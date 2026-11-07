@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { z } from "zod"
 
+import { registerWorkspacePlugin, useWorkspaceFiles } from "@vite-hub/workspace/files"
+
 import { documents, singleton } from "../../content/src/collections.ts"
 import { defineContent } from "../../content/src/index.ts"
 import { historyWorkspace } from "../../content/test/history-workspace.ts"
@@ -666,6 +668,54 @@ describe("content capability", () => {
       documents: [{ collection: "docs", digest: saved.document.digest, id: "guide", locale: "es" }],
     })
     expect(published).toMatchObject({ ok: true, documents: [{ collection: "docs", id: "guide", locale: "es", change: "add" }] })
+  })
+
+  it("starts one translation for each English draft change from a write:after hook, and none for the translation", async () => {
+    const workspace = await historyWorkspace(cleanup)
+    const runtime = defineContent({
+      workspace,
+      collections: { docs: documents({ path: "docs/{locale}/**/*.md", locales: ["en", "es"], fields: { title: z.string().min(1) } }) },
+      authorize: editorsOnly,
+      logger: false,
+    })
+    cleanup.push(() => runtime.dispose())
+    // The hook of playground/content/server/workspaces/site.ts, with a list in place of runQueue("translate", { id }).
+    const queued: string[] = []
+    cleanup.push(registerWorkspacePlugin(workspace, {
+      id: "translate",
+      hooks: {
+        "write:after": ({ operation, path, ref }) => {
+          const id = ref === "draft" && operation === "writeFile" ? /^docs\/en\/(.+)\.md$/.exec(path)?.[1] : undefined
+          if (id) queued.push(id)
+        },
+      },
+    }))
+    // The translator Agent without a model: it reads the English draft and saves the Spanish page with the same tools.
+    const all = await tools(content({ collections: ["docs"], operations: ["read", "write"] }), runtime)
+    async function translate(id: string) {
+      const english = await run(all.content_get_document, { collection: "docs", id, ref: "draft" })
+      const spanish = await run(all.content_get_document, { collection: "docs", id, ref: "draft", locale: "es" })
+      const ifDigest = spanish.document.fallback ? null : spanish.document.digest
+      return await run(all.content_save_draft, { collection: "docs", id, locale: "es", data: { title: `ES ${english.document.data.title}` }, body: `ES ${english.document.body}`, ifDigest })
+    }
+
+    const docs = runtime.collection("docs")
+    await docs.save("guides/install", { data: { title: "Install" }, body: "Run it.\n" })
+    expect(queued).toEqual(["guides/install"])
+    expect(await translate(queued[0]!)).toMatchObject({ ok: true, document: { locale: "es", derivedFrom: { path: "docs/en/guides/install.md" } } })
+    expect(queued).toEqual(["guides/install"])
+    expect((await docs.status("guides/install"))?.translations).toEqual({ es: "current" })
+
+    // `vitehub push` commits to the draft through `workspace.commit`, a history commit like this one.
+    const history = useWorkspaceFiles(workspace as never, { mode: "write" }).history
+    const head = await history.head({ ref: "draft" })
+    await history.commit({ ref: "draft", ifHead: head!.id, changes: { put: { "docs/en/guides/install.md": { content: "---\ntitle: Install\n---\nRun it twice.\n" } } } })
+    expect(queued).toEqual(["guides/install", "guides/install"])
+    expect((await docs.status("guides/install"))?.translations).toEqual({ es: "stale" })
+    await translate("guides/install")
+    await runtime.publish()
+    expect(queued).toEqual(["guides/install", "guides/install"])
+    expect((await docs.status("guides/install"))?.translations).toEqual({ es: "current" })
   })
 })
 
