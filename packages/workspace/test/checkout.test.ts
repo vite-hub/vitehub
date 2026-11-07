@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { link, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -19,6 +19,7 @@ import { workspaceCheckoutFeatures } from "../src/checkout-cli.ts"
 import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { registerWorkspacePlugin, useWorkspace } from "../src/index.ts"
 import { workspaceOperations } from "../src/operations.ts"
+import { workspaceCommitRequestBytes } from "../src/results.ts"
 
 import type { OperationUser } from "@vite-hub/internal/operations"
 import type { WorkspaceDefinition } from "../src/core/types.ts"
@@ -50,11 +51,19 @@ async function app(user: OperationUser | null = null) {
   const definition: WorkspaceDefinition = { name: "content", store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "content" }) }
   registerWorkspace("content", { store: definition.store })
   const { history } = useWorkspace("content", { definition, mode: "write" })
+  // A second Workspace of the same app.
+  const notesDefinition: WorkspaceDefinition = { name: "notes", store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "notes" }) }
+  registerWorkspace("notes", { store: notesDefinition.store })
+  const notes = useWorkspace("notes", { definition: notesDefinition, mode: "write" }).history
   const calls: string[] = []
   const fetch = async (url: string | URL | Request, init?: RequestInit) => {
     expect(String(url)).toBe(`${remote}/_vitehub/rpc/__call`)
     const { input, operation } = JSON.parse(String(init!.body)) as { input: unknown, operation: string }
     calls.push(operation)
+    // The operation RPC rejects a body over the request limit of the operation, 64 KiB by default.
+    if (Buffer.byteLength(String(init!.body)) > (registry.get(operation)?.maxRequestBytes ?? 64 * 1_024)) {
+      return Response.json({ ok: false, code: "OPERATION_REQUEST_TOO_LARGE", message: "Operation request exceeds the byte limit.", status: 413 }, { status: 413 })
+    }
     const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user })
     return Response.json(result, { status: result.ok ? 200 : result.status ?? 500 })
   }
@@ -67,7 +76,7 @@ async function app(user: OperationUser | null = null) {
     const head = await history.head({ ref: "draft" })
     return await (await history.open(head!.id)).readFile(path, { encoding: "utf8" })
   }
-  return { calls, edit, fetch: fetch as typeof globalThis.fetch, history, read }
+  return { calls, edit, fetch: fetch as typeof globalThis.fetch, history, notes, read }
 }
 
 /** Runs `work` as if Node ran on `platform`. */
@@ -337,6 +346,33 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect(await remoteApp.read("posts/race.md")).toBe(post("Race", "Console."))
   })
 
+  it("pulls the files that the Store copied into a new ref on its first push", async () => {
+    const remoteApp = await app()
+    // As the GitHub Store does, the first commit to a ref that does not exist starts it from the files of another ref.
+    const local = await project(async (url, init) => {
+      const body = JSON.parse(String(init!.body)) as { operation: string, input: { ifHead: string | null } }
+      if (body.operation === "workspace.commit" && body.input.ifHead === null) {
+        const base = await remoteApp.edit({ put: { "posts/base.md": post("Base", "Published.") } })
+        body.input.ifHead = base.id
+        return await remoteApp.fetch(url, { ...init, body: JSON.stringify(body) })
+      }
+      return await remoteApp.fetch(url, init)
+    }, "new-ref")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await local.write("posts/local.md", post("Local", "New."))
+
+    const pushed = await local.json("push")
+
+    expect(pushed.code).toBe(0)
+    expect(pushed.value[0].pushed).toEqual(["posts/local.md"])
+    expect(pushed.value[0].after.files).toEqual([{ path: "posts/base.md", action: "added" }])
+    expect(await local.read("posts/base.md")).toBe(post("Base", "Published."))
+    const entry = (await local.lock()).workspaces.content
+    expect(entry.head).toBe(pushed.value[0].revision)
+    expect(Object.keys(entry.files).sort()).toEqual(["posts/base.md", "posts/local.md"])
+    expect((await local.status())[0]!.local).toEqual({ added: [], modified: [], deleted: [], conflicted: [] })
+  })
+
   it("refuses to write through a symbolic link, and to push while the folder has one", async () => {
     const remoteApp = await app()
     await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
@@ -523,11 +559,14 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
   })
 
   it.each([
-    { command: "push", flag: "--dry-run", args: ["--dry-run"] },
-    { command: "push", flag: "--mesage", args: ["--mesage", "Typo"] },
-    { command: "pull", flag: "--theirs-all", args: ["--theirs-all"] },
-    { command: "resolve", flag: "--dir", args: ["content", "--dir", "content"] },
-  ])("fails on unknown flag $flag of $command before it calls the app", async ({ command, flag, args }) => {
+    { command: "push", error: "Unknown flag --dry-run.", args: ["--dry-run"] },
+    { command: "push", error: "Unknown flag --mesage.", args: ["--mesage", "Typo"] },
+    { command: "pull", error: "Unknown flag --theirs-all.", args: ["--theirs-all"] },
+    { command: "resolve", error: "Unknown flag --dir.", args: ["content", "--dir", "content"] },
+    // A value flag does not take the next flag as its value, so the push does not run without --dry-run.
+    { command: "push", error: "--message needs a value.", args: ["--message", "--dry-run"] },
+    { command: "pull", error: "--theirs needs a value.", args: ["--theirs", "--dry-run"] },
+  ])("fails on $args of $command before it calls the app", async ({ command, error, args }) => {
     const remoteApp = await app()
     await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
     const local = await project(remoteApp.fetch, "flags")
@@ -539,7 +578,7 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     const result = await local.run(command, ...args)
 
     expect(result.code).toBe(1)
-    expect(result.stderr).toMatch(new RegExp(`^Unknown flag ${flag}\\.\nUsage: vitehub ${command} `))
+    expect(result.stderr.split("\n").slice(0, 2)).toEqual([error, expect.stringMatching(`^Usage: vitehub ${command} `)])
     expect(remoteApp.calls).toHaveLength(calls)
     expect((await remoteApp.history.head({ ref: "draft" }))?.id).toBe(head!.id)
   })
@@ -556,6 +595,7 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     for (const path of ignored) expect(await local.exists(path)).toBe(false)
     await local.write("NODE_MODULES/pkg/index.js", "local dependency\n")
     await local.write(".GIT/config", "[core]\n")
+    await local.write("posts/.hello.md.0a1b2c3d4e5f.vitehub-tmp", "left by a stopped pull\n")
     expect((await local.status())[0]!.local).toEqual({ added: [], conflicted: [], deleted: [], modified: [] })
     expect((await local.run("push")).stdout).toBe("content: nothing to push.\n")
     expect((await local.run("pull", "--theirs", ignored[0]!)).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
@@ -595,5 +635,130 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect((await local.run("pull", "content", "--dir", ".", "--url", remote)).stderr).toContain("must be a folder inside the project")
     expect((await local.run("push")).stderr).toContain("has no checked-out Workspace")
     expect(await localCheckoutStatus(local.rootDir)).toBeUndefined()
+  })
+
+  it("keeps no lock entry when a first pull fails, and keeps the lock of a later failed pull", async () => {
+    const remoteApp = await app()
+    const denied = (async () => new Response(JSON.stringify({ code: "UNAUTHORIZED", message: "Sign in." }), { status: 401, headers: { "content-type": "application/json" } })) as typeof globalThis.fetch
+    const failing = await project(denied, "first-pull-fails")
+    expect((await failing.run("pull", "content", "--dir", "content", "--url", remote)).code).toBe(1)
+    expect(await readFile(join(failing.rootDir, "vitehub.lock"), "utf8").catch(() => undefined)).toBeUndefined()
+
+    let deny = false
+    const local = await project((async (input, init) => await (deny ? denied : remoteApp.fetch)(input, init)) as typeof globalThis.fetch, "later-pull-fails")
+    expect((await local.run("pull", "content", "--dir", "content", "--url", remote)).code).toBe(0)
+    const before = await local.lock()
+    deny = true
+    expect((await local.run("pull")).code).toBe(1)
+    expect(await local.lock()).toEqual(before)
+  })
+
+  it("pushes files up to the request limit of workspace.commit in one revision, and refuses a larger push before the call", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const local = await project(remoteApp.fetch, "push-size")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+
+    // The request also holds the operation name, the Workspace, the ref, the head, and the file path.
+    await local.write("large/under.txt", "x".repeat(workspaceCommitRequestBytes - 512))
+    expect(await local.run("push")).toMatchObject({ code: 0, stderr: "" })
+    expect((await remoteApp.read("large/under.txt")).length).toBe(workspaceCommitRequestBytes - 512)
+
+    const head = await remoteApp.history.head({ ref: "draft" })
+    const commits = remoteApp.calls.filter(call => call === "workspace.commit").length
+    await local.write("large/a.txt", "a".repeat(workspaceCommitRequestBytes / 2))
+    await local.write("large/b.txt", "b".repeat(workspaceCommitRequestBytes / 2 + 1_024))
+    await local.write("posts/small.md", post("Small", "Text."))
+    const refused = await local.run("push")
+
+    expect(refused.code).toBe(1)
+    expect(refused.stderr).toContain("WORKSPACE_CHECKOUT_TOO_LARGE")
+    expect(refused.stderr).toContain("4 MiB")
+    expect(refused.stderr).toMatch(/large\/b\.txt.*large\/a\.txt/s)
+    expect(remoteApp.calls.filter(call => call === "workspace.commit")).toHaveLength(commits)
+    expect((await remoteApp.history.head({ ref: "draft" }))!.id).toBe(head!.id)
+  })
+
+  it("replaces a pulled file instead of writing into a file that it shares through a hard link", async (context) => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const local = await project(remoteApp.fetch, "hard-link")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    const outside = join(await tempDir("hard-link-outside"), "hello.md")
+    await writeFile(outside, post("Hello", "One."))
+    await rm(join(local.rootDir, "content/posts/hello.md"))
+    try {
+      await link(outside, join(local.rootDir, "content/posts/hello.md"))
+    }
+    catch {
+      context.skip()
+    }
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "Two.") } })
+
+    expect((await local.run("pull")).code).toBe(0)
+
+    expect(await local.read("posts/hello.md")).toBe(post("Hello", "Two."))
+    expect(await readFile(outside, "utf8")).toBe(post("Hello", "One."))
+    expect((await stat(outside)).nlink).toBe(1)
+  })
+
+  it("refuses a vitehub.lock that is a symbolic link, and writes the lock without a temporary file left", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const local = await project(remoteApp.fetch, "lock-link")
+    const outside = join(await tempDir("lock-outside"), "lock.json")
+    const empty = `${JSON.stringify({ version: 1, workspaces: {} })}\n`
+    await writeFile(outside, empty)
+    await symlink(outside, join(local.rootDir, "vitehub.lock"))
+
+    const pulled = await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+
+    expect(pulled).toMatchObject({ code: 1, stderr: expect.stringContaining("WORKSPACE_CHECKOUT_SYMLINK") })
+    expect(await readFile(outside, "utf8")).toBe(empty)
+    expect(remoteApp.calls).toEqual([])
+
+    await rm(join(local.rootDir, "vitehub.lock"))
+    expect((await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).code).toBe(0)
+    expect((await readdir(local.rootDir)).sort()).toEqual(["content", "vitehub.lock"])
+  })
+
+  it("excludes names that Windows reads as an excluded folder, with trailing dots or spaces", async () => {
+    const remoteApp = await app()
+    const ignored = ["node_modules./pkg/index.js", "node_modules /pkg/index.js", "nested/.vitehub ./state.json", ".DS_Store.."]
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One."), ...Object.fromEntries(ignored.map(path => [path, "remote\n"])) } })
+    const local = await project(remoteApp.fetch, "ignored-trailing")
+
+    const pulled = await local.json("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+
+    expect(pulled.value[0].files).toEqual([{ action: "added", path: "posts/hello.md" }])
+    for (const path of ignored) expect(await local.exists(path)).toBe(false)
+    await local.write("node_modules./pkg/index.js", "local dependency\n")
+    await local.write(".git./config", "[core]\n")
+    expect((await local.status())[0]!.local).toEqual({ added: [], conflicted: [], deleted: [], modified: [] })
+    expect((await local.run("push")).stdout).toBe("content: nothing to push.\n")
+    expect((await local.run("pull", "--theirs", "node_modules /pkg/index.js")).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+  })
+
+  it("keeps the lock entries of concurrent first pulls of two Workspaces", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const notes = await remoteApp.notes.head({ ref: "draft" })
+    await remoteApp.notes.commit({ ref: "draft", ifHead: notes?.id ?? null, changes: { put: { "todo.md": "Write.\n" } } })
+    const local = await project(remoteApp.fetch, "concurrent")
+
+    const results = await Promise.all([
+      local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote),
+      local.run("pull", "notes", "--dir", "notes", "--ref", "draft", "--url", remote),
+    ])
+
+    expect(results.map(result => result.code)).toEqual([0, 0])
+    expect(Object.keys((await local.lock()).workspaces)).toEqual(["content", "notes"])
+    expect((await readdir(local.rootDir)).sort()).toEqual(["content", "notes", "vitehub.lock"])
+
+    // A command that stopped while it wrote the lock left vitehub.lock.lock. After 30 seconds, the next command removes it.
+    await writeFile(join(local.rootDir, "vitehub.lock.lock"), "1\n")
+    await utimes(join(local.rootDir, "vitehub.lock.lock"), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000))
+    expect((await local.run("pull")).code).toBe(0)
+    expect((await readdir(local.rootDir)).sort()).toEqual(["content", "notes", "vitehub.lock"])
   })
 })
