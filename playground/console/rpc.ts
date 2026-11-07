@@ -7,6 +7,14 @@ import { consoleRequestURL } from "../../packages/vite-hub/src/console/runtime/s
 import { callCommentsFixture } from "./comments.ts"
 import { mcpClientFixture } from "./mcp-client-fixture.ts"
 
+function nodeRequestHeaders(request: IncomingMessage): Headers {
+  const headers = new Headers()
+  for (const [name, value] of Object.entries(request.headers)) {
+    for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) headers.append(name, item)
+  }
+  return headers
+}
+
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
 
 async function readBody(request: IncomingMessage): Promise<string> {
@@ -102,7 +110,7 @@ export function consoleMockRPC(): Plugin {
           const payload = JSON.parse(await readBody(request))
           // MCP links go back to the browser, while HTTP fixtures stay on the local server.
           const origin = payload.operation.startsWith("mcp-client.")
-            ? consoleRequestURL({ node: { req: request } }).origin
+            ? consoleRequestURL({ req: { url: request.url, headers: nodeRequestHeaders(request) } }).origin
             : server.resolvedUrls?.local[0] ?? server.resolvedUrls?.network[0]
           if (!origin) throw new Error("Playground server is not listening")
           const result = await callConsoleFixture(origin, payload, request.headers.cookie)

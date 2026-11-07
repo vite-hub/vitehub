@@ -1,6 +1,6 @@
 // The Console sign-in pages and the app Auth access check. The Console plugin imports this module when the server starts,
 // so it must not import Better Auth. Auth instances come from the resolver that the caller passes.
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { toEventRequest } from "@vite-hub/internal/runtime/event-request"
 import * as v from "valibot"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
 import { consoleDocumentMetadata } from "./document-metadata.ts"
@@ -503,8 +503,8 @@ export interface ConsoleAppAuthAccessOptions {
 }
 
 /**
- * The Console access `check` and `user` for `console: { auth: "app" }`. The generated Console plugin calls this, so it
- * works for an H3 2 event and for an H3 1 event such as Nuxt 4's, which has no `url`.
+ * The Console access `check` and `user` for `console: { auth: "app" }`. The generated Console plugin calls this with
+ * the H3 event of the request.
  */
 export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions): {
   check: (event: object) => Promise<Response | undefined>

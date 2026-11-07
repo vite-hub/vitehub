@@ -1,4 +1,4 @@
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { toEventRequest } from "@vite-hub/internal/runtime/event-request"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { describeCommentContext } from "../context.ts"

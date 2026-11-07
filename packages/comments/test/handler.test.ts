@@ -1,5 +1,3 @@
-import { Readable } from "node:stream"
-
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
 import { H3 } from "h3"
@@ -479,22 +477,22 @@ describe("Comments API", () => {
     await waitUntil.mock.calls[0]![0]
   })
 
-  it.each([false, true])("answers Nuxt 4 H3 1 events and retains forge work: %s", async (forge) => {
+  it.each([false, true])("answers plain H3 events and retains forge work: %s", async (forge) => {
     const comments = await createComments({ identify: () => ({ id: "ada", name: "Ada" }), authorize: () => true, forge: forge ? { provider: "github" } : undefined })
     const work: Promise<unknown>[] = []
     const waitUntil = vi.fn((promise: Promise<unknown>) => { work.push(promise) })
     const handler = createCommentsHandler({ comments, realtime: false })
     const send = async (method: string, path: string, json?: unknown) => {
-      const req = Object.assign(Readable.from(json === undefined ? [] : [JSON.stringify(json)]), {
+      const req = new Request(`${origin}/api/_vitehub/comments${path}`, {
         method,
-        url: `/api/_vitehub/comments${path}`,
-        headers: { host: "site.test", origin, "content-type": "application/json" },
+        headers: { origin, "content-type": "application/json" },
+        ...(json === undefined ? {} : { body: JSON.stringify(json) }),
       })
-      const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req }, context: { waitUntil } }])
+      const response: unknown = await Reflect.apply(handler, undefined, [{ req, context: { waitUntil } }])
       if (!(response instanceof Response)) throw new TypeError("Expected a Response")
       return await response.json() as { data?: unknown }
     }
-    const created = await send("POST", "/threads", { page: "/", anchor, body: "From Nuxt 4" })
+    const created = await send("POST", "/threads", { page: "/", anchor, body: "From a plain event" })
     expect(created.data).toMatchObject({ subject: { kind: "page", id: "/" }, author: { id: "ada" } })
     expect((await send("GET", "/threads?page=/")).data).toHaveLength(1)
     expect(waitUntil).toHaveBeenCalledTimes(forge ? 1 : 0)

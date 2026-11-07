@@ -1,4 +1,4 @@
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { toEventRequest } from "@vite-hub/internal/runtime/event-request"
 
 import { withConsoleAccess } from "./access.ts"
 import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"

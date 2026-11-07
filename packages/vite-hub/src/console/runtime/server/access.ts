@@ -172,7 +172,7 @@ export function consoleAppSignIn(event: ConsoleRequestEvent): Promise<Response> 
 
 /** Whether a GET or HEAD explicitly accepts a Console HTML page with nonzero quality. */
 export function isConsolePageVisit(event: ConsoleRequestEvent): boolean {
-  const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
+  const method = (event.method ?? event.req?.method ?? "GET").toUpperCase()
   if (method !== "GET" && method !== "HEAD") return false
   return consoleRequest(event).headers.get("accept")?.split(",").some((range) => {
     const [type, ...parameters] = range.split(";")
@@ -246,19 +246,12 @@ export function consoleRequest(event: ConsoleRequestEvent): Request {
         const value = source.get(name)
         if (typeof value === "string") setHeader(name, value)
       }
-      return
-    }
-    if (source === null || typeof source !== "object") return
-    for (const [name, value] of Object.entries(source)) {
-      if (value !== undefined) setHeader(name, Array.isArray(value) ? value.join(", ") : String(value))
     }
   }
-  // Match consoleRequestURL(): request headers take precedence per header,
-  // followed by event-level and Node request headers as fallbacks.
-  copyHeaders(event.node?.req?.headers)
+  // Match consoleRequestURL(): request headers take precedence per header, followed by event-level headers.
   copyHeaders(event.headers)
   copyHeaders(event.req?.headers, true)
-  return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
+  return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? "GET" })
 }
 
 function isRequestLike(value: unknown): value is Request {

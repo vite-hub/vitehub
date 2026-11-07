@@ -17,27 +17,6 @@ const adapters = {
       },
     }) } } satisfies ConsoleRequestEvent
   },
-  nodeBytes(body: string): ConsoleRequestEvent {
-    return { node: { req: {
-      async *[Symbol.asyncIterator]() {
-        for (const byte of encoder.encode(body)) yield new Uint8Array([byte])
-      },
-    } } }
-  },
-  nodeText(body: string): ConsoleRequestEvent {
-    return { node: { req: {
-      async *[Symbol.asyncIterator]() {
-        for (const character of body) yield character
-      },
-    } } }
-  },
-  // Nitro 2 on Workers: H3 v1 `event.req` is the Node request shim, whose body is already read.
-  nitro2Bytes(body: string): ConsoleRequestEvent {
-    return { req: { body: encoder.encode(body) } }
-  },
-  nitro2Text(body: string): ConsoleRequestEvent {
-    return { req: { body } }
-  },
   decoded(body: string): ConsoleRequestEvent {
     return { req: { json: async () => JSON.parse(body) } }
   },
@@ -101,25 +80,5 @@ describe("Console request bodies", () => {
 
     await expect(consoleRequestJSON({ req: { body } })).rejects.toBe(failure)
     expect(body.locked).toBe(false)
-  })
-
-  it("closes an oversized H3 v1 iterator without reading another chunk", async () => {
-    let reads = 0
-    let closed = false
-    const event: ConsoleRequestEvent = { node: { req: {
-      async *[Symbol.asyncIterator]() {
-        try {
-          reads++
-          yield encoder.encode("12345")
-          reads++
-          yield encoder.encode("67890")
-        }
-        finally { closed = true }
-      },
-    } } }
-
-    await expect(consoleRequestJSON(event, 4)).rejects.toMatchObject({ statusCode: 413 })
-    expect(reads).toBe(1)
-    expect(closed).toBe(true)
   })
 })

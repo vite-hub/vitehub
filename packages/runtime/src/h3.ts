@@ -1,8 +1,6 @@
 import { getCloudflareEnv, getCloudflareExecutionContext, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
-import { createH3V1ResponseHeaders, isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { createRuntimeContext } from "./index.ts"
-import type { H3V1Event, H3V1NodeResponse } from "@vite-hub/internal/runtime/h3-v1-request"
 import type { EventHandlerRequest } from "h3"
 import type { StandardContext } from "standard-context"
 import type { CreatedRuntimeContext, RuntimeContextInput, RuntimeHostContext } from "./index.ts"
@@ -11,7 +9,7 @@ import type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./sta
 export type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
 
 declare module "h3" {
-  // The type parameters must match the H3Event class of H3 1 and H3 2.
+  // The type parameters must match the H3Event class of H3 2.
   interface H3Event<_RequestT extends EventHandlerRequest = EventHandlerRequest> {
     /** Set by ViteHub for each request until H3 implements Standard Context. */
     readonly "~standard": ViteHubStandardProps
@@ -118,35 +116,37 @@ function firstAddress(value: object, paths: readonly (readonly string[])[]): str
  */
 const h3V2AddressPaths = [["context", "clientAddress"], ["ip"], ["runtime", "node", "req", "socket", "remoteAddress"]] as const
 
-/** The places where hosts put the peer address of an H3 1 event, in the order of H3 1's `getRequestIP()`. */
-const h3V1AddressPaths = [["context", "clientAddress"], ["node", "req", "socket", "remoteAddress"], ["node", "req", "connection", "remoteAddress"]] as const
-
 /**
  * The `~standard` properties of one H3 event. Each property reads the event on first access and keeps the value,
  * because most requests never read Standard Context and ViteHub sets it on every request.
  */
-abstract class H3StandardProps implements ViteHubStandardProps {
+class H3StandardProps implements ViteHubStandardProps {
   readonly vendor = "h3"
   readonly #event: object
+  readonly #request: Request
   #res: StandardContext.PreparedResponse | undefined
   #runtime: ViteHubRuntime | undefined
   #waitUntil: WaitUntil | null | undefined
 
-  constructor(event: object) {
+  constructor(event: object, request: Request) {
     this.#event = event
+    this.#request = request
   }
 
-  abstract get req(): Request
+  get req(): Request {
+    return this.#request
+  }
 
   get res(): StandardContext.PreparedResponse {
-    return this.#res ??= this.prepareResponse()
+    // SAFETY: H3 2 events expose an H3EventResponse with mutable status and a Headers object.
+    return this.#res ??= preparedResponse(Reflect.get(this.#event, "res") as PreparedResponseTarget)
   }
 
   get runtime(): ViteHubRuntime {
     if (this.#runtime) return this.#runtime
     const env = getCloudflareEnv(this.#event, { fallback: false })
     const context = getCloudflareExecutionContext(this.#event)
-    const clientAddress = this.clientAddress()
+    const clientAddress = firstAddress(this.#request, h3V2AddressPaths)
     // A host can pass the execution context without bindings on the event, so keep each one that it passes.
     return this.#runtime = {
       ...(env || context ? { cloudflare: { ...(env ? { env } : {}), ...(context ? { context } : {}) } } : {}),
@@ -159,79 +159,15 @@ abstract class H3StandardProps implements ViteHubStandardProps {
     return this.#waitUntil ?? undefined
   }
 
-  protected abstract prepareResponse(): StandardContext.PreparedResponse
-  protected abstract clientAddress(): string | undefined
-}
-
-class H3V2StandardProps extends H3StandardProps {
-  readonly #event: object
-  readonly #request: Request
-
-  constructor(event: object, request: Request) {
-    super(event)
-    this.#event = event
-    this.#request = request
-  }
-
-  get req(): Request {
-    return this.#request
-  }
-
-  protected prepareResponse(): StandardContext.PreparedResponse {
-    // SAFETY: H3 2 events expose an H3EventResponse with mutable status and a Headers object.
-    return preparedResponse(Reflect.get(this.#event, "res") as PreparedResponseTarget)
-  }
-
-  protected clientAddress(): string | undefined {
-    return firstAddress(this.#request, h3V2AddressPaths)
-  }
-}
-
-class H3V1StandardProps extends H3StandardProps {
-  readonly #event: H3V1Event
-  readonly #response: H3V1NodeResponse
-
-  constructor(event: H3V1Event, response: H3V1NodeResponse) {
-    super(event)
-    this.#event = event
-    this.#response = response
-  }
-
-  get req(): Request {
-    // H3 1 builds the Request on first read, so a route that reads the Node body stream keeps working.
-    return toH3V1Request(this.#event)
-  }
-
-  protected prepareResponse(): StandardContext.PreparedResponse {
-    const response = this.#response
-    return preparedResponse({
-      headers: createH3V1ResponseHeaders(response),
-      get status() {
-        return response.statusCode
-      },
-      set status(value) {
-        if (value !== undefined) response.statusCode = value
-      },
-    })
-  }
-
-  protected clientAddress(): string | undefined {
-    return firstAddress(this.#event, h3V1AddressPaths)
-  }
 }
 
 function createH3StandardProps(event: object): ViteHubStandardProps | undefined {
   const req: unknown = Object.hasOwn(event, "req") ? Reflect.get(event, "req") : undefined
-  if (isHostRequest(req)) return "res" in event ? new H3V2StandardProps(event, req) : undefined
-  if (isH3V1Event(event)) {
-    const response = event.node.res
-    return response ? new H3V1StandardProps(event, response) : undefined
-  }
-  return undefined
+  return isHostRequest(req) && "res" in event ? new H3StandardProps(event, req) : undefined
 }
 
 /**
- * Set `event["~standard"]` on an H3 1 or H3 2 event. A value that the host set stays.
+ * Set `event["~standard"]` on an H3 2 event. A value that the host set stays.
  * ViteHub calls this for each request in a Nitro `request` hook. Call it yourself only for an event that
  * Nitro did not create, such as in a test. Throws `RUNTIME_R0015` when the event has no request.
  */

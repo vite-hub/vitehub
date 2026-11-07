@@ -204,7 +204,7 @@ describe("Comments MCP tools", () => {
     expect(session).not.toHaveBeenCalled()
   })
 
-  it.each([false, true])("preserves Cloudflare people and author attribution for permitted anonymous guests, with H3 1: %s", async (nodeEvent) => {
+  it("preserves Cloudflare people and author attribution for permitted anonymous guests", async () => {
     const seen: unknown[] = []
     const comments = await createComments({ authorize: ({ user }) => { seen.push(user); return user === null || user?.email === "ada@site.test" } })
     const [, thread] = await comments.create({ page: "/", anchor, body: "Hi", author: ada })
@@ -221,7 +221,7 @@ describe("Comments MCP tools", () => {
     const guestTools = commentsMcpTools(comments, { consoleSession: guestSession })
     await comments.reopen(thread!.id)
     const headers = { "x-vitehub-comments-guest-id": "ben", "x-vitehub-comments-guest-name": "Ben" }
-    const request = nodeEvent ? { node: { req: { method: "POST", url: "/_vitehub/mcp", headers: { host: "site.test", ...headers } } } } : event(headers)
+    const request = event(headers)
     expect((await guestTools[2]!.call({ id: thread!.id, body: "Thanks" }, { user: ada, event: request })).isError).toBeUndefined()
     expect((await guestTools[3]!.call({ id: thread!.id }, { user: ada, event: request })).isError).toBeUndefined()
     const [, updated] = await comments.get(thread!.id)

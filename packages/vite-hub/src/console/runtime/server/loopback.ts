@@ -34,13 +34,12 @@ function readPath(value: unknown, ...path: string[]): unknown {
   return current
 }
 
-/** The peer address, from whichever of the h3 request or the Node socket the host exposes. */
+/** The peer address, from the request or the Node socket behind it. */
 export function eventRemoteAddress(event: H3Event): string | undefined {
   const candidates = [
     readPath(event, "req", "ip"),
     readPath(event, "req", "context", "clientAddress"),
     readPath(event, "req", "runtime", "node", "req", "socket", "remoteAddress"),
-    readPath(event, "node", "req", "socket", "remoteAddress"),
   ]
   return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate !== "")
 }

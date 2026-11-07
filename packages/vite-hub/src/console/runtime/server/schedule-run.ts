@@ -1,6 +1,6 @@
 import { hasViteHubDispatch, verifyViteHubDispatch } from "@vite-hub/internal/dispatch"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { toEventRequest } from "@vite-hub/internal/runtime/event-request"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { withConsoleAccess, type ConsoleAccess } from "./access.ts"

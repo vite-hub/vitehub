@@ -165,10 +165,6 @@ function isGeneratedNitroRegistration(value: unknown, generatedPath: string): bo
 /** Merges the generated Blob registrations into the Nitro config. */
 function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean, root?: string): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
-  const externals = cloneNitroConfig(nitro.externals)
-  const inline = Array.isArray(externals.inline) ? externals.inline : []
-  // Generated file imports and package imports must share Nitro's bundled runtime.
-  nitro.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, blobPackageName])] }
   const plugin = root ? resolve(root, generatedNitroBlobPlugin) : generatedNitroBlobPlugin
   const middleware = root ? resolve(root, generatedNitroBlobMiddleware) : generatedNitroBlobMiddleware
   const serveHandler = root ? resolve(root, generatedBlobServeRouteHandler) : generatedBlobServeRouteHandler
@@ -286,31 +282,18 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
     ?? (serve.authorize ? "private, no-cache" : "public, max-age=0, s-maxage=0")
   return [
-    // Nuxt 4 runs H3 1 events and Nitro 3 runs H3 2 events, but an `h3` import from `.vitehub` can resolve the other
-    // major version. Only use what both event shapes have; `serve()` reads both.
     `import { blob, parseImageVariant } from '${importBase}'`,
     `import type { BlobStorage } from '${importBase}'`,
     ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
     "",
     "type ServeEvent = Parameters<BlobStorage['serve']>[0]",
-    "type RouteEvent = ServeEvent & { context: { params?: Record<string, string | undefined> }, path: string, url?: unknown }",
+    "type RouteEvent = ServeEvent & { context: { params?: Record<string, string | undefined> }, path: string }",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
     ...(headers
       ? [
           `const responseHeaders = ${JSON.stringify(headers)}`,
-          "",
-          "// An H3 1 event has no `url` and writes its response through `node.res`.",
-          "function eventResponseHeaders(event: RouteEvent): Pick<Headers, 'delete' | 'set'> {",
-          "  if (!isH3V1Event(event)) return event.res.headers",
-          "  const response = event.node.res",
-          "  return { delete: name => response.removeHeader(name), set: (name, value) => { response.setHeader(name, value) } }",
-          "}",
-          "",
-          "function isH3V1Event(event: RouteEvent): event is RouteEvent & Extract<ServeEvent, { node: unknown }> {",
-          "  return event.url === undefined",
-          "}",
         ]
       : []),
     "",
@@ -328,7 +311,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "  }",
     ...(headers
       ? [
-          "  const headers = eventResponseHeaders(event)",
+          "  const headers = event.res.headers",
           "  for (const [name, value] of Object.entries(responseHeaders)) headers.set(name, value)",
           "  const clearHeaders = () => { for (const name of Object.keys(responseHeaders)) headers.delete(name) }",
         ]

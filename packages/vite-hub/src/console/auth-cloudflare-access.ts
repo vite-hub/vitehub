@@ -1,5 +1,5 @@
 import { SecretEnv } from "@vite-hub/env/secret"
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { toEventRequest } from "@vite-hub/internal/runtime/event-request"
 import { createRemoteJWKSet, customFetch, jwtVerify } from "jose"
 
 import type { EnvVariableDeclaration } from "@vite-hub/env"

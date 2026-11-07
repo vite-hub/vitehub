@@ -1,5 +1,4 @@
 import type { AccessAuthorize, AnonymousAccessAuthorize, ViteHubError, ViteHubErrorDetails } from "@vite-hub/runtime"
-import type { H3V1Event, H3V1NodeResponse } from "@vite-hub/internal/runtime/h3-v1-request"
 
 import type { BlobImagesOptions, BlobImageVariant, MediaCrop, MediaFocalPoint, MediaRecord, MediaUpdate, MediaVariantEntry } from "./media/types.ts"
 
@@ -312,7 +311,7 @@ export interface BlobStorage {
   resumeMultipartUpload(pathname: string, uploadId: string): Promise<BlobResult<BlobMultipartUpload>>
   sign(pathname: string, options: BlobSignOptions): Promise<BlobResult<BlobSignedRequest>>
   /** Returns null for a conditional 304 response. */
-  serve(event: BlobServeEvent | (H3V1Event & { node: { res: H3V1NodeResponse } }), pathname: string, options?: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>>
+  serve(event: BlobServeEvent, pathname: string, options?: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>>
   /** Selects a named Blob Store. `{ mode: "read" }` returns a handle without write methods. */
   store(name: BlobStoreName, options?: { mode?: "write" }): BlobStorage
   store(name: BlobStoreName, options: { mode: "read" }): ReadonlyBlobStorage

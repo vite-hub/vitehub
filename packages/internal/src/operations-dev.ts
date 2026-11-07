@@ -1,7 +1,7 @@
 import { validateViteHubNitroDevRequest } from "./dev-endpoint.ts"
 import { assertOperationProject, createOperationRegistry, operationRootHeader, operationRpcHeader, operationsOf, projectRootHash, runOperation, toOperationFailure } from "./operations.ts"
 import { getCloudflareEnv, resolveWaitUntil } from "./runtime/cloudflare-env.ts"
-import { toEventRequest } from "./runtime/h3-v1-request.ts"
+import { toEventRequest } from "./runtime/event-request.ts"
 
 function readPath(value: unknown, ...path: string[]): unknown {
   for (const key of path) value = value !== null && typeof value === "object" ? Reflect.get(value, key) : undefined
@@ -29,7 +29,7 @@ export function createStandaloneOperationHandler(sources: { operations: unknown,
     const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff", [operationRootHeader]: projectRootHash(root) }
     try {
       const request = toEventRequest(event)
-      const address = [readPath(event, "req", "ip"), readPath(event, "req", "context", "clientAddress"), readPath(event, "req", "runtime", "node", "req", "socket", "remoteAddress"), readPath(event, "node", "req", "socket", "remoteAddress")].find((value): value is string => typeof value === "string" && value !== "")
+      const address = [readPath(event, "req", "ip"), readPath(event, "req", "context", "clientAddress"), readPath(event, "req", "runtime", "node", "req", "socket", "remoteAddress")].find((value): value is string => typeof value === "string" && value !== "")
       const forwarded = request.headers.get("x-forwarded-host")
       if (!localHost(request.headers.get("host") ?? new URL(request.url).host) || (forwarded && !localHost(forwarded)) || (address && address !== "::1" && !address.startsWith("127.") && !address.startsWith("::ffff:127."))) reject(403, "Standalone development operations accept only local requests.")
       const site = request.headers.get("sec-fetch-site")

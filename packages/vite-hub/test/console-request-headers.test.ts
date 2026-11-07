@@ -13,8 +13,7 @@ describe("Console request header reconstruction", () => {
         headers: { get: (name: string) => name === "authorization" ? "Bearer token" : null },
         url: "/_vitehub/console",
       },
-      headers: { get: (name: string) => name === "origin" ? "https://console.example" : null },
-      node: { req: { headers: { host: "console.example" } } },
+      headers: { get: (name: string) => ({ host: "console.example", origin: "https://console.example" })[name] ?? null },
     }
 
     const request = consoleRequest(event)
@@ -38,20 +37,7 @@ describe("Console request header reconstruction", () => {
         headers: { get: (name: string) => name === "host" ? "" : null },
         url: "/_vitehub/console",
       },
-      node: { req: { headers: { host: "console.example" } } },
-    }
-
-    const request = consoleRequest(event)
-    expect(request.headers.get("host")).toBe("")
-    expect(consoleRequestURL(event).hostname).toBe("localhost")
-  })
-
-  it("keeps an empty event header instead of falling back to Node headers", () => {
-    const event = {
-      method: "GET",
-      req: { url: "/_vitehub/console" },
-      headers: { get: (name: string) => name === "host" ? "" : null },
-      node: { req: { headers: { host: "console.example" } } },
+      headers: { get: (name: string) => name === "host" ? "console.example" : null },
     }
 
     const request = consoleRequest(event)
@@ -66,8 +52,7 @@ describe("Console request header reconstruction", () => {
         headers: { get: (name: string) => name === "authorization" ? "Bearer token" : null },
         url: "/_vitehub/console",
       },
-      headers: { get: (name: string) => ({ "x-forwarded-host": "console.example", "x-forwarded-proto": "https" })[name] ?? null },
-      node: { req: { headers: { host: "internal.example" } } },
+      headers: { get: (name: string) => ({ host: "internal.example", "x-forwarded-host": "console.example", "x-forwarded-proto": "https" })[name] ?? null },
     }
 
     expect(consoleRequestURL(event).toString()).toBe("https://console.example/_vitehub/console")

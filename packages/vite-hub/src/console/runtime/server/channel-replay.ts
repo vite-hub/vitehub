@@ -18,8 +18,7 @@ function replayError(message: string, status: number): Response {
 }
 
 function header(event: ConsoleRequestEvent, name: string): string | undefined {
-  const raw = event.req?.headers?.get(name) ?? event.headers?.get(name) ?? event.node?.req?.headers?.[name]
-  return (Array.isArray(raw) ? raw[0] : raw) ?? undefined
+  return event.req?.headers?.get(name) ?? event.headers?.get(name) ?? undefined
 }
 
 function memo() {
@@ -37,7 +36,7 @@ function memo() {
  */
 async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleAccess): Promise<Response> {
   setConsoleResponseHeaders(event)
-  const method = event.method ?? event.req?.method ?? event.node?.req?.method
+  const method = event.method ?? event.req?.method
   if (method !== "POST") return replayError("Method not allowed.", 405)
   // A JSON content type and a same-origin check keep browsers from sending cross-site replay requests.
   if (!header(event, "content-type")?.toLowerCase().startsWith("application/json")) return replayError("Channel replay requires application/json.", 415)

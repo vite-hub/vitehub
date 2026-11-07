@@ -94,18 +94,15 @@ function ownObject(value: unknown): Record<PropertyKey, unknown> | undefined {
     : undefined
 }
 
-/** The objects where H3 1, H3 2, and Nitro hosts put Cloudflare `env` and `context`, in lookup order. */
+/** The objects where H3 and Nitro hosts put Cloudflare `env` and `context`, in lookup order. */
 function cloudflareOwners(target: Record<PropertyKey, unknown> | undefined): Array<Record<PropertyKey, unknown> | undefined> {
   const context = ownObject(ownValue(target, "context"))
   const platform = ownObject(ownValue(context, "_platform"))
   const req = ownObject(ownValue(target, "req"))
-  const node = ownObject(ownValue(target, "node"))
-  const nodeReq = ownObject(ownValue(node, "req"))
   return [
     ownObject(ownValue(context, "cloudflare")),
     ownObject(ownValue(platform, "cloudflare")),
     ownObject(ownValue(ownObject(ownValue(req, "runtime")), "cloudflare")),
-    ownObject(ownValue(ownObject(ownValue(nodeReq, "runtime")), "cloudflare")),
   ]
 }
 
@@ -151,11 +148,6 @@ export function resolveWaitUntil(event: unknown, options: { preferHost?: boolean
   const reqRuntime = ownObject(ownValue(req, "runtime"))
   const reqCloudflare = ownObject(ownValue(reqRuntime, "cloudflare"))
   const reqCloudflareContext = ownObject(ownValue(reqCloudflare, "context"))
-  const node = ownObject(ownValue(target, "node"))
-  const nodeReq = ownObject(ownValue(node, "req"))
-  const nodeRuntime = ownObject(ownValue(nodeReq, "runtime"))
-  const nodeCloudflare = ownObject(ownValue(nodeRuntime, "cloudflare"))
-  const nodeCloudflareContext = ownObject(ownValue(nodeCloudflare, "context"))
   const hosts = [
     context,
     cloudflare,
@@ -165,9 +157,6 @@ export function resolveWaitUntil(event: unknown, options: { preferHost?: boolean
     req,
     reqCloudflare,
     reqCloudflareContext,
-    nodeReq,
-    nodeCloudflare,
-    nodeCloudflareContext,
   ]
   const owners = options.preferHost ? [...hosts, target] : [target, ...hosts]
   for (const owner of owners) {

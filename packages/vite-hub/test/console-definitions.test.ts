@@ -24,7 +24,6 @@ const scope = globalThis as ConsoleInvocationScope
 function event(query = "", method = "GET"): ConsoleRequestEvent {
   return {
     method,
-    node: { req: { method, url: `http://localhost/api/_vitehub/console/definitions${query}` } },
     req: { method, url: `http://localhost/api/_vitehub/console/definitions${query}` },
   }
 }

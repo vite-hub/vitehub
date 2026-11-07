@@ -25,7 +25,6 @@ function event(): ConsoleRequestEvent {
   return {
     headers,
     method: "GET",
-    node: { req: { method: "GET", socket: { remoteAddress: "127.0.0.1" }, url: "http://localhost/_vitehub" } },
     req: { method: "GET", url: "http://localhost/_vitehub" },
   }
 }

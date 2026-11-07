@@ -32,24 +32,18 @@ export function consoleBearerChallenge(parameters: { error?: "invalid_token" } =
 }
 
 function header(event: ConsoleRequestEvent, name: string): string | undefined {
-  // H3 1 sets `event.req` to the Node request, whose headers are a plain object.
   for (const source of [event.req?.headers, event.headers]) {
-    if (source && "get" in source && source.get instanceof Function) {
-      const value = source.get(name)
-      if (value !== null) return value
-    }
+    const value = source?.get(name)
+    if (value !== undefined && value !== null) return value
   }
-  const raw = event.node?.req?.headers?.[name]
-  return Array.isArray(raw) ? raw[0] : raw
 }
 
 function method(event: ConsoleRequestEvent): string {
-  return (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
+  return (event.method ?? event.req?.method ?? "GET").toUpperCase()
 }
 
 function pathname(event: ConsoleRequestEvent): string {
-  const value = event.node?.req?.originalUrl || event.req?.url || event.node?.req?.url || "/"
-  return new URL(value, "http://vitehub.local").pathname
+  return new URL(event.req?.url || "/", "http://vitehub.local").pathname
 }
 
 /** The `Origin` of the request when `console.origins` lists it. */

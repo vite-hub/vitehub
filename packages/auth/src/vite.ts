@@ -214,8 +214,8 @@ function renderAuthAmbientTypes(options: { definition?: string, serverEnv: boole
 
 /**
  * The declaration of the virtual module. It stays out of a file with imports, which would make it an augmentation of
- * a module that must already resolve. A Nuxt 4 app resolves `#vitehub/auth/server` only in the bundler, so its
- * tsconfig would not find it and the types of everything that imports the Auth handlers would be `any`.
+ * a module that must already resolve. When only the bundler resolves `#vitehub/auth/server`, the tsconfig would not
+ * find it and the types of everything that imports the Auth handlers would be `any`.
  */
 function renderAuthServerTypes(importBase: string = authPackageName): string {
   const serverImport = `${importBase}/server`

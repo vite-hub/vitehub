@@ -13,22 +13,8 @@ export interface ConsoleRequestEvent {
   }
   headers?: ConsoleHeaders
   method?: string
-  node?: {
-    req?: {
-      headers?: Record<string, string | string[] | undefined>
-      method?: string
-      originalUrl?: string
-      socket?: { remoteAddress?: string, encrypted?: boolean }
-      url?: string
-      [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array | string>
-    }
-    res?: {
-      setHeader(name: string, value: string): void
-    }
-  }
   req?: {
-    // H3 v1 returns `event.node.req` as `event.req`. On Nitro 2 Workers its body is the whole body, already read.
-    body?: ReadableStream<Uint8Array> | Uint8Array | string | null
+    body?: ReadableStream<Uint8Array> | null
     context?: { clientAddress?: string, [key: string]: unknown }
     ip?: string
     headers?: ConsoleHeaders
@@ -48,7 +34,6 @@ export interface ConsoleRequestEvent {
 
 export function setConsoleResponseStatus(event: ConsoleRequestEvent, status: number): void {
   if (event.res) Object.assign(event.res, { status })
-  if (event.node?.res) Object.assign(event.node.res, { statusCode: status })
 }
 
 const maximumConsoleRequestBodyBytes = 64 * 1_024
@@ -62,7 +47,6 @@ function stringByteLength(value: string): number {
   return bytes
 }
 
-/** Read bounded JSON across Fetch, H3 v1, and already-decoded RPC request bodies. */
 /**
  * Reads a fetch request body as text and stops at `maximumBytes`, so an oversized body is not read in full.
  * Throws a `413` Console request error when the body is larger.
@@ -92,6 +76,7 @@ export async function consoleRequestText(fetchBody: ReadableStream<Uint8Array>, 
   }
 }
 
+/** Read bounded JSON from a Fetch request body, or from a body that the host has already decoded. */
 export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumBytes: number = maximumConsoleRequestBodyBytes): Promise<unknown> {
   const fetchBody = event.req?.body
   if (fetchBody === null) return undefined
@@ -101,27 +86,10 @@ export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumByte
     return JSON.parse(typeof fetchBody === "string" ? fetchBody : new TextDecoder().decode(fetchBody))
   }
   if (fetchBody) return JSON.parse(await consoleRequestText(fetchBody, maximumBytes))
-  if (event.req?.json) {
-    const body = await event.req.json()
-    if (stringByteLength(JSON.stringify(body) ?? "") > maximumBytes) throw consoleRequestError(413, "Console request body exceeds the byte limit.")
-    return body
-  }
-  const request = event.node?.req
-  if (!request?.[Symbol.asyncIterator]) throw new SyntaxError("Request body is unavailable.")
-  const decoder = new TextDecoder()
-  let body = ""
-  let bytes = 0
-  // SAFETY: The iterator presence check above proves this H3 v1 request can be consumed as an async byte stream.
-  for await (const chunk of request as AsyncIterable<Uint8Array | string>) {
-    const chunkBytes = typeof chunk === "string" ? stringByteLength(chunk) : chunk.byteLength
-    bytes += chunkBytes
-    if (bytes > maximumBytes) {
-      throw consoleRequestError(413, "Console request body exceeds the byte limit.")
-    }
-    body += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true })
-  }
-  body += decoder.decode()
-  return JSON.parse(body)
+  if (!event.req?.json) throw new SyntaxError("Request body is unavailable.")
+  const body = await event.req.json()
+  if (stringByteLength(JSON.stringify(body) ?? "") > maximumBytes) throw consoleRequestError(413, "Console request body exceeds the byte limit.")
+  return body
 }
 
 /** A Console failure with an HTTP status. The code defaults to the Console code of the status. */
@@ -136,7 +104,7 @@ export function isConsoleDevelopmentRuntime(): boolean {
 
 export function assertConsoleRequest(event: ConsoleRequestEvent, allowedMethods: readonly string[] = ["GET"]): void {
   setConsoleResponseHeaders(event)
-  const method = event.method ?? event.req?.method ?? event.node?.req?.method
+  const method = event.method ?? event.req?.method
   if (!method || !allowedMethods.includes(method)) throw consoleRequestError(405, "Method not allowed")
 }
 
@@ -148,25 +116,20 @@ export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
   }
   for (const [name, value] of Object.entries(headers)) {
     event.res?.headers?.set(name, value)
-    event.node?.res?.setHeader(name, value)
   }
 }
 
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {
-  // H3 1 strips a mounted base from url and retains the public path in originalUrl.
-  const value = event.node?.req?.originalUrl || event.req?.url || event.node?.req?.url || "/"
+  const value = event.req?.url || "/"
   const header = (name: string) => {
-    for (const source of [event.req?.headers, event.headers, event.node?.req?.headers]) {
-      if (!source) continue
-      let raw: string | string[] | undefined | null
-      if ("get" in source && typeof source.get === "function") raw = source.get(name)
-      else if (typeof source === "object") raw = (source as Record<string, string | string[] | undefined>)[name]
-      if (raw !== undefined && raw !== null) return (Array.isArray(raw) ? raw[0] : raw)?.split(",")[0]?.trim()
+    for (const source of [event.req?.headers, event.headers]) {
+      const raw = source?.get(name)
+      if (raw !== undefined && raw !== null) return raw.split(",")[0]?.trim()
     }
   }
   const url = value instanceof URL ? new URL(value) : new URL(value, "http://localhost")
   const host = header("x-forwarded-host") ?? header("host")
-  const protocol = header("x-forwarded-proto") ?? (event.node?.req?.socket?.encrypted ? "https" : undefined)
+  const protocol = header("x-forwarded-proto")
   if (protocol === "http" || protocol === "https") url.protocol = `${protocol}:`
   if (host) {
     url.port = ""

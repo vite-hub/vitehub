@@ -1,6 +1,6 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { defaultRequestBytes, operationAccessAllows, operationAccessDenial, operationCall, operationInputJsonSchema, operationToolName, parseOperationInput, operationSection, toOperationFailure } from "@vite-hub/internal/operations"
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { toEventRequest } from "@vite-hub/internal/runtime/event-request"
 import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 
 import { consoleAccessAllows, consoleAccessWrites, consoleOperationGranted, consoleOperationScope, consoleRequest, installedConsoleOAuth, readConsoleAccessUser, readConsoleOperationUser, withConsoleAccess } from "./access.ts"
@@ -167,7 +167,6 @@ export async function mcpUnauthorized(event: ConsoleRequestEvent): Promise<Respo
 }
 
 const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) => {
-  // Nuxt 4's H3 1 events carry Node's request, which `toEventRequest` reads as a web Request.
   const request = toEventRequest(event)
   try {
     assertLoopbackWithoutSignIn(request, new URL(request.url), { access, remoteAddress: eventRemoteAddress(event) })
@@ -195,7 +194,6 @@ const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) 
  * `/_vitehub/mcp`: ViteHub MCP, a stateless Streamable HTTP MCP server. It runs with the Console access of the request,
  * a session or an OAuth access token, and lists the operations and registered tools that the person may use.
  */
-// A plain handler also loads when Nuxt 4 resolves h3 to h3 1, which has no defineHandler().
 const handler: (event: H3Event) => Promise<Response> = async (event) => {
   const response = await guarded(event)
   if (isBearerRejection(response)) return response
