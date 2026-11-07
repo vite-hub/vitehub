@@ -566,6 +566,7 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     for (const path of ignored) expect(await local.exists(path)).toBe(false)
     await local.write("NODE_MODULES/pkg/index.js", "local dependency\n")
     await local.write(".GIT/config", "[core]\n")
+    await local.write("posts/.hello.md.0a1b2c3d4e5f.vitehub-tmp", "left by a stopped pull\n")
     expect((await local.status())[0]!.local).toEqual({ added: [], conflicted: [], deleted: [], modified: [] })
     expect((await local.run("push")).stdout).toBe("content: nothing to push.\n")
     expect((await local.run("pull", "--theirs", ignored[0]!)).stderr).toContain("WORKSPACE_CHECKOUT_PATH")

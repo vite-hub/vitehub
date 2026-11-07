@@ -229,7 +229,7 @@ One push is one `workspace.commit` call of at most 4 MiB, which fits the request
 limit of every host (Vercel Functions: 4.5 MB). A larger push fails with
 `WORKSPACE_CHECKOUT_TOO_LARGE` before the call and names the largest files. A pull reads
 all changes in one response; on Vercel, keep it below 4.5 MB.
-Pulls replace files through a rename, so a hard link to an old file keeps its content.
+Pulls replace files through a rename, so a hard link to an old file keeps its content. A file that ends in `.vitehub-tmp` is the leftover of a stopped write and is never pulled or pushed.
 A symbolic link at `vitehub.lock` fails. Commands in one project can run at the same time:
 each one rewrites only its own Workspace entries of `vitehub.lock`, under a short
 `vitehub.lock.lock` file.

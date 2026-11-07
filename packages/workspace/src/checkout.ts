@@ -49,8 +49,12 @@ const ignored = new Set([".git", ".vitehub", "node_modules", ".ds_store"])
 const conflictStart = /^<{7}(?: |$)/m
 const conflictEnd = /^>{7}(?: |$)/m
 
+/** The suffix of the temporary file of an atomic write. A command that stopped before the rename leaves one behind. */
+const temporarySuffix = ".vitehub-tmp"
+
 function ignoredName(name: string): boolean {
-  return ignored.has(name.toLowerCase().replace(/[. ]+$/, ""))
+  const normalized = name.toLowerCase().replace(/[. ]+$/, "")
+  return ignored.has(normalized) || normalized.endsWith(temporarySuffix)
 }
 
 function ignoredPath(path: string): boolean {
@@ -225,7 +229,7 @@ export function mergeText(base: string, local: string, remote: string, labels: {
 async function writeAtomic(target: string, bytes: Bytes | string): Promise<void> {
   // A replaced file keeps its permission bits, such as an executable script.
   const mode = await lstat(target).then(stat => stat.isFile() ? stat.mode & 0o777 : 0o666, () => 0o666)
-  const temporary = join(dirname(target), `.${basename(target)}.${randomBytes(6).toString("hex")}.vitehub-tmp`)
+  const temporary = join(dirname(target), `.${basename(target)}.${randomBytes(6).toString("hex")}${temporarySuffix}`)
   // O_EXCL and O_NOFOLLOW fail on any path that exists at the temporary name, including a link created after the check.
   await writeFile(temporary, bytes, { flag: constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode })
   try {
