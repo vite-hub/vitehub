@@ -53,7 +53,7 @@ async function projectWarnings(cwd: string): Promise<string[]> {
   if (!nuxt) return []
   const majors = nuxtMajors(nuxt)
   if (majors && majors.every(major => major < 5)) {
-    return [`ViteHub supports Nuxt 5 and Nitro 3 only, and package.json requires nuxt "${nuxt}". The migration does not upgrade Nuxt. Move the app to Nuxt 5 before you build it, for example with "nuxt": "npm:nuxt-nightly@5x" until Nuxt 5 is released.`]
+    return [`ViteHub supports Nuxt 5 and Nitro 3 only, and package.json requires nuxt "${nuxt}". The migration does not upgrade Nuxt. Move the app to Nuxt 5 before you build it, for example with "nuxt": "npm:nuxt-nightly@5x" until Nuxt 5 is released. Nuxt 5 does not auto-import Nitro helpers in server code, so import defineEventHandler and the other h3 helpers from "nitro/h3".`]
   }
   return []
 }
