@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { MarkdownDocument } from "@comark/vue"
+import customComponents from "#docs/custom-components"
 import contentComponents from "#docs/components"
 
 import type { Component } from "vue"
@@ -19,7 +20,7 @@ const componentsManifest = (tag: string) => contentComponents[tag]?.()
 <template>
   <MarkdownDocument
     :value="{ nodes: document.nodes, frontmatter: {}, meta: {} }"
-    :components="components ?? {}"
+    :components="{ ...customComponents, ...components }"
     :components-manifest="componentsManifest"
   />
 </template>

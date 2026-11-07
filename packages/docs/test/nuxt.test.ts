@@ -63,7 +63,8 @@ async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, ap
   roots.push(buildDir)
   const options = {
     rootDir: resolve(import.meta.dirname, "fixtures"), buildDir, serverDir: "/missing-server",
-    srcDir: "/app", appDir: "/nuxt/dist/app", extensions: [".js", ".ts", ".vue"], dev, build: { transpile: [] }, appConfig: {},
+    // A Nuxt 5 nightly installs as `nuxt-nightly`.
+    srcDir: "/app", appDir: "/node_modules/nuxt-nightly/dist/app", extensions: [".js", ".ts", ".vue"], dev, build: { transpile: [] }, appConfig: {},
     _layers: app.srcDir ? [{ config: { srcDir: app.srcDir } }] : [],
     app: { baseURL: appBase, head: {} }, runtimeConfig: { public: {} }, alias: {}, css: [],
     imports: { dirs: [] }, docs,
@@ -104,6 +105,7 @@ describe("docs in an existing app", () => {
     expect((await setupDocs({ dir: app.dir })).runtimeConfig.public.docs.base).toBe("/docs")
     const site = appWithDocs({ "index.md": "Home", "guide/index.md": "Guide" })
     expect((await setupDocs({ dir: site.dir })).runtimeConfig.public.docs.base).toBe("/")
+    expect(templates.get("docs/manifest.mjs")?.()).toContain('"base":"/"')
     expect((await setupDocs({ dir: site.dir, base: "/docs" })).runtimeConfig.public.docs.base).toBe("/docs")
   })
 
@@ -136,10 +138,10 @@ describe("docs in an existing app", () => {
     await callHook("app:templates", { layouts, templates: [] })
     expect(Object.keys(layouts).sort()).toEqual(["docs", "docs-article"])
     const appFile = join(app.srcDir, "app.vue")
-    const resolved = { mainComponent: appFile, errorComponent: "/nuxt/dist/app/components/nuxt-error-page.vue" }
+    const resolved = { mainComponent: appFile, errorComponent: `${options.appDir}/components/nuxt-error-page.vue` }
     await callHook("app:resolve", resolved)
     expect(resolved.mainComponent).toBe(appFile)
-    expect(resolved.errorComponent).toBe("/nuxt/dist/app/components/nuxt-error-page.vue")
+    expect(resolved.errorComponent).toBe(`${options.appDir}/components/nuxt-error-page.vue`)
     expect(options.agentDiscovery.routes).not.toContain("/")
   })
 
@@ -151,16 +153,16 @@ describe("docs in an existing app", () => {
     await callHook("app:templates", { layouts, templates: [] })
     expect(Object.keys(layouts).sort()).toEqual(["default", "docs"])
     // Nuxt's pages module turns the welcome page into its own app.vue before the docs module sees it.
-    const resolved = { mainComponent: "/nuxt/dist/pages/runtime/app.vue", errorComponent: "/nuxt/dist/app/components/nuxt-error-page.vue" }
+    const resolved = { mainComponent: resolve(options.appDir, "../pages/runtime/app.vue"), errorComponent: `${options.appDir}/components/nuxt-error-page.vue` }
     await callHook("app:resolve", resolved)
     expect(resolved.mainComponent).toMatch(/runtime\/app\/app\.vue$/)
     expect(resolved.errorComponent).toMatch(/runtime\/app\/error\.vue$/)
   })
 
-  it("builds the docs classes in the app's own Tailwind build when the app imports Nuxt UI", async () => {
+  it.each([false, true])("builds docs classes in the app's Tailwind build, with mapped sources: %s", async (mapped) => {
     const app = appWithDocs({ "docs/guide/index.md": "Guide" })
     writeFileSync(join(app.srcDir, "main.css"), '@import "tailwindcss";\n@import "@nuxt/ui";\n')
-    const options = await setupDocs({ dir: app.dir }) as Awaited<ReturnType<typeof setupDocs>> & { css: string[], alias: Record<string, string> }
+    const options = await setupDocs(mapped ? { sources: [{ dir: app.dir }] } : { dir: app.dir }) as Awaited<ReturnType<typeof setupDocs>> & { css: string[], alias: Record<string, string> }
     const docsCss = templates.get("docs/docs.css")!
     expect(docsCss()).toContain('@import "tailwindcss";')
     options.alias["~"] = app.srcDir
@@ -190,11 +192,141 @@ describe("docs in an existing app", () => {
 })
 
 describe("docs Nuxt setup", () => {
+  it.each(["/", "/portal/"])("accepts validated redirect links in the compiled output under %s", async (appBase) => {
+    const options = await setupDocs({}, appBase)
+    Object.assign(options, { linkChecker: { excludeLinks: ["/badge.svg"] } })
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(publicDir)
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}docs/old">Old</a><a href="${appBase}mcp">MCP</a><img src="/badge.svg">`)
+    const compiled: Array<() => void> = []
+    const nitro = {
+      options: {
+        routeRules: { "/docs/old": { redirect: "/docs/start" } },
+        output: { publicDir },
+      },
+      hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) },
+    }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    expect(compiled).toHaveLength(1)
+    expect(() => compiled[0]!()).not.toThrow()
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}docs/missing">Missing</a>`)
+    expect(() => compiled[0]!()).toThrow(/no page or file/)
+  })
+
+  it("reports a link to the MCP endpoint when the site turns MCP off", async () => {
+    const options = await setupDocs({ mcp: false })
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(publicDir)
+    writeFileSync(join(publicDir, "index.html"), `<a href="/mcp">MCP</a>`)
+    const compiled: Array<() => void> = []
+    const nitro = { options: { routeRules: {}, output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    expect(() => compiled[0]!()).toThrow(/\/mcp, which has no page or file/)
+  })
+
+  it.each(["/", "/portal/"])("combines Docs and app link exclusions in the compiled output under %s", async (appBase) => {
+    const options = await setupDocs({ linkChecker: { excludeLinks: [`${appBase}blog/**`, new RegExp(`^${appBase}media/`)] } }, appBase)
+    Object.assign(options, { linkChecker: { excludeLinks: [`${appBase}badge.svg`] } })
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(publicDir)
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}blog/post">Post</a><img src="${appBase}media/icon.svg"><img src="${appBase}badge.svg">`)
+    const compiled: Array<() => void> = []
+    const nitro = { options: { output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    expect(() => compiled[0]!()).not.toThrow()
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}missing">Missing</a>`)
+    expect(() => compiled[0]!()).toThrow(/no page or file/)
+  })
+
+  it.each(["/", "/portal/"])("accepts server-rendered and Console links using Nitro's prerender policy under %s", async (appBase) => {
+    const options = await setupDocs({}, appBase)
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(publicDir)
+    const paths = ["blog", "blog/post", "changelog", "media/illustrations/edit-this-site-dark.svg", "feed.xml", "api/time", "dynamic/page", "_vitehub", "_vitehub/sign-in", "_vitehub/content", "_vitehub/comments"]
+    writeFileSync(join(publicDir, "index.html"), paths.map(path => `<a href="${appBase}${path}#intro">${path}</a>`).join(""))
+    const compiled: Array<() => void> = []
+    const nitro = {
+      options: {
+        output: { publicDir },
+        routeRules: { "/blog/**": { prerender: false, swr: 60 }, "/blog/static": { prerender: true }, "/dynamic/:slug": { prerender: false } },
+        prerender: { ignore: ["/changelog", "/media/**", /^\/feed\./g, (path: string) => path === "/api/time", "/_vitehub", `${appBase}_vitehub`] },
+      },
+      hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) },
+    }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    expect(() => compiled[0]!()).not.toThrow()
+    for (const path of ["blog/static", "blogger", "missing"]) {
+      writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}${path}">Missing</a>`)
+      expect(() => compiled[0]!()).toThrow(`links to ${appBase}${path}, which has no page or file`)
+    }
+    // An output file still provides fragment evidence, even for an otherwise dynamic route.
+    writeFileSync(join(publicDir, "changelog.html"), '<h2 id="intro">Changes</h2>')
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}changelog#missing">Missing fragment</a>`)
+    expect(() => compiled[0]!()).toThrow('no element with id "missing"')
+    // Console paths must have a serving policy; disabling the Console must not mask a broken link.
+    nitro.options.prerender.ignore = []
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}_vitehub">Console</a>`)
+    expect(() => compiled[0]!()).toThrow(/_vitehub, which has no page or file/)
+  })
+
+  it("registers source assets, writes raw copies from the right directory and loads configured components", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "docs-sources-"));
+    roots.push(dir);
+    for (const name of ["a", "b"]) {
+      mkdirSync(join(dir, name));
+      writeFileSync(join(dir, name, "index.md"), `---\ntitle: ${name}\n---\nSource ${name}`);
+    }
+    const options = await setupDocs(
+      {
+        base: "/",
+        sources: [
+          { dir: join(dir, "a"), mount: "/a" },
+          { dir: join(dir, "b"), mount: "/b" },
+        ],
+        components: "./markdown-components.ts",
+      },
+      "/",
+      true,
+    );
+    const nitro: { serverAssets?: unknown[] } = {};
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never);
+    expect(nitro.serverAssets).toEqual(
+      expect.arrayContaining([
+        { baseName: "docs-0", dir: join(dir, "a"), pattern: "**/*.md" },
+        { baseName: "docs-1", dir: join(dir, "b"), pattern: "**/*.md" },
+      ]),
+    );
+    for (const hook of hooks.get("build:before") ?? []) await hook();
+    expect(readFileSync(join(options.buildDir, "docs/raw/a.md"), "utf8")).toContain("Source a");
+    expect(readFileSync(join(options.buildDir, "docs/raw/b.md"), "utf8")).toContain("Source b");
+    expect(templates.get("docs/custom-components.mjs")?.()).toContain("markdown-components.ts");
+    expect(watchContent.mock.calls.map((call) => call[0])).toEqual([
+      join(dir, "a"),
+      join(dir, "b"),
+    ]);
+  });
+
   it.each(["docs", "/docs/", "/docs"])("shares the normalized base %s with the manifest and discovery", async (base) => {
     const options = await setupDocs({ base, mcp: false })
     expect(options.runtimeConfig.public.docs.base).toBe("/docs")
     expect(templates.get("docs/manifest.mjs")?.()).toContain('"base":"/docs"')
     expect(options.agentDiscovery.routes).toContain("/docs/**")
+  })
+
+  it("replaces Nuxt's own welcome and error pages, and keeps the app's", async () => {
+    await setupDocs({})
+    const resolveApp = hooks.get("app:resolve")![0] as (app: { mainComponent: string, errorComponent: string }) => void
+    const defaults = { mainComponent: "/node_modules/nuxt-nightly/dist/app/components/welcome.vue", errorComponent: "/node_modules/nuxt-nightly/dist/app/components/nuxt-error-page.vue" }
+    resolveApp(defaults)
+    expect(defaults.mainComponent).toMatch(/runtime\/app\/app\.vue$/)
+    expect(defaults.errorComponent).toMatch(/runtime\/app\/error\.vue$/)
+    const template = { mainComponent: "/node_modules/@nuxt/ui-templates/templates/dashboard/app.vue", errorComponent: "/app/error.vue" }
+    resolveApp(template)
+    expect(template.mainComponent).toMatch(/runtime\/app\/app\.vue$/)
+    expect(template.errorComponent).toBe("/app/error.vue")
+    const own = { mainComponent: "/app/app.vue", errorComponent: "/app/error.vue" }
+    resolveApp(own)
+    expect(own).toEqual({ mainComponent: "/app/app.vue", errorComponent: "/app/error.vue" })
   })
 
   it("starts development before the content directory exists", async () => {
@@ -217,34 +349,63 @@ describe("docs Nuxt setup", () => {
     expect(readFileSync(join(options.buildDir, "docs/raw/docs.md"), "utf8")).toContain("First page")
   })
 
-  it("serializes raw transformations across edits", async () => {
-    vi.useFakeTimers()
-    const content = mkdtempSync(join(tmpdir(), "docs-edits-"))
-    roots.push(content)
-    mkdirSync(join(content, "docs"))
-    const page = join(content, "docs/index.md")
-    writeFileSync(page, "---\ntitle: Page\n---\n# Original")
-    let release!: () => void
-    const blocked = new Promise<void>((resolve) => { release = resolve })
-    const transform = vi.fn(async (source: string) => {
-      if (source.includes("Older")) await blocked
-      return source
-    })
-    const options = await setupDocs({ dir: content, rawMarkdown: transform }, "/", true)
-    const changed = watchContent.mock.calls.at(-1)![2]!
-    writeFileSync(page, "---\ntitle: Page\n---\n# Older")
-    changed("change", "docs/index.md")
-    await vi.advanceTimersByTimeAsync(100)
-    expect(transform).toHaveBeenCalledTimes(1)
-    writeFileSync(page, "---\ntitle: Page\n---\n# Newer")
-    changed("change", "docs/index.md")
-    await vi.advanceTimersByTimeAsync(100)
-    const concurrent = transform.mock.calls.length
-    release()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(concurrent).toBe(1)
-    expect(readFileSync(join(options.buildDir, "docs/raw/docs.md"), "utf8")).toContain("Newer")
-  })
+  it.each([false, true])(
+    "serializes raw transformations across edits, multiple sources: %s",
+    async (multiple) => {
+      vi.useFakeTimers();
+      const content = mkdtempSync(join(tmpdir(), "docs-edits-"));
+      roots.push(content);
+      mkdirSync(join(content, "docs"));
+      const page = join(content, "docs/index.md");
+      writeFileSync(page, "---\ntitle: Page\n---\n# Original");
+      let release!: () => void;
+      const blocked = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const transform = vi.fn(async (source: string) => {
+        if (source.includes("Older")) await blocked;
+        return source;
+      });
+      const second = join(content, "other");
+      mkdirSync(second);
+      writeFileSync(join(second, "index.md"), "---\ntitle: Other\n---\n# Original");
+      const options = await setupDocs(
+        {
+          dir: content,
+          ...(multiple
+            ? {
+                sources: [
+                  { dir: join(content, "docs"), mount: "/docs" },
+                  { dir: second, mount: "/other" },
+                ],
+              }
+            : {}),
+          rawMarkdown: transform,
+        },
+        "/",
+        true,
+      );
+      const changed = watchContent.mock.calls[0]![2]!;
+      const changedSecond = multiple ? watchContent.mock.calls[1]![2]! : changed;
+      writeFileSync(page, "---\ntitle: Page\n---\n# Older");
+      changed("change", multiple ? "index.md" : "docs/index.md");
+      await vi.advanceTimersByTimeAsync(100);
+      expect(transform).toHaveBeenCalledTimes(1);
+      writeFileSync(multiple ? join(second, "index.md") : page, "---\ntitle: Page\n---\n# Newer");
+      changedSecond("change", multiple ? "index.md" : "docs/index.md");
+      await vi.advanceTimersByTimeAsync(100);
+      const concurrent = transform.mock.calls.length;
+      release();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(concurrent).toBe(1);
+      expect(
+        readFileSync(
+          join(options.buildDir, multiple ? "docs/raw/other.md" : "docs/raw/docs.md"),
+          "utf8",
+        ),
+      ).toContain("Newer");
+    },
+  );
 
   it("gives the page route and search the app's parser module", async () => {
     const options = await setupDocs({ parser: "./docs.parser.ts" })

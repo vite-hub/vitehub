@@ -278,11 +278,14 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     }
   }, stderr)
   const { contribution, operations, plugins, rootDir } = await (stage ? withViteStageEnvironment(env, loadProject) : loadProject())
+  const runtimeNamespaces = (options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
+  // A runtime namespace runs before the project loads, so it replaces a project namespace of the same name.
+  const runtimeNames = new Set(runtimeNamespaces.map(namespace => namespace.name))
   const namespaces = [
-    ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
+    ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && !runtimeNames.has(namespace.name)),
     createInspectNamespace(plugins, operations),
     createProvisionNamespace(contribution.provision),
-    ...(options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
+    ...runtimeNamespaces,
   ]
 
   const context: ViteHubCliContext = {

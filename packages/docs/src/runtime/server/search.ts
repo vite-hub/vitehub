@@ -13,7 +13,7 @@ import type { DocsSearchSection } from "../../types.ts"
 async function buildIndex(): Promise<DocsSearchSection[]> {
   const sections: DocsSearchSection[] = []
   for (const page of docsManifestPages(manifest)) {
-    const document = await loadDocsDocument(page.file, false)
+    const document = await loadDocsDocument(page.file, page.source, false)
     if (document === null) continue
     const { nodes } = document
     const [entry, ...headings] = docsSearchSections(page.path, page.sourceTitle, nodes)
