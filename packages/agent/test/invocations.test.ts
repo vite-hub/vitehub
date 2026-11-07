@@ -95,6 +95,7 @@ describe("Agent Invocations", () => {
     expect(result.observations).toHaveLength(1)
     expect(result.observations[0]?.attributes?.["usage.record"]).toEqual({ usage })
     expect(result.observations[0]?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(result.observations[0]?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["usage.record"])
     expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(512)
   })
 
@@ -112,7 +113,38 @@ describe("Agent Invocations", () => {
     expect(result.observations).toHaveLength(1)
     expect(result.observations[0]?.attributes?.["usage.record"]).toEqual({ usage, cost: { usd: "0.01", estimated: true } })
     expect(result.observations[0]?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(result.observations[0]?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["usage.record"])
     expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(512)
+  })
+
+  it("names usage removed entirely by the byte budget and preserves existing names", () => {
+    const result = byteBoundedObservations([{
+      name: "agent.invocation.finish", type: "run", sequence: 1, timestamp: "2026-09-13T00:00:00.000Z",
+      attributes: {
+        "usage.record": { cost: { usd: "0." + "1".repeat(1_000) } },
+        "vitehub.observation.truncated": true,
+        "vitehub.observation.truncatedAttributes": ["message.content"],
+      },
+    }], observationLimits({ maxBytes: 512 }))
+    expect(result.truncated).toBe(true)
+    expect(result.observations).toHaveLength(1)
+    expect(result.observations[0]?.attributes).not.toHaveProperty("usage.record")
+    expect(result.observations[0]?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["message.content", "usage.record"])
+    expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(512)
+  })
+
+  it("keeps earlier unnamed truncation unnamed during byte-budget compaction", () => {
+    const result = byteBoundedObservations([{
+      name: "agent.invocation.finish", type: "run", sequence: 1, timestamp: "2026-09-13T00:00:00.000Z",
+      attributes: {
+        "usage.record": { usage: { totalTokens: 7 }, raw: "x".repeat(10_000) },
+        "vitehub.observation.truncated": true,
+      },
+    }], observationLimits({ maxBytes: 512 }))
+    expect(result.observations).toHaveLength(1)
+    expect(result.observations[0]?.attributes?.["usage.record"]).toEqual({ usage: { totalTokens: 7 } })
+    expect(result.observations[0]?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(result.observations[0]?.attributes).not.toHaveProperty("vitehub.observation.truncatedAttributes")
   })
 
   it.each(["https://example.com", "postgres://alice:hunter2@db.example"])("retains safe URI evidence across intervening events: %s", async (uri) => {
@@ -273,7 +305,10 @@ describe("Agent Invocations", () => {
     expect(new TextEncoder().encode(JSON.stringify(result.observations)).byteLength).toBeLessThanOrEqual(400)
     expect(result.observations).toContainEqual(expect.objectContaining({
       name: "vitehub.agent.configured",
-      attributes: { "vitehub.agent.configurationTruncated": true },
+      attributes: {
+        "vitehub.agent.configurationTruncated": true,
+        "vitehub.observation.truncatedAttributes": ["vitehub.agent.configuration"],
+      },
     }))
   })
 
@@ -2063,6 +2098,48 @@ describe("Agent Invocations", () => {
     const observation = (await invocations.getByRunId("bounded-ordinary-observation"))?.observations
       .find(entry => entry.name === "tool.finish")
     expect(observation?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+  })
+
+  it("keeps long run IDs and names the shortened attributes", async () => {
+    const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("named-truncated-attributes"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    const runId = JSON.stringify(["owner:chat:bot:teams:inline-steer:" + "t".repeat(400), "teams:" + "t".repeat(400), "message"])
+    await journal.context.traceLog?.append({ attributes: { "agent.run.id": runId, "message.content": "Done" }, name: "agent.message.delta", type: "run" })
+    await journal.context.traceLog?.append({ attributes: { "agent.run.id": runId, metadata: "x".repeat(10_000) }, name: "tool.finish", type: "run" })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("named-truncated-attributes"))?.observations
+    const message = observations?.find(entry => entry.name === "agent.message.delta")
+    expect(message?.attributes?.["agent.run.id"]).toBe(runId)
+    expect(message?.attributes).not.toHaveProperty("vitehub.observation.truncated")
+    const tool = observations?.find(entry => entry.name === "tool.finish")
+    expect(tool?.attributes?.["vitehub.observation.truncated"]).toBe(true)
+    expect(tool?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual(["metadata"])
+  })
+
+  it.each(["input.messages", "input.prompt"])("names hidden input parts apart from message text in %s", async (key) => {
+    const invocations = defineAgentInvocations({ content: "content", store: createMemoryAgentInvocationStore() })
+    const journal = await bindAgentInvocations(invocations, runtime("hidden-input-parts"))
+    if (!journal) throw new Error("Expected the invocation journal to be configured.")
+    let data: Record<string, unknown> = { leaf: true }
+    for (let depth = 0; depth < 40; depth++) data = { data }
+    const hidden = [{ id: "m1", parts: [{ data, type: "data-header" }, { text: "even more", type: "text" }], role: "user" }]
+    const cut = [{ id: "m2", parts: [{ text: "x".repeat(100_000), type: "text" }], role: "user" }]
+    const history = Array.from({ length: 500 }, (_, index) => ({ content: `message ${index}`, role: "user" }))
+    const attachment = [{ parts: [{ url: "https://example.com/" + "x".repeat(100_000), type: "file" }], role: "user" }]
+    await journal.context.traceLog?.append({ attributes: { [key]: hidden }, name: "agent.hidden", type: "run" })
+    await journal.context.traceLog?.append({ attributes: { [key]: cut }, name: "agent.cut", type: "run" })
+    await journal.context.traceLog?.append({ attributes: { [key]: history }, name: "agent.history", type: "run" })
+    await journal.context.traceLog?.append({ attributes: { [key]: attachment }, name: "agent.attachment", type: "run" })
+    await journal.finish("completed")
+
+    const observations = (await invocations.getByRunId("hidden-input-parts"))?.observations
+    expect(observations?.find(entry => entry.name === "agent.hidden")?.attributes?.["vitehub.observation.truncatedAttributes"]).toEqual([`${key}.parts`])
+    for (const name of ["agent.cut", "agent.history"]) {
+      expect(observations?.find(entry => entry.name === name)?.attributes?.["vitehub.observation.truncatedAttributes"], name).toEqual([key])
+    }
+    expect(observations?.find(entry => entry.name === "agent.attachment")?.attributes?.["vitehub.observation.truncatedAttributes"]).toContain(key)
   })
 
   it("omits nested optional metadata without reporting content truncation", async () => {

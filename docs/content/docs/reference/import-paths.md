@@ -120,7 +120,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/rate-limit` | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing, saved through [Realtime document adapters](/docs/realtime/server-api#custom-document-adapters). |
 | `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
-| `vite-hub/runtime/h3` | H3 Runtime Context adapter, Standard Context types, and `installStandardContext()`. |
+| `vite-hub/runtime/h3` | H3 Runtime Context adapter, Standard Context types, `getStandardContext()`, and `installStandardContext()`. |
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
@@ -141,6 +141,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | AI interface components, headless message scrolling, and default styles. |
 | `vite-hub/ui/chat`, `vite-hub/ui/chat-message`, `vite-hub/ui/prompt-input`, `vite-hub/ui/message-parts`, `vite-hub/ui/markdown`, `vite-hub/ui/chat-session` | Focused imports for chat components. |
 | `vite-hub/ui/filter-search` and `vite-hub/ui/choices-input` | The `FilterSearch` text box for `useChoices()`, and its headless parts. |
+| `vite-hub/ui/markdown-editor` | `MarkdownEditor`, a Markdown editor with uploads to Blob, outside the root barrel so it loads Tiptap only where it's used. |
 | `vite-hub/ui/message`, `vite-hub/ui/bubble`, `vite-hub/ui/marker`, `vite-hub/ui/attachment`, `vite-hub/ui/trace`, `vite-hub/ui/code-block` | shadcn/ui part families. |
 | `vite-hub/ui/tool-list`, `vite-hub/ui/trace-run` | Focused imports for tool contract and trace run components. |
 | `vite-hub/ui/code-view`, `vite-hub/ui/file-view`, `vite-hub/ui/file-diff`, `vite-hub/ui/multi-file-diff`, `vite-hub/ui/patch-diff`, `vite-hub/ui/unresolved-file` | Focused imports for code and diff components. |
