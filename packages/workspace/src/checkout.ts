@@ -302,27 +302,21 @@ async function writeWorkspaceLock(rootDir: string, lock: WorkspaceLock): Promise
   await writeAtomic(join(rootDir, workspaceLockFile), `${JSON.stringify(sorted, null, 2)}\n`)
 }
 
-// A command holds this file only while it reads, merges, and writes the lock file, for milliseconds. A file older than
-// `lockStaleMs` is left by a command that stopped, and the next command removes it.
+// Age cannot prove that an owner stopped. An interrupted command leaves a lock for manual cleanup.
 const lockMutexFile = `${workspaceLockFile}.lock`
 const lockWaitMs = 10_000
-const lockStaleMs = 30_000
 
 async function withLockMutex<T>(rootDir: string, work: () => Promise<T>): Promise<T> {
   const path = join(rootDir, lockMutexFile)
+  const token = `${process.pid}:${randomBytes(16).toString("hex")}\n`
   const started = Date.now()
   for (;;) {
     try {
-      await writeFile(path, `${process.pid}\n`, { flag: "wx" })
+      await writeFile(path, token, { flag: "wx" })
       break
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-      const stat = await lstat(path).catch(() => undefined)
-      if (stat && Date.now() - stat.mtimeMs > lockStaleMs) {
-        await rm(path, { force: true })
-        continue
-      }
       if (Date.now() - started > lockWaitMs) {
         throw new WorkspaceCheckoutError("WORKSPACE_LOCK_BUSY", `Another vitehub command is writing ${workspaceLockFile}: ${lockMutexFile} exists.`, `Wait for that command to finish and try again. If no vitehub command runs, delete ${lockMutexFile}.`)
       }
@@ -333,7 +327,7 @@ async function withLockMutex<T>(rootDir: string, work: () => Promise<T>): Promis
     return await work()
   }
   finally {
-    await rm(path, { force: true })
+    if (await readFile(path, "utf8").catch(() => undefined) === token) await rm(path, { force: true })
   }
 }
 
@@ -519,9 +513,10 @@ async function callOrThrow<T>(context: WorkspaceCheckoutContext, remote: string 
 function checkoutEntry(rootDir: string, lock: WorkspaceLock, workspace: string, options: { dir?: string, ref?: string, remote?: string }): WorkspaceCheckout {
   const existing = lock.workspaces[workspace]
   if (existing) {
-    for (const key of ["dir", "ref"] as const) {
+    for (const key of ["dir", "ref", "remote"] as const) {
       if (options[key] !== undefined && options[key] !== existing[key]) {
-        throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_OPTIONS", `Workspace "${workspace}" is checked out with ${key} "${existing[key]}", not "${options[key]}".`, `Edit ${workspaceLockFile} to change it, or remove the entry and pull again.`)
+        const fix = key === "remote" ? `Remove its ${workspaceLockFile} entry and pull into a new folder to change the remote.` : `Edit ${workspaceLockFile} to change it, or remove the entry and pull again.`
+        throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_OPTIONS", `Workspace "${workspace}" is checked out with ${key} "${existing[key]}", not "${options[key]}".`, fix)
       }
     }
     return existing
@@ -707,8 +702,20 @@ async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, e
       if (called.code === "WORKSPACE_CONFLICT" && attempt < 3) continue
       throw new WorkspaceCheckoutError(called.code ?? "WORKSPACE_CHECKOUT_FAILED", called.message, called.fix)
     }
-    const { revision } = called.value as WorkspaceCommitResult
-    for (const path of [...local.added, ...local.modified]) entry.files[path] = digestOf(files.get(path)!)
+    const { revision, normalized } = called.value as WorkspaceCommitResult
+    for (const path of [...local.added, ...local.modified]) {
+      const submitted = files.get(path)!
+      const committed = normalized?.[path] ? decode(normalized[path]) : submitted
+      entry.files[path] = digestOf(committed)
+      if (entry.files[path] !== digestOf(submitted)) {
+        const current = await readFile(await localPath(context.rootDir, folder, path)).catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== "ENOENT") throw error
+          return undefined
+        })
+        // Keep edits made while the commit was in flight as local changes against the committed bytes.
+        if (current && digestOf(current) === digestOf(submitted)) await put(context.rootDir, folder, path, committed)
+      }
+    }
     for (const path of local.deleted) delete entry.files[path]
     const result: WorkspacePushResult = { workspace, ref: entry.ref, revision: revision.id, pushed, pull }
     // A new ref with a parent started from another ref, as the GitHub Store starts one from the default branch.

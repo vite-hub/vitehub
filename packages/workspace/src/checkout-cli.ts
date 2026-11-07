@@ -62,6 +62,9 @@ function caller(context: WorkspaceCheckoutCliContext, parsed: Parsed): Workspace
   const timeout = one(parsed, "timeout")
   return async (operation, input, remote) => {
     const url = one(parsed, "url") ?? remote
+    if (url !== remote) {
+      throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_OPTIONS", `This checkout uses ${remote ? `remote "${remote}"` : "the project dev server"}, not "${url}".`, "Remove its vitehub.lock entry and pull into a new folder to change the remote.")
+    }
     return await callOperationFromCli({
       env: context.env,
       ...(context.fetch ? { fetch: context.fetch } : {}),

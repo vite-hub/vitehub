@@ -5,7 +5,7 @@ import { dirname, join } from "node:path"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 
@@ -19,6 +19,8 @@ import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.
 import { useWorkspace } from "../src/index.ts"
 import { workspaceOperations } from "../src/operations.ts"
 import { workspaceCommitRequestBytes } from "../src/results.ts"
+import { createGitHubWorkspaceStore } from "../src/providers/github/store.ts"
+import { createFakeGitHub } from "./fake-github.ts"
 
 import type { OperationUser } from "@vite-hub/internal/operations"
 import type { WorkspaceDefinition } from "../src/core/types.ts"
@@ -27,9 +29,27 @@ const cleanup: Array<() => Promise<void> | void> = []
 const migration = await readFile(new URL("fixtures/history.sql", import.meta.url), "utf8")
 const registry = createOperationRegistry([{ operations: workspaceOperations }])
 const remote = "https://docs.example.test"
+const pausedLockWrites = new Map<string, { entered: () => void, resume: Promise<void> }>()
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>()
+  return {
+    ...actual,
+    rename: async (...args: Parameters<typeof actual.rename>) => {
+      const paused = pausedLockWrites.get(String(args[1]))
+      if (paused) {
+        pausedLockWrites.delete(String(args[1]))
+        paused.entered()
+        await paused.resume
+      }
+      return await actual.rename(...args)
+    },
+  }
+})
 
 afterEach(async () => {
   resetWorkspaceRegistry()
+  vi.unstubAllGlobals()
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
@@ -40,15 +60,15 @@ async function tempDir(name: string) {
 }
 
 /** A deployed app with one Blob + Database Workspace, reached through the operation RPC as `user`. */
-async function app(user: OperationUser | null = null) {
+async function app(user: OperationUser | null = null, rules?: WorkspaceDefinition["rules"]) {
   const root = await tempDir("app")
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
   const database = drizzle(client, { schema: workspaceHistorySchema })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
-  const definition: WorkspaceDefinition = { name: "content", store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "content" }) }
-  registerWorkspace("content", { store: definition.store })
+  const definition: WorkspaceDefinition = { name: "content", store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "content" }), rules }
+  registerWorkspace("content", { store: definition.store, rules })
   const { history } = useWorkspace("content", { definition, mode: "write" })
   // A second Workspace of the same app.
   const notesDefinition: WorkspaceDefinition = { name: "notes", store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "notes" }) }
@@ -483,6 +503,84 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect(remoteApp.calls).toHaveLength(calls)
   })
 
+  it("keeps inherited file attributes on the first push to a fork", async () => {
+    const github = createFakeGitHub()
+    vi.stubGlobal("fetch", github.fetch)
+    github.commit("main", { "run.sh": { content: "echo published\n", mode: "100755" } })
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "", refs: { published: "main", draft: "vitehub/content" } }, "content")
+    const attributes: unknown[] = []
+    registerWorkspace("content", { store, rules: { "**": { write: true, validate: (input) => {
+      attributes.push(input.metadata)
+      return input
+    } } } })
+    const local = await project(async (_url, init) => {
+      const { operation, input } = JSON.parse(String(init!.body)) as { operation: string, input: unknown }
+      const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+      return Response.json(result)
+    }, "fork-attributes")
+    expect((await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).code).toBe(0)
+    await local.write("run.sh", "echo local\n")
+
+    expect(await local.run("push")).toMatchObject({ code: 0, stderr: "" })
+    expect(attributes).toEqual([{ gitMode: "100755" }])
+    expect(github.tree("vitehub/content").find(file => file.path === "run.sh")).toMatchObject({ mode: "100755" })
+    expect(await local.read("run.sh")).toBe("echo local\n")
+  })
+
+  it.each([false, true])("reconciles validator output with the checkout baseline (restore base: %s)", async (restoreBase) => {
+    const remoteApp = await app(null, { "**": { write: true, validate: input => ({ ...input, content: restoreBase ? "BASE\n" : String(input.content).toUpperCase() }) } })
+    await remoteApp.edit({ put: { "note.txt": "BASE\n" } })
+    const local = await project(remoteApp.fetch, "normalized")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await local.write("note.txt", "edited\n")
+
+    expect(await local.run("push")).toMatchObject({ code: 0, stderr: "" })
+    expect(await local.read("note.txt")).toBe(await remoteApp.read("note.txt"))
+    expect((await local.status())[0]!.local).toEqual({ added: [], modified: [], deleted: [], conflicted: [] })
+    expect((await local.run("pull")).code).toBe(0)
+    expect(await local.read("note.txt")).toBe(restoreBase ? "BASE\n" : "EDITED\n")
+    expect((await local.run("push")).stdout).toBe("content: nothing to push.\n")
+  })
+
+  it("keeps edits made during a push as local changes against the validator output", async () => {
+    const remoteApp = await app(null, { "**": { write: true, validate: input => ({ ...input, content: String(input.content).toUpperCase() }) } })
+    await remoteApp.edit({ put: { "note.txt": "BASE\n" } })
+    const local = await project(async (url, init) => {
+      const response = await remoteApp.fetch(url, init)
+      if ((JSON.parse(String(init!.body)) as { operation: string }).operation === "workspace.commit") await local.write("note.txt", "edited again\n")
+      return response
+    }, "edit-during-push")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await local.write("note.txt", "edited\n")
+
+    expect(await local.run("push")).toMatchObject({ code: 0, stderr: "" })
+    expect(await remoteApp.read("note.txt")).toBe("EDITED\n")
+    expect(await local.read("note.txt")).toBe("edited again\n")
+    expect((await local.status())[0]!.local.modified).toEqual(["note.txt"])
+    expect((await local.run("pull")).code).toBe(0)
+    expect(await local.read("note.txt")).toBe("edited again\n")
+  })
+
+  it.each([
+    { command: "pull", args: ["content"] },
+    { command: "push", args: ["content"] },
+    { command: "pull", args: ["--dry-run"] },
+    { command: "push", args: [] },
+  ])("rejects a changed --url on $command $args before calling another remote", async ({ command, args }) => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "note.txt": "base\n" } })
+    const local = await project(remoteApp.fetch, "remote-mismatch")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await local.write("note.txt", "local\n")
+    const before = await local.lock()
+    const calls = remoteApp.calls.length
+
+    expect(await local.run(command, ...args, "--url", "https://other.example.test")).toMatchObject({ code: 1, stderr: expect.stringContaining("WORKSPACE_CHECKOUT_OPTIONS") })
+    expect(remoteApp.calls).toHaveLength(calls)
+    expect(await local.lock()).toEqual(before)
+    expect(await local.read("note.txt")).toBe("local\n")
+  })
+
   it("keeps the media type and metadata of a file that a push replaces", async () => {
     const remoteApp = await app()
     const head = await remoteApp.history.head({ ref: "draft" })
@@ -725,11 +823,60 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect(results.map(result => result.code)).toEqual([0, 0])
     expect(Object.keys((await local.lock()).workspaces)).toEqual(["content", "notes"])
     expect((await readdir(local.rootDir)).sort()).toEqual(["content", "notes", "vitehub.lock"])
+  })
 
-    // A command that stopped while it wrote the lock left vitehub.lock.lock. After 30 seconds, the next command removes it.
-    await writeFile(join(local.rootDir, "vitehub.lock.lock"), "1\n")
-    await utimes(join(local.rootDir, "vitehub.lock.lock"), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000))
-    expect((await local.run("pull")).code).toBe(0)
-    expect((await readdir(local.rootDir)).sort()).toEqual(["content", "notes", "vitehub.lock"])
+  it("keeps a live lock when it ages, so waiting commands preserve every Workspace entry", async () => {
+    const remoteApp = await app()
+    const local = await project(remoteApp.fetch, "aged-lock")
+    let entered!: () => void, resume!: () => void
+    const reached = new Promise<void>((resolve) => { entered = resolve })
+    const resumed = new Promise<void>((resolve) => { resume = resolve })
+    pausedLockWrites.set(join(local.rootDir, "vitehub.lock"), { entered, resume: resumed })
+    const first = local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await reached
+    const mutex = join(local.rootDir, "vitehub.lock.lock")
+    await utimes(mutex, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000))
+    const owner = await readFile(mutex, "utf8")
+    let completed = 0
+    const waiting = [1, 2].map(async () => {
+      const result = await local.run("pull", "notes", "--dir", "notes", "--ref", "draft", "--url", remote)
+      completed++
+      return result
+    })
+    try {
+      await new Promise(resolve => setTimeout(resolve, 150))
+      expect(completed).toBe(0)
+      expect(await readFile(mutex, "utf8")).toBe(owner)
+    }
+    finally {
+      resume()
+      await Promise.all([first, ...waiting])
+    }
+    expect((await first).code).toBe(0)
+    expect((await Promise.all(waiting)).map(result => result.code)).toEqual([0, 0])
+    expect(Object.keys((await local.lock()).workspaces)).toEqual(["content", "notes"])
+    expect((await readdir(local.rootDir)).sort()).toEqual(["vitehub.lock"])
+  })
+
+  it("does not remove a replacement lock when the original acquisition finishes", async () => {
+    const remoteApp = await app()
+    const local = await project(remoteApp.fetch, "replaced-lock")
+    let entered!: () => void, resume!: () => void
+    const reached = new Promise<void>((resolve) => { entered = resolve })
+    const resumed = new Promise<void>((resolve) => { resume = resolve })
+    pausedLockWrites.set(join(local.rootDir, "vitehub.lock"), { entered, resume: resumed })
+    const first = local.run("pull", "content", "--dir", "content", "--url", remote)
+    await reached
+    const mutex = join(local.rootDir, "vitehub.lock.lock")
+    try {
+      await rm(mutex)
+      await writeFile(mutex, "replacement-owner\n", { flag: "wx" })
+    }
+    finally {
+      resume()
+      await first
+    }
+    expect((await first).code).toBe(0)
+    expect(await readFile(mutex, "utf8")).toBe("replacement-owner\n")
   })
 })
