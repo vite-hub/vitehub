@@ -12,8 +12,8 @@ describe("docs color mode", () => {
 
   it("defines browser schemes and a theme-owned dark palette", async () => {
     const styles = await readFile(new URL("theme/vercel.css", packageRuntime), "utf8");
-    const lightRule = styles.match(/:root\.light \{(?<body>[^}]+)\}/)?.groups?.body;
-    const darkRule = styles.match(/:root\.dark \{(?<body>[^}]+)\}/)?.groups?.body;
+    const lightRule = styles.match(/:root:where\(\.vh-docs\)\.light \{(?<body>[^}]+)\}/)?.groups?.body;
+    const darkRule = styles.match(/:root:where\(\.vh-docs\)\.dark \{(?<body>[^}]+)\}/)?.groups?.body;
 
     expect(lightRule).toContain("color-scheme: light");
     expect(darkRule).toContain("color-scheme: dark");

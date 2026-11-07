@@ -26,13 +26,14 @@ import { docsAppPath, docsManifestPages, docsPageIcon, docsRailIcon, docsRawFile
 import { toRawMarkdown } from "./raw.ts"
 import { docsMount, replacesDocsPage } from "./page.ts"
 import { DocsRedirectError, docsRedirectProblems, docsRedirects, type DocsRouteRule } from "./redirects.ts"
-import { docsAppConfigUi, vercelTheme, type DocsThemeUi } from "./theme.ts"
+import { docsAppConfigUi, docsThemeAdditions, docsThemeScope, vercelTheme, type DocsThemeUi } from "./theme.ts"
 
 import type { DocsPage } from "./types.ts"
 
 export { DocsAssistantSetupError } from "./assistant-nuxt.ts"
 export { DocsCommentsSetupError } from "./comments-nuxt.ts"
 export { DocsRedirectError } from "./redirects.ts"
+export type { DocsThemeScope } from "./theme.ts"
 export type { DocsCommentsOptions } from "./comments-nuxt.ts"
 
 export interface DocsSiteOptions {
@@ -285,7 +286,12 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     // Nuxt UI prose headings read the heading anchor settings of @nuxtjs/mdc, which this site does not install.
     moduleOptions.runtimeConfig.public.mdc ??= { headings: { anchorLinks: { h1: false, h2: true, h3: true, h4: true, h5: false, h6: false } } }
-    moduleOptions.appConfig.ui = docsAppConfigUi(vercelTheme(config.site.name), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
+    // A docs site gets the theme in its app config. An app with its own `app.vue` keeps its app config, and the docs
+    // layouts wrap the docs pages in `<UTheme>` with the theme instead.
+    const theme = vercelTheme(config.site.name)
+    moduleOptions.appConfig.ui = docsAppConfigUi(ownsApp ? theme : docsThemeAdditions(theme), moduleOptions.appConfig.ui, moduleOptions._layers.map(layer => layer.config.appConfig?.ui))
+    nuxt.options.alias["#docs/theme"] = addTemplate({ filename: "docs/theme.mjs", write: true, getContents: () => `export default ${JSON.stringify(ownsApp ? { ui: {}, props: {} } : docsThemeScope(theme))}\n` }).dst
+    addTemplate({ filename: "docs/theme.d.mts", write: true, getContents: () => `import type { DocsThemeScope } from "@vite-hub/docs/nuxt"\ndeclare const theme: DocsThemeScope\nexport default theme\n` })
 
     // The error page replaces `app.vue`, so the head that every page needs is part of the app's head config. In an app
     // with its own `app.vue`, the head stays the app's, and the docs layouts set the docs head on docs pages.
@@ -584,7 +590,8 @@ function setDocsHead(head: DocsHead, siteName: string): void {
     meta.push({ name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" })
   }
   meta.push({ name: "color-scheme", content: "light dark" })
-  head.htmlAttrs = { lang: "en", dir: "ltr", ...head.htmlAttrs }
+  // The theme applies below `.vh-docs`. A docs site has it on every page, the error page too.
+  head.htmlAttrs = { lang: "en", dir: "ltr", ...head.htmlAttrs, class: [head.htmlAttrs?.class, "vh-docs"].filter(Boolean).join(" ") }
   // `app.vue` sets the full title template. The error page uses this one: "Page not found · ViteHub".
   head.titleTemplate ??= `%s · ${siteName}`
 }
