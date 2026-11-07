@@ -91,7 +91,7 @@ export default defineEventHandler(async () => {
 
 - `useChannel('alerts')` picks the Channel by its name.
 - `connector: 'log'` picks the connector. The other options, here `label`, go to its `send()` function.
-- `send()` does not throw. It returns `[error, receipt]`. Check `error` first.
+- `send()` returns `[error, receipt]`. Check `error` for input, discovery, and connector failures. Invalid Channel Definitions or names passed to `useChannel()` can throw.
 
 Start the dev server:
 

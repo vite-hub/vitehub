@@ -62,7 +62,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 - `blob.put()` saves the file. If `hello.txt` exists, the new upload replaces it.
-- `blob.put()` does not throw. It returns `[error, object]`. Check `error` first.
+- `blob.put()` returns `[error, object]`. Check `error` for storage failures. Invalid arguments and configuration errors can throw.
 - `object` describes the saved file. The route returns its name, type, and size.
 
 ::

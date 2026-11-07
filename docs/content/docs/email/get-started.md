@@ -96,7 +96,7 @@ export default defineEventHandler(async () => {
 })
 ```
 
-`email.send()` does not throw. It returns `[error, sent]`. Check `error` first. In `vite dev`, the [development outbox](/docs/email/hosts#development-outbox) also keeps a copy of each email.
+`email.send()` returns `[error, sent]`. Check `error` for delivery failures. Configuration errors, such as a missing provider, can throw. In `vite dev`, the [development outbox](/docs/email/hosts#development-outbox) also keeps a copy of each email.
 
 ::
 
