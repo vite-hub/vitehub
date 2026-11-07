@@ -234,7 +234,7 @@ export default defineNuxtConfig({
 })
 ```
 
-`github` adds a GitHub link to the header, with the star count when available. `socials` adds community links beside it. The header appears on every page with search and a color mode button. `banner` shows one line above every docs page.
+`github` adds a GitHub link to the header, with the star count when available. `socials` adds community links beside it, or in the header's menu on narrow screens. The header appears on every page with search and a color mode button. `banner` shows one line above every docs page.
 
 ## Design
 

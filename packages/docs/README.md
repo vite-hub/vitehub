@@ -144,7 +144,7 @@ Most changes are options in `nuxt.config.ts`:
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |
 | `groups` | `[]` | `[{ title, icon, sections }]`: rail items that hold several sections, such as every component package of a library. The sidebar of a member lists every section of its group, one row per section. A section also joins with `group` in its `.navigation.yml`. |
 | `start` | None | `{ section, links }`: the section that new readers open first, and site pages listed at its top. |
-| `socials` | `[]` | Community links in the header on every page. |
+| `socials` | `[]` | Community links in the header on every page, or in its menu on narrow screens. |
 | `banner` | None | One line above every docs page. |
 | `github` | `false` | `{ repo, branch, dir }`. Adds a GitHub link to the header, with the star count when available. |
 | `icons` | Lucide fallbacks | Icon maps of the rail and the sidebar. |

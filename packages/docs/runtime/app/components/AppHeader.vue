@@ -126,7 +126,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
           color="neutral"
           variant="ghost"
           :aria-label="link.label"
-          :class="touchIconButton"
+          :class="['hidden lg:inline-flex', touchIconButton]"
         />
         <ClientOnly>
           <UColorModeButton :class="touchIconButton" />
@@ -142,7 +142,7 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
 
       <template #body>
         <div v-if="isDocsRoute" class="vh-docs-menu -mx-4 -my-2">
-          <nav class="flex shrink-0 items-center gap-1 border-b border-default px-2 py-1.5" aria-label="Site">
+          <nav class="flex shrink-0 flex-wrap items-center gap-1 border-b border-default px-2 py-1.5" aria-label="Site">
             <UButton
               v-for="link in docsMobileLinks"
               :key="link.to"
@@ -151,6 +151,17 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
               color="neutral"
               variant="ghost"
               size="sm"
+              class="pointer-coarse:h-11"
+            />
+            <UButton
+              v-for="link in socials"
+              :key="link.to"
+              :to="link.to"
+              :label="link.label"
+              :icon="link.icon"
+              target="_blank"
+              color="neutral"
+              variant="ghost"
               class="pointer-coarse:h-11"
             />
           </nav>
@@ -166,6 +177,18 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
             variant="ghost"
             block
             class="justify-start"
+          />
+          <UButton
+            v-for="link in socials"
+            :key="link.to"
+            :to="link.to"
+            :label="link.label"
+            :icon="link.icon"
+            target="_blank"
+            color="neutral"
+            variant="ghost"
+            block
+            class="justify-start pointer-coarse:h-11"
           />
         </nav>
       </template>
