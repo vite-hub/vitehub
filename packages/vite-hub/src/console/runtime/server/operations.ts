@@ -1,4 +1,5 @@
 import { defineOperation, operationAccessAllows, operationCall, operationSection } from "@vite-hub/internal/operations"
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot"
 
 import { bindConsoleAccess, consoleOperationAccess } from "./access.ts"
@@ -55,10 +56,15 @@ function legacyEvent(route: string, method: "GET" | "POST", request: LegacyReque
     env: context.env,
     context: Object.keys(params).length ? { params } : undefined,
     method,
-    req: { json: async () => request.body, method, signal: context.request?.signal, url },
-    res: context.response ?? {},
+    req: new Request(url, {
+      method,
+      signal: context.request?.signal,
+      ...(method === "POST" && request.body !== undefined ? { body: JSON.stringify(request.body), headers: { "content-type": "application/json" } } : {}),
+    }),
+    res: Object.assign(context.response ?? {}, { headers: new Headers() }),
   }
   if (context.waitUntil) event.waitUntil = context.waitUntil
+  installStandardContext(event)
   return bindConsoleAccess(context.access, event)
 }
 

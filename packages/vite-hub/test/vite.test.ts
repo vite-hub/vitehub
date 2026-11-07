@@ -652,7 +652,7 @@ describe("vitehub", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const implicit = dependencyPluginByName(
-        vitehub({ agent: true, console: { auth: false, authorize: hostManagedAuthorize }, preset: "netlify" }),
+        vitehub({ agent: { invocations: false }, console: { auth: false, authorize: hostManagedAuthorize }, preset: "netlify" }),
         "vite-hub/console",
       )
       const implicitConfig: { nitro?: { handlers?: Array<{ route?: string }> }; root: string } = { root }
@@ -668,7 +668,7 @@ describe("vitehub", () => {
 
       const explicit = dependencyPluginByName(
         vitehub({
-          agent: true,
+          agent: { invocations: false },
           console: { auth: false, authorize: hostManagedAuthorize },
           preset: "netlify",
           workflow: { provider: "vercel" },
