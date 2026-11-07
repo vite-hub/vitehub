@@ -71,7 +71,7 @@ curl -N http://localhost:3000/api/_vitehub/agents/support/webhooks/discord \
 
 Open the Channel's webhook URL in a browser, such as `http://localhost:3000/api/_vitehub/agents/support/webhooks/discord`, to chat with the Agent in a page that looks like the platform. The page is an unofficial simulator. It sends each message to the same route and shows the reply as it streams.
 
-Point an AI SDK `useChat` client at the same route to chat from a page. The Agent still runs as that Channel, with its instructions and message settings. A simulated Channel is a direct message with one user: mentions, threads, cards, and buttons are not simulated. Webhook verification, Telegram polling, and the Discord Gateway are off.
+Point an AI SDK `useChat` client at the same route to chat from a page. The Agent still runs as that Channel, with its instructions and message settings. Simulated delivery runs inline within the HTTP request, even with `messages.durable: true` or an active Workflow runtime. A simulated Channel is a direct message with one user: mentions, threads, cards, and buttons are not simulated. Webhook verification, Telegram polling, and the Discord Gateway are off.
 
 The option sets the Server Env value `VITEHUB_CHANNELS=simulate` in `vite dev` only, and `vite dev` prints a line when it does. `VITEHUB_CHANNELS=simulate vite dev` works too. The runtime ignores the value when `NODE_ENV` is `production`.
 
@@ -837,6 +837,8 @@ export default defineAgent({
 ```
 
 Install the matching `@chat-adapter/*` package when a built-in Channel uses provider adapter options. Keep provider credentials in Server Env.
+
+For a complete bot with platform setup, local testing, and deployment, follow the guide for [Slack](/docs/guides/slack-ai-bot), [Discord](/docs/guides/discord-ai-bot), or [Telegram](/docs/guides/telegram-ai-bot).
 
 ### Channel Env
 
