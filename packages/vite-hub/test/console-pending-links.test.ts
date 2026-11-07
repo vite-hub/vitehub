@@ -9,7 +9,7 @@ import {
   takeConsoleLinkHash,
 } from "../src/console/runtime/client/pending-links.ts"
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
-import { browserProjectStorage, createConsoleProjectStore, memoryProjectStorage } from "../src/console/runtime/client/projects.ts"
+import { browserProjectStorage, consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage } from "../src/console/runtime/client/projects.ts"
 
 import type { ConsoleProjectStorage } from "../src/console/runtime/client/projects.ts"
 
@@ -182,10 +182,45 @@ describe("linking from a pending link", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
-  it("does not report consumption or save a project if durable removal fails", async () => {
+  it("uses one lock for every link, because all links share one stored list", async () => {
+    const { module, pendingLinkLocks, ticket } = await session(async () => Response.json(projectGet))
+    const request = vi.spyOn(pendingLinkLocks, "request")
+    const other = await module.createConsolePendingLink()
+    await module.confirmConsoleLink(ticket.pendingId, app)
+    await module.confirmConsoleLink(other.pendingId, { ...app, url: "https://other.example.com", origin: "https://other.example.com" })
+    expect(request.mock.calls.map(([name]) => name)).toEqual([consolePendingLinksStorageKey, consolePendingLinksStorageKey, consolePendingLinksStorageKey])
+  })
+
+  it("keeps the link pending when the browser stops keeping the project list", async () => {
     const primary = browserStorage()
     const storage = browserProjectStorage(() => primary)
-    const { fetch, module, state, ticket, pendingLinkLocks } = await session(async () => Response.json(projectGet), storage)
+    const { fetch, module, ticket, pendingLinkLocks } = await session(async () => Response.json(projectGet), storage)
+    const setItem = primary.setItem
+    const write = vi.spyOn(primary, "setItem").mockImplementation((key, value) => {
+      if (key === consoleProjectsStorageKey) throw new Error("Storage write failed")
+      setItem(key, value)
+    })
+
+    expect(await module.confirmConsoleLink(ticket.pendingId, app))
+      .toMatchObject({ kind: "problem", final: false, problem: { title: "Allow browser storage" } })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(createConsoleProjectStore(primary).list()).toEqual([])
+    expect(createConsolePendingLinkStore(primary).lookup(ticket.pendingId))
+      .toMatchObject({ kind: "pending", link: { targetUrl: app.url } })
+
+    write.mockRestore()
+    vi.resetModules()
+    const reloaded = await import("../src/console/runtime/client/project-session.ts")
+    reloaded.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate: vi.fn(), pageOrigin: "https://console.example.com", storage: browserProjectStorage(() => primary), pendingLinkLocks })
+    expect(await reloaded.confirmConsoleLink(ticket.pendingId, app)).toMatchObject({ kind: "linked" })
+    expect(createConsoleProjectStore(primary).list()).toHaveLength(1)
+    expect(createConsolePendingLinkStore(primary).lookup(ticket.pendingId)).toEqual({ kind: "unknown" })
+  })
+
+  it("does not report consumption if durable removal fails", async () => {
+    const primary = browserStorage()
+    const storage = browserProjectStorage(() => primary)
+    const { fetch, module, ticket, pendingLinkLocks } = await session(async () => Response.json(projectGet), storage)
     expect(storage.persistent).toBe(true)
     const setItem = primary.setItem
     const write = vi.spyOn(primary, "setItem").mockImplementation((key, value) => {
@@ -196,8 +231,8 @@ describe("linking from a pending link", () => {
     expect(await module.confirmConsoleLink(ticket.pendingId, app))
       .toMatchObject({ kind: "problem", final: false, problem: { title: "Allow browser storage" } })
     expect(fetch).toHaveBeenCalledTimes(1)
-    expect(state.store.list()).toEqual([])
-    expect(createConsoleProjectStore(primary).list()).toEqual([])
+    // The project was saved before the removal, and the link stays bound to it, so a retry can only reach the same app.
+    expect(createConsoleProjectStore(primary).list()).toHaveLength(1)
     expect(createConsolePendingLinkStore(primary).lookup(ticket.pendingId))
       .toMatchObject({ kind: "pending", link: { targetUrl: app.url } })
 
