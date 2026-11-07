@@ -5055,7 +5055,11 @@ export default defineConnection({ provider: apiKey({ origins: ["https://api.exam
       })
       await viteHubNuxtModule({ preset: "cloudflare", console: false }, fixture.nuxt)
       const instance = {
-        options: { imports: false, handlers: [] as Array<{ handler: string }> },
+        options: {
+          imports: false,
+          handlers: [] as Array<{ handler: string, route: string, middleware?: boolean }>,
+          output: { serverDir: resolve(root, ".output/server") },
+        },
         hooks: { hook: vi.fn() },
       }
       await fixture.runNitroConfigHook(instance.options)
