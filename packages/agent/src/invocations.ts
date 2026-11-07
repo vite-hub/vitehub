@@ -76,6 +76,7 @@ const TERMINAL_RETRY_TIMEOUT_MS = 60_000
 const CANCELLATION_VERIFICATION_TIMEOUT_MS = 5_000
 const CANCELLATION_VERIFICATION_INTERVAL_MS = 100
 const STORE_OPERATION_TIMEOUT_MS = 1_000
+const STORE_OPEN_TIMEOUT_MS = 10_000
 const storeOperationTimedOut = Symbol("vitehub.storeOperationTimedOut")
 const errorStackGetter = Object.getOwnPropertyDescriptor(new Error(), "stack")?.get
 const brandedErrorValues = new WeakSet<object>()
@@ -214,6 +215,12 @@ export interface AgentInvocationStoreUpdateInput {
 }
 
 export interface AgentInvocationStore {
+  /**
+   * Prepares a store that connects on first use, such as one that loads its database client and runs migrations.
+   * The journal calls it once before its first operation and waits up to 10 seconds, outside `storeTimeoutMs`.
+   * A rejected open runs again before the next operation.
+   */
+  open?(): MaybePromise<void>
   claim(id: string, claimId: string, leaseMs: number, options?: {
     /** Atomically rotate only an absent claim or one of these owned generations, unless replaceExisting is true. */
     expectedClaimIds?: readonly string[]
@@ -2180,9 +2187,30 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   if (!Number.isSafeInteger(storeTimeoutMs) || storeTimeoutMs < 1 || storeTimeoutMs > 60_000) {
     throw agentDiagnostics.AGENT_R0624({ message: "[vitehub] Agent Invocations storeTimeoutMs must be an integer between 1 and 60000." })
   }
-  const boundedStore = <T>(operation: () => MaybePromise<T>, timeoutMs = storeTimeoutMs) => boundedStoreOperation(operation, timeoutMs)
+  // A lazy store opens once, outside the bound of the operation that comes first.
+  let opening: Promise<unknown> | undefined
+  const storeOpen = options.store.open
+  const openStore = storeOpen && (() => opening ??= boundedStoreOperation(() => storeOpen.call(options.store), STORE_OPEN_TIMEOUT_MS, true).then((result) => {
+    if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation store open timed out after ${STORE_OPEN_TIMEOUT_MS} ms.`)
+  }).catch((error: unknown) => {
+    opening = undefined
+    throw error
+  }))
+  const storeOperation = async <T>(operation: () => MaybePromise<T>, timeoutMs: number, propagateErrors = false): Promise<T | undefined | typeof storeOperationTimedOut> => {
+    if (openStore) {
+      try {
+        await openStore()
+      }
+      catch (error) {
+        if (propagateErrors) throw error
+        return undefined
+      }
+    }
+    return boundedStoreOperation(operation, timeoutMs, propagateErrors)
+  }
+  const boundedStore = <T>(operation: () => MaybePromise<T>, timeoutMs = storeTimeoutMs) => storeOperation(operation, timeoutMs)
   const publicStore = async <T>(operation: () => MaybePromise<T>): Promise<T> => {
-    const result = await boundedStoreOperation(operation, storeTimeoutMs, true)
+    const result = await storeOperation(operation, storeTimeoutMs, true)
     if (result === storeOperationTimedOut) {
       throw new Error(`[vitehub] Agent Invocation store operation timed out after ${storeTimeoutMs} ms.`)
     }
@@ -3126,7 +3154,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         return result
       }
       const cancellationStore = async <T>(operation: () => MaybePromise<T>) => {
-        const result = await boundedStoreOperation(operation, storeTimeoutMs, true)
+        const result = await storeOperation(operation, storeTimeoutMs, true)
         if (result === storeOperationTimedOut) throw new Error(`[vitehub] Agent Invocation cancellation store operation timed out after ${storeTimeoutMs} ms.`)
         return result
       }

@@ -80,6 +80,10 @@ export async function getConsoleInvocationsDatabase(): Promise<ConsoleInvocation
 /** A store that opens its backing store on the first call. */
 function lazyAgentInvocationStore(open: () => Promise<Required<AgentInvocationStore>>): Required<AgentInvocationStore> {
   return {
+    // The journal opens the store before its first operation, so that operation keeps its own time bound.
+    open: async () => {
+      await (await open()).open()
+    },
     claim: async (...input) => (await open()).claim(...input),
     create: async input => (await open()).create(input),
     delete: async id => (await open()).delete(id),

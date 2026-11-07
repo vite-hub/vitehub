@@ -961,6 +961,7 @@ export function createLibsqlAgentInvocationStore(options: LibsqlAgentInvocationS
     return result
   }
   return {
+    open: initialize,
     async claim(id, claimId, leaseMs, options) {
       return write(async () => {
         await initialize()

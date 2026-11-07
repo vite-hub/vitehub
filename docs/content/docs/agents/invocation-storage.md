@@ -327,6 +327,8 @@ const invocations = defineAgentInvocations({
 })
 ```
 
+A store that connects on first use, such as one that loads its database client and creates its tables, can implement `open()`. The journal calls it once before its first operation and waits up to 10 seconds for it, outside `storeTimeoutMs`, so a slow cold start does not make the first operation unconfirmed. Concurrent first operations wait for the same open. A rejected open runs again before the next operation. The libSQL store and the Console journal implement it.
+
 ## Inspect and maintain from the CLI
 
 When an application exposes the standard invocation journal route, inspect it without a dashboard:

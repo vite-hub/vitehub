@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createConsoleInvocations, getConsoleInvocationsDatabase, getConsoleUsageIndex, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 
-const opens = vi.hoisted(() => ({ count: 0 }))
+const opens = vi.hoisted(() => ({ count: 0, delayMs: 0 }))
 
 vi.mock("../src/console/runtime/server/invocations-database.ts", async (importOriginal) => {
   const original = await importOriginal<typeof import("../src/console/runtime/server/invocations-database.ts")>()
@@ -14,7 +14,9 @@ vi.mock("../src/console/runtime/server/invocations-database.ts", async (importOr
     ...original,
     openConsoleLibsqlJournal(...input: Parameters<typeof original.openConsoleLibsqlJournal>) {
       opens.count++
-      return original.openConsoleLibsqlJournal(...input)
+      const journal = original.openConsoleLibsqlJournal(...input)
+      // A cold server loads libSQL and Drizzle on the first use, which can take longer than one store operation may.
+      return opens.delayMs ? new Promise(resolve => setTimeout(() => resolve(journal), opens.delayMs)) : journal
     },
   }
 })
@@ -24,6 +26,7 @@ let directory: string
 beforeEach(async () => {
   vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "")
   opens.count = 0
+  opens.delayMs = 0
   directory = await mkdtemp(join(tmpdir(), "vitehub-console-journal-open-"))
 })
 
@@ -47,6 +50,14 @@ describe("Console journal open", () => {
     await getConsoleUsageIndex(invocations)!.query()
     expect(opens.count).toBe(1)
     expect(existsSync(file)).toBe(true)
+  })
+
+  it("answers the first read when the journal takes longer to open than one store operation may", async () => {
+    opens.delayMs = 1_200
+    const invocations = createConsoleInvocations(directory, undefined, `file:${join(directory, "console.sqlite")}`)
+
+    await expect(invocations.list()).resolves.toMatchObject({ invocations: [] })
+    expect(opens.count).toBe(1)
   })
 
   it("shares the open journal with Drizzle", async () => {
