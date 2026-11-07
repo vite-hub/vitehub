@@ -121,6 +121,8 @@ export function consoleTokenRefused(host: string): string {
 export interface ConsoleProjectProblem {
   title: string
   message: string
+  /** What to do, when the project said so. The Console shows it under the message. */
+  fix?: string
 }
 
 /**
@@ -155,7 +157,8 @@ export function consoleProjectProblem(probe: Exclude<ConsoleProjectProbe, { kind
     case "failed":
       return {
         title: probe.status === 403 ? "Access denied" : `${context.host} answered with an error`,
-        message: [probe.message ?? `The project answered with status ${probe.status}.`, probe.fix].filter(Boolean).join(" "),
+        message: probe.message ?? `The project answered with status ${probe.status}.`,
+        ...(probe.fix ? { fix: probe.fix } : {}),
       }
   }
 }

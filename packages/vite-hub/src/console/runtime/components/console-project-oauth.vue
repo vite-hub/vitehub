@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 
 import type { ConsoleProjectProblem } from "../client/project-link";
 import type { ConsoleProjectTarget } from "../client/projects";
@@ -34,15 +34,20 @@ onMounted(() => {
   if (element?.closest("[role=dialog]") && !("ontouchstart" in window)) element.focus();
 });
 
+// Closing the dialog during "Opening …" stops the sign-in before the page leaves.
+const start = new AbortController();
+onBeforeUnmount(() => start.abort());
+
 async function signIn(): Promise<void> {
   if (busy.value) return;
   busy.value = true;
   startProblem.value = undefined;
   try {
     // When the sign-in starts, the page leaves for the project, so the button stays busy.
-    startProblem.value = await startConsoleOAuthSignIn(props.target, props.resourceMetadata);
+    startProblem.value = await startConsoleOAuthSignIn(props.target, props.resourceMetadata, start.signal);
   }
   catch {
+    if (start.signal.aborted) return;
     startProblem.value = { title: "The sign-in did not start", message: `The Console could not reach ${host.value}. Check the connection and try again.` };
   }
   if (startProblem.value) busy.value = false;

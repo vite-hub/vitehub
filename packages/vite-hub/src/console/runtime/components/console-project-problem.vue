@@ -15,6 +15,7 @@ defineProps<{ problem: ConsoleProjectProblem }>();
     <div class="grid min-w-0 gap-0.5 [overflow-wrap:anywhere]">
       <p class="text-pretty font-medium text-highlighted">{{ problem.title }}</p>
       <p v-if="problem.message" class="text-pretty text-muted"><ConsoleCodeText :text="problem.message" /></p>
+      <p v-if="problem.fix" class="mt-1 text-pretty text-default"><ConsoleCodeText :text="problem.fix" /></p>
     </div>
   </div>
 </template>

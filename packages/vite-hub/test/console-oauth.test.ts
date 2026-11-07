@@ -520,6 +520,15 @@ describe("OAuth sign-in of a hosted Console", () => {
     return { ...context, authorizationUrl, code, state }
   }
 
+  it("stays on the page when the person closed the dialog before the sign-in started", async () => {
+    const context = await hosted(fakeApp())
+    await context.session.linkConsoleProject("app.example.com")
+    const closed = new AbortController()
+    closed.abort()
+    await expect(context.session.startConsoleOAuthSignIn(app, resourceMetadata, closed.signal)).rejects.toThrow()
+    expect(context.navigate).not.toHaveBeenCalled()
+  })
+
   it("does not start a sign-in when the browser storage would not survive the redirect", async () => {
     const server = fakeApp()
     vi.stubGlobal("fetch", server.fetch)

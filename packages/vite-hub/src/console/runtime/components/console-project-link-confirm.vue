@@ -68,6 +68,7 @@ function leave(): void {
     <div class="grid gap-1.5" role="alert">
       <h1 class="vitehub-project-gate__title">{{ shown.problem.title }}</h1>
       <p class="vitehub-project-gate__text"><ConsoleCodeText :text="shown.problem.message" /></p>
+      <p v-if="shown.problem.fix" class="vitehub-project-gate__fix"><ConsoleCodeText :text="shown.problem.fix" /></p>
     </div>
     <UButton label="Open Console" class="justify-self-start" @click="leave" />
   </template>

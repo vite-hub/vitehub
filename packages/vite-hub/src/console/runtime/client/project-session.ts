@@ -599,7 +599,7 @@ async function confirmLockedConsoleLink(projects: ConsoleProjectsState, pendingI
  * tab, and load the authorization page of the project, where the person signs in and allows the Console. Returns why
  * it could not start. When it starts, the page leaves, and `/oauth/callback` finishes it with `finishConsoleOAuthSignIn()`.
  */
-export async function startConsoleOAuthSignIn(target: ConsoleProjectTarget, resourceMetadata?: string): Promise<ConsoleProjectProblem | undefined> {
+export async function startConsoleOAuthSignIn(target: ConsoleProjectTarget, resourceMetadata?: string, signal?: AbortSignal): Promise<ConsoleProjectProblem | undefined> {
   const projects = useState()
   const host = consoleProjectHost(target)
   if (projects.mode !== "hosted") return { title: "Sign in on the app", message: `Open the Console of ${host} at its own URL to sign in.` }
@@ -633,6 +633,8 @@ export async function startConsoleOAuthSignIn(target: ConsoleProjectTarget, reso
     verifier,
     ...(discovery.revocationEndpoint ? { revocationEndpoint: discovery.revocationEndpoint } : {}),
   }
+  // A person who closed the dialog stays on this page.
+  signal?.throwIfAborted()
   projects.oauthStates.save(signIn)
   projects.navigate(consoleAuthorizationUrl(signIn, discovery.authorizationEndpoint, await consoleCodeChallenge(verifier)))
   return undefined

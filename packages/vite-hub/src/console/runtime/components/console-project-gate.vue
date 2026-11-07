@@ -90,7 +90,7 @@ onMounted(() => {
       <template v-if="gate.kind === 'empty'">
         <div class="grid gap-1.5">
           <h1 class="vitehub-project-gate__title">Add your first project</h1>
-          <p class="vitehub-project-gate__text">Start a new ViteHub app that links itself to this Console, or link an app that lists this Console in <code class="font-mono text-[0.92em]">console.origins</code>. The project list and tokens stay in this browser.</p>
+          <p class="vitehub-project-gate__text">Start a new ViteHub app that links itself to this Console, or link an app that lists this Console in <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted">console.origins</code>. The project list and tokens stay in this browser.</p>
         </div>
         <div class="flex flex-wrap gap-2">
           <UButton icon="i-lucide-plus" label="New project" @click="openConsoleNewProject" />
@@ -103,7 +103,7 @@ onMounted(() => {
           <h1 class="vitehub-project-gate__title">Enter the Console token</h1>
           <p class="vitehub-project-gate__text">
             <template v-if="gate.rejected && !tokenError">The saved token no longer works for {{ host }}. Paste the current token.</template>
-            <template v-else>{{ host }} uses <code class="font-mono text-[0.92em]">auth: "token"</code>.</template>
+            <template v-else>{{ host }} uses <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted">auth: "token"</code>.</template>
           </p>
         </div>
         <ConsoleProjectToken :busy="busy" :problem="tokenError" @submit="signIn" />
@@ -123,6 +123,7 @@ onMounted(() => {
         <div class="grid gap-1.5" role="alert">
           <h1 class="vitehub-project-gate__title">{{ gate.problem.title }}</h1>
           <p class="vitehub-project-gate__text"><ConsoleCodeText :text="gate.problem.message" /></p>
+          <p v-if="gate.problem.fix" class="vitehub-project-gate__fix"><ConsoleCodeText :text="gate.problem.fix" /></p>
         </div>
         <UButton
           :icon="gate.home ? 'i-lucide-arrow-left' : 'i-lucide-refresh-cw'"
@@ -174,6 +175,14 @@ onMounted(() => {
 
 .vitehub-project-gate__text {
   color: var(--ui-text-muted);
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+
+.vitehub-project-gate__fix {
+  color: var(--ui-text);
   font-size: 0.875rem;
   line-height: 1.25rem;
   overflow-wrap: anywhere;
