@@ -124,6 +124,15 @@ function usageMessage(label: string, call: CallExpression, ancestors: readonly N
   return `${label} is used inside an expression. In ViteHub it resolves to an [error, value] tuple instead of the value. Check the error, then use the value.`
 }
 
+/** True when the innermost function around a node is async. */
+function insideAsyncFunction(ancestors: readonly Node[]): boolean {
+  for (let index = ancestors.length - 1; index >= 0; index--) {
+    const node = ancestors[index]!
+    if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression" || node.type === "ObjectMethod" || node.type === "ClassMethod") return node.async
+  }
+  return false
+}
+
 interface CallSite {
   call: CallExpression
   member: MemberExpression
@@ -177,8 +186,11 @@ function rewriteCalls(file: string, code: string, program: File, output: MagicSt
     const declarator = awaited ? ancestors.at(-2) : undefined
     const declaration = declarator?.type === "VariableDeclarator" ? ancestors.at(-3) : undefined
     const expression = awaited && ancestors.at(-2)?.type === "ExpressionStatement" ? ancestors.at(-2) : undefined
-    const statement = declaration?.type === "VariableDeclaration" && declaration.declarations.length === 1 ? declaration : expression
-    const container = statement ? ancestors.at(statement === declaration ? -4 : -3) : undefined
+    // `return blob.del(p)` and `return await kv.get(k)`. The rewrite adds `await`, so only inside an async function.
+    const returned = ancestors.at(awaited ? -2 : -1)
+    const returnStatement = returned?.type === "ReturnStatement" && insideAsyncFunction(ancestors) ? returned : undefined
+    const statement = declaration?.type === "VariableDeclaration" && declaration.declarations.length === 1 ? declaration : expression ?? returnStatement
+    const container = statement ? ancestors.at(statement === declaration ? -4 : statement === returnStatement && !awaited ? -2 : -3) : undefined
     if (!statement || (container?.type !== "BlockStatement" && container?.type !== "Program")) {
       if (renamed) output.overwrite(start(member.property), end(member.property), "del")
       followUps.push({ file, line: line(call), message: usageMessage(label, call, ancestors) })
@@ -193,6 +205,11 @@ function rewriteCalls(file: string, code: string, program: File, output: MagicSt
     const lines: string[] = []
     if (statement.type === "ExpressionStatement") {
       lines.push(`const [${errorName}] = await ${callText}${semicolon}`, check)
+    }
+    else if (statement.type === "ReturnStatement") {
+      const valueName = pickName("result", `${feature}Result`, taken)
+      taken.add(valueName)
+      lines.push(`const [${errorName}, ${valueName}] = await ${callText}${semicolon}`, check, `${indent}return ${valueName}${semicolon}`)
     }
     else if (declarator?.type === "VariableDeclarator" && statement.type === "VariableDeclaration") {
       const id = declarator.id

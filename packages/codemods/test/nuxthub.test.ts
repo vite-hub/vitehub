@@ -56,7 +56,7 @@ describe("nuxthub", () => {
     expect(files.sort()).toEqual(["server/databases/config.ts", "server/databases/schema.ts"])
   })
 
-  it("rewrites only the simple statement forms of KV and Blob calls", async () => {
+  it("rewrites the statement and async return forms of KV and Blob calls", async () => {
     const directory = await app("calls", {
       "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { kv: true, blob: true } })\n",
       "server/api/demo.ts": [
@@ -77,6 +77,7 @@ describe("nuxthub", () => {
         "",
       ].join("\n"),
       "server/api/shadow.ts": "export default defineEventHandler(async () => {\n  const kv = new Map()\n  return kv.get('a')\n})\n",
+      "server/utils/sync.ts": "import { kv } from 'hub:kv'\nexport function read() {\n  return kv.get('a')\n}\n",
     })
     const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
     expect(run.result.edits.find(edit => edit.path === "server/api/demo.ts")?.after).toBe([
@@ -97,11 +98,15 @@ describe("nuxthub", () => {
       "  store.set('b', 1);",
       "  const keys = (await store.keys()).length;",
       "  await store.getItem('c');",
-      "  return blob.serve(event, 'x');",
+      "  const [error4, blobResult] = await blob.serve(event, 'x');",
+      "  if (error4) throw error4;",
+      "  return blobResult;",
       "})",
       "",
     ].join("\n"))
     expect(run.result.edits.some(edit => edit.path === "server/api/shadow.ts")).toBe(false)
+    expect(run.result.edits.find(edit => edit.path === "server/utils/sync.ts")?.after).toBe("import { kv } from 'vite-hub/kv'\nexport function read() {\n  return kv.get('a')\n}\n")
+    expect(run.result.followUps.find(followUp => followUp.file === "server/utils/sync.ts")?.message).toMatch(/^kv\.get\(\) returns its result to the caller/)
     expect(run.result.followUps.filter(followUp => followUp.file === "server/api/demo.ts").map(followUp => [followUp.line, followUp.message.slice(0, 40)])).toMatchInlineSnapshot(`
       [
         [
@@ -119,10 +124,6 @@ describe("nuxthub", () => {
         [
           12,
           "ViteHub KV has no getItem method. Rewrit",
-        ],
-        [
-          13,
-          "blob.serve() returns its result to the c",
         ],
       ]
     `)

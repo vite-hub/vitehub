@@ -1,4 +1,4 @@
-nuxthub: moved database, kv, blob, cache from hub to vitehub with preset "cloudflare", rewrote 11 imports and 3 KV and Blob calls, and moved the schema to server/databases/.
+nuxthub: moved database, kv, blob, cache from hub to vitehub with preset "cloudflare", rewrote 11 imports and 6 KV and Blob calls, and moved the schema to server/databases/.
 Dry run: no files were written.
 
 Files to change (17):
@@ -20,22 +20,19 @@ Files to change (17):
   server/middleware/redirects.ts
   server/routes/images/[...pathname].get.ts
 
-Manual follow-ups (15):
+Manual follow-ups (12):
   1. wrangler.jsonc:20 The codemod removed migrations_table: "_hub_migrations". NuxtHub and Wrangler record migrations differently, so ViteHub must not reuse that table. Baseline the database instead (see the database follow-ups).
   2. wrangler.jsonc:18 ViteHub writes the DB binding itself, and a binding name alone can point at a new empty resource. To keep this D1 database, set cloudflare: { binding: "DB", databaseId: "a30aa564-d388-493b-8994-23f8dfd129f5", databaseName: "<D1 database name>" } in defineDatabase() in server/databases/config.ts. ViteHub writes migrations_dir for server/databases/migrations. Then remove this entry from wrangler.jsonc.
   3. wrangler.jsonc:26 The codemod set vitehub.kv to keep this namespace, and ViteHub writes the KV binding itself. Remove this entry from wrangler.jsonc.
   4. wrangler.jsonc:30 The codemod set vitehub.cache to keep this namespace, and ViteHub writes the CACHE binding itself. Remove this entry from wrangler.jsonc.
   5. wrangler.jsonc:36 The codemod set vitehub.blob to keep this bucket, and ViteHub writes the BLOB binding itself. Remove this entry from wrangler.jsonc.
-  6. server/api/images/[pathname].delete.ts:6 blob.del() returns its result to the caller. In ViteHub it resolves to an [error, value] tuple instead of throwing. Check the error, then return the value.
-  7. server/api/images/upload.post.ts:4 blob.handleUpload() returns its result to the caller. In ViteHub it resolves to an [error, value] tuple instead of throwing. Check the error, then return the value.
-  8. server/api/redirects/index.get.ts:4 kv.get() is used inside an expression. In ViteHub it resolves to an [error, value] tuple instead of the value. Check the error, then use the value.
-  9. server/routes/images/[...pathname].get.ts:7 blob.serve() returns its result to the caller. In ViteHub it resolves to an [error, value] tuple instead of throwing. Check the error, then return the value.
-  10. Back up the existing database and stop the app. For local SQLite, copy NuxtHub's .data/db/sqlite.db to ViteHub's default location with `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db .vitehub/data/database/sqlite.db`, together with its -wal and -shm files if they exist.
-  11. Create the migration baseline with `pnpm vitehub db generate --name baseline`. It writes server/databases/migrations/. Do not copy NuxtHub's server/db/migrations/ there.
-  12. Compare the baseline SQL with the existing tables, columns, indexes, and constraints. When they match, add IF NOT EXISTS to each CREATE statement in the baseline .sql file, for example `CREATE TABLE IF NOT EXISTS`. The baseline then changes nothing in the existing database and creates the schema in a new one. Keep its file name and the meta/ files.
-  13. Run `pnpm nuxt build`, then record the baseline on D1 with `pnpm wrangler d1 migrations apply <database-name> --remote --config .output/server/wrangler.json`. Check first with `migrations list` that only the baseline is pending. For the local SQLite copy, run `pnpm vitehub db migrate`.
-  14. Copy the local KV data. Both use the fs-lite driver: `mkdir -p .vitehub/data && cp -R .data/kv .vitehub/data/kv`.
-  15. ViteHub stores Blob metadata in another format, so copy each local blob through the API. With the dev server running, run `pnpm vitehub blob put <pathname> .data/blob/<pathname> --content-type <type>` for each file. Custom metadata is not copied.
+  6. server/api/redirects/index.get.ts:4 kv.get() is used inside an expression. In ViteHub it resolves to an [error, value] tuple instead of the value. Check the error, then use the value.
+  7. Back up the existing database and stop the app. For local SQLite, copy NuxtHub's .data/db/sqlite.db to ViteHub's default location with `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db .vitehub/data/database/sqlite.db`, together with its -wal and -shm files if they exist.
+  8. Create the migration baseline with `pnpm vitehub db generate --name baseline`. It writes server/databases/migrations/. Do not copy NuxtHub's server/db/migrations/ there.
+  9. Compare the baseline SQL with the existing tables, columns, indexes, and constraints. When they match, add IF NOT EXISTS to each CREATE statement in the baseline .sql file, for example `CREATE TABLE IF NOT EXISTS`. The baseline then changes nothing in the existing database and creates the schema in a new one. Keep its file name and the meta/ files.
+  10. Run `pnpm nuxt build`, then record the baseline on D1 with `pnpm wrangler d1 migrations apply <database-name> --remote --config .output/server/wrangler.json`. Check first with `migrations list` that only the baseline is pending. For the local SQLite copy, run `pnpm vitehub db migrate`.
+  11. Copy the local KV data. Both use the fs-lite driver: `mkdir -p .vitehub/data && cp -R .data/kv .vitehub/data/kv`.
+  12. ViteHub stores Blob metadata in another format, so copy each local blob through the API. With the dev server running, run `pnpm vitehub blob put <pathname> .data/blob/<pathname> --content-type <type>` for each file. Custom metadata is not copied.
 
 Notes:
   - vite-hub/nuxt auto-imports kv, blob, db, and schema in server code for each enabled feature, as NuxtHub did.

@@ -4,5 +4,7 @@ export default eventHandler(async (event) => {
   const { pathname } = event.context.params || {}
 
   setHeader(event, 'Content-Security-Policy', 'default-src \'none\';')
-  return blob.serve(event, pathname)
+  const [error, result] = await blob.serve(event, pathname)
+  if (error) throw error
+  return result
 })

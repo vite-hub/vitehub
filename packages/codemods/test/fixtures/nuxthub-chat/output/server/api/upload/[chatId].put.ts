@@ -23,7 +23,7 @@ export default defineEventHandler(async (event) => {
 
   const username = user.username
 
-  return blob.handleUpload(event, {
+  const [error, result] = await blob.handleUpload(event, {
     formKey: 'files',
     multiple: false,
     ensure: {
@@ -35,4 +35,6 @@ export default defineEventHandler(async (event) => {
       prefix: `${username}/${chatId}`
     }
   })
+  if (error) throw error
+  return result
 })
