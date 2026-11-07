@@ -340,9 +340,6 @@ export default defineNuxtConfig({
       routes: ["/openapi.json", "/robots.txt"],
     },
   },
-  future: {
-    compatibilityVersion: 4,
-  },
   compatibilityDate: "2026-05-30",
   experimental: {
     payloadExtraction: false,

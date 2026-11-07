@@ -117,7 +117,7 @@ async function withNodeServer<T>(entry: string, cwd: string, callback: (origin: 
   }
 }
 
-/** Runs a development server until its log matches `ready`. Nitro 2 answers 500 while it still builds the server. */
+/** Runs a development server until its log matches `ready`. The server can answer 500 while it still builds. */
 async function withDevServer<T>(command: string, args: string[], cwd: string, ready: RegExp, callback: (origin: string) => Promise<T>) {
   const port = await availablePort()
   const child = spawn(command, [...args, "--host", "127.0.0.1", "--port", String(port)], {
@@ -1075,7 +1075,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     }
   }, 600_000)
 
-  it("serves the Console on the Nuxt 4 development server", async () => {
+  it("serves the Console on the Nuxt development server", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-console-dev-consumer-"))
     const appDir = join(root, "app")
     const packDir = join(root, "packs")
@@ -1097,23 +1097,31 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         `, "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
           dependencies: {
-            nuxt: "4.6.2",
+            h3: "2.0.8",
+            nitro: "3.0.261102-rc",
+            nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+            rolldown: "1.1.5",
             unplugin: "3.3.0",
             vite: "8.0.8",
             "vite-hub": specs["vite-hub"],
           },
+          // The `vite` override selects vite-plus-core, which loads its native binding from vite-plus.
+          devDependencies: { "vite-plus": "0.1.24" },
           packageManager: "pnpm@10.33.0",
           private: true,
           type: "module",
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          rollup: "4.64.0",
+          // Nuxt's Nitro and the Nitro that ViteHub depends on must be one copy.
+          nitro: "3.0.261102-rc",
+          "nitro>h3": "2.0.8",
+          rolldown: "1.2.4",
+          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
       ])
       await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
 
-      // Nuxt 4 runs Nitro 2, which leaves modules outside its inline list to Node in development.
       const server = await withDevServer("pnpm", ["exec", "nuxt", "dev", "--no-fork"], appDir, /Ready in/, async (origin) => {
         const page = await fetch(`${origin}/_vitehub`)
         const sections = await fetch(`${origin}/_vitehub/rpc/__call`, {
@@ -1175,12 +1183,15 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           dependencies: {
             "@vite-hub/database": specs["@vite-hub/database"],
             "drizzle-orm": "0.45.3",
-            nuxt: "4.6.4",
+            h3: "2.0.8",
+            nitro: "3.0.261102-rc",
+            nuxt: "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
+            rolldown: "1.1.5",
             unplugin: "3.3.0",
-            vite: "8.3.5",
+            vite: "8.0.8",
             "vite-hub": specs["vite-hub"],
           },
-          devDependencies: { "drizzle-kit": "0.31.11" },
+          devDependencies: { "drizzle-kit": "0.31.11", "vite-plus": "0.1.24" },
           packageManager: "pnpm@10.33.0",
           private: true,
           scripts: { build: "nuxt build" },
@@ -1188,11 +1199,14 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
-          // Keep Nitro's native Rollup package on the workspace-tested release.
-          rollup: "4.64.0",
+          // Nuxt's Nitro and the Nitro that ViteHub depends on must be one copy.
+          nitro: "3.0.261102-rc",
+          "nitro>h3": "2.0.8",
+          rolldown: "1.2.4",
+          vite: "npm:@voidzero-dev/vite-plus-core@0.1.24",
         }), "utf8"),
       ])
-      await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
+      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
 
       await assertOnlyViteHubDependencies(appDir, ["@vite-hub/database", "vite-hub"])
       await run("pnpm", ["run", "build"], appDir)

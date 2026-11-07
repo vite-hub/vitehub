@@ -30,10 +30,7 @@ const content: DocsContentRuntime = {
   collection: () => ({ get }),
 }
 
-vi.mock("#imports", async () => {
-  const h3 = await import("h3")
-  return { createError: h3.createError, defineEventHandler: h3.defineEventHandler, getRouterParam: h3.getRouterParam, setHeader: h3.setHeader, useStorage: () => ({ getItem }) }
-})
+vi.mock("nitro/kv", () => ({ useKV: () => ({ getItem }) }))
 vi.mock("#docs/manifest", async () => {
   const { createDocsManifest } = await import("../src/manifest.ts")
   return { default: createDocsManifest({ dir: fixtures, base: "/docs" }) }

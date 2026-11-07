@@ -38,7 +38,10 @@ describe("Queue Nuxt integration", () => {
 
     const nuxt = await loadNuxt({ cwd: root, overrides: { dev }, ready: true })
     try {
-      expect((nuxt.options.vite.plugins as unknown[]).flat(Infinity)).toEqual([
+      // Nuxt 5 also lists Nitro's own Vite plugins here.
+      const viteHubPlugins = (nuxt.options.vite.plugins as unknown[]).flat(Infinity)
+        .filter((plugin): plugin is { name: string } => plugin instanceof Object && "name" in plugin && String(plugin.name).startsWith("@vite-hub/"))
+      expect(viteHubPlugins).toEqual([
         expect.objectContaining({ name: "@vite-hub/queue/vite" }),
       ])
 

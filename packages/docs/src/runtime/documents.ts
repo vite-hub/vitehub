@@ -1,4 +1,4 @@
-import { useStorage } from "#imports"
+import { useKV } from "nitro/kv"
 import parser from "#docs/parser"
 import { createDocsParser } from "../markdown.ts"
 import type { DocsDocument } from "../markdown.ts"
@@ -12,7 +12,7 @@ export function loadDocsDocument(file: string, source = "docs", cache = true): P
   const key = `${source}:${file}`
   const load = async () => {
     try {
-      const content = await useStorage(`assets:${source}`).getItem<string>(file)
+      const content = await useKV(`assets:${source}`).getItem<string>(file)
       if (content === null) {
         parsed.delete(key)
         return null

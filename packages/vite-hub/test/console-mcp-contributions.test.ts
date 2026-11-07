@@ -1,5 +1,3 @@
-import { Readable } from "node:stream"
-
 import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { H3 } from "h3"
 import { loadOptions } from "nitro/builder"
@@ -111,7 +109,7 @@ describe("MCP owner contributions", () => {
       expect(config.handlers).toContainEqual(application)
       expect(config.handlers.filter(handler => handler.route === route)).toEqual([application])
       expect(config.handlers[0]).toMatchObject({ middleware: true })
-      // Nitro 3 uses global middleware; Nitro 2 also needs the origin-root request hook below.
+      // Nitro 3 runs route-less middleware for every request.
       expect(config.handlers[0]?.route).toBeUndefined()
       const source = config.virtual?.[config.handlers[0]!.handler]
       if (typeof source !== "string") throw new TypeError("Missing configured discovery middleware")
@@ -120,23 +118,11 @@ describe("MCP owner contributions", () => {
       const module = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(source.replace(JSON.stringify("/runtime/server/mcp-discovery.js"), JSON.stringify(entry)))}`)
       const request = new Request(`http://app.test${route}`)
       await expect(module.default({ req: request })).resolves.toBeUndefined()
-      const pluginId = "/runtime/server/mcp-discovery-nitro2.js"
-      expect(config.plugins?.filter(plugin => plugin === pluginId)).toHaveLength(1)
-      const pluginSource = config.virtual?.[pluginId]
-      if (typeof pluginSource !== "string") throw new TypeError("Missing configured discovery plugin")
-      const plugin = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(pluginSource.replace(JSON.stringify("/runtime/server/mcp-discovery.js"), JSON.stringify(entry)))}`)
-      const hook = vi.fn()
-      plugin.default({ h3App: {}, hooks: { hook } })
-      await expect(hook.mock.calls[0]![1]({ req: request })).resolves.toBeUndefined()
-      hook.mockClear()
-      plugin.default({ hooks: { hook } })
-      expect(hook).not.toHaveBeenCalled()
       expect(config.handlers).toContainEqual(expect.objectContaining({ route: `${route}/**`, handler: expect.stringMatching(/mcp-(metadata|authorization-server)\.js$/) }))
     }
     addConsoleRpcHandler(config, "/runtime", "/portal/", [], false)
     expect(config.handlers).toContainEqual(application)
     expect(config.virtual).toEqual({ "virtual:app": "export default 1" })
-    expect(config.plugins).not.toContain("/runtime/server/mcp-discovery-nitro2.js")
   })
 
   it.each(["/", "/portal/"])("routes GET probes to MCP with base %s", async (base) => {
@@ -248,21 +234,6 @@ describe("MCP owner contributions", () => {
       else expect.soft(called.body.error).toMatchObject({ code: -32602 })
     }
     expect(calls).toHaveLength(permitted.length)
-  })
-
-  it("answers the H3 1 events of Nuxt 4, which carry Node's request", async () => {
-    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments"] }) })
-    installConsoleSections("/mcp-test", ["comments"])
-    registerViteHubMcpTools("comments", [tool("comments_list_threads", "comments")])
-    const req = Object.assign(Readable.from([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })]), {
-      method: "POST",
-      url: "/_vitehub/mcp",
-      headers: { host: "app.test", origin: "http://app.test", "content-type": "application/json" },
-    })
-    const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req }, context: {}, method: "POST" }])
-    if (!(response instanceof Response)) throw new TypeError("Expected a Response")
-    expect(response.status).toBe(200)
-    expect(Object(await response.json()).result.tools.map((entry: { name: string }) => entry.name)).toEqual(["definitions_list", "project_get", "sections_list", "comments_list_threads"])
   })
 
   it("needs Console access", async () => {

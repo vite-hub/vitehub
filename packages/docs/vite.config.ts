@@ -9,7 +9,7 @@ export default defineConfig({
     copy: [{ from: "runtime/app", to: "dist/runtime" }, { from: "runtime/theme", to: "dist/runtime" }],
     deps: {
       alwaysBundle: [/^@vite-hub\/internal/],
-      neverBundle: [/^#/, /^@nuxt\//, "nuxt", "vue", /^@vite-hub\//, /^comark/, /^@comark\//, /^shiki/, /^@shikijs\//, "yaml", "nitropack", "h3", "defu", "nuxt-agent-discovery", "nuxt-llms"],
+      neverBundle: [/^#/, /^@nuxt\//, "nuxt", "vue", /^@vite-hub\//, /^comark/, /^@comark\//, /^shiki/, /^@shikijs\//, "yaml", "h3", /^nitro(\/|$)/, "defu", "nuxt-agent-discovery", "nuxt-llms"],
       onlyBundle: false,
     },
     entry: ["src/index.ts", "src/assistant.ts", "src/assistant-worker.ts", "src/link-checker-redirects.ts", "src/navigation.ts", "src/nuxt.ts", "src/server.ts", "src/theme.ts", "src/runtime/server/*.ts"],
