@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger, ignored } from "../src/channels.ts"
 import { agentInvocationId, defineAgent, resolveAgentTriggerInvocation, runAgentTrigger, streamAgentTrigger } from "../src/index.ts"
 import { markDiscoveredAgentName } from "../src/internal/discovered-agent-name.ts"
 import { setWorkflowJournalName } from "../src/internal/workflow-journal-name.ts"
@@ -44,7 +44,7 @@ function ticketsAgent(options: {
   const agent = defineAgent({
     name: "support",
     channels: {
-      tickets: defineChannel("tickets", {
+      tickets: channelAdapter("tickets", {
         messages: false,
         triggers: {
           // The webhook route passes the parsed body as `payload`.
@@ -227,7 +227,7 @@ describe("Channel trigger tasks", () => {
     const prepare = vi.fn((_invocation: AgentTriggerAcceptedInvocation) => undefined)
     const agent = defineAgent({
       name: "support",
-      channels: { tickets: defineChannel("tickets", { messages: false, triggers: { opened: defineChannelTrigger<{ runId?: string, task?: string }>({
+      channels: { tickets: channelAdapter("tickets", { messages: false, triggers: { opened: defineChannelTrigger<{ runId?: string, task?: string }>({
         prepare: (_context, invocation) => prepare(invocation),
         tasks: { mirror: { run: (_context, invocation) => run(invocation) } },
         invoke: (_context, { runId, task }) => ({ input: { prompt: "x" }, ...(runId ? { run: { runId } } : {}), ...(task ? { task } : {}) }),
@@ -251,7 +251,7 @@ describe("Channel trigger tasks", () => {
       const prepare = vi.fn((_invocation: AgentTriggerAcceptedInvocation) => undefined)
       const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
       const agent = defineAgent({
-        channels: { tickets: defineChannel("tickets", { messages: false, triggers: { opened: defineChannelTrigger({
+        channels: { tickets: channelAdapter("tickets", { messages: false, triggers: { opened: defineChannelTrigger({
           prepare: (_context, invocation) => prepare(invocation),
           invoke: () => ({ input: { prompt: "hello" }, run: { runId: "named-run" } }),
         }) } }) },
@@ -317,7 +317,7 @@ describe("Channel trigger tasks", () => {
   it("rejects a task that is not declared or declares both agent and run", async () => {
     const runtime = { ...createAgentRuntimeContext({ runtime: "unknown", waitUntil: vi.fn() }), capabilities: {} }
     const channelAgent = (trigger: Parameters<typeof defineChannelTrigger>[0]) => defineAgent({
-      channels: { tickets: defineChannel("tickets", { messages: false, triggers: { opened: defineChannelTrigger(trigger) } }) },
+      channels: { tickets: channelAdapter("tickets", { messages: false, triggers: { opened: defineChannelTrigger(trigger) } }) },
       driver: { run: () => "ok" },
       runtime: false,
     })

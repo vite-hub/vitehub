@@ -5,7 +5,7 @@ import type { SandboxRequirement } from "@vite-hub/sandbox"
 import { defineAgent, defineAgentInvoker, defineCapability, defineFinishEffect, runAgent, runAgentInline, startAgentInvocation, streamAgent, type AgentActor, type AgentCallbackContext, type AgentCapabilityCliCommand, type AgentCapabilityCliResolver, type AgentCapabilityDefinition, type AgentChannelDeliveryEffectContext, type AgentChannelDeliveryEffectIntent, type AgentChannelDeliveryEffectKind, type AgentChannelDeliveryFinishEffect, type AgentChannelDeliveryFinishEffectContext, type AgentChannelDefinition, type AgentChannelDeliveryReplyPayload, type AgentChannelDeliveryReplyInput, type AgentChannelDeliveryStatusInput, type AgentChannelMessage, type AgentChannelDeliveryReplyStream, type AgentChannelFactory, type AgentChannelInput, type AgentChannelInputs, type AgentDeliveryArtifact, type AgentDriverAdaptiveCapacityOptions, type AgentDriverCapacityOptions, type AgentDriverCapacityQueueOptions, type AgentErrorHookEvent, type AgentFinishEvent, type AgentFinishHookEvent, type AgentGatewayModel, type AgentHookObserverEvent, type AgentInvoker, type AgentMessageChannelSettings, type AgentMessageDeliveryKind, type AgentModelInput, type AgentModuleOptions, type AgentRunInput, type AgentRunResult, type AgentRuntimeConfig, type AgentRuntimeContext, type AgentTriggerInvokeResult, type AgentTriggerRunInvokeResult, type AgentUIMessageStreamProjection, type AgentUsageRecord, type ImagePart, type PublishedAgentDeliveryArtifact, type ResolvedAgentRuntimeContext, claudeCodeDriver, codexDriver } from "../src/index.ts"
 import { createProcessAgentCapacity, type ProcessAgentCapacityOptions } from "../src/runtime/process.ts"
 import { access, chat, content, email, git, gmail, inputCommands, mcp, modelsDevPricing, openapi, transcribe, usage, webSearch, workspaceShell, type AgentUsagePricing, type EmailCapabilityOptions, type EmailCapabilityToolPolicy, type ModelsDevPricingOptions, type UsageOptions } from "../src/capabilities.ts"
-import { defineChannel, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestFilter, type GitHubPullRequestFilterContext, type GitHubPullRequestRunContext } from "../src/channels.ts"
+import { channelAdapter, github, http, pullRequest, teams, telegram, webChat, type GitHubPullRequestCommand, type GitHubPullRequestFilter, type GitHubPullRequestFilterContext, type GitHubPullRequestRunContext } from "../src/channels.ts"
 import { defineEval, hasCapabilityExtension, textContains, type AgentEvalDefinition, type AgentObservation, type AgentScorer } from "../src/eval.ts"
 import { remoteMcpServer } from "../src/mcp.ts"
 import { stdioMcpServer } from "../src/mcp/stdio.ts"
@@ -349,7 +349,7 @@ describe("agent public types", () => {
         version: 1 as const,
       },
     } satisfies StandardSchemaV1<unknown, { id: string }>
-    const mail = defineChannel("mail", {
+    const mail = channelAdapter("mail", {
       message: {
         data: mailSchema,
         methods: {
@@ -419,7 +419,7 @@ describe("agent public types", () => {
     expectTypeOf<AgentFinishHookEvent["message"]>().toEqualTypeOf<AgentChannelMessage | undefined>()
     expectTypeOf<AgentRunInput["dryRun"]>().toEqualTypeOf<boolean | undefined>()
     // @ts-expect-error Message methods cannot use the handle's reserved names.
-    defineChannel("bad", { message: { methods: { data: () => undefined } } })
+    channelAdapter("bad", { message: { methods: { data: () => undefined } } })
   })
 
   it("types static and per-invocation UI message stream projection", () => {
@@ -1120,24 +1120,24 @@ describe("agent public types", () => {
 
     const requiresOptions = (_options: { route: boolean }) => webChat()
     defineAgent({
+      // @ts-expect-error Channel factories cannot require arguments.
       channels: {
-        // @ts-expect-error Channel factories cannot require arguments.
         portal: requiresOptions,
       },
       driver: { run: () => "ok" },
     })
 
     defineAgent({
+      // @ts-expect-error Channel factories must return Channel definitions.
       channels: {
-        // @ts-expect-error Channel factories must return Channel definitions.
         portal: () => ({ route: true }),
       },
       driver: { run: () => "ok" },
     })
 
     defineAgent({
+      // @ts-expect-error Channel factories must resolve synchronously.
       channels: {
-        // @ts-expect-error Channel factories must resolve synchronously.
         portal: async () => webChat(),
       },
       driver: { run: () => "ok" },
@@ -1334,8 +1334,8 @@ describe("agent public types", () => {
     // @ts-expect-error Development samples belong in CLI payload files, not Channel options.
     teams({ dev: { samples: {} } })
     // @ts-expect-error Development samples belong in CLI payload files, not Channel Definitions.
-    defineChannel("portal", { dev: { samples: {} } })
-    const custom = defineChannel("portal", {
+    channelAdapter("portal", { dev: { samples: {} } })
+    const custom = channelAdapter("portal", {
       capabilities: [defineCapability({ id: "portal-api" })],
       effects: {
         reaction(context) {
@@ -1573,14 +1573,16 @@ describe("agent public types", () => {
     type RootAgentExports = typeof import("../src/index.ts")
     // @ts-expect-error Channel Kind helpers are imported from @vite-hub/agent/channels, not the root entry.
     type _RootTeams = RootAgentExports["teams"]
-    // @ts-expect-error defineChannel is imported from @vite-hub/agent/channels, not the root entry.
-    type _RootDefineChannel = RootAgentExports["defineChannel"]
+    // @ts-expect-error channelAdapter is imported from @vite-hub/agent/channels, not the root entry.
+    type _RootChannelAdapter = RootAgentExports["channelAdapter"]
     // @ts-expect-error Channel Kind helpers are imported from @vite-hub/agent/channels, not the root entry.
     type _RootTelegram = RootAgentExports["telegram"]
     // @ts-expect-error Channel Kind helpers are imported from @vite-hub/agent/channels, not the root entry.
     type _RootStream = RootAgentExports["stream"]
 
     type ChannelExports = typeof import("../src/channels.ts")
+    type _PublicChannelAdapter = ChannelExports["channelAdapter"]
+    // @ts-expect-error defineChannel comes from vite-hub/channels.
     type _PublicDefineChannel = ChannelExports["defineChannel"]
     type _PublicGithub = ChannelExports["github"]
     // @ts-expect-error streaming is delivery behavior, not a public Channel Kind.

@@ -2191,7 +2191,11 @@ type AgentSharedSettings<
   budget?: AgentBudgetOptions
   health?: AgentHealthDescriptor
   capabilities?: TCapabilities
-  channels?: AgentChannelInputs<TRuntimeConfig>
+  /**
+   * The Channels whose messages this Agent answers: names of Channels in `server/channels`, such as `['slack']`, or
+   * Channels defined inline by name, such as `{ slack: defineChannel({ adapter: slack() }) }`.
+   */
+  channels?: AgentChannelInputs<TRuntimeConfig> | readonly string[]
   cli?: AgentDefinitionCliOptions
   /** Standard Schema for Invocation `data`. ViteHub validates `data` before Capabilities, hooks, and the Driver run. */
   data?: StandardSchemaV1<TDataInput, TData>

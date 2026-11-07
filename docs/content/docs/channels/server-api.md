@@ -34,7 +34,7 @@ export default defineChannel({
 | --- | --- |
 | `adapter` | The connection. `stripe()` and `webhook()` from `vite-hub/channels` receive webhooks. `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, and `gmail()` from `vite-hub/agent/channels` are chat, forge, and mail adapters. Your own adapter is an object with a `kind` and a `send(text, options)`. |
 | `on` | Inbound targets by event name: a handler, or a trigger from `defineChannelTrigger()`. See [Receive webhooks](#receive-webhooks). |
-| `instructions`, `capabilities`, `history` | Read by an Agent that runs the Channel's deliveries. |
+| `instructions`, `capabilities`, `history` | Read by the Agent that lists the Channel in `defineAgent({ channels: ['name'] })`. |
 
 ## Send a message
 
@@ -115,7 +115,7 @@ An event without a target answers 200 with `{ accepted: false, reason }`, so the
 
 ### Choose the delivery rules with a trigger
 
-Use `defineChannelTrigger()` from `vite-hub/agent/channels` when you choose the delivery ID, `serialize`, `debounce`, a task, or an Agent for each delivery, or when you read a provider's change log with `context.pull()` and keep state with `channelState.transaction()`. See [Triggers](/docs/agents/triggers).
+A trigger that selects no task runs the Agent that lists the Channel. Use `defineChannelTrigger()` from `vite-hub/agent/channels` when you choose the delivery ID, `serialize`, `debounce`, a task, or an Agent for each delivery, or when you read a provider's change log with `context.pull()` and keep state with `channelState.transaction()`. See [Triggers](/docs/agents/triggers).
 
 ```ts [server/channels/prefect.ts]
 import { defineChannelTrigger } from 'vite-hub/agent/channels'

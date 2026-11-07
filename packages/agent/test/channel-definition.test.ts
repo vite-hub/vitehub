@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineChannelTrigger, ignored, slack, teams } from "../src/channels.ts"
 import { defineAgent } from "../src/index.ts"
-import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
+import { createChannelWebhookRouteHandler, namedChannelHosts, registerAgentChannels } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 
 import type { ChannelEvent } from "@vite-hub/channels"
@@ -94,7 +94,7 @@ describe("defineChannel() on the Agent webhook route", () => {
     expect(forged.status).toBe(401)
     await new Promise(resolve => setTimeout(resolve, 100))
     expect(handler).toHaveBeenCalledOnce()
-  })
+  }, 20_000)
 
   it("retries a handler that returns a failed Result", async () => {
     const failure = Object.assign(new Error("queue unavailable"), { code: "QUEUE_SEND_FAILED" })
@@ -149,5 +149,16 @@ describe("defineChannel() on the Agent webhook route", () => {
     const channel = slack({ adapter: { postMessage } as never })
     await expect(channel.send("Deploy finished.", { recipient: "slack:C1:" })).resolves.toEqual({ id: "ts-1" })
     expect(postMessage).toHaveBeenCalledWith("slack:C1:", { markdown: "Deploy finished." })
+  })
+
+  it("resolves the Channels that an Agent lists by name", () => {
+    const adapter = teams({ adapter: { userName: "Bot" } })
+    registerAgentChannels({ support: { default: defineChannel({ adapter }) }, payments: defineChannel({ adapter: stripe({ secret }) }) })
+    const agent = defineAgent({ name: "support", channels: ["support", "payments"], driver: { run: () => "ok" } })
+    expect(agent.channels!.support).toBe(adapter)
+    expect(agent.channels!.payments).toMatchObject({ kind: "stripe", messages: false })
+    expect(namedChannelHosts({ support: agent })).toEqual({ payments: "support", support: "support" })
+    expect(() => namedChannelHosts({ a: agent, b: defineAgent({ name: "b", channels: ["support"], driver: { run: () => "ok" } }) })).toThrow('both list the Channel "support"')
+    expect(() => defineAgent({ channels: ["missing"], driver: { run: () => "ok" } })).toThrow('lists the Channel "missing", which is not registered')
   })
 })

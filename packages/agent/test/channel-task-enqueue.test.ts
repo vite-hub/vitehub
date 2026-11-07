@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defineChannel, defineChannelTrigger, ignored } from "@vite-hub/agent/channels"
+import { channelAdapter, defineChannelTrigger, ignored } from "@vite-hub/agent/channels"
 import { defineAgent } from "../src/index.ts"
 import { cancelChannelTask, enqueueChannelTask } from "../src/server.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
@@ -25,7 +25,7 @@ async function setup(options: { objected?: () => boolean, prefixedChannel?: bool
   const failed = vi.fn()
   const agent = defineAgent({
     channels: {
-      airtable: defineChannel("airtable", {
+      airtable: channelAdapter("airtable", {
         messages: false,
         triggers: {
           webhook: defineChannelTrigger({ invoke: () => new Response(null, { status: 200 }) }),
@@ -57,7 +57,7 @@ async function setup(options: { objected?: () => boolean, prefixedChannel?: bool
         webhooks: { path: "/api/airtable/webhook", secretToken: false },
       }),
       ...(options.prefixedChannel ? {
-        "airtable.eu": defineChannel("airtable.eu", {
+        "airtable.eu": channelAdapter("airtable.eu", {
           messages: false,
           triggers: {
             webhook: defineChannelTrigger({ invoke: () => new Response(null, { status: 200 }) }),

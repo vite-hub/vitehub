@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../../source/src/index.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { agentInvocationId, defineAgent, runAgent, runAgentInline } from "../src/index.ts"
 import { bindAgentInvocations, pendingAgentInvocationAnnotation } from "../src/invocations.ts"
 import { runAgentWorkflowDefinition } from "../src/runtime/workflow.ts"
@@ -189,7 +189,7 @@ describe("Agent Invocation enforcement", () => {
     const { store } = failingRunningStore("missing")
     const invocations = defineAgentInvocations({ store })
     const run = vi.fn(() => "Must not start")
-    const channel = defineChannel("mailbox", {
+    const channel = channelAdapter("mailbox", {
       history: {
         collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }),
         key: item => item.id,

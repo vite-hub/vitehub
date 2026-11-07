@@ -45,7 +45,7 @@ import { agentRouteUsesParam, defaultAgentChatRoute, normalizeAgentRoute } from 
 import { hasRuntimeType } from "./internal/runtime-type.ts"
 import { readColocatedAgentInstructions } from "./vite/colocated-agent-instructions.ts"
 import { readColocatedAgentSkills, resolveColocatedAgentSkillsRoot } from "./vite/colocated-agent-skills.ts"
-import { discoverStandaloneChannels, standaloneChannelWebhookAliases } from "./vite/standalone-channels.ts"
+import { discoverAgentChannelModules, discoverStandaloneChannels, standaloneChannelWebhookAliases } from "./vite/standalone-channels.ts"
 import type { StandaloneChannel } from "./vite/standalone-channels.ts"
 
 function invalidateAgentDevModules(server: ViteDevServer, ids: readonly string[], prefixes: readonly string[] = []): void {
@@ -551,7 +551,7 @@ function hasHostedAgentDefinitions(root: string, serverDirs = [join(root, "serve
   return discoverAgentDefinitions({
     mode: "server-agents",
     scanDirs: serverDirs,
-  }).length > 0 || discoverStandaloneChannels(serverDirs).length > 0
+  }).length > 0 || discoverStandaloneChannels(serverDirs).some(channel => channel.inbound)
 }
 
 function subpath(base: string, path: string): string {
@@ -1096,6 +1096,71 @@ function transformDiscoveredAgentSkills(
       ].join("\n")
     }
   }
+}
+
+/** The Channel names of each `defineAgent({ channels: ['slack'] })` call in a module. */
+function listedChannelNames(program: unknown, file: string): string[] {
+  const names = new Set<string>()
+  const visit = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      for (const child of node) visit(child)
+      return
+    }
+    if (node === null || typeof node !== "object") return
+    const value = node as Record<string, unknown>
+    const callee = value.callee as { type?: unknown, name?: unknown, property?: { name?: unknown } } | undefined
+    const options = Array.isArray(value.arguments) ? value.arguments[0] as { type?: unknown, properties?: unknown[] } | undefined : undefined
+    const defineAgentCall = value.type === "CallExpression"
+      && (callee?.name === "defineAgent" || (callee?.type === "MemberExpression" && callee.property?.name === "defineAgent"))
+    if (defineAgentCall && options?.type === "ObjectExpression") {
+      for (const property of options.properties ?? []) {
+        if (!isPositionedNode(property) || property.type !== "Property" || nodePropertyName(property) !== "channels") continue
+        const list = property.value as { type?: unknown, elements?: unknown[] } | undefined
+        if (list?.type !== "ArrayExpression") continue
+        for (const element of list.elements ?? []) {
+          const literal = element as { type?: unknown, value?: unknown } | null
+          if (literal?.type !== "Literal" || typeof literal.value !== "string") {
+            throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Agent ${file}: list Channels as string literals, such as channels: ['slack']. ViteHub reads them without running the module.` })
+          }
+          names.add(literal.value)
+        }
+      }
+    }
+    for (const [key, child] of Object.entries(value)) {
+      if (key !== "type" && key !== "start" && key !== "end") visit(child)
+    }
+  }
+  visit(program)
+  return [...names]
+}
+
+/**
+ * Registers the Channels that an Agent module lists by name, before the module runs, so `defineAgent()` resolves them.
+ * It imports only the listed Channels, so a Channel module can import other Agents.
+ */
+function transformNamedAgentChannels(
+  code: string,
+  parse: (code: string) => unknown,
+  file: string,
+  channels: ReadonlyArray<{ handler: string, name: string }>,
+  agentImportBase: string,
+): string | undefined {
+  if (!/\bchannels\s*:\s*\[/.test(code)) return
+  const names = listedChannelNames(parse(code), file)
+  if (!names.length) return
+  const modules = names.map((name) => {
+    const channel = channels.find(candidate => candidate.name === name)
+    if (!channel) {
+      throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Agent ${file} lists the Channel "${name}", but server/channels has no Channel with that name. Channels: ${channels.map(candidate => candidate.name).join(", ") || "none"}.` })
+    }
+    return channel
+  })
+  return [
+    `import { registerAgentChannels as vitehubRegisterAgentChannels } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
+    ...modules.map((channel, index) => `import vitehubChannel${index} from ${JSON.stringify(channel.handler.replace(/\\/g, "/"))}`),
+    `vitehubRegisterAgentChannels({ ${modules.map((channel, index) => `${JSON.stringify(channel.name)}: vitehubChannel${index}`).join(", ")} })`,
+    code,
+  ].join("\n")
 }
 
 interface EveExtensionImport {
@@ -1912,12 +1977,12 @@ async function generateAgentDeploymentCatalog(
     workspaceImportBase: string
     workspaceRegistry?: false
     resetPublicUrlAgentNames?: boolean
-    /** Channels from `server/channels` that own their webhook routes. Each one gets a host Agent for its webhook handler. */
+    /** Channels from `server/channels`. An inbound one that no Agent lists gets a host Agent for its webhook handler. */
     standaloneChannels?: readonly StandaloneChannel[]
   },
 ): Promise<GeneratedAgentDeploymentCatalog> {
   const channelHandlers = options.channelHandlers !== false
-  const standaloneChannels = channelHandlers ? options.standaloneChannels ?? [] : []
+  const standaloneChannels = channelHandlers ? (options.standaloneChannels ?? []).filter(channel => channel.inbound) : []
   const typescript = options.typescript === true
   if (options.inspection && definitions.length > 1 && !routeUsesParam(options.inspection, "agent")) {
     throw agentDiagnostics.AGENT_B0016({ message: "[vitehub] Multi-Agent inspection routes require an agent route parameter." })
@@ -1949,7 +2014,7 @@ async function generateAgentDeploymentCatalog(
     "markDiscoveredAgentName",
     "resetPublicUrlAgentNames",
     channelHandlers || options.inspection ? "createAgentWebhookRequest" : undefined,
-    ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute", "resolvePublicUrl"] : []),
+    ...(channelHandlers ? ["createChannelChatRouteHandler", "createChannelWebhookRouteHandler", "hasChannelChatRoute", "resolvePublicUrl", "namedChannelHosts"] : []),
     ...(workspaceEntries ? ["markDiscoveredWorkspaceAgentDefinitionRegistered"] : []),
   ].filter(Boolean).join(", ")
 
@@ -2012,13 +2077,18 @@ async function generateAgentDeploymentCatalog(
       `const agentIdentities${typescript ? ": Record<string, AgentHostIdentity>" : ""} = {${agentIdentityEntries ? `\n  ${agentIdentityEntries}\n` : ""}}`,
       ...(channelHandlers
         ? [
-            // A standalone Channel's host Agent only serves the Channel's webhooks. Its trigger selects the Agent that runs.
+            // The Agent that lists a Channel by name hosts its webhooks. An inbound Channel that no Agent lists gets a host
+            // Agent that only serves the Channel's webhooks; its trigger selects the Agent that runs.
+            `const channelHosts${typescript ? ": Record<string, string>" : ""} = namedChannelHosts(agents)`,
+            `const standaloneChannelAgents${typescript ? ": Record<string, AgentInput>" : ""} = {}`,
             ...standaloneChannels.flatMap((channel, index) => [
-              `const standaloneChannelHost${index} = defineAgent({ name: ${JSON.stringify(channel.agent)}, runtime: false, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: { run() { throw new Error(${JSON.stringify(`[vitehub] The trigger of Channel "${channel.name}" must select an Agent with a task.`)}) } } })`,
-              `agentIdentities[${JSON.stringify(channel.agent)}] = { name: ${JSON.stringify(channel.agent)} }`,
+              `if (!channelHosts[${JSON.stringify(channel.name)}]) {`,
+              `  standaloneChannelAgents[${JSON.stringify(channel.agent)}] = defineAgent({ name: ${JSON.stringify(channel.agent)}, runtime: false, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: { run() { throw new Error(${JSON.stringify(`[vitehub] The trigger of Channel "${channel.name}" must select an Agent with a task.`)}) } } })`,
+              `  agentIdentities[${JSON.stringify(channel.agent)}] = { name: ${JSON.stringify(channel.agent)} }`,
+              "}",
             ]),
             "const chatHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasChannelChatRoute(agent)).map(([name, agent]) => [name, createChannelChatRouteHandler(agent)]))",
-            `const webhookHandlers = Object.fromEntries(Object.entries({ ...agents${standaloneChannels.map((channel, index) => `, [${JSON.stringify(channel.agent)}]: standaloneChannelHost${index}`).join("")} }).map(([name, agent]) => [name, createChannelWebhookRouteHandler(agent)]))`,
+            "const webhookHandlers = Object.fromEntries(Object.entries({ ...agents, ...standaloneChannelAgents }).map(([name, agent]) => [name, createChannelWebhookRouteHandler(agent)]))",
           ]
         : []),
       "const agentNames = Object.keys(agents)",
@@ -2178,6 +2248,18 @@ async function generateAgentWebhookRouteHandler(
     "",
     `const webhookAliases: Record<string, { agent: string, webhook: string }> = ${JSON.stringify(Object.fromEntries(Object.entries(options.webhookAliases || {}).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/+$/, "") || "/", target])))};`,
     `const configuredWebhookAliasPaths = new Set<string>(${JSON.stringify((options.explicitWebhookAliasPaths || []).map(path => normalizeNitroRoute(path).replace(/\/+$/, "") || "/"))});`,
+    // A Channel route targets the Agent that lists the Channel, or its host Agent. A Channel with neither has no route.
+    ...(options.standaloneChannels?.length
+      ? [
+          `const channelRouteNames = new Set<string>(${JSON.stringify(options.standaloneChannels.map(channel => channel.name))})`,
+          "for (const [path, target] of Object.entries(webhookAliases)) {",
+          "  if (!channelRouteNames.has(target.webhook) || target.agent !== `channel-${target.webhook}`) continue",
+          "  const host = channelHosts[target.webhook]",
+          "  if (host) webhookAliases[path] = { agent: host, webhook: target.webhook }",
+          "  else if (!standaloneChannelAgents[target.agent]) delete webhookAliases[path]",
+          "}",
+        ]
+      : []),
     "type DeclaredWebhookMatcher = { agent: string, matches: (pathname: string) => boolean }",
     // This middleware runs for every request of the app. Declared paths come from the Agent Definitions, so it resolves
     // them once. After that, a request that no Agent declares leaves before the middleware builds a Request or copies headers.
@@ -2366,7 +2448,7 @@ async function writeAgentWebhookRouteHandler(
     scanDirs: serverDirs,
   })
   const standaloneChannels = discoverStandaloneChannels(serverDirs)
-  const owner = standaloneChannels.find(channel => definitions.some(definition => definition.name === channel.agent))
+  const owner = standaloneChannels.find(channel => channel.inbound && definitions.some(definition => definition.name === channel.agent))
   if (owner) throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Channel ${owner.handler} serves its webhooks as "${owner.agent}", which is also the name of an Agent Definition. Rename the Channel folder or the Agent.` })
   options = { ...options, standaloneChannels, explicitWebhookAliasPaths: Object.keys(options.webhookAliases || {}), webhookAliases: standaloneChannelWebhookAliases(standaloneChannels, options.webhookAliases) }
   await mkdir(dirname(handlerPath), { recursive: true })
@@ -3287,6 +3369,9 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         if (skills) {
           transformed = transformDiscoveredAgentSkills(transformed, value => this.parse(value), skills, getAgentImportBase(agent, frameworkOptions)) ?? transformed
         }
+        if (definition) {
+          transformed = transformNamedAgentChannels(transformed, value => this.parse(value), normalizedId, discoverAgentChannelModules(definitionServerDirs), getAgentImportBase(agent, frameworkOptions)) ?? transformed
+        }
         if (transformed !== code) return transformed
       }
       if (isGeneratedAgentWorkflowRegistryId(normalizedId)) {
@@ -3380,7 +3465,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       const hasAgentDefinitions = Boolean(resolved && discoverProjectAgentDefinitions(root, serverDirs).length)
       const denoOutput = resolved && resolved.runtime === "deno"
       const standaloneChannels = resolved ? discoverStandaloneChannels(serverDirs ?? [join(root, "server")]) : []
-      if (standaloneChannels.length && (denoOutput || resolveAgentHosting(config) === "netlify")) {
+      if (standaloneChannels.some(channel => channel.inbound) && (denoOutput || resolveAgentHosting(config) === "netlify")) {
         throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Channel ${standaloneChannels[0]!.handler} declares its own webhook route. Channels in server/channels with webhooks.path currently require a Nitro host.` })
       }
       const webhookAliases = resolved ? standaloneChannelWebhookAliases(standaloneChannels, resolved.routes.aliases) : {}

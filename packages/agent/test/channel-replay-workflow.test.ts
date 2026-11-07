@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import * as v from "valibot"
 
 import { defineCollection } from "../../source/src/index.ts"
-import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
+import { channelAdapter, defineChannelTrigger } from "../src/channels.ts"
 import { defineAgent, runAgentInline, workflow } from "../src/index.ts"
 import { setAgentWorkflowRuntimeLoaders } from "../src/internal/workflow-runtime-loaders.ts"
 import { bindAgentInvocations, createMemoryAgentInvocationStore, defineAgentInvocations, pendingAgentInvocationAnnotation, pendingAgentInvocationAnnotations, workflowDispatchAttemptedAnnotation } from "../src/invocations.ts"
@@ -22,7 +22,7 @@ it("reserves concurrent Workflow replays before activity and hands the journal t
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
   let entered = 0
   const update = vi.fn()
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     activity: { update },
     history: {
       collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }),
@@ -79,7 +79,7 @@ it("records durable replay cancellation observed before provider dispatch", asyn
   const invocations = defineAgentInvocations({ store })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
   const update = vi.fn()
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     activity: { update },
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
@@ -106,7 +106,7 @@ it("records durable replay cancellation observed before provider dispatch", asyn
 it.each([true, false])("recovers an expired Workflow reservation only when no dispatch attempt is recorded: %s", async explicit => {
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
@@ -227,7 +227,7 @@ it.each(["queued", "unknown", "unavailable-marker"] as const)("reconciles an acc
     },
   } })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {}, run: { runId: "reconciliation-request", annotations: Object.fromEntries(Array.from({ length: 32 }, (_, index) => [`caller-${index}`, index])) } }
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
@@ -292,7 +292,7 @@ it.each(["rejected", "timeout", "committed-timeout"] as const)("prevents provide
     },
   } })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello" } }) }) },
   })
@@ -328,7 +328,7 @@ it.each(["rejected", "timeout", "committed-timeout"] as const)("prevents provide
 it.each(["provider", "preparation"] as const)("retains terminal journaling for a definite %s failure", async failure => {
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
   const runtime = { memo: vi.fn(), runtime: "unknown" as const, waitUntil: () => {} }
-  const channel = defineChannel("mailbox", {
+  const channel = channelAdapter("mailbox", {
     history: { collection: defineCollection(async () => [{ id: "m1" }], { cursor: item => item.id, cursorSchema: v.string() }), key: item => item.id },
     triggers: { received: defineChannelTrigger({ input: v.object({ id: v.string() }), invoke: () => ({ input: { prompt: "hello", ...(failure === "preparation" ? { context: { invalid: () => {} } } : {}) } }) }) },
   })

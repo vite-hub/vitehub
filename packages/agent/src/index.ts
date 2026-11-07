@@ -58,6 +58,7 @@ import { budget as budgetCapability } from "./capabilities/budget.ts"
 import { agentWorkflowExecutionContextKey } from "./internal/workflow-execution.ts"
 import { consumeParsedAgentWorkflowInput, transferParsedAgentWorkflowInput } from "./internal/workflow-parsed-input.ts"
 import { parsedAgentMessageMetaState, parseAgentMessageMeta, withParsedAgentMessageMeta } from "./internal/message-meta.ts"
+import { agentChannelNames, namedAgentChannels } from "./internal/named-channels.ts"
 import type { ParsedAgentMessageMetaState } from "./internal/message-meta.ts"
 import {
   bindMessageChannelInstructions,
@@ -2093,9 +2094,22 @@ function resolveCapabilityCliRunSurface(definition: Pick<AgentDefinition, "cli">
 }
 
 function normalizeAgentChannels<TRuntimeConfig extends AgentRuntimeConfig>(
-  inputs: AgentChannelInputs<TRuntimeConfig> | undefined,
+  inputs: AgentChannelInputs<TRuntimeConfig> | readonly string[] | undefined,
 ): AgentChannels<TRuntimeConfig> | undefined {
-  if (!inputs) return inputs
+  if (!inputs) return undefined
+  if (agentChannelNames(inputs)) return inputs as AgentChannels<TRuntimeConfig>
+  if (Array.isArray(inputs)) {
+    return namedAgentChannels<TRuntimeConfig>(inputs, (value, name) => {
+      const channel = normalizeAgentChannelInput<TRuntimeConfig>(value)
+      if (!isAgentChannelDefinition<TRuntimeConfig>(channel)) {
+        throw agentDiagnostics.AGENT_R0425({ message: `[vitehub] server/channels/${name} must default-export defineChannel() from vite-hub/channels.` })
+      }
+      if (capabilitiesContributeWorkspace(channel.capabilities)) {
+        throw agentDiagnostics.AGENT_R0425({ message: `[vitehub] The Channel "${name}" adds an Agent Workspace, which ViteHub must see in the Agent file. List it inline: channels: { ${name}: channel }.` })
+      }
+      return channel
+    })
+  }
   let channels: AgentChannels<TRuntimeConfig> | undefined
   for (const [id, input] of Object.entries(inputs)) {
     if (isAgentChannelDefinition(input)) continue
