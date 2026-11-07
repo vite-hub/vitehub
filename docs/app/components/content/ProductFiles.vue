@@ -508,7 +508,8 @@ function onTreeKeydown(event: KeyboardEvent) {
 
 .vh-files-host-row {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  /* Equal columns, but a long name such as "Node / Docker" keeps its full width. */
+  grid-template-columns: repeat(5, minmax(max-content, 1fr));
   gap: 0.2rem;
 }
 
