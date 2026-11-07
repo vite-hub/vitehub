@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 
@@ -21,8 +21,25 @@ import { pushedBranches, workspaceHooksNamespace } from "../src/hooks-cli.ts"
 import { useWorkspace } from "../src/index.ts"
 import { workspaceOperations } from "../src/operations.ts"
 
+/** The paths that `readdir` and `readFile` opened, to check what the hooks read. */
+const opened = vi.hoisted((): string[] => [])
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>()
+  const readdir = async (...args: Parameters<typeof fs.readdir>) => {
+    opened.push(String(args[0]))
+    return await fs.readdir(...args)
+  }
+  const readFile = async (...args: Parameters<typeof fs.readFile>) => {
+    opened.push(String(args[0]))
+    return await fs.readFile(...args)
+  }
+  return { ...fs, readdir: readdir as typeof fs.readdir, readFile: readFile as typeof fs.readFile }
+})
+
 const exec = promisify(execFile)
 const cleanup: Array<() => Promise<void>> = []
+const pushMain = "refs/heads/main 1 refs/heads/main 0\n"
 
 afterEach(async () => {
   resetWorkspaceRegistry()
@@ -198,6 +215,26 @@ describe("vitehub hooks", () => {
     expect(await (await remoteApp.history.open(head!.id)).readFile("posts/hello.md", { encoding: "utf8" })).toBe("Hello, edited locally\n")
 
     expect(await run("pre-push", rootDir, "refs/heads/main 1 refs/heads/main 0\n", remoteApp.fetch)).toMatchObject({ code: 0, stderr: "" })
+  })
+
+  it.skipIf(process.getuid?.() === 0)("does not read the folders that a checkout skips, in any letter case", { timeout: 60_000 }, async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ "posts/hello.md": "Hello\n" })
+    const { rootDir } = await repository()
+    await run("pull", rootDir, "", remoteApp.fetch, ["content", "--dir", "content", "--ref", "draft", "--url", "https://docs.example.test"])
+    // A folder that the hook cannot read stands in for a large dependency folder.
+    const skipped = join(rootDir, "content/Node_Modules")
+    await mkdir(join(skipped, "pkg"), { recursive: true })
+    await writeFile(join(skipped, "pkg/index.js"), "export {}\n")
+    await chmod(skipped, 0)
+    cleanup.push(() => chmod(skipped, 0o755))
+    await remoteApp.edit({ "posts/other.md": "Other\n" })
+    opened.length = 0
+
+    const pushed = await run("pre-push", rootDir, pushMain, remoteApp.fetch)
+
+    expect(pushed.stderr).toContain("changed these files:\n  content/posts/other.md\n  vitehub.lock\n")
+    expect(opened.filter(path => path.startsWith(skipped))).toEqual([])
   })
 
   it("reads the remote branches from the pre-push input", () => {

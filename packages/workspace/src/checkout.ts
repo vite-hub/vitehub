@@ -46,7 +46,8 @@ const ignored = new Set([".git", ".vitehub", "node_modules", ".ds_store"])
 const conflictStart = /^<{7}(?: |$)/m
 const conflictEnd = /^>{7}(?: |$)/m
 
-function ignoredName(name: string): boolean {
+/** True for a file or folder name that a checkout skips, such as `node_modules` or `.GIT`. */
+export function ignoredName(name: string): boolean {
   return ignored.has(name.toLowerCase())
 }
 

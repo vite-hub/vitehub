@@ -4,7 +4,7 @@ import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/pr
 import { join, relative, resolve, sep } from "node:path"
 import { promisify } from "node:util"
 
-import { formatWorkspaceStatus, localCheckoutStatus, workspaceLockFile } from "./checkout.ts"
+import { formatWorkspaceStatus, ignoredName, localCheckoutStatus, workspaceLockFile } from "./checkout.ts"
 import { workspaceCheckoutFeatures } from "./checkout-cli.ts"
 
 import type { WorkspaceCheckoutCliContext } from "./checkout-cli.ts"
@@ -12,8 +12,6 @@ import type { WorkspaceCheckoutCliContext } from "./checkout-cli.ts"
 const exec = promisify(execFile)
 const marker = "# Installed by `vitehub hooks install`."
 const hookNames = ["pre-commit", "pre-push"] as const
-/** Names that `vitehub pull` and `vitehub push` skip in a checkout folder. */
-const ignoredNames = new Set([".git", ".vitehub", "node_modules", ".DS_Store"])
 type HookName = typeof hookNames[number]
 
 const usage = {
@@ -160,14 +158,16 @@ async function checkoutFiles(rootDir: string): Promise<Map<string, string>> {
   catch {
     // `vitehub push` reports a lock file that is not JSON.
   }
-  for (const dir of dirs) {
-    const entries = await readdir(join(rootDir, dir), { recursive: true, withFileTypes: true }).catch(() => [])
-    for (const entry of entries) {
-      if (!entry.isFile()) continue
-      const path = relative(rootDir, join(entry.parentPath, entry.name)).split(sep).join("/")
-      if (!path.split("/").some(part => ignoredNames.has(part))) await digest(path)
+  // Skip the folders that `vitehub push` skips without reading them, such as a large `node_modules`.
+  const walk = async (folder: string): Promise<void> => {
+    for (const entry of await readdir(folder, { withFileTypes: true }).catch(() => [])) {
+      if (ignoredName(entry.name)) continue
+      const path = join(folder, entry.name)
+      if (entry.isDirectory()) await walk(path)
+      else if (entry.isFile()) await digest(relative(rootDir, path).split(sep).join("/"))
     }
   }
+  for (const dir of dirs) await walk(join(rootDir, dir))
   return files
 }
 
