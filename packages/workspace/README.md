@@ -216,6 +216,12 @@ vitehub push              # pull, then commit the local changes to `draft`
 The first pull writes `vitehub.lock`: commit it. Pull merges text by line and writes
 Git conflict markers where both sides changed the same lines; push refuses until they
 are gone. The commands call the `workspace.changes` and `workspace.commit` operations.
+Checkout folders must be separate: they cannot share a folder or contain one another.
+Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components are excluded
+from pulls, status, and pushes; their remote files stay unchanged.
+Commands reject existing symbolic links in the checkout folder and its ancestors
+inside the project. These checks do not isolate files from another process that can
+replace paths during an operation. Use an OS or container boundary for that isolation.
 `vitehub hooks install` adds a pre-commit hook that fails on conflicts and a pre-push hook
 that runs `vitehub push` when Git pushes the default branch.
 See [Work on a ref in a local folder](https://vitehub.dev/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
