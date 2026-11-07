@@ -3,7 +3,8 @@ import { runInNewContext } from "node:vm"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { streamAgent, defineAgent } from "../src/index.ts"
+import { defineAgent } from "../src/index.ts"
+import { streamAgentInline } from "../src/internal/agent-run.ts"
 import { isUIMessageStreamResponse, normalizeUIMessageStreamResponse, uiMessageStreamFromResponse } from "../src/stream-output.ts"
 
 function foreignResponse(payload: string | ReadableStream<Uint8Array> = 'data: {"type":"text","text":"foreign"}\n\ndata: [DONE]\n\n'): Response {
@@ -99,7 +100,7 @@ describe("Agent UI stream response boundaries", () => {
 
   it("routes a foreign UI stream Response through Agent finalization", async () => {
     const agent = defineAgent({ driver: { run: () => foreignResponse() } })
-    const response = await streamAgent(agent, {
+    const response = await streamAgentInline(agent, {
       memo: vi.fn(),
       runtime: "unknown",
       waitUntil: vi.fn(),
@@ -140,7 +141,7 @@ describe("Agent UI stream response boundaries", () => {
       headers: { get() { if (++headersReads > 1) throw new Error("headers reread"); return originalHeaders } },
     })
     const agent = defineAgent({ driver: { run: () => response } })
-    const finalized = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, { output: "ui-message-stream" })
+    const finalized = await streamAgentInline(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, { output: "ui-message-stream" })
     if (!(finalized instanceof Response)) throw new Error("Expected finalized response")
     const chunks: unknown[] = []
     for await (const chunk of uiMessageStreamFromResponse(finalized as Response & { body: ReadableStream<Uint8Array> })) chunks.push(chunk)
@@ -163,7 +164,7 @@ describe("Agent UI stream response boundaries", () => {
     const cancelled = vi.fn()
     const source = new ReadableStream<Uint8Array>({ cancel: cancelled })
     const agent = defineAgent({ driver: { run: () => foreignResponse(source) } })
-    const response = await streamAgent(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, { output: "ui-message-stream" })
+    const response = await streamAgentInline(agent, { memo: vi.fn(), runtime: "unknown", waitUntil: vi.fn() }, {}, { output: "ui-message-stream" })
     if (!(response instanceof Response) || !response.body) throw new Error("Expected finalized response")
     await response.body.cancel("consumer cancelled")
     await vi.waitFor(() => expect(cancelled).toHaveBeenCalledOnce())

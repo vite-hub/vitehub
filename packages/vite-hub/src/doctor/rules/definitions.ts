@@ -237,7 +237,6 @@ function nonTupleResult(r: Resolver, call: unknown): { name: string, kind: "resp
   if (isExport(reference, ["workflow"], ["runWorkflow", "deferWorkflow", "getWorkflowRun", "cancelWorkflow", "resumeWorkflowSignal"])
     || isExport(reference, ["queue"], "getQueue")
     || isExport(reference, ["schedule/runtime"], "runSchedule")) return { name: reference.name, kind: "value" }
-  // `runAgent(agent, context, input)` returns the Agent's output, which can be an array, so it is not checked.
 }
 
 function arrayPatternTarget(awaited: AstNode): AstNode | undefined {

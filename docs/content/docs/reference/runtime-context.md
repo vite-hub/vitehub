@@ -13,7 +13,7 @@ work, memoized values, and trace information.
 
 ## Runtime Context comes from the host
 
-Framework and provider integrations create Runtime Context in the generated route or handler. A custom server call passes the same values itself because `runAgent()` does not read framework globals.
+Framework and provider integrations create Runtime Context in the generated route or handler. A custom server call passes the same values itself as the `runtimeContext` option of `runAgent()` and `streamAgent()`, because they do not read framework globals.
 
 | Value | Used for |
 | --- | --- |
@@ -42,7 +42,9 @@ export default defineEventHandler(async (event) => {
   })
 
   try {
-    return await runAgent(support, runtime, { prompt })
+    const [error, result] = await runAgent(support, { prompt }, { runtimeContext: runtime })
+    if (error) throw error
+    return { text: result.text }
   }
   finally {
     await runtime.flushWaitUntil().catch(console.error)

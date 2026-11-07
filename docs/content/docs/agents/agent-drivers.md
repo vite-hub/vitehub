@@ -375,11 +375,12 @@ export default defineAgent({
 })
 ```
 
-The answers are the Invocation output, and their type comes from the questions. The standalone `runAgent` overload returns a tuple, so destructure it before reading the result:
+The answers are the Invocation output, and their type comes from the questions. `runAgent()` returns a tuple, so destructure it and read `result.output`:
 
 ```ts
-const [error, answers] = await runAgent(labeller, { prompt: 'Invoice 42' })
+const [error, result] = await runAgent(labeller, { prompt: 'Invoice 42' })
 if (error) throw error
+const answers = result.output!
 answers.label.choice // 'invoice' | 'none'
 answers.urgent // boolean
 ```

@@ -112,7 +112,7 @@ export default defineAgent({
 })
 ```
 
-Inline `runAgent()` execution returns the validated structured result. A schema failure fails the invocation instead of returning unchecked model output. Workflow-backed calls return an `AgentWorkflowRun` after the Workflow starts. Poll `getWorkflowRun(workflowName, run.id)` until its status is `completed`, then read `result` for the validated Agent value. Treat `failed`, `cancelled`, and `unknown` as terminal states instead of waiting indefinitely.
+`runAgent()` returns the validated structured result as `result.output`. A schema failure fails the invocation instead of returning unchecked model output. A Workflow run that the Agent routes start keeps the validated Agent value in the `result` of its Workflow Run.
 
 When an AI SDK Model Driver returns invalid native structured output, it makes up to three total attempts by default: the original request and two output-only correction calls. Set `driver.output.maxAttempts` to a positive integer to choose the total attempt limit; `maxAttempts: 1` disables correction calls. Corrections keep the invocation's prepared model and provider route, but they do not replay conversation messages or expose tools, so completed tool effects cannot run again. Tool results remain available as bounded evidence for corrected output. Usage records include every model call, with per-call attribution, aggregate token totals, and aggregate cost when provider metadata or configured pricing supplies it.
 
@@ -120,7 +120,7 @@ Provider Drivers such as `codex` and `claude-code`, and custom-run Drivers, vali
 
 ## Accept structured data
 
-Set `data` to a Standard Schema when callers pass structured values instead of, or in addition to, model text. ViteHub validates `input.data` before Capabilities, hooks, `intercept`, and the Driver run. Invalid data fails the Invocation: `runAgent()` returns `[Error, null]`, and the Driver does not run.
+Set `data` to a Standard Schema when callers pass structured values instead of, or in addition to, model text. ViteHub validates `input.data` before Capabilities, hooks, `intercept`, and the Driver run. Invalid data fails the Invocation: `runAgent()` returns `AGENT_RUN_FAILED` with the validation error as `error.cause`, and the Driver does not run.
 
 `data` does not replace `prompt` or `messages`. Model Drivers and provider Drivers do not read `data`, so pass the text they need in `prompt` or `messages`. A `prompt` also names Console sessions and gives the `title()` Capability its source text. Hooks, `intercept`, and custom-run Drivers receive the parsed value.
 
@@ -168,16 +168,17 @@ export default defineAgent({
 import { runAgent } from 'vite-hub/agent'
 import labeller from '../agents/labeller'
 
-const [error, output] = await runAgent(labeller, {
+const [error, result] = await runAgent(labeller, {
   data: { from: email.from, subject: email.subject },
   prompt: `${email.from}: ${email.subject}`,
 })
 if (error) throw error
-if (output instanceof Response || !('source' in output)) throw new Error('Expected inline labeller output')
+const output = result.output
+if (!output) throw new Error('Expected labeller output')
 // output: { source: 'rule', rule: 'github' | 'billing', label: 'GitHub' | 'Billing' } | { source: 'model', label: string }
 ```
 
-The `runAgent()` output type is the union of the awaited `intercept` return type, excluding the `undefined` fall-through signal, and the `driver.output` schema output. The caller narrows it with the fields of each result and does not parse the output again. As for any Agent, the type also includes `Response` and `AgentWorkflowRun`, so exclude those first.
+The type of `result.output` is the union of the awaited `intercept` return type, excluding the `undefined` fall-through signal, and the `driver.output` schema output. The caller narrows it with the fields of each result and does not parse the output again.
 
 An intercepted Invocation skips the Driver, tools, and start Capabilities. `agent:finish` hooks receive the intercepted value as `result`. The `agent.invocation.finish` trace event sets `agent.intercepted: true` and records the value as `result.output`. Traces record `input.data` and `result.output` only when the trace content policy is `content`; the `metadata` policy keeps only `input.hasData`.
 
@@ -189,7 +190,7 @@ A child Agent that sets `data` or `intercept` replaces the parent value. ViteHub
 
 Discovered Agents use the active host's Workflow integration by default. Set `runtime: false` when a hosted Agent must complete inline, or select a named Workflow identity with `runtime: workflow('support')`.
 
-The two-argument `runAgent(agent, input)` form cannot discover the host Workflow by itself. Set `runtime: false` for standalone inline calls, supply an explicit `workflow('support')` binding, or pass a host Runtime Context. See [Run without a host context](/docs/agents/invocations#run-without-a-host-context).
+`runAgent()` and `streamAgent()` run the Agent inline in the calling process, whatever its `runtime`. See [Run an Agent](/docs/agents/invocations#run-an-agent).
 
 ## Definition options
 

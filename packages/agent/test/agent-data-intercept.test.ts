@@ -3,7 +3,8 @@ import * as v from "valibot"
 import { describe, expect, it, vi } from "vitest"
 
 import { defineChannel, defineChannelTrigger } from "../src/channels.ts"
-import { defineAgent, defineCapability, runAgent, runAgentInline, runAgentTrigger } from "../src/index.ts"
+import { defineAgent, defineCapability, runAgent, runAgentTrigger } from "../src/index.ts"
+import { runAgentInline, runAgentWithContext } from "../src/internal/agent-run.ts"
 
 const emailSchema = v.object({
   from: v.string(),
@@ -77,10 +78,10 @@ describe("Agent data and intercept", () => {
     })
 
     // @ts-expect-error The data schema requires a subject.
-    const [error, output] = await runAgent(agent, { data: { from: "a@example.com" } })
+    const [error, result] = await runAgent(agent, { data: { from: "a@example.com" } })
 
-    expect(output).toBeNull()
-    expect(error?.message).toContain("Invalid Agent input data")
+    expect(result).toBeUndefined()
+    expect(String(error?.cause)).toContain("Invalid Agent input data")
     expect(intercept).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
   })
@@ -109,12 +110,12 @@ describe("Agent data and intercept", () => {
 
   it("continues to the Driver when intercept returns undefined", async () => {
     const run = vi.fn(({ input }: { input: { data?: unknown } }) => ({ label: `jev:${v.parse(emailSchema, input.data).subject}` }))
-    const [error, output] = await runAgent(labeller(run), {
+    const [error, result] = await runAgent(labeller(run), {
       data: { from: "friend@example.com", subject: "Dinner" },
     })
 
-    expect(error).toBeNull()
-    expect(output).toEqual({ label: "jev:Dinner" })
+    expect(error).toBeUndefined()
+    expect(result?.output).toEqual({ label: "jev:Dinner" })
     expect(run).toHaveBeenCalledOnce()
   })
 
@@ -229,7 +230,7 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    await expect(runAgent(agent, runtime(), { prompt: "direct" })).resolves.toBe("handled")
+    await expect(runAgentWithContext(agent, runtime(), { prompt: "direct" })).resolves.toBe("handled")
     expect(intercept).toHaveBeenCalledWith(expect.objectContaining({ data: undefined }))
   })
 
@@ -279,10 +280,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: { from: "friend@example.com", subject: "Dinner" } })
+    const [error, result] = await runAgent(agent, { data: { from: "friend@example.com", subject: "Dinner" } })
 
-    expect(error?.message).toContain("Invalid Agent input data")
-    expect(output).toBeNull()
+    expect(String(error?.cause)).toContain("Invalid Agent input data")
+    expect(result).toBeUndefined()
     expect(run).not.toHaveBeenCalled()
     expect(close).toHaveBeenCalledOnce()
   })
@@ -297,10 +298,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: { count: "2" } })
+    const [error, result] = await runAgent(agent, { data: { count: "2" } })
 
-    expect(error).toBeNull()
-    expect(output).toEqual({ count: 2 })
+    expect(error).toBeUndefined()
+    expect(result?.output).toEqual({ count: 2 })
     expect(transform).toHaveBeenCalledOnce()
   })
 
@@ -314,10 +315,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: { count: "2" } })
+    const [error, result] = await runAgent(agent, { data: { count: "2" } })
 
-    expect(error?.message).toContain("Invalid Agent input data")
-    expect(output).toBeNull()
+    expect(String(error?.cause)).toContain("Invalid Agent input data")
+    expect(result).toBeUndefined()
     expect(run).not.toHaveBeenCalled()
     expect(transform).toHaveBeenCalledOnce()
   })
@@ -331,10 +332,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: "2" })
+    const [error, result] = await runAgent(agent, { data: "2" })
 
-    expect(error?.message).toContain("Invalid Agent input data")
-    expect(output).toBeNull()
+    expect(String(error?.cause)).toContain("Invalid Agent input data")
+    expect(result).toBeUndefined()
     expect(run).not.toHaveBeenCalled()
   })
 
@@ -357,10 +358,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: { from: "friend@example.com", subject: "Dinner" } })
+    const [error, result] = await runAgent(agent, { data: { from: "friend@example.com", subject: "Dinner" } })
 
-    expect(error?.message).toContain("Invalid Agent input data")
-    expect(output).toBeNull()
+    expect(String(error?.cause)).toContain("Invalid Agent input data")
+    expect(result).toBeUndefined()
     expect(inputHook).not.toHaveBeenCalled()
     expect(intercept).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
@@ -386,10 +387,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: { from: "friend@example.com", subject: "Dinner" } })
+    const [error, result] = await runAgent(agent, { data: { from: "friend@example.com", subject: "Dinner" } })
 
-    expect(error?.message).toContain("Invalid Agent input data")
-    expect(output).toBeNull()
+    expect(String(error?.cause)).toContain("Invalid Agent input data")
+    expect(result).toBeUndefined()
     expect(inputHook).not.toHaveBeenCalled()
     expect(intercept).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
@@ -407,10 +408,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: { from: "friend@example.com", subject: "Dinner" } })
+    const [error, result] = await runAgent(agent, { data: { from: "friend@example.com", subject: "Dinner" } })
 
-    expect(error?.message).toContain("Invalid Agent input data")
-    expect(output).toBeNull()
+    expect(String(error?.cause)).toContain("Invalid Agent input data")
+    expect(result).toBeUndefined()
     expect(run).not.toHaveBeenCalled()
   })
 
@@ -427,10 +428,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: { from: "friend@example.com", subject: "Dinner" } })
+    const [error, result] = await runAgent(agent, { data: { from: "friend@example.com", subject: "Dinner" } })
 
-    expect(error?.message).toContain("Invalid Agent input data")
-    expect(output).toBeNull()
+    expect(String(error?.cause)).toContain("Invalid Agent input data")
+    expect(result).toBeUndefined()
     expect(finish).not.toHaveBeenCalled()
   })
 
@@ -446,10 +447,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: { url: "https://example.com/original" } })
+    const [error, result] = await runAgent(agent, { data: { url: "https://example.com/original" } })
 
-    expect(error?.message).toContain("Invalid Agent input data")
-    expect(output).toBeNull()
+    expect(String(error?.cause)).toContain("Invalid Agent input data")
+    expect(result).toBeUndefined()
     expect(run).not.toHaveBeenCalled()
   })
 
@@ -462,10 +463,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: { url: "https://example.com/original" } })
+    const [error, result] = await runAgent(agent, { data: { url: "https://example.com/original" } })
 
-    expect(error).toBeNull()
-    expect(output).toEqual({ url: new URL("https://example.com/original") })
+    expect(error).toBeUndefined()
+    expect(result?.output).toEqual({ url: new URL("https://example.com/original") })
     expect(run).toHaveBeenCalledOnce()
   })
 
@@ -483,10 +484,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: "2" })
+    const [error, result] = await runAgent(agent, { data: "2" })
 
-    expect(error).toBeNull()
-    expect(output).toEqual(new Count(2))
+    expect(error).toBeUndefined()
+    expect(result?.output).toEqual(new Count(2))
     expect(transform).toHaveBeenCalledOnce()
     expect(run).toHaveBeenCalledOnce()
   })
@@ -512,10 +513,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: { count: "2" } })
+    const [error, result] = await runAgent(agent, { data: { count: "2" } })
 
-    expect(error?.message).toContain("Invalid Agent input data")
-    expect(output).toBeNull()
+    expect(String(error?.cause)).toContain("Invalid Agent input data")
+    expect(result).toBeUndefined()
     expect(inputHook).not.toHaveBeenCalled()
     expect(intercept).not.toHaveBeenCalled()
     expect(run).not.toHaveBeenCalled()
@@ -534,10 +535,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: { from: "a@github.com" } })
+    const [error, result] = await runAgent(agent, { data: { from: "a@github.com" } })
 
-    expect(error).toBeNull()
-    expect(output).toEqual({ rule: "github" })
+    expect(error).toBeUndefined()
+    expect(result?.output).toEqual({ rule: "github" })
     expect(prepare).not.toHaveBeenCalled()
     expect(intercept).toHaveBeenCalledOnce()
   })
@@ -566,10 +567,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { prompt: "go" })
+    const [error, result] = await runAgent(agent, { prompt: "go" })
 
-    expect(error).toBeNull()
-    expect(output).toBe("ok")
+    expect(error).toBeUndefined()
+    expect(result?.output).toBe("ok")
     expect(phases).toEqual(["configure", "prepare", "bind", "input", "resolve", "output", "following:configure", "following:input", "tools", "driver"])
   })
 
@@ -582,10 +583,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { prompt: "go" })
+    const [error, result] = await runAgent(agent, { prompt: "go" })
 
-    expect(error).toBeNull()
-    expect(output).toBe("intercepted")
+    expect(error).toBeUndefined()
+    expect(result?.output).toBe("intercepted")
     expect(dependent).not.toHaveBeenCalled()
   })
 
@@ -603,10 +604,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { prompt: "go" })
+    const [error, result] = await runAgent(agent, { prompt: "go" })
 
-    expect(error).toBeNull()
-    expect(output).toBe("intercepted")
+    expect(error).toBeUndefined()
+    expect(result?.output).toBe("intercepted")
     expect(transform).not.toHaveBeenCalled()
   })
 
@@ -627,10 +628,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: { from: "friend@example.com", subject: "Dinner" } })
+    const [error, result] = await runAgent(agent, { data: { from: "friend@example.com", subject: "Dinner" } })
 
-    expect(error?.message).toContain("Invalid Agent input data")
-    expect(output).toBeNull()
+    expect(String(error?.cause)).toContain("Invalid Agent input data")
+    expect(result).toBeUndefined()
     expect(run).not.toHaveBeenCalled()
     expect(close).toHaveBeenCalledOnce()
   })
@@ -646,10 +647,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { data: { count: "2" } })
+    const [error, result] = await runAgent(agent, { data: { count: "2" } })
 
-    expect(error).toBeNull()
-    expect(output).toEqual({ count: 2 })
+    expect(error).toBeUndefined()
+    expect(result?.output).toEqual({ count: 2 })
     expect(transform).toHaveBeenCalledOnce()
   })
 
@@ -666,10 +667,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { prompt: "go" })
+    const [error, result] = await runAgent(agent, { prompt: "go" })
 
-    expect(error).toBeNull()
-    expect(output).toBe("ok")
+    expect(error).toBeUndefined()
+    expect(result?.output).toBe("ok")
     expect(phases).toEqual(["intercept", "prepare:before", "prepare:after", "input"])
   })
 
@@ -684,12 +685,11 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { prompt: "go" })
+    const [error, result] = await runAgent(agent, { prompt: "go" })
 
-    expect(error).toBeNull()
-    expect(output).toBeInstanceOf(Response)
-    if (!(output instanceof Response)) throw new Error("Expected a handled Response")
-    expect(await output.text()).toBe("handled")
+    expect(error).toBeUndefined()
+    expect(result?.raw).toBeInstanceOf(Response)
+    expect(result?.text).toBe("handled")
     expect(run).not.toHaveBeenCalled()
     expect(close).toHaveBeenCalledOnce()
   })
@@ -704,10 +704,10 @@ describe("Agent data and intercept", () => {
       runtime: false,
     })
 
-    const [error, output] = await runAgent(agent, { prompt: "go" })
+    const [error, result] = await runAgent(agent, { prompt: "go" })
 
-    expect(error?.message).toContain("prepare failed")
-    expect(output).toBeNull()
+    expect(String(error?.cause)).toContain("prepare failed")
+    expect(result).toBeUndefined()
     expect(run).not.toHaveBeenCalled()
     expect(close).toHaveBeenCalledOnce()
   })
@@ -740,10 +740,10 @@ describe("Agent data and intercept", () => {
 
     // @ts-expect-error The child schema requires from, not subject.
     const [error] = await runAgent(child, { data: { subject: "Hi" } })
-    const [, output] = await runAgent(child, { data: { from: "a@github.com" } })
+    const [, result] = await runAgent(child, { data: { from: "a@github.com" } })
 
-    expect(error?.message).toContain("Invalid Agent input data")
-    expect(output).toEqual({ label: "GitHub", rule: "github" })
+    expect(String(error?.cause)).toContain("Invalid Agent input data")
+    expect(result?.output).toEqual({ label: "GitHub", rule: "github" })
   })
 
   it("records data according to the trace content policy", async () => {

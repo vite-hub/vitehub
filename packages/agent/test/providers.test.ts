@@ -3458,7 +3458,8 @@ describe("server helpers", () => {
     await writeFile(join(sourceRoot, "AGENTS.md"), "# Support\n")
 
     try {
-      const { defineAgent, runAgentInline } = await import("../src/index.ts")
+      const { defineAgent } = await import("../src/index.ts")
+      const { runAgentInline } = await import("../src/internal/agent-run.ts")
       const { registerWorkspaceAgent } = await import("../src/server/workspace.ts")
       const { defineWorkspace, file, useWorkspace } = await import("@vite-hub/workspace")
       const agent = defineAgent({
@@ -18256,7 +18257,8 @@ describe("server helpers", () => {
   })
 
   it("activates Cloudflare Workflow delivery for steered manual discovered Agents", async () => {
-    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentInline } = await import("../src/internal/agent-run.ts")
     const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")
     const { telegram } = await import("../src/channels.ts")
@@ -18594,7 +18596,8 @@ describe("server helpers", () => {
   })
 
   it("keeps an ambiguously accepted steered Workflow input claimable across restarts", async () => {
-    const { defineAgent, runAgentInline } = await import("../src/index.ts")
+    const { defineAgent } = await import("../src/index.ts")
+    const { runAgentInline } = await import("../src/internal/agent-run.ts")
     const { telegram } = await import("../src/channels.ts")
     const { agentChannelDeliveryWorkflowContextKey } = await import("../src/internal/channel-delivery.ts")
     const { runAgentWorkflowDefinition } = await import("../src/runtime/workflow.ts")

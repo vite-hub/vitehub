@@ -13,8 +13,8 @@ while it runs. Use it when a parent Agent, a Capability tool, or host code must
 control child work after it starts.
 
 Use [`runAgent()`](/docs/agents/invocations) when you only need the result.
-`runAgent()` follows the configured runtime: an inline runtime returns the
-Agent output, and a Workflow runtime returns a Workflow Run. The controller
+`runAgent()` runs the child inline and returns `[error, result]` when it
+finishes. The controller
 from `startAgentInvocation()` does not return a final result that you can
 await. It gives control and inspection.
 
@@ -91,8 +91,8 @@ The model can call a named application tool. Trusted code selects the Agent
 Definition, and ViteHub assigns the child id. Do not let model input choose
 which Agent runs.
 
-When a tool uses `runAgent()` instead, handle its runtime-specific return
-value. Do not assume that every runtime returns a completed result.
+When a tool uses `runAgent()` instead, check `error` before it reads
+`result.text` or `result.output`.
 
 ## Hand off input resources
 

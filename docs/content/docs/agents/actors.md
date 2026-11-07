@@ -36,7 +36,7 @@ export default defineEventHandler(async (event) => {
 
   const runtime = getRuntimeContext(event)
   try {
-    return await runAgent(support, runtime, {
+    const [error, result] = await runAgent(support, {
       prompt,
       context: {
         invoker: {
@@ -46,7 +46,9 @@ export default defineEventHandler(async (event) => {
           meta: { customer: user.customerId },
         },
       },
-    })
+    }, { runtimeContext: runtime })
+    if (error) throw error
+    return { text: result.text }
   }
   finally {
     await runtime.flushWaitUntil().catch(console.error)
