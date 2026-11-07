@@ -251,7 +251,7 @@ function renderConfiguredEmailDefinitionModule(
   const devDriver = remote ? "createRemoteDriver" : "createProviderDriver"
   return [
     `import createDriver from ${JSON.stringify(driverImport)}`,
-    `import { resolveServerEnv } from ${JSON.stringify(runtimeEnvImport)}`,
+    `import { resolveServerEnv${cloudflare ? ", runWithCloudflareEnv" : ""} } from ${JSON.stringify(runtimeEnvImport)}`,
     `export { emailPreview } from ${JSON.stringify(previewImport)}`,
     ...(outbox ? [`import { createEmailDevOutboxDriver } from ${JSON.stringify(outbox.import)}`] : []),
     ...(cloudflare ? ["import { env as vitehubEmailEnv } from \"cloudflare:workers\""] : []),
@@ -259,7 +259,8 @@ function renderConfiguredEmailDefinitionModule(
     "",
     `const registry = JSON.parse(${JSON.stringify(JSON.stringify(definition.options))})`,
     "const createProviderDriver = () => {",
-    `  const options = resolveServerEnv(registry${cloudflare ? ", { env: vitehubEmailEnv }" : ""})`,
+    // The module bindings of `cloudflare:workers` also exist outside a request.
+    `  const options = ${cloudflare ? "runWithCloudflareEnv(vitehubEmailEnv, () => resolveServerEnv(registry))" : "resolveServerEnv(registry)"}`,
     `  return createDriver(${cloudflareEmail
       ? `{ ...${renderResolvedOptions(definition.options, "options")}, binding: vitehubEmailEnv.EMAIL, EmailMessage }`
       : renderResolvedOptions(definition.options, "options")})`,
