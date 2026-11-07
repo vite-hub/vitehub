@@ -5,7 +5,7 @@ import { computed, shallowRef } from "vue";
 import type { DropdownMenuItem } from "@nuxt/ui";
 import type { ConsoleProjectStatus } from "../client/project-session";
 import type { ConsoleLinkedProject } from "../client/projects";
-import { checkConsoleProjects, forgetConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
+import { checkConsoleProjects, forgetConsoleProject, openConsoleNewProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleProjectLink from "./console-project-link.vue";
 
@@ -45,7 +45,8 @@ const items = computed<DropdownMenuItem[][]>(() => [
     })),
   ],
   [
-    { icon: "i-lucide-plus", label: "Link project", onSelect: () => { projects.linkOpen.value = true; } },
+    { icon: "i-lucide-plus", label: "New project", onSelect: openConsoleNewProject },
+    { icon: "i-lucide-link", label: "Link project", onSelect: () => { projects.linkOpen.value = true; } },
     {
       children: projects.projects.value.map((project): DropdownMenuItem => ({
         description: consoleProjectHost(project),

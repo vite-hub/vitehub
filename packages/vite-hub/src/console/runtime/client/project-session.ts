@@ -30,6 +30,8 @@ export type ConsoleProjectGate =
   | { kind: "problem", problem: ConsoleProjectProblem }
   /** The `/link` page of a hosted Console: confirm the app of a one-time link, or why the link cannot be used. */
   | { kind: "link", request: ConsoleLinkRequest }
+  /** The `/new` page of a hosted Console: build the `vite-hub init` command for a new project. */
+  | { kind: "new" }
   | { kind: "ready" }
 
 /** What linking found: the saved project, the token step, or why it failed. */
@@ -45,6 +47,8 @@ interface ConsoleProjectsState {
   store: ConsoleProjectStore
   /** The one-time links for new projects, in the same storage as the projects. */
   pendingLinks: ConsolePendingLinkStore
+  /** Whether the browser storage survives navigation to the CLI's `/link` URL. */
+  storagePersistent: boolean
   /** `navigator.locks`, so one tab at a time confirms a link. Without it the Console confirms no link. */
   pendingLinkLocks?: ConsolePendingLinkLocks
   /** Load a Console page, such as the Overview after a switch. */
@@ -108,6 +112,8 @@ export function startConsoleProjects(options: {
   navigate: (url: string) => void
   pageOrigin: string
   storage: ConsoleProjectStorage
+  /** True only for storage that survives a document navigation, such as `localStorage`. */
+  storagePersistent?: boolean
   /** `navigator.locks`, so one tab at a time confirms a link. Without it the Console confirms no link. */
   pendingLinkLocks?: ConsolePendingLinkLocks
 }): ConsoleProjectsState {
@@ -133,6 +139,7 @@ export function startConsoleProjects(options: {
     pageOrigin: options.pageOrigin,
     persistent: ref(options.storage.persistent !== false),
     pendingLinks: createConsolePendingLinkStore(options.storage),
+    storagePersistent: options.storagePersistent === true,
     pendingLinkLocks: options.pendingLinkLocks,
     projects: shallowRef(projects),
     statuses: shallowRef({}),
@@ -313,14 +320,37 @@ export async function checkConsoleProjects(): Promise<void> {
 }
 
 /**
- * Make a one-time link for a new project in this browser. The future CLI integration will give the app `pendingId`
- * and `verifier` (the value of `VITEHUB_CONSOLE_TOKEN_SHA256`). Ticket creation stays out of the UI until the CLI and
- * host verifier support are available. The secret stays in this browser until the person confirms the app on `/link`.
+ * Make a one-time link for a new project in this browser. The `/new` page gives the app `pendingId` and `verifier` (the
+ * value of `VITEHUB_CONSOLE_TOKEN_SHA256`) with `vite-hub init --console <pendingId>:sha256:<verifier>`. The secret stays
+ * in this browser until the person confirms the app on `/link`.
  */
-export function createConsolePendingLink(): Promise<ConsolePendingLinkTicket> {
+export async function createConsolePendingLink(): Promise<ConsolePendingLinkTicket> {
   const projects = useState()
-  const create = () => projects.pendingLinks.create()
-  return projects.pendingLinkLocks ? projects.pendingLinkLocks.request(consolePendingLinksStorageKey, create) : create()
+  const storageMessage = "Could not make a link. Allow this Console to use browser storage, then try again."
+  if (!projects.storagePersistent) throw new Error(storageMessage)
+  if (!projects.pendingLinkLocks) throw new Error(pendingLinkBrowserProblem.message)
+  try {
+    return await projects.pendingLinkLocks.request(consolePendingLinksStorageKey, () => projects.pendingLinks.create())
+  }
+  catch {
+    throw new Error(storageMessage)
+  }
+}
+
+/** Whether `pathname` is the `/new` page of the Console below `home`. */
+export function isConsoleNewProjectPath(pathname: string, home: string): boolean {
+  return pathname.replace(/\/+$/, "") === `${home.replace(/\/+$/, "")}/new`
+}
+
+/** Show the `/new` page. It sends no request to a project. */
+export function startConsoleNewProject(): void {
+  useState().gate.value = { kind: "new" }
+}
+
+/** Load the `/new` page of a hosted Console. */
+export function openConsoleNewProject(): void {
+  const projects = useState()
+  projects.navigate(`${projects.home.replace(/\/+$/, "")}/new`)
 }
 
 /** Why a pending link cannot link a project. */
@@ -361,6 +391,11 @@ export type ConsoleLinkResult =
   | { kind: "linked", project: ConsoleLinkedProject }
   | { kind: "problem", problem: ConsoleProjectProblem, final: boolean }
 
+const pendingLinkBrowserProblem: ConsoleProjectProblem = {
+  title: "Update your browser",
+  message: "This browser cannot let only one tab use a link, so the Console does not send the key. Open the link in a current browser, on an https:// Console.",
+}
+
 /**
  * Link the app of a pending link after the person confirmed it: send the secret of the link as the Console token of the
  * app, save the project with that token, and delete the link. The caller then loads the project with
@@ -369,7 +404,7 @@ export type ConsoleLinkResult =
 export async function confirmConsoleLink(pendingId: string, target: ConsoleProjectTarget): Promise<ConsoleLinkResult> {
   const projects = useState()
   if (!projects.pendingLinkLocks) {
-    return { kind: "problem", final: false, problem: { title: "Update your browser", message: "This browser cannot let only one tab use a link, so the Console does not send the key. Open the link in a current browser, on an https:// Console." } }
+    return { kind: "problem", final: false, problem: pendingLinkBrowserProblem }
   }
   // Without Web Locks, two tabs could both send the secret, so the Console sends nothing. With them, one tab at a time
   // runs the whole claim: check, bind to the target, send, check again, save, and remove. All links share one stored
