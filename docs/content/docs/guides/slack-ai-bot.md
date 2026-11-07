@@ -216,7 +216,7 @@ The webhook route is not specific to Node. On Cloudflare, ViteHub keeps Agent St
 
 - **Mentions.** In a direct message, the bot answers every message. In a channel, it answers only messages that mention it. To also answer replies in that thread without a mention, set `messages: { replyToSubscribedThreads: true }`. Slack sends those replies only with the `message.channels`, `message.groups`, or `message.mpim` events. Read [Answer replies in subscribed threads](/docs/agents/channels#answer-replies-in-subscribed-threads).
 - **Other bots.** ViteHub ignores messages from other bots. Set `messages: { allowBots: true }` to change this.
-- **Allowed users.** `messages.filter` is a filter, not sign-in. A Slack member ID is not a trusted identity for your app. When the Agent reads private data, resolve a trusted [Actor](/docs/agents/actors) first.
+- **Allowed users.** The `access()` allow-list checks provider-derived invoker IDs. It does not authenticate a user with your app. A Slack member ID alone is not a trusted application identity. Before the Agent reads private data, authenticate the user with your app and resolve a trusted [Actor](/docs/agents/actors).
 - **One workspace.** This setup uses one bot token for one workspace. For an app that many workspaces install, configure OAuth in the Chat SDK adapter. Read the [Slack adapter docs](https://chat-sdk.dev/adapters/official/slack).
 - **Socket Mode.** The ViteHub webhook route needs the Events API over HTTPS. ViteHub does not start a Socket Mode listener.
 - **Proof.** `slack()` is a thin Channel over your adapter. ViteHub tests its types and the shared Chat SDK webhook route, but it does not run a Slack adapter or a deployed Slack bot in CI.

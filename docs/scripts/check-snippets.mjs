@@ -397,8 +397,15 @@ export function compareBaseline(failures, baseline) {
   return { fresh, stale }
 }
 
-function readBaseline() {
-  return existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, "utf8")) : []
+function readBaseline(path = baselinePath) {
+  return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : []
+}
+
+export function updateBaseline(failures, path = baselinePath) {
+  if (compareBaseline(failures, readBaseline(path)).fresh.length) return false
+  const entries = failures.map(baselineEntry)
+  writeFileSync(path, `${JSON.stringify(entries, null, 2)}\n`)
+  return true
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
@@ -418,10 +425,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     ...separate.flatMap(({ declarations, pageSnippets }) => checkSnippets(pageSnippets, declarations, sharedCheck.program).failures),
   ]
   const baseline = readBaseline()
-  if (process.argv.includes("--update-baseline")) {
-    const entries = failures.map(baselineEntry)
-    writeFileSync(baselinePath, `${JSON.stringify(entries, null, 2)}\n`)
-    console.log(`Wrote ${entries.length} known failures to ${relative(repoRoot, baselinePath)}.`)
+  if (process.argv.includes("--update-baseline") && updateBaseline(failures)) {
+    console.log(`Wrote ${failures.length} known failures to ${relative(repoRoot, baselinePath)}.`)
     process.exit(0)
   }
   const { fresh, stale } = compareBaseline(failures, baseline)
