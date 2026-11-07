@@ -85,6 +85,9 @@ const runtimeEntries = [
   "src/console/runtime/client/operation-view.ts",
   "src/console/runtime/client/problem.ts",
   "src/console/runtime/client/project.ts",
+  "src/console/runtime/client/project-link.ts",
+  "src/console/runtime/client/project-session.ts",
+  "src/console/runtime/client/projects.ts",
   "src/console/runtime/client/rate-limit.ts",
   "src/console/runtime/client/read-only.ts",
   "src/console/runtime/client/route-query.ts",
@@ -239,6 +242,18 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-rail.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-project-link.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-project-switcher.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-project-token.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -471,6 +486,9 @@ export default defineConfig({
           delete exports["./console/runtime/client/publish"];
           delete exports["./console/runtime/client/problem"];
           delete exports["./console/runtime/client/project"];
+          delete exports["./console/runtime/client/project-link"];
+          delete exports["./console/runtime/client/project-session"];
+          delete exports["./console/runtime/client/projects"];
           delete exports["./console/runtime/client/rate-limit"];
           delete exports["./console/runtime/client/read-only"];
           delete exports["./console/runtime/client/route-query"];
