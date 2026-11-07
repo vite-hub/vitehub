@@ -1,3 +1,4 @@
+import { memoryAdapter } from "better-auth/adapters/memory"
 import { admin } from "better-auth/plugins"
 import { createAccessControl } from "better-auth/plugins/access"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -53,6 +54,18 @@ async function signInWithGitHub(auth: ReturnType<typeof createAuthForRequest>) {
   const callback = await auth.handler(new Request(`${origin}/api/auth/callback/github?code=code&state=${state}`, { headers: { cookie } }))
   expect(callback.status).toBe(302)
   expect(callback.headers.get("location")).not.toContain("error")
+  return callback
+}
+
+async function sessionOf(auth: ReturnType<typeof createAuthForRequest>, response: Response) {
+  // Browsers keep the last value when a response writes a cookie more than once.
+  const cookies = new Map(response.headers.getSetCookie().map(value => {
+    const pair = value.split(";")[0]!
+    return [pair.slice(0, pair.indexOf("=")), pair]
+  }))
+  const session = await auth.handler(new Request(`${origin}/api/auth/get-session`, { headers: { cookie: [...cookies.values()].join("; ") } }))
+  expect(session.status).toBe(200)
+  return await session.json() as { user: { role?: string } }
 }
 
 async function roleOf(auth: ReturnType<typeof createAuthForRequest>, email: string) {
@@ -62,12 +75,20 @@ async function roleOf(auth: ReturnType<typeof createAuthForRequest>, email: stri
 }
 
 describe("VITEHUB_ADMINS", () => {
-  it("gives the admin role to a listed GitHub account on its first sign-in", async () => {
+  it.each([undefined, "compact", "jwt", "jwe"] as const)("gives the admin role to a listed GitHub account on its first sign-in (cache: %s)", async (strategy) => {
     vi.stubEnv("VITEHUB_ADMINS", "github:22072217")
     stubGitHub({ id: 22072217, email: "owner@example.com" })
-    const auth = createAuthForRequest(defineAuth({ emailAndPassword: { enabled: true }, socialProviders: { github }, plugins: [admin()] }), new Request(origin))
-    await signInWithGitHub(auth)
+    const auth = createAuthForRequest(defineAuth({
+      emailAndPassword: { enabled: true },
+      runtime: { database: memoryAdapter({ account: [], session: [], user: [], verification: [] }) },
+      session: { cookieCache: { enabled: strategy !== undefined, strategy } },
+      socialProviders: { github },
+      plugins: [admin()],
+    }), new Request(origin))
+    const response = await signInWithGitHub(auth)
     expect(await roleOf(auth, "owner@example.com")).toBe("admin")
+    if (strategy) expect(response.headers.getSetCookie().some(cookie => cookie.includes("better-auth.session_data="))).toBe(true)
+    expect((await sessionOf(auth, response)).user.role).toBe("admin")
   })
 
   it("does not give the role to a password sign-up with the admin's email", async () => {
@@ -84,16 +105,24 @@ describe("VITEHUB_ADMINS", () => {
     expect(await roleOf(auth, "guest@example.com")).toBe("user")
   })
 
-  it("gives the role on the next sign-in when the entry is added later", async () => {
+  it.each([undefined, "compact", "jwt", "jwe"] as const)("gives the role on the next sign-in when the entry is added later (cache: %s)", async (strategy) => {
     stubGitHub({ id: 22072217, email: "owner@example.com" })
-    const definition = defineAuth({ socialProviders: { github }, plugins: [admin()] })
+    const definition = defineAuth({
+      runtime: { database: memoryAdapter({ account: [], session: [], user: [], verification: [] }) },
+      session: { cookieCache: { enabled: strategy !== undefined, strategy } },
+      socialProviders: { github },
+      plugins: [admin()],
+    })
     const before = createAuthForRequest(definition, new Request(origin))
-    await signInWithGitHub(before)
+    const first = await signInWithGitHub(before)
     expect(await roleOf(before, "owner@example.com")).toBe("user")
+    expect((await sessionOf(before, first)).user.role).toBe("user")
     vi.stubEnv("VITEHUB_ADMINS", "github:22072217")
     const after = createAuthForRequest(definition, new Request(origin))
-    await signInWithGitHub(after)
+    const response = await signInWithGitHub(after)
     expect(await roleOf(after, "owner@example.com")).toBe("admin")
+    if (strategy) expect(response.headers.getSetCookie().some(cookie => cookie.includes("better-auth.session_data="))).toBe(true)
+    expect((await sessionOf(after, response)).user.role).toBe("admin")
   })
 
   it("gives the role when a listed account is linked to an existing user, and keeps other roles", async () => {

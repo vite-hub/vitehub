@@ -1,3 +1,5 @@
+import { createAuthMiddleware } from "better-auth/api"
+import { createSessionStore, expireCookie } from "better-auth/cookies"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { authCloudflareEnv } from "./request.ts"
 
@@ -84,6 +86,24 @@ export function createAdminsPlugin(admins: readonly AdminAccount[], plugins: rea
   return {
     id: adminsPluginId,
     options: { admins: admins.map(formatAdminAccount), role },
+    hooks: {
+      after: [{
+        matcher: ctx => Boolean(ctx.context.newSession && ctx.context.options.session?.cookieCache?.enabled),
+        handler: createAuthMiddleware(async (ctx) => {
+          const session = ctx.context.newSession
+          if (!session) return
+          const user = await ctx.context.internalAdapter.findUserById(session.user.id)
+          if (!user || Reflect.get(user, "role") === Reflect.get(session.user, "role")) return
+          Reflect.set(session.user, "role", Reflect.get(user, "role"))
+          // OAuth serializes the user loaded before the database hooks grant the role.
+          // Drop that cache so get-session reads the granted role, including old cookie chunks.
+          const cookie = ctx.context.authCookies.sessionData
+          expireCookie(ctx, cookie)
+          const store = createSessionStore(cookie.name, cookie.attributes, ctx)
+          store.setCookies(store.clean())
+        }),
+      }],
+    },
     init: (context: AuthContext) => {
       // Better Auth replaces `internalAdapter` after the plugins' `init`, so read it when a hook runs.
       async function grant(userId: string) {
