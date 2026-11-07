@@ -422,15 +422,16 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       const getContents = ui?.getContents
       if (ui && getContents) ui.getContents = async (data) => `${await getContents(data)}\n${cssSources}\n`
     })
-    nuxt.options.css.unshift(addTemplate({
+    const docsCss = addTemplate({
       filename: "docs/docs.css",
       write: true,
       getContents: () => [
-        ...importsNuxtUi(nuxt.options.css, nuxt.options.alias) ? [] : [`@import "tailwindcss";`, `@import "@nuxt/ui";`],
+        ...importsNuxtUi(nuxt.options.css, nuxt.options.alias, docsCss.dst) ? [] : [`@import "tailwindcss";`, `@import "@nuxt/ui";`],
         `@import "${join(runtime, "theme/vercel.css")}";`,
         "",
       ].join("\n"),
-    }).dst)
+    })
+    nuxt.options.css.unshift(docsCss.dst)
 
     // @nuxt/icon bundles only the icons it finds in the app, so add the shell's icons and the configured ones.
     Reflect.apply(nuxt.hook, nuxt, ["icon:clientBundleIcons", (icons: Set<string>) => {
@@ -656,10 +657,10 @@ function warnAppComponent(file: string): void {
 }
 
 /** Whether a stylesheet of the app imports Nuxt UI, and so starts a Tailwind build of its own. */
-function importsNuxtUi(css: ReadonlyArray<string | { src?: string }>, alias: Record<string, string>): boolean {
+function importsNuxtUi(css: ReadonlyArray<string | { src?: string }>, alias: Record<string, string>, docsCss: string): boolean {
   return css.some((entry) => {
     const src = typeof entry === "string" ? entry : entry.src
-    if (!src?.endsWith(".css")) return false
+    if (!src?.endsWith(".css") || src === docsCss) return false
     const prefix = Object.keys(alias).filter(key => src.startsWith(`${key}/`)).sort((left, right) => right.length - left.length)[0]
     const file = prefix ? join(alias[prefix]!, src.slice(prefix.length)) : src
     return existsSync(file) && /@import\s+["']@nuxt\/ui["']/.test(readFileSync(file, "utf8"))

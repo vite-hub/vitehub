@@ -10,12 +10,13 @@ type Hook = (...args: never[]) => unknown
 const hooks = new Map<string, Hook[]>()
 const templates = new Map<string, () => string>()
 const handlers: Array<{ route: string, method?: string }> = []
+let templateDir = "/build"
 vi.mock("@nuxt/kit", () => ({
   defineNuxtModule: (definition: { setup: object, moduleDependencies: unknown }) => Object.assign(definition.setup, { moduleDependencies: definition.moduleDependencies }),
   createResolver: () => ({ resolve: (path: string) => resolve(import.meta.dirname, "../src", path) }),
   addTemplate: (template: { filename: string, getContents: () => string }) => {
     templates.set(template.filename, template.getContents)
-    return { dst: `/build/${template.filename}` }
+    return { dst: join(templateDir, template.filename) }
   },
   addServerHandler: (handler: { route: string, method?: string }) => handlers.push(handler),
   addComponent: vi.fn(),
@@ -60,6 +61,7 @@ afterEach(async () => {
 
 async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false, app: { srcDir?: string } = {}) {
   const buildDir = mkdtempSync(join(tmpdir(), "docs-nuxt-"))
+  templateDir = buildDir
   roots.push(buildDir)
   const options = {
     rootDir: resolve(import.meta.dirname, "fixtures"), buildDir, serverDir: "/missing-server",
@@ -175,6 +177,17 @@ describe("docs in an existing app", () => {
     expect(contents).toContain('@source "/app/**/*";')
     expect(contents).toContain(`@source "${app.dir}";`)
     expect(contents).toMatch(/@source ".*runtime\/app";/)
+  })
+
+  it("keeps the docs Tailwind imports when regenerating its own stylesheet", async () => {
+    const options = await setupDocs({})
+    const docsCss = templates.get("docs/docs.css")!
+    const file = options.css[0]!
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, docsCss())
+
+    expect(docsCss()).toContain('@import "tailwindcss";')
+    expect(docsCss()).toContain('@import "@nuxt/ui";')
   })
 
   it("prerenders the docs pages of an app without crawling the app's own pages", async () => {
@@ -412,7 +425,7 @@ describe("docs Nuxt setup", () => {
     expect(templates.get("docs/parser.mjs")?.()).toBe(`export { default } from ${JSON.stringify(resolve(options.rootDir, "docs.parser.ts"))}\n`)
     const nitro: { alias?: Record<string, string> } = {}
     for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
-    expect(nitro.alias?.["#docs/parser"]).toBe("/build/docs/parser.mjs")
+    expect(nitro.alias?.["#docs/parser"]).toBe(join(options.buildDir, "docs/parser.mjs"))
   })
 
   it("parses with the built-in plugins only without a parser module", async () => {
