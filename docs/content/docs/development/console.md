@@ -12,7 +12,7 @@ ViteHub renders the Console UI and serves its static assets. Agents reach the sa
 
 The Console sends each call as one same-origin `POST` to `/_vitehub/rpc/__call` with `{ operation, input }`. An [operation](/docs/development/operations) is a named ability such as `invocations.list` or `content.publish`. The CLI calls the same route, so the same interface works on development servers and production hosts without separate resource routes.
 
-The Console sections are Auth, Env, Connections, Agents, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console**, <kbd>⌘</kbd> <kbd>K</kbd>, or <kbd>/</kbd> opens a command palette with the sections and their pages, Content documents, Agents, and retained sessions when Agents is enabled. Channels lists the Channels of the Agents, their conversation threads, and each conversation with its attachments and the runs that answered, with downloads as Markdown or JSON and a warning when the transcripts are not durable. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation). Content appears when `server/content.ts` defines document collections and edits them: it saves drafts, publishes, and restores revisions, and `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console). Comments is on with the Console. It lists the threads that the team left on the app's pages, and opening the Console turns on the [ViteHub tools pill](#open-the-console-from-the-apps-pages), with the Comments toolbar, on those pages for you. See [Comment as the Console team](/docs/comments/configure#comment-as-the-console-team). Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs, and uploads (up to 8 MiB) or deletes objects through the `blob.put` and `blob.del` operations. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. When the schema is imported or spread, the Tables field says so instead of listing tables it cannot see. KV lists configured stores and keys, then fetches a value only after the key is selected, and edits or deletes it through the `kv.set` and `kv.del` operations. Rate Limit lists statically discovered policies and source locations, and reads or resets the live counter of a key you enter through the `rate-limit.peek` and `rate-limit.reset` operations. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table of discovered Schedule Definitions, with their cron expression, time zone, and manual state. It runs a Definition that sets `manual: true`, and `vitehub schedule runs <name>` lists its recorded runs.
+The Console sections are Auth, Env, Connections, Agents, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console**, <kbd>⌘</kbd> <kbd>K</kbd>, or <kbd>/</kbd> opens a command palette with the sections and their pages, Content documents, Agents, and retained sessions when Agents is enabled. Channels lists the Channels of the Agents, their conversation threads, and each conversation with its attachments and the runs that answered, with downloads as Markdown or JSON and a warning when the transcripts are not durable. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation). Content appears when `server/content.ts` defines document collections and edits them: it saves drafts, publishes, and restores revisions, and `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console). Comments appears when the app turns on [Comments](/docs/comments/configure#turn-comments-on-in-a-vitehub-app). It lists the threads that the team left on the app's pages, and opening the Console turns on the [ViteHub tools pill](#open-the-console-from-the-apps-pages), with the Comments toolbar, on those pages for you. See [Comment as the Console team](/docs/comments/configure#comment-as-the-console-team). Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs, and uploads (up to 8 MiB) or deletes objects through the `blob.put` and `blob.del` operations. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. When the schema is imported or spread, the Tables field says so instead of listing tables it cannot see. KV lists configured stores and keys, then fetches a value only after the key is selected, and edits or deletes it through the `kv.set` and `kv.del` operations. Rate Limit lists statically discovered policies and source locations, and reads or resets the live counter of a key you enter through the `rate-limit.peek` and `rate-limit.reset` operations. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table of discovered Schedule Definitions, with their cron expression, time zone, and manual state. It runs a Definition that sets `manual: true`, and `vitehub schedule runs <name>` lists its recorded runs.
 
 Console data can contain user prompts, model output, tool activity, Blob metadata, provider metadata, and stored KV values. Protect the Console before making it reachable on a production URL.
 
@@ -81,9 +81,10 @@ Set `console` in the root ViteHub integration. Every environment must choose who
 | --- | --- |
 | `false` | Anyone who can reach `/_vitehub`. Use it on your own machine, or behind a host that already checks every request. |
 | `'app'` | Users with a session from the app [Auth](/docs/auth). |
+| `'token'` | Callers that send a token as `Authorization: Bearer` whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`, such as the CLI or a Console on another origin. See [Use a Console token](#use-a-console-token). |
 | `{ ... }` | Users of a separate Console Auth: inline GitHub sign-in, a Console Auth server file, or Cloudflare Access. |
 
-The Console turns on [Comments](/docs/comments), and Comments turns on the Database when `database` is unset. Apply the Comments tables once with `vitehub db generate` and `vitehub db migrate`. Set `comments: false` to leave Comments out. `database: false` with Comments on fails the build with `VITE_HUB_B0018`.
+The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts` or set `comments: true` to turn it on, and the Console shows its **Comments** section. Comments turns on the Database when `database` is unset. Apply the Comments tables once with `vitehub db generate` and `vitehub db migrate`. `database: false` with Comments on fails the build: `VITE_HUB_B0018` for the `comments` option, `COMMENTS_B0001` for a `server/comments.ts` file.
 
 For local development, use `auth: false`:
 
@@ -159,6 +160,27 @@ App Auth and the Console must use the same public origin, including the protocol
 `auth: false` also works in a production build. The build and the production server log a warning, because anyone who can reach the route can read Console data. Before you deploy, add `authorize` or choose another `auth`. See [Protect the Console route](#protect-the-console-route).
 
 If `console` is omitted or set to `false`, ViteHub does not register a Console page, RPC route, Nitro plugin, or public asset path. A disabled Console returns the host's normal not-found response.
+
+## Read the project
+
+The `project.get` operation tells a client what the project runs and what the caller may use. Each section and each operation is one that the app installs and that [`authorize`](#limit-a-user-to-some-sections) allows for the caller. A read-only grant, such as `"kv:read"`, and an MCP access token without `vitehub:write` leave out the operations that change state. It does not need Agents or a section grant, so every caller that passes Console access can read it.
+
+```bash [Terminal]
+pnpm vitehub project info
+pnpm vitehub project info --url https://app.example.com
+```
+
+```json
+{
+  "protocol": 1,
+  "name": "my-app",
+  "vitehub": "0.1.0",
+  "sections": ["env", "kv"],
+  "operations": ["definitions.list", "documents.action", "env.get", "kv.del", "kv.get", "kv.has", "kv.list", "kv.set", "media.action", "project.get", "sections.list"]
+}
+```
+
+`protocol` is the version of this answer. A client stops when the protocol is one that it does not know. `vitehub` is the version of the `vite-hub` package that the app runs. Registered operations can appear even when their section has no Console page, such as `task.list`. An operation that reads its section from the input, such as `documents.action`, is in the list, and each call checks its section again.
 
 ## Inspect environment declarations
 
@@ -493,6 +515,98 @@ Use `console.auth.server` or `console.auth.client` for a file in another locatio
 
 On Cloudflare, use `console: { auth: { provider: 'cloudflare-access' } }` with a Cloudflare Access application. See [Cloudflare](/docs/frameworks-hosts/cloudflare).
 
+### Use a Console token
+
+`auth: 'token'` protects the Console data routes with one secret. Use it for an app without sign-in, for the CLI, and for a Console on another origin.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vitehub({
+    console: { auth: 'token' },
+    kv: true,
+    preset: 'node',
+  })],
+})
+```
+
+The server never stores the token. It reads only its SHA-256 from the `VITEHUB_CONSOLE_TOKEN_SHA256` environment variable on each request, so a person or tool that reads the host env, or a pulled `.env` file, does not get a working token. The build does not contain it. Create a token, keep it where you keep secrets, and set its hash in the host environment:
+
+```bash [Terminal]
+TOKEN=$(openssl rand -hex 32)
+printf %s "$TOKEN" | sha256sum   # 64 hex characters
+# Node and most hosts: set the hash in the server environment
+VITEHUB_CONSOLE_TOKEN_SHA256=<hash> node .output/server/index.mjs
+# Cloudflare
+wrangler secret put VITEHUB_CONSOLE_TOKEN_SHA256
+```
+
+Each caller sends the token as `Authorization: Bearer <token>`. The server hashes it with SHA-256 and compares the two digests in constant time. A missing, wrong, or short token (fewer than 32 characters) gets `401` with `CONSOLE_TOKEN_INVALID` and `WWW-Authenticate: Bearer realm="vitehub-console"`. When `VITEHUB_CONSOLE_TOKEN_SHA256` is not set or is not 64 hex characters, every request gets `500` with `CONSOLE_TOKEN_NOT_CONFIGURED`. The server does not accept the token itself as `VITEHUB_CONSOLE_TOKEN`: with only that variable set, the diagnostic says to store the hash instead. Cookies and sessions never count in this mode.
+
+The CLI sends `VITEHUB_CONSOLE_AUTHORIZATION` as the `Authorization` header, with the token, not the hash:
+
+```bash [Terminal]
+VITEHUB_CONSOLE_AUTHORIZATION="Bearer $TOKEN" vitehub logs list --url https://app.example.com
+```
+
+A token caller gets every Console section. Set `console.authorize` to limit it. The context has `via: 'token'` and no `user`. An Agent that calls Console operations as tools gets `via: 'agent'` and never `via: 'token'`, so allow it on its own:
+
+```ts [server/console-authorize.ts]
+import { defineConsoleAuthorize } from 'vite-hub/console/auth'
+
+export default defineConsoleAuthorize(({ via }) => {
+  if (via === 'token') return { sections: ['kv', 'logs:read'] }
+  if (via === 'agent') return { sections: ['kv:read'] }
+  return false
+})
+```
+
+::warning
+The token is a bearer secret: anyone who has it can use the Console. Keep it out of source code and client bundles. To rotate it, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or redeploy the server. The old token stops working at once.
+::
+
+The Console page on the app's own origin cannot send the token yet, so with `auth: 'token'` it opens in its signed-out state. Use the CLI, MCP, or a Console on another origin.
+
+### Call the Console from another origin
+
+A Console on another origin, such as the hosted Console at `https://console.vitehub.dev` or a Console that you host yourself, calls the app's Console data routes from the browser. `console.origins` lists the origins that may do this:
+
+```ts [vite.config.ts]
+vitehub({
+  console: {
+    auth: 'token',
+    origins: ['https://console.vitehub.dev', 'https://console.example.com'],
+  },
+})
+```
+
+`origins` defaults to `['https://console.vitehub.dev']`. Set `origins: []` to turn cross-origin calls off. Each entry is an `https://` origin, or an `http://` origin on `localhost` or `127.0.0.1` for development. An entry has no path, query, or trailing slash. The build fails on any other value.
+
+The server accepts a cross-origin call only when all of these are true:
+
+- `console.origins` lists the `Origin` of the request.
+- `console.auth` is `'token'`.
+- The request sends the token as `Authorization: Bearer`, and the token is correct.
+
+Cookies never authorize a cross-origin call, so another site cannot use a signed-in browser session. A call from an origin that is not listed gets `403` with `CONSOLE_ORIGIN_REJECTED`. The other `auth` modes keep every Console data route same-origin.
+
+The rule covers the Console data routes: the RPC at `/_vitehub/rpc/__call` and `/_vitehub/rpc/__upload`, Auth management at `/_vitehub/auth/manage`, Env management at `/_vitehub/env/manage`, Channel replay at `/_vitehub/channels/replay`, and Schedule runs at `/_vitehub/schedules/run`. Env management still authenticates the request with its provider and checks the provider permissions. A Schedule run with a signed dispatch keeps the signature as its own authority. Without a signature, the route takes the Console token as `Authorization: Bearer` with `auth: 'token'`, and needs the full `schedules` grant. A session runs a Schedule through the RPC instead.
+
+The responses to a listed origin carry `Access-Control-Allow-Origin: <origin>`, `Access-Control-Expose-Headers: WWW-Authenticate`, and `Origin` in `Vary`. They never carry `Access-Control-Allow-Credentials`. A Nitro plugin answers the `OPTIONS` preflight of these routes before every app middleware, including the files in `server/middleware/`, and before app Auth. A listed origin gets `204` with `Access-Control-Allow-Methods: POST` and `Access-Control-Allow-Headers: authorization, content-type, x-vitehub-console`. Any other origin gets `403` with `CONSOLE_ORIGIN_NOT_ALLOWED`. The actual call then goes through your middleware as usual, so middleware that requires a session must let the Console data routes through and leave the check to the Console.
+
+Check the setup with curl:
+
+```bash [Terminal]
+curl -i -X OPTIONS https://app.example.com/_vitehub/rpc/__call \
+  -H 'Origin: https://console.vitehub.dev' \
+  -H 'Access-Control-Request-Method: POST' \
+  -H 'Access-Control-Request-Headers: authorization, content-type'
+curl -i https://app.example.com/_vitehub/rpc/__call \
+  -H 'Origin: https://console.vitehub.dev' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"operation":"sections.list","input":{}}'
+```
+
 ### Use another authentication library
 
 Apps that use another authentication library set `auth: false` and give the Console an `authorize` function:
@@ -580,6 +694,7 @@ Each Console data route checks access itself. The Console Auth middleware stays 
 | --- | --- |
 | `auth: false` | Allows the request. A production build and a production server log a warning. |
 | `auth: 'app'` | Checks the Primary Auth Session and every Auth access route that protects the Console. Returns `401` or `403`. |
+| `auth: 'token'` | Compares the SHA-256 of `Authorization: Bearer` with `VITEHUB_CONSOLE_TOKEN_SHA256`. Returns `401`, or `500` when the hash is not set or is malformed. Accepts a cross-origin call from `console.origins`. |
 | `auth: { ... }` | Checks the Console Auth Session and its `authorize` callback with `withAuthorization()`. Returns `401` or `403`. It does not redirect to sign-in. |
 | `auth: { provider: 'cloudflare-access' }` | Verifies the Cloudflare Access token. Development has no Access edge, so the development server allows the request. |
 | `authorize` | Runs after any of the checks above. It can reject the request or limit it to some sections. |
@@ -885,6 +1000,8 @@ The Console does not calculate missing provider data. Token counts, model metada
 
 ### Console error codes
 
+A `401` from a Console data route carries `WWW-Authenticate: Bearer realm="vitehub-console"`. The MCP endpoint keeps its own challenge with `resource_metadata`.
+
 Each failed Console request returns JSON with a stable `code`, a `message` that says why it failed, a `fix`, and a `docs` link. Console RPC failures also keep `ok: false` and `status`. The Console shows these fields with one next step: sign in again, reload, try again, or read the docs. It offers a retry only when a retry can succeed.
 
 | Code | Status | Fix |
@@ -894,7 +1011,10 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_MANAGER_REQUIRED` | `403` | The session has no user id, so a management action cannot name its manager. Make sure the Auth Definition that protects the Console returns a user with an id. |
 | `CONSOLE_IMPERSONATING` | `403` | This browser uses an impersonation session. Stop impersonating to get your own session back. |
 | `CONSOLE_DEVELOPMENT_ONLY` | `403` | Rebuild and deploy with an explicit `console.auth` choice. Use `console: { auth: 'app' }` with the Primary Auth Definition, or configure a Console Auth session. Set `console.authorize` to restrict who may use it. |
-| `CONSOLE_ORIGIN_REJECTED` | `403` | Open the Console from its own URL. Proxies must forward the public `Host` and `Origin` headers. |
+| `CONSOLE_ORIGIN_REJECTED` | `403` | Open the Console from its own URL. Proxies must forward the public `Host` and `Origin` headers. For a Console on another origin, see [Call the Console from another origin](#call-the-console-from-another-origin). |
+| `CONSOLE_ORIGIN_NOT_ALLOWED` | `403` | Add the origin to `console.origins`, use `auth: 'token'`, then build and deploy again. |
+| `CONSOLE_TOKEN_INVALID` | `401` | Send `Authorization: Bearer` with the token whose SHA-256 is in `VITEHUB_CONSOLE_TOKEN_SHA256`. For the CLI, set `VITEHUB_CONSOLE_AUTHORIZATION="Bearer <token>"`. |
+| `CONSOLE_TOKEN_NOT_CONFIGURED` | `500` | Set `VITEHUB_CONSOLE_TOKEN_SHA256` to the SHA-256 of the token as 64 hex characters (`printf %s "$TOKEN" \| sha256sum`), remove `VITEHUB_CONSOLE_TOKEN`, then restart or deploy. |
 | `CONSOLE_ACCESS_NOT_CONFIGURED` | `500` | Build the app with the ViteHub plugin. |
 | `CONSOLE_AUTHORIZE_REQUIRED` | `500` | Set `console.authorize`. |
 | `CONSOLE_AUTH_NOT_CONFIGURED` | `500` | Add an Auth Definition, or configure Cloudflare Access. |

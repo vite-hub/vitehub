@@ -47,6 +47,17 @@ export interface ViteHubCliFeature {
   usage?: string
 }
 
+/**
+ * A top-level command, such as `vitehub status`. It runs before the CLI loads the project config, with `rootDir` set to
+ * the working directory, so it works in an empty directory and on a project whose config throws.
+ */
+export interface ViteHubCliCommand {
+  name: string
+  description: string
+  usage: string
+  run: (args: string[], context: ViteHubCliContext) => Promise<number>
+}
+
 export interface ViteHubCliCommandNamespace {
   /** The feature that `vitehub <name>` runs when no feature is named. */
   defaultFeature?: string

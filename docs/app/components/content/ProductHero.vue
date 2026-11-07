@@ -1,8 +1,7 @@
 <script setup lang="ts">
-import { usePreferredReducedMotion } from "@vueuse/core";
 // `::product-hero` opens a product landing page. The copy comes from the page frontmatter and the
 // section manifest. The default slot renders in the right column: a `::product-files` file tree, a
-// `::code-group` whose tabs become a file list beside the code, or an interactive component.
+// `::product-screenshot` of the Console, or an animated component such as `::cms-console-demo`.
 // The only action is Get started. The sidebar lists the other product pages.
 
 const props = defineProps<{
@@ -13,12 +12,6 @@ const props = defineProps<{
   /** Built-in inbound Agent Channels, or examples of application-owned outbound connectors. */
   channels?: string;
   channelMode?: "builtin" | "custom";
-  /** Path of a short, silent demo video, such as `/videos/cms-demo.mp4`. It replaces the slot. */
-  video?: string;
-  /** Path of the still image that shows until the video plays. */
-  poster?: string;
-  /** What the video shows, for screen readers. Defaults to a demo of the product. */
-  videoLabel?: string;
 }>();
 
 const found = useDocsPage();
@@ -80,23 +73,6 @@ const channelItems = computed(() =>
     .filter(Boolean)
     .map((name) => ({ name, icon: channelIcons.get(name.toLowerCase()) ?? "i-lucide-plug" })),
 );
-/*
- * The video has no `autoplay` attribute, because the server cannot read the motion setting.
- * The client plays it only when the reader allows motion, and pauses it when they turn motion off.
- */
-const videoElement = useTemplateRef<HTMLVideoElement>("video");
-const reducedMotion = usePreferredReducedMotion();
-watchEffect(() => {
-  const element = videoElement.value;
-  if (!element) return;
-  if (reducedMotion.value === "reduce") {
-    element.pause();
-    return;
-  }
-  // The browser can refuse to play without a gesture. The controls still let the reader start it.
-  element.play().catch(() => {});
-});
-
 const channelPath = computed(() =>
   props.channelMode === "custom" ? "/docs/channels/get-started" : "/docs/agents/channels",
 );
@@ -156,20 +132,7 @@ const channelPath = computed(() =>
     </div>
 
     <div class="vh-hero-panel">
-      <video
-        v-if="video"
-        ref="video"
-        class="vh-hero-video"
-        :src="video"
-        :poster="poster"
-        :aria-label="videoLabel || `${page?.sourceTitle || page?.title} demo`"
-        muted
-        loop
-        playsinline
-        controls
-        preload="metadata"
-      />
-      <slot v-else />
+      <slot />
     </div>
   </header>
 </template>
@@ -190,12 +153,20 @@ const channelPath = computed(() =>
 }
 
 /*
- * The code goes beside the copy only when its panel fits about 70 characters next to the docs sidebar.
- * At narrower widths a side panel cut lines such as `vitehub({ ... })` at the edge, behind a hidden scrollbar.
+ * The example goes beside the copy, at the top right, once it fits next to the docs sidebar. A screenshot or an
+ * animation fits from 80rem. Code needs about 70 characters beside its file tabs, so a hero with files waits for 90rem.
  */
-@media (min-width: 96rem) {
+@media (min-width: 80rem) {
+  .vh-hero:not(:has(.vh-files)) {
+    grid-template-columns: minmax(17rem, 0.7fr) minmax(0, 1.3fr);
+    gap: 3rem;
+  }
+}
+
+@media (min-width: 90rem) {
   .vh-hero {
-    grid-template-columns: minmax(18rem, 0.65fr) minmax(0, 1.35fr);
+    grid-template-columns: minmax(17rem, 0.7fr) minmax(0, 1.3fr);
+    gap: 3rem;
   }
 }
 
@@ -303,167 +274,13 @@ const channelPath = computed(() =>
   color: var(--ui-text-highlighted);
 }
 
-/*
- * The slot is a prose code group. Its tab list becomes a file list on the left and the active
- * code fills a fixed-height panel on the right, so switching files does not move the page.
- * `::product-files` (.vh-files) styles itself, so these rules skip it.
- */
+/* The slot components style themselves. */
 .vh-hero-panel {
   min-width: 0;
 }
 
 .vh-hero-panel :deep(> *) {
   margin: 0;
-}
-
-/* A fixed ratio keeps the page still while the video loads. Record the demo at 16:9 so nothing is cut. */
-.vh-hero-video {
-  display: block;
-  width: 100%;
-  height: auto;
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
-  background: var(--ui-bg-muted);
-}
-
-/*
- * On phones the panel takes the height of the longest file.
- * A fixed height left a large empty area under short examples.
- */
-.vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"])) {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto auto;
-  overflow: hidden;
-  border: 1px solid var(--ui-border);
-  border-radius: var(--ui-radius);
-  background: var(--ui-bg);
-}
-
-@media (min-width: 40rem) {
-  .vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"])) {
-    height: 28rem;
-    grid-template-columns: 11rem minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr);
-  }
-}
-
-/* The tab list is a file list: one file per row, long paths cut from the start. */
-.vh-hero-panel :deep(> div:not(.vh-files) > [role="tablist"]) {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0;
-  counter-reset: demo-file;
-  min-width: 0;
-  border-right: 1px solid var(--ui-border);
-  border-bottom: 0;
-  background: var(--ui-bg-muted);
-  padding: 0.5rem 0;
-}
-
-.vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"]) > [role="tablist"]) {
-  grid-area: 1 / 1;
-}
-
-.vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"]) > [role="tabpanel"]) {
-  grid-area: 1 / 2;
-}
-
-.vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"]) > [role="tabpanel"][data-state="inactive"]),
-.vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"]) > [role="tabpanel"][hidden]) {
-  display: block;
-  visibility: hidden;
-}
-
-.vh-hero-panel :deep(> div:not(.vh-files) [role="tab"]) {
-  display: flex;
-  counter-increment: demo-file;
-  gap: 0.625rem;
-  width: 100%;
-  min-width: 0;
-  justify-content: flex-start;
-  overflow: hidden;
-  border: 0;
-  border-left: 2px solid transparent;
-  border-radius: 0;
-  padding: 0.375rem 0.875rem;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  text-align: left;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.vh-hero-panel :deep(> div:not(.vh-files) [role="tab"])::before {
-  content: counter(demo-file) ".";
-  color: var(--ui-text-dimmed);
-  font-variant-numeric: tabular-nums;
-}
-
-.vh-hero-panel :deep(> div:not(.vh-files) [role="tab"] > .iconify) {
-  filter: grayscale(1);
-  opacity: 0.7;
-}
-
-.vh-hero-panel :deep(> div:not(.vh-files) [role="tab"][data-state="active"]),
-.vh-hero-panel :deep(> div:not(.vh-files) [role="tab"][aria-selected="true"]) {
-  border-left-color: var(--ui-text-highlighted);
-  background: color-mix(in srgb, var(--ui-text-highlighted) 6%, transparent);
-  color: var(--ui-text-highlighted);
-}
-
-.vh-hero-panel :deep(> div:not(.vh-files) > [role="tabpanel"]) {
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-
-.vh-hero-panel :deep(> div:not(.vh-files) > [role="tabpanel"] > div),
-.vh-hero-panel :deep(> div:not(.vh-files) > [role="tabpanel"] pre) {
-  border: 0;
-  border-radius: 0;
-  margin: 0;
-}
-
-.vh-hero-panel :deep(> div:not(.vh-files) pre) {
-  min-height: 100%;
-  white-space: pre;
-  font-size: 0.8125rem;
-  line-height: 1.75;
-}
-
-@media (max-width: 39.99rem) {
-  .vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"])) {
-    background: var(--ui-bg-muted);
-  }
-
-  .vh-hero-panel :deep(> div:not(.vh-files):has(> [role="tablist"]) > [role="tabpanel"]) {
-    grid-area: 2 / 1;
-    border-top: 1px solid var(--ui-border);
-  }
-
-  /* The copy button sits at the top right of the group, which is the file row on phones. Keep the files out from under it. */
-  .vh-hero-panel :deep(> div:not(.vh-files) > [role="tablist"]) {
-    flex-direction: row;
-    overflow-x: auto;
-    margin-inline-end: 3rem;
-    border-right: 0;
-  }
-
-  /* The row has an underline indicator, so the active file does not also get the left bar or a number. */
-  .vh-hero-panel :deep(> div:not(.vh-files) [role="tab"]) {
-    width: auto;
-    flex: 0 0 auto;
-    border-left: 0;
-  }
-
-  .vh-hero-panel :deep(> div:not(.vh-files) [role="tab"])::before {
-    content: none;
-  }
 }
 
 .vh-agent-demo :deep(.playground-stage) {

@@ -196,6 +196,7 @@ describe("MCP owner contributions", () => {
     const list = await rpc({ jsonrpc: "2.0", id: 3, method: "tools/list" })
     expect(list.body.result.tools).toEqual([
       expect.objectContaining({ name: "definitions_list" }),
+      expect.objectContaining({ name: "project_get" }),
       expect.objectContaining({ name: "sections_list" }),
       { name: "comments_list_threads", description: "The comments_list_threads tool.", inputSchema: { type: "object", properties: { id: { type: "string" } } }, annotations: { readOnlyHint: true } },
     ])
@@ -248,7 +249,7 @@ describe("MCP owner contributions", () => {
     const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req }, context: {}, method: "POST" }])
     if (!(response instanceof Response)) throw new TypeError("Expected a Response")
     expect(response.status).toBe(200)
-    expect(Object(await response.json()).result.tools.map((entry: { name: string }) => entry.name)).toEqual(["definitions_list", "sections_list", "comments_list_threads"])
+    expect(Object(await response.json()).result.tools.map((entry: { name: string }) => entry.name)).toEqual(["definitions_list", "project_get", "sections_list", "comments_list_threads"])
   })
 
   it("needs Console access", async () => {

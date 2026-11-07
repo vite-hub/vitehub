@@ -2321,7 +2321,7 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
       expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
-      expect(webhookRoute).toContain('workspaceRegistryEntry("support", agent0')
+      expect(webhookRoute).toContain('agentWorkspaceEntry("support", agent0')
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -3209,8 +3209,8 @@ export default defineAgent({
       expect(webhookRoute).toContain("function hasHostedWorkspaceStore(module: AgentRegistryModule)")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedWorkspaceStore)) installHostedWorkspaceRuntime()")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
-      expect(webhookRoute).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
-      expect(webhookRoute).toContain('workspaceRegistryEntry("audio-bitacora", agent0')
+      expect(webhookRoute).not.toContain("setWorkspaceRuntimeRegistry")
+      expect(webhookRoute).toContain('agentWorkspaceEntry("audio-bitacora", agent0')
       expect(webhookRoute).toContain('["audio-bitacora"]: {"name":"audio-bitacora","workspace":"audio-bitacora"}')
       expect(webhookRoute).not.toContain("withAgentDefaults")
       expect(webhookRoute).not.toContain("@vite-hub/workspace/internal/stores/github")
@@ -3249,10 +3249,18 @@ export default defineAgent({
 
       expect(webhookRoute).toContain('import { installHostedWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted"')
       expect(webhookRoute).toContain('import { installHostedVercelBlobWorkspaceRuntime } from "@vite-hub/workspace/internal/runtime/hosted-vercel-blob"')
-      expect(webhookRoute).toContain("process?.env?.BLOB_READ_WRITE_TOKEN")
+      expect(webhookRoute).toContain("process?.env?.BLOB_STORE_ID || process?.env?.BLOB_READ_WRITE_TOKEN")
       expect(webhookRoute).toContain("if ([agent0].some(hasHostedVercelBlobWorkspaceStore)) installHostedVercelBlobWorkspaceRuntime()")
-      expect(webhookRoute).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
-      expect(webhookRoute).toContain('workspaceRegistryEntry("audio-bitacora", agent0')
+      expect(webhookRoute).not.toContain("setWorkspaceRuntimeRegistry")
+      expect(webhookRoute).toContain('agentWorkspaceEntry("audio-bitacora", agent0')
+
+      const generatedFunction = (name: string) => webhookRoute.match(new RegExp(`^function ${name}\\([\\s\\S]*?\\n\\}$`, "m"))?.[0] ?? ""
+      const { code } = await transform(`${generatedFunction("resolveAgentModule")}\n${generatedFunction("hasHostedVercelBlobWorkspaceStore")}`, { loader: "ts" })
+      const agentModule = { default: { __vitehubWorkspaceAgentOptions: { workspace: { mode: "write" } } } }
+      const hasStore = (env: Record<string, string>) => Boolean(runInNewContext(`${code}\nhasHostedVercelBlobWorkspaceStore(agentModule)`, { agentModule, process: { env } }))
+      expect(hasStore({ BLOB_STORE_ID: "store_123" })).toBe(true)
+      expect(hasStore({ BLOB_READ_WRITE_TOKEN: "runtime-token" })).toBe(true)
+      expect(hasStore({})).toBe(false)
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -3353,10 +3361,10 @@ export default defineAgent({
 
       const denoServer = await readFile(join(root, ".vitehub/agent/deno-server.ts"), "utf8")
 
-      expect(denoServer).toContain('import { registerWorkspace, setWorkspaceRuntimeRegistry } from "@vite-hub/workspace/runtime"')
+      expect(denoServer).toContain("setAgentWorkspaceDefinitions(Object.fromEntries([")
       expect(denoServer).toContain("workspaceAgentOwnsWorkspaceDefinition")
       expect(denoServer).toContain("withWorkspaceSourceRoot(agentWithColocatedInstructions(resolveAgentModule(agent0)")
-      expect(denoServer).toContain('workspaceRegistryEntry("support", agent0')
+      expect(denoServer).toContain('agentWorkspaceEntry("support", agent0')
       expect(denoServer).toContain("__vitehubAgentInstructions")
       expect(denoServer).toContain("content: colocatedInstructions")
       expect(denoServer).toContain("Symbol.for('vitehub.agent.colocatedSkills')")
@@ -3381,7 +3389,7 @@ export default defineAgent({
       expect(denoServer).toContain("return decoratedAgent as unknown as Agent")
       expect(denoServer).toContain(`${JSON.stringify(join(root, "server", "agents", "support", "workspace"))}, "Use support instructions.\\n", {`)
       expect(denoServer).not.toContain("Do not use workspace instructions.")
-      expect(denoServer).toContain("setWorkspaceRuntimeRegistry(Object.fromEntries([")
+      expect(denoServer).not.toContain("setWorkspaceRuntimeRegistry")
       expect(denoServer).not.toContain('"support": async ()')
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -12243,8 +12251,8 @@ describe("server helpers", () => {
     { timeout: 1_800_000, inputTimeout: 1_200_000, deadline: 1_200_000 },
     { timeout: 2_147_483_648, inputTimeout: undefined, deadline: 900_000 },
     { timeout: 1_800_000, inputTimeout: 2_147_483_648, deadline: 900_000 },
-  ])("expires a queued webhook invocation at its configured deadline $deadline", async ({ timeout, inputTimeout, deadline }) => {
-    vi.useFakeTimers()
+  ])("expires a queued webhook invocation at its configured deadline $deadline", { timeout: 15_000 }, async ({ timeout, inputTimeout, deadline }) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -12280,8 +12288,9 @@ describe("server helpers", () => {
 
     try {
       // #2646: a queue waits one retry interval (1 s) before its first drain of a scope that it finds through its prefix.
+      await expect.poll(() => vi.getTimerCount(), { interval: 0, timeout: 5_000 }).toBeGreaterThan(0)
       await vi.advanceTimersByTimeAsync(1_000)
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await expect.poll(() => run.mock.calls.length, { interval: 0, timeout: 5_000 }).toBe(1)
       await vi.advanceTimersByTimeAsync(899_000)
       expect(complete).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(1_000)
@@ -12289,7 +12298,7 @@ describe("server helpers", () => {
         expect(complete).not.toHaveBeenCalled()
         await vi.advanceTimersByTimeAsync(deadline - 900_000)
       }
-      await vi.waitFor(() => expect(complete).toHaveBeenCalled())
+      await expect.poll(() => complete.mock.calls.length, { interval: 0, timeout: 5_000 }).toBe(1)
       expect(retry).not.toHaveBeenCalled()
     } finally {
       await stop()
@@ -12306,8 +12315,9 @@ describe("server helpers", () => {
     { rehydrate: false, deadline: 1_800_000, setupMs: 60_000 },
     { rehydrate: false, deadline: 120_000, setupMs: 60_000 },
     { rehydrate: true, deadline: 30_000, setupMs: 60_000 },
-  ])("honors replayed webhook timeout $deadline after $setupMs setup (rehydrate: $rehydrate)", async ({ rehydrate, deadline, setupMs }) => {
-    vi.useFakeTimers()
+  ])("honors replayed webhook timeout $deadline after $setupMs setup (rehydrate: $rehydrate)", { timeout: 15_000 }, async ({ rehydrate, deadline, setupMs }) => {
+    // Keep discovery polling on real time: advancing a long execution deadline must not enqueue thousands of SQLite reads.
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
@@ -12367,14 +12377,16 @@ describe("server helpers", () => {
     const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
     try {
       // #2646: a queue waits one retry interval (1 s) before its first drain of a scope that it finds through its prefix.
+      await expect.poll(() => vi.getTimerCount(), { interval: 0, timeout: 5_000 }).toBeGreaterThan(0)
       await vi.advanceTimersByTimeAsync(1_000)
       if (deadline > setupMs) {
-        await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+        // SQLite setup must settle without consuming the execution's fake-time budget.
+        await expect.poll(() => run.mock.calls.length, { interval: 0, timeout: 5_000 }).toBe(1)
         await vi.advanceTimersByTimeAsync(replayStartedAt + deadline - Date.now() - 1_000)
         expect(complete).not.toHaveBeenCalled()
         await vi.advanceTimersByTimeAsync(1_000)
       }
-      await vi.waitFor(() => expect(complete).toHaveBeenCalled())
+      await expect.poll(() => complete.mock.calls.length, { interval: 0, timeout: 5_000 }).toBe(1)
       if (deadline <= setupMs) expect(run).not.toHaveBeenCalled()
       expect(retry).not.toHaveBeenCalled()
       expect(consoleError.mock.calls.flat().map(String).join(" ")).toContain(`timed out after ${deadline}ms`)
@@ -13055,7 +13067,9 @@ describe("server helpers", () => {
     }
   })
 
-  it("delivers state-backed Chat SDK titles once per thread across handler recreation", async () => {
+  it.each([false, true])("delivers state-backed Chat SDK titles once per thread across handler recreation, journal: %s", async (journaled) => {
+    const { createMemoryAgentInvocationStore, defineAgentInvocations } = await import("../src/invocations.ts")
+    const invocations = defineAgentInvocations({ metadataContent: ["vitehub.session.title"], store: createMemoryAgentInvocationStore() })
     const state = createLibsqlAgentState({ url: "file::memory:" })
     const setThreadTitle = vi.fn(async () => undefined)
     const execute = vi.fn(({ text }: { text: string }) => `Title: ${text}`)
@@ -13071,6 +13085,7 @@ describe("server helpers", () => {
             channel: http({ adapter: () => createTitleChatAdapter(setThreadTitle) as never }),
           },
           driver: { run },
+          invocations: journaled ? invocations : undefined,
           hooks: { "agent:finish": finish },
           messages: { state, stream: false, triggerHistory: "none" },
         }) as never,
@@ -13081,10 +13096,10 @@ describe("server helpers", () => {
       await expect(first(chatWebhookRequest(101, 456, "first"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
       await expect(first(chatWebhookRequest(102, 456, "second"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
       expect(run).toHaveBeenCalledTimes(2)
-      expect(execute).toHaveBeenCalledOnce()
+      expect(execute).toHaveBeenCalledTimes(journaled ? 2 : 1)
       expect(setThreadTitle).toHaveBeenCalledOnce()
       expect(finish.mock.calls[0]![0].extensions.get("title")).toEqual({ title: "Title: first" })
-      expect(finish.mock.calls[1]![0].extensions.get("title")).toBeUndefined()
+      expect(finish.mock.calls[1]![0].extensions.get("title")).toEqual(journaled ? { title: "Title: second" } : undefined)
 
       const recreated = createHandler()
       await expect(recreated(chatWebhookRequest(103, 456, "third"), "channel", { agentName: "mini" })).resolves.toMatchObject({ status: 200 })
@@ -13093,7 +13108,11 @@ describe("server helpers", () => {
       expect(setThreadTitle).toHaveBeenCalledTimes(2)
       expect(setThreadTitle).toHaveBeenNthCalledWith(1, "telegram:456", "Title: first")
       expect(setThreadTitle).toHaveBeenNthCalledWith(2, "telegram:789", "Title: other thread")
-      expect(execute).toHaveBeenCalledTimes(2)
+      expect(execute).toHaveBeenCalledTimes(journaled ? 4 : 2)
+      if (journaled) {
+        const { invocations: records } = await invocations.list()
+        expect(records.map(record => record.title).sort()).toEqual(["Title: first", "Title: second", "Title: third", "Title: other thread"].sort())
+      }
       await expect(state.get("chat:mini:channel:channel-title:telegram:456:delivered")).resolves.toBe(true)
       await expect(state.get("chat:mini:channel:channel-title:telegram:789:delivered")).resolves.toBe(true)
     } finally {
@@ -19469,6 +19488,84 @@ describe("server helpers", () => {
       await rm(stateDir, { force: true, recursive: true })
     }
   }, 40_000)
+
+  it("steers a follow-up after the inline Driver becomes ready", { timeout: 30_000 }, async () => {
+    const { registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
+    const { ownedAgentInvocationControlId } = await import("../src/internal/agent-invocation-response-owner.ts")
+    const state = createLibsqlAgentState({ url: ":memory:" })
+    const adapter = createTestChatAdapter()
+    const started = deferred<void>()
+    const readinessChecked = deferred<void>()
+    const released = deferred<void>()
+    let ready = false
+    const sendInput = vi.fn<Parameters<typeof registerAgentInvocationInputHandler>[1]["sendInput"]>(() => {
+      if (!ready) {
+        readinessChecked.resolve()
+        return "unsupported" as const
+      }
+      return "accepted" as const
+    })
+    const run = vi.fn(async (context: AgentRunContext) => {
+      const runId = ownedAgentInvocationControlId(context)
+      if (!runId) throw new Error("Expected an invocation control ID")
+      const unregister = registerAgentInvocationInputHandler(runId, {
+        sendInput,
+        get support() {
+          if (!ready) readinessChecked.resolve()
+          return { steer: ready }
+        },
+      })
+      started.resolve()
+      try {
+        await released.promise
+        return "Steered reply"
+      } finally {
+        unregister()
+      }
+    })
+    const agent = defineAgent({
+      channels: {
+        telegram: testTelegram(telegram, {
+          // SAFETY: This fixture constructs the Chat adapter contract for the test.
+          adapter: () => adapter as never,
+          messages: { concurrency: "steer", delivery: "manual", durable: false, state },
+        }),
+      },
+      driver: { run },
+      hooks: { "agent:finish": event => event.reply("Steered reply") },
+    })
+    // SAFETY: This fixture constructs the Agent definition expected by the route.
+    const handler = createChannelWebhookRouteHandler(agent as never)
+    const pending: Promise<Response>[] = []
+    try {
+      await state.connect()
+      pending.push(handler(chatWebhookRequest(91_130), "telegram", { agentIdentity: { name: "calories" } }))
+      await withDeadline(started.promise, 10_000, "The first Driver did not start")
+      pending.push(handler(chatWebhookRequest(91_131, 456, "Use screenshots"), "telegram", { agentIdentity: { name: "calories" } }))
+      await withDeadline(readinessChecked.promise, 10_000, "The follow-up did not check steering readiness")
+      ready = true
+      await vi.waitFor(() => expect(sendInput).toHaveLastReturnedWith("accepted"))
+      await expect(pending[1]).resolves.toMatchObject({ status: 200 })
+      expect(sendInput).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: expect.objectContaining({
+            parts: expect.arrayContaining([expect.objectContaining({ type: "text", text: "Use screenshots" })]),
+          }),
+        }),
+        { mode: "steer" },
+      )
+      expect(run).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).not.toHaveBeenCalled()
+      released.resolve()
+      await Promise.all(pending)
+      expect(run).toHaveBeenCalledOnce()
+      expect(adapter.postMessage).toHaveBeenCalledExactlyOnceWith("telegram:456", { markdown: "Steered reply" })
+    } finally {
+      released.resolve()
+      await Promise.allSettled(pending)
+      await state.disconnect()
+    }
+  })
 
   it("serializes overlapping inline steering submissions", async () => {
     const { defineAgent } = await import("../src/index.ts")
