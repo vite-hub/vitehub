@@ -521,11 +521,14 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
   })
 
   it.each([
-    { command: "push", flag: "--dry-run", args: ["--dry-run"] },
-    { command: "push", flag: "--mesage", args: ["--mesage", "Typo"] },
-    { command: "pull", flag: "--theirs-all", args: ["--theirs-all"] },
-    { command: "resolve", flag: "--dir", args: ["content", "--dir", "content"] },
-  ])("fails on unknown flag $flag of $command before it calls the app", async ({ command, flag, args }) => {
+    { command: "push", error: "Unknown flag --dry-run.", args: ["--dry-run"] },
+    { command: "push", error: "Unknown flag --mesage.", args: ["--mesage", "Typo"] },
+    { command: "pull", error: "Unknown flag --theirs-all.", args: ["--theirs-all"] },
+    { command: "resolve", error: "Unknown flag --dir.", args: ["content", "--dir", "content"] },
+    // A value flag does not take the next flag as its value, so the push does not run without --dry-run.
+    { command: "push", error: "--message needs a value.", args: ["--message", "--dry-run"] },
+    { command: "pull", error: "--theirs needs a value.", args: ["--theirs", "--dry-run"] },
+  ])("fails on $args of $command before it calls the app", async ({ command, error, args }) => {
     const remoteApp = await app()
     await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
     const local = await project(remoteApp.fetch, "flags")
@@ -537,7 +540,7 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     const result = await local.run(command, ...args)
 
     expect(result.code).toBe(1)
-    expect(result.stderr).toMatch(new RegExp(`^Unknown flag ${flag}\\.\nUsage: vitehub ${command} `))
+    expect(result.stderr.split("\n").slice(0, 2)).toEqual([error, expect.stringMatching(`^Usage: vitehub ${command} `)])
     expect(remoteApp.calls).toHaveLength(calls)
     expect((await remoteApp.history.head({ ref: "draft" }))?.id).toBe(head!.id)
   })
