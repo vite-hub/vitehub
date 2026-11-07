@@ -5,6 +5,11 @@ import type { WorkspaceStaleFile } from "./lineage.ts"
 export const workspaceHistoryDefaultLimit = 20
 /** The most revisions that one `workspace.history` call may return. */
 export const workspaceHistoryMaximumLimit = 100
+/**
+ * The largest `workspace.commit` request body: 4 MiB of JSON, with base64 for binary files. Vercel Functions accept
+ * request bodies up to 4.5 MB and Cloudflare Workers up to 100 MB, so one push works on every host.
+ */
+export const workspaceCommitRequestBytes = 4 * 1_024 * 1_024
 
 /** A retained revision as `workspace.history`, `workspace.refs`, and `workspace.show` report it. */
 export interface WorkspaceHistoryRevision extends WorkspaceRevision {
