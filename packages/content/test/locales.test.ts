@@ -163,6 +163,15 @@ describe("documents() with locales", () => {
     expect(await rejection(docs.save("guide", { data: { title: "Guide" } }, { sourceDigest: b }))).toMatchObject({ code: "CONTENT_R0008", message: expect.stringMatching(/translation/) })
   })
 
+  it("publishes a translation by id when the source locale has no version", async () => {
+    const { content, docs } = await setup()
+    await docs.save("only-es", { data: { title: "Solo" } }, { locale: "es" })
+    expect(await content.publish({ collection: "docs", ids: ["only-es"] })).toMatchObject({
+      documents: [{ collection: "docs", id: "only-es", locale: "es", change: "add" }],
+    })
+    expect(await rejection(content.publish({ collection: "docs", ids: ["nowhere"] }))).toMatchObject({ code: "CONTENT_NOT_FOUND" })
+  })
+
   it("publishes every locale and resolves locale URLs", async () => {
     const { content, docs } = await setup({ url: "/docs/:id" })
     await docs.save("guide", { data: { title: "Guide" } })

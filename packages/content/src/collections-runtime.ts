@@ -2137,23 +2137,24 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const targets: PublishTarget[] = expectations ?? []
       if (!expectations) {
         for (const collection of selected) {
+          const found = new Set<string>()
           // A collection with locales publishes every locale of the documents, the source locale first.
           for (const locale of collection.locales ?? [undefined]) {
-            const source = locale === collection.locales?.[0]
             const ids = publishOptions.ids ?? [...new Set([
               ...collection.entries(draft.files, locale).keys(),
               ...(published ? collection.entries(published.files, locale).keys() : []),
             ])].sort()
             for (const id of ids) {
               const path = collection.pathFor(id, locale)
-              if (!draft.files.has(path) && !published?.files.has(path)) {
-                // A document with no translation in this locale has nothing to publish there.
-                if (source) throw contentNotFound(collection.name, id)
-                continue
-              }
+              // A document with no version in this locale has nothing to publish there.
+              if (!draft.files.has(path) && !published?.files.has(path)) continue
+              found.add(id)
               targets.push({ collection, id, ...(locale === undefined ? {} : { locale }), path })
             }
           }
+          // A requested id is missing only when no locale has it, so a translation without a source still publishes.
+          const missing = publishOptions.ids?.find(id => !found.has(id))
+          if (missing !== undefined) throw contentNotFound(collection.name, missing)
         }
       }
       const put: Record<string, Uint8Array> = {}
