@@ -86,7 +86,7 @@ describe("docs Nuxt setup", () => {
     Object.assign(options, { linkChecker: { excludeLinks: ["/badge.svg"] } })
     const publicDir = join(options.buildDir, "public")
     mkdirSync(publicDir)
-    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}docs/old">Old</a><img src="/badge.svg">`)
+    writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}docs/old">Old</a><a href="${appBase}mcp">MCP</a><img src="/badge.svg">`)
     const compiled: Array<() => void> = []
     const nitro = {
       options: {
@@ -100,6 +100,17 @@ describe("docs Nuxt setup", () => {
     expect(() => compiled[0]!()).not.toThrow()
     writeFileSync(join(publicDir, "index.html"), `<a href="${appBase}docs/missing">Missing</a>`)
     expect(() => compiled[0]!()).toThrow(/no page or file/)
+  })
+
+  it("reports a link to the MCP endpoint when the site turns MCP off", async () => {
+    const options = await setupDocs({ mcp: false })
+    const publicDir = join(options.buildDir, "public")
+    mkdirSync(publicDir)
+    writeFileSync(join(publicDir, "index.html"), `<a href="/mcp">MCP</a>`)
+    const compiled: Array<() => void> = []
+    const nitro = { options: { routeRules: {}, output: { publicDir } }, hooks: { hook: (_name: "compiled", callback: () => void) => compiled.push(callback) } }
+    for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
+    expect(() => compiled[0]!()).toThrow(/\/mcp, which has no page or file/)
   })
 
   it("registers source assets, writes raw copies from the right directory and loads configured components", async () => {
