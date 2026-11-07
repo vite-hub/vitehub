@@ -156,4 +156,63 @@ describe("migrate", () => {
     })
     expect((await runMigration({ cwd: nightly, dryRun: true })).warnings).toEqual([])
   })
+
+  it.each([
+    ["<5", true],
+    ["<=3", true],
+    [">=3 <5", true],
+    ["^3 || ^5", false],
+    [">=3", false],
+    ["5.0.0-beta.1", false],
+    ["npm:nuxt-nightly@5x", false],
+    ["latest", false],
+  ])("checks the allowed Nuxt versions in %s", async (nuxt, warns) => {
+    const directory = await app(`nuxt-range-${encodeURIComponent(nuxt)}`, {
+      "nuxt.config.ts": "export default defineNuxtConfig({})\n",
+      "package.json": `${JSON.stringify({ dependencies: { nuxt } })}\n`,
+    })
+    const migration = await runMigration({ cwd: directory, dryRun: true })
+    expect(migration.warnings).toHaveLength(warns ? 1 : 0)
+    if (warns) expect(migration.warnings[0]).toContain(`package.json requires nuxt "${nuxt}"`)
+  })
+
+  it.each([
+    ["external", "extends: ['../layers/shared'],"],
+    ["absolute", `extends: [${JSON.stringify(join(scratch, "schema-free-layer-absolute/layers/shared"))}],`],
+    ["tuple", "extends: [['../layers/shared', {}]],"],
+    ["dynamic", "extends: activeLayers,"],
+    ["package", "extends: ['@example/nuxt-layer'],"],
+    ["remote", "extends: ['github:example/nuxt-layer'],"],
+    ["local", "extends: ['./layers/base'],"],
+    ["automatic", ""],
+    ["spread", "...{ extends: ['../layers/shared'] },"],
+  ])("keeps a schema-free module with %s layers", async (name, extendsOption) => {
+    const files = {
+      "app/nuxt.config.ts": `const activeLayers = ['../layers/shared']\nexport default defineNuxtConfig({ ${extendsOption} modules: ['nuxt-safe-runtime-config'] })\n`,
+      "app/package.json": '{"dependencies":{"nuxt-safe-runtime-config":"^0.3.2"}}\n',
+      ...(name === "automatic" || name === "local" ? { "app/layers/base/nuxt.config.ts": "export default defineNuxtConfig({ extends: ['../../../layers/shared'] })\n" } : {}),
+      "layers/shared/nuxt.config.ts": "export default defineNuxtConfig({})\n",
+      "layers/shared/composables/config.ts": "export const config = () => useSafeRuntimeConfig()\n",
+    }
+    const root = await app(`schema-free-layer-${name}`, files)
+    const directory = join(root, "app")
+    for (const args of [[directory], ["nuxt-safe-runtime-config", directory]]) {
+      const result = await cli(args)
+      expect(result.code).toBe(1)
+      expect(result.stdout + result.stderr).toContain("cannot verify inherited schemas or useSafeRuntimeConfig() calls")
+      for (const [file, content] of Object.entries(files)) expect(await readFile(join(root, file), "utf8")).toBe(content)
+    }
+  })
+
+  it("removes a schema-free module when extends is empty", async () => {
+    const directory = await app("schema-free-empty-extends", {
+      "nuxt.config.ts": "export default defineNuxtConfig({ extends: [], modules: ['nuxt-safe-runtime-config'] })\n",
+      "package.json": '{"dependencies":{"nuxt-safe-runtime-config":"^0.3.2"}}\n',
+    })
+    const result = await cli([directory])
+    expect(result.code).toBe(0)
+    expect(result.stdout).toContain("removed nuxt-safe-runtime-config")
+    expect(await readFile(join(directory, "nuxt.config.ts"), "utf8")).not.toContain("nuxt-safe-runtime-config")
+    expect(JSON.parse(await readFile(join(directory, "package.json"), "utf8"))).toEqual({ dependencies: {} })
+  })
 })
