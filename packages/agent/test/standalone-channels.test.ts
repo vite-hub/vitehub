@@ -89,28 +89,55 @@ export default defineChannel({ adapter: webhook({ path: \`\${prefix}/intake\` })
     await expect(server(root)).rejects.toThrow(/server\/channels\/intake\/index\.ts: the adapter path must be a string literal/)
   })
 
-  it('serves a Channel that an Agent lists by name through that Agent', async () => {
+  it.each([
+    { name: 'direct import', binding: "import { defineAgent } from '@vite-hub/agent'", call: 'defineAgent', channels: "['hooks']" },
+    { name: 'aliased import', binding: "import { defineAgent as makeAgent } from '@vite-hub/agent'", call: 'makeAgent', channels: "['hooks']" },
+    { name: 'namespace import', binding: "import * as agent from '@vite-hub/agent'", call: 'agent.defineAgent', channels: "['hooks']" },
+    { name: 'comment before the list', binding: "import { defineAgent } from '@vite-hub/agent'", call: 'defineAgent', channels: "/* shared Channels */ ['hooks']" },
+  ])('serves a named Channel through its Agent ($name)', async ({ name, binding, call, channels }) => {
+    const channelName = name.replaceAll(' ', '-')
     const root = await app({
-      'server/channels/hooks.ts': `import { defineChannelTrigger } from '@vite-hub/agent/channels'
+      [`server/channels/${channelName}.ts`]: `import { defineChannelTrigger } from '@vite-hub/agent/channels'
 import { defineChannel, webhook } from '@vite-hub/channels'
 export default defineChannel({
   adapter: webhook({ signature: 'bearer', secret: 'secret' }),
   on: { webhook: defineChannelTrigger({ invoke: context => Response.json({ agent: context.agentName, channel: context.trigger.channelId }) }) },
 })
 `,
-      'server/agents/support.ts': `import { defineAgent } from '@vite-hub/agent'
-export default defineAgent({ channels: ['hooks'], runtime: false, driver: { run: () => 'ok' } })
+      'server/agents/support.ts': `${binding}
+export default ${call}({ channels: ${channels.replace('hooks', channelName)}, runtime: false, driver: { run: () => 'ok' } })
 `,
     })
     const vite = await server(root)
     try {
       const { app } = await nitroApp(vite)
-      for (const path of ['/api/_vitehub/channels/hooks', '/api/_vitehub/agents/support/webhooks/hooks']) {
+      for (const path of [`/api/_vitehub/channels/${channelName}`, `/api/_vitehub/agents/support/webhooks/${channelName}`]) {
         const delivered = await app.request(path, { method: 'POST', body: '{}', headers: { authorization: 'Bearer secret' } })
         expect(delivered.status).toBe(200)
-        expect(await delivered.json()).toEqual({ agent: 'support', channel: 'hooks' })
+        expect(await delivered.json()).toEqual({ agent: 'support', channel: channelName })
       }
-      expect((await app.request('/api/_vitehub/agents/channel-hooks/webhooks/hooks', { method: 'POST', body: '{}', headers: { authorization: 'Bearer secret' } })).status).toBe(404)
+      expect((await app.request(`/api/_vitehub/agents/channel-${channelName}/webhooks/${channelName}`, { method: 'POST', body: '{}', headers: { authorization: 'Bearer secret' } })).status).toBe(404)
+    } finally { await vite.close() }
+  }, 30_000)
+
+  it('ignores local, shadowed, and unrelated Agent factory calls', async () => {
+    const root = await app({
+      'server/channels/hooks.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+export default defineChannel({ adapter: webhook() })`,
+      'server/agents/support.ts': `import { defineAgent as makeAgent } from '@vite-hub/agent'
+import * as agent from '@vite-hub/agent'
+function helper(makeAgent) { return makeAgent({ channels: ['parameter'] }) }
+function namespaceHelper(agent) { return agent.defineAgent({ channels: ['namespace-parameter'] }) }
+const unrelated = { defineAgent: value => value }
+unrelated.defineAgent({ channels: ['unrelated'] })
+{ const makeAgent = value => value; makeAgent({ channels: ['block'] }) }
+{ const defineAgent = value => value; defineAgent({ channels: ['local'] }) }
+export default makeAgent({ channels: ['hooks'], runtime: false, driver: { run: () => 'ok' } })`,
+    })
+    const vite = await server(root)
+    try {
+      const module = await vite.ssrLoadModule(join(root, 'server/agents/support.ts'))
+      expect(Object.keys(module.default.channels)).toEqual(['hooks'])
     } finally { await vite.close() }
   }, 30_000)
 })

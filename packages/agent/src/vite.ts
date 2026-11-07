@@ -37,7 +37,7 @@ import {
   installCloudflareAgentStateEntrypoint,
 } from "./cloudflare.ts"
 import { normalizeAgentOptions } from "./config.ts"
-import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverProcessHostAgentNames } from "./discovery.ts"
+import { discoverAgentDefinitions, discoverAgentEvalFiles, discoverAgentOptionsStarts, discoverProcessHostAgentNames } from "./discovery.ts"
 import { removeAgentEvaliteConfig, resolveAgentEvalOptions, writeAgentEvaliteConfig } from "./internal/evalite-config.ts"
 import { resolveProviderRuntimePackages } from "./internal/provider-runtime-packages.ts"
 import { isPortableAgentWorkflowCapability } from "./internal/final-channel-output.ts"
@@ -1099,7 +1099,8 @@ function transformDiscoveredAgentSkills(
 }
 
 /** The Channel names of each `defineAgent({ channels: ['slack'] })` call in a module. */
-function listedChannelNames(program: unknown, file: string): string[] {
+function listedChannelNames(program: unknown, code: string, file: string): string[] {
+  const agentOptions = discoverAgentOptionsStarts(code, file)
   const names = new Set<string>()
   const visit = (node: unknown): void => {
     if (Array.isArray(node)) {
@@ -1108,12 +1109,8 @@ function listedChannelNames(program: unknown, file: string): string[] {
     }
     if (node === null || typeof node !== "object") return
     const value = node as Record<string, unknown>
-    const callee = value.callee as { type?: unknown, name?: unknown, property?: { name?: unknown } } | undefined
-    const options = Array.isArray(value.arguments) ? value.arguments[0] as { type?: unknown, properties?: unknown[] } | undefined : undefined
-    const defineAgentCall = value.type === "CallExpression"
-      && (callee?.name === "defineAgent" || (callee?.type === "MemberExpression" && callee.property?.name === "defineAgent"))
-    if (defineAgentCall && options?.type === "ObjectExpression") {
-      for (const property of options.properties ?? []) {
+    if (isPositionedNode(value) && value.type === "ObjectExpression" && agentOptions.has(value.start)) {
+      for (const property of Array.isArray(value.properties) ? value.properties : []) {
         if (!isPositionedNode(property) || property.type !== "Property" || nodePropertyName(property) !== "channels") continue
         const list = property.value as { type?: unknown, elements?: unknown[] } | undefined
         if (list?.type !== "ArrayExpression") continue
@@ -1134,10 +1131,24 @@ function listedChannelNames(program: unknown, file: string): string[] {
   return [...names]
 }
 
-/**
- * Registers the Channels that an Agent module lists by name, before the module runs, so `defineAgent()` resolves them.
- * It imports only the listed Channels, so a Channel module can import other Agents.
- */
+/** Resolves only the Channels listed by real Agent factory calls. */
+function namedAgentChannelModules(
+  code: string,
+  parse: (code: string) => unknown,
+  file: string,
+  channels: ReadonlyArray<{ handler: string, name: string }>,
+): Array<{ handler: string, name: string }> {
+  const names = listedChannelNames(parse(code), code, file)
+  return names.map((name) => {
+    const channel = channels.find(candidate => candidate.name === name)
+    if (!channel) {
+      throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Agent ${file} lists the Channel "${name}", but server/channels has no Channel with that name. Channels: ${channels.map(candidate => candidate.name).join(", ") || "none"}.` })
+    }
+    return channel
+  })
+}
+
+/** Registers listed Channels before the Agent runs, without importing unrelated Channels. */
 function transformNamedAgentChannels(
   code: string,
   parse: (code: string) => unknown,
@@ -1145,22 +1156,33 @@ function transformNamedAgentChannels(
   channels: ReadonlyArray<{ handler: string, name: string }>,
   agentImportBase: string,
 ): string | undefined {
-  if (!/\bchannels\s*:\s*\[/.test(code)) return
-  const names = listedChannelNames(parse(code), file)
-  if (!names.length) return
-  const modules = names.map((name) => {
-    const channel = channels.find(candidate => candidate.name === name)
-    if (!channel) {
-      throw agentDiagnostics.AGENT_B0024({ message: `[vitehub] Agent ${file} lists the Channel "${name}", but server/channels has no Channel with that name. Channels: ${channels.map(candidate => candidate.name).join(", ") || "none"}.` })
-    }
-    return channel
-  })
+  const modules = namedAgentChannelModules(code, parse, file, channels)
+  if (!modules.length) return
   return [
     `import { registerAgentChannels as vitehubRegisterAgentChannels } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...modules.map((channel, index) => `import vitehubChannel${index} from ${JSON.stringify(channel.handler.replace(/\\/g, "/"))}`),
     `vitehubRegisterAgentChannels({ ${modules.map((channel, index) => `${JSON.stringify(channel.name)}: vitehubChannel${index}`).join(", ")} })`,
     code,
   ].join("\n")
+}
+
+async function prepareRetainedAgentSources(
+  sources: { resolve: (path: string) => string },
+  definitions: DiscoveredAgentDefinition[],
+  channels: ReadonlyArray<{ handler: string, name: string }>,
+  agentImportBase: string,
+): Promise<void> {
+  const parse = await parseTypeScript()
+  for (const definition of definitions) {
+    const handler = sources.resolve(definition.handler)
+    if (handler === definition.handler || !existsSync(handler)) continue
+    const retainedChannels = channels.map(channel => ({ ...channel, handler: moduleImportSpecifier(handler, sources.resolve(channel.handler)) }))
+    const code = await readFile(handler, "utf8")
+    const skills = readColocatedAgentSkills(definition.handler)
+    let transformed = skills ? transformDiscoveredAgentSkills(code, parse, skills, agentImportBase) ?? code : code
+    transformed = transformNamedAgentChannels(transformed, parse, definition.handler, retainedChannels, agentImportBase) ?? transformed
+    if (transformed !== code) await writeFile(handler, transformed, "utf8")
+  }
 }
 
 interface EveExtensionImport {
@@ -3391,16 +3413,8 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       providerOutput: {
         async prepareSources(sources) {
           if (agent === false || !resolved) return
-          const parse = await parseTypeScript()
-          for (const definition of discoverProjectAgentDefinitions(resolved.root, serverDirs)) {
-            const skills = readColocatedAgentSkills(definition.handler)
-            if (!skills) continue
-            const handler = sources.resolve(definition.handler)
-            if (handler === definition.handler || !existsSync(handler)) continue
-            const code = await readFile(handler, "utf8")
-            const transformed = transformDiscoveredAgentSkills(code, parse, skills, getAgentImportBase(agent, frameworkOptions))
-            if (transformed) await writeFile(handler, transformed, "utf8")
-          }
+          await prepareRetainedAgentSources(sources, discoverProjectAgentDefinitions(resolved.root, serverDirs),
+            discoverAgentChannelModules(serverDirs ?? [join(resolved.root, "server")]), getAgentImportBase(agent, frameworkOptions))
         },
       },
       agent: {
@@ -3760,16 +3774,20 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           : undefined
         const contributionArtifactDir = artifactDir
         const providerImportAliases = getProviderImportAliases(buildAgent, frameworkOptions) ?? {}
+        const channelModules = definitions.length ? discoverAgentChannelModules(buildServerDirs ?? [join(config.root, "server")]) : []
+        const parse = await parseTypeScript()
         const definitionSources = await Promise.all(definitions.map(async (definition) => {
           const instructionDependencies = new Set<string>()
           const instructions = await readColocatedAgentInstructions(definition.handler, { dependencies: instructionDependencies })
           const skillsRoot = resolveColocatedAgentSkillsRoot(definition.handler)
           const workspaceRoot = resolveColocatedAgentWorkspaceRoot(definition.handler)
+          const channels = namedAgentChannelModules(await readFile(definition.handler, "utf8"), parse, definition.handler, channelModules)
           return {
             definition,
             instructions,
             paths: [
               definition.handler,
+              ...channels.map(channel => channel.handler),
               ...instructionDependencies,
               ...(skillsRoot ? [skillsRoot] : []),
               ...(workspaceRoot ? [workspaceRoot] : []),
@@ -3798,6 +3816,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
           handler: retainedSources?.resolve(source.definition.handler) ?? source.definition.handler,
         }))
         if (retainedSources && normalized) {
+          await prepareRetainedAgentSources(retainedSources, definitions, channelModules, getAgentImportBase(buildAgent, frameworkOptions))
           const retainedGeneratedRoot = join(retainedSources.resolve(config.root), ".vitehub")
           const channelsHost = hostedDefinitions.length > 0 && normalized.runtime !== "deno"
           await writeAgentRuntimeRegistry(retainedGeneratedRoot, retainedDefinitions, {
