@@ -563,7 +563,7 @@ jobs:
       # The first deploy also creates the custom domain and its certificate, so the check waits up to 3 minutes.
       - name: Check the live site
         run: |
-          marker=$(grep -oE '<meta name="vitehub-deploy" content="[^"]+">' packages/vite-hub/.vitehub/console-hosted/index.html | grep -F "content=\"${GITHUB_SHA}:${GITHUB_RUN_ID}:" | head -n 1)
+          marker=$(grep -oE '<meta name="vitehub-deploy" content="[^"]+">' packages/vite-hub/.vitehub/console-hosted/index.html | grep -F "content=\"${GITHUB_SHA}:${GITHUB_RUN_ID}:" | head -n 1 || true)
           if [ -z "$marker" ]; then
             echo "The hosted Console build has no deployment marker for this commit and run." >&2
             exit 1
