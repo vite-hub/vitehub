@@ -221,7 +221,7 @@ export async function signInConsoleProject(token: string): Promise<ConsoleProjec
  * Link a project from a URL that a person typed, with a token for the second step. A project that opens is saved and
  * becomes active. The caller then loads the Console for it with `switchConsoleProject()`.
  */
-export async function linkConsoleProject(input: string, token?: string): Promise<ConsoleProjectLinkResult> {
+export async function linkConsoleProject(input: string, token?: string, signal?: AbortSignal): Promise<ConsoleProjectLinkResult> {
   const projects = useState()
   const normalized = normalizeProjectUrl(input)
   if ("error" in normalized) return { kind: "problem", problem: { title: "Check the URL", message: normalized.error } }
@@ -231,6 +231,8 @@ export async function linkConsoleProject(input: string, token?: string): Promise
   }
   const existing = projects.store.find(target.url)
   const probe = await probeConsoleProject(target, token ?? existing?.token)
+  // A person who closed the dialog gave up on this project, so a late answer saves nothing.
+  signal?.throwIfAborted()
   if (probe.kind === "token") return { kind: "token", rejected: probe.rejected && token !== undefined, target }
   if (probe.kind !== "ready") return { kind: "problem", problem: consoleProjectProblem(probe, problemContext(target)) }
   const project = projects.store.save({ url: target.url, label: probe.info.name, token: token ?? existing?.token })
