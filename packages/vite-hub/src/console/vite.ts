@@ -1035,7 +1035,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
  */
 function publishDevServer(server: ViteDevServer): void {
   const http = server.httpServer
-  if (!http) return
+  // In middleware mode another server owns the listener and publishes it, as the Nuxt module does.
+  if (!http || server.config.server.middlewareMode) return
   const root = resolve(server.config.root)
   const write = () => {
     const address = http.address()
