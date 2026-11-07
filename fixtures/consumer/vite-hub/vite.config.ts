@@ -34,7 +34,7 @@ export default defineConfig({
           sandboxTask: preset === "vercel" || preset === "cloudflare",
         }
       : {
-          agent: true,
+          agent: preset === "netlify" ? { invocations: false } : true,
           workflow: preset === "netlify" ? false : true,
           workspace: process.env.VITEHUB_CONSUMER_DISABLE_WORKSPACE !== "1",
         }),
