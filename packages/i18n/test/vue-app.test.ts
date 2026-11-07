@@ -26,7 +26,11 @@ function linguiConfig() {
 }
 
 async function cli(...args: string[]): Promise<{ code: number, stdout: string, stderr: string }> {
-  const [namespace] = createI18nCliContributor(linguiConfig).namespaces!
+  return await cliWith(undefined, ...args)
+}
+
+async function cliWith(workspace: string | undefined, ...args: string[]): Promise<{ code: number, stdout: string, stderr: string }> {
+  const [namespace] = createI18nCliContributor(linguiConfig, () => workspace).namespaces!
   const feature = namespace!.features.find(entry => entry.name === args[0])!
   let stdout = ""
   let stderr = ""
@@ -156,6 +160,21 @@ describe("a Vue app with messages in templates and scripts", () => {
     const manifest = JSON.parse(await readFile(join(root, ".vitehub/i18n/manifest.json"), "utf8")) as I18nManifest
     expect(manifest.environments.client![messageId("Changes saved")]).toEqual({ message: "Changes saved", origins: [expect.stringMatching(/^src\/Notice\.vue:\d+$/)] })
     expect(Object.keys(manifest.environments.client!)).toHaveLength(7)
+  })
+
+  it("says how locales/ relates to the translations Workspace", async () => {
+    expect((await cli("status")).stdout).not.toContain("Workspace")
+    expect((await cliWith("translations", "status")).stdout).toContain("Translations saved in Workspace \"translations\" reach locales/ only through a pull: `vitehub pull translations --dir locales --ref published --url <origin>`.")
+
+    await writeFile(join(root, "vitehub.lock"), JSON.stringify({ version: 1, workspaces: { translations: { dir: "locales", files: {}, head: "r1", ref: "published" } } }))
+    try {
+      const status = await cliWith("translations", "status")
+      expect(status.stdout).toContain("locales/ is a checkout of Workspace \"translations\" (published). Run `vitehub pull` for translations saved since then.")
+      expect(JSON.parse((await cliWith("translations", "status", "--json")).stdout)).toBeInstanceOf(Array)
+    }
+    finally {
+      await rm(join(root, "vitehub.lock"))
+    }
   })
 
   it("offers the old translation of a changed message as a fuzzy draft", async () => {

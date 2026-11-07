@@ -1,5 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { join, relative, resolve, sep } from "node:path"
 
 import { formatter as poFormatter } from "@lingui/format-po"
 
@@ -57,6 +57,26 @@ function formatStatus(status: I18nStatus): string {
   ].join("\n")
 }
 
+/**
+ * How the records folder relates to the `i18n.workspace` Workspace: `vitehub pull` merges the published translations
+ * of that Workspace into the folder when `vitehub.lock` checks it out there.
+ */
+async function workspaceNote(rootDir: string, folder: string, workspace: string | undefined): Promise<string[]> {
+  if (!workspace) return []
+  const dir = relative(rootDir, folder).split(sep).join("/") || "."
+  let entry: unknown
+  try {
+    entry = Reflect.get(Object(Reflect.get(Object(JSON.parse(await readFile(join(rootDir, "vitehub.lock"), "utf8"))), "workspaces")), workspace)
+  }
+  catch {
+    entry = undefined
+  }
+  if (Object(entry) === entry && Reflect.get(Object(entry), "dir") === dir) {
+    return ["", `${dir}/ is a checkout of Workspace "${workspace}" (${String(Reflect.get(Object(entry), "ref"))}). Run \`vitehub pull\` for translations saved since then.`]
+  }
+  return ["", `Translations saved in Workspace "${workspace}" reach ${dir}/ only through a pull: \`vitehub pull ${workspace} --dir ${dir} --ref published --url <origin>\`.`]
+}
+
 function translationLocale(config: LinguiConfigNormalized, locale: string | undefined): string | undefined {
   return config.locales.find(entry => entry !== config.sourceLocale && entry.toLowerCase() === locale?.toLowerCase())
 }
@@ -73,7 +93,7 @@ const usages = {
   prune: "vitehub i18n prune [--yes] [--json]",
 }
 
-export function createI18nCliContributor(resolveConfig: I18nConfigResolver): ViteHubCliContributor {
+export function createI18nCliContributor(resolveConfig: I18nConfigResolver, workspace: () => string | undefined = () => undefined): ViteHubCliContributor {
   return {
     namespaces: [{
       name: "i18n",
@@ -87,8 +107,15 @@ export function createI18nCliContributor(resolveConfig: I18nConfigResolver): Vit
           run: async (args, context) => {
             const flags = parseFlags(args)
             if (flags.help) return usage(context, usages.status)
-            const status = await inspectI18n(resolveConfig(context.rootDir))
-            context.stdout.write(flags.json ? `${JSON.stringify(status.locales, null, 2)}\n` : formatStatus(status))
+            const config = resolveConfig(context.rootDir)
+            const status = await inspectI18n(config)
+            if (flags.json) {
+              context.stdout.write(`${JSON.stringify(status.locales, null, 2)}\n`)
+              return 0
+            }
+            context.stdout.write(formatStatus(status))
+            const note = await workspaceNote(context.rootDir, recordsRoot(config.rootDir), workspace())
+            if (note.length) context.stdout.write(`${note.join("\n").trimStart()}\n`)
             return 0
           },
         },

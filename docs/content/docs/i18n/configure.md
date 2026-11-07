@@ -244,6 +244,18 @@ The server reads the head of `published` at most once every 5 seconds, and compi
 
 The build still reads `locales/` and embeds those translations. Published records override them; messages without a published record keep their build translation. When a Workspace read fails, the server keeps its last working catalogs, or the build snapshot before the first successful read. `vitehub i18n status`, `export`, `import`, and `prune` work on `locales/`, not on the Workspace.
 
+### Bring Workspace translations into `locales/`
+
+The Workspace has the same layout as `locales/`, so `locales/` can be a checkout of its `published` ref. A pull merges what an Agent or a translator published into your files, and a push sends your edits back:
+
+```bash [Terminal]
+pnpm vitehub pull translations --dir locales --ref published --url https://example.com
+pnpm vitehub i18n status
+pnpm vitehub push --message "Fix the Spanish checkout labels"
+```
+
+Check out `published`, not `draft`. The build embeds `locales/`, so a draft in `locales/` would reach the site with the next deploy before anyone published it. Commit `vitehub.lock` with the records. After the first pull, `vitehub pull` with no arguments brings the translations published since then, and `vitehub i18n status` reminds you of it. See [Work on a ref in a local folder](/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
+
 ## What the build does
 
 - **Messages become IDs in the browser.** The build replaces each message with a short ID, a hash of the source text and its context. In a production build, the browser code has IDs and no source text.
