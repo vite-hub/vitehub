@@ -129,7 +129,8 @@ const runtimeEntries = [
 ];
 
 const consoleAssetRoot = resolve(import.meta.dirname, ".vitehub/console");
-const configurationOwners = /^@vite-hub\/(?:agent|auth|comments|connections|database|realtime|schedule|workspace)(?:\/|$)/;
+// Optional owner packages. The root declarations inline their option types, so an app without the package still type-checks.
+const configurationOwners = /^@vite-hub\/(?:agent|auth|blob|browser|channels|comments|connections|database|email|kv|queue|rate-limit|realtime|sandbox|schedule|workflow|workspace)(?:\/|$)/;
 
 function consoleAsset(prefix: "console-" | "page-tool-", extension: ".css" | ".js"): string {
   const matches = readdirSync(consoleAssetRoot)
