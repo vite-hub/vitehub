@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { usePreferredReducedMotion } from "@vueuse/core";
 // `::product-hero` opens a product landing page. The copy comes from the page frontmatter and the
-// section manifest. The default slot renders in the right column: a `::product-files` file tree, a
+// section manifest. The default slot renders in the right column: a `::code-tree` file tree, a
 // `::code-group` whose tabs become a file list beside the code, or an interactive component.
 // The only action is Get started. The sidebar lists the other product pages.
 
@@ -306,7 +306,7 @@ const channelPath = computed(() =>
 /*
  * The slot is a prose code group. Its tab list becomes a file list on the left and the active
  * code fills a fixed-height panel on the right, so switching files does not move the page.
- * `::product-files` (.vh-files) styles itself, so these rules skip it.
+ * `::code-tree` (.vh-files) styles itself, so these rules skip it.
  */
 .vh-hero-panel {
   min-width: 0;

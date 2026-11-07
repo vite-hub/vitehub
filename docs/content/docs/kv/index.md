@@ -8,7 +8,7 @@ icon: i-lucide-database-zap
 ---
 
 ::product-hero{tagline="Save small values like settings and flags under a key, then read them back from any route." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files
+  :::code-tree
   ```ts [vite.config.ts]
   import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'

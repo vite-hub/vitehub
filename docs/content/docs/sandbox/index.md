@@ -8,7 +8,7 @@ icon: i-lucide-terminal-square
 ---
 
 ::product-hero{tagline="Run code in an isolated cloud machine on Vercel or Cloudflare, and get the result in your route." hosts="Vercel, Cloudflare"}
-  :::product-files
+  :::code-tree
   ```ts [server/sandbox-tasks/pixels/index.ts]
   type ImageSize = { width: number, height: number }
 

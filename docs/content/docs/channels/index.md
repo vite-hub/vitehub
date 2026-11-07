@@ -8,7 +8,7 @@ icon: i-lucide-send
 ---
 
 ::product-hero{tagline="Send messages to Slack, Telegram, or your own API from server code, through one named destination." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno" channels="Telegram, Slack, Your API" channel-mode="custom"}
-  :::product-files
+  :::code-tree
   ```ts [server/channels/alerts.ts]
   import {
     defineOutboundChannel,

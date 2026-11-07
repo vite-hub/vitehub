@@ -9,7 +9,7 @@ icon: i-lucide-gauge
 ---
 
 ::product-hero{tagline="Cap how many requests each client or user can make, and reject the extra ones with a 429 error." hosts="Node, Docker, Cloudflare"}
-  :::product-files
+  :::code-tree
   ```ts [vite.config.ts]
   import { vitehub } from 'vite-hub'
   import { defineConfig } from 'vite'

@@ -8,7 +8,7 @@ icon: i-lucide-plug
 ---
 
 ::product-hero{tagline="Connect a Google account or an API key once, then call its API from your server without handling tokens." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno"}
-  :::product-files
+  :::code-tree
   ```ts [server/connections/google.ts]
   import { useServerEnv } from '#vitehub/env/server'
   import { defineConnection } from 'vite-hub/connections'
