@@ -90,11 +90,13 @@ export function getLocales(): readonly string[] {
   return state().config?.locales ?? [getLocale()]
 }
 
-/** Load the compiled messages of a locale and activate it on an i18n instance. */
+/** Load the compiled messages of a locale, activate it, and set the document language in the browser. */
 export async function activateLocale(target: I18n, locale: string): Promise<void> {
   const loader = state().config?.catalogs[locale]
   const { messages } = loader ? await loader() : { messages: {} }
   target.loadAndActivate({ locale, messages })
+  const page = browserDocument()
+  if (page) page.documentElement.lang = locale
 }
 
 /** The parts of `document` that the runtime uses. Server code has no `document`. */
@@ -127,9 +129,9 @@ export function resolveRequestLocale(headers: { get(name: string): string | null
 
 /**
  * Switch the page to another locale. It loads the catalog, re-renders the messages, and saves the choice in a
- * cookie, so the next server render uses it too.
+ * cookie, so the next server render uses it too. A superseded selection returns `I18N_LOCALE_SUPERSEDED`.
  */
-export async function setLocale(locale: string): Promise<Result<string, "I18N_UNKNOWN_LOCALE">> {
+export async function setLocale(locale: string): Promise<Result<string, "I18N_UNKNOWN_LOCALE" | "I18N_LOCALE_SUPERSEDED">> {
   const current = state()
   const config = current.config
   const locales = config?.locales ?? []
@@ -141,7 +143,7 @@ export async function setLocale(locale: string): Promise<Result<string, "I18N_UN
   selections.set(target, selection)
   const loader = config.catalogs[match]
   const { messages } = loader ? await loader() : { messages: {} }
-  if (selections.get(target) !== selection) return [undefined, match]
+  if (selections.get(target) !== selection) return [i18nErrorDiagnostics.I18N_LOCALE_SUPERSEDED({ locale: match }), undefined]
   target.loadAndActivate({ locale: match, messages })
   const page = browserDocument()
   if (page) {

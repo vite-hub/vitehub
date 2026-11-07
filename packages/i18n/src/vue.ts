@@ -7,7 +7,6 @@ import { inject, readonly, shallowRef } from "vue"
 import { activateLocale, getI18n, getI18nConfig, getLocales, resolveBrowserLocale, setI18nTracker, setLocale } from "./runtime.ts"
 
 import type { I18n, MessageDescriptor } from "@lingui/core"
-import type { Result } from "@vite-hub/runtime"
 import type { App, ComponentCustomProperties, InjectionKey, Plugin, Ref } from "vue"
 
 export interface LocaleState {
@@ -16,7 +15,7 @@ export interface LocaleState {
   /** The configured locales. The first one is the source locale. */
   locales: readonly string[]
   /** Switch to another locale and save the choice in a cookie. */
-  setLocale: (locale: string) => Promise<Result<string, "I18N_UNKNOWN_LOCALE">>
+  setLocale: typeof setLocale
 }
 
 const localeKey: InjectionKey<LocaleState> = Symbol("vite-hub.i18n.locale")

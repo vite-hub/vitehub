@@ -117,6 +117,8 @@ if (error) console.error(error.code, error.fix)
 
 For a locale that is not in `i18n.locales`, `error.code` is [`I18N_UNKNOWN_LOCALE`](/docs/i18n/limits-and-errors#i18n_unknown_locale) and `locale` is `undefined`.
 
+When calls overlap on the same page or server request, the latest selection wins. A call superseded before its catalog loads returns [`I18N_LOCALE_SUPERSEDED`](/docs/i18n/limits-and-errors#i18n_locale_superseded) and `undefined`, without applying its locale or changing the cookie or document language.
+
 On the server, `setLocale()` switches only the current request, for example to answer in the locale of a user profile. It does not write a cookie. To save the choice of a person from a server route, set the `locale` cookie in the response.
 
 ## Vue
