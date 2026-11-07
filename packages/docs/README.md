@@ -180,7 +180,7 @@ Components read the site with auto-imported composables: `useDocsConfig()`, `use
 
 The server parses each page with Comark, and the browser renders the nodes with [comark-ui](https://comark-ui.onmax.me)'s blocks: GitHub callouts (`> [!NOTE]`, and `::note`, `::tip`, `::warning`, `::caution`, `::important`), tabs and code groups, steps, code with a copy bar, zoomable images, charts, diagrams, file trees, cards, and the rest. comark-ui's typeset is off, since the design styles the prose. Chips are off too: they turn every web link into a chip and fetch its favicon.
 
-`::examples` and `:::example{label play}` show rendered Markdown next to its source, with underlined tabs, a Preview and Code switch, and an optional link to a playground. The site's parser writes the rendered copy as an `example-preview` node before the source.
+`::examples` and `:::example{label play}` show rendered Markdown next to its source, with underlined tabs, a Preview and Code switch, and an optional link to a playground. Put the source in an `md`, `markdown`, `mdc`, or `comark` code fence inside each example. The parser adds the rendered copy as an `example-preview` node before the source. A site's parser can still supply its own preview node. Content without a preview node stays visible.
 
 Comark plugins are functions, so more of them go in a module that `parser` names:
 
