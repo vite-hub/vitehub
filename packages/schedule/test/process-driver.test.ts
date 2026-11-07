@@ -4,12 +4,13 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineSchedule } from "../src/definition.ts"
 import { createProcessWakeDriver } from "../src/internal/process-wake-runtime.ts"
+import { runSchedule } from "../src/runtime/execute.ts"
 import { installProcessScheduleRuntime } from "../src/runtime/process.ts"
-import { resetScheduleRuntime } from "../src/runtime/state.ts"
+import { resetScheduleRuntime, setScheduleRunStore } from "../src/runtime/state.ts"
 import { createMemoryScheduleRunStore } from "../src/runtime/store.ts"
 
 import type { ProcessScheduleEntry, ProcessWakeContext, ProcessWakeDriver, ProcessWakeDriverOptions } from "../src/internal/process-wake-runtime.ts"
-import type { ScheduleDefinition } from "../src/types.ts"
+import type { ScheduleDefinition, ScheduleRunListOptions } from "../src/types.ts"
 
 function record(id: string, options: Partial<ProcessScheduleEntry> = {}): ProcessScheduleEntry {
   return { cron: "* * * * *", id, ...options }
@@ -110,6 +111,66 @@ describe("Process Schedule Runtime", () => {
       await controller.close()
     }
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date("2026-10-16T15:00:00.000Z") }))
+  })
+
+  it.each(["2026-10-17T15:00:00.000Z", "2026-10-16T15:00:20.000Z"])("ignores manual runs at %s when catching up after a restart", async (scheduledAt) => {
+    const scheduleRunStore = createMemoryScheduleRunStore()
+    const previous = new Date("2026-10-16T14:50:00.000Z")
+    await scheduleRunStore.createRun({ attemptCount: 1, createdAt: previous, id: "srun_static_reconcile_2026-10-16T14:50:00.000Z", scheduleId: "reconcile", scheduledAt: previous, status: "succeeded", target: "reconcile", updatedAt: previous })
+    setScheduleRunStore(scheduleRunStore)
+    const handler = vi.fn()
+    const registry = { reconcile: async () => defineSchedule("*/10 * * * *", handler, { manual: true }) }
+    const manual = await runSchedule("reconcile", { registry, scheduledAt })
+    handler.mockClear()
+
+    const controller = await installProcessScheduleRuntime({
+      now: () => new Date("2026-10-16T15:01:20.000Z"),
+      registry,
+      scheduleRunStore,
+    })
+    try {
+      await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+    }
+    finally {
+      await controller.close()
+    }
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date("2026-10-16T15:00:00.000Z") }))
+    expect(await scheduleRunStore.getRun(manual.id)).toEqual(manual)
+  })
+
+  it.each([1, 101])("catches up with a legacy custom store behind %s future manual runs", async (manualCount) => {
+    const backingStore = createMemoryScheduleRunStore()
+    // Existing custom stores support scheduleId and limit, but ignore the new idPrefix option.
+    const listRuns = vi.fn((options: ScheduleRunListOptions = {}) => backingStore.listRuns({ scheduleId: options.scheduleId, limit: options.limit }))
+    const scheduleRunStore = { ...backingStore, listRuns }
+    const previous = new Date("2026-10-16T14:50:00.000Z")
+    await scheduleRunStore.createRun({ attemptCount: 1, createdAt: previous, id: "srun_static_reconcile_2026-10-16T14:50:00.000Z", scheduleId: "reconcile", scheduledAt: previous, status: "succeeded", target: "reconcile", updatedAt: previous })
+    setScheduleRunStore(scheduleRunStore)
+    const handler = vi.fn()
+    const registry = { reconcile: async () => defineSchedule("*/10 * * * *", handler, { manual: true }) }
+    for (let index = 0; index < manualCount; index++) {
+      await runSchedule("reconcile", { registry, scheduledAt: "2026-10-17T15:00:00Z" })
+    }
+    handler.mockClear()
+
+    const controller = await installProcessScheduleRuntime({
+      catchUpMs: 15 * 60_000,
+      now: () => new Date("2026-10-16T15:01:20.000Z"),
+      registry,
+      scheduleRunStore,
+    })
+    try {
+      await vi.waitFor(() => expect(handler).toHaveBeenCalledOnce())
+    }
+    finally {
+      await controller.close()
+    }
+    // The bounded fallback must not repeat the existing 14:50 occurrence.
+    expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date("2026-10-16T15:00:00.000Z") }))
+    expect(listRuns.mock.calls.map(([options]) => options)).toEqual([
+      { scheduleId: "reconcile", idPrefix: "srun_static_", limit: 1 },
+      { scheduleId: "reconcile", limit: 100 },
+    ])
   })
 
   it("does not catch up a Static Schedule that has no run, or minutes outside catchUpMs", async () => {

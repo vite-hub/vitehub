@@ -103,6 +103,11 @@
       "import": "./dist/host-credentials.js",
       "default": "./dist/host-credentials.js"
     },
+    "./provider-failure": {
+      "types": "./dist/provider-failure.d.ts",
+      "import": "./dist/provider-failure.js",
+      "default": "./dist/provider-failure.js"
+    },
     "./provision": {
       "types": "./dist/provision.d.ts",
       "import": "./dist/provision.js",

@@ -32,6 +32,7 @@ export default defineConfig({
       "src/operations-dev.ts",
       "src/owned-paths.ts",
       "src/host-credentials.ts",
+      "src/provider-failure.ts",
       "src/provision.ts",
       "src/provision-state.ts",
       "src/presets.ts",
