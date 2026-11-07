@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { H3Event } from "h3"
+import type { Plugin } from "vite"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineSchedule } from "@vite-hub/schedule"
@@ -16,6 +17,7 @@ import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/intern
 import { consoleDefinitionsKey, consoleDefinitionsRegistryKey, consoleDefinitionsRootKey, consoleSchedulesKey, consoleSchedulesRegistryKey, consoleSchedulesRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
 import { discoverConsoleBuildCatalog } from "../src/console/build.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
+import { vitehub } from "../src/index.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import definitionsHandlerRoute from "../src/console/runtime/server/definitions.get.ts"
 import { installConsoleDefinitions, installConsoleSchedules } from "../src/console/runtime/server/definitions.ts"
@@ -122,6 +124,23 @@ describe("Console Schedule runs", () => {
     await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], undefined, undefined, true)
 
     expect(await readFile(plugin, "utf8")).toContain(`{ ["__proto__"]: () => import(${JSON.stringify(pathToFileURL(handler).href)}) }`)
+  })
+
+  it("installs manual Schedules for `vitehub schedule run` in vite dev without a console option", async () => {
+    const root = await temporaryRoot("vitehub-console-schedule-dev-")
+    await writeFile(join(root, "package.json"), "{}\n")
+    await mkdir(join(root, "server/schedules"), { recursive: true })
+    await writeFile(join(root, "server/schedules/daily-report.ts"), "import { defineSchedule } from 'vite-hub/schedule'\nexport default defineSchedule({ cron: '0 8 * * *', manual: true, handler() {} })\n")
+    const plugin = vitehub({ preset: "node", schedule: true }).flat()
+      .find((option): option is Plugin => option !== null && typeof option === "object" && "name" in option && option.name === "vite-hub/console")
+    const hook = plugin?.config
+    const config = typeof hook === "function" ? hook : hook?.handler
+    if (!config) throw new TypeError("Expected the Console config hook.")
+
+    await Reflect.apply(config, {}, [{ root }, { command: "serve", mode: "development" }])
+
+    const handler = pathToFileURL(join(root, "server/schedules/daily-report.ts")).href
+    expect(await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).toContain(`installConsoleSchedules(${JSON.stringify(root)}, { ["daily-report"]: () => import(${JSON.stringify(handler)}) })`)
   })
 
   it("discovers manual Static Schedule Definitions for the Console", async () => {
