@@ -7,13 +7,9 @@ icon: i-lucide-play-circle
 navigation.kind: Guides
 ---
 
-An Agent Invocation is one request to an Agent. ViteHub prepares its input, Actor, Capabilities, Workspace, and Driver, then returns or streams the result.
-
-Start with [Agent Definitions](/docs/agents/agent-definitions). For a complete browser-to-model example, follow [Build a chat app](/docs/agents/build-a-chat-app).
+An Invocation is one run of an [Agent Definition](/docs/agents/agent-definitions), the reusable file that describes an Agent. ViteHub prepares the request, runs it, and returns or streams the result. [Build a chat app](/docs/agents/build-a-chat-app) shows a full example.
 
 ## What happens during an Invocation
-
-An Agent Definition describes reusable behavior. An Invocation records one execution of that behavior.
 
 | Stage | What happens |
 | --- | --- |
@@ -24,23 +20,19 @@ An Agent Definition describes reusable behavior. An Invocation records one execu
 | Execution | The Agent Driver runs the prepared request. |
 | Result | ViteHub returns or streams the output and records events and usage. |
 
-The Agent can use only the Capabilities selected for that Invocation. A Capability that is not selected adds nothing to the request.
+A Capability is an ability attached to an Agent, such as chat or a tool; only those selected for the Invocation add anything. The Driver runs the model or provider CLI.
 
 | Term | Describes |
 | --- | --- |
-| Agent Definition | Reusable Agent behavior. |
-| Agent Invocation | One execution for one input. |
 | Channel | Message origin and delivery facts around an Invocation. |
 | Workflow Run | Durable work that can continue across waits or server restarts. |
 | Agent Memory | Persistent context stored outside the Invocation. |
 
-A Channel can start many Invocations, and a Workflow Run can carry an Invocation. Neither one replaces the Invocation record.
-
-Run `vitehub agent info` to inspect the resolved Agent Definition. Run `vitehub agent dev` to talk to the Agent through a running Vite development server. Read [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) for the records produced during execution.
+A Channel can start many Invocations, and a Workflow Run can carry one, but each keeps its own record. `vitehub agent info` shows the resolved Definition, and `vitehub agent dev` talks to the Agent through a running Vite dev server. [Runtime policy, approvals, and traces](/docs/agents/runtime-policy) covers run records.
 
 ## Run an Agent
 
-For an Agent with `runtime: false`, the shortest call returns an error/result tuple:
+For an Agent with `runtime: false`, the shortest call returns an `[error, result]` tuple:
 
 ```ts
 import { runAgent } from 'vite-hub/agent'
@@ -52,9 +44,9 @@ const [error, result] = await runAgent(support, {
 if (error) throw error
 ```
 
-For a model's completed text, pass `{ output: 'drained' }` as the third argument. This consumes the inline stream and returns `[error, text]`. Omit it when a custom Driver returns an object that you need to keep unchanged.
+Pass `{ output: 'drained' }` as the third argument to read the whole stream and get `[error, text]`. Leave it out when a custom Driver returns an object that you must keep unchanged.
 
-Pass a Runtime Context as the second argument when a host must supply request metadata or Workflow discovery. This form returns the result directly and throws failures. Inline runtimes may return a native `Response` when the Agent produces an HTTP-shaped result. Workflow runtimes return a Workflow Run for durable inspection and control. Structured Agent outputs remain typed values, and streaming uses the separate stream contract below.
+In a server route, pass a [Runtime Context](/docs/reference/runtime-context) second, for request metadata and host Workflow lookup. This form returns the result directly and throws on failure. Inline runs can return a native `Response`, Workflow runs return a Workflow Run to control later, and structured outputs stay typed. Streaming has its own contract ([Stream an Agent](#stream-an-agent)).
 
 ```ts [server/api/support.post.ts]
 import { defineEventHandler, readBody } from 'h3'
@@ -86,26 +78,33 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`requireAuthenticatedUser` is an application helper from `server/utils/auth.ts`, omitted here. Implement it with your authentication provider so it rejects unauthenticated requests and returns the trusted user's `id` and `email`. It is not a ViteHub export. Authenticate the request before passing trusted identity or access facts. `context.invoker` is the current input field for an [Agent Actor](/docs/agents/actors).
+`requireAuthenticatedUser` is your own helper in `server/utils/auth.ts`, not a ViteHub export. It must reject requests without a signed-in user and return the trusted `id` and `email`. Always authenticate before you pass identity or access facts to the Agent. `context.invoker` sets the [Agent Actor](/docs/agents/actors), the caller's trusted identity.
 
-The second argument is [Runtime Context](/docs/reference/runtime-context); the third is invocation input. The H3 `getRuntimeContext()` adapter supplies `runtime`, a fresh `memo` cache, and tracked `waitUntil` work. The example drains background work before returning and reports background failures separately.
+The H3 `getRuntimeContext()` adapter gives `runtime`, a fresh `memo` cache, and tracked `waitUntil` work. The example waits for background work before it returns and logs its failures separately.
 
 ### Run without a host context
 
-For a script or direct invocation, pass the invocation input as the second argument:
+In a script, or without a server request, pass the input as the second argument:
 
 ```ts
 const [error, result] = await runAgent(support, { prompt: 'Summarize the support policy.' })
 if (error) throw error
 ```
 
-This form creates a fresh memo cache and run ID, uses the `unknown` runtime, and returns `[null, result]` or `[Error, null]`. It drains background work registered before the call settles. A background failure returns an error tuple; an invocation failure takes precedence if both fail. Non-Error thrown values become an `Error` with the original value as its `cause`.
+This form:
 
-Results follow the configured Agent runtime: inline output stays unchanged, and an explicit Workflow binding returns its Workflow Run. Agents that rely on default host Workflow discovery return an error tuple. Set `runtime: false` for inline execution, configure an explicit `workflow("name")` binding, or use the three-argument form with a host context. This form does not supply request metadata, runtime configuration, or a host background lifetime. Use the three-argument form when those are required, including streams that schedule work during later consumption. The tuple covers the call itself; errors from consuming a returned stream or Response body still occur during consumption.
+- creates a fresh memo cache and run ID and uses the `unknown` runtime
+- returns `[null, result]` or `[Error, null]`
+- waits for background work started before the call settles, and returns an error tuple when it fails (the run error wins when both fail)
+- wraps a thrown non-`Error` value in an `Error` with the original as its `cause`
+
+Inline output stays unchanged, and an explicit Workflow binding returns its Workflow Run. An Agent that relies on the host to find its Workflow returns an error tuple: set `runtime: false`, configure an explicit `workflow("name")` binding, or use the three-argument form.
+
+This form has no request metadata, runtime configuration, or host lifetime for background work, including streams that start work while the caller reads them. Use the three-argument form for those. The tuple covers only the call: errors while you read a returned stream or `Response` body appear during that read.
 
 ## Stream an Agent
 
-Use `streamAgent()` when a chat UI or internal consumer needs incremental output.
+`streamAgent()` sends the output piece by piece, for example to a chat UI.
 
 ```ts [server/api/support-stream.post.ts]
 import { createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
@@ -134,15 +133,17 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`output: 'ui-message-stream'` returns a `ReadableStream` of AI SDK UI message chunks. Wrap it with `createUIMessageStreamResponse()` to encode those chunks as SSE and set the HTTP headers for a chat client. Return an existing `Response` unchanged. The public return type includes `unknown`, so the example checks the result and narrows the chunk type for the selected output mode. Use `output: 'events'` when server code needs ViteHub stream events.
+`output: 'ui-message-stream'` returns a `ReadableStream` of AI SDK UI message chunks, which `createUIMessageStreamResponse()` encodes as SSE with chat-client headers. Return an Agent `Response` unchanged. The return type includes `unknown`, so the example checks it and narrows the chunk type. `output: 'events'` gives ViteHub stream events for server code.
 
-Streaming routes must provide a real host `waitUntil` lifetime through the event or the adapter options. A drain before returning cannot cover work scheduled when the caller consumes or cancels the stream. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup).
+::warning
+A streaming route must give a real host `waitUntil` lifetime, through the event or the adapter options. Waiting for background work before you return does not cover work that starts while the caller reads or cancels the stream. See [Runtime Context](/docs/reference/runtime-context#background-work-and-cleanup).
+::
 
-The stream becomes terminal when the caller consumes it, cancels it, or receives an error. A caller that abandons the stream also abandons completion observation.
+The stream ends when the caller reads all of it, cancels it, or gets an error. A caller that stops reading also stops observing completion.
 
 ## Invoke a Trigger
 
-Use `runAgentTrigger()` or `streamAgentTrigger()` when a Capability owns the event shape. This example invokes the Chat Capability's `chat.message` trigger:
+A Trigger is a named event that a Capability defines and shapes, such as `chat.message`. Send it with `runAgentTrigger()` or `streamAgentTrigger()`. This example invokes the Chat Capability's `chat.message` Trigger:
 
 ```ts [server/api/support-chat.post.ts]
 import { createUIMessageStreamResponse, type UIMessageChunk } from 'ai'
@@ -185,11 +186,11 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-The Agent must attach the [Chat Capability](/docs/agents/capabilities/chat) to register `chat.message`. The consumer supplies the product event. The Capability prepares the Agent input and policy before the Driver starts. A handled Trigger can return a `Response`; the route preserves it. Otherwise, `streamAgentTrigger()` uses the same chunk stream contract and response wrapper as `streamAgent()`. Read [Triggers](/docs/agents/triggers) for when to use this path instead of direct invocation.
+The Agent must attach the [Chat Capability](/docs/agents/capabilities/chat), which registers `chat.message`. The Capability prepares input and policy before the Driver starts. Return a handled Trigger's `Response` unchanged; otherwise the stream matches `streamAgent()`. [Triggers](/docs/agents/triggers) explains when to prefer a Trigger.
 
 ## Validate input
 
-Use an `agent:input` hook for trusted invocation requirements that must be present before the Driver runs.
+An `agent:input` hook checks that trusted input is present before the Driver runs.
 
 ```ts [server/agents/review.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -206,13 +207,13 @@ export default defineAgent({
 })
 ```
 
-Validate untrusted request data at the route boundary. The hook protects the Agent contract when multiple trusted callers invoke the same Definition.
+Validate untrusted request data in the route. The hook protects the Agent when several trusted callers run the same Definition.
 
-Set `defineAgent({ data })` when callers pass structured values. ViteHub validates `input.data` with the schema before hooks and the Driver run, and returns an error tuple from `runAgent()` for invalid data. See [Accept structured data](/docs/agents/agent-definitions#accept-structured-data).
+For structured values, set `defineAgent({ data })`. ViteHub validates `input.data` before hooks and the Driver run, and `runAgent()` returns an error tuple for invalid data. See [Accept structured data](/docs/agents/agent-definitions#accept-structured-data).
 
 ## Observe the outcome
 
-Finish hooks receive normalized duration, result kind, and usage. Error hooks receive failed invocations.
+Hooks record what each run did. `agent:finish` gets the normalized duration, result kind, and usage. `agent:error` gets each failed Invocation.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -231,28 +232,35 @@ export default defineAgent({
 })
 ```
 
-When a Channel started the Invocation, both hooks also receive `event.message`. Use its methods to act on the provider message, such as a reply or a label. Set `dryRun: true` in the Invocation input to record write calls in the trace instead of calling the provider. See [Act on the Channel message in hooks](/docs/agents/channels#act-on-the-channel-message-in-hooks).
+When a Channel (a message source such as Slack or GitHub) started the Invocation, both hooks also get `event.message`. Its methods act on the provider message, for example to reply or add a label. With `dryRun: true` in the input, ViteHub records write calls in the trace instead of calling the provider. See [Act on the Channel message in hooks](/docs/agents/channels#act-on-the-channel-message-in-hooks).
 
-Error hooks receive the raw `event.error` for protected server diagnostics and a
-sanitized `event.publicError` for logs, HTTP responses, or Channel replies. See
-[Agent public errors](/docs/reference/errors-diagnostics#agent-public-errors) for
-the stable codes and redaction rules.
+Error hooks get the raw `event.error`, only for protected server diagnostics, and the sanitized `event.publicError` for logs, HTTP responses, or Channel replies. See [Agent public errors](/docs/reference/errors-diagnostics#agent-public-errors) for stable codes and redaction rules.
 
-Use [Invocation storage](/docs/agents/invocation-storage) to retain evidence across restarts.
+To keep evidence across restarts, use [Invocation storage](/docs/agents/invocation-storage). Each Invocation also has an in-memory metadata trace in `runtime.trace` and `runtime.traceLog`. It stays in the process and is not kept across a Workflow boundary.
 
-Every invocation also has an in-memory metadata trace through `runtime.trace` and `runtime.traceLog`. The default log is process-local and is not persisted across a Workflow boundary.
+`agent.invocation.finish` has `result.text` for a text result, and `result.output` for a plain object or array, such as `driver.ask` answers.
 
-`agent.invocation.finish` carries `result.text` for a text result. A plain object or array result, such as `driver.ask` answers, is `result.output` instead.
+### Child Invocations
 
-An Invocation that starts while another Invocation runs its Driver or an outcome hook is a child of that Invocation. For example, `runAgent()` inside `agent:finish` starts a child. A child without its own trace joins the trace of its parent: both records have the same `traceId`, and each observation of the child has `trace.parentId`, the record `id` of the parent. The parent records `agent.invocation.child.start` and `agent.invocation.child.finish` with `agent.invocation.child.id`, `agent.invocation.child.run.id`, and `agent.invocation.child.agent.name`. The finish observation also has `agent.invocation.child.status` and `agent.invocation.child.durationMs`. The `agent.invocation.start` observation of the child has the same attributes for its parent, under `agent.invocation.parent.*`.
+An Invocation that starts while another runs its Driver or an outcome hook, such as `runAgent()` inside `agent:finish`, is its child. A child without its own trace joins the parent trace:
 
-Finish events set `event.invocation.cancelled` to `true` when output consumption is cancelled. Finish effects can use this field to distinguish cancellation from normal completion.
+- Both records share the `traceId`. Each child observation has `trace.parentId`, the parent record `id`.
+- The parent records `agent.invocation.child.start` and `agent.invocation.child.finish`, with `agent.invocation.child.id`, `agent.invocation.child.run.id`, and `agent.invocation.child.agent.name`. Finish also has `agent.invocation.child.status` and `agent.invocation.child.durationMs`.
+- The child's `agent.invocation.start` has the same attributes for its parent under `agent.invocation.parent.*`.
 
-Capability setup callbacks (`configure`, `prepare`, `bind`, `input`, `resolve`, `output`) and `close` emit one `agent.capability.<phase>` event when the callback settles. These events measure the callback itself with a monotonic clock, excluding before/after hooks and trace persistence. Read `agent.capability.id`, `agent.capability.phase`, `agent.capability.outcome`, and `agent.capability.durationMs` to distinguish slow integration setup from model execution. Outcomes are `success`, `error`, or `cancelled`; cancellation means the callback failed while the effective invocation input's abort signal was set.
+When the caller cancels reading the output, finish events set `event.invocation.cancelled` to `true`, so finish effects can tell it from a normal finish.
 
-Timing events carry the available invocation, run, and trace identifiers. They contain no callback arguments, results, configuration, or thrown error messages, and follow the normal trace and journal retention policy. A missing event means timing is unavailable, not zero. Emission does not await arbitrary trace sinks: pending or rejected persistence cannot change callback results or prevent cleanup. The host still owns its trace sink's flushing and retention policy.
+Capability timing events show whether a slow run comes from integration setup or the model. The `configure`, `prepare`, `bind`, `input`, `resolve`, `output`, and `close` callbacks each emit one `agent.capability.<phase>` event when they settle. It measures only the callback with a monotonic clock, without before and after hooks or trace persistence. Fields:
 
-Attach the `otlp()` Capability to send completed invocation traces to any OTLP/HTTP JSON receiver:
+- `agent.capability.id` and `agent.capability.phase`
+- `agent.capability.outcome`: `success`, `error`, or `cancelled` (the callback failed while the abort signal of the effective Invocation input was set)
+- `agent.capability.durationMs`
+
+Timing events carry available Invocation, run, and trace IDs, but no callback arguments, results, configuration, or error messages, and follow normal retention. A missing event means unavailable, not zero. ViteHub does not wait for trace sinks, so a failed write cannot change callback results or stop cleanup. The host owns sink flushing and retention.
+
+### Export traces with OTLP
+
+The `otlp()` Capability sends completed Invocation traces to any OTLP/HTTP JSON receiver:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -272,88 +280,115 @@ export default defineAgent({
 })
 ```
 
-Pass the OTLP base endpoint; ViteHub appends `/v1/logs` and `/v1/traces`. With `live: true`, new Trace Events are batched as correlated OTLP LogRecords while the invocation runs, then ViteHub exports one completed trace. Without `live`, it exports only the completed trace and retains Trace Events as span events. Invocation content is metadata-only by default. Use `content.inputs`, `content.outputs`, and `content.instructions` to opt a trusted receiver into each content class independently.
+- Pass the base endpoint; ViteHub appends `/v1/logs` and `/v1/traces`.
+- With `live: true`, new Trace Events go out in batches as correlated OTLP LogRecords during the run, then one completed trace. Without it, only the completed trace goes out, with Trace Events as span events.
+- Only metadata is sent by default. For a trusted receiver, turn on `content.inputs`, `content.outputs`, or `content.instructions` independently.
 
-Export runs through `runtime.waitUntil()`, so delivery failures do not replace the Agent result. See [`otlp()`](/docs/agents/capabilities/otlp) for batching, deduplication, privacy, and Capability-contribution details.
+The export runs through `runtime.waitUntil()`, so a failed delivery does not replace the Agent result. See [`otlp()`](/docs/agents/capabilities/otlp) for batching, deduplication, and privacy.
 
 ### Store invocation history
 
-Set `invocations: 'database'` to retain runs in the application's Database, or `'memory'` for process-local history. A journal is opt-in unless the Console supplies one. Set `invocations: false` to disable it for one Agent.
-
-See [Invocation storage](/docs/agents/invocation-storage#store-invocation-history) for configuration and durability. A journal does not replace [Chat History](/docs/agents/chat-history-sessions).
+A journal records each run. It is off unless set or supplied by the Console. `invocations: 'database'` keeps runs in the application's Database, `'memory'` keeps them in the process, and `false` turns it off for one Agent. See [Invocation storage](/docs/agents/invocation-storage#store-invocation-history). A journal does not replace [Chat History](/docs/agents/chat-history-sessions).
 
 ### Use one journal for every Agent
 
-Set `agent.invocations` in `vitehub()` to share a journal across Agents that do not select their own. Read the [app-wide journal setup and host limits](/docs/agents/invocation-storage#use-one-journal-for-every-agent).
+`agent.invocations` in `vitehub()` shares one journal across Agents that select none. See [app-wide journal setup and host limits](/docs/agents/invocation-storage#use-one-journal-for-every-agent).
 
 ### Use a custom store
 
-Pass a store to `defineAgentInvocations()` for a separate SQLite or libSQL journal or an application adapter. See [custom stores](/docs/agents/invocation-storage#use-a-custom-store) and [retention limits](/docs/agents/invocation-storage#set-retention-limits).
+Pass a store to `defineAgentInvocations()` for a separate SQLite or libSQL journal or your own adapter. See [custom stores](/docs/agents/invocation-storage#use-a-custom-store) and [retention limits](/docs/agents/invocation-storage#set-retention-limits).
 
 ### Choose how storage failures affect a run
 
-The default `best-effort` journal lets work start when storage cannot confirm startup. Use `strict` when the journal claim must prevent duplicate runs. Channel replay always uses strict claims. Read [enforcement and timeouts](/docs/agents/invocation-storage#choose-how-storage-failures-affect-a-run) before choosing a policy.
+`best-effort` (default) starts work even when storage cannot confirm the start. Use `strict` when the journal claim must prevent duplicate runs. Channel replay always uses strict claims. Read [enforcement and timeouts](/docs/agents/invocation-storage#choose-how-storage-failures-affect-a-run) first.
 
 ### Store invocations in a ViteHub Database
 
-Use `createDatabaseAgentInvocationStore()` to select a named Database and retention options. The [Database adapter](/docs/agents/invocation-storage#store-invocations-in-a-vitehub-database) supports local SQLite, hosted libSQL, and native D1.
+`createDatabaseAgentInvocationStore()` selects a named Database and retention options. The [Database adapter](/docs/agents/invocation-storage#store-invocations-in-a-vitehub-database) supports local SQLite, hosted libSQL, and native D1.
 
 ### Redact stored evidence
 
-Journals keep metadata by default. Set `content: 'content'` to retain model content, and use synchronous `redact` and `redactError` callbacks to remove sensitive values before storage. See [redaction](/docs/agents/invocation-storage#redact-stored-evidence), [observation limits](/docs/agents/invocation-storage#bound-observation-storage), and [prompt reruns](/docs/agents/invocation-storage#rerun-a-recorded-prompt).
+Journals keep only metadata by default. `content: 'content'` keeps model content too. The synchronous `redact` and `redactError` callbacks remove sensitive values before storage. See [redaction](/docs/agents/invocation-storage#redact-stored-evidence), [observation limits](/docs/agents/invocation-storage#bound-observation-storage), and [prompt reruns](/docs/agents/invocation-storage#rerun-a-recorded-prompt).
 
 #### Compact a journal file
 
-Prune terminal records before compacting a local SQLite journal. Read [disk space and locking requirements](/docs/agents/invocation-storage#compact-a-journal-file) before running `vitehub agent invocations compact`.
+Prune finished records before you compact a local SQLite journal, and read [disk space and locking requirements](/docs/agents/invocation-storage#compact-a-journal-file) before you run `vitehub agent invocations compact`.
 
 ### Store invocations in Cloudflare D1
 
-Use `createD1AgentInvocationStore()` for a host-supplied D1 binding. Read the [D1 schema, retention, and row limits](/docs/agents/invocation-storage#store-invocations-in-cloudflare-d1).
+Use `createD1AgentInvocationStore()` with a host D1 binding. See [D1 schema, retention, and row limits](/docs/agents/invocation-storage#store-invocations-in-cloudflare-d1).
 
 ## Append delivery evidence
 
-`invocations.appendObservation()` records external delivery evidence with an idempotent observation ID. It does not change run status. Read the [append contract](/docs/agents/invocation-storage#append-delivery-evidence) for capacity limits and retry behavior.
+`invocations.appendObservation()` records proof of an external delivery, such as a delivered report. Its idempotent observation ID stops retries from adding a second record. It does not change the run status. See the [append contract](/docs/agents/invocation-storage#append-delivery-evidence) for capacity limits and retries.
 
 ## Cancel an invocation
 
-Call `invocations.cancel(id)` to request cancellation. A `requested` outcome confirms the request, not that execution stopped. Read the final journal status to confirm completion.
+`invocations.cancel(id)` asks ViteHub to stop a run. A `requested` outcome confirms only the request; read the final journal status to confirm the stop.
 
-Model and provider Drivers receive an abort signal. A custom `run` Driver must stop its own I/O; ViteHub cannot stop that callback and reports `notEnforcedBy: 'run'` after dispatch. See [cancellation outcomes and durable requests](/docs/agents/invocation-storage#cancel-an-invocation) for cross-process behavior and failure handling.
+Model and provider Drivers get an abort signal. A custom `run` Driver must stop its own I/O, because ViteHub cannot stop that callback; it reports `notEnforcedBy: 'run'` after dispatch. See [cancellation outcomes and durable requests](/docs/agents/invocation-storage#cancel-an-invocation) for behavior across processes and for failure handling.
 
 ## Inspect invocations in the console
 
-Enable the [ViteHub Console](/docs/development/console) to browse retained sessions and inspect invocation events at `/_vitehub`. The Console is opt-in. Its page, RPC endpoint, plugin, and assets do not exist when `console` is omitted or set to `false`.
-
-The Console guide covers Vite and Nuxt setup, fallback storage, production limits, usage records, and route authorization. A journal from `defineAgent({ invocations })` or `agent.invocations` remains authoritative when the Console is enabled.
+The [ViteHub Console](/docs/development/console) at `/_vitehub` shows stored sessions and Invocation events. It is off by default: without `console`, or with `false`, its page, RPC endpoint, plugin, and assets do not exist. A journal from `defineAgent({ invocations })` or `agent.invocations` stays the source of truth. The Console guide covers setup, fallback storage, production limits, usage records, and route authorization.
 
 ## Control child work
 
-Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after starting it. A model-facing application Capability tool can use that controller when it needs child control, or `runAgent()` when it handles the configured runtime's return value.
+Use [`startAgentInvocation()`](/docs/agents/controlled-child-invocations) when trusted parent code must inspect or cancel a child after it starts. A model-facing tool in your own Capability can use that controller for child control, or `runAgent()` when it handles the configured runtime's return value.
 
 ## Scheduled results and process recovery
 
-For a scheduled invocation, pass the schedule context and request a drained result: `runAgent(agent, runtimeContext, input, { schedule, output: 'drained' })`. This adds the schedule metadata and consumes streamed driver output before returning. The final response, completion hooks, and capacity release finish together. Configure `driver.output.schema` for a validated result that the scheduler can use directly. A thrown stream or schema error remains a failed invocation; applications do not need to reconstruct results from telemetry.
+### Get a final result for a Schedule
 
-Trusted code can install tools for one inline invocation with the options argument: `runAgent(agent, runtimeContext, input, { tools: { send_message: toolDefinition } })`. For a standalone scheduled call, `runAgent(agent, { prompt }, { schedule, tools: { send_message: toolDefinition }, output: 'drained' })` returns `[error, text]` after the stream finishes. These tools join the agent's tool set for that invocation and are never serialized into `input`. A name collision with an existing tool fails setup. Callable tools select inline execution when the agent only has a host-discovered Workflow default; an explicit `workflow(...)` binding rejects them before starting. Workflow runs continue to return a Workflow Run for calls with a Runtime Context, so `output: 'drained'` only drains inline output.
+`runAgent(agent, runtimeContext, input, { schedule, output: 'drained' })` adds schedule metadata and reads all Driver output before it returns, so the final response, completion hooks, and capacity release finish together. `driver.output.schema` gives the scheduler a validated result, with no rebuilding from telemetry. A thrown stream or schema error still fails the Invocation.
 
-A standalone call inside a running host gets the runtime capabilities that the generated Agent routes give Agents: Connections, KV, Blob, Database, Console, and Schedules, as configured. A Schedule handler in `server/schedules/` does not need to import the Connections registry. To replace one capability for one run, pass it in `runtimeContext`: `runAgent(agent, { prompt }, { schedule, runtimeContext: { capabilities: { connections } } })`. Keys in `runtimeContext.capabilities` override the host values; the other host values stay. The generated Agent route module registers the host capabilities when it loads. A Nitro server imports that module at startup on Node, Cloudflare, and Vercel. The generated Deno server and Netlify function are that module. In each case the capabilities are ready before a Schedule runs. Code that runs without the host server, such as a unit test or a plain Node script, gets only the capabilities that it passes.
+### Add tools for one run
 
-To give one invocation more Agent Capabilities, pass them in `capabilities`: `runAgent(agent, { prompt }, { schedule, output: 'drained', capabilities: [delivery] })`. They join the run after the agent's own Capabilities. The Agent Definition does not change, and a later run without the option does not get them. Use this when a background job runs one registered agent with job-specific tools, such as a delivery tool, so that you do not define one agent for each job. A Capability id that the agent already uses fails setup. These Capabilities cannot add triggers, Workspace Sources, or chat access, because those are fixed when the agent is defined. Like invocation tools, they select inline execution, and an explicit `workflow(...)` binding rejects them before starting.
+Trusted code can add tools to one inline Invocation: `runAgent(agent, runtimeContext, input, { tools: { send_message: toolDefinition } })`. A standalone scheduled call, `runAgent(agent, { prompt }, { schedule, tools: { send_message: toolDefinition }, output: 'drained' })`, returns `[error, text]` after the stream finishes.
 
-`capabilities` and `runtimeContext.capabilities` are different options. `capabilities` adds Agent Capabilities, which give the agent tools and behavior. `runtimeContext.capabilities` replaces host runtime values, such as Connections or KV, that Capabilities read.
+- The tools join the tool set for that Invocation only and are never serialized into `input`.
+- A name that matches an existing tool fails setup.
+- They make a run inline when the Agent has only a host-found Workflow default. An explicit `workflow(...)` binding rejects them before the run starts.
+- A call with a Runtime Context still returns a Workflow Run for Workflow runs, so `output: 'drained'` drains only inline output.
 
-Invocation tools accept JSON Schema, Valibot, and Zod schemas directly. Valibot schemas are converted to JSON Schema for model tool discovery while their Standard Schema validator still checks input before `execute`. Unsupported Valibot actions may be omitted from the model-facing schema; validation remains authoritative. Zod schemas use their Standard JSON Schema converter. Other Standard Schema implementations must provide `~standard.jsonSchema.input` for Provider Agent tools.
+Tools accept JSON Schema, Valibot, and Zod schemas directly. Valibot converts to JSON Schema so the model can discover the tool, and its Standard Schema validator still checks input before `execute`. Unsupported Valibot actions may be omitted from the model-facing schema; validation remains authoritative. Zod uses its Standard JSON Schema converter. For Provider Agent tools, other Standard Schema implementations must provide `~standard.jsonSchema.input`.
 
-For journal recovery after a process restart, see [Recover interrupted Invocations](/docs/agents/invocation-storage#recover-interrupted-invocations). Recovery depends on store ownership and the host lifecycle.
+### Use host values in a standalone call
 
-`agentInvocationId(runId, agentName)` from `vite-hub/agent/server` resolves the canonical invocation ID before admission, allowing applications to include a live Console link in Channel activity.
+A standalone call inside a running host gets the runtime values that generated Agent routes give Agents: Connections, KV, Blob, Database, Console, and Schedules, as configured. So a Schedule handler in `server/schedules/` need not import the Connections registry. To replace one value for one run, pass it in `runtimeContext`: `runAgent(agent, { prompt }, { schedule, runtimeContext: { capabilities: { connections } } })`. Other host values stay.
 
-For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `@vite-hub/agent/server/github` exposes `list({ repository, revision })` and `read({ repository, revision }, path)`. It requires a full commit SHA, rejects unsafe paths, truncated trees, oversized files, and binary previews, and does not retain disposable checkouts.
+The values are ready before a Schedule runs: the generated Agent route module registers them when it loads, a Nitro server imports it at startup on Node, Cloudflare, and Vercel, and the generated Deno server and Netlify function are that module. Code without the host server, such as a unit test or plain Node script, gets only what it passes.
 
-An expired execution lease does not prove that its Driver stopped. Cancellation of an unowned running Invocation remains a durable request until the execution owner observes it.
+### Add Capabilities for one run
 
-Cancellation of an unowned pending Invocation remains a durable request. A later worker reads the request before starting its Driver and records cancellation. Pending journal status alone does not prove that an earlier Driver never started.
+Pass extra Agent Capabilities for one Invocation in `capabilities`: `runAgent(agent, { prompt }, { schedule, output: 'drained', capabilities: [delivery] })`. A background job can then run one registered Agent with job tools, such as delivery, instead of one Agent per job.
+
+- They join after the Agent's own Capabilities and do not change the Definition or later runs.
+- A Capability id that the Agent already uses fails setup.
+- They cannot add Triggers, Workspace Sources, or chat access, which are fixed at definition.
+- Like Invocation tools, they make the run inline, and an explicit `workflow(...)` binding rejects them.
+
+::note
+`capabilities` adds Agent Capabilities (tools and behavior). `runtimeContext.capabilities` replaces host runtime values, such as Connections or KV, that Capabilities read.
+::
+
+### Recover after a restart
+
+[Recover interrupted Invocations](/docs/agents/invocation-storage#recover-interrupted-invocations) explains recovery, which depends on who owns the store and the host lifecycle. When no process owns an Invocation:
+
+- An expired execution lease does not prove that its Driver stopped.
+- Cancelling a running one stores a durable request until the run owner sees it.
+- Cancelling a pending one stores a durable request that a later worker reads, and records, before it starts its Driver.
+- A pending journal status does not prove that an earlier Driver never started.
+
+### Link to a run before it starts
+
+`agentInvocationId(runId, agentName)` from `vite-hub/agent/server` gives the canonical Invocation ID before admission, for a live Console link in Channel activity.
+
+### Inspect a GitHub checkout
+
+For GitHub-backed sessions, `createGitHubWorkspaceInspector(host)` from `@vite-hub/agent/server/github` gives `list({ repository, revision })` and `read({ repository, revision }, path)`. It requires a full commit SHA, rejects unsafe paths, truncated trees, oversized files, and binary previews, and keeps no disposable checkouts.
 
 ## Next steps
 
-Add [Instructions](/docs/agents/instructions) and [Capabilities](/docs/agents/capabilities) to control what the Driver can do. Use [Test an Agent](/docs/agents/testing) to check the result before connecting more callers.
+Add [Instructions](/docs/agents/instructions) and [Capabilities](/docs/agents/capabilities) to control what the Driver can do, and [test the Agent](/docs/agents/testing) before you connect more callers.

@@ -1,6 +1,6 @@
 ---
 title: Chat
-description: Add the chat.message Agent Trigger, Chat History state, and chat finish behavior to an Agent without Channels.
+description: Let people chat with an Agent, keep Chat History, and send the final reply, without Channels.
 seo.title: Chat capability for Agents
 navigation.title: Chat
 navigation.order: 120
@@ -8,13 +8,13 @@ navigation.group: Capabilities
 icon: i-lucide-messages-square
 ---
 
-`chat()` adds chat behavior to an Agent Definition. It registers the `chat.message` Agent Trigger, requests optional Chat History state, and adds a chat finish extension and final reply delivery. It adds no model-facing tools unless you set `allowSilentReply`.
+`chat()` lets people chat with an Agent: each message starts an Invocation (one Agent run). It registers the `chat.message` Agent Trigger, asks for optional Chat History state, adds a chat finish extension (data read after the run), and sends the final reply. It adds no model tools unless you set `allowSilentReply`.
 
-The Chat Capability turns message-shaped input into Agent Invocations and exposes the trigger to the CLI Dev Loop. [Channels](/docs/agents/channels) own route admission and delivery for message platforms.
+For message platforms, [Channels](/docs/agents/channels) accept messages and deliver replies.
 
 ## Configure chat
 
-Attach `chat()` to call the Agent from a chat interface through the Agent Trigger API.
+Attach `chat()` to start the Agent from a chat interface:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -30,83 +30,87 @@ export default defineAgent({
 })
 ```
 
-Do not combine `chat()` with `defineAgent({ channels })`. That fails with a diagnostic. When an Agent has Channels, ViteHub adds the Chat Capability itself and reads the same settings from `defineAgent({ messages })` and from each Channel's `messages`. Use Channels to deliver messages from Slack, Telegram, Teams, web chat, or another adapter.
+> [!WARNING]
+> Using `chat()` with `defineAgent({ channels })` fails with a diagnostic.
+
+With Channels, ViteHub adds the Chat Capability itself and reads these settings from `defineAgent({ messages })` and each Channel's `messages`. Use Channels for Slack, Telegram, Teams, web chat, or another adapter.
 
 ## How chat works
 
-`chat()` registers the `chat.message` trigger with `ui-message[]` input and `ui-message-stream` output. The trigger builds the Agent Invocation input from the current message and the configured `triggerHistory` window.
+1. The `chat.message` trigger takes `ui-message[]` input and gives `ui-message-stream` output.
+2. It builds the run input from the current message and the `triggerHistory` window.
+3. During preparation, the Capability asks for optional Chat History state.
+4. After the run, it gives chat finish data and sends the final reply. In a durable Agent Workflow, it also sends the error fallback text when the run fails.
 
-During preparation, the Capability requests Chat History state as an optional requirement. After the Agent Invocation completes, it provides chat finish data and delivers the final reply. In a durable Agent Workflow, it also delivers the error fallback text when the invocation fails.
-
-`vitehub agent dev` uses the `chat.message` trigger by default when the Agent has one.
+`vitehub agent dev` uses the `chat.message` trigger by default.
 
 ## Requirements
 
-- Chat History state is optional in local development. Configure an Agent State Provider when the deployed stack needs durable sessions or concurrency coordination.
-- External Chat Platform Adapters are explicit application dependencies that you configure through Channels.
-- `chat()` does not accept `platforms`, `webhooks`, `meta`, or `metaRevision`. Configure them on Channels.
+- Chat History state is optional in local development. Configure an Agent State Provider when production needs durable sessions or concurrency coordination.
+- You add external chat platform adapters yourself, through Channels.
+- `chat()` does not accept `platforms`, `webhooks`, `meta`, or `metaRevision`. Set them on Channels.
 
 ## Security and approval
 
-`chat()` has no `policy` option. Its only model-facing tool is `skip_reply`, which it adds when `allowSilentReply` is set.
+`chat()` has no `policy` option. Its only tool is `skip_reply`, added by `allowSilentReply`.
 
-- Chat messages come from end users of the chat interface. Treat them as untrusted model input.
-- The final reply and the error fallback text go back to the chat interface.
-- When ViteHub adds Channel message metadata (Channel, sender, username, and send time) to the instructions, it labels the values as context data, not instructions.
-- For Channel traffic, use [`access({ chat })`](/docs/agents/capabilities/access) or `messages.filter` to reject messages before an Agent Invocation starts.
+- Chat messages are untrusted model input.
+- The final reply and error fallback text go back to the chat interface.
+- Channel metadata added to the instructions (Channel, sender, username, send time) is labeled as context data, not instructions.
+- To reject Channel messages before the run, use [`access({ chat })`](/docs/agents/capabilities/access) or `messages.filter`.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives message-shaped input and can stream chat output. |
-| Provider-backed | Receives the prepared invocation input and chat context. Provider chat behavior follows the provider adapter. |
-| Custom-run-backed | Receives the chat trigger input and context. `driver.run` owns the response shape. |
+| Model-backed | Gets message input and can stream chat output. |
+| Provider-backed | Gets prepared input and chat context. The provider adapter decides chat behavior. |
+| Custom-run-backed | Gets trigger input and context. `driver.run` owns the response shape. |
 
 ## Verify chat
 
-1. Run `vitehub agent dev --agent <name> --prompt "hello"` and confirm that the Agent responds through the `chat.message` trigger.
-2. Send a second message and verify the invocation origin, Chat Session behavior, and finish extension through traces or run events.
-3. For adapter-backed delivery, inspect the Channel webhook registrations for the expected route metadata.
+1. Run `vitehub agent dev --agent <name> --prompt "hello"` and check that the Agent answers through `chat.message`.
+2. Send a second message. Check the run origin, Chat Session, and finish extension in traces or run events.
+3. For adapter delivery, check the route metadata in the Channel webhook registrations.
 
 ## Options
 
-The delivery options below match the Agent-level `messages` settings that [Channels](/docs/agents/channels) describe.
+Delivery options match the Agent-level `messages` settings in [Channels](/docs/agents/channels).
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `hooks` | `AgentChatEventHooks` | none | Chat event hooks such as `onDirectMessage`. |
-| `lifecycleHooks` | `Record<string, unknown>` | none | Lifecycle-hook settings for integrations that read Chat Capability configuration. |
+| `lifecycleHooks` | `Record<string, unknown>` | none | Lifecycle-hook settings for integrations that read this configuration. |
 | `event` | `"directMessage"` | none | Chat event binding hint. |
-| `triggerHistory` | `"none" \| { source: "thread"; maxMessages: number; maxAgeMs?: number; maxImages?: number }` | current message only | Bounded Chat History Window sent into the `chat.message` Agent Trigger. `maxMessages` includes the current message. `maxImages` sends that many of the newest history images again. The default is `0`. |
-| `timeZone` | `string` | `"UTC"` | IANA time zone for the send time in each [message header](/docs/agents/chat-history-sessions#what-the-model-reads). An invalid value uses UTC. |
-| `threadHistory` | `{ maxMessages?: number; ttlMs?: number }` | inherited | Adapter thread backfill and cache. Stores messages but does not define model input. |
-| `messageHistory` | Chat SDK message-history configuration | inherited | Adapter message-history behavior passed to the Chat SDK. |
-| `logger` | Chat SDK logger | inherited | Logger passed to adapter-backed Chat SDK delivery. |
+| `triggerHistory` | `"none" \| { source: "thread"; maxMessages: number; maxAgeMs?: number; maxImages?: number }` | current message only | Chat History window sent to the trigger. `maxMessages` includes the current message. `maxImages` (default `0`) resends that many of the newest history images. |
+| `timeZone` | `string` | `"UTC"` | IANA time zone for the send time in each [message header](/docs/agents/chat-history-sessions#what-the-model-reads). Invalid values use UTC. |
+| `threadHistory` | `{ maxMessages?: number; ttlMs?: number }` | inherited | Adapter thread backfill and cache. Does not set model input. |
+| `messageHistory` | Chat SDK message-history configuration | inherited | Passed to the Chat SDK. |
+| `logger` | Chat SDK logger | inherited | Logger for adapter delivery. |
 | `sessions` | `boolean \| AgentChatSessionOptions` | inherited | Chat Session behavior: `strategy` (`"manual"`, `"idle-timeout"`, or `"hybrid"`), `idleTimeoutMs`, and `metadataKey`. |
 | `state` | `AgentChatStateResolver` | runtime state | Chat State adapter override. |
 | `transcripts` | Chat SDK `TranscriptsConfig` | none | Transcript persistence for adapter-backed delivery. |
-| `identity` | `IdentityResolver` | Channel-qualified user id when transcripts are enabled | Resolve the identity that partitions transcripts. |
-| `filter` | `(context) => boolean` | none | Return `false` to drop a message before an Agent Invocation starts. The context has `message`, `deliveryKind`, and `thread.post`. |
+| `identity` | `IdentityResolver` | Channel-qualified user id when transcripts are enabled | Identity that partitions transcripts. |
+| `filter` | `(context) => boolean` | none | Return `false` to drop a message before the run. Context has `message`, `deliveryKind`, and `thread.post`. |
 | `stream` | `boolean` | inherited | Stream chat trigger output. |
 | `streamingUpdateIntervalMs` | `number` | inherited | Minimum interval between streamed Channel message updates. |
-| `commentary` | `"hidden" \| "message"` | `"hidden"` | Publish explicit Driver commentary phases as progress messages. Cannot be combined with `loading` or manual delivery. |
-| `concurrency` | `"drop" \| "parallel" \| "queue" \| "reject" \| "serial" \| "steer" \| string` | inherited | Overlapping message behavior. `serial` runs each retained message as a separate awaited Agent Invocation in queue order. `queue` coalesces retained messages into one invocation. `steer` sends overlapping input to the active Agent Invocation when its Driver supports live steering. Queue retention and failure guarantees come from the configured Chat State runtime. |
-| `debounceMs` | `number` | none | Only with `concurrency: "steer"`. Wait this many milliseconds after the first message, then start one Agent Invocation with all messages received in that window. Without it, each message starts its own handling at once. With durable Workflow delivery, later messages still go to the active Workflow. An inline Agent Invocation keeps the Chat SDK lock until it finishes, so messages that arrive during it start the next Invocation instead of steering. |
-| `steerFromParticipants` | `boolean` | `false` | Only with inline `concurrency: "steer"`. A message from another human in the same thread steers the active Agent Invocation instead of starting its own. The Invocation keeps the first invoker. See [Steer with other participants](/docs/agents/channels#steer-with-other-participants). |
+| `commentary` | `"hidden" \| "message"` | `"hidden"` | Post Driver commentary phases as progress messages. Not with `loading` or manual delivery. |
+| `concurrency` | `"drop" \| "parallel" \| "queue" \| "reject" \| "serial" \| "steer" \| string` | inherited | Overlapping messages. `serial` runs each kept message as its own run, in order. `queue` merges kept messages into one run. `steer` sends new input to the active run if its Driver supports live steering. Queue retention and failure guarantees come from the Chat State runtime. |
+| `debounceMs` | `number` | none | Only with `concurrency: "steer"`. Wait this long after the first message, then start one run with all messages from that window. Without it, each message is handled at once. With durable Workflow delivery, later messages go to the active Workflow. An inline run holds the Chat SDK lock until it ends, so messages during it start the next run instead of steering. |
+| `steerFromParticipants` | `boolean` | `false` | Only with inline `concurrency: "steer"`. Another human's message in the thread steers the active run, which keeps the first invoker. See [Steer with other participants](/docs/agents/channels#steer-with-other-participants). |
 | `lockScope` | `"agent" \| "channel" \| "thread" \| string` | inherited | Scope for message locks. |
-| `dedupeTtlMs` | `number` | inherited | Time-to-live for Chat SDK duplicate-message keys. |
-| `userName` | `string` | `"vitehub"` | Agent username for adapter-backed Chat SDK delivery. |
-| `fallbackStreamingPlaceholderText` | `string \| string[] \| null \| function` | inherited | Placeholder text while streaming starts. An array picks one entry per Agent Invocation. An empty array skips the placeholder. |
-| `loading` | `{ text: string \| string[] \| null \| function; updates?: "commentary"; intervalMs?: number }` | none | Post a loading message and replace it with the final text when the Agent finishes. Cannot be combined with `stream` or `commentary`. `intervalMs` must be a positive number. |
-| `delivery` | `"automatic" \| "manual"` | `"automatic"` | `"manual"` posts no final text. Finish hooks own all replies with `event.reply()`. Cannot be combined with `stream` or `commentary`. |
-| `final` | `{ delivery: "new-message" }` | inherited | Post the final reply as a new message before removing the loading message. |
-| `allowSilentReply` | `boolean` | `false` | Add a `skip_reply` tool. When the Agent calls it, the Invocation finishes without the final reply and the loading message is removed. The trace records a skipped `chat.final-reply` delivery effect with the reason. Requires `loading` without `delivery: "manual"`. |
-| `timeout` | `number` | none | Positive time limit in milliseconds for inline execution and the durable handoff's typing indicator. |
-| `wrapUp` | `false \| { beforeMs?: number; prompt?: string }` | on for a `timeout` of 5 minutes or more | `beforeMs` (default 2 minutes) before `timeout` cancels an inline Invocation, steer it to send its final reply with what it found. Needs a Driver that accepts steering mid-turn, such as the Provider Drivers; otherwise only the timeout applies. `false` turns it off. |
-| `durable` | `boolean` | inherited | Carry the reply across a durable Workflow boundary. Requires `loading` or `delivery: "manual"`. Allows only `concurrency: "parallel"` or `"steer"`. |
-| `errorFallbackText` | `string \| null \| function` | inherited | Message sent when chat handling fails. A function receives `error`, `publicError`, `invocation`, and `defaultText`, the text ViteHub sends when this option is not set. `invocation` is `{ id, consoleUrl? }` when the error belongs to a run. |
-| `consoleLink` | `boolean` | `false` | For internal users, link the Invocation in the Console. Each error reply gets `Details: <Console URL>` at the end, also after custom `errorFallbackText`. An inline `loading` message gets `[Details](<Console URL>)` at the end, and the link stays when `updates: "commentary"` replaces the text. ViteHub adds no link when the run is unknown or when no [public URL](/docs/development/integrations-and-output#public-url) is set, and no error link when the reply already contains the URL. Keep it off for external users, because the link shows internal details. Durable Workflow error replies and loading messages do not have the link yet. |
+| `dedupeTtlMs` | `number` | inherited | TTL for duplicate-message keys. |
+| `userName` | `string` | `"vitehub"` | Agent username for adapter delivery. |
+| `fallbackStreamingPlaceholderText` | `string \| string[] \| null \| function` | inherited | Placeholder while streaming starts. An array picks one entry per run; an empty array skips it. |
+| `loading` | `{ text: string \| string[] \| null \| function; updates?: "commentary"; intervalMs?: number }` | none | Post a loading message, replaced by the final text. Not with `stream` or `commentary`. `intervalMs` must be positive. |
+| `delivery` | `"automatic" \| "manual"` | `"automatic"` | `"manual"` posts no final text; finish hooks reply with `event.reply()`. Not with `stream` or `commentary`. |
+| `final` | `{ delivery: "new-message" }` | inherited | Post the final reply as a new message, then remove the loading message. |
+| `allowSilentReply` | `boolean` | `false` | Add a `skip_reply` tool. Calling it ends the run with no final reply and removes the loading message. The trace records a skipped `chat.final-reply` effect with the reason. Requires `loading` without `delivery: "manual"`. |
+| `timeout` | `number` | none | Positive limit in milliseconds for inline runs and the durable handoff's typing indicator. |
+| `wrapUp` | `false \| { beforeMs?: number; prompt?: string }` | on for a `timeout` of 5 minutes or more | `beforeMs` (default 2 minutes) before `timeout` cancels an inline run, steer it to reply with what it found. Needs a Driver that accepts mid-turn steering, such as Provider Drivers; otherwise only the timeout applies. `false` turns it off. |
+| `durable` | `boolean` | inherited | Carry the reply across a durable Workflow boundary. Requires `loading` or `delivery: "manual"`, and `concurrency: "parallel"` or `"steer"`. |
+| `errorFallbackText` | `string \| null \| function` | inherited | Message sent when chat handling fails. A function gets `error`, `publicError`, `invocation` (`{ id, consoleUrl? }` when the error belongs to a run), and `defaultText`, the text sent when this is unset. |
+| `consoleLink` | `boolean` | `false` | For internal users, link the run in the Console. Error replies end with `Details: <Console URL>`, also after custom `errorFallbackText`. An inline `loading` message ends with `[Details](<Console URL>)`, kept when `updates: "commentary"` replaces the text. No link when the run is unknown or no [public URL](/docs/development/integrations-and-output#public-url) is set, and no error link when the reply has the URL. Keep it off for external users: the link shows internal details. Durable Workflow error replies and loading messages have no link yet. |
 
 ## Related pages
 

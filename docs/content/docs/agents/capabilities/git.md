@@ -1,15 +1,13 @@
 ---
 title: Git
-description: Give an Agent bounded Git source-history access inside a Workspace Session.
+description: Let an Agent read Git history, and optionally fetch and switch branches, inside a Workspace Session.
 navigation.title: Git
 navigation.order: 165
 navigation.group: Capabilities
 icon: i-lucide-git-branch
 ---
 
-`git()` adds one model-facing `shell` tool that runs controlled Git commands in a [Workspace](/docs/workspace) Session. Read mode allows source-history inspection. Write mode also allows local `fetch`, `checkout`, and `switch`. Use it for review, source-history inspection, and local branch selection, not to publish repository history.
-
-The [Workspace server API](/docs/workspace/server-api) covers application code. This page covers the Agent tool.
+`git()` gives the Agent one `shell` tool for a limited set of Git commands in a [Workspace](/docs/workspace) Session, a working copy of your files for one run. Read mode reads history. Write mode adds local `fetch`, `checkout`, and `switch`. Use it to review code, read history, and select a local branch. It cannot publish history. App code uses the [Workspace server API](/docs/workspace/server-api).
 
 ## Configure Git access
 
@@ -26,7 +24,7 @@ export default defineAgent({
 })
 ```
 
-Require approval for write commands:
+Set `policy` to require approval for each write:
 
 ```ts [server/agents/reviewer.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -43,49 +41,54 @@ export default defineAgent({
 
 ## Agent-visible tool contract
 
-`shell` accepts this input:
-
 | Field | Type | Description |
 | --- | --- | --- |
-| `command` | `string` | One Git command, for example `git status --short`. A bare subcommand such as `status --short` is normalized to start with `git`. |
-| `cwd` | `string` | Optional Workspace-relative directory. Defaults to the pull request checkout when one exists, otherwise the Workspace root. |
+| `command` | `string` | One Git command, such as `git status --short`. A missing `git` prefix is added. |
+| `cwd` | `string` | Optional Workspace-relative directory. Defaults to the pull request checkout, else the Workspace root. |
 
 The result has `command`, `args`, `cwd`, `exitCode`, `stdout`, `stderr`, and `outputTruncated`.
 
 ## How Git access works
 
-`shell` accepts one `git` command without shell composition. It rejects `|`, `;`, `<`, `>`, `&`, newlines, and global Git flags such as `git -C`. Use `cwd` to select a directory.
+`shell` takes one `git` command, never a chain. It rejects `|`, `;`, `<`, `>`, `&`, newlines, and global flags such as `git -C`. Use `cwd` for the directory.
 
-Read mode allows `blame`, `cat-file`, `describe`, `diff`, `for-each-ref`, `grep`, `log`, `ls-files`, `merge-base`, `rev-list`, `rev-parse`, `shortlog`, `show`, `show-ref`, and `status`. It rejects options that write files or run external programs, such as `--output`, `-O`, `--ext-diff`, `--textconv`, `--no-index`, `--contents`, and `--open-files-in-pager`.
+Read mode allows `blame`, `cat-file`, `describe`, `diff`, `for-each-ref`, `grep`, `log`, `ls-files`, `merge-base`, `rev-list`, `rev-parse`, `shortlog`, `show`, `show-ref`, and `status`. It rejects options that write files or run programs, such as `--output`, `-O`, `--ext-diff`, `--textconv`, `--no-index`, `--contents`, and `--open-files-in-pager`.
 
-Write mode also allows `fetch`, `checkout`, and `switch`, only on a clean working tree:
+Write mode adds `fetch`, `checkout`, and `switch`, only on a clean working tree:
 
-- `fetch` accepts only remotes that `git remote` lists. It rejects remote URLs, refspecs that update local refs (`+` or `:`), and options such as `--force`, `--tags`, and `--upload-pack`.
+- `fetch` accepts only listed remotes. It rejects remote URLs, refspecs that update local refs (`+` or `:`), and options such as `--force`, `--tags`, and `--upload-pack`.
 - `checkout` rejects branch creation and force options such as `-b`, `-B`, `--orphan`, `-f`, and `--merge`.
 - `switch` rejects branch creation and force options such as `-c`, `-C`, `--create`, `--force`, and `--discard-changes`.
 
-ViteHub always blocks `commit`, `push`, `reset`, `rebase`, and `tag`. Arguments must stay inside the Workspace. Git runs with `GIT_TERMINAL_PROMPT=0` and no pager.
+`commit`, `push`, `reset`, `rebase`, and `tag` are always blocked. Arguments stay inside the Workspace. Git runs with `GIT_TERMINAL_PROMPT=0` and no pager.
 
-The Capability reuses its Workspace Sessions within one invocation and closes them when the invocation finishes. A successful write command commits the session changes to the Workspace, except in a pull request checkout.
+Sessions are reused during a run and closed at its end. After a successful write, session changes are saved to the Workspace, except in a pull request checkout.
 
 ### Pull request checkouts
 
-In a GitHub pull request Invocation, the first command prepares the pull request mount as a Git checkout of the exact head SHA. The checkout and `fetch` use the forge access of the Agent's github() Channel App. The token goes in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` and reaches only the pull request base and head repositories. In an Invocation without a pull request, Git commands get credentials for the repositories of the Agent's GitHub Workspace Sources. Without a github() Channel App, they run without credentials. See [GitHub Channel](/docs/agents/channels).
+When a GitHub pull request starts the run, the first command prepares its folder as a checkout of the exact head SHA:
+
+- Checkout and `fetch` use the forge access of the Agent's github() Channel App.
+- The token goes in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, scoped to the base and head repositories.
+- Without a pull request, commands get credentials for the repositories of the Agent's GitHub Workspace Sources (files ViteHub mounts in the Workspace).
+- Without a github() Channel App, there are no credentials.
+
+See [GitHub Channel](/docs/agents/channels).
 
 ## Requirements
 
-`git()` requires a Workspace that can start a Workspace Session with `git` available. The Workspace requirement is write mode, even for `mode: 'read'`, because ViteHub may need session-local Git state.
+A Workspace that starts Sessions with `git` installed and allows write mode, even for `mode: 'read'`, since ViteHub can write Git state in the session.
 
 ## Security and approval
 
-The Agent can run only the commands and options listed above. The `policy` option applies only to write commands (`fetch`, `checkout`, `switch`). Read commands are always allowed.
+Only the commands and options above run. `policy` applies only to writes (`fetch`, `checkout`, `switch`); reads always run.
 
-- `"allow"` (default): run write commands without approval.
-- `"require-approval"`: stop the call with an approval request. The command runs after a user approves it.
-- `"deny"`: reject write commands.
-- A function receives `{ name, input }` and returns one of these values.
+- `"allow"` (default): no approval.
+- `"require-approval"`: runs after a user approves.
+- `"deny"`: rejects writes.
+- A function of `{ name, input }` returns one of these.
 
-A policy cannot enable a blocked command. `fetch` can use the Agent forge access in a pull request Invocation. No other credentials are added. `maxOutputLength` limits the stdout and stderr returned to the model; it does not limit the command.
+A policy cannot enable a blocked command. In a pull request run, `fetch` can use the Agent's forge access; no other credentials are added. `maxOutputLength` limits stdout and stderr for the model, not the command.
 
 ## Driver support
 
@@ -97,18 +100,18 @@ A policy cannot enable a blocked command. `fetch` can use the Agent forge access
 
 ## Verify Git access
 
-1. Run `vitehub agent info --agent <name> --json` and confirm that `tools` contains a `git` entry. Entries use the Capability id. The Agent receives the tool as `shell`.
-2. Run `git status --short` through `shell` and confirm a zero `exitCode`.
-3. Run `git push` through `shell` and confirm that it fails with `git push is not available through git()`.
+1. `vitehub agent info --agent <name> --json` has a `git` entry in `tools` (keyed by Capability id; the Agent sees `shell`).
+2. `git status --short` through `shell` returns `exitCode` zero.
+3. `git push` fails with `git push is not available through git()`.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `mode` | `"read" \| "write"` | `"read"` | Set to `"write"` to allow local `fetch`, `checkout`, and `switch`. |
-| `maxOutputLength` | `number` | `Infinity` | Maximum stdout and stderr characters returned per command. Longer output is truncated. |
-| `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for write commands. Read commands remain allowed. |
-| `timeout` | `number` | `60000` | Timeout in milliseconds for each Git command in the Workspace Session. |
+| `mode` | `"read" \| "write"` | `"read"` | `"write"` allows local `fetch`, `checkout`, and `switch`. |
+| `maxOutputLength` | `number` | `Infinity` | Maximum stdout and stderr characters per command. Longer output is truncated. |
+| `policy` | `AgentToolPolicyDecision \| function` | `"allow"` | Policy for writes. Reads stay allowed. |
+| `timeout` | `number` | `60000` | Milliseconds per Git command. |
 
 ## Related pages
 

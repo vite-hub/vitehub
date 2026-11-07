@@ -1,19 +1,17 @@
 ---
 title: Access
-description: Admit trusted chat traffic and narrow the Workspace before other Capabilities add tools.
+description: Decide who can chat with an Agent, and limit which Workspace files it can see.
 navigation.title: Access
 navigation.order: 110
 navigation.group: Capabilities
 icon: i-lucide-shield-check
 ---
 
-`access()` resolves access when an Agent Invocation starts. It can admit or reject chat messages from Channels, and it can narrow the [Workspace](/docs/workspace) to a Workspace Scope before other Capabilities use it. It adds no model-facing tools.
-
-The [Workspace server API](/docs/workspace/server-api) covers application code. This page covers how an Agent receives a scoped Workspace.
+When an Invocation (one Agent run) starts, `access()` accepts or rejects Channel chat messages and limits the [Workspace](/docs/workspace), the Agent's files, to a Workspace Scope. It adds no tools. App code uses the [Workspace server API](/docs/workspace/server-api).
 
 ## Configure access
 
-Place `access()` before Workspace and storage Capabilities. The selected scope narrows the Workspace before `workspaceShell()` exposes tools.
+Put `access()` before Workspace and storage Capabilities, so the Workspace is already limited when `workspaceShell()` adds its tools.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -36,7 +34,7 @@ export default defineAgent({
 })
 ```
 
-Select a scope from trusted invocation context:
+To choose the scope for each run, read trusted data about the caller:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -68,73 +66,74 @@ export default defineAgent({
 
 ## How access works
 
-Capabilities run their setup phases in array order, so later Capabilities see the scoped Workspace.
-
 ### Workspace Scope
 
-1. ViteHub calls `workspace.resolve`, or uses its static value. When it returns nothing valid, ViteHub uses `defaultScope`. When neither produces a scope, the invocation fails.
-2. A selection is a scope name or `{ scope, role, ...grants }`. Inline grants replace the named definition in `scopes`. The role defaults to `"viewer"`.
-3. ViteHub resolves path and Source grants to Workspace paths, then replaces the active Workspace with a scoped facade.
-4. ViteHub records the scope in invocation context as `access.workspaceScope` with `all`, `paths`, `role`, `scope`, and `sources`. This value is a copy for your code to read. ViteHub keeps the scope that `access()` resolved and enforces only that scope. A value that you or a Capability writes to the `access` key does not change the scope.
+1. ViteHub calls `workspace.resolve`, or uses its static value. If that gives no valid scope, it uses `defaultScope`. If neither does, the Invocation fails.
+2. A selection is a scope name or `{ scope, role, ...grants }`. Grants in the selection replace the named definition in `scopes`. The role defaults to `"viewer"`.
+3. ViteHub turns path and Source grants into Workspace paths and replaces the active Workspace with a scoped view.
+4. ViteHub writes a copy of the scope to the Invocation context as `access.workspaceScope`, with `all`, `paths`, `role`, `scope`, and `sources`.
 
-The scoped facade hides paths outside the scope. Reads, lists, searches, globs, Source materialization, and Workspace Sessions see only the granted paths. A hidden path behaves as not found.
+> [!NOTE]
+> ViteHub enforces only the scope that `access()` resolved. Writing to the `access` context key does not change it.
 
-Workspace Sources do not own authorization. Grant a Source by key from each scope that may use it, or grant its concrete Workspace path. Invocation-aware Source Resolution can then narrow the Source repository, root, or mount. Access recalculates a Source grant against that resolved shape before it exposes the scoped Workspace.
+Reads, lists, searches, globs, Source materialization, and Workspace Sessions see only granted paths. Other paths act as not found.
 
-For Provider Drivers, paths that other Capabilities materialize, such as Skill directories, stay visible in the scope.
+A Workspace Source (a mounted folder or repository) does not decide who can read it. Grant it by key in each scope that can use it, or grant its Workspace path. If Source Resolution then narrows the repository, root, or mount for this Invocation, Access checks the grant again against the result.
+
+For Provider Drivers, paths that other Capabilities add, such as Skill directories, stay visible.
 
 ### Chat admission
 
-For each message that an adapter-backed Channel receives, ViteHub calls `chat.resolve` before the Agent Invocation starts. The context includes the resolved `invoker`, the message `input`, the Channel `provider`, the `request`, and the `webhook` registration. When `resolve` returns `false`, ViteHub records the delivery as rejected and does not start the invocation. Any other return value admits the message.
+For each message that an adapter-backed Channel receives, ViteHub calls `chat.resolve` before the Invocation starts. The context has `invoker`, the message `input`, the Channel `provider`, the `request`, and the `webhook` registration. If `resolve` returns `false`, ViteHub records the delivery as rejected and starts no Invocation. Any other value accepts the message.
 
 ### Instructions
 
-Put model-facing guidance for each scope in Agent Driver Instructions or in an imported instruction file. Wrap guidance that depends on Access in an explicit `::capability{key="access"}` block. Scope definitions do not accept instructions.
+Write guidance for each scope in the Agent Driver Instructions or an imported instruction file. Wrap guidance that depends on Access in a `::capability{key="access"}` block. Scope definitions do not accept instructions.
 
 ## Requirements
 
 - `access()` requires `chat`, `workspace`, or both.
 - `access({ workspace })` requires an explicit Workspace on the Agent Definition.
-- Model-backed and custom-run-backed Agents require a read-only Workspace. Writable Workspace access is supported only for Provider Agent Drivers, and stays limited to the selected scope.
+- Model-backed and custom-run-backed Agents require a read-only Workspace. Only Provider Agent Drivers can write, and only inside the selected scope.
 - Source grants require a Workspace Definition.
-- `access({ chat })` must be in the static `capabilities` array, not in a capabilities resolver function.
+- `access({ chat })` must be in the static `capabilities` array, not a resolver function.
 
 ## Security and approval
 
-`access()` adds no tools and has no `policy` option. It narrows what later Capabilities and Drivers can reach.
+`access()` has no `policy` option.
 
-- Resolve scopes and chat admission from trusted Agent Invoker or platform identity metadata. Do not treat model text as access authority.
-- `all: true` grants the full Workspace and requires `role: 'admin'` in the selection.
+- Choose scopes and accept chats from trusted Agent Invoker or platform identity data. Never let model text decide access.
+- `all: true` grants the full Workspace and requires `role: 'admin'`.
 - Scope paths must stay inside the Workspace. Absolute paths and `..` segments fail.
-- A root-mounted Source grant fails. Grant explicit paths instead.
-- `chat.resolve` returns `false` to reject. Returning `undefined` admits the message, so return `false` explicitly for every rejected case.
+- A root-mounted Source grant fails. Grant explicit paths.
+- Only `false` from `chat.resolve` rejects; `undefined` accepts. Return `false` for every rejected case.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
-| Model-backed | Receives the read-only scoped Workspace and any explicitly authored Agent instructions. |
-| Provider-backed | Receives the scoped Workspace, which can be writable. Model-facing instructions require provider support. |
-| Custom-run-backed | Receives the read-only scoped Workspace and the invocation context. `driver.run` decides how to use them. |
+| Model-backed | Read-only scoped Workspace and your Agent instructions. |
+| Provider-backed | Scoped Workspace, which can be writable. Instructions need provider support. |
+| Custom-run-backed | Read-only scoped Workspace and Invocation context, used as `driver.run` decides. |
 
 ## Verify access
 
-1. Run an Agent Invocation with `access()` and inspect its traces or run events for the `access` Capability.
-2. Confirm that `access.workspaceScope` appears in invocation context and that Workspace tools cannot read outside the selected paths.
-3. Trigger scope failures during development. Confirm that a missing scope, a root-mounted Source grant, a missing Workspace, or a path escape fails before model execution.
-4. Send a Channel message that `chat.resolve` rejects and confirm that no Agent Invocation starts.
+1. Find the `access` Capability in the run's traces or run events.
+2. Check that `access.workspaceScope` is in the Invocation context and that Workspace tools cannot read outside the selected paths.
+3. In development, check that each of these fails before the model runs: a missing scope, a root-mounted Source grant, a missing Workspace, and a path outside the Workspace.
+4. Send a Channel message that `chat.resolve` rejects, and check that no Invocation starts.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `chat.resolve` | `(context) => boolean \| void` | none | Admit or reject a Channel message before the Agent Invocation starts. Return `false` to reject. |
-| `workspace.defaultScope` | `string` | none | Fallback scope name when `resolve` does not select one. |
-| `workspace.resolve` | `string \| selection \| (context) => selection \| undefined` | none | Select a scope from trusted invocation context. |
+| `chat.resolve` | `(context) => boolean \| void` | none | Accept or reject a Channel message before the Invocation starts. Return `false` to reject. |
+| `workspace.defaultScope` | `string` | none | Scope name used when `resolve` selects none. |
+| `workspace.resolve` | `string \| selection \| (context) => selection \| undefined` | none | Select a scope from trusted Invocation context. |
 | `workspace.scopes` | `Record<string, scope>` | none | Named scope definitions. |
 | `selection.scope` | `string` | required | Scope name. |
-| `selection.role` | `AccessRoleName` | `"viewer"` | Role for the selected scope. Full-Workspace access requires `"admin"`. |
-| `scope.all` | `boolean` | `false` | Grant the full Workspace when the selection uses the `"admin"` role. |
+| `selection.role` | `AccessRoleName` | `"viewer"` | Role for the scope. Full-Workspace access requires `"admin"`. |
+| `scope.all` | `boolean` | `false` | Grant the full Workspace when the selection has the `"admin"` role. |
 | `scope.path` / `scope.paths` | `string \| string[]` | none | Grant Workspace paths. |
 | `scope.source` / `scope.sources` | `string \| string[]` | none | Grant Workspace Sources by key. |
 | `scope.grants` | `AccessWorkspaceScopeGrant[]` | none | Combine path and Source grants. |

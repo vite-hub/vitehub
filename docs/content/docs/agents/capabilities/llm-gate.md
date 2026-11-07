@@ -1,19 +1,17 @@
 ---
 title: LLM gate
-description: Allow or reject an Agent Invocation with a model decision before the Agent Driver runs.
+description: Let a model allow or reject a request before your Agent runs.
 navigation.title: LLM gate
 navigation.order: 280
 navigation.group: Capabilities
 icon: i-lucide-shield-alert
 ---
 
-`llmGate()` classifies the request into one allow or reject category before the Agent Driver runs.
-It adds no model-facing tool. When the category is a reject category, it stops the Agent Invocation with code `LLM_GATE_REJECTED`.
-The decision uses one AI SDK model call, or one TypeSafe Jev request for an [ask Driver](/docs/agents/agent-drivers#use-an-ask-driver) Agent. No Server Primitive is involved.
+`llmGate()` stops off-topic requests before the Agent Driver runs. A model puts the request in one allow or reject category. A reject stops the Invocation (one Agent run) with `LLM_GATE_REJECTED`. It adds no model tool and uses no Server Primitive. The decision is one AI SDK model call, or one TypeSafe Jev request for an [ask Driver](/docs/agents/agent-drivers#use-an-ask-driver) Agent.
 
 ## Configure the gate
 
-Define allow and reject categories with stable keys and short descriptions.
+Give each category a stable key and a short description.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -34,7 +32,7 @@ export default defineAgent({
 })
 ```
 
-Set `message` to change the error message that server code receives on rejection:
+`message` sets the error message server code gets on a reject:
 
 ```ts
 llmGate({
@@ -46,75 +44,77 @@ llmGate({
 
 ## How the gate works
 
-`llmGate()` runs in the input phase, before the Agent Driver.
+In the input phase, before the Driver:
 
-1. It reads the latest user text: the string `prompt`, or else the text of the latest user message.
-2. It builds a classifier prompt from your `prompt` text, the categories (each description gets an `ALLOW:` or `REJECT:` prefix), the recent history when `history` is set, and the user text.
-3. It resolves the model and asks for a structured object with `allowed`, `category`, and optional `confidence` (0 to 1) and `reason`.
-4. It validates that `category` is a configured key. ViteHub sets `allowed` from the category group, not from the model output.
-5. It stores the decision as the Invocation context value `llm-gate` (or your `id`) and provides it as a finish extension under the same id.
-6. If the category is a reject category, it throws `ViteHubError` with code `LLM_GATE_REJECTED`. The Agent Driver does not run.
+1. It reads the string `prompt`, else the latest user message text.
+2. It builds a classifier prompt from your `prompt`, the categories with `ALLOW:` or `REJECT:` prefixes, recent history when `history` is set, and the user text.
+3. It asks the model for `allowed` and `category`, with optional `confidence` (0 to 1) and `reason`.
+4. It checks that `category` is one of your keys and sets `allowed` from its group, ignoring the model's `allowed`.
+5. It stores the decision as context value `llm-gate`, or your `id`, and as a finish extension under the same id. A second Capability writing that value fails early.
+6. A reject category throws `ViteHubError` with `LLM_GATE_REJECTED`. The Driver does not run.
 
-A second writer for the same context value fails early.
-`history: true` includes the last 10 messages. A number includes that many messages.
+`history: true` includes the last 10 messages; a number includes that many.
 
 ### Rejection errors
 
-The thrown `ViteHubError` has the `message` option text, or `[vitehub] <id> rejected the request.`, and `details` with `capabilityId`, `category`, `confidence`, and `reason` (up to 16,384 characters).
-Server code that calls `runAgent()` receives this error.
+`runAgent()` callers get a `ViteHubError`:
 
-HTTP and Invocation clients receive a public error instead. The HTTP status is `403`. The body is `{ code: 'LLM_GATE_REJECTED', error: 'Agent request was rejected.', details: { capability, category } }`. The `message` text and the model `reason` are not sent to the client.
+- Message: the `message` option, or `[vitehub] <id> rejected the request.`.
+- `details`: `capabilityId`, `category`, `confidence`, and `reason` (up to 16,384 characters).
+
+HTTP and Invocation clients get status `403` and `{ code: 'LLM_GATE_REJECTED', error: 'Agent request was rejected.', details: { capability, category } }`, without the `message` text or `reason`.
 
 ## Jev decisions
 
-An ask Driver Agent sends the gate to TypeSafe Jev when the Capability has no `model` option.
-It asks one `ask.choice()` question with every category. Jev accepts 2 to 255 choices.
-The state is the Invocation `data` when a caller sets it. Otherwise it is `{ request, history? }` from the latest user text and the `history` option.
+An ask Driver Agent without `model` uses TypeSafe Jev:
 
-The decision has `confidence` and `probabilities`, a map from category key to probability. Jev decisions have no `reason`.
-The request goes through the `gateway` option, an [AI gateway](/docs/agents/ai-gateways) such as `cloudflare()`, or through `typesafe()`, which reads `TYPESAFE_API_KEY`.
+- One `ask.choice()` question with every category. Jev accepts 2 to 255 choices.
+- The state is the run's `data` when set, else `{ request, history? }` from the user text and `history`.
+- The decision has `confidence` and `probabilities` (category key to probability), but no `reason`.
+- The request goes through the `gateway` option: an [AI gateway](/docs/agents/ai-gateways) such as `cloudflare()`, or `typesafe()`, which reads `TYPESAFE_API_KEY`.
 
 ## Requirements
 
 - At least one allow category and one reject category.
-- Category keys must be stable identifiers: a letter first, then letters, digits, `-`, `_`, or `.`.
-- A model. Model-backed Agents use the Agent model. Provider-backed and custom-run-backed Agents do not expose an Agent model to Capabilities, so set `model`. Without a model, the invocation fails with "requires a model option or an agent model".
-- For Jev decisions: the `advocaat` package and the key of the gateway (`TYPESAFE_API_KEY` for the default `typesafe()`). See [Use an ask Driver](/docs/agents/agent-drivers#use-an-ask-driver).
+- Stable category keys: a letter, then letters, digits, `-`, `_`, or `.`.
+- A model. Model-backed Agents use the Agent model. Provider-backed and custom-run-backed Agents give Capabilities none, so set `model`, or the run fails with "requires a model option or an agent model".
+- For Jev, the `advocaat` package and the gateway key (`TYPESAFE_API_KEY` for `typesafe()`). See [Use an ask Driver](/docs/agents/agent-drivers#use-an-ask-driver).
 
 ## Security and approval
 
-`llmGate()` adds no model-facing tool, so the Agent gets no new authority. It has no `policy` option.
-The end user controls the classified text. The classifier can be wrong or manipulated by that text, so do not use the gate as the only access control. Use authentication and Capability policies for authority.
+`llmGate()` adds no tool or authority, and has no `policy` option.
 
-The gate sends the latest user text, the category descriptions, and the optional history to the configured model provider or to TypeSafe Jev.
-It does not attach, remove, or grant Capabilities. Later behavior must read the recorded decision explicitly.
+> [!WARNING]
+> Users control the classified text, and the classifier can be wrong or tricked. Never use it as your only access control. Use authentication and Capability policies.
+
+It sends the user text, category descriptions, and optional history to the model provider or TypeSafe Jev. It does not attach, remove, or grant Capabilities. Later code that depends on the decision must read it.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Uses the Agent model or `model`. Runs before model execution. |
-| Provider-backed | Requires `model`. Runs before provider execution; rejected requests do not start the provider. |
-| Custom-run-backed | Requires `model`. Runs before `driver.run`; rejected requests do not reach custom code. |
-| Ask-backed | Without `model`, asks Jev one `ask.choice()` question with every category. With `model`, uses that model. Rejected requests do not reach the Driver. |
+| Provider-backed | Requires `model`. Rejected requests do not start the provider. |
+| Custom-run-backed | Requires `model`. Rejected requests do not reach `driver.run`. |
+| Ask-backed | Without `model`, one Jev `ask.choice()` with every category. With `model`, that model. Rejected requests do not reach the Driver. |
 
 ## Verify the gate
 
-1. Run one allowed invocation. Read the finish extension or context value for `llm-gate` (or your `id`) and confirm `allowed: true` and the expected `category`.
-2. Run one rejected invocation with `runAgent()`. Confirm the error has code `LLM_GATE_REJECTED` and that the Agent Driver did not run.
-3. Send the rejected request over HTTP. Confirm status `403` and the public body without the `message` text or `reason`.
+1. Allow a run and check the `llm-gate` (or `id`) finish extension or context value for `allowed: true` and the expected `category`.
+2. Reject one with `runAgent()`: code `LLM_GATE_REJECTED`, and the Driver did not run.
+3. Over HTTP: status `403` and the public body, without `message` or `reason`.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `allow` | `Record<string, string \| { label?: string; description?: string }>` | required | Allowed categories. The description falls back to `label`, then the key. |
+| `allow` | `Record<string, string \| { label?: string; description?: string }>` | required | Allowed categories. Description falls back to `label`, then the key. |
 | `reject` | `Record<string, string \| { label?: string; description?: string }>` | required | Rejected categories. Same shape as `allow`. |
-| `history` | `boolean \| number` | `false` | Include recent messages in the decision. `true` uses the last 10. |
+| `history` | `boolean \| number` | `false` | Include recent messages. `true` uses 10. |
 | `id` | `string` | `"llm-gate"` | Capability id, Invocation context key, and finish extension key. |
-| `message` | `string \| (decision) => string` | `"[vitehub] <id> rejected the request."` | Message of the thrown `ViteHubError`. Not sent to HTTP clients. |
+| `message` | `string \| (decision) => string` | `"[vitehub] <id> rejected the request."` | Thrown error message. Not sent to HTTP clients. |
 | `model` | `AgentModelResolver` | Agent model, or Jev for ask Driver Agents | Model used for the decision. |
-| `prompt` | `string` | none | Text placed before the generated classifier task. |
+| `prompt` | `string` | none | Text before the classifier task. |
 
 ## Related pages
 

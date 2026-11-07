@@ -1,6 +1,6 @@
 ---
 title: Custom capabilities
-description: Build one product-specific Agent ability with requirements, tools, policy, and metadata.
+description: Write your own Capability when your Agent needs an ability that the built-in ones do not give.
 navigation.title: Custom capabilities
 navigation.order: 73
 navigation.group: Advanced
@@ -8,15 +8,11 @@ icon: i-lucide-wrench
 navigation.kind: Guides
 ---
 
-Create a custom Capability when the official catalog does not describe the Agent ability your product needs.
-Start from the product ability, not from the raw tool or primitive call.
-
-A custom Capability names what the Agent can do and declares the requirements it needs. Inspection output lists the tools, triggers, context values, metadata, and policy decisions contributed by that Capability.
+Write your own Capability when the [official catalog](/docs/agents/capabilities/official) lacks the ability your product needs. Start from the ability, such as "search support tickets", not a raw tool or primitive call. Inspection shows the tools, triggers, context values, metadata, and policy decisions it adds.
 
 ## Minimum shape
 
-Define the Capability near the application code that owns the behavior.
-Use `defineCapability()` so ViteHub validates the id and composes the Capability through the normal lifecycle.
+Put it next to the app code that owns the behavior. `defineCapability()` checks the id and runs the normal lifecycle.
 
 ```ts [server/capabilities/tickets.ts]
 import { defineCapability } from 'vite-hub/agent'
@@ -43,23 +39,25 @@ export function tickets() {
 }
 ```
 
-Agent tools accept raw JSON Schema or a validator that implements both Standard Schema and Standard JSON Schema. Zod 4 implements both directly. ViteHub does not bundle a validator; use the one your app owns.
+`inputSchema` takes raw JSON Schema or a validator that implements Standard Schema and Standard JSON Schema, such as Zod 4. ViteHub bundles no validator; use your app's.
 
-For inline tools, `defineCapability()` infers the handler input from the validator output, including transforms and optional values. TypeScript rejects a handler that requires a different input. Raw JSON Schema has no TypeScript output type, so annotate its handler input. Tools returned by a resolver also check annotated handler inputs against their schemas. Existing AI SDK `tool()` definitions and provider-native tools keep their own contracts.
+- Inline tools infer the handler input from the validator output, including transforms and optional values. TypeScript rejects a mismatched handler.
+- Raw JSON Schema has no output type, so type its handler input yourself.
+- Resolver-returned tools also check typed handler inputs against their schemas.
+- AI SDK `tool()` definitions and provider-native tools keep their own types.
 
-To set a runtime config type, use `defineCapability<Config>()({...})`. The inner call infers the Capability and its tools. Replace `defineCapability<Config>({...})` calls with this form; the old form could not infer tool schemas.
+For a runtime config type, use `defineCapability<Config>()({...})`; the inner call infers the tools. Replace the old `defineCapability<Config>({...})` form, which could not infer tool schemas.
 
-`title` and `icon` are optional display metadata. The model does not receive them, and they do not change the configuration fingerprint.
+Optional `title` and `icon` are display only. The model never sees them, and they do not change the configuration fingerprint.
 
 | Field | Use |
 | --- | --- |
-| `title` | Short past-tense label for each call, for example `Searched tickets`. Traces record it as `tool.title` when the driver event has no title. The Console shows it instead of the tool name. |
-| `icon` | Iconify name, for example `i-lucide-ticket`. The Console includes the [Lucide](https://lucide.dev/icons/) set and shows the icon on each call and in the tool list. |
+| `title` | Short past-tense label, such as `Searched tickets`. Traces record it as `tool.title` when the driver event has none. The Console shows it instead of the tool name. |
+| `icon` | Iconify name, such as `i-lucide-ticket`. The Console has the [Lucide](https://lucide.dev/icons/) set and shows it on each call and in the tool list. |
 
-The tool catalog records `title` as `label` and keeps `label` and `icon` in metadata-only journals. Per-call `tool.title` attributes are trace content, so metadata-only journals omit them; the Console then reads the label from the catalog.
+The catalog saves `title` as `label`. Metadata-only journals keep `label` and `icon` but drop per-call `tool.title` (trace content), so the Console reads the catalog label.
 
-Attach the custom Capability like any official Capability.
-Keep instructions explicit in the Agent Driver so Capability config does not become a hidden prompt bag.
+Attach it like an official Capability. Keep instructions in the Agent Driver, not hidden in Capability config.
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -81,27 +79,19 @@ export default defineAgent({
 
 ## Extend an inherited Capability
 
-When an Agent [`extends`](/docs/agents/agent-presets#extend-an-agent) another, a child Capability with the same `id` replaces the parent's Capability. Add `extend(inherited)` to combine them instead. It receives the parent's Capability and returns the Capability that the child uses, with the same `id`. [`mcp()`](/docs/agents/capabilities/mcp#extend-the-parents-servers) uses this hook to merge servers by name.
+With [`extends`](/docs/agents/agent-presets#extend-an-agent), a child Capability with the same `id` replaces the parent's. To combine them, add `extend(inherited)`: it gets the parent's Capability and returns the child's, with the same `id`. [`mcp()`](/docs/agents/capabilities/mcp#extend-the-parents-servers) uses it to merge servers by name.
 
 ## Add requirements
 
-Requirements fail before the Capability exposes behavior.
-Use them when the Capability needs a configured primitive, a Workspace, a writable Workspace, or a specific Workspace path.
-
-Do not create missing storage, Workspace paths, or execution authority implicitly.
-If the product needs provisioning, keep that in the primitive or framework integration layer.
+A requirement fails before the Capability adds anything. Add one for a configured primitive, a Workspace, a writable Workspace, or a Workspace path. Never create missing storage, paths, or permissions silently; provisioning belongs in the primitive or framework integration.
 
 ## Add policy
 
-Tool policy defaults to `allow` when omitted.
-Use `require-approval` or `deny` when a model-facing action needs an additional runtime gate after the Capability has established its modes, scopes, allowlists, and input validation.
-
-Keep custom policy narrow and visible. A reviewer needs to understand the operations it permits by reading the Capability Definition.
+Policy defaults to `allow`. Use `require-approval` or `deny` when a tool needs a runtime check after modes, scopes, allowlists, and input validation. Keep policy small enough that a reviewer sees what it allows in the Capability Definition.
 
 ## Contribute Workspace inputs
 
-Use `workspace` to add Workspace Sources or rules for an invocation.
-The contribution is add-only and inspectable; it does not mutate the Agent's authored Workspace Definition.
+`workspace` adds Workspace Sources or rules for one Invocation (one Agent run). It only adds, is inspectable, and never changes your Workspace Definition.
 
 ```ts [server/capabilities/tickets.ts]
 import { defineCapability } from 'vite-hub/agent'
@@ -138,12 +128,11 @@ export function ticketContext() {
 }
 ```
 
-For provider-backed Agents, declare required files through `requires.workspace.paths` or contribute them through Workspace Sources. The Provider Workspace session materializes the selected scope, so the application does not need a provider-specific path list.
+For provider-backed Agents, declare files in `requires.workspace.paths` or add them as Sources. The Provider Workspace session materializes the selected scope, so no provider-specific path list is needed.
 
 ## Add a Capability CLI
 
-Use `cli` when the Capability owns commands that agents and developers can run instead of a generic shell command.
-The public API accepts a static command tree or an invocation resolver on the Capability Definition.
+`cli` gives the Capability its own commands, run instead of a generic shell command. Pass a static command tree or a per-run resolver.
 
 ```ts [server/capabilities/inventory-runtime.ts]
 import { defineCapability } from 'vite-hub/agent'
@@ -182,13 +171,9 @@ export const inventoryRuntime = defineCapability({
 })
 ```
 
-The `input` and `output.schema` values accept any Standard Schema-compatible validation library.
+`input` and `output.schema` accept any Standard Schema library. The command metadata goes into a generated tool named after the CLI. Keep `instructions.md` about policy, and mark guidance with `::capability{key="inventoryRuntime"}`.
 
-ViteHub exposes command metadata through the generated CLI-named tool. Keep `instructions.md` focused on policy. Use `::capability{key="inventoryRuntime"}` to mark guidance for that Capability.
-
-Return `undefined` from a resolver to hide the CLI for the current invocation. The Capability remains attached and inspectable.
-
-To omit the entire Capability, resolve the Agent Definition's `capabilities` list instead. This decides selection before the Capability contributes tools, CLI commands, requirements, hooks, or cleanup work.
+Return `undefined` from the resolver to hide the CLI for this run; the Capability stays attached and inspectable. To drop the whole Capability, use a `capabilities` callback, which decides before any tools, commands, requirements, hooks, or cleanup are added.
 
 ```ts [server/capabilities/inventory-runtime.ts]
 export const inventoryRuntime = defineCapability({
@@ -206,11 +191,9 @@ export const inventoryRuntime = defineCapability({
 })
 ```
 
-First-party adapters can generate the same CLI shape from their own metadata. For example, `openapi({ cli: { name: 'billing' }, ... })` creates one subcommand per allowed OpenAPI operation and preserves each operation summary or description in the tool contract.
-Use a resolver for invocation-specific availability, not to mutate command ownership after a run starts.
+Built-in adapters generate the same shape. `openapi({ cli: { name: 'billing' }, ... })` makes one subcommand per allowed operation and keeps each summary or description. Use a resolver for per-run availability, not to change command ownership mid-run.
 
-During development, run the Capability CLI through the Agent Dev Loop.
-Agents expose attached Capability CLI Contributions to compatible Agent Drivers and the Agent Dev Loop by default. Use `defineAgent({ cli: { capabilities: false } })` to attach the Capability without exposing its CLI.
+Attached Capability CLIs reach compatible Drivers and the Agent Dev Loop (`vitehub agent dev`) by default; run them there in development. `defineAgent({ cli: { capabilities: false } })` hides them.
 
 ```bash [Terminal]
 pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli inventory -- items list --json
@@ -220,22 +203,17 @@ pnpm vitehub agent dev --url http://localhost:3000 --agent support --cli invento
 
 | Agent Driver | Custom Capability behavior |
 | --- | --- |
-| Model-backed | Receives model-facing tools when the Capability contributes them. |
-| Provider-backed | Receives Agent tools through the private MCP bridge plus supported runtime effects. Provider Tool contributions are unsupported. |
-| Custom-run-backed | Receives prepared input and invocation context; `driver.run` decides which custom Capability outputs to consume. |
+| Model-backed | Gets the Capability's model tools. |
+| Provider-backed | Gets Agent tools through the private MCP bridge, plus supported runtime effects. No Provider Tool contributions. |
+| Custom-run-backed | Gets prepared input and context. `driver.run` picks which outputs to use. |
 
 ## Verify a custom Capability
 
-Run one Agent Invocation through `vitehub agent dev` and inspect its streamed tool events.
-Check that the custom Capability id appears once, its requirements pass, and its tools are exposed only when expected.
-
-Add an Agent Eval when the Capability changes product behavior.
-Use a focused fixture that proves the Capability exposes the intended ability and does not expose adjacent authority.
+Run the Agent with `vitehub agent dev` and check the streamed tool events: the id appears once, requirements pass, and tools appear only when expected. When product behavior changes, add an Agent Eval with a small fixture that proves the intended ability and no adjacent authority.
 
 ## Expose eval-visible metadata
 
-Use a `finish` provider to publish invocation metadata for finish hooks, channel delivery code, or eval assertions.
-The value is keyed by Capability id and is available through `observation.extensions.get(id)` in Agent Evals.
+A `finish` provider gives run data to finish hooks, Channel delivery code, or evals, keyed by Capability id. Agent Evals read it with `observation.extensions.get(id)`.
 
 ```ts [server/capabilities/tickets.ts]
 import { defineCapability } from 'vite-hub/agent'
@@ -276,7 +254,7 @@ export default defineEval({
 
 ## Contribute an inspection view
 
-The Console's **Capabilities** tab shows the selected Invocation's recorded capabilities. It supplies a default tools and configuration view. Add `inspection` when your Capability needs a different presentation, then publish data with `await context.inspection.set(state)` during its normal lifecycle.
+The Console's **Capabilities** tab shows each recorded Capability's tools and configuration. For a custom view, add `inspection` and send data with `await context.inspection.set(state)` during the lifecycle.
 
 ```ts [server/capabilities/tickets.ts]
 import { defineCapability } from 'vite-hub/agent'
@@ -303,9 +281,12 @@ export const tickets = defineCapability({
 })
 ```
 
-`inspection.set()` replaces this Capability's state for the current Invocation. Await it to record an update before the next lifecycle step. Keep state serializable and publish only data already produced by the Capability. The Console reads snapshots; opening a view does not run lifecycle hooks, connect to services, or execute tools. The last snapshot remains available after cleanup. Inspection presentation and state do not change the execution configuration fingerprint.
+- `inspection.set()` replaces the state for this run. Await it to record it before the next step.
+- Keep state serializable, and send only data the Capability already made.
+- The Console reads snapshots. Opening a view runs no hooks, services, or tools. The last snapshot stays after cleanup.
+- The view and state do not change the configuration fingerprint.
 
-The view uses a read-only subset of [JSON Render](https://github.com/vercel-labs/json-render). ViteHub owns the Vue components. Capability code does not import Vue or the Console.
+The view is a read-only part of [JSON Render](https://github.com/vercel-labs/json-render). ViteHub owns the Vue components; Capability code imports neither Vue nor the Console.
 
 | Component | Props | Purpose |
 | --- | --- | --- |
@@ -313,21 +294,21 @@ The view uses a read-only subset of [JSON Render](https://github.com/vercel-labs
 | `Section` | `title` | Group children under a heading. |
 | `Text` | `text` | Display plain text. |
 | `KeyValue` | `label`, `value` | Display a named value, including structured JSON. |
-| `Tools` | Optional `names`, `mcpServer` | Show recorded contracts for this Capability's tools. Filter by final tool names or MCP server provenance; omit both to show all of them. |
+| `Tools` | Optional `names`, `mcpServer` | This Capability's recorded tool contracts. Filter by final tool name or MCP server; omit both for all. |
 
-Use `{ $state: '/path' }` to read a state value. A container can repeat its children with `repeat: { statePath: '/items', key: 'id' }`; its descendants use `{ $item: '/field' }` to read the current item. `children` contains element IDs. The exported `AgentCapabilityInspectionView` type checks component names and props. The Console rejects unsupported components, actions, computed expressions, and cyclic element trees, then shows the recorded data and tools instead.
+`{ $state: '/path' }` reads state. A container repeats children with `repeat: { statePath: '/items', key: 'id' }`, and they read the item with `{ $item: '/field' }`. `children` holds element IDs. The `AgentCapabilityInspectionView` type checks names and props. The Console rejects unknown components, actions, computed expressions, and cyclic trees, and shows the recorded data and tools instead.
 
-Inspection state and view specs follow the Invocation journal's configuration retention policy. Use `configuration: 'content'` to retain them independently of prompts and model output. Credential-shaped state keys are redacted. Existing observation limits still apply; a truncated snapshot may not contain the complete view. A label remains available with metadata-only capture. Telemetry exporters retain custom inspection content only when their `instructions`, `inputs`, and `outputs` content options are all enabled, because custom state can contain any of these.
+State and view specs follow the journal's configuration retention; `configuration: 'content'` keeps them apart from prompts and output. Credential-shaped keys are redacted. Observation limits apply, so a truncated snapshot can miss part of the view. The label survives metadata-only capture. Telemetry exporters keep custom inspection content only with `instructions`, `inputs`, and `outputs` all on, since state can hold any of them.
 
-MCP and Title provide custom views. Other official Capabilities use the default view.
+MCP and Title have custom views; other official Capabilities use the default.
 
 ### Transform MCP tools
 
-`context.tools.transform()` changes the tools that the Driver gets in every Agent run, including Capability CLI tools. `vitehub agent dev --cli` runs a Capability CLI command directly and does not apply transforms.
+`context.tools.transform()` changes the Driver's tools in every run, including Capability CLI tools. `vitehub agent dev --cli` runs commands directly, without transforms.
 
-Each transform receives a copy of each tool definition that preserves its prototype, property flags, and accessor behavior. Accessors and executors use bound functions to retain their contributed instance as receiver, including when they use private fields. Their function identities can change. Shared definitions registered under different keys remain separate contributions. Rename local tools using the definitions supplied to the callback so inspection can retain their Capability ownership.
+The callback gets a copy of each definition with its prototype, property flags, and accessors. Accessors and executors are bound, so they keep their instance as `this`, private fields included, but their identity can change. A definition shared under several keys stays separate per key. Rename local tools from the supplied definitions so inspection keeps their owner.
 
-Tool transforms may remove MCP tools, replace them under the same key, or rename them. Replacements under an existing key inherit its MCP provenance. A rename must preserve `metadata.mcpServer` and `metadata.originalName`, including when it reconstructs the tool:
+A transform can remove, replace (same key, keeping its MCP provenance), or rename MCP tools. A rename must keep `metadata.mcpServer` and `metadata.originalName`, even when it rebuilds the tool:
 
 ```ts
 context.tools.transform(tools => ({
@@ -341,4 +322,7 @@ context.tools.transform(tools => ({
 }))
 ```
 
-A transform can remove MCP keys and move existing non-MCP tool objects to new keys. These tools keep their original Capability ownership in inspection, including after a same-key replacement in an earlier transform. New keys that contain reconstructed tools without provenance fail with `AGENT_R0923` when MCP keys are removed in the same transform. The runtime cannot infer which server a reconstructed tool came from. To add unrelated tools while removing MCP tools, contribute the new tools with `context.tools.add()` and remove the MCP entries in the transform.
+Moving existing non-MCP tools to new keys keeps their original owner in inspection, even after an earlier same-key replacement.
+
+> [!WARNING]
+> Removing MCP keys while adding rebuilt tools without provenance fails with `AGENT_R0923`, since the server cannot be inferred. Add unrelated tools with `context.tools.add()` and remove MCP entries in the transform.

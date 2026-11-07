@@ -17,11 +17,9 @@ Choose the provider and image, mounts, environment, commands, network, and resou
 Prove command execution, cancellation, timeout, cleanup, and provider output for the target host.
 ::
 
-A Sandbox prepares the process environment for a built-in provider Driver. It declares the working tree, private Home, environment, durable CLI state, and boot checks. The Codex or Claude Code process then starts inside the Sandbox.
+A Sandbox is where a built-in provider Driver runs the Codex or Claude Code CLI. It prepares the working tree (the code folder), a private Home, environment variables, CLI state kept between runs, and boot checks. Use one when the provider needs more than a temporary local folder, such as an exact pull request checkout on another host. Start with [Run your first Sandbox](/docs/agents/sandbox-tutorial).
 
-For a first working result, follow [Run your first Sandbox](/docs/agents/sandbox-tutorial).
-
-Use a Sandbox when the provider needs more than a temporary local directory. For example, use a Sandbox when it must work in an exact pull request checkout on another host. A Sandbox does not give model-backed Drivers Workspace tools. [Workspace context](/docs/agents/workspace-context) and Capabilities own that boundary. The provider can read and change the Sandbox working tree with its native file and command tools. Treat that tree as model-visible, and rely on the selected Sandbox runtime for isolation.
+A Sandbox gives model-backed Drivers no Workspace tools; [Workspace context](/docs/agents/workspace-context) and Capabilities control those. The provider changes the working tree with its own tools, so treat the tree as visible to the model. The runtime gives the isolation.
 
 ## Start on a trusted host
 
@@ -31,7 +29,7 @@ Install the Agent and Sandbox packages:
 pnpm add @vite-hub/agent @vite-hub/sandbox
 ```
 
-This Agent gives Codex a private Home and checks the required CLIs before the invocation starts:
+This Agent gives Codex a private Home and checks the required CLIs before each Invocation (one run of the Agent):
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from '@vite-hub/agent'
@@ -46,15 +44,15 @@ export default defineAgent({
 })
 ```
 
-For each invocation, ViteHub opens a new Sandbox session. The Sandbox creates a private Home, provisions the Node.js and package manager versions that the project pins, runs its requirements, and starts the provider only after boot succeeds. ViteHub closes the session when the invocation ends.
+Each Invocation opens a new Sandbox session. It creates a private Home, installs the Node.js and package manager versions that the project pins, runs requirement checks, and starts the provider only after boot succeeds. The session closes when the Invocation ends.
 
 :::warning
-`trusted-host` isolates Home and declared environment values. It does not isolate the filesystem, network, processes, or installed executables. Use it only when the Agent may act with the authority of the host user.
+`trusted-host` isolates only the Home folder and declared environment values, not the filesystem, network, processes, or installed executables. Use it only when the Agent may act with the host user's authority.
 :::
 
 ## Limit worker memory on Linux
 
-A trusted-host Sandbox can cap all session commands and their descendants in one cgroup v2 group:
+A trusted-host Sandbox can limit memory for all session commands and their children in one cgroup v2 group:
 
 ```ts
 sandbox: {
@@ -70,15 +68,19 @@ sandbox: {
 },
 ```
 
-The parent must be writable, must delegate the memory controller, and must have no resident processes. With systemd 254 or later, configure `Delegate=memory` and `DelegateSubgroup=controller` and allow writes to the delegated control groups. Each Sandbox creates a separate child group. The ViteHub controller remains outside the worker group. Configured limits fail closed if delegation is unavailable. Swap defaults to zero.
+`cgroupParent` must be writable, delegate the memory controller, and hold no processes. With systemd 254 or later, set `Delegate=memory` and `DelegateSubgroup=controller` and allow writes to delegated groups. Each Sandbox gets its own child group, with the ViteHub controller outside it. Without delegation, the limits fail closed: the Sandbox does not run. Swap defaults to zero.
 
-A worker OOM kills its command group. Command waits reject with `SANDBOX_R0158`, including the limit, peak memory and OOM kill count. Further commands in that session fail. Reduce the workload before retrying. Session close kills all remaining descendants and removes the cgroup. Inspect the configuration with `sandbox.plan.resources`.
+When a worker runs out of memory (OOM), the kernel kills its command group. Command waits reject with `SANDBOX_R0158`, with the limit, peak memory, and OOM kill count. Later commands in that session fail, so reduce the workload before you retry. On close, ViteHub kills remaining children and removes the cgroup. Inspect the configuration with `sandbox.plan.resources`.
 
-These limits cover session `exec` and `spawn`, including the provider's native tools. Checkout preparation, toolchain setup and requirement checks remain under the controller's service budget. The trusted launcher also prepares its environment under that budget, then joins the session cgroup before executing the command or any caller-controlled loader hooks. Keep a service limit as a second boundary. Trusted-host commands retain host user authority; resource limits do not provide a security sandbox.
+Limits cover session `exec` and `spawn`, including the provider's native tools. Checkout preparation, toolchain setup, requirement checks, and the trusted launcher's environment setup use the controller's service budget. The launcher joins the session cgroup before the command or any caller-controlled loader hooks run.
+
+::warning
+Keep a service limit as a second boundary. Trusted-host commands keep the host user's authority; resource limits are not a security sandbox.
+::
 
 ## Pin an exact checkout
 
-Sandbox callbacks receive the Agent invocation context. Resolve repository facts from trusted invocation data when every run must inspect an exact commit.
+When every run must inspect an exact commit, read repository facts from trusted Invocation data, which Sandbox callbacks receive:
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from '@vite-hub/agent'
@@ -116,11 +118,11 @@ export default defineAgent({
 })
 ```
 
-The Sandbox fetches `ref`, compares the fetched commit with the full `sha`, and starts in a detached Git repository. Use `cwd` when the caller already owns the authoritative directory. `cwd` and `checkout` are mutually exclusive.
+The Sandbox fetches `ref`, compares the commit with the full `sha`, and starts in a detached Git repository. When the caller owns the source-of-truth directory, use `cwd` instead; `cwd` and `checkout` do not combine.
 
 ## Provision Node.js and the package manager
 
-A Sandbox does not assume that the host or image has Node.js, a package manager, or Corepack. Set `toolchain: 'project'` and the Sandbox reads the pins from the checkout or `cwd`:
+A Sandbox does not need Node.js, a package manager, or Corepack on the host or image. With `toolchain: 'project'`, it reads pinned versions from the checkout or `cwd`:
 
 ```ts
 sandbox: {
@@ -130,15 +132,24 @@ sandbox: {
 }
 ```
 
-Node.js comes from the first match: `package.json` `devEngines.runtime`, `.node-version`, `.nvmrc`, `package.json` `volta.node`, `package.json` `engines.node`, then `toolchain.fallbackNode`. Ranges and aliases such as `lts/*` resolve to the highest matching release. The package manager comes from `package.json` `packageManager` or `devEngines.packageManager`; without one, the project uses the npm bundled with Node.js. Use `{ node: '22', packageManager: 'pnpm@10.2.0' }` to pin versions in the Agent, or `packageManager: false` to keep the bundled npm.
+The Node.js version comes from the first match:
 
-ViteHub downloads official archives, verifies the Node.js `SHASUMS256.txt` checksum and the npm registry `sha512` integrity, and caches each version. The provisioned `bin` directories come first on the Sandbox `PATH`, so a different `node` on the host never answers. Boot fails when the project pins no Node.js version and no `fallbackNode` is set. See the [`@vite-hub/sandbox` README](https://github.com/vite-hub/vitehub/tree/main/packages/sandbox#provision-the-project-toolchain) for the cache location of each runtime, mirrors, and limits.
+1. `package.json` `devEngines.runtime`
+2. `.node-version`
+3. `.nvmrc`
+4. `package.json` `volta.node`
+5. `package.json` `engines.node`
+6. `toolchain.fallbackNode`
 
-Provider CLIs that start through `#!/usr/bin/env node` also run on the provisioned Node.js.
+Ranges and aliases such as `lts/*` resolve to the highest matching release. The package manager comes from `package.json` `packageManager` or `devEngines.packageManager`, else the npm bundled with Node.js. Pin versions in the Agent with `{ node: '22', packageManager: 'pnpm@10.2.0' }`, or keep bundled npm with `packageManager: false`.
+
+ViteHub downloads official archives, verifies the Node.js `SHASUMS256.txt` checksum and npm registry `sha512` integrity, and caches each version. Installed `bin` directories go first on `PATH`, so no other host `node` runs, including for provider CLIs that start through `#!/usr/bin/env node`.
+
+Boot fails when the project pins no Node.js version and no `fallbackNode` is set. See the [`@vite-hub/sandbox` README](https://github.com/vite-hub/vitehub/tree/main/packages/sandbox#provision-the-project-toolchain) for the cache location of each runtime, mirrors, and limits.
 
 ## Add credentials and CLI state
 
-Keep secret values outside the repository. Resolve them into Sandbox `env`, Home files, or a first-use seed for writable state. The provider reads its credentials from the Sandbox Home, for example `.codex/auth.json`.
+Keep secrets out of the repository. Load them into Sandbox `env`, Home files, or a first-use seed for writable state. The provider reads credentials from the Sandbox Home, such as `.codex/auth.json`.
 
 ```ts [server/agents/review/agent.ts]
 import { codexDriver, defineAgent } from '@vite-hub/agent'
@@ -176,16 +187,16 @@ export default defineAgent({
 
 | Declaration | Use it for | Lifecycle |
 | --- | --- | --- |
-| `env` | Tokens and CLI controls | Resolves on every boot and reaches every Sandbox process. |
-| `home.files` | Immutable configuration | Writes private files on every boot. |
+| `env` | Tokens and CLI controls | Resolves each boot; reaches every Sandbox process. |
+| `home.files` | Immutable configuration | Private files written each boot. |
 | `home.state` | CLI-owned writable directories | Persists beneath `stateRoot` under an exclusive lease. |
-| `seed` | First-use state | Resolves only when the durable state directory is absent. |
-| `toolchain` | Project-pinned Node.js and package manager | Installs into a shared cache, or the Sandbox Home on remote runtimes, before requirement checks. |
-| `requires` | Executable and authentication checks | Runs after materialization and fails boot on error. |
+| `seed` | First-use state | Resolves only when the state directory is absent. |
+| `toolchain` | Project-pinned Node.js and package manager | Installs into a shared cache, or the Home on remote runtimes, before requirement checks. |
+| `requires` | Executable and authentication checks | Runs after materialization; fails boot on error. |
 
-Targets are relative POSIX paths below the Sandbox Home. State keys must be stable and project-qualified. Existing state wins over its seed, so a failed authentication check does not restore older credentials.
+Targets are relative POSIX paths below the Sandbox Home. State keys must be stable and include the project name. Existing state wins over its seed, so a failed authentication check does not restore older credentials.
 
-Requirement objects use fixed command and argument arrays. They do not parse shell strings:
+Requirement objects use a fixed command and an argument array, not shell strings:
 
 ```ts
 requires: [
@@ -195,80 +206,87 @@ requires: [
 ]
 ```
 
-Keep credentials out of arguments because requirement metadata is inspectable.
+Do not put credentials in arguments, because anyone who can inspect requirement metadata can read them.
 
 ## Understand what the Driver adds
 
-The Driver adds these items to the Sandbox for each invocation:
+For each Invocation, the Driver adds to the Sandbox:
 
-- `driver.instructions` go to `.codex/AGENTS.md` for Codex or `.claude/vitehub-system-prompt.md` for Claude Code in the Sandbox Home. The checked-out tree does not change.
-- Colocated Skills go to `.agents/skills`, `.codex/skills`, and `.claude/skills` in the Sandbox Home.
-- The provider command becomes a Sandbox requirement. It is `codex` or `claude` by default. Set `driver.providerSettings.binaryPath` to use another command name or absolute path inside the Sandbox.
-- `driver.env` values reach the provider process in the Sandbox. They replace Sandbox `env` values with the same name.
+- `driver.instructions` at `.codex/AGENTS.md` (Codex) or `.claude/vitehub-system-prompt.md` (Claude Code) in the Home, leaving the checked-out tree unchanged.
+- Colocated Skills in `.agents/skills`, `.codex/skills`, and `.claude/skills` in the Sandbox Home.
+- The provider command as a requirement, `codex` or `claude` by default. `driver.providerSettings.binaryPath` sets another name or absolute path inside the Sandbox.
+- `driver.env` values for the provider process, which replace Sandbox `env` values with the same name.
 
-Do not declare Home files at the paths that the Driver writes. ViteHub rejects the invocation when a declared Home file uses one of these paths.
+ViteHub rejects the Invocation when a declared Home file uses a path that the Driver writes.
 
-A Sandbox session lasts one invocation, so the provider does not resume its session in the next invocation. Send the necessary context in the prompt, Home files, or the checkout.
+A session lasts one Invocation, so the provider does not resume its session next time. Send the context it needs in the prompt, Home files, or the checkout.
 
 ## Choose a runtime
 
-The Sandbox declaration stays portable while the runtime decides where commands run. The runtime must start long-running processes and forward their input.
+The runtime decides where commands run; the declaration stays the same. It must start long-running processes and forward their input.
 
 | Runtime | Use it when |
 | --- | --- |
 | `trusted-host` | Trusted work may use the authority of the current machine. |
 | `crabbox` | The same declaration must run through Crabbox Static SSH on a Linux host. |
 
-Crabbox requires `cwd` or `checkout`, keeps its private Home on the target, and synchronizes only an authoritative `cwd` back. A disposable checkout stays on the target.
+Crabbox requires `cwd` or `checkout` and keeps its private Home on the target host. It copies back only a source-of-truth `cwd`; a disposable checkout stays on the target.
 
-Capability tools reach the provider through a loopback MCP endpoint of the ViteHub process. Use them only with a runtime that shares the ViteHub network: `trusted-host`, or `crabbox` with `network: 'direct'`. Other runtimes reject invocations that include tools.
+Capability tools reach the provider through a loopback MCP endpoint of the ViteHub process, so they need a runtime on the ViteHub network: `trusted-host`, or `crabbox` with `network: 'direct'`. Other runtimes reject Invocations with tools.
 
 ## Understand boot order
 
 1. ViteHub validates names, paths, state keys, and requirement arguments without resolving secrets.
-2. The runtime acquires state leases and creates a private Home.
-3. It resolves first-use seeds, environment values, and Home files for this invocation.
-4. It creates and verifies the checkout when configured.
-5. It provisions `toolchain` from the checkout or `cwd`, puts it first on `PATH`, and verifies `node -v` and the package manager version.
-6. It runs requirements, including the provider command, `node`, and the package manager, inside the prepared environment.
-7. The provider starts in the Sandbox working directory.
+2. The runtime takes state leases and creates a private Home.
+3. It resolves first-use seeds, environment values, and Home files.
+4. It creates and verifies any configured checkout.
+5. It provisions `toolchain`, puts it first on `PATH`, and verifies `node -v` and the package manager version.
+6. It runs requirements, including the provider command, `node`, and the package manager.
+7. The provider starts in the working directory.
 
-A failed input or boot check stops the invocation before the provider starts. Sandbox metadata excludes resolved secret values, file contents, physical Home paths, and provider handles.
+A failed input or boot check stops the Invocation before the provider starts. Sandbox metadata excludes resolved secrets, file contents, physical Home paths, and provider handles.
 
 ## Know the limits
 
-ViteHub rejects these combinations when you define the Agent:
+ViteHub rejects these combinations at definition:
 
 | Combination | Reason |
 | --- | --- |
-| `sandbox` with a model or custom `run` Driver | Only built-in provider Drivers start a process in the Sandbox. |
+| `sandbox` with a model or custom `run` Driver | Only built-in provider Drivers start a Sandbox process. |
 | `sandbox` with `driver.launch` | The Sandbox starts the provider. |
-| `sandbox` with `driver.credentials` or `driver.credentialProfile` | Put provider credentials in `sandbox.home.files`, `sandbox.home.state`, or `sandbox.env`. |
+| `sandbox` with `driver.credentials` or `driver.credentialProfile` | Use `sandbox.home.files`, `sandbox.home.state`, or `sandbox.env`. |
 | `sandbox` with an Agent Workspace | The Sandbox `cwd` or `checkout` owns the working tree. |
-| `sandbox` with `driver.toolchain` | Declare `sandbox.toolchain` so the Sandbox provisions it. |
+| `sandbox` with `driver.toolchain` | Declare `sandbox.toolchain` instead. |
 | `sandbox` on a Worker or Deno host | Provider Drivers need a Node.js host. |
 
-ViteHub rejects these inputs when an invocation starts:
+When an Invocation starts, ViteHub rejects:
 
-- A Windows host, because the provider relay requires a POSIX Node host.
-- Image attachments, because the provider cannot read host attachment files.
-- Managed `browser()`, because the browser runs outside the Sandbox. Install the browser in the Sandbox and use `browser({ runtime: 'external' })`.
-- Capability tools on a runtime that does not share the ViteHub network.
+- a Windows host, because the provider relay requires a POSIX Node host
+- image attachments, because the provider cannot read host attachment files
+- managed `browser()`, which runs outside the Sandbox. Install the browser in the Sandbox and use `browser({ runtime: 'external' })`.
+- Capability tools on a runtime outside the ViteHub network
 
-The invocation fails when the Sandbox session cannot close. For example, a Crabbox Sandbox with an authoritative `cwd` copies provider changes back when it closes, so a failed copy is reported.
+The Invocation fails when the session cannot close, such as when a Crabbox Sandbox fails to copy provider changes back to a source-of-truth `cwd`.
 
-Launch diagnostics redact resolved `sandbox.env` values. When `sandbox.home.files` or `sandbox.home.state` has entries, ViteHub omits saved provider stderr and spawn-error details because Home files and persisted state can contain credentials. Provider output still reaches the provider runtime.
+Launch diagnostics hide resolved `sandbox.env` values. Home files and saved state can hold credentials, so when `sandbox.home.files` or `sandbox.home.state` has entries, saved provider stderr and spawn-error details are left out. Provider output still reaches the provider runtime.
 
 ## Keep execution boundaries separate
 
 | Primitive | Owns |
 | --- | --- |
-| Sandbox | Process environment, private Home, credentials, checkout, state, and boot checks. |
+| Agent `sandbox` | Process environment, private Home, credentials, checkout, state, and boot checks. |
 | Workspace | Agent-visible files, Sources, rules, snapshots, and writeback. |
-| Sandbox | Package-project discovery, preparation, invocation, timeout, and lifecycle orchestration. |
+| `@vite-hub/sandbox` | Package-project discovery, preparation, invocation, timeout, and lifecycle orchestration. |
 
-Use `@vite-hub/sandbox` directly when application code owns the process lifecycle. Use [`sandbox()`](/docs/sandbox/agent-capability) to give a model-backed Agent an allowlisted executable tool.
+Use `@vite-hub/sandbox` directly when application code owns the process lifecycle. Use [`sandbox()`](/docs/sandbox/agent-capability) to give a model-backed Agent a tool that runs only allowlisted executables.
 
-Provider status inspection inside an Agent Sandbox is currently unsupported. `agent.status()` reports `readiness: "unsupported"` for boxed provider Drivers. Invocation execution still uses the configured Sandbox.
+Provider status inside an Agent Sandbox is not inspectable yet: `agent.status()` reports `readiness: "unsupported"`, but the Invocation still runs in the Sandbox.
 
-On kernels without `memory.peak`, the OOM diagnostic reports `peak=unavailable`. Sandbox invalidates the session on a local allocation OOM, including allocation failures without a kill. This signal identifies exhaustion of the session budget and works with `memory_localevents` mounts. Ancestor or host kills alone do not invalidate it. The diagnostic reports the observed `memory.events` kill count as context, not proof of the kill cause; that count can exclude descendant victims on `memory_localevents` mounts. Sandbox removes nested cgroups during close. The launcher restores the command environment only after joining the session group.
+### Out-of-memory details
+
+- Without kernel `memory.peak`, the diagnostic reports `peak=unavailable`.
+- A local allocation OOM, even an allocation failure without a kill, invalidates the session, because it shows the session used its whole budget. This works with `memory_localevents` mounts.
+- A kill by a parent group or the host alone does not invalidate the session.
+- The reported `memory.events` kill count is context, not proof of the cause. On `memory_localevents` mounts, it can leave out killed children.
+- Nested cgroups are removed on close.
+- The launcher restores the command environment only after it joins the session group.

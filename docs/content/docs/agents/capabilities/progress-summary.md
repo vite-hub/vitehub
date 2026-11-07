@@ -1,18 +1,19 @@
 ---
 title: Progress summary
-description: Stream a short user-facing summary of current Agent activity, render it in your UI, and send it through Channels.
+description: Show users one short sentence about what the Agent is doing now, in your UI and in chat Channels.
 navigation.title: Progress summary
 navigation.order: 311
 navigation.group: Capabilities
 icon: i-lucide-message-circle-more
 ---
 
-`progressSummary()` observes reasoning and tool lifecycle events while an Agent works, then emits a replaceable one-sentence status as transient `data-progress-summary` stream data.
-It adds no model-facing tool. A separate generator writes the status: an independent Agent Driver, an AI SDK model call, or a custom `execute()` function. No Server Primitive is involved.
+`progressSummary()` tells users in one sentence what the Agent is doing. It watches reasoning and tool events and sends the status as transient `data-progress-summary` stream data, not saved in the conversation. Each sentence replaces the last.
+
+A separate generator writes it: an independent Agent Driver (a second Driver), an AI SDK model call, or your `execute()`. It adds no model tool and uses no Server Primitive.
 
 ## Configure progress summaries
 
-Import the Capability from `vite-hub/agent/capabilities` and give it the independent Agent Driver that writes progress:
+Give it the independent Driver that writes the sentences:
 
 ```ts [server/agents/support.ts]
 import { codexDriver, defineAgent } from 'vite-hub/agent'
@@ -30,25 +31,26 @@ export default defineAgent({
 })
 ```
 
-The Capability owns the safety and evidence instructions. The configured Driver selects the model and execution environment using the same contract as an Agent Definition or `title()`. Use `guidance` to append product-specific direction without replacing those safeguards.
+The Capability writes its own safety and evidence instructions. The Driver picks the model and environment, like the `driver` of an Agent Definition or `title()`. `guidance` adds product directions without replacing the safety instructions.
 
 ## How progress summaries work
 
-The Capability wraps the primary output stream and observes its chunks. It tracks reasoning presence, active tools, and the last 5 completed tools.
+The Capability wraps the primary output stream (the main answer) and tracks reasoning, active tools, and the last 5 finished tools.
 
-With the default `intervalMs` of `10000`, generation starts when the first primary stream chunk arrives and then runs on a fixed cadence from that point, so auxiliary generation never delays primary Driver startup. At most one generation runs at a time, and interval ticks are skipped while a generation is pending. Each tick attempts a summary and suppresses unchanged output.
+- **Fixed interval** (default, `intervalMs: 10000`). Generation starts at the first primary chunk, then repeats on the interval, so it never delays the primary Driver. One generation runs at a time; ticks during one are skipped. Unchanged summaries are not resent.
+- **Event-driven** (`intervalMs: 0`). The first summary starts at the first non-final primary chunk; a stream with only a final chunk, or that fails, starts nothing. Later summaries start only when reasoning or tool events add activity. Activity during a generation queues one more after it.
 
-With event-driven `intervalMs: 0`, the Capability starts its initial summary when the first non-terminal primary stream chunk arrives. A terminal-only or failed stream does not start unused auxiliary work. After the first summary, it generates again only when reasoning or tool lifecycle events add new activity. Activity that arrives during a generation schedules one follow-up after it settles.
+The default prompt has the latest user request without `<context>` content (up to 2,000 characters), elapsed time, whether the Agent is reasoning, tool names with unsafe text removed, and the previous summary. The request gives subject and language and is treated as untrusted data. Raw reasoning, tool input and output, and hidden instructions are never included.
 
-The default prompt includes the latest user request with `<context>` payloads removed (up to 2,000 characters), elapsed time, reasoning presence, sanitized tool names, and the previous summary. The request identifies the subject and language; the summarizer instructions treat it as untrusted data. The prompt does not include raw reasoning, tool input, tool output, or hidden instructions.
+The result is cleaned and cut to `maxLength`, ending with `…` when cut.
 
-ViteHub cleans the result, bounds it by `maxLength`, and ends a cut summary with `…`.
+The interval stops and generations are cancelled when the parent run is cancelled or the primary stream finishes, is cancelled, or fails.
 
-The Capability stops its cadence and aborts every in-flight generation when the parent invocation aborts or the primary stream finishes, cancels, or errors. A generation failure does not interrupt the primary response stream; ViteHub emits a sanitized warning and an `agent.progress-summary.error` trace event without logging the Driver error message.
+A failed generation does not stop the primary stream. ViteHub sends a safe warning and an `agent.progress-summary.error` trace event, without logging the Driver error message.
 
 ## Render the current summary
 
-Listen for `data-progress-summary` parts and replace the currently displayed sentence when `revision` increases:
+Listen for `data-progress-summary` parts and replace the sentence when `revision` increases:
 
 ```ts
 {
@@ -61,59 +63,61 @@ Listen for `data-progress-summary` parts and replace the currently displayed sen
 }
 ```
 
-`data.id` is present when you set the `id` option.
-The part is transient, so it does not become conversation history. Keep structured reasoning and tool logs separate when your interface exposes them.
+`data.id` is present when `id` is set. The part is transient, so it stays out of history. Keep reasoning and tool logs separate from this sentence.
 
 ## Channel placeholders
 
-With `messages.loading` or manual chat delivery, ViteHub edits the current placeholder as summaries arrive. When the Agent finishes, ViteHub deletes that placeholder and posts the final reply as a new message so chat platforms can deliver their normal notification.
+With `messages.loading` or manual chat delivery, ViteHub edits the Channel placeholder with each summary. At the end it deletes the placeholder and posts the final reply as a new message, so the platform sends its normal notification.
 
 ## Prompt templates
 
-String templates use `@vite-hub/markdown-template` and receive their values under the `data` namespace: `data.userText`, `data.elapsed`, `data.reasoningActive`, `data.reasoningActiveText`, `data.activeTools`, `data.completedTools`, and `data.previous`. Extra variables are available as `data.<variable>`.
+`template` sets your own prompt.
 
-Function templates receive the structured snapshot fields, `input`, `messages`, `elapsedText`, `activeToolsText`, and `completedToolsText`. Keep sensitive content out of prompts you construct.
+String templates use `@vite-hub/markdown-template` with `data.userText`, `data.elapsed`, `data.reasoningActive`, `data.reasoningActiveText`, `data.activeTools`, `data.completedTools`, `data.previous`, and your `variables` as `data.<variable>`.
+
+Function templates get the snapshot fields, `input`, `messages`, `elapsedText`, `activeToolsText`, and `completedToolsText`. Keep sensitive content out of them.
 
 ## Requirements
 
-- The primary Agent Driver must return a compatible async stream or UI message stream.
-- A generator: `driver`, `model`, or `execute`. Without one of these options, the Capability uses the Agent model, which only model-backed Agents have. With no generator, no summaries appear.
-- A progress `driver` must return text. `driver.ask` is not supported.
-- A provider `driver` needs a Node.js host. A Cloudflare Worker build fails with `AGENT_B0019`.
+- The primary Driver returns a compatible async or UI message stream.
+- A generator: `driver`, `model`, or `execute`, else the Agent's model, which only model-backed Agents have. Without one, no summaries appear.
+- A progress `driver` returns text. `driver.ask` is not supported.
+- A provider `driver` needs a Node.js host. Cloudflare Worker builds fail with `AGENT_B0019`.
 
 ## Security and approval
 
-`progressSummary()` adds no model-facing tool and has no `policy` option.
-The default prompt sends the latest user request, elapsed time, reasoning presence, sanitized tool names, and the previous summary to the generator. It does not send raw reasoning, tool input, or tool output.
+There is no model tool and no `policy` option. The default prompt sends only the fields listed above, never raw reasoning or tool input and output.
 
-`execute` and function templates receive the full Agent Run Input and messages. Code in those functions controls what it sends.
-An independent provider `driver` runs with its own configuration, credentials, and permissions, not the primary Driver's.
+> [!WARNING]
+> `execute` and function templates get the full Agent Run Input and messages. Your code decides what they send.
+
+An independent provider `driver` uses its own configuration, credentials, and permissions, not the primary Driver's.
 
 ## Driver support
 
 | Agent Driver | Support |
 | --- | --- |
 | Model-backed | Uses `driver`, `model`, `execute`, or the Agent model. |
-| Provider-backed | Requires `driver`, `model`, or `execute`. An independent provider Driver uses its own model and environment settings. |
+| Provider-backed | Requires `driver`, `model`, or `execute`. An independent provider Driver uses its own settings. |
 | Custom-run-backed | Requires `driver`, `model`, or `execute`. The output must be a compatible stream. |
 
 ## Verify progress summaries
 
-1. Run an invocation and confirm that the primary stream continues immediately while an initial transient `data-progress-summary` part arrives.
-2. Keep the invocation open beyond `intervalMs`, then confirm that a later changed summary arrives with a higher `revision`.
-3. Stop the invocation before the next interval and confirm that no later progress part appears.
+1. Run the Agent. The primary stream continues at once while a first `data-progress-summary` arrives.
+2. Past `intervalMs`, a changed summary arrives with a higher `revision`.
+3. Stopped before the next interval, no more parts appear.
 
 ## Options
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `driver` | `AgentDriver` | none | Independent Agent Driver used for progress generation. Must return text. |
+| `driver` | `AgentDriver` | none | Independent Driver for summaries. Returns text. |
 | `execute` | `(input) => string \| { summary?: string }` | none | Custom progress generator. |
-| `guidance` | `string` | none | Product-specific direction appended to the Capability-owned instructions. |
-| `id` | `string` | `"progress-summary"` | Capability id. When set, also sent as `data.id` in each part. |
-| `intervalMs` | `number` | `10000` | Fixed generation cadence. Use `0` for event-driven updates. |
+| `guidance` | `string` | none | Product direction added to the built-in instructions. |
+| `id` | `string` | `"progress-summary"` | Capability id. When set, also sent as `data.id`. |
+| `intervalMs` | `number` | `10000` | Fixed cadence. `0` is event-driven. |
 | `maxLength` | `number` | `180` | Maximum summary length. |
-| `model` | `AgentModelResolver` | Agent model | Model used when no independent Driver is configured. |
+| `model` | `AgentModelResolver` | Agent model | Model when no Driver is set. |
 | `template` | `string \| function` | generated | Markdown prompt template. |
 | `variables` | `Record<string, value \| function>` | none | Extra Markdown template variables. |
 
