@@ -46,8 +46,14 @@ async function hookManager(top: string, rootDir: string): Promise<string | undef
   return hooksPath ? `core.hooksPath (${hooksPath})` : undefined
 }
 
+/** A shell word for a value, such as a project path with spaces or quotes. */
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`
+}
+
+/** The hook file that `install` writes. A hook with any other content is not ViteHub's. */
 function script(hook: HookName, project: string): string {
-  const cd = project ? `"$(git rev-parse --show-toplevel)"/'${project.replaceAll("'", "'\\''")}'` : `"$(git rev-parse --show-toplevel)"`
+  const cd = project ? `"$(git rev-parse --show-toplevel)"/${shellQuote(project)}` : `"$(git rev-parse --show-toplevel)"`
   return [
     "#!/bin/sh",
     marker,
@@ -59,17 +65,23 @@ function script(hook: HookName, project: string): string {
 }
 
 function manualLines(project: string): string {
-  const prefix = project ? `cd ${project} && ` : ""
+  const prefix = project ? `cd ${shellQuote(project)} && ` : ""
   return `  pre-commit: ${prefix}vitehub hooks pre-commit\n  pre-push:   ${prefix}vitehub hooks pre-push\n`
 }
 
+/** The top folder of the Git repository and the project folder inside it. */
+async function repository(rootDir: string): Promise<{ project: string, top: string } | undefined> {
+  const top = await git(rootDir, "rev-parse", "--show-toplevel")
+  return top ? { project: relative(top, rootDir).split(sep).join("/"), top } : undefined
+}
+
 async function install(context: WorkspaceCheckoutCliContext): Promise<number> {
-  const top = await git(context.rootDir, "rev-parse", "--show-toplevel")
-  if (!top) {
+  const repo = await repository(context.rootDir)
+  if (!repo) {
     context.stderr.write(`${context.rootDir} is not in a Git repository.\n`)
     return 1
   }
-  const project = relative(top, context.rootDir).split(sep).join("/")
+  const { project, top } = repo
   const manager = await hookManager(top, context.rootDir)
   if (manager) {
     context.stdout.write(`${manager} runs the Git hooks of this repository, so ViteHub writes no hook file. Add these commands to it:\n${manualLines(project)}`)
@@ -81,7 +93,7 @@ async function install(context: WorkspaceCheckoutCliContext): Promise<number> {
   for (const hook of hookNames) {
     const path = join(hooks, hook)
     const current = await readFile(path, "utf8").catch(() => undefined)
-    if (current !== undefined && !current.includes(marker)) {
+    if (current !== undefined && current !== script(hook, project)) {
       foreign.push(hook)
       continue
     }
@@ -90,19 +102,24 @@ async function install(context: WorkspaceCheckoutCliContext): Promise<number> {
     context.stdout.write(`Wrote ${relative(top, path)}\n`)
   }
   if (!foreign.length) return 0
-  context.stderr.write(`These hooks exist and ViteHub did not write them: ${foreign.join(", ")}. Add the ViteHub commands to them:\n${manualLines(project)}`)
+  context.stderr.write(`These hooks exist and are not the hooks that ViteHub writes: ${foreign.join(", ")}. Add the ViteHub commands to them:\n${manualLines(project)}`)
   return 1
 }
 
 async function uninstall(context: WorkspaceCheckoutCliContext): Promise<number> {
+  const repo = await repository(context.rootDir)
   const hooks = await git(context.rootDir, "rev-parse", "--git-path", "hooks")
-  if (!hooks) return 0
+  if (!repo || !hooks) return 0
   for (const hook of hookNames) {
     const path = resolve(context.rootDir, hooks, hook)
-    if ((await readFile(path, "utf8").catch(() => ""))?.includes(marker)) {
-      await rm(path)
-      context.stdout.write(`Removed ${hook}\n`)
+    const current = await readFile(path, "utf8").catch(() => undefined)
+    if (current === undefined) continue
+    if (current !== script(hook, repo.project)) {
+      context.stdout.write(`Left ${hook}: it is not the hook that \`vitehub hooks install\` writes, so it can contain your commands.\n`)
+      continue
     }
+    await rm(path)
+    context.stdout.write(`Removed ${hook}\n`)
   }
   return 0
 }
@@ -171,7 +188,7 @@ const help = `Usage: vitehub hooks <install|uninstall|pre-commit|pre-push>
 
 install     Write .git/hooks/pre-commit and pre-push. With Husky, lefthook, pre-commit, simple-git-hooks, or
             core.hooksPath, print the commands to add to that tool instead. An existing hook stays as it is.
-uninstall   Remove the hooks that \`install\` wrote.
+uninstall   Remove the hooks that \`install\` wrote. A hook that you changed stays.
 pre-commit  Fail while a checkout folder of ${workspaceLockFile} has conflicts. Works offline.
 pre-push    Run \`vitehub push\` when the Git push updates the default branch. Other branches push nothing.
 

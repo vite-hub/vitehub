@@ -15,13 +15,13 @@ afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
-/** A Git repository with the ViteHub project in `docs/`. */
-async function repository() {
+/** A Git repository with the ViteHub project in `docs/`, or in another folder. */
+async function repository(project = "docs") {
   const top = await mkdtemp(join(tmpdir(), "vitehub-hooks-"))
   cleanup.push(() => rm(top, { force: true, recursive: true }))
   await exec("git", ["init", "-q", "-b", "main", top], { env: { ...process.env, LC_ALL: "C" } })
-  const rootDir = join(top, "docs")
-  await mkdir(rootDir)
+  const rootDir = join(top, project)
+  await mkdir(rootDir, { recursive: true })
   return { rootDir, top }
 }
 
@@ -64,13 +64,53 @@ describe("vitehub hooks", () => {
     const kept = await run("install", rootDir)
 
     expect(kept.code).toBe(1)
-    expect(kept.stderr).toContain("These hooks exist and ViteHub did not write them: pre-commit.")
-    expect(kept.stderr).toContain("pre-commit: cd docs && vitehub hooks pre-commit")
+    expect(kept.stderr).toContain("These hooks exist and are not the hooks that ViteHub writes: pre-commit.")
+    expect(kept.stderr).toContain("pre-commit: cd 'docs' && vitehub hooks pre-commit")
     expect(await readFile(join(top, ".git/hooks/pre-commit"), "utf8")).toBe("#!/bin/sh\nnpm test\n")
 
     await mkdir(join(top, ".husky"))
     const husky = await run("install", rootDir)
     expect(husky).toMatchObject({ code: 0, stdout: expect.stringContaining("Husky runs the Git hooks of this repository") })
+  })
+
+  it("keeps a hook to which you added commands, on install and on uninstall", async () => {
+    const { rootDir, top } = await repository()
+    await run("install", rootDir)
+    const preCommit = join(top, ".git/hooks/pre-commit")
+    const changed = `${await readFile(preCommit, "utf8")}npm test\n`
+    await writeFile(preCommit, changed)
+
+    const installed = await run("install", rootDir)
+    expect(installed.code).toBe(1)
+    expect(installed.stderr).toContain("are not the hooks that ViteHub writes: pre-commit.")
+    expect(await readFile(preCommit, "utf8")).toBe(changed)
+
+    expect(await run("uninstall", rootDir)).toMatchObject({ code: 0, stdout: "Left pre-commit: it is not the hook that `vitehub hooks install` writes, so it can contain your commands.\nRemoved pre-push\n" })
+    expect(await readFile(preCommit, "utf8")).toBe(changed)
+  })
+
+  it("quotes a project folder with a space and a quote in the hook and in the printed commands", async () => {
+    const project = "docs site/it's"
+    const { rootDir, top } = await repository(project)
+    // A stand-in for the vitehub binary that prints the folder it runs in and its arguments.
+    const bin = join(top, "bin")
+    await mkdir(bin)
+    for (const dir of [bin, join(rootDir, "node_modules/.bin")]) {
+      await mkdir(dir, { recursive: true })
+      await writeFile(join(dir, "vitehub"), "#!/bin/sh\necho \"$PWD $*\"\n", { mode: 0o755 })
+    }
+    const env = { ...process.env, PATH: `${bin}:${process.env.PATH}` }
+
+    await run("install", rootDir)
+    expect((await exec("sh", [join(top, ".git/hooks/pre-commit")], { cwd: top, env })).stdout).toBe(`${rootDir} hooks pre-commit\n`)
+
+    await rm(join(top, ".git/hooks/pre-commit"))
+    await rm(join(top, ".git/hooks/pre-push"))
+    await mkdir(join(top, ".husky"))
+    const printed = (await run("install", rootDir)).stdout
+    const command = printed.match(/pre-commit: (.+)\n/)![1]!
+    expect(command).toBe(`cd 'docs site/it'\\''s' && vitehub hooks pre-commit`)
+    expect((await exec("sh", ["-c", command], { cwd: top, env })).stdout).toBe(`${rootDir} hooks pre-commit\n`)
   })
 
   it("does nothing without vitehub.lock, and stops a commit while a checkout folder has conflicts", async () => {
