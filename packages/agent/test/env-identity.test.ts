@@ -52,10 +52,11 @@ it("lists static Gmail tools without minting Connection authority", async () => 
 })
 
 it.each([
-  { name: undefined, hostName: undefined },
-  { name: undefined, hostName: "host-alias" },
-  { name: "definition-owner", hostName: "host-alias" },
-])("keeps host attribution separate from Connection authority with %j", async ({ name, hostName }) => {
+  // Without a host identity, the discovered Agent runs with its discovered identity, as its own routes run it.
+  { name: undefined, hostName: undefined, runsAs: "discovered-owner" },
+  { name: undefined, hostName: "host-alias", runsAs: "host-alias" },
+  { name: "definition-owner", hostName: "host-alias", runsAs: "host-alias" },
+])("keeps host attribution separate from Connection authority with %j", async ({ name, hostName, runsAs }) => {
   const { markDiscoveredAgentName } = await import("../src/internal/discovered-agent-name.ts")
   const { useAgentConnectionClient } = await import("../src/capabilities/connection.ts")
   const client = vi.fn((_name, options) => {
@@ -70,7 +71,7 @@ it.each([
       return { check: { description: "Check identity", execute: () => connection.fetch("https://service.example") } }
     } }],
     driver: { async run(context) {
-      expect(context.agentIdentity?.name).toBe(hostName)
+      expect(context.agentIdentity?.name).toBe(runsAs)
       return await context.tools?.check.execute?.({}, {})
     } },
   })
