@@ -225,7 +225,6 @@ describe("Vite schedule integration", () => {
     expect(pluginSource).toContain("nitroApp.captureError")
     expect(pluginSource).toContain("nitroApp.hooks.hook('request'")
     expect(pluginSource).not.toContain("nitroApp.fetch")
-    expect(pluginSource).not.toContain("h3App")
     expect(pluginSource).toContain("const result = await runtimeInstallation")
     expect(pluginSource).toContain("if ('error' in result) throw result.error")
     expect(pluginSource).toContain("if ('controller' in result) await result.controller.close()")
@@ -722,7 +721,7 @@ describe("Vite schedule integration", () => {
     await nitroConfigHook!(nitroConfig)
 
     // Nuxt creates Nitro before running Vite, and does not forward its preset to Vite's config.
-    const { createNitro } = await import("nitropack")
+    const { createNitro } = await import("nitro/builder")
     const nitro = await createNitro({ ...nitroConfig, compatibilityDate: "2026-10-01", logLevel: 0, rootDir: root })
     vi.stubEnv("NITRO_PRESET", undefined)
     vi.stubEnv("SERVER_PRESET", undefined)

@@ -139,7 +139,7 @@ export function resolveVercelQueueRegion(explicitRegion: string | undefined) {
   }
 
   // SAFETY: Queue host integrations supply Fetch or Nitro events; all host-specific header containers are optional and their values are checked below.
-  const event = getQueueRuntimeEvent() as { node?: { req?: { headers?: Headers | Record<string, unknown> } }, req?: { headers?: Headers | Record<string, unknown> }, request?: Request } | undefined
+  const event = getQueueRuntimeEvent() as { req?: { headers?: Headers | Record<string, unknown> }, request?: Request } | undefined
   let requestHeaders: Headers | Record<string, unknown> | undefined
   try {
     const request = event?.request
@@ -150,7 +150,7 @@ export function resolveVercelQueueRegion(explicitRegion: string | undefined) {
   }
   if (!requestHeaders) {
     try {
-      requestHeaders = event?.req?.headers ?? event?.node?.req?.headers
+      requestHeaders = event?.req?.headers
     }
     catch {
       requestHeaders = undefined

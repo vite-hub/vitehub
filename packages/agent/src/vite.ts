@@ -147,7 +147,6 @@ const optionalAgentRuntimeExternals = [
   "utf-8-validate",
   "zlib-sync",
 ]
-const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "@t3tools/provider-runtime"]
 const optionalNetlifyAgentBundleExternals = [
   "@ai-sdk/mcp",
   "@modelcontextprotocol/sdk/*",
@@ -807,12 +806,6 @@ function mergeAgentNitroExternals(value: unknown): NitroConfig {
       (entry): entry is string | RegExp => typeof entry === "string" || entry instanceof RegExp,
     )
   }
-  const externals = isRecord(nitro.externals) ? { ...nitro.externals } : {}
-  const existingInline = Array.isArray(externals.inline) ? externals.inline : []
-  externals.inline = externals.inline === true
-    ? true
-    : [...new Set([...existingInline, ...nitroAgentRuntimeInlines])]
-  nitro.externals = externals
   if (isWebContainer()) {
     const existingTraceDeps = Array.isArray(nitro.traceDeps) ? nitro.traceDeps : []
     nitro.traceDeps = [...new Set([...existingTraceDeps, ...wasmSqliteTraceDeps])]
@@ -1645,7 +1638,6 @@ function generatedRuntimeHelpers(): string[] {
     "    cloudflare?: ViteHubGeneratedCloudflare",
     "  }",
     "  env?: Record<string, unknown>",
-    "  node?: { req?: { runtime?: { cloudflare?: ViteHubGeneratedCloudflare } } }",
     "}",
     "",
     "function waitUntilFromValue(value: unknown): AgentWaitUntil | undefined {",
@@ -1659,13 +1651,12 @@ function generatedRuntimeHelpers(): string[] {
     "    || waitUntilFromValue(runtimeEvent.context)",
     "    || waitUntilFromValue(runtimeEvent.context?.cloudflare?.context)",
     "    || waitUntilFromValue(runtimeEvent.context?._platform?.cloudflare?.context)",
-    "    || waitUntilFromValue(runtimeEvent.node?.req?.runtime?.cloudflare?.context)",
     "}",
     "",
     "function cloudflareFromEvent(event: H3Event): ViteHubGeneratedCloudflare | undefined {",
     "  const runtimeEvent = event as ViteHubGeneratedEvent",
-    "  const env = runtimeEvent.env || runtimeEvent.context?.cloudflare?.env || runtimeEvent.context?._platform?.cloudflare?.env || runtimeEvent.node?.req?.runtime?.cloudflare?.env",
-    "  const context = runtimeEvent.context?.cloudflare?.context || runtimeEvent.context?._platform?.cloudflare?.context || runtimeEvent.node?.req?.runtime?.cloudflare?.context",
+    "  const env = runtimeEvent.env || runtimeEvent.context?.cloudflare?.env || runtimeEvent.context?._platform?.cloudflare?.env",
+    "  const context = runtimeEvent.context?.cloudflare?.context || runtimeEvent.context?._platform?.cloudflare?.context",
     "  return env && typeof env === 'object' ? { env, ...(context ? { context } : {}) } : undefined",
     "}",
     "",
@@ -2092,7 +2083,6 @@ async function generateAgentWebhookRouteHandler(
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
-    // Nitro 2, which Nuxt 4 runs, passes H3 1 events to these routes. toEventRequest reads both H3 1 and H3 2 events.
     `import { toEventRequest } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     `import { createError, defineEventHandler, getRouterParam, type H3Event } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     "",
@@ -2105,7 +2095,6 @@ async function generateAgentWebhookRouteHandler(
     "    body: request.body ?? undefined,",
     "    headers: request.headers,",
     "    method: request.method,",
-    "    node: event.node,",
     "    signal: event.req?.signal,",
     "    url: request.url,",
     "  })",
@@ -2235,7 +2224,7 @@ async function generateAgentWebhookRouteHandler(
           "  if (isInspectionRoute) {",
           "    const cloudflare = cloudflareFromEvent(event)",
           "    const { headers, method, url } = toEventRequest(event)",
-          "    const request = createAgentWebhookRequest({ headers, method, node: event.node, signal: event.req?.signal, url })",
+          "    const request = createAgentWebhookRequest({ headers, method, signal: event.req?.signal, url })",
           `    return await agentInspectionResponse(agent, request, { ${routeCapabilities.requestOption}cloudflare, event${runtimeRouteOption || ", runtime: runtimeFromEvent(event)"}, waitUntil: waitUntilFromEvent(event) })`,
           "  }",
         ]
@@ -2391,8 +2380,8 @@ async function writeAgentWebhookRouteHandler(
       ? [
           `import { preparation } from "./preparation"`,
           `import { warmWebhookRoutes, webhookRoutesReadiness, webhookRoutesReadyResponse } from "./chat-webhook-route"`,
-          `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) {`,
-          `  const method = event.req?.method || event.method || event.node?.req?.method`,
+          `export default function(event: { req: { method: string } }) {`,
+          `  const method = event.req.method`,
           `  void warmWebhookRoutes()`,
           `  // The Workspace is not ready to serve deliveries before the webhook handlers are warm.`,
           `  if (!webhookRoutesReadiness().ready) return webhookRoutesReadyResponse(method)`,
@@ -2401,7 +2390,7 @@ async function writeAgentWebhookRouteHandler(
         ].join("\n")
       : [
           `import { preparation } from "./preparation"`,
-          `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) { return preparation.response(event.req?.method || event.method || event.node?.req?.method) }`,
+          `export default function(event: { req: { method: string } }) { return preparation.response(event.req.method) }`,
         ].join("\n"))
   }
   else {
@@ -2413,9 +2402,9 @@ async function writeAgentWebhookRouteHandler(
       `import { warmWebhookRoutes, webhookRoutesReadyResponse } from "./chat-webhook-route"`,
       "",
       "/** 200 once every webhook handler is warm, 503 before. Point a readiness probe here. */",
-      `export default function(event: { req?: { method?: string }, method?: string, node?: { req?: { method?: string } } }) {`,
+      `export default function(event: { req: { method: string } }) {`,
       `  void warmWebhookRoutes()`,
-      `  return webhookRoutesReadyResponse(event.req?.method || event.method || event.node?.req?.method)`,
+      `  return webhookRoutesReadyResponse(event.req.method)`,
       `}`,
       "",
     ].join("\n"))
@@ -2540,7 +2529,7 @@ async function writeAgentWebhookRouteHandler(
             `  const webhookRoutePattern = new RegExp(${JSON.stringify(routeRegexSource(options.webhookRoute))});`,
             `  const webhookAliases = ${JSON.stringify(Object.fromEntries(Object.entries(options.webhookAliases || {}).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/+$/, '') || '/', target])))};`,
             "  nitroApp.hooks.hook('request', event => {",
-            "    const pathname = new URL(event?.path || event?.node?.req?.url || event?.node?.req?.originalUrl || '/', 'http://vitehub.local').pathname.replace(/\\/+$/, '') || '/';",
+            "    const pathname = new URL(event?.path || '/', 'http://vitehub.local').pathname.replace(/\\/+$/, '') || '/';",
             "    if (stop || !(webhookAliases[pathname] || webhookRoutePattern.test(pathname))) return;",
             "    waitUntil ||= waitUntilFromEvent(event)",
             "    void warmWebhookRoutes()",

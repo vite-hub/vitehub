@@ -41,7 +41,6 @@
     "h3": "catalog:unjs",
     "knip": "catalog:tooling",
     "nitro": "catalog:unjs",
-    "nitropack": "catalog:unjs",
     "oxlint": "catalog:tooling",
     "oxlint-tsgolint": "catalog:tooling",
     "tsrs": "0.20.0-ts7.1.0-beta",

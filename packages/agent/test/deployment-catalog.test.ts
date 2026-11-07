@@ -52,7 +52,7 @@ function deploymentRuntimeModules(): Map<string, string> {
       // The generated route installs the Channel reader for the Console.
       `export { installChannelsConsoleHost } from ${JSON.stringify(join(import.meta.dirname, "../src/channels-console-host.ts"))}`,
       `export { markDiscoveredAgentName, resetPublicUrlAgentNames } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/discovered-agent-name.ts"))}`,
-      `export { toEventRequest } from ${JSON.stringify(join(import.meta.dirname, "../../internal/src/runtime/h3-v1-request.ts"))}`,
+      `export { toEventRequest } from ${JSON.stringify(join(import.meta.dirname, "../../internal/src/runtime/event-request.ts"))}`,
       "import { defineAgent } from '@vite-hub/agent'",
       `const capture = () => globalThis.${runtimeCaptureKey}`,
       "function assetText(agent, key) {",

@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from "node:crypto"
 import { lstat, readFile, rename, rm, writeFile } from "node:fs/promises"
-import { findPackageJSON } from "node:module";
-import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 
 import * as v from "valibot";
 
@@ -33,12 +32,6 @@ export const CONNECTIONS_REGISTRY_ID = "#vitehub/connections/registry";
 export const CONNECTIONS_VITE_PLUGIN_NAME = "@vite-hub/connections/vite";
 
 const resolvedConnectionsRegistryId = `\0${CONNECTIONS_REGISTRY_ID}`;
-/**
- * Nitro 2 matches `@vite-hub/connections` against the import name and the resolved path after its last
- * `node_modules/`. A linked package, such as a pnpm workspace package, resolves outside `node_modules`, so Nitro left
- * it to Node, and Node served the empty registry fallback instead of the generated registry alias.
- */
-const connectionsPackageRoot = `${dirname(findPackageJSON(import.meta.url)!)}${sep}`;
 const noExternalAddition = createNoExternalAddition("@vite-hub/connections");
 // Keep prior output ownership with the project so cleanup works after a restart.
 const generatedTypesManifest = ".vitehub/connections-types.json";
@@ -292,8 +285,8 @@ export type ConnectionsVitePlugin = Plugin<ConnectionsVitePluginAPI> & {
   };
   nitro: {
     name: string;
-    /** Nitro 3 has a routing table to rebuild. Nitro 2, which Nuxt 4 runs, reads `options.handlers` when it builds. */
-    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing?: { sync: () => void } }) => void;
+    /** Nitro rebuilds its routing table from `options.handlers` when `routing.sync()` runs. */
+    setup: (nitro: { options: { handlers: NitroServerHandler[] }; routing: { sync: () => void } }) => void;
   };
 };
 
@@ -488,30 +481,11 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
       const nitro = v.parse(
         v.looseObject({
           alias: v.optional(v.record(v.string(), v.unknown()), {}),
-          externals: v.optional(
-            v.looseObject({
-              inline: v.optional(v.union([v.literal(true), v.array(v.unknown())]), []),
-            }),
-            {},
-          ),
         }),
         nitroInput ?? {},
       );
       const alias = nitro.alias;
-      const externals = nitro.externals;
-      const inline =
-        externals.inline === true
-          ? true
-          : [
-              ...new Set([
-                ...(Array.isArray(externals.inline) ? externals.inline : []),
-                "vite-hub",
-                "@vite-hub/connections",
-                connectionsPackageRoot,
-              ]),
-            ];
       nitro.alias = { ...alias, [CONNECTIONS_REGISTRY_ID]: nitroRegistryFile };
-      nitro.externals = { ...externals, inline };
       if (environment.command === "serve") {
         // Node loads this package in `vite dev`, so a plugin hands it the generated registry.
         const registryPlugin = resolve(generatedDir, "registry-dev-plugin.ts");
@@ -536,7 +510,6 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
           handlerFile,
           [
             `import { createConnectionsHandler } from ${JSON.stringify(`${importBase}/server`)}`,
-            `import type { IncomingMessage } from "node:http"`,
             "",
             ...(actorModule ? [`import actor from ${JSON.stringify(actorImport)}`] : []),
             "",
@@ -545,35 +518,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
               ? `const handle = createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
               : `const handle = createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
             "",
-            // Nitro 2 on Workers, which Nuxt 4 builds, gives a request mock that keeps the body in `body` and cannot be
-            // iterated. A Node.js server gives a real IncomingMessage.
-            "export default async (event: { req?: Request, _requestBody?: unknown, node?: { req?: IncomingMessage & { body?: unknown, rawBody?: unknown, originalUrl?: string, socket: { encrypted?: boolean }, [key: symbol]: unknown } } }) => {",
-            "  const raw = event.req ?? event.node?.req",
-            "  if (!raw) return handle(new Request('http://localhost/'), event)",
-            "  if (raw instanceof Request) return handle(raw, event)",
-            "  const headers = new Headers()",
-            "  for (const [name, value] of Object.entries(raw.headers ?? {})) { if (typeof value === 'string') headers.set(name, value); else if (Array.isArray(value)) for (const item of value) headers.append(name, item) }",
-            "  const firstHeader = (name: string) => headers.get(name)?.split(',')[0]?.trim()",
-            "  const host = firstHeader('x-forwarded-host') ?? firstHeader('host') ?? 'localhost'",
-            "  const protocol = firstHeader('x-forwarded-proto') ?? (raw.socket?.encrypted ? 'https' : 'http')",
-            "  const method = raw.method ?? 'GET'",
-            "  const init: RequestInit & { duplex?: 'half' } = { method, headers }",
-            "  if (method !== 'GET' && method !== 'HEAD') {",
-            // Match the H3 1 cache precedence in openNodeRequestBody before touching a consumed Node stream.
-            "    const body = await (event._requestBody ?? raw[Symbol.for('h3RawBody')] ?? raw.rawBody ?? raw.body)",
-            "    if (typeof body === 'string' || body instanceof URLSearchParams || body instanceof ReadableStream) init.body = body",
-            "    else if (body instanceof Uint8Array) init.body = new ReadableStream({ start(controller) { controller.enqueue(body); controller.close() } })",
-            "    else if (body instanceof Object && Object.getPrototypeOf(body) === Object.prototype) init.body = JSON.stringify(body)",
-            "    else {",
-            "      const iterator = raw[Symbol.asyncIterator]()",
-            "      init.body = new ReadableStream({ async pull(controller) { try { const next = await iterator.next(); if (next.done) controller.close(); else controller.enqueue(next.value) } catch (error) { controller.error(error) } } })",
-            "    }",
-            "    if (init.body instanceof ReadableStream) init.duplex = 'half'",
-            "  }",
-            "  const path = (raw.originalUrl || raw.url || '/').replace(/^[/\\\\]+/, '/')",
-            "  const request = new Request(new URL(path, `${protocol === 'https' ? 'https' : 'http'}://${host}`), init)",
-            "  return handle(request, event)",
-            "}",
+            "export default (event: { req: Request }) => handle(event.req, event)",
             "",
           ].join("\n"),
         );
@@ -595,7 +540,7 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
           // Nitro initializes during config hooks, before Vite resolves its final base.
           if (nitroInstance) {
             Object.assign(nitroInstance.options, updateHandlers(nitroInstance.options));
-            nitroInstance.routing?.sync();
+            nitroInstance.routing.sync();
           }
           await writeManagementHandler(route);
         };
