@@ -318,7 +318,9 @@ export async function checkConsoleProjects(): Promise<void> {
  * host verifier support are available. The secret stays in this browser until the person confirms the app on `/link`.
  */
 export function createConsolePendingLink(): Promise<ConsolePendingLinkTicket> {
-  return useState().pendingLinks.create()
+  const projects = useState()
+  const create = () => projects.pendingLinks.create()
+  return projects.pendingLinkLocks ? projects.pendingLinkLocks.request(consolePendingLinksStorageKey, create) : create()
 }
 
 /** Why a pending link cannot link a project. */
@@ -370,9 +372,10 @@ export async function confirmConsoleLink(pendingId: string, target: ConsoleProje
     return { kind: "problem", final: false, problem: { title: "Update your browser", message: "This browser cannot let only one tab use a link, so the Console does not send the key. Open the link in a current browser, on an https:// Console." } }
   }
   // Without Web Locks, two tabs could both send the secret, so the Console sends nothing. With them, one tab at a time
-  // runs the whole claim: check, bind to the target, send, check again, save, and remove.
+  // runs the whole claim: check, bind to the target, send, check again, save, and remove. All links share one stored
+  // list, so one lock covers every link: a lock for each id would let two tabs overwrite each other's writes.
   try {
-    return await projects.pendingLinkLocks.request(`${consolePendingLinksStorageKey}:${pendingId}`, () => confirmLockedConsoleLink(projects, pendingId, target))
+    return await projects.pendingLinkLocks.request(consolePendingLinksStorageKey, () => confirmLockedConsoleLink(projects, pendingId, target))
   }
   catch (error) {
     if (!(error instanceof ConsolePendingLinkStorageError)) throw error
@@ -401,9 +404,11 @@ async function confirmLockedConsoleLink(projects: ConsoleProjectsState, pendingI
   if (probe.kind !== "ready") return { kind: "problem", problem: consoleProjectProblem(probe, problemContext(target)), final: false }
   // Expiry or removal while the request ran still prevents saving the project.
   if (projects.pendingLinks.lookup(pendingId).kind !== "pending") return { kind: "problem", problem: pendingLinkProblems.unknown, final: true }
-  projects.pendingLinks.remove(pendingId)
+  // Save the project before the link is removed. If the browser stops keeping data during the save, the removal fails
+  // and the link stays pending, so the person can try again after reload instead of losing both copies of the secret.
   const project = projects.store.save({ url: target.url, label: probe.info.name, token: lookup.link.secret })
   projects.store.select(project.id)
   projects.projects.value = projects.store.list()
+  projects.pendingLinks.remove(pendingId)
   return { kind: "linked", project }
 }
