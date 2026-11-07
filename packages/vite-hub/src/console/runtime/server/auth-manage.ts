@@ -14,7 +14,9 @@ import {
   assertConsoleRequest,
   consoleRequestError,
   consoleRequestJSON,
+  consoleRoute,
   type ConsoleRequestEvent,
+  type ConsoleRoute,
 } from "./request.ts";
 import { getConsoleSections } from "./sections.ts";
 
@@ -166,4 +168,7 @@ const guarded: ConsoleAccessRoute<typeof handler> = withConsoleAccess(handler, {
   section: "auth",
   user: true,
 });
-export default guarded;
+
+/** `POST <base>/_vitehub/auth/manage` */
+const consoleAuthManageRoute: ConsoleRoute = consoleRoute(guarded);
+export default consoleAuthManageRoute;

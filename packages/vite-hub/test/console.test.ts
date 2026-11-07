@@ -59,7 +59,7 @@ import { consoleSearch } from "../src/console/runtime/server/search.ts"
 import sectionsHandlerRoute from "../src/console/runtime/server/sections.get.ts"
 import { installConsoleDevelopment, installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, updateConsoleInvocationRootState } from "../src/console/vite.ts"
-import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
+import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts"
 import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
 
 import { runAgent } from "@vite-hub/agent"
@@ -5027,7 +5027,7 @@ describe("Agent invocation console", () => {
   })
 
   it("serves the standalone shell with build-replaceable assets and a restrictive non-cacheable policy", async () => {
-    const response = await consolePageHandler(event("127.0.0.1"))
+    const response = await consolePageHandler.fetch(new Request("http://localhost/_vitehub"))
     const page = await response.text()
 
     expect(page).toContain("/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__")
@@ -5047,7 +5047,7 @@ describe("Agent invocation console", () => {
 
   it("denies framing without development output even with NODE_ENV=development", async () => {
     vi.stubEnv("NODE_ENV", "development")
-    const response = await consolePageHandler(event("127.0.0.1"))
+    const response = await consolePageHandler.fetch(new Request("http://localhost/_vitehub"))
 
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
     expect(response.headers.get("x-frame-options")).toBe("DENY")
@@ -5055,7 +5055,7 @@ describe("Agent invocation console", () => {
 
   it("lets same-origin DevTools frame the shell on a development server", async () => {
     installConsoleDevelopment("/tmp/vitehub-console", true)
-    const response = await consolePageHandler(event("127.0.0.1"))
+    const response = await consolePageHandler.fetch(new Request("http://localhost/_vitehub"))
 
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
     expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN")
@@ -5066,13 +5066,13 @@ describe("Agent invocation console", () => {
     installConsoleDevelopment("/second", !developmentFirst)
 
     for (const root of ["/first", "/second"]) {
-      const response = await consolePageHandler(event("127.0.0.1"))
+      const response = await consolePageHandler.fetch(new Request("http://localhost/_vitehub"))
       expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
       expect(response.headers.get("x-frame-options")).toBe("DENY")
       // Refreshing a project cannot disambiguate the scope of the serving handler.
       installConsoleDevelopment(root, true)
     }
-    expect((await consolePageHandler(event("127.0.0.1"))).headers.get("x-frame-options")).toBe("DENY")
+    expect((await consolePageHandler.fetch(new Request("http://localhost/_vitehub"))).headers.get("x-frame-options")).toBe("DENY")
   })
 
   it.each(["build", "serve"])("uses generated %s output to select framing regardless of NODE_ENV or mode", async (command) => {
@@ -5093,7 +5093,7 @@ describe("Agent invocation console", () => {
         const installation = generated.split("\n").find(line => line.startsWith("installConsoleDevelopment("))
         if (!installation) throw new TypeError("Expected generated development state.")
         runInNewContext(installation, { installConsoleDevelopment })
-        const response = await consolePageHandler(event("127.0.0.1"))
+        const response = await consolePageHandler.fetch(new Request("http://localhost/_vitehub"))
         expect(response.headers.get("content-security-policy")).toContain(`frame-ancestors '${development ? "self" : "none"}'`)
         expect(response.headers.get("x-frame-options")).toBe(development ? "SAMEORIGIN" : "DENY")
       }
@@ -5104,17 +5104,14 @@ describe("Agent invocation console", () => {
   })
 
   it("serves the Console client stub with a body, so every development server finishes it", async () => {
-    const response = consoleClientHandler()
+    const response = consoleClientHandler.fetch()
 
     expect(response.headers.get("content-type")).toBe("text/javascript; charset=utf-8")
     expect(await response.text()).not.toBe("")
   })
 
   it("prefixes shell assets when the application is mounted below a base path", async () => {
-    const request = event("127.0.0.1")
-    request.req = { url: "http://localhost/portal/_vitehub" }
-    request.node!.req!.url = "http://localhost/portal/_vitehub"
-    const page = await (await consolePageHandler(request)).text()
+    const page = await (await consolePageHandler.fetch(new Request("http://localhost/portal/_vitehub"))).text()
 
     expect(page).toContain('href="/portal/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__"')
     expect(page).toContain('src="/portal/api/_vitehub/console/client.js"')

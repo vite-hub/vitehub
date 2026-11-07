@@ -13,14 +13,13 @@ import { installConsolePageTool } from "../src/console/runtime/server/page-tool.
 import { consoleVitePlugin } from "../src/console/vite.ts"
 
 import type { ConsoleAccessPolicy } from "../src/console/runtime/server/access.ts"
-import { requestEvent } from "./console-event.ts"
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 const policyKey = Symbol.for("vitehub.console.access")
 const pageToolsKey = Symbol.for("vitehub.page-tools")
 
 function sessionApp() {
-  return { fetch: (request: Request) => pageSessionHandler(requestEvent(request)) }
+  return { fetch: (request: Request) => pageSessionHandler.fetch(request) }
 }
 
 /** The tools that the page tools session allows for one page request under a Console access policy. */

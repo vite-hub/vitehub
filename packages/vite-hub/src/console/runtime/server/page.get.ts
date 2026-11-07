@@ -2,10 +2,10 @@ import { consoleDocumentMetadata } from "../../document-metadata.ts"
 import { consoleMountBase } from "../console-route.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics.ts"
 import { consoleAllowsRequest, consoleAppAuthBasePath, consolePageRejection, consoleSignInPage, consoleSignInRedirect } from "./access.ts"
-import { assertConsoleRequest, consoleRequestURL } from "./request.ts";
+import { assertConsoleRequest, consoleRequestURL, consoleRoute } from "./request.ts";
 import { isConsoleDevelopmentBuild } from "./development.ts"
 
-import type { ConsoleRequestEvent } from "./request.ts";
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts";
 
 // The ViteHub mark of the rail's home item, so the first paint already has the rail of the loaded Console.
 const consoleMarkSvg = '<svg class="vitehub-console-boot__mark" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 18" aria-hidden="true"><path fill="currentColor" d="M19.734 8.156 15.576.844A1.66 1.66 0 0 0 14.135 0H5.819C5.226 0 4.677.32 4.38.844L.222 8.156a1.71 1.71 0 0 0 0 1.688l4.158 7.312c.297.523.846.844 1.439.844h8.316c.593 0 1.142-.32 1.438-.844l4.158-7.312c.3-.523.3-1.165.003-1.688Z"/></svg>'
@@ -83,7 +83,7 @@ async function rejectedPage(rejection: Response): Promise<Response> {
   })
 }
 
-export default async function consolePageHandler(event: ConsoleRequestEvent): Promise<Response> {
+async function consolePageHandler(event: ConsoleRequestEvent): Promise<Response> {
   assertConsoleRequest(event);
   // With a sign-in page, a signed-out visit goes there and comes back, as with Console Auth.
   const signIn = await consoleSignInRedirect(event)
@@ -120,3 +120,7 @@ export default async function consolePageHandler(event: ConsoleRequestEvent): Pr
     },
   });
 }
+
+/** `<base>/_vitehub` and `<base>/_vitehub/**`: the Console page. */
+const consolePageRoute: ConsoleRoute = consoleRoute(consolePageHandler)
+export default consolePageRoute

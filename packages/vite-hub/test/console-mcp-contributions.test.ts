@@ -1,4 +1,3 @@
-import { Readable } from "node:stream"
 
 import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { H3 } from "h3"
@@ -15,7 +14,6 @@ import handler from "../src/console/runtime/server/mcp.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
-import type { H3Event } from "h3"
 import { requestEvent } from "./console-event.ts"
 
 const policyKey = Symbol.for("vitehub.console.access")
@@ -41,8 +39,7 @@ async function rpc(message: unknown, init: { headers?: Record<string, string>, m
     headers: { "content-type": "application/json", accept: "application/json, text/event-stream", ...init.headers },
     ...(init.method === "GET" ? {} : { body: JSON.stringify(message) }),
   })
-  // SAFETY: the route reads the request and the method of the H3 event.
-  const response = await handler(requestEvent(request) as unknown as H3Event)
+  const response = await handler.fetch(request)
   const body: Record<string, any> = response.status === 202 ? {} : Object(await response.json())
   return { status: response.status, body }
 }
@@ -235,21 +232,6 @@ describe("MCP owner contributions", () => {
       else expect.soft(called.body.error).toMatchObject({ code: -32602 })
     }
     expect(calls).toHaveLength(permitted.length)
-  })
-
-  it("answers the H3 1 events of Nuxt 4, which carry Node's request", async () => {
-    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments"] }) })
-    installConsoleSections("/mcp-test", ["comments"])
-    registerViteHubMcpTools("comments", [tool("comments_list_threads", "comments")])
-    const req = Object.assign(Readable.from([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })]), {
-      method: "POST",
-      url: "/_vitehub/mcp",
-      headers: { host: "app.test", origin: "http://app.test", "content-type": "application/json" },
-    })
-    const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req, res: {} }, context: {}, method: "POST" }])
-    if (!(response instanceof Response)) throw new TypeError("Expected a Response")
-    expect(response.status).toBe(200)
-    expect(Object(await response.json()).result.tools.map((entry: { name: string }) => entry.name)).toEqual(["definitions_list", "sections_list", "comments_list_threads"])
   })
 
   it("needs Console access", async () => {

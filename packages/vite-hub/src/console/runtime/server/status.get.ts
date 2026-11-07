@@ -1,19 +1,18 @@
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 import { getConsoleAgentDefinition, getConsoleAgents } from "./agents.ts"
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { assertConsoleRequest, consoleRequestURL } from "./request.ts"
+import { assertConsoleRequest, consoleRequestError, consoleRequestURL, consoleRoute } from "./request.ts"
 import { createAgentStatusReader } from "@vite-hub/agent/server"
 import { observabilityStatus } from "@vite-hub/agent/server/internal"
-import { createError } from "h3"
 
 import type { AgentProviderStatus } from "@vite-hub/agent"
 import type { ObservabilityStatus } from "@vite-hub/agent/observability"
-import type { ConsoleRequestEvent } from "./request.ts"
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 
 const readStatus = createAgentStatusReader()
 
 function statusError(statusCode: number, statusMessage: string, diagnostic: Error): Error {
-  return createError({ cause: diagnostic, statusCode, statusMessage })
+  return Object.assign(consoleRequestError(statusCode, statusMessage), { cause: diagnostic })
 }
 
 /** `observability` is `null` when `vitehub({ observability })` is not set. */
@@ -36,5 +35,9 @@ async function statusHandler(event: ConsoleRequestEvent): Promise<{ agents: Agen
   return { agents, observability: observabilityStatus() }
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof statusHandler> = withConsoleAccess(statusHandler, { section: "agents" })
-export default guardedHandler
+/** The status of the Agents, for the `status.get` operation. */
+export const readConsoleStatus: ConsoleAccessRoute<typeof statusHandler> = withConsoleAccess(statusHandler, { section: "agents" })
+
+/** `GET <base>/api/_vitehub/console/status` */
+const consoleStatusRoute: ConsoleRoute = consoleRoute(readConsoleStatus)
+export default consoleStatusRoute

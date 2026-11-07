@@ -1,5 +1,4 @@
 import { oauthProvider } from "@better-auth/oauth-provider"
-import { defineHandler } from "h3"
 import { DatabaseSync } from "node:sqlite"
 
 import type { BetterAuthPlugin } from "better-auth"
@@ -86,7 +85,7 @@ describe("MCP sign-in against a real Better Auth", () => {
       const auth = (request: Request) => real(request) as unknown as ConsoleOAuthAuth
       installConsoleAccess({ mode: "auth", oauth: { auth, path: "/_vitehub/mcp", resource } })
       for (const handler of [consoleMcpMetadataHandler, consoleMcpAuthorizationServerHandler]) {
-        const response = await defineHandler(handler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
+        const response = await handler.fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
         expect(response.status).toBe(503)
         await expect(response.json()).resolves.toMatchObject({
           code: "CONSOLE_MCP_OAUTH_INCOMPLETE",
@@ -114,10 +113,10 @@ describe("MCP sign-in against a real Better Auth", () => {
         const oauth = resolveConsoleAccessBuild({ auth: {}, mcp: { issuer, resource: audience } }, { handlers: { auth: true, middleware: "/tmp/middleware.mjs" }, root: "/tmp" }).oauth
         if (!oauth) throw new Error("Expected OAuth configuration.")
         installConsoleAccess({ check: async () => new Response("{}", { status: 401 }), mode: "auth", oauth: { ...oauth, auth } })
-        const server = await defineHandler(consoleMcpAuthorizationServerHandler).fetch(new Request(`${app}/.well-known/oauth-authorization-server`))
+        const server = await consoleMcpAuthorizationServerHandler.fetch(new Request(`${app}/.well-known/oauth-authorization-server`))
         expect(server.status).toBe(503)
         await expect(server.json()).resolves.toMatchObject({ code: "CONSOLE_MCP_OAUTH_INCOMPLETE", message: expect.stringContaining(identifier.replace(/\/+$/, "")) })
-        const metadata = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
+        const metadata = await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
         expect(metadata.status).toBe(503)
         await expect(metadata.json()).resolves.toMatchObject({ code: "CONSOLE_MCP_OAUTH_INCOMPLETE", message: expect.stringContaining("issuer") })
       }
@@ -134,7 +133,7 @@ describe("MCP sign-in against a real Better Auth", () => {
       const context = await real(new Request(resource)).$context
       expect(context.getPlugin("oauth-provider")?.options).toMatchObject({ clientRegistrationDefaultResources: [audience], resources: [audience] })
       installConsoleAccess({ check: async () => new Response("{}", { status: 401 }), mode: "auth", oauth: { auth, path: "/_vitehub/mcp", resource: audience } })
-      const metadata = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
+      const metadata = await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
       expect(metadata.status).toBe(200)
       await expect(metadata.json()).resolves.toMatchObject({ resource: audience })
     }
@@ -148,7 +147,7 @@ describe("MCP sign-in against a real Better Auth", () => {
     const issuer = "https://login.example.com/api/auth"
     try {
       installConsoleAccess({ mode: "auth", oauth: { auth, issuer, path: "/_vitehub/mcp", resource } })
-      const response = await defineHandler(consoleMcpAuthorizationServerHandler).fetch(new Request(`${app}/.well-known/oauth-authorization-server/api/auth`))
+      const response = await consoleMcpAuthorizationServerHandler.fetch(new Request(`${app}/.well-known/oauth-authorization-server/api/auth`))
       expect(response.status).toBe(503)
       await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_MCP_OAUTH_INCOMPLETE", message: expect.stringContaining("issuer") })
     }
@@ -162,7 +161,7 @@ describe("MCP sign-in against a real Better Auth", () => {
     const { auth, database } = await consoleAuth({ plugins: [jwt({ jwt: { issuer } })] })
     try {
       installConsoleAccess({ mode: "auth", oauth: { auth, issuer, path: "/_vitehub/mcp", resource } })
-      const response = await defineHandler(consoleMcpAuthorizationServerHandler).fetch(new Request(`${app}/.well-known/oauth-authorization-server/api/auth`))
+      const response = await consoleMcpAuthorizationServerHandler.fetch(new Request(`${app}/.well-known/oauth-authorization-server/api/auth`))
       expect(response.status).toBe(200)
       await expect(response.json()).resolves.toMatchObject({ issuer })
     }
@@ -187,7 +186,7 @@ describe("MCP sign-in against a real Better Auth", () => {
       installConsoleOperations([{ operations: [greet], plugin: "fixture" }])
       installConsoleAccess({ authorize: ({ user: person }) => person?.email === "ada@example.com", check: async () => new Response("{}", { status: 401 }), mode: "auth", oauth: { auth, path: "/_vitehub/mcp" } })
       installConsoleDevelopment("/tmp/console-mcp-auth", true)
-      const answer = await defineHandler(consoleMcpHandler).fetch(new Request(resource, {
+      const answer = await consoleMcpHandler.fetch(new Request(resource, {
         body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/call", params: { arguments: { name: "Ada" }, name: "fixture_greet" } }),
         headers: { "authorization": `Bearer ${signed.token}`, "content-type": "application/json" },
         method: "POST",
@@ -196,13 +195,13 @@ describe("MCP sign-in against a real Better Auth", () => {
       expect(answer.status).toBe(200)
       await expect(answer.json()).resolves.toMatchObject({ result: { structuredContent: { greeting: "Hello Ada", user: "ada@example.com" } } })
       // The metadata names the issuer of the real instance, and Better Auth's metadata is served at the root.
-      const metadata = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`, { headers: {} }))
+      const metadata = await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource`, { headers: {} }))
       expect(metadata.status).toBe(503)
       await expect(metadata.json()).resolves.toMatchObject({ code: "CONSOLE_MCP_ORIGIN_REQUIRED" })
       installConsoleAccess({ check: async () => new Response("{}", { status: 401 }), mode: "auth", oauth: { auth, path: "/_vitehub/mcp", resource } })
-      const configured = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
+      const configured = await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
       await expect(configured.json()).resolves.toMatchObject({ authorization_servers: [`${app}/api/_vitehub/console/auth`], resource })
-      const server = await defineHandler(consoleMcpAuthorizationServerHandler).fetch(new Request(`${app}/.well-known/oauth-authorization-server/api/_vitehub/console/auth`))
+      const server = await consoleMcpAuthorizationServerHandler.fetch(new Request(`${app}/.well-known/oauth-authorization-server/api/_vitehub/console/auth`))
       expect(server.status).toBe(200)
       await expect(server.json()).resolves.toMatchObject({ issuer: `${app}/api/_vitehub/console/auth`, scopes_supported: expect.arrayContaining(["vitehub:read", "vitehub:write"]) })
     }
@@ -293,7 +292,7 @@ describe("MCP sign-in against a real Better Auth", () => {
       // SAFETY: Better Auth's plugins add the OAuth endpoints to this instance at runtime.
       const auth = (request: Request) => real(request) as unknown as ConsoleOAuthAuth
       installConsoleAccess({ mode: "auth", oauth: { auth, path: "/_vitehub/mcp", resource } })
-      const metadata = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
+      const metadata = await consoleMcpMetadataHandler.fetch(new Request(`${app}/.well-known/oauth-protected-resource`))
       expect(metadata.status, await metadata.clone().text()).toBe(200)
       await expect(metadata.json()).resolves.toMatchObject({ authorization_servers: [`${app}/api/auth`], resource })
       await expect(auth(new Request(`${preview}/_vitehub/mcp`)).api.getOAuthServerConfig?.({ asResponse: false, headers: new Headers() })).resolves.toMatchObject({ issuer: `${app}/api/auth` })

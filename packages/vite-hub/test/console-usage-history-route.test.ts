@@ -2,7 +2,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts";
 import { expect, it } from "vitest";
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server";
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts";
-import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts";
+import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts";
 import { allowed } from "./support/console-access.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
 import { consoleEvent } from "./console-event.ts";

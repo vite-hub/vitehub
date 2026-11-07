@@ -8,7 +8,7 @@ import { installConsoleAgentDefinitions } from "../src/console/runtime/server/ag
 import { console as consoleRuntime } from "../src/console/server.ts"
 import { createConsoleD1Invocations, getConsoleInvocations, getConsoleUsageIndex, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 
-import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
+import { readConsoleUsage as usageHandlerRoute } from "../src/console/runtime/server/usage.get.ts"
 
 import type { AgentInvocationD1Database, AgentInvocationD1Statement } from "@vite-hub/agent/invocations/d1"
 import type { AgentRetentionPolicy } from "@vite-hub/agent/server"

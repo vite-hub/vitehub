@@ -3,7 +3,6 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { H3Event } from "h3"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineSchedule } from "@vite-hub/schedule"
@@ -268,9 +267,10 @@ describe("Console Schedule runs", () => {
     const body = JSON.stringify({ name: "sync" })
     const key = await resolveViteHubDispatchKey(env)
     const headers = { "content-type": "application/json", ...await signViteHubDispatch({ actor: "worker", body, key: key!, operation: "schedule.run" }) }
-    const response = await scheduleRunRoute(new H3Event(
+    // srvx and Nitro put the Worker bindings on the Request.
+    const response = await scheduleRunRoute.fetch(Object.assign(
       new Request("https://app.example/_vitehub/schedules/run", { body, headers, method: "POST" }),
-      { cloudflare: { env } },
+      { runtime: { cloudflare: { env } } },
     ))
 
     expect(response.status).toBe(200)
@@ -279,10 +279,7 @@ describe("Console Schedule runs", () => {
 
   it("never falls back to Console access for a request with a dispatch signature", async () => {
     installSchedules()
-    const response = await scheduleRunRoute(Object.assign(Object.create(null), {
-      req: runRequest({ name: "sync" }, { "x-vitehub-dispatch-signature": "v1=forged" }),
-      res: { headers: new Headers() },
-    }))
+    const response = await scheduleRunRoute.fetch(runRequest({ name: "sync" }, { "x-vitehub-dispatch-signature": "v1=forged" }))
 
     expect(response.status).toBe(401)
     expect(await response.json()).toEqual({ message: expect.stringMatching(/Dispatch is not configured|Malformed dispatch signature/) })
@@ -290,7 +287,7 @@ describe("Console Schedule runs", () => {
 
   it("takes only signed dispatches on the route, and sends everyone else to the operation", async () => {
     installSchedules()
-    const response = await scheduleRunRoute(Object.assign(Object.create(null), { req: runRequest({ name: "sync" }), res: { headers: new Headers() } }))
+    const response = await scheduleRunRoute.fetch(runRequest({ name: "sync" }))
 
     expect(response.status).toBe(401)
     expect(await response.json()).toEqual({ message: expect.stringContaining("vitehub schedule run") })

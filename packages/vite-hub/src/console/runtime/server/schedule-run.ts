@@ -8,7 +8,6 @@ import { loadConsoleRuntime } from "./runtime.ts"
 import { getConsoleSections } from "./sections.ts"
 
 import type { ScheduleRunRecord } from "@vite-hub/schedule"
-import type { H3Event } from "h3"
 
 export interface ConsoleScheduleRun {
   completedAt?: string
@@ -112,11 +111,14 @@ export async function handleDispatchScheduleRunRequest(request: Request, env: Re
     : failure(outcome.message, outcome.status)
 }
 
-/** Only a signed dispatch runs here. A person or a CLI runs a Schedule through the `schedule.run` operation. */
-const dispatchHandler = async (event: H3Event): Promise<Response> => {
-  const { req: request, runtime } = getStandardContext(event)
-  return hasViteHubDispatch(request.headers)
-    ? await handleDispatchScheduleRunRequest(request, runtime?.cloudflare?.env)
-    : failure("This route takes signed dispatches only. Sign the request with VITEHUB_DISPATCH_KEY (`vitehub secret derive vitehub:dispatch` prints it), or run the Schedule through the Console RPC with Console credentials. `vitehub schedule run <name> --url <origin>` does either.", 401)
+/**
+ * `POST <base>/_vitehub/schedules/run`. Only a signed dispatch runs here. A person or a CLI runs a Schedule through the
+ * `schedule.run` operation.
+ */
+export default {
+  async fetch(request: Request): Promise<Response> {
+    return hasViteHubDispatch(request.headers)
+      ? await handleDispatchScheduleRunRequest(request, getStandardContext(request).runtime?.cloudflare?.env)
+      : failure("This route takes signed dispatches only. Sign the request with VITEHUB_DISPATCH_KEY (`vitehub secret derive vitehub:dispatch` prints it), or run the Schedule through the Console RPC with Console credentials. `vitehub schedule run <name> --url <origin>` does either.", 401)
+  },
 }
-export default dispatchHandler

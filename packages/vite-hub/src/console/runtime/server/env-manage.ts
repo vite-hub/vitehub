@@ -2,9 +2,10 @@ import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import { withConsoleAccess } from "./access.ts"
 import { manageConsoleEnv } from "./env.ts"
+import { consoleRoute } from "./request.ts"
 
-import type { H3Event } from "h3"
+import type { ConsoleRoute } from "./request.ts"
 
-// Keep the original headers and body for provider authentication and origin checks.
-const guardedHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event) => manageConsoleEnv(getStandardContext(event).req), { section: "env", write: true })
-export default guardedHandler
+/** `POST <base>/_vitehub/env/manage`. It keeps the original headers and body for provider authentication and origin checks. */
+const consoleEnvManageRoute: ConsoleRoute = consoleRoute(withConsoleAccess(event => manageConsoleEnv(getStandardContext(event).req), { section: "env", write: true }))
+export default consoleEnvManageRoute

@@ -1,10 +1,10 @@
 import { getConsoleAgentDefinition, getConsoleAgents } from "./agents.ts";
 import { getConsoleInvocations, getConsoleUsageIndex } from "./invocations.ts";
 import { withConsoleAccess, type ConsoleAccessRoute } from "./access.ts";
-import { assertConsoleRequest, consoleRequestURL } from "./request.ts";
+import { assertConsoleRequest, consoleRequestURL, consoleRoute } from "./request.ts";
 import { createUsageSummary, parseConsoleUsageStatus, parseConsoleUsageWindow } from "./usage.ts";
 
-import type { ConsoleRequestEvent } from "./request.ts";
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts";
 import type { AgentInvocations } from "@vite-hub/agent";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts";
 
@@ -113,5 +113,9 @@ const usageHandler = async (event: ConsoleRequestEvent): Promise<Record<string, 
   );
 };
 
-const guardedHandler: ConsoleAccessRoute<typeof usageHandler> = withConsoleAccess(usageHandler, { section: "usage" });
-export default guardedHandler;
+/** The usage summary, for the `usage.get` operation. */
+export const readConsoleUsage: ConsoleAccessRoute<typeof usageHandler> = withConsoleAccess(usageHandler, { section: "usage" });
+
+/** `GET <base>/api/_vitehub/console/usage` */
+const consoleUsageRoute: ConsoleRoute = consoleRoute(readConsoleUsage);
+export default consoleUsageRoute;

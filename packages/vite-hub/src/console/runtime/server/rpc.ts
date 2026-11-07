@@ -5,13 +5,12 @@ import * as v from "valibot"
 import { consoleRpcHeader } from "../rpc.ts"
 import { consoleAccessAllows, consoleAccessWrites, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { assertLoopbackWithoutSignIn } from "./loopback.ts"
-import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
 import { uploadConsoleMedia } from "./media.ts"
-import { consoleRequestError } from "./request.ts"
+import { consoleErrorResult, consoleRequestError, consoleRoute } from "./request.ts"
 
-import type { H3Event } from "h3"
+import type { ConsoleRoute } from "./request.ts"
 import type { OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleRpcResult } from "../rpc.ts"
 
@@ -45,43 +44,11 @@ interface ConsoleOperationContext extends ConsoleRpcContext {
   response: { status?: number }
 }
 
-function errorResult(error: unknown): ConsoleRpcResult {
-  const value = Object(error)
-  const rawStatus = Reflect.get(value, "statusCode") ?? Reflect.get(value, "status")
-  const status = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : 500
-  const statusMessage = Reflect.get(value, "statusMessage")
-  const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : undefined
-  // Owner action failures, such as CONTENT_INVALID, carry their code and JSON details. See consoleActionError().
-  const ownerCode = text(Reflect.get(value, "consoleCode"))
-  if (ownerCode) {
-    const failure: Extract<ConsoleRpcResult, { ok: false }> = { code: ownerCode, message: message ?? "Console request failed.", ok: false, status }
-    const details: unknown = Reflect.get(value, "consoleDetails")
-    if (details instanceof Object && !Array.isArray(details)) Object.assign(failure, { details })
-    return failure
-  }
-  // A failure site with its own diagnostic keeps its code and guidance. Others get the Console code of the status.
-  const code = text(Reflect.get(value, "code"))
-  if (!code) return { ...consoleDiagnosticBody(consoleStatusDiagnosticCode(status), message), ok: false, status }
-  const result: Extract<ConsoleRpcResult, { ok: false }> = { code, message: message ?? "Console request failed.", ok: false, status }
-  const fix = text(Reflect.get(value, "fix"))
-  const docs = text(Reflect.get(value, "docs"))
-  const details: unknown = Reflect.get(value, "details")
-  if (fix) result.fix = fix
-  if (docs) result.docs = docs
-  // Server failures keep their details out of the response. Input and conflict failures name what to fix.
-  if (status < 500 && details instanceof Object && !Array.isArray(details)) Object.assign(result, { details })
-  return result
-}
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined
-}
-
 async function result(resolve: () => unknown | Promise<unknown>): Promise<ConsoleRpcResult> {
   try {
     return { ok: true, value: await resolve() }
   } catch (error) {
-    return errorResult(error)
+    return consoleErrorResult(error)
   }
 }
 
@@ -234,11 +201,10 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
   return Response.json(body, { headers: root ? { ...responseHeaders, [operationRootHeader]: projectRootHash(root) } : responseHeaders, status: body.ok ? response.status ?? 200 : body.status })
 }
 
-// A plain handler, because Nuxt 4 bundles every `h3` import as its own h3 1, which has no `defineHandler()`.
-const consoleRpcHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event, access) => {
+/** `<base>/_vitehub/rpc/**`: one Console operation for each request. Each operation checks its own section. */
+const consoleRpcRoute: ConsoleRoute = consoleRoute(withConsoleAccess((event, access) => {
   const { req, runtime, waitUntil } = getStandardContext(event)
   return handleConsoleRpcRequest(req, { access, env: runtime?.cloudflare?.env, event, remoteAddress: runtime?.clientAddress, waitUntil })
-  // Each operation checks its own section.
-}, { anySection: true })
+}, { anySection: true }))
 
-export default consoleRpcHandler
+export default consoleRpcRoute

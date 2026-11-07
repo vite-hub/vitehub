@@ -75,8 +75,9 @@ const openWarningKey: unique symbol = Symbol.for("vitehub.console.access.open-wa
 // SAFETY: This module owns the process slot shared by separately bundled generated plugins and Console routes.
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy, [openWarningKey]?: true }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
-const checkedEvents = new WeakMap<object, ConsoleAccess>()
-const rejectedEvents = new WeakMap<object, Response>()
+// Keyed by the Request of the Standard Context, so an H3 middleware and the Fetchable route of one request share it.
+const checkedRequests = new WeakMap<Request, ConsoleAccess>()
+const rejectedRequests = new WeakMap<Request, Response>()
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
 // Responses that `console.authorize` returned, so a page visit gets them as they are.
@@ -220,13 +221,17 @@ export async function consolePageRejection(event: ConsoleRequestEvent): Promise<
 
 /** The access check of a page visit, once per request: the sign-in middleware and the page handler both read it. */
 async function checkPageAccess(event: ConsoleRequestEvent): Promise<ConsoleAccess | Response> {
-  const access = checkedEvents.get(event) ?? rejectedEvents.get(event) ?? await checkConsoleAccess(event)
-  if (isRuntimeResponse(access)) rejectedEvents.set(event, access)
-  else checkedEvents.set(event, access)
+  const request = consoleRequest(event)
+  const access = checkedRequests.get(request) ?? rejectedRequests.get(request) ?? await checkConsoleAccess(event)
+  if (isRuntimeResponse(access)) rejectedRequests.set(request, access)
+  else checkedRequests.set(request, access)
   return access
 }
 
-/** The Fetch request passed to Console authorization and runtime contexts: the request in the event's Standard Context. */
+/**
+ * The Fetch request passed to Console authorization and runtime contexts: the request in the event's Standard Context.
+ * For the Request of a Console route, it is the same Request.
+ */
 export function consoleRequest(event: ConsoleRequestEvent): Request {
   return getStandardContext(event).req
 }
@@ -493,9 +498,11 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
  */
 export async function consoleAllowsRequest(event: unknown, section?: ConsoleSectionId, kind: "read" | "write" = "read"): Promise<boolean> {
   if (!(event instanceof Object)) return false
+  // SAFETY: the page tools session passes its Request and the Console page its event. Both have Standard Context.
+  const consoleEvent = event as ConsoleRequestEvent
+  const request = consoleRequest(consoleEvent)
   // The embedded page's framing decision shares its already-checked access.
-  // SAFETY: the page tools session passes the H3 event of its Nitro route, which has the members the check reads.
-  const access = checkedEvents.get(event) ?? rejectedEvents.get(event) ?? await checkConsoleAccess(event as ConsoleRequestEvent)
+  const access = checkedRequests.get(request) ?? rejectedRequests.get(request) ?? await checkConsoleAccess(consoleEvent)
   return !isRuntimeResponse(access) && (section === undefined || (kind === "write" ? consoleAccessWrites(access, section) : consoleAccessAllows(access, section)))
 }
 
@@ -511,13 +518,14 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
   assertRouteScope(routeScope)
   const declared = Object.freeze({ ...routeScope }) as ConsoleRouteScope
   const route = async (event: TEvent) => {
-    let access = checkedEvents.get(event)
+    const request = consoleRequest(event)
+    let access = checkedRequests.get(request)
     if (!access || !consoleAccessGrant.isValid(access)) {
       const checked = await checkConsoleAccess(event, { user: declared.user === true })
       // A Response from another realm fails `instanceof`. It is a denial, not an access grant.
       if (isRuntimeResponse(checked)) return checked
       access = checked
-      checkedEvents.set(event, access)
+      checkedRequests.set(request, access)
     }
     if ("section" in declared) {
       const section = typeof declared.section === "function" ? declared.section(event) : declared.section
@@ -530,7 +538,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
       const user = await readConsoleAccessUser(access)
       if (user) {
         access = consoleAccessGrant.issue(access.mode, { ...access, user })
-        checkedEvents.set(event, access)
+        checkedRequests.set(request, access)
       }
     }
     // Only an accepted request loads the Console runtime, so a rejected one costs no more than the check.
@@ -574,12 +582,14 @@ export async function consoleOperationAccess(context: OperationContext): Promise
 }
 
 /**
- * Bind a checked Console access to an internal event, such as one Console RPC operation.
- * A guarded handler that receives this event uses the bound access. Rejects an access that `withConsoleAccess()` did not create.
+ * Bind a checked Console access to an internal event, such as one Console RPC operation, through the Request of its
+ * Standard Context. A guarded handler that receives this event uses the bound access. Rejects an access that
+ * `withConsoleAccess()` did not create.
  */
 export function bindConsoleAccess<TEvent extends ConsoleRequestEvent>(access: ConsoleAccess, event: TEvent): TEvent {
   if (!consoleAccessGrant.isValid(access)) throw consoleRequestError(403, "This Console access was not created by the access check.")
-  if (checkedEvents.has(event)) throw consoleRequestError(500, "Console access is already bound to this request.")
-  checkedEvents.set(event, access)
+  const request = consoleRequest(event)
+  if (checkedRequests.has(request)) throw consoleRequestError(500, "Console access is already bound to this request.")
+  checkedRequests.set(request, access)
   return event
 }

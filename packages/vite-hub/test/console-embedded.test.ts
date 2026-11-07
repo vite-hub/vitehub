@@ -5,9 +5,7 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import page from "../src/console/runtime/server/page.get.ts"
 import session from "../src/console/runtime/server/page-session.ts"
-import { requestEvent } from "./console-event.ts"
-
-const event = (path: string) => (requestEvent(new Request(`http://localhost${path}`, { headers: { accept: "text/html" } })))
+const event = (path: string) => new Request(`http://localhost${path}`, { headers: { accept: "text/html" } })
 afterEach(() => {
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.access"))
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.page-tools"))
@@ -16,10 +14,10 @@ afterEach(() => {
 describe("embedded Console access", () => {
   it("allows same-origin production framing only after the Console allows the request", async () => {
     installConsoleAccess({ mode: "open", authorize: async () => false })
-    expect((await page(event("/_vitehub?embed=1"))).headers.get("x-frame-options")).toBe("DENY")
+    expect((await page.fetch(event("/_vitehub?embed=1"))).headers.get("x-frame-options")).toBe("DENY")
     installConsoleAccess({ mode: "open", authorize: async () => true })
-    expect((await page(event("/_vitehub"))).headers.get("x-frame-options")).toBe("DENY")
-    const allowed = await page(event("/_vitehub?embed=1"))
+    expect((await page.fetch(event("/_vitehub"))).headers.get("x-frame-options")).toBe("DENY")
+    const allowed = await page.fetch(event("/_vitehub?embed=1"))
     expect(allowed.headers.get("x-frame-options")).toBe("SAMEORIGIN")
     expect(allowed.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
     expect(allowed.headers.get("content-security-policy")).toContain("frame-src 'self'")
@@ -40,14 +38,14 @@ describe("embedded Console access", () => {
     const policy = mode === "open" ? { mode, authorize } : { mode, check, authorize }
     installConsoleAccess({ ...policy, ...(signInPage ? { signInPage } : {}) })
 
-    const allowed = await page(event("/_vitehub?embed=1"))
+    const allowed = await page.fetch(event("/_vitehub?embed=1"))
     expect(allowed.status).toBe(200)
     expect(allowed.headers.get("x-frame-options")).toBe("SAMEORIGIN")
     expect(allowed.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
     expect(authorize).toHaveBeenCalledTimes(1)
     expect(check).toHaveBeenCalledTimes(mode === "open" ? 0 : 1)
 
-    const denied = await page(event("/_vitehub?embed=1"))
+    const denied = await page.fetch(event("/_vitehub?embed=1"))
     expect(denied.status).toBe(403)
     expect(denied.headers.get("x-frame-options")).toBe("DENY")
     expect(authorize).toHaveBeenCalledTimes(2)
@@ -59,7 +57,7 @@ describe("embedded Console access", () => {
     const authorize = vi.fn(() => true)
     installConsoleAccess({ mode: "auth", check, authorize })
 
-    const signedOut = await page(event("/_vitehub?embed=1"))
+    const signedOut = await page.fetch(event("/_vitehub?embed=1"))
     expect(signedOut.status).toBe(200)
     expect(signedOut.headers.get("x-frame-options")).toBe("DENY")
     expect(signedOut.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
@@ -69,22 +67,22 @@ describe("embedded Console access", () => {
 
   it("does not offer Content to a Console user whose sections exclude it", async () => {
     installConsoleSections("/embedded-test", ["content", "kv"])
-    const app = { fetch: (request: Request) => session(requestEvent(request)) }
+    const app = { fetch: (request: Request) => session.fetch(request) }
     installConsolePageTool(app)
     installConsoleAccess({ mode: "open", authorize: async () => ({ sections: ["kv"] }) })
-    expect(await (await app.fetch(event("/_vitehub/page/session")["~standard"].req)).json()).toMatchObject({ tools: [{ id: "console" }] })
+    expect(await (await app.fetch(event("/_vitehub/page/session"))).json()).toMatchObject({ tools: [{ id: "console" }] })
     installConsoleAccess({ mode: "open", authorize: async () => ({ sections: ["content"] }) })
-    const { tools } = await (await app.fetch(event("/_vitehub/page/session")["~standard"].req)).json() as ViteHubPageSession
+    const { tools } = await (await app.fetch(event("/_vitehub/page/session"))).json() as ViteHubPageSession
     expect(tools).toMatchObject([{ id: "console", lazy: true }, { id: "content" }])
     expect(tools[1]).not.toHaveProperty("lazy")
   })
 
   it("keeps read-only Content in Console without replacing the writable Comments inline editor", async () => {
     installConsoleSections("/embedded-test", ["content", "comments"])
-    const app = { fetch: (request: Request) => session(requestEvent(request)) }
+    const app = { fetch: (request: Request) => session.fetch(request) }
     installConsolePageTool(app)
     installConsoleAccess({ mode: "open", authorize: async () => ({ sections: ["comments", "content:read"] }) })
-    const response = await app.fetch(event("/_vitehub/page/session")["~standard"].req)
+    const response = await app.fetch(event("/_vitehub/page/session"))
     expect(await response.json()).toMatchObject({ tools: [{ id: "console" }] })
   })
 })

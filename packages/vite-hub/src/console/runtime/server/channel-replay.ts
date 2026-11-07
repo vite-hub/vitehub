@@ -5,9 +5,9 @@ import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-
 import { console } from "../../server.ts"
 import { getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
 import { consoleAccessActor, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
-import { consoleRequestJSON, consoleRequestURL, setConsoleResponseHeaders } from "./request.ts"
+import { consoleRequestJSON, consoleRequestURL, consoleRoute, setConsoleResponseHeaders } from "./request.ts"
 
-import type { ConsoleRequestEvent } from "./request.ts"
+import type { ConsoleRequestEvent, ConsoleRoute } from "./request.ts"
 import type { AgentRuntimeContext } from "@vite-hub/agent"
 
 /** Items per request. The CLI continues with the returned cursor. */
@@ -79,4 +79,7 @@ async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleA
 }
 
 const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleAccess(channelReplayHandler, { section: "agents", user: true, write: true })
-export default guardedHandler
+
+/** `POST <base>/_vitehub/channels/replay` */
+const consoleChannelReplayRoute: ConsoleRoute = consoleRoute(guardedHandler)
+export default consoleChannelReplayRoute
