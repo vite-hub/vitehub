@@ -70,6 +70,16 @@ export interface FeatureImplication {
   except?: readonly DeploymentPreset[]
 }
 
+/** The starter Definition file that `vitehub add <feature> --name <name>` creates. */
+export interface FeatureStarter {
+  /** The folder of the Definitions, relative to the project root, such as `server/queues`. */
+  dir: string
+  /** The path of the Definition `name`, relative to the project root. */
+  file: (name: string) => string
+  /** The source of a minimal Definition named `name`. */
+  template: (name: string) => string
+}
+
 export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   id: TId
   title: string
@@ -88,6 +98,8 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   /** The Deployment Plan service that this feature reads, when it has one. */
   service?: DeploymentService
   hosts: Readonly<Record<FeatureHost, HostSupport>>
+  /** The starter Definition, for features with Definition files. */
+  definition?: FeatureStarter
   /** Presets that use `hosts.dev` during development instead of their deployment entry. Node always uses `hosts.dev`. */
   developmentOverrides?: readonly DeploymentPreset[]
 }
@@ -115,8 +127,19 @@ function feature<TId extends FeatureId>(definition: Omit<FeatureDefinition<TId>,
   return { devPackages: [], enabledByDefault: false, implies: [], packages: [], ...definition }
 }
 
+/** A starter for Definitions in `dir`, one `<name>.ts` file each. */
+function starter(dir: string, template: (name: string) => string): FeatureStarter {
+  return { dir, file: name => `${dir}/${name}.ts`, template }
+}
+
 export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
   agent: feature({
+    definition: starter("server/agents", name => `import { defineAgent } from "vite-hub/agent"
+
+export default defineAgent({
+  driver: { run: () => ({ text: "Hello from ${name}." }) },
+})
+`),
     docs: "/docs/agents",
     hosts: {
       ...everywhere("nitro", "Nitro"),
@@ -217,6 +240,22 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Console",
   }),
   database: feature({
+    definition: {
+      dir: "server/databases",
+      file: name => name === "default" ? "server/databases/config.ts" : `server/databases/${name}/config.ts`,
+      template: () => `import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { defineDatabase } from "vite-hub/database"
+
+export default defineDatabase({
+  schema: {
+    notes: sqliteTable("notes", {
+      id: integer("id").primaryKey(),
+      title: text("title").notNull(),
+    }),
+  },
+})
+`,
+    },
     developmentOverrides: ["deno", "netlify", "vercel"],
     devPackages: ["drizzle-kit"],
     docs: "/docs/database",
@@ -281,11 +320,17 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     docs: "/docs/agents/observability",
     hosts: everywhere("evlog", "Evlog"),
     id: "observability",
-    packages: ["@vite-hub/agent"],
+    packages: ["@vite-hub/agent", "evlog"],
     summary: "Agent telemetry, request logs, and papercut reports through Evlog.",
     title: "Observability",
   }),
   queue: feature({
+    definition: starter("server/queues", name => `import { defineQueue } from "vite-hub/queue"
+
+export default defineQueue<{ id: string }>(async ({ payload }) => {
+  console.log("${name}", payload.id)
+})
+`),
     docs: "/docs/queue",
     hosts: {
       cloudflare: native("cloudflare", "Queues", "Cloudflare Queues bindings and consumers."),
@@ -317,6 +362,12 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Rate Limit",
   }),
   realtime: feature({
+    definition: starter("server/realtime", name => `import { defineRealtime } from "vite-hub/realtime"
+
+export default defineRealtime({
+  document: { workspace: "${name}" },
+})
+`),
     developmentOverrides: ["cloudflare", "deno", "netlify", "vercel"],
     docs: "/docs/realtime",
     hosts: {
@@ -349,6 +400,15 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Sandbox",
   }),
   schedule: feature({
+    definition: starter("server/schedules", name => `import { defineSchedule } from "vite-hub/schedule"
+
+export default defineSchedule({
+  cron: "0 * * * *",
+  handler: () => {
+    console.log("${name}")
+  },
+})
+`),
     developmentOverrides: ["cloudflare", "netlify", "vercel"],
     docs: "/docs/schedule",
     hosts: {
@@ -365,6 +425,12 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Schedule",
   }),
   workflow: feature({
+    definition: starter("server/workflows", () => `import { defineWorkflow } from "vite-hub/workflow"
+
+export default defineWorkflow<{ id: string }>(async ({ payload }) => {
+  return { id: payload.id }
+})
+`),
     docs: "/docs/workflows",
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
@@ -401,6 +467,12 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     title: "Workspace",
   }),
 }
+
+/** Additional Console owners selected by its access policy and enabled Agent integration. */
+export const consoleFeaturePackages = {
+  agents: ["@libsql/client", "drizzle-orm"],
+  signIn: ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
+} as const
 
 /** How `host` supports `id`. Development requires the app's configured (or detected) deployment preset. */
 export function featureSupport(id: FeatureId, host: DeploymentPreset): HostSupport
