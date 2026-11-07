@@ -29,7 +29,7 @@ Manual follow-ups (9):
   4. server/api/upload/[chatId].put.ts:26 blob.handleUpload() returns its result to the caller. In ViteHub it resolves to an [error, value] tuple instead of throwing. Check the error, then return the value.
   5. Back up the existing database and stop the app. For local SQLite, copy NuxtHub's .data/db/sqlite.db to ViteHub's default location with `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db .vitehub/data/database/sqlite.db`, together with its -wal and -shm files if they exist.
   6. Create the migration baseline with `pnpm vitehub db generate --name baseline`. It writes server/databases/migrations/. Do not copy NuxtHub's server/db/migrations/ there.
-  7. Compare the baseline SQL with the existing tables, columns, indexes, and constraints. When they match, replace the whole baseline .sql file with `SELECT 1;`. Keep its file name and the meta/ files.
+  7. Compare the baseline SQL with the existing tables, columns, indexes, and constraints. When they match, add IF NOT EXISTS to each CREATE statement in the baseline .sql file, for example `CREATE TABLE IF NOT EXISTS`. The baseline then changes nothing in the existing database and creates the schema in a new one. Keep its file name and the meta/ files.
   8. Record the baseline with `pnpm vitehub db migrate`. Run it a second time to check that it applies nothing.
   9. ViteHub stores Blob metadata in another format, so copy each local blob through the API. With the dev server running, run `pnpm vitehub blob put <pathname> .data/blob/<pathname> --content-type <type>` for each file. Custom metadata is not copied.
 

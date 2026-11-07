@@ -161,7 +161,7 @@ export async function planWrangler(cwd: string, file: string | undefined, featur
     const remove = `Then remove this entry from ${file}.`
     if (resource.kind === "d1_databases" && features.database && binding) {
       d1 = true
-      const fields = [`binding: "${binding}"`, ...(databaseId ? [`databaseId: "${databaseId}"`] : []), ...(databaseName ? [`databaseName: "${databaseName}"`] : [])]
+      const fields = [`binding: "${binding}"`, ...(databaseId ? [`databaseId: "${databaseId}"`] : []), `databaseName: "${databaseName ?? "<D1 database name>"}"`]
       followUps.push({ file, line: resource.line, message: `${keep} To keep this D1 database, set cloudflare: { ${fields.join(", ")} } in defineDatabase() in server/databases/config.ts. ViteHub writes migrations_dir for server/databases/migrations. ${remove}` })
     }
     if (resource.kind === "kv_namespaces" && binding === "CACHE" && features.cache) {
