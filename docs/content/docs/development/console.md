@@ -471,6 +471,9 @@ On Cloudflare, use `console: { auth: { provider: 'cloudflare-access' } }` with a
 `auth: 'token'` protects the Console data routes with one secret. Use it for an app without sign-in, for the CLI, and for a Console on another origin.
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   plugins: [vitehub({
     console: { auth: 'token' },
@@ -522,6 +525,8 @@ The Console page on the app's own origin cannot send the token yet, so with `aut
 A Console on another origin, such as the hosted Console at `https://console.vitehub.dev` or a Console that you host yourself, calls the app's Console data routes from the browser. `console.origins` lists the origins that may do this:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({
   console: {
     auth: 'token',
