@@ -1,11 +1,11 @@
 import { getCloudflareEnv, getCloudflareExecutionContext, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { createH3V1ResponseHeaders, isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
-import { createRuntimeContext } from "./index.ts"
+import { createStandardRuntimeContext, firstAddress, getStandardContext as getRequestStandardContext, isHostRequest, requestAddressPaths } from "./request-context.ts"
 import type { H3V1Event, H3V1NodeResponse } from "@vite-hub/internal/runtime/h3-v1-request"
 import type { EventHandlerRequest } from "h3"
 import type { StandardContext } from "standard-context"
-import type { CreatedRuntimeContext, RuntimeContextInput, RuntimeHostContext } from "./index.ts"
+import type { RequestRuntimeContext, RuntimeContextOptions } from "./request-context.ts"
 import type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
 
 export type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
@@ -18,51 +18,9 @@ declare module "h3" {
   }
 }
 
-type H3RuntimeName = "cloudflare-agents" | "deno" | "unknown" | "vercel" | "vite"
+export type H3RuntimeContextOptions = RuntimeContextOptions
 
-export type H3RuntimeContextOptions = Omit<RuntimeContextInput, "event" | "runtime"> & {
-  runtime?: H3RuntimeName
-}
-
-export type H3RuntimeContext<TOptions extends H3RuntimeContextOptions = {}> = CreatedRuntimeContext<
-  TOptions & {
-    cloudflare?: RuntimeHostContext["cloudflare"]
-    event: ViteHubContext
-    request: Request
-    runtime: H3RuntimeName
-    vercel?: RuntimeHostContext["vercel"]
-  }
->
-
-function detectRuntime(cloudflare: boolean): H3RuntimeName {
-  if (cloudflare) return "cloudflare-agents"
-  if ("Deno" in globalThis) return "deno"
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Hosts can omit the process global; test its presence before reading Node environment variables.
-  if (typeof process !== "undefined") {
-    if (process.env.VERCEL) return "vercel"
-    if (process.env.NODE_ENV === "development") return "vite"
-  }
-  return "unknown"
-}
-
-/**
- * Return true for the Request of an H3 2 event. Hosts pass their own Request classes, such as a Request from
- * another realm, so check the fields that ViteHub reads when the prototype does not match. srvx's Node request
- * inherits from Request, and the prototype check does not run its lazy `url` and `headers` getters.
- */
-function isHostRequest(value: unknown): value is Request {
-  if (value instanceof Request) return true
-  if (!isObjectLike(value)) return false
-  const headers: unknown = Reflect.get(value, "headers")
-  return typeof Reflect.get(value, "url") === "string"
-    && typeof Reflect.get(value, "method") === "string"
-    && isObjectLike(headers)
-    && typeof Reflect.get(headers, "get") === "function"
-}
-
-function isObjectLike(value: unknown): value is object {
-  return value !== null && (typeof value === "object" || typeof value === "function")
-}
+export type H3RuntimeContext<TOptions extends H3RuntimeContextOptions = {}> = RequestRuntimeContext<TOptions>
 
 interface PreparedResponseTarget {
   headers: Headers
@@ -96,27 +54,6 @@ function preparedResponse(target: PreparedResponseTarget): StandardContext.Prepa
     },
   }
 }
-
-function readPath(value: unknown, path: readonly string[]): unknown {
-  let current = value
-  for (const key of path) current = isObjectLike(current) ? Reflect.get(current, key) : undefined
-  return current
-}
-
-/** The first non-empty string at one of `paths`. ViteHub never reads forwarding headers here. */
-function firstAddress(value: object, paths: readonly (readonly string[])[]): string | undefined {
-  for (const path of paths) {
-    const address = readPath(value, path)
-    if (typeof address === "string" && address) return address
-  }
-  return undefined
-}
-
-/**
- * The places where hosts put the peer address of an H3 2 request, in the order of H3's `getRequestIP()`: a host
- * adapter sets `context.clientAddress`, and srvx sets `ip` and keeps the Node request in `runtime.node`.
- */
-const h3V2AddressPaths = [["context", "clientAddress"], ["ip"], ["runtime", "node", "req", "socket", "remoteAddress"]] as const
 
 /** The places where hosts put the peer address of an H3 1 event, in the order of H3 1's `getRequestIP()`. */
 const h3V1AddressPaths = [["context", "clientAddress"], ["node", "req", "socket", "remoteAddress"], ["node", "req", "connection", "remoteAddress"]] as const
@@ -183,7 +120,7 @@ class H3V2StandardProps extends H3StandardProps {
   }
 
   protected clientAddress(): string | undefined {
-    return firstAddress(this.#request, h3V2AddressPaths)
+    return firstAddress(this.#request, requestAddressPaths)
   }
 }
 
@@ -231,66 +168,57 @@ function createH3StandardProps(event: object): ViteHubStandardProps | undefined 
 }
 
 /**
- * Set `event["~standard"]` on an H3 1 or H3 2 event. A value that the host set stays.
+ * Set `event["~standard"]` on an H3 1 or H3 2 event. A value that the host set stays. On H3 2, ViteHub also sets
+ * the same value on `event.req`, so a Fetchable handler that receives only the Request reads the same Standard
+ * Context, and H3 adds the headers that primitives set to the Response that the handler returns.
  * ViteHub calls this for each request in a Nitro `request` hook. Call it yourself only for an event that
  * Nitro did not create, such as in a test. Throws `RUNTIME_R0015` when the event has no request.
  */
 export function installStandardContext<T extends object>(event: T): asserts event is T & ViteHubContext {
-  if ("~standard" in event) return
-  const props = createH3StandardProps(event)
-  if (!props) {
-    throw runtimeErrorDiagnostics.RUNTIME_R0015({ message: "[vitehub] The event has no request, so ViteHub cannot set `~standard`. Pass the event of an H3 or Nitro route." })
+  if (!("~standard" in event)) {
+    const props = createH3StandardProps(event)
+    if (!props) {
+      throw runtimeErrorDiagnostics.RUNTIME_R0015({ message: "[vitehub] The event has no request, so ViteHub cannot set `~standard`. Pass the event of an H3 or Nitro route." })
+    }
+    Object.defineProperty(event, "~standard", { configurable: true, enumerable: false, value: props })
   }
-  Object.defineProperty(event, "~standard", { configurable: true, enumerable: false, value: props })
+  const req: unknown = Object.hasOwn(event, "req") ? Reflect.get(event, "req") : undefined
+  if (isHostRequest(req) && !("~standard" in req) && Object.isExtensible(req)) {
+    Object.defineProperty(req, "~standard", { configurable: true, enumerable: false, value: Reflect.get(event, "~standard") })
+  }
 }
 
 /**
- * Return `event["~standard"]`. ViteHub primitives read request events through this function. It sets Standard
- * Context first when Nitro did not, such as for an H3 app without the ViteHub Vite plugin or an event in a test.
- * Throws `RUNTIME_R0015` when the event has no request.
+ * Return the Standard Context of an H3 event or a web Request. ViteHub primitives read request events through this
+ * function. It sets Standard Context first when Nitro did not, such as for an H3 app without the ViteHub Vite plugin
+ * or an event in a test. Throws `RUNTIME_R0015` when the event has no request.
  */
-export function getStandardContext(event: ViteHubContext): ViteHubStandardProps {
-  installStandardContext(event)
-  return event["~standard"]
+export function getStandardContext(value: Request | ViteHubContext): ViteHubStandardProps {
+  if (isHostRequest(value)) return getRequestStandardContext(value)
+  installStandardContext(value)
+  return value["~standard"]
 }
 
-/** Adapt one request. Await flushWaitUntil when the host has no lifetime API. */
-export function getRuntimeContext(event: ViteHubContext): H3RuntimeContext
+/** Adapt one request. Pass an H3 event or a web Request. Await flushWaitUntil when the host has no lifetime API. */
+export function getRuntimeContext(value: Request | ViteHubContext): H3RuntimeContext
 export function getRuntimeContext<const TOptions extends H3RuntimeContextOptions>(
-  event: ViteHubContext,
+  value: Request | ViteHubContext,
   options: TOptions,
 ): H3RuntimeContext<TOptions>
 export function getRuntimeContext(
-  event: ViteHubContext,
+  value: Request | ViteHubContext,
   options: H3RuntimeContextOptions = {},
 ): H3RuntimeContext<H3RuntimeContextOptions> {
+  if (isHostRequest(value)) return createStandardRuntimeContext(value, getRequestStandardContext(value), options)
   // Keep host resources when replacing the request, while still allowing a
   // synthetic event to provide only the explicit request override.
-  if (!(event as Partial<ViteHubContext>)["~standard"]) {
+  if (!(value as Partial<ViteHubContext>)["~standard"]) {
     try {
-      installStandardContext(event)
+      installStandardContext(value)
     }
     catch (error) {
       if (options.request === undefined || (error as { name?: unknown })?.name !== "RUNTIME_R0015") throw error
     }
   }
-  const standard = (event as Partial<ViteHubContext>)["~standard"]
-  const request = options.request ?? standard?.req
-  if (!request) {
-    throw runtimeErrorDiagnostics.RUNTIME_R0015({ message: "[vitehub] The event has no request, so ViteHub cannot create a runtime context." })
-  }
-  const waitUntil = options.waitUntil?.bind(options)
-    ?? options.vercel?.waitUntil?.bind(options.vercel)
-    ?? standard?.waitUntil
-  const cloudflare = options.cloudflare ?? standard?.runtime?.cloudflare
-  const runtime = options.runtime ?? detectRuntime(!!cloudflare)
-  return createRuntimeContext({
-    request,
-    ...options,
-    ...(cloudflare ? { cloudflare } : {}),
-    event,
-    runtime,
-    ...(runtime === "vercel" && waitUntil ? { vercel: { waitUntil } } : {}),
-    ...(waitUntil ? { waitUntil } : {}),
-  })
+  return createStandardRuntimeContext(value, (value as Partial<ViteHubContext>)["~standard"], options)
 }
