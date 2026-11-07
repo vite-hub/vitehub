@@ -222,7 +222,12 @@ describe("vitehub remove", () => {
     ["types/schedule.d.ts", 'import type { ScheduleDefinition } from "@vite-hub/schedule"\n', "@vite-hub/schedule"],
     ["types/schedule.d.mts", 'export * from "vite-hub/schedule"\n', "vite-hub/schedule"],
     ["types/schedule.d.cts", 'declare module "@vite-hub/schedule" {}\nexport {}\n', "@vite-hub/schedule"],
-  ])("keeps packages used by a declaration file: %s", async (path, content, module) => {
+    ["types/schedule-reference.d.ts", '/// <reference types="@vite-hub/schedule" />\n', "@vite-hub/schedule"],
+    ["types/schedule-reference.d.mts", "/// <reference types='vite-hub/schedule' />\n", "vite-hub/schedule"],
+    ["src/schedule.ts", 'const load = () => import(/* webpackChunkName: "schedule" */ "@vite-hub/schedule")\n', "@vite-hub/schedule"],
+    ["src/schedule.cjs", 'const schedule = require(/* schedule */ "@vite-hub/schedule")\n', "@vite-hub/schedule"],
+    ["src/schedule-line.ts", 'const load = () => import(// schedule\n "vite-hub/schedule")\n', "vite-hub/schedule"],
+  ])("keeps packages used by a source file: %s", async (path, content, module) => {
     const root = await createProject({
       "package.json": JSON.stringify({ dependencies: { "@vite-hub/schedule": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
       [path]: content,

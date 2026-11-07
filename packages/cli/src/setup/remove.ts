@@ -116,8 +116,8 @@ function importsModule(specifier: string, module: string): boolean {
   return specifier === module || specifier.startsWith(`${module}/`)
 }
 
-/** Static imports, re-exports, dynamic imports, `require` calls, and module augmentations. Comments can match, which only makes `remove` stricter. */
-const specifierPattern = /\b(?:from|import|require|declare\s+module)\s*\(?\s*(["'])([^"'\r\n]+)\1/gu
+/** Imports, re-exports, module augmentations, and triple-slash type references. Comments can match, which only makes `remove` stricter. */
+const specifierPattern = /(?:\b(?:from|import|require|declare\s+module)\s*\(?(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*)*|\/\/\/\s*<reference\s+types\s*=\s*)(["'])([^"'\r\n]+)\1/gu
 const sourceFile = /\.(?:[cm]?[jt]sx?|vue)$/iu
 
 function lineAt(content: string, index: number): number {
