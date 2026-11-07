@@ -257,7 +257,11 @@ export default defineAuth({
 });
 ```
 
-Manual hosts can mount the stable `#vitehub/auth/server` handler directly.
+Manual hosts can mount the default export of `#vitehub/auth/server` directly. It is a Fetchable route, `{ fetch(request) }`. It reads the client address and the Cloudflare bindings from the Standard Context of the Request, which Nitro sets in a ViteHub app.
+
+```ts [server/routes/api/auth/[...].ts]
+export { default } from '#vitehub/auth/server'
+```
 
 For a manual adapter that creates plain Web `Request` objects, use `createAuthHandler(definition)` from `@vite-hub/auth/server` and call the returned handler as `handler(request, { clientAddress })`. Read `clientAddress` from the host's peer address, such as Node's `incomingMessage.socket.remoteAddress`, never from a client-sent header. Auth uses it for per-client rate limiting and `session.ipAddress`; without it, plain Web requests share an addressless rate-limit bucket. srvx requests already carry their host address as `ip`.
 
