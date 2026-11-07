@@ -40,6 +40,7 @@
     "yaml": "catalog:tooling"
   },
   "devDependencies": {
+    "@types/node": "catalog:tooling",
     "@iconify-json/lucide": "catalog:ui",
     "@iconify-json/ph": "catalog:ui",
     "@iconify-json/simple-icons": "catalog:ui",
