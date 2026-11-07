@@ -13,6 +13,7 @@ import { SecretEnv } from "../src/secret.ts";
 import { describeServerEnv, loadServerEnv, resolveServerEnv } from "../src/server.ts";
 
 import type { EnvSchemaOptions } from "../src/env-schema/index.ts";
+import { cloudflareRequest } from "./cloudflare-request.ts";
 
 const directories: string[] = [];
 
@@ -112,14 +113,12 @@ describe("envSchema()", () => {
     });
     const registry = createRuntimeRegistry(config.server);
     expect(
-      resolveServerEnv(registry, {
-        env: {
+      resolveServerEnv(registry, cloudflareRequest({
           RAW_TOKEN: "exact-raw",
           VITEHUB_RAW_TOKEN: "wrong-raw",
           VITEHUB_CUSTOM_TOKEN: "exact-custom",
           VITEHUB_TOKEN: "wrong-canonical",
-        },
-      }),
+        })),
     ).toMatchObject({ rawToken: "exact-raw", token: "exact-custom" });
     expect(describeServerEnv(registry).entries.every((entry) => !entry.canonicalName)).toBe(true);
   });
@@ -142,9 +141,7 @@ VITEHUB_PIN=
 # @type=enum(draft, send) @public
 VITEHUB_MODE=draft`);
     const registry = createRuntimeRegistry(config.server);
-    const result = resolveServerEnv(registry, {
-      env: { VITEHUB_PIN: "1234", VITEHUB_LIMIT: "", VITEHUB_UNSET: "", VITEHUB_ENABLED: "1" },
-    });
+    const result = resolveServerEnv(registry, cloudflareRequest({ VITEHUB_PIN: "1234", VITEHUB_LIMIT: "", VITEHUB_UNSET: "", VITEHUB_ENABLED: "1" }));
     expect(result).toMatchObject({
       retries: 3,
       enabled: true,
@@ -181,7 +178,7 @@ VITEHUB_MODE=draft`);
     ["# @public\nVITEHUB_VALUE=valid", ""],
   ])("rejects invalid present overrides without falling back to the default", (source, value) => {
     const registry = createRuntimeRegistry(contract(source).server);
-    expect(() => resolveServerEnv(registry, { env: { VITEHUB_VALUE: value } })).toThrow(
+    expect(() => resolveServerEnv(registry, cloudflareRequest({ VITEHUB_VALUE: value }))).toThrow(
       expect.objectContaining({ code: "ENV_RUNTIME_VALUE_INVALID" }),
     );
   });
@@ -189,12 +186,12 @@ VITEHUB_MODE=draft`);
   it("does not turn examples into defaults or expose rejected secret values", () => {
     const config = contract('# @example="documentation-only"\nVITEHUB_TOKEN=');
     const registry = createRuntimeRegistry(config.server);
-    expect(() => resolveServerEnv(registry, { env: {} })).toThrow(
+    expect(() => resolveServerEnv(registry, cloudflareRequest({}))).toThrow(
       expect.objectContaining({ code: "ENV_REQUIRED_MISSING" }),
     );
     const secretNumber = createRuntimeRegistry(contract("# @type=number\nVITEHUB_TOKEN=").server);
     const error = capture(() =>
-      resolveServerEnv(secretNumber, { env: { VITEHUB_TOKEN: "private-rejected-value" } }),
+      resolveServerEnv(secretNumber, cloudflareRequest({ VITEHUB_TOKEN: "private-rejected-value" })),
     );
     expect(JSON.stringify(error)).not.toContain("private-rejected-value");
     expect(String(error.cause)).not.toContain("private-rejected-value");
@@ -221,12 +218,10 @@ VITEHUB_PRIVATE_TAGS=
 # @type=object @optional @public
 VITEHUB_METADATA=`);
     const registry = createRuntimeRegistry(config.server);
-    const result = resolveServerEnv(registry, {
-      env: {
+    const result = resolveServerEnv(registry, cloudflareRequest({
         VITEHUB_SETTINGS: '{"enabled":true,"retries":3,"tags":["one"]}',
         VITEHUB_PRIVATE_TAGS: '["private-marker"]',
-      },
-    });
+      }));
     expect(result).toMatchObject({
       roles: ["read"],
       settings: { enabled: true, retries: 3, tags: ["one"] },
@@ -264,7 +259,7 @@ VITEHUB_METADATA=`);
     const registry = createRuntimeRegistry(
       contract(`# @type=${type} @public\nVITEHUB_VALUE=`).server,
     );
-    const error = capture(() => resolveServerEnv(registry, { env: { VITEHUB_VALUE: value } }));
+    const error = capture(() => resolveServerEnv(registry, cloudflareRequest({ VITEHUB_VALUE: value })));
     expect(error).toMatchObject({ code: "ENV_RUNTIME_VALUE_INVALID" });
     expect(JSON.stringify(error)).not.toContain("private-marker");
     expect(String(error.cause)).not.toContain("private-marker");
@@ -303,7 +298,7 @@ VITEHUB_PRIVATE_TAGS='[{"label":"first"}]'`).server,
       VITEHUB_SETTINGS: { enabled: true, tags: ["first"] },
       VITEHUB_PRIVATE_TAGS: [{ label: "first" }],
     };
-    for (const event of [{ env: {} }, { env: bindings }]) {
+    for (const event of [cloudflareRequest({}), cloudflareRequest(bindings)]) {
       const first = resolveServerEnv<Values>(registry, event);
       first.settings.enabled = false;
       first.settings.tags.push("changed");
@@ -342,7 +337,7 @@ VITEHUB_PRIVATE_TAGS='[{"label":"first"}]'`).server,
         privateTags: SecretEnv<Array<{ label: string }>>;
       }>(
         registry,
-        { env: source === "host" ? { STRUCTURED_SETTINGS: settings } : {} },
+        cloudflareRequest(source === "host" ? { STRUCTURED_SETTINGS: settings } : {}),
         {
           providers: {
             config: defineEnvProvider({
@@ -382,7 +377,7 @@ VITEHUB_PRIVATE_TAGS='[{"label":"first"}]'`).server,
       "# @public\nVITEHUB_DATABASE_URL=https://example.test\n# @public\nVITEHUB_APP_LABEL=Acme",
       { paths: { VITEHUB_DATABASE_URL: "database.url" } },
     );
-    expect(resolveServerEnv(createRuntimeRegistry(config.server), { env: {} })).toEqual({
+    expect(resolveServerEnv(createRuntimeRegistry(config.server), cloudflareRequest({}))).toEqual({
       database: { url: "https://example.test" },
       appLabel: "Acme",
     });
@@ -421,10 +416,10 @@ describe("serializable Env descriptors", () => {
       decimal: descriptorVariable({ kind: "number", decimal: true }, {}),
     });
     expect(
-      resolveServerEnv(registry, { env: { VITEHUB_LEGACY: "0xff", VITEHUB_DECIMAL: "1e2" } }),
+      resolveServerEnv(registry, cloudflareRequest({ VITEHUB_LEGACY: "0xff", VITEHUB_DECIMAL: "1e2" })),
     ).toEqual({ legacy: 255, decimal: 100 });
     expect(() =>
-      resolveServerEnv(registry, { env: { VITEHUB_LEGACY: "0xff", VITEHUB_DECIMAL: "0xff" } }),
+      resolveServerEnv(registry, cloudflareRequest({ VITEHUB_LEGACY: "0xff", VITEHUB_DECIMAL: "0xff" })),
     ).toThrow(expect.objectContaining({ code: "ENV_RUNTIME_VALUE_INVALID" }));
   });
 
@@ -440,7 +435,7 @@ describe("serializable Env descriptors", () => {
     expect(serialized).toMatchObject({
       limit: { schema: { kind: "number", min: 1, max: 5, isInt: true, decimal: true } },
     });
-    expect(resolveServerEnv(registry, { env: { VITEHUB_LIMIT: 3 } }).limit).toBe(3);
+    expect(resolveServerEnv(registry, cloudflareRequest({ VITEHUB_LIMIT: 3 })).limit).toBe(3);
   });
 
   it("generates string types for URL descriptors and validates defaults", () => {
