@@ -27,8 +27,8 @@ declare module "#vitehub/env/server" {
     : T extends object
       ? { readonly [TKey in keyof T]: DeepReadonly<T[TKey]> }
       : T
-  export function inspectServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ServerEnvInspection>
-  export function loadServerEnv(event?: unknown, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ReadonlyServerEnv>
-  export function useServerEnv(event?: unknown): ServerEnv
-  export function runWithServerEnv<T>(event: unknown, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<T>
+  export function inspectServerEnv(event?: import("@vite-hub/env/server").ViteHubContext, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ServerEnvInspection>
+  export function loadServerEnv(event?: import("@vite-hub/env/server").ViteHubContext, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<ReadonlyServerEnv>
+  export function useServerEnv(event?: import("@vite-hub/env/server").ViteHubContext): ServerEnv
+  export function runWithServerEnv<T>(event: import("@vite-hub/env/server").ViteHubContext | undefined, callback: (env: ReadonlyServerEnv) => T | Promise<T>, options?: { signal?: AbortSignal; access?: import("@vite-hub/env/bridge").EnvAccessContext }): Promise<T>
 }

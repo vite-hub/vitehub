@@ -69,6 +69,12 @@ export interface McpOAuthOptions {
   provider?: Partial<OAuthProviderOptions>
 }
 
+/**
+ * The plugins of {@link mcpOAuth}, with their own types, so the typed Auth of a Definition that spreads them has the
+ * JWT and OAuth provider endpoints, such as `api.getJwks`.
+ */
+export type McpOAuthPlugins = [ReturnType<typeof jwt>, ReturnType<typeof oauthProvider>, BetterAuthPlugin]
+
 const baseScopes = ["openid", "profile", "email", "offline_access"]
 const registerPath = "/oauth2/register"
 
@@ -153,7 +159,7 @@ function registrationLimits(options: McpOAuthOptions): BetterAuthPlugin {
  * }))
  * ```
  */
-export function mcpOAuth(options: McpOAuthOptions): BetterAuthPlugin[] {
+export function mcpOAuth(options: McpOAuthOptions): McpOAuthPlugins {
   const resources = typeof options.resource === "string" ? [options.resource] : [...options.resource]
   return [
     // By default the plugin signs a token on every session read, which MCP sign-in never uses.

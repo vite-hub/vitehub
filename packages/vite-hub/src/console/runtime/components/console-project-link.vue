@@ -2,13 +2,15 @@
 import { ref, shallowRef, watch } from "vue";
 
 import type { ConsoleProjectProblem } from "../client/project-link";
+import { consoleTokenRefused } from "../client/project-link";
 import type { ConsoleProjectTarget } from "../client/projects";
 import { cancelConsoleOpen, finishConsoleOpen, useConsoleOpenRequest } from "../client/open-link";
-import { linkConsoleProject, switchConsoleProject } from "../client/project-session";
+import { consoleProjectsVolatileNote, linkConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import ConsoleProjectToken from "./console-project-token.vue";
 
 const open = defineModel<boolean>("open", { required: true });
+const persistent = useConsoleProjects().persistent;
 
 // An `/open` link of a project that this browser did not link fills in its URL.
 const openRequest = useConsoleOpenRequest();
@@ -42,6 +44,8 @@ async function link(token?: string): Promise<void> {
   try {
     const result = await linkConsoleProject(tokenStep.value?.target.url ?? url.value, token);
     if (result.kind === "linked") {
+      // The first project opens in place, so the dialog closes first.
+      open.value = false;
       if (!finishConsoleOpen(result.project)) switchConsoleProject(result.project.id);
       return;
     }
@@ -73,7 +77,7 @@ function back(): void {
       <div v-if="tokenStep" class="grid gap-3">
         <ConsoleProjectToken
           :busy="busy"
-          :error="problem?.message ?? (tokenStep.rejected ? `${consoleProjectHost(tokenStep.target)} refused this token. Copy the current value of VITEHUB_CONSOLE_TOKEN from the server and try again.` : undefined)"
+          :error="problem?.message ?? (tokenStep.rejected ? consoleTokenRefused(consoleProjectHost(tokenStep.target)) : undefined)"
           @submit="link"
         />
         <UButton color="neutral" variant="link" size="sm" class="justify-self-start px-0" icon="i-lucide-arrow-left" label="Use another URL" :disabled="busy" @click="back" />
@@ -106,6 +110,7 @@ function back(): void {
           </div>
         </div>
         <UButton type="submit" block :loading="busy" :label="busy ? 'Checking…' : 'Continue'" />
+        <p v-if="!persistent" class="text-xs text-pretty text-muted">{{ consoleProjectsVolatileNote }}</p>
       </form>
     </template>
   </UModal>
