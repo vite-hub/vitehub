@@ -199,6 +199,8 @@ Console requires an explicit access choice with `--option console.auth=false` fo
 
 Connections management requires Console; Observability papercut reports require Agent and Console. The command collects Console access and their provider inputs before applying these options.
 
+Console does not enable Comments or Database. Observability requires a non-empty `observability.service` and supports Agents only when Nitro hosts them. Selecting PostHog installs `posthog-node` and enables Server Env. Logs requires `--option logs.source=./server/logs.ts` to use an existing source in production. A Realtime starter enables Workspace; add the Workspace Definition named in its next steps.
+
 When running a pkg.pr.new preview of the CLI, added ViteHub packages use the same preview reference.
 
 ### `SETUP_FEATURE_UNSUPPORTED`

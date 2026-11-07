@@ -46,6 +46,105 @@ const fixtures: ReadonlyArray<readonly [string, DeploymentPreset, string]> = [
 ]
 
 describe("vitehub add", () => {
+  it.each([
+    ['{ preset: "netlify", agent: true }', ["observability", "--option", "observability.service=api"]],
+    ['{ preset: "netlify" }', ["agent", "observability", "--option", "observability.service=api"]],
+    ['{ preset: "netlify", observability: { service: "api" } }', ["agent"]],
+    ['{ preset: "node", agent: { runtime: "deno" } }', ["observability", "--option", "observability.service=api"]],
+    ['{ preset: "node" }', ["agent", "observability", "--option", "agent.runtime=deno", "--option", "observability.service=api"]],
+  ] as const)("rejects Observability with non-Nitro Agents before installing or writing (%s)", async (options, args) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(options) })
+    const before = await snapshot(root)
+    let spawned = false
+    const result = await add([...args, "--yes"], root, async () => {
+      spawned = true
+      return { exitCode: 0 }
+    })
+    expect(result.exitCode, result.stdout).toBe(3)
+    expect(result.json.error?.why).toContain("Nitro-hosted Agents")
+    expect(spawned).toBe(false)
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it.each(['{ preset: "netlify", agent: false }', '{ preset: "node", agent: true }'])("accepts compatible Observability and Agent configuration (%s)", async (options) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(options) })
+    const result = await add(["observability", "--option", "observability.service=api", "--dry-run"], root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.install.packages).toContain("evlog")
+    expect(result.json.install.packages).not.toContain("posthog-node")
+  })
+
+  it.each(["", "   ", "false", "0", "null"])("requires a non-empty Observability service before writing (%s)", async (service) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ preset: "node" }') })
+    const before = await snapshot(root)
+    let spawned = false
+    const result = await add(["observability", "--option", `observability.service=${service}`, "--yes"], root, async () => {
+      spawned = true
+      return { exitCode: 0 }
+    })
+    expect(result.exitCode, result.stdout).toBe(2)
+    expect(result.json.missing).toEqual([{ field: "observability.service" }])
+    expect(spawned).toBe(false)
+    expect(await snapshot(root)).toEqual(before)
+    expect((await runSetup<AddResult>(result.json.rerun!.split(" ").slice(1), root, {}, async () => ({ exitCode: 0 }))).exitCode).toBe(0)
+  })
+
+  it.each([undefined, "", "   "])("requires a Logs source before writing (%s)", async (source) => {
+    const root = await createProject({
+      "package.json": pnpmManifest,
+      "vite.config.ts": viteConfig('{ preset: "node" }'),
+      "server/logs.ts": "export default {}\n",
+    })
+    const before = await snapshot(root)
+    const result = await add(["logs", ...source === undefined ? [] : ["--option", `logs.source=${source}`], "--yes"], root)
+    expect(result.exitCode, result.stdout).toBe(2)
+    expect(result.json.missing).toEqual([{ field: "logs.source" }])
+    expect(result.json.rerun).toBeUndefined()
+    expect(await snapshot(root)).toEqual(before)
+    const applied = await add(["logs", "--option", "logs.source=./server/logs.ts", "--no-install", "--yes"], root)
+    expect(applied.exitCode, applied.stdout).toBe(0)
+  })
+
+  it("enables Server Env and installs PostHog when selected", async () => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig('{ preset: "node", env: false }') })
+    const args = ["observability", "--option", "observability.service=api", "--option", "observability.posthog.apiKey=key", "--no-install", "--yes"]
+    const result = await add(args, root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.features).toContain("env")
+    expect(result.json.install.packages).toContain("posthog-node")
+    const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
+    expect(config.ok && config.site.keys.env).toMatchObject({ value: {} })
+    expect((await add(args, root)).json.status).toBe("unchanged")
+  })
+
+  it.each(['{ preset: "node" }', '{ preset: "node", workspace: false }'])("enables Workspace for the Realtime starter (%s)", async (options) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(options) })
+    const args = ["realtime", "--option", "realtime.authority=memory", "--name", "docs", "--no-install", "--yes"]
+    const result = await add(args, root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(result.json.features).toContain("workspace")
+    expect(result.json.install.packages).toContain("@vite-hub/workspace")
+    const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
+    expect(config.ok && config.site.keys.workspace).toMatchObject({ value: true })
+    expect((await add(args, root)).json.status).toBe("unchanged")
+  })
+
+  it.each([
+    ["console", []],
+    ["observability", ["--option", "observability.service=api", "--option", "observability.papercuts=true"]],
+  ] as const)("preserves disabled Comments and Database when %s requires only Console", async (feature, options) => {
+    for (const comments of [undefined, false]) {
+      const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "deno", ${comments === false ? "comments: false," : ""} database: false }`) })
+      const result = await add([feature, ...options, "--option", "console.auth=false", "--no-install", "--yes"], root)
+      expect(result.exitCode, result.stdout).toBe(0)
+      expect(result.json.install.packages).not.toContain("@vite-hub/comments")
+      expect(result.json.install.packages).not.toContain("@vite-hub/database")
+      const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
+      expect(config.ok && config.site.keys.database).toMatchObject({ value: false })
+      expect(config.ok && config.site.keys.comments?.value).toBe(comments)
+    }
+  })
+
   it.each([undefined, "server/missing-authorize.ts"])("rejects app Auth without Console authorization before installing or writing (%s)", async (authorize) => {
     const root = await createProject({
       "package.json": pnpmManifest,
@@ -109,11 +208,15 @@ describe("vitehub add", () => {
       expect(spawned).toBe(false)
       expect(await snapshot(root)).toEqual(before)
 
-      if (featureSupport("database", host).level === "explicit") args.push("--option", "database.connection.url=libsql://example.com")
+      if (feature === "connections" && featureSupport("database", host).level === "explicit") args.push("--option", "database.connection.url=libsql://example.com")
       const applied = await add([...args, "--option", "console.auth=false", "--no-install"], root)
       expect(applied.exitCode, applied.stdout).toBe(0)
-      expect(applied.json.features).toEqual(expect.arrayContaining([feature, "console", "database", ...prerequisites]))
-      expect(applied.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/database", "drizzle-orm"]))
+      expect(applied.json.features).toEqual(expect.arrayContaining([feature, "console", ...prerequisites]))
+      if (feature === "connections") {
+        expect(applied.json.features).toContain("database")
+        expect(applied.json.install.packages).toEqual(expect.arrayContaining(["@vite-hub/database", "drizzle-orm"]))
+      }
+      else expect(applied.json.install.packages).not.toContain("@vite-hub/database")
       const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
       expect(config.ok && config.site.keys.console).toMatchObject({ value: { auth: false } })
       for (const id of prerequisites) expect(config.ok && config.site.keys[id]).toMatchObject({ value: true })
@@ -379,8 +482,9 @@ describe("vitehub add", () => {
       const before = await readFile(join(root, configFile), "utf8")
       const options = [
         ...(id === "console" ? ["--option", "console.auth=false"] : []),
+        ...(id === "logs" ? ["--option", "logs.source=./server/logs.ts"] : []),
         ...(host === "node" && id === "schedule" ? ["--option", "schedule.runtime.driver=process"] : []),
-        ...(featureSupport("database", host).level === "explicit" && ["comments", "connections", "console"].includes(id) ? ["--option", "database.connection.url=libsql://example.com"] : []),
+        ...(featureSupport("database", host).level === "explicit" && ["comments", "connections"].includes(id) ? ["--option", "database.connection.url=libsql://example.com"] : []),
       ]
 
       const first = await add([id, ...options, "--no-install", "--yes"], root)
@@ -450,24 +554,23 @@ describe("vitehub add", () => {
   })
 
   it.each(["node", "netlify"])("enables a disabled Database prerequisite on %s", async (host) => {
-    for (const feature of ["comments", "connections", "console"]) {
-      const access = feature === "console" ? ["--option", "console.auth=false"] : []
+    for (const feature of ["comments", "connections"]) {
       const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}", database: false }`) })
       if (host === "netlify") {
         const before = await snapshot(root)
-        const first = await add([feature, ...access, "--no-install", "--yes"], root)
+        const first = await add([feature, "--no-install", "--yes"], root)
         expect(first.exitCode).toBe(2)
         expect(first.json.missing).toEqual([{ field: "database.connection" }])
         expect(await snapshot(root)).toEqual(before)
       }
       const options = host === "netlify" ? ["--option", "database.connection.url=libsql://example.com"] : []
-      const result = await add([feature, ...access, ...options, "--no-install", "--yes"], root)
+      const result = await add([feature, ...options, "--no-install", "--yes"], root)
       expect(result.exitCode, result.stdout).toBe(0)
       expect(result.json.features).toContain("database")
       expect(result.json.install.packages).toContain("@vite-hub/database")
       const config = locateViteHubConfig("vite.config.ts", await readFile(join(root, "vite.config.ts"), "utf8"))
       expect(config.ok && config.site.keys.database).toMatchObject({ value: host === "node" ? true : { connection: { url: "libsql://example.com" } } })
-      expect((await add([feature, ...access, ...options, "--no-install", "--yes"], root)).json.status).toBe("unchanged")
+      expect((await add([feature, ...options, "--no-install", "--yes"], root)).json.status).toBe("unchanged")
     }
   })
 
@@ -584,23 +687,22 @@ describe("vitehub add", () => {
   })
 
   it.each(["netlify", "deno"])("collects provider inputs for implied Database features on %s", async (host) => {
-    for (const feature of ["comments", "connections", "console"]) {
-      const access = feature === "console" ? ["--option", "console.auth=false"] : []
+    for (const feature of ["comments", "connections"]) {
       const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "${host}" }`) })
       const before = await snapshot(root)
 
-      const first = await add([feature, ...access, "--no-install", "--yes"], root)
+      const first = await add([feature, "--no-install", "--yes"], root)
       expect(first.exitCode, feature).toBe(2)
       expect(first.json.missing).toEqual([{ field: "database.connection" }])
       expect(first.json.rerun).toBeUndefined()
       expect(await snapshot(root)).toEqual(before)
 
-      const second = await add([feature, ...access, "--option", "database.connection.url=libsql://example.com", "--no-install", "--yes"], root)
+      const second = await add([feature, "--option", "database.connection.url=libsql://example.com", "--no-install", "--yes"], root)
       expect(second.exitCode, second.stdout).toBe(0)
       expect(second.json.implied).toContain("database")
       expect(second.json.nextSteps.some(step => step.includes("Set `database.connection`"))).toBe(false)
       expect(await readFile(join(root, "vite.config.ts"), "utf8")).toContain('database: { connection: { url: "libsql://example.com" } }')
-      expect((await add([feature, ...access, "--no-install", "--yes"], root)).json.status).toBe("unchanged")
+      expect((await add([feature, "--no-install", "--yes"], root)).json.status).toBe("unchanged")
     }
   })
 

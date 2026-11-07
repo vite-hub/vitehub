@@ -81,7 +81,7 @@ const booleanFeatures: readonly FeatureId[] = ["queue", "sandboxTask"]
 /** The value that turns a feature on, when `true` is not valid for its key. */
 const enabledValues: Partial<Record<FeatureId, JsonValue>> = { env: {} }
 /** Options without a default that the feature key needs. */
-const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { console: ["auth"], observability: ["service"] }
+const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { console: ["auth"], logs: ["source"], observability: ["service"] }
 
 /** Match the Auth package's file locations without loading application code. */
 function hasAuthDefinition(project: SetupProject): boolean {
@@ -292,7 +292,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     return mergeValue(current?.kind === "literal" ? current.value : undefined, args.options[id])
   }
   // Implications and provider prerequisites need their inputs before any file can be written.
-  // Database is mandatory for Comments and Connections, including Console's implied Comments.
+  // Database is mandatory for Comments and Connections.
   const inputFeatures = [...args.features, ...impliedFeatures(args.features, host, keep.filter(id => id !== "database"))]
   if (inputFeatures.includes("database") && keep.includes("database")) requires.push("database")
   const requireFeature = (required: FeatureId) => {
@@ -308,13 +308,11 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const value = valueFor(id)
     if (id === "connections" && isRecord(value) && value.management) requireFeature("console")
     if (id === "observability" && isRecord(value) && value.papercuts) {
-      const agent = valueFor("agent")
-      if (host === "netlify" || (isRecord(agent) && agent.runtime === "deno")) {
-        throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "observability.papercuts requires Nitro-hosted Agents. Netlify and the Agent Deno runtime are not supported.", feature: id, host }), { exitCode: setupExitCodes.conflict })
-      }
       requireFeature("agent")
       requireFeature("console")
     }
+    if (id === "observability" && isRecord(value) && value.posthog) requireFeature("env")
+    if (id === "realtime" && args.name !== undefined) requireFeature("workspace")
     if (id === "agent" && host === "deno" && isRecord(value) && value.runtime === "deno") {
       throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The Deno preset cannot deploy the Agent Deno runtime outside its Nitro entrypoint. Use the preset's Nitro runtime instead.", feature: id, host }), { exitCode: setupExitCodes.conflict })
     }
@@ -376,12 +374,21 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       }
     }
     for (const key of requiredOptions[id] ?? []) {
-      if (options && key in options) continue
-      if (setsOption(project, `${id}.${key}`)) continue
+      if (id === "observability" || id === "logs") {
+        const selected = isRecord(value) ? value[key] : undefined
+        if (typeof selected === "string" && selected.trim()) continue
+      }
+      else if ((options && key in options) || setsOption(project, `${id}.${key}`)) continue
       missing.push({ field: `${id}.${key}` })
-      if (id === "console") rerunnable = false
-      else setPath(defaults[id] ??= {}, [key], basename(project.root).toLowerCase().replace(/[^a-z0-9]+/gu, "-") || "app")
+      if (id === "observability") setPath(defaults[id] ??= {}, [key], basename(project.root).toLowerCase().replace(/[^a-z0-9]+/gu, "-") || "app")
+      else rerunnable = false
     }
+  }
+  const enabledAfter = (id: FeatureId) => inputFeatures.includes(id) || status.features.find(item => item.id === id)?.enabled === "on"
+  const agent = valueFor("agent")
+  if (inputFeatures.some(id => id === "agent" || id === "observability") && enabledAfter("observability") && enabledAfter("agent")
+    && (host === "netlify" || (isRecord(agent) && agent.runtime === "deno"))) {
+    throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Observability requires Nitro-hosted Agents. Netlify and the Agent Deno runtime are not supported.", feature: "observability", host }), { exitCode: setupExitCodes.conflict })
   }
   for (const id of Object.keys(args.options) as FeatureId[]) {
     if (!inputFeatures.includes(id)) throw invalid(`${id} is not requested or required by ${args.features.join(", ")}.`)
@@ -449,6 +456,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
   const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures])]
   const packages = packageFeatures.flatMap(id => features[id].packages)
+  const observability = valueFor("observability")
+  if (packageFeatures.includes("observability") && isRecord(observability) && observability.posthog) packages.push("posthog-node")
   if (enabled.has("console")) {
     if (enabled.has("agent")) packages.push(...consoleFeaturePackages.agents)
     const consoleValue = valueFor("console")
