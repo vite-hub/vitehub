@@ -9,6 +9,7 @@ import { countWords, createRecord, hashSkeleton, parseRecord } from "@diglot/cor
 import { writeManifest, writeRecord } from "@diglot/store"
 import { afterEach, describe, expect, it } from "vitest"
 
+import { compileMessages } from "../src/catalogs.ts"
 import { messageId, messageSegment, readRecords, recordPath, saveTranslation, verifyTranslation } from "../src/records.ts"
 
 import type { SegmentKind } from "@diglot/core"
@@ -126,6 +127,97 @@ describe("translation records", () => {
     const result = await saveTranslation(root, "es", messages[2]!, "Hola, lee la <1>documentación</1>.", { by: "ana" })
     expect(result).toMatchObject({ ok: false, code: "invalid", errors: [expect.objectContaining({ code: "missing-placeholder" })] })
     expect((await readRecords(root, "es")).records).toEqual({})
+  })
+
+  it.each([
+    ["Hello {name}", "Hola", "Hola {name}"],
+    ["{count, plural, one {# agent} other {# agents}}", "{total, plural, one {# agente} other {# agentes}}", "{count, plural, one {# agente} other {# agentes}}"],
+    ["{role, select, admin {Admin} other {User}}", "{type, select, admin {Admin} other {Usuario}}", "{role, select, admin {Admin} other {Usuario}}"],
+    ["{role, select, admin {Admin {name}} other {User {name}}}", "{role, select, admin {Admin} other {Usuario}}", "{role, select, admin {Admin {name}} other {Usuario {name}}}"],
+    ["Total: {amount, number}", "Total", "Total: {amount, number}"],
+    ["{count, selectordinal, one {#st} other {#th}}", "Primero", "{count, selectordinal, one {#} other {#}}"],
+  ])("keeps every ICU argument in %s", async (message, invalid, valid) => {
+    const root = await folder()
+    const ref = { message }
+    expect(await saveTranslation(root, "es", ref, invalid, { by: "ana", expected: null })).toMatchObject({ ok: false, code: "invalid" })
+    expect((await readRecords(root, "es")).records).toEqual({})
+    expect((await saveTranslation(root, "es", ref, valid, { by: "ana", expected: null })).ok).toBe(true)
+
+    // Records can also be written by Diglot or a text editor. Readers must fall back, and verification must refuse them.
+    await writeRecord(root, "es", createRecord({ segment: messageSegment(message), text: invalid, origin: "mt" }))
+    expect(await verifyTranslation(root, "es", ref, { by: "luis", expected: invalid })).toMatchObject({ ok: false, code: "invalid" })
+    const { records } = await readRecords(root, "es")
+    const sources = { [messageId(message)]: { message, hash: messageSegment(message).hash, origins: [] } }
+    expect(compileMessages(records, sources)).toEqual(compileMessages({}, sources))
+  })
+
+  it("distinguishes quoted ICU text from runtime arguments and rejects invalid ICU", async () => {
+    const root = await folder()
+    const ref = { message: "Hello '{guest}', {name}" }
+    expect((await saveTranslation(root, "es", ref, "Hola '{invitado}', {name}", { by: "ana" })).ok).toBe(true)
+    expect(await saveTranslation(root, "es", ref, "Hola {name", { by: "ana" })).toMatchObject({ ok: false, code: "invalid" })
+  })
+
+  it("refuses concurrent edits from the same expected text", async () => {
+    const root = await folder()
+    const ref = { message: "Save", context: "button" }
+    const results = await Promise.all([
+      saveTranslation(root, "es", ref, "Guardar", { by: "ana", expected: null }),
+      saveTranslation(root, "es", ref, "Salvar", { by: "luis", expected: null }),
+    ])
+    expect(results.filter(result => result.ok)).toHaveLength(1)
+    expect(results.find(result => !result.ok)).toMatchObject({ code: "stale" })
+
+    const winner = results.find(result => result.ok)!
+    if (!winner.ok) throw new Error("No edit succeeded")
+    expect((await readRecords(root, "es")).records[messageId(ref.message, ref.context)]).toEqual(winner.record)
+
+    const edits = await Promise.all(["Conservar", "Almacenar"].map(text => saveTranslation(root, "es", ref, text, { by: "ana", expected: winner.record.text })))
+    expect(edits.filter(result => result.ok)).toHaveLength(1)
+    expect(edits.find(result => !result.ok)).toMatchObject({ code: "stale" })
+  })
+
+  it("refuses concurrent edits from separate CLI processes", async () => {
+    const root = await folder()
+    const ref = { message: "Save", context: "button" }
+    const results = await Promise.all(["ana", "luis", "maxi"].map(async (by) => {
+      const script = `
+        import { saveTranslation } from ${JSON.stringify(new URL("../src/records.ts", import.meta.url).href)};
+        const result = await saveTranslation(${JSON.stringify(root)}, "es", ${JSON.stringify(ref)}, ${JSON.stringify(by)}, { by: ${JSON.stringify(by)}, expected: null });
+        console.log(JSON.stringify(result));
+      `
+      const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", script])
+      return JSON.parse(stdout) as { ok: boolean, code?: string }
+    }))
+    expect(results.filter(result => result.ok)).toHaveLength(1)
+    const refused = results.filter(result => !result.ok)
+    expect(refused).toHaveLength(2)
+    for (const result of refused) expect(result).toMatchObject({ ok: false, code: "stale" })
+  })
+
+  it("publishes complete records while readers run during edits", async () => {
+    const root = await folder()
+    const ref = { message: "a".repeat(64_000) }
+    const texts = ["a".repeat(8_000), "b".repeat(8_000)]
+    expect((await saveTranslation(root, "es", ref, texts[0]!, { by: "ana" })).ok).toBe(true)
+    let writing = true
+    const edits = (async () => {
+      for (let index = 0; index < 6; index++) {
+        expect((await saveTranslation(root, "es", ref, texts[(index + 1) % 2]!, { by: "ana", expected: texts[index % 2]! })).ok).toBe(true)
+      }
+    })().finally(() => { writing = false })
+    try {
+      do {
+        const { records, problems } = await readRecords(root, "es")
+        expect(problems).toEqual([])
+        expect(Object.keys(records)).toHaveLength(1)
+        expect(texts.includes(records[messageId(ref.message)]!.text)).toBe(true)
+      } while (writing)
+    }
+    finally {
+      await edits
+    }
+    expect(await readdir(join(root, "es", "segments", messageSegment(ref.message).hash.slice(0, 2)))).toEqual([`${messageSegment(ref.message).hash}.json`])
   })
 
   it("writes a folder that `diglot validate` accepts", async () => {

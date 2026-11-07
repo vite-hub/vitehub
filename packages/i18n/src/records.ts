@@ -1,11 +1,12 @@
-import { createHash } from "node:crypto"
-import { readdir, readFile, rm } from "node:fs/promises"
-import { join } from "node:path"
+import { createHash, randomUUID } from "node:crypto"
+import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { dirname, join } from "node:path"
 
 import { editRecord, parseRecord, verifyRecord } from "@diglot/core"
-import { readRecord, writeRecord } from "@diglot/store"
+import { readRecord, serialiseRecord } from "@diglot/store"
+import { lock } from "proper-lockfile"
 
-import { diglotSegment, messageSegment, recordPath, recordSegment } from "./record-format.ts"
+import { diglotSegment, messageSegment, recordPath, recordSegment, validateMessageArguments } from "./record-format.ts"
 
 import type { ReviewTransition } from "@diglot/core"
 import type { TranslationRecord, TranslationRecords } from "./record-format.ts"
@@ -103,9 +104,34 @@ type DiglotSegment = ReturnType<typeof diglotSegment>
 
 async function review(root: string, locale: string, message: MessageRef, next: (current: TranslationRecord | undefined, segment: DiglotSegment) => ReviewTransition): Promise<ReviewTransition> {
   const segment = diglotSegment(messageSegment(message.message, message.context))
-  const transition = next(await readRecord(root, locale, segment.hash), segment)
-  if (transition.ok) await writeRecord(root, locale, transition.record)
-  return transition
+  const file = join(root, recordPath(locale, segment.hash))
+  await mkdir(dirname(file), { recursive: true })
+  // The lock covers the read, expected check and publication across CLI processes as well as in this process.
+  const release = await lock(file, { realpath: false, retries: { retries: 100, minTimeout: 10, maxTimeout: 250 } })
+  try {
+    const transition = next(await readRecord(root, locale, segment.hash), segment)
+    if (transition.ok) {
+      const errors = validateMessageArguments(message.message, transition.record.text)
+      if (errors.length) return { ok: false, code: "invalid", message: "The translation does not preserve the message's ICU arguments.", errors }
+      await publishRecord(file, transition.record)
+    }
+    return transition
+  }
+  finally {
+    await release()
+  }
+}
+
+/** Publish complete Diglot JSON on the same filesystem, so readers see either the old record or the new one. */
+async function publishRecord(file: string, record: TranslationRecord): Promise<void> {
+  const temporary = `${file}.${randomUUID()}.tmp`
+  try {
+    await writeFile(temporary, serialiseRecord(record), { flag: "wx" })
+    await rename(temporary, file)
+  }
+  finally {
+    await rm(temporary, { force: true })
+  }
 }
 
 /**
