@@ -162,7 +162,10 @@ describe("defineChoices() with infer", () => {
       },
     })
     expect((await mixed.resolve("unsupported thai"))[0]?.code).toBe("DECISIONS_R0004")
-    expect(calls[0]!.questions.supported).toMatchObject({ instructions: expect.stringContaining("infer: true do not need to be named") })
+    const supported = JSON.stringify(calls[0]!.questions.supported)
+    expect(supported).toContain("Judge only the \\\"Supplier\\\" group. Ignore every group with infer: true.")
+    expect(supported).toContain("Also true when the text sets no constraint for these groups.")
+    expect(supported).not.toContain("names no option at all")
   })
 
   it("needs multiple: false", () => {

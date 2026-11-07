@@ -153,15 +153,28 @@ function needsSupported(groups: readonly LoadedGroup[]): boolean {
   return groups.some(group => !group.infer && group.options.length)
 }
 
-function buildPlan(text: string, groups: readonly LoadedGroup[], hints: string): ChoicesPlan {
-  const questions: Record<string, AskQuestion> = {}
-  if (needsSupported(groups)) {
-    questions.supported = ask.chance([
+/** Asks if the options can express the text. With `infer` groups, it judges only the other groups, and text that sets none of them is supported. */
+function supportedQuestion(groups: readonly LoadedGroup[], hints: string): AskQuestion {
+  const checked = groups.filter(group => !group.infer).map(group => JSON.stringify(group.group.label))
+  if (checked.length === groups.length) {
+    return ask.chance([
       "Can all intended constraints in the text be expressed with the supplied options? Be permissive about ordinary phrasing, shorthand, prefixes, and typos, but require a real match to supplied options.",
-      groups.some(group => group.infer) ? "Groups with infer: true do not need to be named in the text." : undefined,
       hints,
     ].filter(Boolean).join(" "), { false: supportedFalse, true: supportedTrue })
   }
+  return ask.chance([
+    `Judge only the ${checked.join(", ")} ${checked.length === 1 ? "group" : "groups"}. Ignore every group with infer: true.`,
+    "Can every constraint that the text sets for these groups be expressed with their options? Be permissive about ordinary phrasing, shorthand, prefixes, and typos, but require a real match to supplied options.",
+    hints,
+  ].filter(Boolean).join(" "), {
+    false: "The text needs a value or a capability that the options of these groups do not have, such as a numeric comparison, an unknown name, or OR between different groups. Do not reject a recognizable option because of shorthand or a minor typo.",
+    true: `${supportedTrue} Also true when the text sets no constraint for these groups.`,
+  })
+}
+
+function buildPlan(text: string, groups: readonly LoadedGroup[], hints: string): ChoicesPlan {
+  const questions: Record<string, AskQuestion> = {}
+  if (needsSupported(groups)) questions.supported = supportedQuestion(groups, hints)
   groups.forEach((group, groupIndex) => {
     if (!group.options.length) return
     // One option is the answer. The model only chooses between two or more.
