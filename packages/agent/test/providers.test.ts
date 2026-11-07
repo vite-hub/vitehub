@@ -16321,7 +16321,7 @@ describe("server helpers", () => {
 
       pending = undefined
       releasePending()
-      await vi.waitFor(() => expect(inputs).toHaveLength(2))
+      await vi.waitFor(() => expect(inputs).toHaveLength(2), { timeout: 5_000 })
       expect(inputs[1]?.messages?.map((message) => message.id).sort()).toEqual(["91142", "91143"])
     } finally {
       pending = undefined

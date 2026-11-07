@@ -10,5 +10,7 @@ export default defineNuxtConfig({
   }]],
   css: ["~/assets/main.css"],
   ui: { fonts: false },
+  // Use Shiki's inline WebAssembly loader in the Nitro server bundle.
+  vite: { resolve: { alias: { "shiki/wasm": "shiki/dist/wasm.mjs" } } },
   devtools: { enabled: false },
 });
