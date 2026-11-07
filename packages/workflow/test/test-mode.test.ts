@@ -1,6 +1,6 @@
 import { afterAll, expect, it } from "vitest"
 
-import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
+import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
 import { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, runWorkflow } from "../src/runtime/client.ts"
 import { setWorkflowRuntimeConfig } from "../src/runtime/state.ts"

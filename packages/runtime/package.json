@@ -62,6 +62,11 @@
       "import": "./dist/internal/test-mode.js",
       "default": "./dist/internal/test-mode.js"
     },
+    "./internal/test-mode-setup": {
+      "types": "./dist/internal/test-mode-setup.d.ts",
+      "import": "./dist/internal/test-mode-setup.js",
+      "default": "./dist/internal/test-mode-setup.js"
+    },
     "./node": {
       "types": "./dist/node.d.ts",
       "import": "./dist/node.js",

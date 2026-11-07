@@ -1,4 +1,4 @@
-import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
+import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
 import type { DeliverChannelOptions, deliverChannel as deliverAgentChannel } from "@vite-hub/agent/test"
 import type { EmailMessage } from "@vite-hub/email"

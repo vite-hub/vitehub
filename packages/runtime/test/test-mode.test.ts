@@ -2,7 +2,8 @@ import { existsSync } from "node:fs"
 
 import { afterEach, expect, it } from "vitest"
 
-import { enableViteHubTestMode, getViteHubTestMode } from "../src/internal/test-mode.ts"
+import { getViteHubTestMode } from "../src/internal/test-mode.ts"
+import { enableViteHubTestMode } from "../src/internal/test-mode-setup.ts"
 
 const testModeKey = Symbol.for("vitehub.test")
 

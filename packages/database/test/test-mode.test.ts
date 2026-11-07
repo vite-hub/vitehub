@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { sql } from "drizzle-orm"
 import { afterAll, beforeAll, expect, it } from "vitest"
 
-import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
+import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
 import { db } from "../src/runtime/drizzle-runtime.ts"
 

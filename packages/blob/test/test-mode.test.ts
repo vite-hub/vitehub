@@ -1,6 +1,6 @@
 import { afterAll, expect, it } from "vitest"
 
-import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode"
+import { enableViteHubTestMode } from "@vite-hub/runtime/internal/test-mode-setup"
 
 import { blob } from "../src/runtime/storage.ts"
 
