@@ -19,7 +19,7 @@ Use these imports and methods to read Sources from server code and expose them t
 | `defineCollection`, `array`, `table` from `vite-hub/source` | Turn an array, a Drizzle table, or a custom loader into a typed, paginated HTTP read model. |
 | `workspaceFile` from `vite-hub/workspace` | Use a JSON array in a Workspace file as a Collection source. |
 | `useCollection`, `CollectionAccessError` from `vite-hub/source/client` | Consume a Collection from Vue and detect access errors. |
-| `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a keyed reader with Nitro cache options, or mount a Collection handler manually. |
+| `cachedSource`, `defineCollectionHandler` from `vite-hub/source/server` | Cache a keyed reader with Nitro cache options, or mount a Collection route manually as a Fetchable, `{ fetch(request) }`. |
 | `hubSource` from `vite-hub/source/vite` | Discover Collections and Content and generate their routes. `vitehub()` and the Nuxt module install it. |
 | `useDatabase` from `vite-hub/database/drizzle` | Access a discovered database and its generated schema for `table()`. |
 | `getViteHubErrorShape` from `vite-hub/runtime` | Inspect registry, path, and loader failures by `SOURCE_*` code. |
@@ -293,6 +293,17 @@ const { items, pending, error, hasMore, loadMore } = useCollection('articles', {
 ```
 
 ViteHub discovers modules in `server/collections` and generates their type registry and read-only GET routes. Each module exports a Collection with the same name as its filename, so `articles.ts` exports `articles` and maps to `/api/articles`. Do not create a matching `server/api` handler. The Nuxt module auto-imports `useCollection`. Outside Nuxt, import it from `vite-hub/source/client`. Restart Nuxt after you add, remove, or rename a Collection module so Nitro rebuilds its handler manifest.
+
+To serve a Collection from another route, export `defineCollectionHandler(collection)` from the route file. It returns a Fetchable, `{ fetch(request) }`, that reads `cursor`, `limit`, and the filters from the request URL. A bad query or cursor returns JSON `400` and a stale cursor returns `409`, both as `{ status, message }`:
+
+```ts [server/routes/feed.get.ts]
+import { defineCollectionHandler } from 'vite-hub/source/server'
+import { articles } from '../collections/articles'
+
+export default defineCollectionHandler(articles)
+```
+
+A Collection with `authorize` also needs `withAuthorization` from `vite-hub/auth/server`: `defineCollectionHandler(meals, { withAuthorization })`.
 
 `useCollection()` accepts `filter`, `limit`, `all`, `immediate`, and `request`. `filter` stays fixed while `loadMore()` advances the opaque cursor. For a bounded Collection, set `all: true` to fetch every page asynchronously. It returns `items`, `pending`, `error`, `hasMore`, `loadMore()`, and `refresh()`, plus `total` and `facets` from the latest page when the Collection reports them.
 
