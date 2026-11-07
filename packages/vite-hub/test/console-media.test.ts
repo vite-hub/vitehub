@@ -19,6 +19,7 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 import type { BlobStorage } from "@vite-hub/blob"
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 import type { ConsoleDocumentActions, ConsoleMediaAccess } from "../src/console/runtime/server/documents.ts"
+import { requestEvent } from "./console-event.ts"
 
 // SAFETY: Console state uses the same optional symbol keys in runtime and tests.
 const scope = globalThis as ConsoleInvocationScope
@@ -71,7 +72,7 @@ function install(sections: readonly string[] = ["content", "blob"]): void {
 }
 
 async function respond(request: Request): Promise<{ body: Record<string, unknown>, status: number }> {
-  const response = await withConsoleAccess((_event, access) => handleConsoleRpcRequest(request, { access }), { anySection: true })({ req: request })
+  const response = await withConsoleAccess((_event, access) => handleConsoleRpcRequest(request, { access }), { anySection: true })(requestEvent(request))
   return { body: Object(await response.json()), status: response.status }
 }
 
