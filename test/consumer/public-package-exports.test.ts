@@ -111,6 +111,8 @@ async function workspaceConfig(specs: Record<string, string>) {
   // select a Vue adapter before its exact virtual-core dependency is published.
   const overrides = Object.entries({
     ...specs,
+    // Keep Nuxt UI on its tested Tailwind adapter; new releases can precede their exact Oxide dependency.
+    "@tailwindcss/vite": await installedVersion(resolve(dirname(nuxtUi.resolve("@tailwindcss/vite")), "../package.json")),
     "@tanstack/vue-virtual": await installedVersion(nuxtUi.resolve("@tanstack/vue-virtual/package.json")),
     // Fresh resolutions selected 2.0.1 while its tarball returned 404; use the workspace-tested version.
     "mdast-util-gfm-table": "2.0.0",
