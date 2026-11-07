@@ -14,9 +14,10 @@ import { createDriver } from "../../blob/src/drivers/fs.ts"
 
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "../src/blob-database.ts"
 import { formatWorkspaceStatus, localCheckoutStatus, mergeText } from "../src/checkout.ts"
+import { lineageDigest } from "../src/lineage.ts"
 import { workspaceCheckoutFeatures } from "../src/checkout-cli.ts"
 import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.ts"
-import { useWorkspace } from "../src/index.ts"
+import { registerWorkspacePlugin, useWorkspace } from "../src/index.ts"
 import { workspaceOperations } from "../src/operations.ts"
 
 import type { WorkspaceDefinition } from "../src/core/types.ts"
@@ -345,6 +346,34 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect((await other.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).stderr).toContain("content is a symbolic link")
     expect(await readFile(join(outside, "secret.md"), "utf8")).toBe("keep\n")
     await expect(readFile(join(outside, "posts/hello.md"))).rejects.toThrow()
+  })
+
+  it("lists stale translations in status and in workspace.stale after the English source changes", async () => {
+    const remoteApp = await app()
+    const english = post("Guide", "Install it.")
+    const spanish = (digest: string) => `---\ntitle: Guía\nderivedFrom:\n  path: docs/en/guide.md\n  digest: ${digest}\n---\n\nInstálalo.\n`
+    const translated = lineageDigest(new TextEncoder().encode(english))
+    await remoteApp.edit({ put: { "docs/en/guide.md": english, "docs/es/guide.md": spanish(translated) } })
+    const local = await project(remoteApp.fetch, "lineage")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    expect((await local.status())[0]!.stale).toEqual([])
+
+    const written: string[] = []
+    cleanup.push(registerWorkspacePlugin("content", { hooks: { "write:after": ({ path, ref }) => { written.push(`${ref} ${path}`) } }, id: "translate" }))
+    const edited = post("Guide", "Install it with pnpm.")
+    await local.write("docs/en/guide.md", edited)
+    expect(formatWorkspaceStatus((await local.status())[0]!)).toContain("Stale derived files (their source changed):\n  changed   docs/es/guide.md <- docs/en/guide.md")
+    expect((await local.run("push")).code).toBe(0)
+    // A translator starts from this hook.
+    expect(written).toEqual(["draft docs/en/guide.md"])
+
+    const listed = await runOperation(registry, "workspace.stale", { ref: "draft", workspace: "content" }, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+    const sourceDigest = lineageDigest(new TextEncoder().encode(edited))
+    expect(listed).toMatchObject({ ok: true, value: { ref: "draft", stale: [{ derivedFrom: { digest: translated, path: "docs/en/guide.md" }, path: "docs/es/guide.md", reason: "changed", sourceDigest }] } })
+
+    // The translator updates the file and records the digest that workspace.stale reported.
+    await local.write("docs/es/guide.md", spanish(sourceDigest))
+    expect((await local.status())[0]!.stale).toEqual([])
   })
 
   it("asks for --dir on the first pull and refuses a folder outside the project", async () => {

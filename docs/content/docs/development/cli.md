@@ -152,6 +152,7 @@ Available namespaces:
 | `vitehub workspace refs` | Available | Workspace Package | List the history refs of a Workspace and their head revisions. |
 | `vitehub workspace show` | Available | Workspace Package | Show one revision and its files, or print one file as it was in that revision. |
 | `vitehub workspace changes` | Available | Workspace Package | List the files of a ref that changed since a revision, with their content. `vitehub pull` reads it. |
+| `vitehub workspace stale` | Available | Workspace Package | List derived files on a ref, such as translations, whose `derivedFrom` source changed or is gone. |
 | `vitehub workspace commit` | Available | Workspace Package | Commit files to a ref when its head is still `ifHead`. `vitehub push` calls it. |
 | `vitehub pull` | Available | Workspace Package | Merge the remote changes of each checked-out Workspace ref into its local folder, and update `vitehub.lock`. |
 | `vitehub push` | Available | Workspace Package | Pull, then commit the local changes of each checkout folder to its ref. It never publishes or deploys. |
