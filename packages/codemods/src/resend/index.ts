@@ -12,7 +12,7 @@ import { detectNuxtModule, readDependencies } from "../shared/detect.ts"
 import { findModuleEntry, literalValue, objectProperty, readNuxtConfig, unwrapExpression } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
 import { CodemodError } from "../types.ts"
-import { rewriteResendCallSites } from "./call-sites.ts"
+import { hasResendClient, rewriteResendCallSites } from "./call-sites.ts"
 
 import type { Node } from "@vite-hub/internal/ast"
 import type { NuxtConfigFile } from "../shared/nuxt-config.ts"
@@ -96,6 +96,7 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   if (runtimeConfig && resendProperty) {
     const value = readRuntimeConfig(config).values.get("resend.apiKey")
     if (value?.processEnv) names.push(value.processEnv.name)
+    if (typeof value?.literal === "string" && value.literal) followUps.push({ file: config.fileName, line: value.line, message: "nuxt.config held a literal Resend API key at runtimeConfig.resend.apiKey. Set NUXT_RESEND_API_KEY where the app runs before using the migrated sends, and rotate the key if this file is public." })
     if (!readers.length && !keepModule) {
       const runtimeProperty = findProperty(config.root, "runtimeConfig")
       if (runtimeConfig.properties.length === 1 && runtimeProperty) {
@@ -106,6 +107,9 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
     }
   }
   followUps.push(...readers)
+  if (new Set(calls.apiKeySources).size > 1) {
+    followUps.push({ message: "Resend clients use different API-key sources. ViteHub Email uses one credential: the first available source. Check that all clients use the same account before using the migrated sends. Keep clients with different credentials on the Resend SDK or configure them separately by hand." })
+  }
   names.push(...calls.apiKeyVariables)
   // `new Resend(useRuntimeConfig().key)`: Nuxt fills `runtimeConfig.key` from NUXT_<KEY> and from the variable it names.
   const runtimeValues = readRuntimeConfig(config).values
@@ -140,12 +144,12 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const lineOf = createLineResolver(configCode)
   if (presetNote) followUps.unshift({ file: config.fileName, line: lineOf(["vitehub", "preset"]), message: presetNote })
 
-  // Keep the resend package while any file still imports it.
+  // Keep ESM, CommonJS, TypeScript import-equals, and dynamic package loads.
   const rewritten = new Map(calls.edits.map(edit => [edit.path, edit.after ?? ""]))
   let resendImported = false
   for (const file of await glob(["**/*.{ts,mts,cts,js,mjs,cjs,vue}"], { cwd, ignore: ignored })) {
     const code = rewritten.get(file) ?? await readFile(join(cwd, file), "utf8")
-    if (/from\s+["']resend["']/.test(code)) resendImported = true
+    if (/\b(?:from\s*|import\s*|(?:require|import)\s*\(\s*)["']resend["']/.test(code)) resendImported = true
   }
   const dependencies = await readDependencies(cwd)
   const remove = [...(keepModule ? [] : [moduleName]), ...(resendImported || keepModule ? [] : ["resend"])].filter(name => dependencies.has(name))
@@ -179,7 +183,7 @@ export const resend: Codemod = {
     if (module) return module
     if (!(await readDependencies(cwd)).has("resend")) return undefined
     for (const file of (await glob(["server/**/*.{ts,mts,js,mjs}"], { cwd, ignore: ignored })).sort()) {
-      if (/new\s+Resend\s*\(/.test(await readFile(join(cwd, file), "utf8"))) return { reason: `${file} creates a Resend client` }
+      if (hasResendClient(file, await readFile(join(cwd, file), "utf8"))) return { reason: `${file} creates a Resend client` }
     }
     return undefined
   },

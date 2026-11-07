@@ -5,7 +5,9 @@ import { detectStyle, end, isReference, keyName, line, listItemRemoval, parsePro
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
-import type { CallExpression, File, ImportDeclaration, ObjectExpression } from "@babel/types"
+import { bindingResolver } from "./bindings.ts"
+
+import type { CallExpression, File, Identifier, ImportDeclaration, ObjectExpression } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
 import type { FileEdit, FollowUp } from "../types.ts"
 
@@ -21,6 +23,8 @@ export interface ResendCallSites {
   apiKeyVariables: string[]
   /** Top-level `runtimeConfig` keys that `new Resend()` calls read, such as `resendApiKey`. */
   runtimeConfigKeys: string[]
+  /** Distinct credential sources used by clients, for the manual account check. */
+  apiKeySources: string[]
   /** Files that still use the Resend SDK or `useResend()`. */
   remaining: string[]
   /** Files that still call `useResend()`, which needs the nuxt-resend module. */
@@ -53,6 +57,7 @@ class FileRewrite {
   keepsResend = false
   keepsUseResend = false
   readonly apiKeyVariables: string[] = []
+  readonly apiKeySources: string[] = []
   /** Top-level `runtimeConfig` keys that `new Resend()` reads, such as `resendApiKey`. */
   readonly runtimeConfigKeys: string[] = []
   private readonly program: File
@@ -60,33 +65,24 @@ class FileRewrite {
   private readonly removedStatements = new Set<Node>()
   /** Source ranges that the rewrite replaced. */
   private readonly replaced: Array<[number, number]> = []
-  private readonly useResendNames = new Set<string>()
-  private readonly resendClassNames = new Set<string>()
+  private readonly useResendBindings = new Set<Identifier>()
+  private readonly resendClassBindings = new Set<Identifier>()
+  private readonly resolveBinding: ReturnType<typeof bindingResolver>
 
   constructor(private readonly file: string, private readonly code: string) {
     this.output = new MagicString(code)
     this.program = parseProgram(code, { typescript: !/\.(?:c|m)?js$/.test(file), jsx: file.endsWith("x") })
+    this.resolveBinding = bindingResolver(this.program)
     this.mailer = nameTaken(this.program, "email") ? "viteHubEmail" : "email"
     for (const statement of this.program.program.body) {
-      if (statement.type !== "ImportDeclaration") continue
+      if (statement.type !== "ImportDeclaration" || statement.importKind === "type") continue
       for (const specifier of statement.specifiers) {
-        const imported = specifier.type === "ImportSpecifier" ? keyName(specifier.imported) : undefined
-        if (statement.source.value === "resend" && imported === "Resend") this.resendClassNames.add(specifier.local.name)
-        if (imported === "useResend") this.useResendNames.add(specifier.local.name)
+        if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") continue
+        const imported = keyName(specifier.imported)
+        if (statement.source.value === "resend" && imported === "Resend") this.resendClassBindings.add(specifier.local)
+        if (statement.source.value === "#imports" && imported === "useResend") this.useResendBindings.add(specifier.local)
       }
     }
-    // nuxt-resend auto-imports useResend() in server code.
-    if (!this.declares("useResend")) this.useResendNames.add("useResend")
-  }
-
-  private declares(name: string): boolean {
-    let declared = false
-    walk(this.program, (node, ancestors) => {
-      if (node.type !== "Identifier" || node.name !== name) return
-      const parent = ancestors.at(-1)
-      if (parent && ((parent.type === "VariableDeclarator" && parent.id === node) || (parent.type === "FunctionDeclaration" && parent.id === node) || parent.type === "ImportSpecifier" || parent.type === "ImportDefaultSpecifier")) declared = true
-    })
-    return declared
   }
 
   private follow(node: Node, message: string): void {
@@ -94,8 +90,17 @@ class FileRewrite {
   }
 
   private isClient(node: Node): boolean {
-    if (node.type === "CallExpression" && node.callee.type === "Identifier" && this.useResendNames.has(node.callee.name)) return true
-    return node.type === "NewExpression" && node.callee.type === "Identifier" && this.resendClassNames.has(node.callee.name)
+    if ((node.type !== "CallExpression" && node.type !== "NewExpression") || node.callee.type !== "Identifier") return false
+    const binding = this.resolveBinding(node.callee)
+    if (node.type === "NewExpression") return binding !== undefined && this.resendClassBindings.has(binding)
+    // nuxt-resend also auto-imports useResend() when no lexical binding shadows it.
+    return binding ? this.useResendBindings.has(binding) : node.callee.name === "useResend"
+  }
+
+  hasClient(): boolean {
+    let found = false
+    walk(this.program, (node) => { if (this.isClient(node)) found = true })
+    return found
   }
 
   run(): void {
@@ -133,10 +138,12 @@ class FileRewrite {
       const [argument] = client.arguments
       const name = argument ? processEnvName(argument) : "RESEND_API_KEY"
       const runtimeKey = argument ? this.runtimeConfigKey(argument) : undefined
+      this.apiKeySources.push(name ? `env:${name}` : runtimeKey ? `runtimeConfig:${runtimeKey}` : `${this.file}:${start(client)}`)
       if (name) this.apiKeyVariables.push(name)
       else if (runtimeKey) this.runtimeConfigKeys.push(runtimeKey)
       else if (argument) this.follow(client, "new Resend() reads its API key from an expression. Declare that value as vitehub.email.options.apiKey by hand.")
     }
+    else this.apiKeySources.push("nuxt-resend")
     const parent = ancestors.at(-1)
     // useResend().emails.send(message)
     if (parent?.type === "MemberExpression" && parent.object === client && keyName(parent.property, parent.computed) === "emails") {
@@ -146,7 +153,7 @@ class FileRewrite {
     if (parent?.type === "VariableDeclarator" && parent.init === client) {
       const statement = ancestors.at(-2)?.type === "VariableDeclaration" ? ancestors.at(-2) : undefined
       if (parent.id.type === "Identifier") {
-        const uses = this.references(parent.id.name, parent.id)
+        const uses = this.references(parent.id)
         const rewritten = uses.filter(use => use.parent?.type === "MemberExpression" && use.parent.object === use.node && keyName(use.parent.property, use.parent.computed) === "emails")
         for (const use of rewritten) this.planEmails(use.parent!, use.ancestors.slice(0, -1))
         const other = uses.filter(use => !rewritten.includes(use))
@@ -159,7 +166,7 @@ class FileRewrite {
         const property = parent.id.properties.find(entry => entry.type === "ObjectProperty" && keyName(entry.key) === "emails")
         const local = property?.type === "ObjectProperty" && property.value.type === "Identifier" ? property.value : undefined
         if (local && parent.id.properties.length === 1) {
-          const uses = this.references(local.name, local)
+          const uses = this.references(local)
           const sends = uses.filter(use => use.parent?.type === "MemberExpression" && use.parent.object === use.node && keyName(use.parent.property, use.parent.computed) === "send")
           for (const use of sends) this.planSend(use.parent!, use.ancestors.slice(0, -1))
           if (!this.keepsResend && sends.length === uses.length && sends.length && statement) this.removeDeclarator(statement, parent)
@@ -259,10 +266,10 @@ class FileRewrite {
     this.follow(call, "email.send() returns an [error, sent] tuple, where Resend returned { data, error }. Update the code that reads this result.")
   }
 
-  private references(name: string, declaration: Node): Array<{ node: Node, parent?: Node, ancestors: Node[] }> {
+  private references(declaration: Identifier): Array<{ node: Node, parent?: Node, ancestors: Node[] }> {
     const uses: Array<{ node: Node, parent?: Node, ancestors: Node[] }> = []
     walk(this.program, (node, ancestors) => {
-      if (node === declaration || node.type !== "Identifier" || node.name !== name || !isReference(node, ancestors.at(-1))) return
+      if (node === declaration || !isReference(node, ancestors.at(-1)) || this.resolveBinding(node) !== declaration) return
       uses.push({ node, parent: ancestors.at(-1), ancestors: [...ancestors] })
     })
     return uses
@@ -294,23 +301,19 @@ class FileRewrite {
     const style = detectStyle(this.code, this.program)
     const semicolon = style.semicolons ? ";" : ""
     const imports = this.program.program.body.filter((statement): statement is ImportDeclaration => statement.type === "ImportDeclaration")
-    const stillUsed = (name: string) => {
-      let used = false
-      walk(this.program, (node, ancestors) => {
-        if (node.type !== "Identifier" || node.name !== name || !isReference(node, ancestors.at(-1))) return
+    const stillUsed = (binding: Identifier) => {
+      return this.references(binding).some(({ node, ancestors }) => {
         const replaced = this.replaced.some(([from, to]) => start(node) >= from && end(node) <= to)
-        if (!ancestors.some(ancestor => this.removedStatements.has(ancestor)) && !replaced) used = true
+        return !ancestors.some(ancestor => this.removedStatements.has(ancestor)) && !replaced
       })
-      return used
     }
     const text = `import { ${this.mailer === "email" ? "email" : "email as viteHubEmail"} } from ${quoteString(emailImport, style)}${semicolon}`
     let placed = false
     const kept: ImportDeclaration[] = []
     for (const statement of imports) {
       const removable = statement.specifiers.filter((specifier) => {
-        const imported = specifier.type === "ImportSpecifier" ? keyName(specifier.imported) : undefined
-        const ours = (statement.source.value === "resend" && imported === "Resend") || imported === "useResend"
-        return ours && !this.keepsResend && !stillUsed(specifier.local.name)
+        const ours = this.resendClassBindings.has(specifier.local) || this.useResendBindings.has(specifier.local)
+        return ours && !this.keepsResend && !stillUsed(specifier.local)
       })
       if (removable.length && removable.length === statement.specifiers.length) {
         // Put the new import where the removed one was.
@@ -332,10 +335,20 @@ class FileRewrite {
   }
 }
 
+/** Use the same import and lexical-binding rules for discovery and migration. */
+export function hasResendClient(file: string, code: string): boolean {
+  try {
+    return new FileRewrite(file, code).hasClient()
+  }
+  catch {
+    return false
+  }
+}
+
 /** Rewrites `emails.send()` calls of `useResend()` and `new Resend()` clients in server code. */
 export async function rewriteResendCallSites(cwd: string): Promise<ResendCallSites> {
   const files = await glob(["**/*.{ts,mts,cts,js,mjs,cjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/dist/**", "nuxt.config.*"] })
-  const result: ResendCallSites = { edits: [], followUps: [], apiKeyVariables: [], runtimeConfigKeys: [], remaining: [], useResendRemaining: [], sends: 0 }
+  const result: ResendCallSites = { edits: [], followUps: [], apiKeyVariables: [], runtimeConfigKeys: [], apiKeySources: [], remaining: [], useResendRemaining: [], sends: 0 }
   for (const file of files.sort()) {
     const code = await readFile(join(cwd, file), "utf8")
     if (!/useResend|from\s+["']resend["']/.test(code)) continue
@@ -352,6 +365,7 @@ export async function rewriteResendCallSites(cwd: string): Promise<ResendCallSit
     }
     result.followUps.push(...rewrite.followUps)
     result.apiKeyVariables.push(...rewrite.apiKeyVariables)
+    result.apiKeySources.push(...rewrite.apiKeySources)
     result.runtimeConfigKeys.push(...rewrite.runtimeConfigKeys)
     result.sends += rewrite.sends
     if (rewrite.keepsResend) result.remaining.push(file)
