@@ -24,9 +24,14 @@ const invalidRequestCodes = new Set(["WORKSPACE_HISTORY_INVALID", "WORKSPACE_PAT
 
 /** A history read failure with its HTTP status. */
 class WorkspaceOperationError extends Error {
-  constructor(readonly code: string, readonly status: number, message: string) {
+  readonly details?: Record<string, unknown>
+  readonly fix?: string
+
+  constructor(readonly code: string, readonly status: number, message: string, options: { details?: Record<string, unknown>, fix?: string } = {}) {
     super(message)
     this.name = "WorkspaceOperationError"
+    if (options.details) this.details = options.details
+    if (options.fix) this.fix = options.fix
   }
 }
 
@@ -166,6 +171,12 @@ export interface WorkspaceCommitInput {
   put?: Record<string, { content: string, encoding: "base64" | "utf8" }>
   ref?: string
   workspace: string
+  /**
+   * `override`: write files that someone else holds an edit lease on. The revision records `lease: "override"` in its
+   * metadata, and the plugin that keeps the leases, such as Content, lets the write through. An Agent or an MCP client
+   * may pass it only when the developer allowed it with `operations({ overrideLeases: true })`.
+   */
+  lease?: "override"
 }
 
 function decodeContent(file: { content: string, encoding: "base64" | "utf8" }): string | Uint8Array {
@@ -245,9 +256,19 @@ function callerMetadata(context: OperationContext): Record<string, unknown> {
   }
 }
 
+/** An Agent tool or an MCP client: a model decides the call, for the person it works for. */
+function modelSurface(context: OperationContext): boolean {
+  return context.surface === "agent" || context.surface === "mcp"
+}
+
 async function commitChanges(workspace: string, request: WorkspaceCommitInput, context: OperationContext): Promise<WorkspaceCommitResult> {
   const remove = request.delete ?? []
   if (!Object.keys(request.put ?? {}).length && !remove.length) throw new WorkspaceOperationError("WORKSPACE_HISTORY_INVALID", 400, "The commit has no changes. Pass `put` or `delete`.")
+  if (request.lease === "override" && modelSurface(context) && !context.overrideLeases) {
+    throw new WorkspaceOperationError("WORKSPACE_FORBIDDEN", 403, "An Agent may not write past an edit lease that a person holds.", {
+      fix: "Tell the person you work for who is editing the files, and try again after they finish. A developer allows overrides with operations({ overrideLeases: true }).",
+    })
+  }
   const { history } = useWorkspaceFiles(workspace, { mode: "write" })
   // The head check of the commit fails when the ref moved, so the files of `ifHead` are the files that the commit replaces.
   const base = request.ifHead === null ? new Map<string, WorkspaceEntry>() : await filesOf(await openOrMissing(history, request.ifHead))
@@ -258,7 +279,7 @@ async function commitChanges(workspace: string, request: WorkspaceCommitInput, c
       ifHead: request.ifHead,
       changes: { put, delete: remove },
       message: request.message ?? `Push ${Object.keys(put).length + remove.length} files`,
-      metadata: callerMetadata(context),
+      metadata: { ...callerMetadata(context), ...(request.lease === "override" ? { lease: "override" } : {}) },
     })
     return { workspace, revision: describeRevision(revision) }
   }
@@ -311,7 +332,7 @@ export async function runWorkspaceOperation(operation: "history" | "refs" | "sho
 }
 
 function describeFailure(workspace: string, error: unknown): WorkspaceOperationError {
-  if (error instanceof WorkspaceOperationError) return new WorkspaceOperationError(error.code, error.status, redactInspectionText(error.message))
+  if (error instanceof WorkspaceOperationError) return new WorkspaceOperationError(error.code, error.status, redactInspectionText(error.message), { ...(error.details ? { details: error.details } : {}), ...(error.fix ? { fix: error.fix } : {}) })
   const code = errorCode(error)
   if (code === "WORKSPACE_R0069") {
     return new WorkspaceOperationError(code, 409, `Workspace "${workspace}" has no retained history because its Store does not keep revisions. Use the Blob + Database Store, createBlobDatabaseWorkspaceStore() from @vite-hub/workspace/blob-database, to keep refs and revisions.`)
@@ -320,6 +341,17 @@ function describeFailure(workspace: string, error: unknown): WorkspaceOperationE
   if (code === "WORKSPACE_NOT_FOUND" && error instanceof Error && error.message.includes(`Workspace "${workspace}" is not registered.`)) {
     return new WorkspaceOperationError(code, 404, `Unknown Workspace: ${workspace}.`)
   }
+  const message = redactInspectionText(error instanceof Error ? error.message : String(error))
+  // A plugin hook that refuses the write, such as a held edit lease, sets its own client status, fix, and details.
+  const own: unknown = Object(error) === error ? Reflect.get(Object(error), "status") : undefined
+  if (code && hasRuntimeType(own, "number") && own >= 400 && own < 500) {
+    const fix: unknown = Reflect.get(Object(error), "fix")
+    const details: unknown = Reflect.get(Object(error), "details")
+    return new WorkspaceOperationError(code, own, message, {
+      ...(hasRuntimeType(fix, "string") && fix ? { fix } : {}),
+      ...(Object(details) === details && !Array.isArray(details) ? { details: { ...Object(details) } } : {}),
+    })
+  }
   const status = code === "WORKSPACE_NOT_FOUND" ? 404 : code === "WORKSPACE_CONFLICT" ? 409 : code && invalidRequestCodes.has(code) ? 400 : 500
-  return new WorkspaceOperationError(code ?? "WORKSPACE_HISTORY_FAILED", status, redactInspectionText(error instanceof Error ? error.message : String(error)))
+  return new WorkspaceOperationError(code ?? "WORKSPACE_HISTORY_FAILED", status, message)
 }

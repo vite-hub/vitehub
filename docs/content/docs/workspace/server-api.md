@@ -185,6 +185,7 @@ The first pull of a Workspace needs `--dir`, and `--ref` when the ref is not `ma
 
 - **Pull.** A file that only the remote changed takes the remote version. A text file that both sides changed is merged by line. Lines that both sides changed get Git conflict markers, with your lines first. A remote edit of a file that you deleted brings the file back. Your edit of a file that the remote deleted stays, and the next push restores it. `--theirs <path>` takes the remote version of one path.
 - **Push.** It pulls first, then commits every local change to the ref in one revision with `ifHead` set to the pulled head. When another save lands between the two steps, it pulls and tries again. It refuses while a file has conflict markers.
+- **Edit leases.** Someone who edits a file in the Console can hold its edit lease, as [Content](/docs/content/editing-together) does for a document. A push that writes a leased file fails with the error of the plugin, such as `CONTENT_LEASE_HELD` and status 409, and saves nothing. Because the push is one revision, one held lease blocks the whole push, and the error names every blocked document. The push does not try again. Wait for the editors to finish, or run `vitehub push --override-lease`: the revision then records `lease: "override"` in its metadata, and the lease plugin lets it through.
 - **Binary files.** When both sides change one, the pull keeps your file and lists the path in `conflicts` of the lock file. Run `vitehub resolve <workspace> <path>` to keep your file, or pull with `--theirs <path>`.
 - **Status.** `vitehub status` lists the added, modified, deleted, and conflicting files of each checkout folder, without calling the app. `vitehub pull --dry-run` also lists what changed on the ref since the last pull, and writes nothing.
 
@@ -193,7 +194,7 @@ The commands call two operations of the app, which the Console section `workspac
 | Operation | Kind | Result |
 | --- | --- | --- |
 | `workspace.changes` `{ workspace, ref?, since?, content? }` | read | `{ head, files }`: each file that differs between revision `since` and the head of `ref`, with its content at the head and at `since`. Without `since`, every file of the head. `content: false` leaves the content out. |
-| `workspace.commit` `{ workspace, ref?, ifHead, put?, delete?, message? }` | write | `{ revision }`. `put` maps paths to `{ content, encoding: "utf8" \| "base64" }`. A file that exists at `ifHead` keeps its media type and metadata. The revision metadata records `source` (the surface, such as `cli`) and `author` (`{ id, name, email }` of the signed-in user, as Content records it). Without a signed-in user, such as a local dev server, the revision has no author. Write rules and validators run as for `history.commit()`. A moved head fails with `WORKSPACE_CONFLICT` and status 409. |
+| `workspace.commit` `{ workspace, ref?, ifHead, put?, delete?, message?, lease? }` | write | `{ revision }`. `put` maps paths to `{ content, encoding: "utf8" \| "base64" }`. A file that exists at `ifHead` keeps its media type and metadata. The revision metadata records `source` (the surface, such as `cli`) and `author` (`{ id, name, email }` of the signed-in user, as Content records it). Without a signed-in user, such as a local dev server, the revision has no author. Write rules and validators run as for `history.commit()`. A moved head fails with `WORKSPACE_CONFLICT` and status 409. A plugin hook that refuses the commit keeps its code, status, `fix`, and `details`. `lease: "override"` adds `lease: "override"` to the revision metadata. An Agent or an MCP client may pass it only with `operations({ overrideLeases: true })`, else the call fails with `WORKSPACE_FORBIDDEN` and status 403. |
 
 The folder holds the Workspace root. Checkout folders must be separate: they cannot share a folder or contain one another. On Windows and macOS, folder names that differ only in case are one folder. Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components, in any letter case, are excluded from pulls, status, and pushes; their remote files stay unchanged, and `--theirs` cannot select them.
 
@@ -222,6 +223,16 @@ registerWorkspacePlugin('content', {
 ```
 
 The plugin applies to `fs` writes, Sessions, and history commits on every ref, including facades created before the call. Registering the same id again replaces the earlier plugin. A plugin with the same id in the Workspace Definition wins. The call returns a function that removes this registration. The Workspace does not need to exist yet when you register.
+
+In a history commit, each hook also gets `input.commit`, which is read-only:
+
+| Field | Value |
+| --- | --- |
+| `message` | The message of the commit. |
+| `metadata` | The revision metadata that the caller passed to `history.commit()`, such as `{ lease: 'override' }` from `vitehub push --override-lease`. |
+| `paths` | Every path that the commit adds, changes, or deletes, sorted. Check them together to name every problem in one error. |
+
+`input.commit` is the same object for every path of one commit, so a hook can keep one check per commit in a `WeakMap`. Writes to the working tree have no `input.commit`. A hook error with a `status` from 400 to 499, such as `Object.assign(error, { status: 409, fix })`, reaches `workspace.commit` callers with that status, its `fix`, and its `details`.
 
 Rules from several plugins and the Definition do not merge per path. For one path, the most specific pattern wins, and a later rule with the same pattern replaces an earlier one. Hooks from every plugin run in order. Prefer a `write:validate` hook that throws when a contributed check must always run.
 
