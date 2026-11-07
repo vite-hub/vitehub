@@ -4,7 +4,7 @@ import { getAuthTables } from "better-auth/db"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
-import { createAdminEmailsPlugin, readAdminEmails, withAdminEmails } from "./admin-emails.ts"
+import { createAdminsPlugin, readAdmins } from "./admins.ts"
 import { assertAuthDatabaseAdditionalFields, assertAuthDatabaseIdStrategy, authDatabaseName, authDatabasePlacementError } from "./database-options.ts"
 import { assertAuthDatabaseSchema } from "./database-schema-options.ts"
 import { withPasswordHasher } from "./password.ts"
@@ -20,6 +20,7 @@ import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
 import type { BetterAuthOptions } from "better-auth"
+import type { ViteHubContext } from "@vite-hub/runtime"
 import type {
   AuthBetterAuthRuntimeOptions,
   AuthDefinition,
@@ -110,7 +111,7 @@ function withClientAddressHeaders(advanced: BetterAuthOptions["advanced"]): NonN
 function stripViteHubOptions(
   definition: AuthDefinition,
   options: AuthRuntimeOptions & Record<string, unknown>,
-  event?: unknown,
+  event?: ViteHubContext,
 ): AuthBetterAuthRuntimeOptions {
   const {
     access: _access,
@@ -139,12 +140,12 @@ function stripViteHubOptions(
   const declaredPlugins = sessionRefresh.plugins ?? rest.plugins ?? []
   // Bounds the admin plugin's impersonation sessions, which the app or the Console can start.
   const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
-  const adminEmails = readAdminEmails(event)
-  const adminEmailsPlugin = adminEmails.length ? createAdminEmailsPlugin(adminEmails, declaredPlugins) : undefined
+  const admins = readAdmins(event)
+  const adminsPlugin = admins.length ? createAdminsPlugin(admins, declaredPlugins) : undefined
   const plugins = [
     ...declaredPlugins,
     ...(impersonation ? [createImpersonationPlugin()] : []),
-    ...(adminEmailsPlugin ? [adminEmailsPlugin] : []),
+    ...(adminsPlugin ? [adminsPlugin] : []),
   ]
   const databaseHooks = impersonation ? withImpersonationExpiry(rest.databaseHooks) : rest.databaseHooks
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
@@ -156,7 +157,7 @@ function stripViteHubOptions(
     ...rest,
     ...storage,
     ...sessionRefresh,
-    ...(databaseHooks ? { databaseHooks: adminEmailsPlugin ? withAdminEmails(databaseHooks, adminEmailsPlugin) : databaseHooks } : {}),
+    ...(databaseHooks ? { databaseHooks } : {}),
     plugins: eventPlugin ? [...plugins, eventPlugin] : plugins,
     advanced: withClientAddressHeaders(rest.advanced),
     rateLimit,
@@ -190,7 +191,7 @@ function withSessionRefresh(options: Pick<AuthRuntimeOptions, "plugins" | "sessi
 }
 
 /** Without a configured secret, Better Auth signs with the secret derived from `VITEHUB_SECRET`. */
-function withDerivedSecret(options: AuthBetterAuthRuntimeOptions, event: unknown): AuthBetterAuthRuntimeOptions {
+function withDerivedSecret(options: AuthBetterAuthRuntimeOptions, event: ViteHubContext | undefined): AuthBetterAuthRuntimeOptions {
   // Presence is significant here: Better Auth must validate an explicitly empty secret
   // instead of silently replacing it with the ViteHub-derived fallback.
   if (Object.hasOwn(options, "secret") || Object.hasOwn(options, "secrets")) return options
@@ -206,8 +207,8 @@ export function trustsProxyHeaders(options: unknown): boolean {
 export function resolveAuthOptions(
   definition: AuthDefinition,
   input: {
-    env?: (event?: unknown) => Record<string, unknown>
-    event?: unknown
+    env?: (event?: ViteHubContext) => Record<string, unknown>
+    event?: ViteHubContext
     request?: Pick<Request, "headers" | "url">
     runtimeOptions?: AuthRuntimeOptions
   } = {},
@@ -216,7 +217,7 @@ export function resolveAuthOptions(
   const callback = typeof definition.options === "function"
   const staticRequestRuntime = request && typeof definition.options !== "function" ? definition.options.runtime : undefined
   const usesContext = !request || callback || Boolean(staticRequestRuntime)
-  const env = usesContext ? input.env?.(input.event ?? request) ?? {} : {}
+  const env = usesContext ? input.env?.(input.event) ?? {} : {}
   const requestUrlOrigin = request ? new URL(request.url).origin : undefined
   const proxiedOrigin = request ? forwardedRequestOrigin(request) : undefined
   const contextFor = (origin: string | undefined): AuthRuntimeContext => ({
@@ -285,7 +286,7 @@ export function resolveAuthOptions(
   const resolveSnapshot = () => snapshot ??= callback ? requestRuntimeOptions : { ...declared, ...requestRuntimeOptions }
   return {
     get options() { return resolveSnapshot() },
-    get providerOptions() { return withDerivedSecret(withPasswordHasher(stripViteHubOptions(definition, resolveSnapshot(), input.event ?? request)), input.event ?? request) },
+    get providerOptions() { return withDerivedSecret(withPasswordHasher(stripViteHubOptions(definition, resolveSnapshot(), input.event)), input.event) },
     requestRuntimeOptions,
   }
 }
