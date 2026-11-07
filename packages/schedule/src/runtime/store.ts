@@ -207,7 +207,8 @@ export function createMemoryScheduleRunStore(): ScheduleRunStore {
 }
 
 function selectRuns(runs: ScheduleRunRecord[], options: ScheduleRunListOptions = {}): ScheduleRunRecord[] {
-  const selected = runs.filter(run => options.scheduleId === undefined || run.scheduleId === options.scheduleId)
+  const selected = runs.filter(run => (options.scheduleId === undefined || run.scheduleId === options.scheduleId)
+    && (options.idPrefix === undefined || run.id.startsWith(options.idPrefix)))
   selected.sort((left, right) => right.scheduledAt.getTime() - left.scheduledAt.getTime())
   return options.limit === undefined ? selected : selected.slice(0, options.limit)
 }
@@ -254,13 +255,13 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
       const metadata = runIndexMetadata(key)
       return metadata ? [[metadata.id, metadata] as const] : []
     }))
-    type IndexedRun = { key: string, scheduledAt: number }
+    type IndexedRun = { id: string, key: string, scheduledAt: number }
     const known: IndexedRun[] = []
     const bySchedule = new Map<string, IndexedRun[]>()
     const unknown: string[] = []
     const recordsByKey = new Map<string, ScheduleRunRecord | undefined>()
     function groupRun(key: string, metadata: { id: string, scheduleId: string, scheduledAt: number }) {
-      const entry = { key, scheduledAt: metadata.scheduledAt }
+      const entry = { id: metadata.id, key, scheduledAt: metadata.scheduledAt }
       known.push(entry)
       const group = bySchedule.get(metadata.scheduleId) ?? []
       bySchedule.set(metadata.scheduleId, group)
@@ -321,11 +322,13 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     const known = options.scheduleId === undefined
       ? snapshot.known
       : snapshot.bySchedule.get(options.scheduleId) ?? []
+    // The index already carries IDs, so filter cron/manual runs before reading any selected bodies.
+    const matching = options.idPrefix === undefined ? known : known.filter(entry => entry.id.startsWith(options.idPrefix!))
     // Read selected indexed records with bounded concurrency; legacy records are already cached.
     const records: ScheduleRunRecord[] = []
-    const selectedKeys = options.scheduleId === undefined && options.limit === undefined
+    const selectedKeys = options.scheduleId === undefined && options.idPrefix === undefined && options.limit === undefined
       ? keys
-      : known.slice(0, options.limit ?? known.length).map(entry => entry.key)
+      : matching.slice(0, options.limit ?? matching.length).map(entry => entry.key)
     for (let index = 0; index < selectedKeys.length; index += 16) {
       const batch = await Promise.all(selectedKeys.slice(index, index + 16).map(async (key) => {
         if (recordsByKey.has(key)) return recordsByKey.get(key)

@@ -5,6 +5,8 @@ import type { ConsoleLinkRequest } from "../client/pending-links";
 import type { ConsoleProjectProblem } from "../client/project-link";
 import { confirmConsoleLink, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
+import ConsoleCodeText from "./console-code-text.vue";
+import ConsoleProjectProblemAlert from "./console-project-problem.vue";
 
 /**
  * The `/link` page of a hosted Console. It shows the app of a one-time link and sends nothing until the person confirms
@@ -55,13 +57,7 @@ function leave(): void {
         Continue only if you started this app. The Console sends the key of this link to {{ shown.target.url }} and keeps the project in this browser.
       </p>
     </div>
-    <div v-if="problem" role="alert" class="flex gap-2 text-sm">
-      <UIcon name="i-lucide-circle-alert" class="mt-0.5 size-4 shrink-0 text-error" aria-hidden="true" />
-      <div class="grid gap-0.5">
-        <p class="font-medium text-highlighted">{{ problem.title }}</p>
-        <p class="text-pretty text-muted">{{ problem.message }}</p>
-      </div>
-    </div>
+    <ConsoleProjectProblemAlert v-if="problem" :problem="problem" />
     <div class="flex gap-2">
       <UButton :loading="busy" :label="busy ? 'Linking…' : 'Link project'" @click="confirm" />
       <UButton color="neutral" variant="ghost" label="Cancel" :disabled="busy" @click="leave" />
@@ -71,7 +67,8 @@ function leave(): void {
   <template v-else>
     <div class="grid gap-1.5" role="alert">
       <h1 class="vitehub-project-gate__title">{{ shown.problem.title }}</h1>
-      <p class="vitehub-project-gate__text">{{ shown.problem.message }}</p>
+      <p class="vitehub-project-gate__text"><ConsoleCodeText :text="shown.problem.message" /></p>
+      <p v-if="shown.problem.fix" class="vitehub-project-gate__fix"><ConsoleCodeText :text="shown.problem.fix" /></p>
     </div>
     <UButton label="Open Console" class="justify-self-start" @click="leave" />
   </template>
