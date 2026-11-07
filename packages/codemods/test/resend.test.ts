@@ -85,6 +85,92 @@ it("reports a literal runtimeConfig Resend key that needs manual migration", asy
   })]))
 })
 
+describe("resend runtime config compatibility", () => {
+  it.each([
+    "const legacy = useRuntimeConfig().resend",
+    "const { resend } = useRuntimeConfig()",
+    "const {\n  resend\n} = useRuntimeConfig()",
+    "const legacy = useRuntimeConfig()[section]",
+  ])("keeps module-provided config without relying on reader syntax: %s", async (reader) => {
+    const cwd = await app(`await useResend().emails.send(${message})\n${reader}\n`, "", "nuxt-resend")
+    const run = await runCodemod("resend", { cwd, dryRun: true })
+    const config = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
+    expect(config).toContain('resend: { apiKey: "" }')
+    expect(config).not.toContain('"nuxt-resend"')
+  })
+
+  it.each(["", "const legacy = useRuntimeConfig().resend"])("preserves existing config regardless of detected readers: %s", async (reader) => {
+    const legacy = 'resend: { apiKey: process.env.LEGACY_KEY, region: "eu" }'
+    const cwd = await app(`await useResend().emails.send(${message})\n${reader}\n`, `runtimeConfig: { ${legacy} },`, "nuxt-resend")
+    const run = await runCodemod("resend", { cwd, dryRun: true })
+    expect(run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after).toContain(legacy)
+  })
+
+  it("preserves dynamic runtime config and reports the declaration it cannot add", async () => {
+    const cwd = await app(`await useResend().emails.send(${message})`, "runtimeConfig: getConfig(),", "nuxt-resend")
+    const run = await runCodemod("resend", { cwd, dryRun: true })
+    const config = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
+    expect(config).toContain("runtimeConfig: getConfig()")
+    expect(config?.match(/runtimeConfig:/g)).toHaveLength(1)
+    expect(run.result.followUps).toEqual(expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining("Keep runtimeConfig.resend.apiKey declared by hand") })]))
+  })
+
+  it("declares the module key inside an existing Resend config object", async () => {
+    const cwd = await app(`await useResend().emails.send(${message})`, 'runtimeConfig: { resend: { region: "eu" } },', "nuxt-resend")
+    const run = await runCodemod("resend", { cwd, dryRun: true })
+    const config = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
+    expect(config).toContain('region: "eu"')
+    expect(config).toContain('apiKey: ""')
+    expect(config?.match(/resend:/g)).toHaveLength(1)
+  })
+})
+
+describe("resend credential inference", () => {
+  it.each([
+    `const config = useRuntimeConfig()\nfunction send(config) { return new Resend(config.apiKey).emails.send(${message}) }`,
+    `const config = useRuntimeConfig()\n{ const config = other; new Resend(config.apiKey).emails.send(${message}) }`,
+    `function other() { const config = useRuntimeConfig() }\nfunction send(config) { return new Resend(config.apiKey).emails.send(${message}) }`,
+    `function send(useRuntimeConfig) { return new Resend(useRuntimeConfig().apiKey).emails.send(${message}) }`,
+    `import { useRuntimeConfig } from "other-config"\nnew Resend(useRuntimeConfig().apiKey).emails.send(${message})`,
+    `function send(process) { return new Resend(process.env.PARAM_KEY).emails.send(${message}) }`,
+    `let config = useRuntimeConfig()\nconfig = other\nnew Resend(config.apiKey).emails.send(${message})`,
+  ])("reports unknown sources instead of guessing from identifier names: %s", async (source) => {
+    const cwd = await app(`import { Resend } from "resend"\n${source}\n`)
+    const run = await runCodemod("resend", { cwd, dryRun: true })
+    const config = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
+    expect(config).not.toContain("NUXT_API_KEY")
+    expect(config).not.toContain("PARAM_KEY")
+    expect(run.result.followUps).toEqual(expect.arrayContaining([expect.objectContaining({ message: expect.stringContaining("reads its API key from an expression") })]))
+  })
+
+  it.each([
+    `new Resend(useRuntimeConfig().apiKey).emails.send(${message})`,
+    `const config = useRuntimeConfig()\nnew Resend(config.apiKey).emails.send(${message})`,
+    `import { useRuntimeConfig as getConfig } from "#imports"\nconst config = getConfig()\nnew Resend(config.apiKey).emails.send(${message})`,
+  ])("follows proven runtime config bindings: %s", async (source) => {
+    const cwd = await app(`import { Resend } from "resend"\n${source}\n`, "runtimeConfig: { apiKey: process.env.MAIL_KEY },")
+    const run = await runCodemod("resend", { cwd, dryRun: true })
+    const config = run.result.edits.find(edit => edit.path === "nuxt.config.ts")?.after
+    expect(config).toContain('env.source(["NUXT_API_KEY", "MAIL_KEY"])')
+    expect(run.result.followUps).toEqual([])
+  })
+
+  describe.each(["readSecret()", "env.RESEND_KEY"])("unknown config credential %s", (expression) => {
+    it.each([
+      [`await useResend().emails.send(${message})`, `resend: { apiKey: ${expression} },`, "resend.apiKey"],
+      [`await useResend().emails.send(${message})`, `runtimeConfig: { resend: { apiKey: ${expression} } },`, "runtimeConfig.resend.apiKey"],
+      [`import { Resend } from "resend"\nawait new Resend(useRuntimeConfig().mailKey).emails.send(${message})`, `runtimeConfig: { mailKey: ${expression} },`, "runtimeConfig.mailKey"],
+    ])("reports manual credential migration: %s", async (source, options, path) => {
+      const cwd = await app(source, options, "nuxt-resend")
+      const run = await runCodemod("resend", { cwd, dryRun: true })
+      expect(run.result.followUps).toEqual(expect.arrayContaining([expect.objectContaining({
+        file: "nuxt.config.ts",
+        message: expect.stringContaining(`at ${path} could not be read statically`),
+      })]))
+    })
+  })
+})
+
 it("reports clients whose different credential sources would share one Email key", async () => {
   const cwd = await app(`${sdkSend}const second = new Resend(process.env.SECOND_ACCOUNT_KEY)\nawait second.emails.send(${message})\n`)
   const run = await runCodemod("resend", { cwd, dryRun: true })

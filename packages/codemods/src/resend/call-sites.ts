@@ -33,10 +33,11 @@ export interface ResendCallSites {
   sends: number
 }
 
-function processEnvName(node: Node | undefined): string | undefined {
+function processEnvName(node: Node | undefined, resolveBinding: ReturnType<typeof bindingResolver>): string | undefined {
   if (node?.type !== "MemberExpression" || node.object.type !== "MemberExpression") return undefined
   const object = node.object
   if (object.object.type !== "Identifier" || object.object.name !== "process" || keyName(object.property) !== "env") return undefined
+  if (resolveBinding(object.object)) return undefined
   return keyName(node.property, node.computed)
 }
 
@@ -67,6 +68,8 @@ class FileRewrite {
   private readonly replaced: Array<[number, number]> = []
   private readonly useResendBindings = new Set<Identifier>()
   private readonly resendClassBindings = new Set<Identifier>()
+  private readonly runtimeConfigHelpers = new Set<Identifier>()
+  private readonly runtimeConfigObjects = new Set<Identifier>()
   private readonly resolveBinding: ReturnType<typeof bindingResolver>
 
   constructor(private readonly file: string, private readonly code: string) {
@@ -81,8 +84,15 @@ class FileRewrite {
         const imported = keyName(specifier.imported)
         if (statement.source.value === "resend" && imported === "Resend") this.resendClassBindings.add(specifier.local)
         if (statement.source.value === "#imports" && imported === "useResend") this.useResendBindings.add(specifier.local)
+        if (statement.source.value === "#imports" && imported === "useRuntimeConfig") this.runtimeConfigHelpers.add(specifier.local)
       }
     }
+    walk(this.program, (node, ancestors) => {
+      // Mutable aliases cannot prove where a later credential comes from.
+      const statement = ancestors.at(-1)
+      if (node.type === "VariableDeclarator" && node.id.type === "Identifier" && statement?.type === "VariableDeclaration"
+        && statement.kind === "const" && this.isRuntimeConfigCall(node.init)) this.runtimeConfigObjects.add(node.id)
+    })
   }
 
   private follow(node: Node, message: string): void {
@@ -123,20 +133,22 @@ class FileRewrite {
     if (node.type !== "MemberExpression") return undefined
     const key = keyName(node.property, node.computed)
     const object = node.object
-    const isRuntimeConfigCall = (value: Node | null | undefined) => value?.type === "CallExpression" && value.callee.type === "Identifier" && value.callee.name === "useRuntimeConfig"
-    if (isRuntimeConfigCall(object)) return key
+    if (this.isRuntimeConfigCall(object)) return key
     if (object.type !== "Identifier") return undefined
-    let bound = false
-    walk(this.program, (child) => {
-      if (child.type === "VariableDeclarator" && child.id.type === "Identifier" && child.id.name === object.name && isRuntimeConfigCall(child.init)) bound = true
-    })
-    return bound ? key : undefined
+    const binding = this.resolveBinding(object)
+    return binding && this.runtimeConfigObjects.has(binding) ? key : undefined
+  }
+
+  private isRuntimeConfigCall(node: Node | null | undefined): boolean {
+    if (node?.type !== "CallExpression" || node.callee.type !== "Identifier") return false
+    const binding = this.resolveBinding(node.callee)
+    return binding ? this.runtimeConfigHelpers.has(binding) : node.callee.name === "useRuntimeConfig"
   }
 
   private planClient(client: Node, ancestors: Node[]): void {
     if (client.type === "NewExpression") {
       const [argument] = client.arguments
-      const name = argument ? processEnvName(argument) : "RESEND_API_KEY"
+      const name = argument ? processEnvName(argument, this.resolveBinding) : "RESEND_API_KEY"
       const runtimeKey = argument ? this.runtimeConfigKey(argument) : undefined
       this.apiKeySources.push(name ? `env:${name}` : runtimeKey ? `runtimeConfig:${runtimeKey}` : `${this.file}:${start(client)}`)
       if (name) this.apiKeyVariables.push(name)
