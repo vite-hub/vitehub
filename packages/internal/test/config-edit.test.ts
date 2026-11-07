@@ -244,6 +244,15 @@ describe("editViteHubConfig", () => {
 })
 
 describe("insertViteHubConfig", () => {
+  it.each(["hub.vitehub", 'hub["vitehub"]'])("preserves an existing namespace registration through %s", (callee) => {
+    const code = `import * as hub from "vite-hub"\nexport default { plugins: [${callee}({ preset: "node" })] }\n`
+    expect(insertViteHubConfig("vite.config.ts", code, { preset: "deno" })).toEqual({ ok: true, code })
+    expect(locateViteHubConfig("vite.config.ts", code)).toMatchObject({ ok: true, site: { keys: { preset: { value: "node" } } } })
+    expect(edit("vite.config.ts", code, [{ op: "set", key: "preset", value: "deno" }])).toBe(code.replace('preset: "node"', 'preset: "deno"'))
+    const factored = `import * as hub from "vite-hub"\nconst plugins = [${callee}({ preset: "node" })]\nexport default { plugins }\n`
+    expect(insertViteHubConfig("vite.config.ts", factored, { preset: "deno" })).toMatchObject({ ok: false, reason: "dynamic-options" })
+  })
+
   it("adds vitehub() and its import to the Vite plugins", () => {
     const code = "import vue from '@vitejs/plugin-vue'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n  ],\n})\n"
     expect(insertViteHubConfig("vite.config.ts", code, { preset: "cloudflare" })).toEqual({

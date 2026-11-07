@@ -405,7 +405,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
       framework,
       host: args.host,
       options: Object.entries(options).flatMap(([id, value]) => value ? flattenOptions(id, value) : []),
-      ...(args.pm ? { pm: args.pm } : {}),
+      pm: packageManager,
     }
   }
   const rerun: SetupRerun = (_args, extra, extraFeatures) => rerunInit(args, parts(extra, extraFeatures))
@@ -471,7 +471,7 @@ async function planInit(args: InitInputs, root: string, state: DirState, context
   return { install, plan, rerun: rerunInit(args, parts()), writes, ...(scaffold ? { scaffold } : {}) }
 }
 
-async function applyInit(planned: InitPlanned, install: boolean, context: ViteHubCliContext): Promise<void> {
+async function applyInit(planned: InitPlanned, install: boolean, context: ViteHubCliContext, scaffolded = false): Promise<void> {
   const { plan } = planned
   const runInstall = async () => {
     if (!install) return
@@ -481,7 +481,7 @@ async function applyInit(planned: InitPlanned, install: boolean, context: ViteHu
       // The package manager logs to stderr, so `--json` keeps one document on stdout.
       const result = await context.spawn(plan.packageManager, commandArgs, { cwd: plan.root, env: context.env, stdout: "stderr" })
       if (result.exitCode !== 0) {
-        throw new SetupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [plan.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal, filesWritten: plan.mode === "create" }), setupExitCodes.error)
+        throw new SetupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [plan.packageManager, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal, filesWritten: scaffolded || plan.mode === "create" }), setupExitCodes.error)
       }
     }
   }
@@ -512,7 +512,7 @@ async function scaffoldNuxt(planned: InitPlanned, context: ViteHubCliContext): P
   await mkdir(dirname(planned.plan.root), { recursive: true })
   const result = await context.spawn(command, commandArgs, { cwd: dirname(planned.plan.root), env: context.env, stdout: "stderr" })
   if (result.exitCode !== 0) {
-    throw new SetupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [command, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal }), setupExitCodes.error)
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_INSTALL_FAILED({ command: [command, ...commandArgs].join(" "), exitCode: result.exitCode ?? result.signal, filesWritten: "possible" }), setupExitCodes.error)
   }
 }
 
@@ -613,7 +613,7 @@ async function runInit(rawArgs: string[], context: ViteHubCliContext): Promise<n
       // The new app has no lockfile yet, so keep the package manager of the first plan.
       planned = await planInit({ ...args, pm: plan.packageManager }, root, await readDir(root, context.env), context)
     }
-    await applyInit(planned, args.install, context)
+    await applyInit(planned, args.install, context, !!plan.scaffold)
     // A new Nuxt app is planned again after `nuxi init`, as an adoption, but it is still a new app.
     const applied: SetupInitPlan = { ...planned.plan, mode: plan.mode, status: "applied", ...(plan.scaffold ? { scaffold: plan.scaffold } : {}) }
     if (args.json) writeSetupJson(context, applied)

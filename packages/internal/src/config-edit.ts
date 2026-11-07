@@ -161,18 +161,25 @@ function siteFor(code: string, form: ConfigForm, options: Node | undefined, cont
 
 function locateVite(code: string, program: File): Located | Failure {
   const names = importedNames(program, viteModule, imported => imported === undefined || imported === "vitehub")
+  const namespaces = new Set(program.program.body.flatMap(statement => statement.type === "ImportDeclaration" && statement.source.value === viteModule && statement.importKind !== "type"
+    ? statement.specifiers.flatMap(specifier => specifier.type === "ImportNamespaceSpecifier" ? [specifier.local.name] : [])
+    : []))
+  const isViteHubCall = (node: Node): node is CallExpression => node.type === "CallExpression" && (
+    (node.callee.type === "Identifier" && names.has(node.callee.name))
+    || (node.callee.type === "MemberExpression" && node.callee.object.type === "Identifier" && namespaces.has(node.callee.object.name) && keyName(node.callee.property, node.callee.computed) === "vitehub")
+  )
   const root = defaultExport(program)
-  if (!names.size || !root) return fail("no-vitehub")
+  if ((!names.size && !namespaces.size) || !root) return fail("no-vitehub")
   const calls: Array<CallExpression> = []
   walk(root, (node) => {
-    if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name)) calls.push(node)
+    if (isViteHubCall(node)) calls.push(node)
   })
   const [call, second] = calls
   if (!call) {
     // A call outside the export may reach it through a binding. Do not claim it is absent.
     let factored: CallExpression | undefined
     walk(program, (node) => {
-      if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name)) factored = node
+      if (isViteHubCall(node)) factored = node
     })
     return factored ? fail("dynamic-options", factored) : fail("no-vitehub")
   }

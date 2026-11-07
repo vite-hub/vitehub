@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs"
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
+import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises"
 import { join, relative } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -206,10 +206,28 @@ describe("vitehub init", () => {
     expect(await snapshot(root)).toEqual(before)
   })
 
-  it.each(["vite", "nuxt"] as const)("adopts a config-less %s app without replacing existing files", async (framework) => {
+  it("adopts an app with a namespace registration without adding another plugin", async () => {
+    const config = 'import * as hub from "vite-hub"\nexport default { plugins: [hub.vitehub({ preset: "node" })] }\n'
+    const root = await createProject({
+      "package.json": JSON.stringify({ devDependencies: { vite: "^8" }, type: "module" }),
+      "vite.config.ts": config,
+    })
+    const args = [".", "--host", "cloudflare", "--features", "kv", "--no-install", "--yes"]
+    const result = await init(args, root)
+    expect(result.exitCode, result.stdout).toBe(0)
+    const after = await readFile(join(root, "vite.config.ts"), "utf8")
+    expect(after).toContain('hub.vitehub({ preset: "cloudflare", kv: true })')
+    expect(after).not.toContain("import { vitehub }")
+    const again = await init(args, root)
+    expect(again.exitCode, again.stdout).toBe(0)
+    expect(again.json).toMatchObject({ changes: [], status: "unchanged" })
+  })
+
+  it.each([["vite", false], ["nuxt", false], ["nuxt", true]] as const)("adopts a config-less %s app without replacing existing files (unrelated Vite config: %s)", async (framework, unrelatedViteConfig) => {
     const root = await createProject({
       "package.json": JSON.stringify({ devDependencies: { [framework]: "*" }, type: "module" }),
       "index.html": "<div id=app></div>\n",
+      ...(unrelatedViteConfig ? { "vite.config.ts": "export default { plugins: [] }\n" } : {}),
     })
     const before = await snapshot(root)
     const args = [".", "--host", "cloudflare", "--features", "kv", "--no-install", "--yes"]
@@ -260,6 +278,35 @@ describe("vitehub init", () => {
     }
   })
 
+  it.each([
+    ["package-lock.json", "npm"],
+    ["yarn.lock", "yarn"],
+    ["bun.lock", "bun"],
+  ])("keeps the inherited manager from %s in the README and status outside the parent tree", async (lockfile, pm) => {
+    const parent = await createProject({ [lockfile]: "" })
+    const calls: string[] = []
+    const result = await runSetup<InitResult>(["init", "app", "--host", "node", "--features", "kv", "--yes", "--json"], parent, { npm_config_user_agent: "pnpm/10.0.0" }, {
+      spawn: async (command) => {
+        calls.push(command)
+        return { exitCode: 0 }
+      },
+    })
+    expect(result.exitCode, result.stdout).toBe(0)
+    expect(calls).toEqual([pm, pm])
+    const command = `pnpm dlx vite-hub init app --host node --features kv --pm ${pm} --yes`
+    expect(result.json.stack.command).toBe(command)
+    expect(await readFile(join(parent, "app/README.md"), "utf8")).toContain(command)
+
+    const movedParent = await createProject()
+    await rename(join(parent, "app"), join(movedParent, "app"))
+    const status = await runSetup<StatusResult>(["status", "--json"], join(movedParent, "app"))
+    expect(status.exitCode, status.stdout).toBe(0)
+    expect(status.json.stack).toEqual({ command })
+    const replay = await runSetup<InitResult>([...command.split(" ").slice(3), "--dry-run", "--json"], await createProject(), { npm_config_user_agent: "pnpm/10.0.0" })
+    expect(replay.exitCode, replay.stdout).toBe(0)
+    expect(replay.json.packageManager).toBe(pm)
+  })
+
   it("reports new app files left on disk after installation fails", async () => {
     const parent = await createProject()
     const result = await init(["app", "--host", "node", "--features", "kv", "--yes"], parent, async () => ({ exitCode: 1 }))
@@ -271,6 +318,27 @@ describe("vitehub init", () => {
     expect(files["package.json"]).toBeDefined()
     expect(files["server/api/health.get.ts"]).toBeDefined()
     expect(files["vite.config.ts"]).toContain("vitehub(")
+  })
+
+  it.each([false, true])("reports Nuxt scaffold output after failure (scaffolding succeeded: %s)", async (scaffoldSucceeds) => {
+    const parent = await createProject()
+    const config = "export default defineNuxtConfig({})\n"
+    const spawn: ViteHubCliSpawn = async (_command, args) => {
+      if (args.includes("init")) {
+        await mkdir(join(parent, "site"))
+        await writeFile(join(parent, "site/package.json"), JSON.stringify({ dependencies: { nuxt: "^4.5.2" }, type: "module" }))
+        await writeFile(join(parent, "site/nuxt.config.ts"), config)
+        return { exitCode: scaffoldSucceeds ? 0 : 1 }
+      }
+      return { exitCode: 1 }
+    }
+    const result = await init(["site", "--host", "node", "--features", "kv", "--framework", "nuxt", "--yes"], parent, spawn)
+    expect(result.exitCode).toBe(1)
+    expect(result.json.error).toMatchObject({ code: "SETUP_INSTALL_FAILED" })
+    expect(result.json.error?.fix).not.toContain("did not write")
+    expect(result.json.error?.fix).toContain(scaffoldSucceeds ? "app files were written" : "may have left new app files")
+    expect(await readFile(join(parent, "site/nuxt.config.ts"), "utf8")).toBe(config)
+    expect(existsSync(join(parent, "site/package.json"))).toBe(true)
   })
 
   it("refuses a folder that is not empty and holds no app", async () => {

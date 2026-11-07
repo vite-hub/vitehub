@@ -124,7 +124,7 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
   if (!manifest && !nuxtConfig && !viteConfig) throw cliErrorDiagnostics.SETUP_NOT_A_PROJECT({ root })
 
   const framework: SetupFramework = nuxtConfig || dependencies.nuxt ? "nuxt" : viteConfig || dependencies.vite ? "vite" : "none"
-  const configFile = framework === "nuxt" ? nuxtConfig ?? viteConfig : viteConfig
+  const configFile = framework === "nuxt" ? nuxtConfig : viteConfig
   const configSource = configFile ? await readFile(join(root, configFile), "utf8") : undefined
   const config = configFile && configSource !== undefined ? locateViteHubConfig(configFile, configSource) : undefined
   const folders = parentFolders(root)
