@@ -1,4 +1,5 @@
 import type { DeploymentPreset, DeploymentService } from "./deployment.ts"
+import { isPlainObject } from "./object.ts"
 
 /**
  * The feature keys of `vitehub({...})`. `vitehub add <feature>` and `vitehub status` read this list before the owner
@@ -262,7 +263,6 @@ export default defineAgent({
     docs: "/docs/development/console",
     hosts: everywhere("nitro", "Nitro"),
     id: "console",
-    implies: [{ feature: "comments" }],
     summary: "The ViteHub Console at `/_vitehub` to inspect and operate every primitive.",
     title: "Console",
   }),
@@ -500,6 +500,20 @@ export default defineWorkflow<{ id: string }>(async ({ payload }) => {
   }),
 }
 
+/** Match the storage values that select OpenWorkflow during Workflow normalization. */
+function hasOpenWorkflowStorageConfig(options: Record<string, unknown>): boolean {
+  const path = isPlainObject(options.sqlite) ? options.sqlite.path : undefined
+  const url = isPlainObject(options.postgres) ? options.postgres.url : undefined
+  return [path, url].some(value => {
+    if (typeof value === "string") return !!value.trim()
+    if (!isPlainObject(value) || value.kind !== "env-variable") return false
+    if (!("source" in value)) return true
+    const source = value.source
+    return isPlainObject(source) && source.kind === "env" && typeof source.name === "string"
+      && (!("names" in source) || Array.isArray(source.names) && source.names.every(name => typeof name === "string"))
+  })
+}
+
 /** Packages needed by a feature and its statically selected provider. */
 export function featurePackages(id: FeatureId, value: unknown, host: DeploymentPreset | "unknown"): string[] {
   const definition = features[id]
@@ -513,7 +527,7 @@ export function featurePackages(id: FeatureId, value: unknown, host: DeploymentP
     return typeof choice === "string" ? choices[choice] ?? [] : []
   }))
   // Node selects OpenWorkflow when its storage is set and no provider is.
-  if (id === "workflow" && host === "node" && options && options.provider === undefined && (options.sqlite !== undefined || options.postgres !== undefined)) selected.push("openworkflow")
+  if (id === "workflow" && host === "node" && options && options.provider === undefined && hasOpenWorkflowStorageConfig(options)) selected.push("openworkflow")
   return [...new Set([...definition.packages, ...selected])]
 }
 
