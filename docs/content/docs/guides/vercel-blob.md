@@ -56,7 +56,9 @@ ViteHub picks credentials at runtime in this order:
 2. OIDC, when `BLOB_STORE_ID` is set. The Vercel SDK reads the OIDC token itself.
 3. `BLOB_READ_WRITE_TOKEN`, for code that runs off Vercel, such as a CI job or another host. With `BLOB_STORE_ID` set and no OIDC token, the SDK also falls back to this token.
 
-When neither `BLOB_STORE_ID` nor `BLOB_READ_WRITE_TOKEN` is set at runtime, ViteHub throws `BLOB_C0009`. For local development, run `vercel env pull` once. The SDK refreshes the OIDC token with your Vercel CLI login.
+When neither `BLOB_STORE_ID` nor `BLOB_READ_WRITE_TOKEN` is set at runtime, ViteHub throws `BLOB_C0009`.
+
+`vite dev` uses the local `fs` store when it infers Vercel Blob from these variables or from the Vercel preset, so development writes do not change the real store. To use the real store in `vite dev`, set `remote: true` on the store, or set `driver: 'vercel-blob'`, then run `vercel env pull` once. The SDK refreshes the OIDC token with your Vercel CLI login. Read [Use the real store in development](/docs/blob/configure#use-the-real-store-in-development).
 
 Create the store in one of two ways:
 
