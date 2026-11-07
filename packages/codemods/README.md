@@ -31,6 +31,7 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 | Codemod | Moves |
 | --- | --- |
 | `nuxt-safe-runtime-config` | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub Env through `vite-hub/nuxt` |
+| `t3-env` | A Nuxt app from `@t3-oss/env-nuxt` `createEnv()` to ViteHub Env through `vite-hub/nuxt` |
 
 ## `nuxt-safe-runtime-config`
 
@@ -52,6 +53,14 @@ The report lists what Env cannot express and what the codemod could not rewrite:
 ```sh
 corepack pnpm exec vp run codemods:e2e
 ```
+
+## `t3-env`
+
+The codemod finds the file that calls `createEnv()` from `@t3-oss/env-nuxt`, loads its Valibot, Zod 3, Zod 4, or ArkType schemas without validating the current environment, and declares one value per variable under `vitehub.env`. Each declaration reads the original variable with `env.source()`. `DATABASE_URL` becomes `useServerEnv().databaseUrl`, and `NUXT_PUBLIC_SITE_URL` becomes `usePublicEnv().siteUrl`. Credential-like server names become `secret: true`.
+
+It rewrites `env.KEY` reads in files that import the env module, through relative paths or the `~`, `~~`, `@`, `@@`, `#shared`, and `#server` aliases. Server reads become `useServerEnv().key`, with `.unseal()` on secrets so the code keeps the raw string, and public reads become `usePublicEnv().key`. It removes the `import './env'` that validated the env module from `nuxt.config`.
+
+When no file imports the env module after the rewrite, the codemod deletes it and removes `@t3-oss/env-nuxt`. A file that runs outside Nuxt, such as `drizzle.config.ts`, keeps both, and the report names it. The report also lists what Env does not keep: formats, lengths, patterns, transforms, unions, server reads in browser code, template reads, and `createEnv()` options such as `skipValidation`.
 
 ## Check real apps
 
