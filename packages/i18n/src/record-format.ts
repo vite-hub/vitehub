@@ -1,62 +1,64 @@
 // Pure helpers, so the server runtime reads records on any host.
 
-/** How far a person checked a translation. */
-export type TranslationReview = "machine" | "edited" | "verified"
+import { hashSkeleton, recordStatus } from "@diglot/core"
 
-/** One translation of one message. ViteHub keeps it in `locales/<locale>/<file>.json`. */
-export interface TranslationRecord {
-  /** The source text of the message. Its message ID is a hash of this text and `context`. */
-  source: string
-  /** The context of the message, when the code gives one. */
-  context?: string
-  /** The translated message, in ICU MessageFormat with the same placeholders as `source`. */
-  translation: string
-  /** `machine` for a draft from a model, `edited` after a person changed it, `verified` after a person checked it. */
-  review?: TranslationReview
-  updatedAt?: string
-  /** Who wrote the last change. */
-  by?: string
-}
+import type { Placeholder, Segment, SegmentKind, TranslationRecord, ValidationTarget } from "@diglot/core"
+
+export type { Origin, Review, TranslationRecord } from "@diglot/core"
+export { parseRecordPath, recordPath } from "@diglot/store/runtime"
 
 /** Translations of one locale, by message ID. */
 export type TranslationRecords = Record<string, TranslationRecord>
 
-const base64url = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
-const idRe = /^[\w-]{6}$/
-const fileRe = /^([\da-f]{9})\.json$/
+/**
+ * A message of the code as a Diglot segment. The record of a message has the segment hash as its name, the message
+ * as its `source`, and the message context as its `salt`.
+ */
+export interface MessageSegment {
+  /** Diglot's hash of the message and its context. */
+  hash: string
+  /** The message, in ICU MessageFormat. */
+  skeleton: string
+  /** The context of the message, when the code gives one. */
+  salt?: string
+  kind: "message"
+  /** Diglot does not read a message as Markdown. */
+  format: "plain"
+  /** The positional values `{0}`, `{1}` of the message. A translation must keep each one. */
+  placeholders: Placeholder[]
+}
+
+const positionalRe = /(?<!\\)\{(\d+)\}/g
+
+/** The Diglot segment of a message. */
+export function messageSegment(message: string, context?: string): MessageSegment {
+  const salt = context || undefined
+  let count = 0
+  for (const match of message.matchAll(positionalRe)) count = Math.max(count, Number(match[1]) + 1)
+  return {
+    hash: hashSkeleton(message, salt, "plain"),
+    skeleton: message,
+    ...(salt ? { salt } : {}),
+    kind: "message",
+    format: "plain",
+    placeholders: Array.from({ length: count }, (_, id): Placeholder => ({ id, type: "binding", source: `{${id}}` })),
+  }
+}
 
 /**
- * Message IDs differ in letter case, and macOS and Windows file systems ignore case. The file name is the ID as 9
- * hex digits instead, so two IDs never share a file.
+ * The segment in the shape that the `@diglot/core` review functions accept. Diglot 0.2.1 has no `message` kind.
+ * `validate()` reads the kind only for code comments and single-line kinds, and a plain segment is one line anyway.
  */
-export function recordFileName(id: string): string {
-  if (!idRe.test(id)) throw new TypeError(`Invalid message ID: ${id}`)
-  let bits = 0n
-  for (const char of id) bits = (bits << 6n) | BigInt(base64url.indexOf(char))
-  return `${bits.toString(16).padStart(9, "0")}.json`
+export function diglotSegment(segment: MessageSegment): Pick<Segment, "hash" | "skeleton" | "salt"> & ValidationTarget {
+  return { ...segment, kind: segment.kind as string as SegmentKind }
 }
 
-export function idFromFileName(name: string): string | undefined {
-  const match = fileRe.exec(name)
-  if (!match) return undefined
-  let bits = BigInt(`0x${match[1]}`)
-  let id = ""
-  for (let index = 0; index < 6; index++) {
-    id = base64url[Number(bits & 63n)] + id
-    bits >>= 6n
-  }
-  return id
+/** The segment of the message that a record translates. */
+export function recordSegment(record: Pick<TranslationRecord, "source" | "salt">): MessageSegment {
+  return messageSegment(record.source, record.salt)
 }
 
-/** Path of a record, relative to the records folder. */
-export function recordPath(locale: string, id: string): string {
-  return `${locale}/${recordFileName(id)}`
+/** False for a record that a reviewer rejected or whose text fails validation. Readers see the source text then. */
+export function isVisible(record: TranslationRecord): boolean {
+  return recordStatus(record, diglotSegment(recordSegment(record))) !== "rejected"
 }
-
-export function isRecord(value: unknown): value is TranslationRecord {
-  if (!value || typeof value !== "object") return false
-  const record = value as Record<string, unknown>
-  return typeof record.source === "string" && typeof record.translation === "string"
-    && (record.context === undefined || typeof record.context === "string")
-}
-

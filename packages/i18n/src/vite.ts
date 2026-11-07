@@ -38,7 +38,7 @@ const generatedMessages = ".vitehub/i18n/messages.mjs"
 const mergeNoExternal = createNoExternalAddition(packageName)
 
 const sourceRe = /\.(?:vue|[cm]?[jt]sx?)(?:\?.*)?$/
-const recordRe = /[\\/]locales[\\/][^\\/]+[\\/][\da-f]{9}\.json$/
+const recordRe = /[\\/]locales[\\/][^\\/]+[\\/]segments[\\/][\da-f]{2}[\\/][\da-f]{16}\.json$/
 const nodeModulesRe = /[\\/]node_modules[\\/]/
 const otherFormQueryRe = /[?&](?:raw|url|inline|worker|sharedworker)(?:&|=|$)|[?&]type=style(?:&|$)/
 

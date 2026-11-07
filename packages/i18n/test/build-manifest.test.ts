@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 import { build } from "vite"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { messageId } from "../src/records.ts"
+import { messageId, messageSegment } from "../src/records.ts"
 import { hubI18n } from "../src/vite.ts"
 
 import type { I18nManifest } from "../src/manifest.ts"
@@ -88,7 +88,7 @@ describe("build message snapshots", () => {
       build: { minify: false, rollupOptions: { input: join(root, "main.ts") } },
     })
     const manifest = JSON.parse(await readFile(join(root, ".vitehub/i18n/manifest.json"), "utf8")) as I18nManifest
-    expect(manifest.environments.client![messageId("Query message")]).toEqual({ message: "Query message", origins: ["labels.ts:1"] })
+    expect(manifest.environments.client![messageId("Query message")]).toEqual({ message: "Query message", hash: messageSegment("Query message").hash, origins: ["labels.ts:1"] })
     const outputs = Array.isArray(result) ? result : "output" in result ? [result] : []
     const chunks = outputs.flatMap(output => output.output).filter(chunk => chunk.type === "chunk")
     expect(chunks.find(chunk => chunk.code.includes("console.log"))!.code).not.toContain("Query message")
