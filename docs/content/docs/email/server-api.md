@@ -8,13 +8,13 @@ icon: i-lucide-code-2
 
 ## Public imports
 
-Use the `vite-hub` paths for framework APIs. Select `resend` or `cloudflare-email` in Vite config.
+Import framework APIs from `vite-hub` paths. Pick `resend` or `cloudflare-email` in the Vite config.
 
 | Import | Runtime values | Public types |
 | --- | --- | --- |
-| `vite-hub` | `vitehub` | Framework Vite Integration options. |
+| `vite-hub` | `vitehub` | Vite plugin options. |
 | `vite-hub/email` | `createEmail` | `EmailAddress`, `EmailAddressList`, `EmailAttachment`, `EmailMessage`, `EmailDriver`, `EmailDriverFactory`, `EmailDriverSource`, `EmailDefinition`, `EmailClient`, `EmailSendResult`, `EmailErrorCode` |
-| `vite-hub/runtime` | `Result`, `ResultError` | Shared `[error, data]` contract of runtime operations. |
+| `vite-hub/runtime` | `Result`, `ResultError` | The shared `[error, data]` return type. |
 | `vite-hub/email/server` | `email` | None |
 | `vite-hub/email/markdown` | `renderEmailMarkdown` | `RenderEmailMarkdownOptions`, `RenderedEmailMarkdown` |
 | `@vite-hub/email/drivers/*` | Programmatic provider drivers | Built-in Resend and Cloudflare Email drivers. |
@@ -22,36 +22,36 @@ Use the `vite-hub` paths for framework APIs. Select `resend` or `cloudflare-emai
 | `@vite-hub/email/vite` | `hubEmail`, `emailConsoleSection` | `EmailVitePluginOptions`, `EmailOutboxOptions`, `EmailVitePlugin`, `EmailVitePluginAPI` |
 | `@vite-hub/email/runtime/console` | `listEmailOutbox`, `getEmailOutboxMessage`, `clearEmailOutbox`, `readEmailOutboxConsoleRecords` | `EmailOutboxMessage`, `EmailOutboxList`, `EmailOutboxDelivery`, `EmailOutboxAttachment` |
 
-The direct `@vite-hub/email`, `@vite-hub/email/server`, and `@vite-hub/email/markdown` paths remain stable for focused libraries and applications that install the owner package without the framework distribution.
+The `@vite-hub/email`, `@vite-hub/email/server`, and `@vite-hub/email/markdown` paths stay stable for libraries and apps that install only `@vite-hub/email`, without `vite-hub`.
 
 ## Message contract
 
-`email.send()` and explicit clients accept ViteHub's portable `EmailMessage`.
+`email.send()` and `createEmail()` clients take an `EmailMessage`.
 
 | Field | Type | Required | Behavior |
 | --- | --- | --- | --- |
 | `from` | `EmailAddress` | Yes | One sender as a string or `{ email, name? }`. |
-| `to` | `EmailAddressList` | Yes | One address or a non-empty address array. |
-| `cc`, `bcc`, `replyTo` | `EmailAddressList` | No | Optional portable recipient fields. |
+| `to` | `EmailAddressList` | Yes | One address or a non-empty array. |
+| `cc`, `bcc`, `replyTo` | `EmailAddressList` | No | More recipients. |
 | `subject` | `string` | Yes | The message subject. |
-| `html`, `text` | `string` | No | Body alternatives supported by the active driver. |
-| `headers` | `Record<string, string>` | No | Custom headers supported by the active driver. |
+| `html`, `text` | `string` | No | Body versions that the driver supports. |
+| `headers` | `Record<string, string>` | No | Custom headers that the driver supports. |
 | `attachments` | `readonly EmailAttachment[]` | No | In-memory string or `Uint8Array` content with a non-empty filename. |
 
-`EmailAttachment` also accepts optional `contentType`, `cid`, and `disposition: 'attachment' | 'inline'`. `EmailMessage` retains scheduling, provider-template, tagging, tracking, unsubscribe, sandbox, metadata, and personalization fields. Built-in drivers forward only the fields their provider supports.
+`EmailAttachment` also takes optional `contentType`, `cid`, and `disposition: 'attachment' | 'inline'`. `EmailMessage` also has scheduling, provider-template, tagging, tracking, unsubscribe, sandbox, metadata, and personalization fields. Built-in drivers pass on only the fields their provider supports.
 
-The active driver owns field support, validation, address rules, message limits, and sender authorization. Check the ViteHub driver reference and provider documentation before using optional fields.
+The driver decides field support, validation, address rules, message limits, and sender authorization. Check the driver reference and provider docs before you use optional fields.
 
-`send()` returns `Promise<Result<EmailSendResult, EmailErrorCode>>`, an `[error, sent]` tuple. When `error` is set, read `error.code`, `error.why`, and `error.fix`. See [Limits and errors](/docs/email/limits-and-errors). On success, `sent` is an `EmailSendResult`:
+`send()` returns `Promise<Result<EmailSendResult, EmailErrorCode>>`, an `[error, sent]` tuple. When `error` is set, read `error.code`, `error.why`, and `error.fix` ([Limits and errors](/docs/email/limits-and-errors)). On success, `sent` is an `EmailSendResult`:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `id` | `string` | The non-empty message ID returned by the driver. |
-| `driver` | `string` | The provider driver that accepted the message. |
+| `driver` | `string` | The driver that accepted the message. |
 
 ## Compose dynamic Markdown
 
-`renderEmailMarkdown()` first composes the template through `@vite-hub/markdown-template`, then parses the composed Markdown with Comark and renders HTML.
+`renderEmailMarkdown()` fills the template with `@vite-hub/markdown-template`, then parses the result with Comark and renders HTML.
 
 ```ts [server/welcome.ts]
 import { renderEmailMarkdown } from 'vite-hub/email/markdown'
@@ -81,12 +81,12 @@ export async function sendWelcome(name: string, to: string) {
 }
 ```
 
-`html` contains rendered HTML. `text` contains the fully composed Markdown, which is readable in text clients but can retain Markdown markers such as `**`. Supply your own `text` when the application requires marker-free plain text.
+`html` is the rendered HTML. `text` is the filled Markdown. Text clients can read it, but it can keep Markdown markers such as `**`. Pass your own `text` when you need plain text without markers.
 
 ### Discover application email templates
 
-Put reusable templates under `server/emails`. ViteHub discovers Markdown files
-recursively and creates a typed `#vitehub/emails/<name>` import from each path.
+Put templates under `server/emails`. ViteHub finds Markdown files in all
+subfolders and creates a typed `#vitehub/emails/<name>` import for each.
 
 ```md [server/emails/welcome.md]
 # Welcome {{ data.user.name }}
@@ -114,23 +114,22 @@ export async function sendWelcome(name: string, to: string) {
 }
 ```
 
-`server/emails/monthly/recap.md` becomes
-`#vitehub/emails/monthly/recap`. ViteHub generates exact module declarations in
-`.vitehub/types/email.d.ts` and bundles the templates for provider builds under
-`.vitehub/email/templates`.
+`server/emails/monthly/recap.md` becomes `#vitehub/emails/monthly/recap`.
+ViteHub writes the module types to `.vitehub/types/email.d.ts` and bundles the
+templates for builds under `.vitehub/email/templates`.
 
 | Option | Type | Default | Use |
 | --- | --- | --- | --- |
-| `data` | `Record<string, unknown>` | `{}` | Supplies scalar bindings, Markdown fragments, and conditional values. |
+| `data` | `Record<string, unknown>` | `{}` | Scalar values, Markdown fragments, and values for conditions. |
 
 ::warning
-`renderEmailMarkdown()` does not sanitize authored HTML or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ data.value }}` bindings for untrusted text. Sanitize any untrusted content before intentionally passing it through a `:insert{:markdown="data.fragment"}` binding.
+`renderEmailMarkdown()` does not sanitize HTML you write or trusted Markdown fragments, and it does not inline email CSS. Use scalar `{{ data.value }}` bindings for untrusted text. Sanitize untrusted content before you pass it through a `:insert{:markdown="data.fragment"}` binding.
 ::
 
 ## Test without delivery
 
-The framework distribution does not re-export test utilities. Install the Email
-owner package as a development dependency when tests use its in-memory client.
+`vite-hub` does not re-export test utilities. To use the in-memory client in
+tests, install `@vite-hub/email` as a dev dependency.
 
 ```bash [Terminal]
 pnpm add -D @vite-hub/email
@@ -154,6 +153,6 @@ it('sends the welcome message', async () => {
 })
 ```
 
-Each test client owns an isolated mailbox. Captured messages are cloned before storage, delivery order is stable, and `clear()` empties the mailbox and resets the next ID to `memory-1`.
+Each test client has its own mailbox. It stores copies of messages in send order. `clear()` empties the mailbox and resets the next ID to `memory-1`.
 
-Use `createMemoryEmailDriver()` when another client or test harness needs to manage the in-memory driver directly.
+Use `createMemoryEmailDriver()` when another client or test harness needs the in-memory driver directly.

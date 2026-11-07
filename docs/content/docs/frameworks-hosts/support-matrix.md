@@ -7,12 +7,11 @@ navigation.group: Choose a target
 icon: i-lucide-table-properties
 ---
 
-Use this page before you claim that a feature works on a host. Each row is a
-server primitive or a deployment contract, and each column is a host. Hover over
-a cell to see the provider that the host uses and the limits of that support.
-Select a proof cell to open the CI run behind it. `Package-specific` means
-support belongs to the named package or generated output, not the host as a
-whole.
+Check this page before you claim a feature works on a host. Rows are server
+primitives or deployment contracts, and columns are hosts. Hover a cell to see
+the host's provider and its limits. Select a proof cell to open its CI run.
+`Package-specific` means the named package or generated output gives the
+support, not the whole host.
 
 ::support-matrix
 ## Server primitives
@@ -47,22 +46,27 @@ whole.
 
 ## Provider notes
 
-Names in this table are concrete built-in providers or adapters. Browser Definitions currently require the Cloudflare preset; local Wrangler can connect to Browser Run with remote mode. Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`, but Browser Definitions do not select that provider. Email's boolean default selects Cloudflare Email only on the Cloudflare preset; every other host requires the explicit built-in Resend driver or a programmatic custom driver. Realtime production uses Cloudflare Durable Objects or explicitly selected memory on a single-process Node server; distributed Vercel, Netlify, and Deno presets reject memory. A remote provider shown under Netlify, Deno, Nitro, or Node is an explicit package choice, not host inference. Local filesystem and memory options remain single-process development providers.
+The table names built-in providers or adapters.
 
-Local Vite delivers Queue Jobs in the dev server with the local provider, for every Queue Provider. It follows the retry, delay, and size rules of the provider of the build, and `vitehub queue jobs list` shows the jobs. The build still generates the hosted provider output. Netlify requires an explicit Cloudflare or Vercel Queue Provider because it cannot infer one. Netlify can use an explicit Vercel Sandbox provider when Vercel credentials are configured; the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify.
+- **Browser:** Browser Definitions require the Cloudflare preset. Local Wrangler can reach Browser Run in remote mode. Trusted local and self-hosted Node processes can call `createBrowser({ provider: localBrowser({ executablePath }) })`, but Browser Definitions do not select that provider.
+- **Email:** `email: true` selects Cloudflare Email only on the Cloudflare preset; every other host requires the explicit built-in Resend driver or a programmatic custom driver.
+- **Realtime:** Production uses Cloudflare Durable Objects, or memory that you select on a single-process Node server; distributed Vercel, Netlify, and Deno presets reject memory.
+- A remote provider under Netlify, Deno, Nitro, or Node is an explicit package choice, not detected from the host. Local filesystem and memory options stay single-process development providers.
+
+Local Vite delivers Queue Jobs in the dev server with the local provider, for every Queue Provider. It follows the build provider's retry, delay, and size rules, and `vitehub queue jobs list` shows the jobs. The build still generates the hosted provider output. Netlify requires an explicit Cloudflare or Vercel Queue Provider, because it cannot detect one. Netlify can use an explicit Vercel Sandbox provider with Vercel credentials; the Cloudflare Sandbox provider requires a Cloudflare binding and cannot run on Netlify.
 
 ## Proof scope
 
-Cloudflare's nightly target includes nine primitives, including Rate Limit. Vercel targets eight because ViteHub has no native Vercel Rate Limit driver. Browser and Agent routes have contract tests but are outside those deployed runs.
+Cloudflare's nightly run covers nine primitives, Rate Limit included. Vercel covers eight, because ViteHub has no Vercel Rate Limit driver. Browser and Agent routes have contract tests but are not in those deployed runs.
 
 ## Qualifications
 
-- **Local Vite:** Active integrations expose their package imports and generated registries. Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory` provide local state. A local build can still generate output for an explicit or inferred hosted provider.
-- **Cloudflare:** Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Browser and Agent have package-owned output outside the nightly run. Enabled integrations compose the Worker, `wrangler.json`, bindings, callbacks, and runtime modules. ViteHub can provision R2 buckets, D1 databases, KV namespaces, and Cloudflare Queues.
-- **Vercel:** Blob, Database, KV, Queue, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Agent routes have separate package output outside the nightly run. Enabled integrations write Vercel Build Output, functions, routes, cron entries, and runtime modules. ViteHub can create a Blob store and configure the project environment.
-- **Netlify:** Blob uses `netlify-blobs`. Agent HTTP routes and static Schedules write functions under `.netlify/v1/functions`. CI runs the real-project fixture through Netlify CLI. ViteHub does not provide Netlify provisioning or published live proof.
-- **Deno:** Agent chat and webhook routes and KV with `deno-kv` are supported with their documented permissions. A production build stages the Nitro application and package-owned standalone Schedule output under `.output`. Compose Schedule with `hubSchedule({ providerOutput: "standalone" })`; `vitehub({ preset: "deno", schedule: true })` rejects Schedule because the facade does not own that output. ViteHub does not publish live Deno proof.
-- **Nitro and UnJS:** Auth and Agent handlers, the Schedule Nitro bridge, Workspace runtime setup, and Database Nuxt D1 wiring are package-owned integrations. Nitro is integration glue rather than a storage or execution provider. ViteHub does not provide Nitro provisioning or one unified live matrix.
-- **Node and self-hosted:** Server APIs and handlers run when their selected driver supports Node. Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory` are single-process providers. ViteHub does not emit one Node deployment bundle, provision a self-hosted plan, or publish one live suite.
+- **Local Vite:** Active integrations expose their imports and generated registries. Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory` give local state. A local build can still generate output for an explicit or detected hosted provider.
+- **Cloudflare:** Blob, Database, KV, Queue, Rate Limit, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Browser and Agent have package output outside the nightly run. Integrations build the Worker, `wrangler.json`, bindings, callbacks, and runtime modules. ViteHub can provision R2 buckets, D1 databases, KV namespaces, and Cloudflare Queues.
+- **Vercel:** Blob, Database, KV, Queue, Sandbox, Schedule, Workflow, and Workspace run in the live playground. Agent routes have package output outside the nightly run. Integrations write Vercel Build Output, functions, routes, cron entries, and runtime modules. ViteHub can create a Blob store and set the project environment.
+- **Netlify:** Blob uses `netlify-blobs`. Agent HTTP routes and static Schedules write functions under `.netlify/v1/functions`. CI runs the real-project fixture through Netlify CLI. There is no Netlify provisioning or published live proof.
+- **Deno:** Agent chat and webhook routes and KV with `deno-kv` work with their documented permissions. A production build stages the Nitro application and package-owned standalone Schedule output under `.output`. Add Schedule with `hubSchedule({ providerOutput: "standalone" })`; `vitehub({ preset: "deno", schedule: true })` rejects Schedule because `vitehub()` does not own that output. There is no published live Deno proof.
+- **Nitro and UnJS:** Auth and Agent handlers, the Schedule Nitro bridge, Workspace runtime setup, and Database Nuxt D1 wiring belong to their packages. Nitro is glue, not a storage or execution provider. There is no Nitro provisioning or unified live matrix.
+- **Node and self-hosted:** Server APIs and handlers run when their driver supports Node. Blob `fs`, KV `fs-lite`, Rate Limit `memory`, and Workspace `local` or `memory` are single-process providers. ViteHub does not emit one Node deployment bundle, provision a self-hosted plan, or publish a live suite.
 
-Local memory and filesystem providers stay single-process after deployment. Generated files remain package-owned and must not be imported by application code.
+Local memory and filesystem providers stay single-process after deployment. Generated files belong to their packages. Do not import them in app code.

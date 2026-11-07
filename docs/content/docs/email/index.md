@@ -128,27 +128,27 @@ icon: i-lucide-mail
 
 ::product-features
   :::product-feature-item{title="Pick a provider in one place" icon="i-lucide-sliders-horizontal" to="/docs/email/configure#configure-vite"}
-  Choose Resend or Cloudflare Email in your Vite config. Your routes do not change.
+  Pick Resend or Cloudflare Email in your Vite config. Your routes stay the same.
   :::
 
   :::product-feature-item{title="Keys stay out of your code" icon="i-lucide-shield-check" to="/docs/email/get-started#provide-the-resend-secret"}
-  The API key comes from a server environment variable when the server sends.
+  The server reads the API key from an environment variable when it sends.
   :::
 
   :::product-feature-item{title="Write emails in Markdown" icon="i-lucide-files" to="/docs/email/server-api#compose-dynamic-markdown"}
-  Files in `server/emails` become typed imports. Fill them with data to get HTML and text.
+  Files in `server/emails` become typed imports. Fill them with data for HTML and text.
   :::
 
   :::product-feature-item{title="See each email while you develop" icon="i-lucide-inbox" to="/docs/email/hosts#development-outbox"}
-  In `vite dev`, each email stays in an outbox. Set `remote: true` to also send it through the provider.
+  In `vite dev`, each email stays in an outbox. `remote: true` also sends it through the provider.
   :::
 
   :::product-feature-item{title="Test without sending" icon="i-lucide-flask-conical" to="/docs/email/server-api#test-without-delivery"}
-  `createTestEmail()` keeps messages in memory, so your tests can check them.
+  `createTestEmail()` keeps messages in memory for your tests to check.
   :::
 
   :::product-feature-item{title="Clear errors, no double sends" icon="i-lucide-circle-alert" to="/docs/email/limits-and-errors#handle-delivery-errors"}
-  Each failure has an `EMAIL_*` code. Email does not retry, so a message is not sent twice by mistake.
+  Each failure has an `EMAIL_*` code. Email does not retry, so nothing sends twice by mistake.
   :::
 ::
 

@@ -90,7 +90,7 @@ icon: i-lucide-list-ordered
 
 ::product-features
   :::product-feature-item{title="One file per queue" icon="i-lucide-file-code-2" to="/docs/queue/configure#define-a-queue"}
-  Add a file to `server/queues`. Its name is the queue name, and its function runs each job.
+  Add a file to `server/queues`. The file name is the queue name, and its function runs each job.
   :::
 
   :::product-feature-item{title="Reply first, work later" icon="i-lucide-list-ordered" to="/docs/queue/server-api#enqueue-work"}
@@ -106,11 +106,11 @@ icon: i-lucide-list-ordered
   :::
 
   :::product-feature-item{title="Failed jobs run again" icon="i-lucide-refresh-cw" to="/docs/queue/server-api#handle-failures"}
-  A job that fails can run again. Write each job so that a second run is safe.
+  A failed job can run again, so make a second run safe.
   :::
 
   :::product-feature-item{title="Cloudflare or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#providers"}
-  Jobs run on Cloudflare Queues or Vercel Queues. They do not run on your own machine.
+  Jobs run on Cloudflare Queues or Vercel Queues, not on your own machine.
   :::
 ::
 

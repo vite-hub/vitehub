@@ -1,20 +1,20 @@
 ---
 title: App secret
 navigation.title: App secret
-description: Configure one root secret and derive every purpose-specific signing secret from it.
+description: Set one root secret and derive each signing secret from it.
 navigation.order: 9
 icon: i-lucide-key-square
 ---
 
-`VITEHUB_SECRET` is the root secret of an application. ViteHub features and your own server code derive the secrets they need from it, so a deployment configures one value instead of one value per feature.
+`VITEHUB_SECRET` is your app's root secret. ViteHub features and your server code derive their secrets from it, so you set one value, not one per feature.
 
 ```bash [Terminal]
 pnpm vitehub secret generate
 ```
 
-Store the printed value as `VITEHUB_SECRET` in the host environment of each deployment. `openssl rand -base64 32` produces an equivalent value. The secret must be at least 32 characters. Use a different root secret for each deployment.
+Save the output as `VITEHUB_SECRET` on the host (`openssl rand -base64 32` also works). It needs at least 32 characters. Use a different one per deployment.
 
-In a Nuxt application, ViteHub reads `NUXT_APP_SECRET` when `VITEHUB_SECRET` is not set. ViteHub derives with its own salt, so the same root never produces the same secret as Nuxt's `deriveSecret()`.
+In a Nuxt app, ViteHub reads `NUXT_APP_SECRET` when `VITEHUB_SECRET` is not set. ViteHub uses its own salt, so its secrets never match the ones from Nuxt's `deriveSecret()`.
 
 ## Derive a secret
 
@@ -26,14 +26,14 @@ export async function sessionPassword() {
 }
 ```
 
-`deriveSecret(purpose)` returns 32 bytes as 64 hex characters. It uses HKDF-SHA256 with the salt `vitehub` and the purpose as `info`. The result is stable while the root secret is unchanged, and it is different for every purpose. Name the purpose after its owner, for example `my-module:session`. ViteHub reserves the `vitehub:` prefix.
+`deriveSecret(purpose)` returns 32 bytes as 64 hex characters. It uses HKDF-SHA256 with the salt `vitehub` and the purpose as `info`. Each purpose gets its own result, stable until the root secret changes. Name the purpose after its owner, for example `my-module:session`. ViteHub reserves the `vitehub:` prefix.
 
 | Failure | Error code |
 | --- | --- |
 | `VITEHUB_SECRET` and `NUXT_APP_SECRET` are not set | `ENV_REQUIRED_MISSING` |
 | The root secret is shorter than 32 characters | `ENV_RUNTIME_VALUE_INVALID` |
 
-`vitehub secret derive <purpose>` prints the same value from the `VITEHUB_SECRET` in the shell environment. It does not load the project.
+`vitehub secret derive <purpose>` prints the same value from `VITEHUB_SECRET` in your shell. It does not load the project.
 
 ```bash [Terminal]
 VITEHUB_SECRET=... pnpm vitehub secret derive my-app:session
@@ -49,14 +49,15 @@ VITEHUB_SECRET=... pnpm vitehub secret derive my-app:session
 
 ## Development
 
-When the Vite development server starts without `VITEHUB_SECRET` or `NUXT_APP_SECRET`, ViteHub generates one, saves it in `.vitehub/env/secret` with mode `0600`, and supplies it to that project’s Server Env runtime and inline Console Auth. The saved secret survives restarts, so development sessions stay signed in. The first `deriveSecret()` call with a generated secret logs a warning.
+When the Vite dev server starts without `VITEHUB_SECRET` or `NUXT_APP_SECRET`, ViteHub generates one in `.vitehub/env/secret` (mode `0600`) for Server Env and inline Console Auth. It survives restarts, so you stay signed in. The first `deriveSecret()` call with a generated secret logs a warning.
 
-Builds never generate a secret. A deployment without `VITEHUB_SECRET` fails at the first derivation, not at build time.
+Builds never generate a secret. Without `VITEHUB_SECRET`, a deployment fails at the first derivation, not at build.
 
 ## Rotation and storage
 
-The root secret signs and authenticates. It does not encrypt stored data. Rotating `VITEHUB_SECRET` signs out every Console session and every Auth session that uses the derived secret and invalidates every dispatch key, and nothing stored becomes unreadable.
+The root secret signs. It does not encrypt. When you rotate `VITEHUB_SECRET`, every Console session and every Auth session that uses the derived secret signs out, and every dispatch key stops working. Stored data stays readable.
 
-Keys that encrypt data at rest stay separate, because changing them requires re-encrypting stored values: Connections use `VITEHUB_CONNECTIONS_KEY`, and the [Env Bridge](/docs/env/bridge) database store uses its own `encryptionKey`.
+Keys that encrypt stored data are separate, because changing them means encrypting the data again. Connections use `VITEHUB_CONNECTIONS_KEY`. The [Env Bridge](/docs/env/bridge) database store uses its own `encryptionKey`.
 
-Anyone with the root secret can derive every secret above, including Console session signing. Treat it like the most privileged credential of the deployment. Give a CLI or CI job a derived key, such as the dispatch key, instead of the root secret.
+> [!WARNING]
+> Anyone with the root secret can derive every secret above, including Console session signing. Protect it as your most powerful credential. Give a CLI or CI job a derived key, such as the dispatch key, not the root secret.

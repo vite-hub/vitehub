@@ -8,156 +8,156 @@ icon: i-lucide-circle-alert
 
 ## Storage and security
 
-- Grants are sealed with AES-GCM and the encryption key. Each row stores the key id. With a different key, the status is `needs-reconnect`.
-- The connect flow uses PKCE (`S256`), a single-use ticket that expires after 10 minutes, and a `state` cookie. Tokens never go to the browser or the CLI.
-- Connect, callback, and management routes exist on the development server, and in production only with `connections: { management: true }`. Each route runs the Console access policy itself: Console Auth, app Auth, Cloudflare Access, or `auth: false`, then `console.authorize` when it is set. See [Management routes](/docs/connections/server-api#management-routes).
-- The OAuth callback accepts a `state` one time only, from the browser and the manager that started the flow.
-- The Console preserves the Vite `base` in management, connect, callback, and return URLs.
-- Concurrent refreshes use a database lease, so only one request refreshes a rotating refresh token.
+- Grants are encrypted with AES-GCM and the encryption key. Each row stores the key id. With a different key, the status is `needs-reconnect`.
+- The connect flow uses PKCE (`S256`), a one-time ticket that expires after 10 minutes, and a `state` cookie. Tokens never go to the browser or the CLI.
+- Connect, callback, and management routes exist in dev, and in production only with `connections: { management: true }`. Each route checks Console access: Console Auth, app Auth, Cloudflare Access, or `auth: false`, then `console.authorize` if set. See [Management routes](/docs/connections/server-api#management-routes).
+- The OAuth callback accepts a `state` once, only from the browser and manager that started the flow.
+- The Console keeps the Vite `base` in management, connect, callback, and return URLs.
+- A database lease lets only one request refresh a rotating refresh token.
 
 ## Errors
 
-Management routes return `{ error: { code, message, fix, docs } }`. The connect and callback routes show the same code, fix, and docs link on their HTML page. `message` says why the request failed, `fix` says how to repair it, and `docs` links the page that explains the code.
+Management routes return `{ error: { code, message, fix, docs } }`. `message` says why the request failed, `fix` says how to repair it, and `docs` links here. The connect and callback routes show the same on their HTML page.
 
 ### CONNECTIONS_APPROVAL_REQUIRED
 
-See the `why` and `fix` fields in the error response.
+The action needs approval.
 
 ### CONNECTIONS_AUTHORIZATION_EXPIRED
 
-The callback carried a `state` that the server does not know. Each authorization link works one time, for 10 minutes, so the sign-in took longer, the link was used before, or the server lost the pending authorization. `vitehub connections connect` waits for the same 10 minutes and prints when the link expires. Run `vitehub connections connect <name>` again, or connect again from the Console, and finish the sign-in before that time.
+The callback carried a `state` that the server does not know. Each link works once, for 10 minutes, so the sign-in took longer, the link was used, or the server lost the pending sign-in. `vitehub connections connect` waits 10 minutes and prints the expiry. Run it again, or connect from the Console, and finish in time.
 
 ### CONNECTIONS_AUTHORIZATION_CANCELLED
 
-See the `why` and `fix` fields in the error response.
+The provider did not grant access.
 
 ### CONNECTIONS_AUTH_REQUIRED
 
-See the `why` and `fix` fields in the error response.
+Management needs Auth outside local dev.
 
 ### CONNECTIONS_CONTENT_TYPE_REJECTED
 
-See the `why` and `fix` fields in the error response.
+Send `application/json`.
 
 ### CONNECTIONS_DENIED
 
-See the `why` and `fix` fields in the error response.
+Access rules deny this actor.
 
 ### CONNECTIONS_EXECUTION_UNKNOWN
 
-See the `why` and `fix` fields in the error response.
+The provider may have done the write. Check before you retry.
 
 ### CONNECTIONS_FORBIDDEN
 
-See the `why` and `fix` fields in the error response.
+No allowed manager is signed in.
 
 ### CONNECTIONS_INVALID_ACTOR
 
-See the `why` and `fix` fields in the error response.
+Pass `user:<id>` or `service:<id>`.
 
 ### CONNECTIONS_INVALID_APPROVAL
 
-See the `why` and `fix` fields in the error response.
+The approval is stale. Request again.
 
 ### CONNECTIONS_INVALID_CONFIG
 
-See the `why` and `fix` fields in the error response.
+Bad `basePath` or `activityRetention`.
 
 ### CONNECTIONS_INVALID_DEFINITION
 
-See the `why` and `fix` fields in the error response.
+The Connection Definition is invalid.
 
 ### CONNECTIONS_INVALID_INPUT
 
-See the `why` and `fix` fields in the error response.
+A parameter is missing, or a body is not a string.
 
 ### CONNECTIONS_INVALID_NAME
 
-See the `why` and `fix` fields in the error response.
+The name is too long or padded.
 
 ### CONNECTIONS_INVALID_PROVIDER
 
-See the `why` and `fix` fields in the error response.
+The provider options are invalid.
 
 ### CONNECTIONS_INVALID_REQUEST
 
-See the `why` and `fix` fields in the error response.
+The request does not fit the Connection state.
 
 ### CONNECTIONS_INVALID_STORED_DATA
 
-See the `why` and `fix` fields in the error response.
+Stored data is invalid. Connect again.
 
 ### CONNECTIONS_KEY_REJECTED
 
-See the `why` and `fix` fields in the error response.
+The provider rejected the key.
 
 ### CONNECTIONS_METHOD_NOT_ALLOWED
 
-See the `why` and `fix` fields in the error response.
+Use the method in `Allow`.
 
 ### CONNECTIONS_NEEDS_RECONNECT
 
-See the `why` and `fix` fields in the error response.
+Connect the Connection again.
 
 ### CONNECTIONS_NOT_CONFIGURED
 
-See the `why` and `fix` fields in the error response.
+`VITEHUB_CONNECTIONS_KEY` or the Database is missing.
 
 ### CONNECTIONS_NOT_CONNECTED
 
-See the `why` and `fix` fields in the error response.
+The Connection is not connected.
 
 ### CONNECTIONS_NOT_FOUND
 
-See the `why` and `fix` fields in the error response.
+No Connection has this name.
 
 ### CONNECTIONS_ORIGIN_NOT_ALLOWED
 
-See the `why` and `fix` fields in the error response.
+The origin is not allowed. No credential was sent.
 
 ### CONNECTIONS_ORIGIN_REJECTED
 
-See the `why` and `fix` fields in the error response.
+The browser origin does not match. Behind a proxy, set `vitehub({ publicUrl })`.
 
 ### CONNECTIONS_PROVIDER_FAILED
 
-See the `why` and `fix` fields in the error response.
+The provider rejected the request.
 
 ### CONNECTIONS_REQUEST_FAILED
 
-See the `why` and `fix` fields in the error response.
+Read the server logs.
 
 ### CONNECTIONS_ROUTE_NOT_FOUND
 
-See the `why` and `fix` fields in the error response.
+Check the path and Vite `base`.
 
 ### CONNECTIONS_STATE_CONFLICT
 
-See the `why` and `fix` fields in the error response.
+The token, key, or account changed. Try again.
 
 ### CONNECTIONS_STATE_MISMATCH
 
-See the `why` and `fix` fields in the error response.
+The `state` cookie is missing or wrong. Start again.
 
 ### CONNECTIONS_UNAVAILABLE
 
-See the `why` and `fix` fields in the error response.
+Another request changes the token. Retry soon.
 
 ### CONNECTIONS_UNKNOWN_ACTION
 
-See the `why` and `fix` fields in the error response.
+The API has no such method.
 
 ### CONNECTIONS_CHATGPT_IDENTITY
 
-The ID token failed signature, issuer, audience, expiry, nonce or account validation. Start a fresh `vitehub connections connect <name>` attempt.
+The ID token failed the signature, issuer, audience, expiry, nonce, or account check. Run `vitehub connections connect <name>` again.
 
 ### CONNECTIONS_CHATGPT_REGISTRATION
 
-The callback client ID differs from the pending registration. Start a fresh sign-in. Keep each issued client ID with its account and host.
+The callback client ID differs from the pending registration. Sign in again. Keep each client ID with its account and host.
 
 ### CONNECTIONS_CHATGPT_LOOPBACK
 
-ChatGPT plan usage needs an HTTP loopback callback on `127.0.0.1`. Run the CLI on the computer with your browser. For a VM, export and transfer the protected credential file, then import it there.
+Plan usage needs an HTTP callback on `127.0.0.1`. Run the CLI on the computer with your browser. For a VM, export the credential file, move it, and import it there.
 
 ### CONNECTIONS_CHATGPT_PERMISSION
 
@@ -165,8 +165,8 @@ The grant lacks plan scopes. Connect again and allow plan usage. ViteHub does no
 
 ### CONNECTIONS_CHATGPT_CLIENT
 
-Application code cannot use a ChatGPT grant with `useConnection().fetch()` or `.call()`. Set the Codex Driver gateway to `chatgpt()` from `vite-hub/gateways`.
+App code cannot use a ChatGPT grant with `useConnection().fetch()` or `.call()`. Set the Codex Driver gateway to `chatgpt()` from `vite-hub/gateways`.
 
 ### CONNECTIONS_CHATGPT_TRANSFER
 
-The transfer file is invalid or the destination has an active or different account registration. Export a fresh file and import it into a disconnected Connection for the same account. Keep the file private.
+The transfer file is invalid, or the target already has an active or different account. Export a new file and import it into a disconnected Connection of the same account. Keep the file private.

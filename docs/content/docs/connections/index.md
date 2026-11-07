@@ -88,7 +88,7 @@ icon: i-lucide-plug
 
 ::product-features
   :::product-feature-item{title="Connect an account once" icon="i-lucide-plug" to="/docs/connections/get-started#connect-the-account"}
-  Sign in to the provider once. The app keeps the tokens, encrypted, in its database.
+  Sign in to the provider once. The app keeps the tokens encrypted in its database.
   :::
 
   :::product-feature-item{title="Typed calls, fresh tokens" icon="i-lucide-code-2" to="/docs/connections/server-api#calls"}
@@ -96,7 +96,7 @@ icon: i-lucide-plug
   :::
 
   :::product-feature-item{title="Decide who can read and write" icon="i-lucide-lock" to="/docs/connections/configure#access-rules"}
-  Rules allow reads and writes for each caller. A caller without a rule is denied.
+  Rules allow reads and writes per caller. A caller without a rule is denied.
   :::
 
   :::product-feature-item{title="Tokens go only to the right API" icon="i-lucide-shield-check" to="/docs/connections/configure#provider-origins"}
@@ -104,11 +104,11 @@ icon: i-lucide-plug
   :::
 
   :::product-feature-item{title="API keys work too" icon="i-lucide-key-round" to="/docs/connections/configure#api-key-connections"}
-  Add a key while the app runs instead of in your code. The same rules apply.
+  Add a key while the app runs, not in code. The same rules apply.
   :::
 
   :::product-feature-item{title="A record of each change" icon="i-lucide-history" to="/docs/connections/server-api#activity"}
-  Writes, denied calls, and failures are recorded. Tokens and request bodies are never stored.
+  Records writes, denied calls, and failures. Never stores tokens or request bodies.
   :::
 ::
 
