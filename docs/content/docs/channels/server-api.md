@@ -1,6 +1,6 @@
 ---
 title: Channels server API
-description: Send messages through a named Channel from an H3 or Nitro handler, add connectors, and read the delivery receipt.
+description: Send messages through a named Channel from an H3 or Nitro handler, add connectors, and read the receipt.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
@@ -8,11 +8,11 @@ icon: i-lucide-code-2
 
 ## Send from an H3 or Nitro handler
 
-`useChannel()` returns immediately. `send()` performs the connector call and returns `[null, receipt]` on success or `[error, null]` on failure. The receipt has the Channel name, connector name, ViteHub delivery id, and optional provider message id. Check the error before using the receipt.
+`useChannel()` returns at once. `send()` calls the connector and returns `[null, receipt]` or `[error, null]`. Check the error first. The receipt has the Channel, connector, ViteHub delivery id, and optional provider message id.
 
-The optional provider `id` must be a string. Unreadable or non-string IDs are omitted from successful receipts and delivery logs.
+The provider `id` must be a string. Other values are left out of receipts and logs.
 
-Named clients share one definition load for the active runtime registry. A failed load can retry on a later send. Replacing the runtime registry invalidates the cached definition for existing clients.
+Clients share one definition load per runtime registry. A failed load retries on the next send. A new registry clears the cache.
 
 ```ts [server/api/build-finished.post.ts]
 import { defineEventHandler } from 'h3'
@@ -39,17 +39,21 @@ The handler returns a result like this:
 }
 ```
 
-For each connector delivery, Channels attempts to write `outbound.started` and either `outbound.completed` or `outbound.failed` JSON events under the `vitehub.channel.send` scope. Input validation and definition-loading failures return before delivery logging starts. Logging is best effort. A logging failure does not change the send result.
+Each delivery tries to log `outbound.started`, then `outbound.completed` or `outbound.failed`, as JSON events in the `vitehub.channel.send` scope. Input and definition-load failures return before logging. Logging failures do not change the result.
 
-The events include `deliveryId`, Channel, connector, and, when available, a provider message id or error message. ViteHub omits message text and connector options. Failed events include up to 2,000 characters of the thrown error message, so connectors must redact credentials and message content before throwing provider errors.
+Events have `deliveryId`, Channel, connector, and any provider message id or error message, but never message text or connector options.
 
-Configure the application's log drain to retain received events. This outbound-only package has no State Adapter. Use Agent Channels when inbound custody and recovery are required.
+::warning
+Failed events keep up to 2,000 characters of the error message. Remove credentials and message content from provider errors before your connector throws.
+::
 
-Channels passes the original options object to the selected connector, including the `connector` selector when supplied. It preserves object identity, methods, and private state.
+Set up a log drain to keep the events. Channels only sends and keeps no state. Use Agent Channels to receive and recover messages.
+
+The connector gets the same options object, with `connector` when set, so identity, methods, and private state stay intact.
 
 ## Add another connector
 
-Add another entry to `connectors` when the same logical destination can deliver through more than one provider. Each entry defines its own options, so Telegram can require `chatId` while Slack requires `channelId` and optionally accepts `threadTs`.
+Add an entry to `connectors` to deliver through another provider. Each entry has its own options: Telegram can need `chatId`, Slack `channelId` and optional `threadTs`.
 
 ```ts
 const [error] = await useChannel('alerts').send('Build finished.', {
@@ -60,11 +64,11 @@ const [error] = await useChannel('alerts').send('Build finished.', {
 if (error) throw error
 ```
 
-Keep `connector` explicit when a Channel has more than one delivery path. This makes the delivery choice visible at each call site.
+With more than one connector, set `connector` in each call so it shows where it delivers.
 
 ## Send through a Chat channel
 
-Every Chat channel in `vite-hub/agent/channels` has a ready connector with the same `send()` contract: `teams.connector()`, `slack.connector()`, `discord.connector()`, and `telegram.connector()`. Each connector sends Markdown through one Chat SDK adapter. Enable KV when you use `thread`, `idempotencyKey`, or `replace`.
+Each Chat channel in `vite-hub/agent/channels` has a ready connector: `teams.connector()`, `slack.connector()`, `discord.connector()`, and `telegram.connector()`. Each sends Markdown through one Chat SDK adapter. `thread`, `idempotencyKey`, and `replace` need KV.
 
 ```ts [server/channels/teams/index.ts]
 import { teams } from 'vite-hub/agent/channels'
@@ -79,11 +83,11 @@ export default defineOutboundChannel({
 | Connector | Adapter | `thread` | `replace` |
 | --- | --- | --- | --- |
 | `teams.connector()` | Built like the `teams()` Agent Channel, from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL`. Install `@chat-adapter/teams`. | Yes | Yes |
-| `slack.connector({ adapter })` | Required. Pass your adapter, such as `createSlackAdapter()` from `@chat-adapter/slack`. | Yes | Yes |
+| `slack.connector({ adapter })` | Required. Your adapter, such as `createSlackAdapter()` from `@chat-adapter/slack`. | Yes | Yes |
 | `discord.connector()` | Built like `discord({ adapter: true })`, from `DISCORD_APPLICATION_ID`, `DISCORD_BOT_TOKEN`, and `DISCORD_PUBLIC_KEY`. Install `@chat-adapter/discord`. | No | Yes |
 | `telegram.connector()` | Built from `TELEGRAM_BOT_TOKEN` and `TELEGRAM_API_BASE_URL`. | No | Yes |
 
-Each connector also accepts `{ adapter }` with your own adapter or a function that returns it. A connector without `thread` support throws a `TypeError` for a send with `thread`.
+Each also accepts `{ adapter }`: your adapter, or a function that returns it. Without `thread` support, a send with `thread` throws a `TypeError`.
 
 ```ts
 const [error] = await useChannel('teams').send('**Build failed**', {
@@ -96,13 +100,13 @@ if (error) throw error
 
 | Option | Value |
 | --- | --- |
-| `recipient` | A Chat SDK thread ID that the bot received a message in, or `user:<id>` for a direct message. |
-| `thread` | Optional. Every send with the same `key` replies under one root message in a channel. ViteHub posts the root once, from `root` or else from the first text, and stores its thread in KV. The recipient must be a channel without a message ID. |
+| `recipient` | A Chat SDK thread ID where the bot got a message, or `user:<id>` for a direct message. |
+| `thread` | Optional. Sends with the same `key` reply under one root. ViteHub posts the root once, from `root` or the first text, and stores it in KV. The recipient must be a channel without a message ID. |
 | `idempotencyKey` | Optional. A repeated key for the same recipient returns the stored receipt and posts nothing. |
-| `update` | Optional. With `idempotencyKey`, a repeated key edits the stored message to the new text and returns the same receipt. Without a stored receipt, ViteHub posts as usual. |
-| `replace` | Optional. Requires `idempotencyKey`. The `idempotencyKey` of an earlier send to the same `recipient` and `thread`. After this send posts or edits its message, ViteHub deletes the message stored for that key and removes its receipt. Without a stored receipt, ViteHub deletes nothing. It must not equal the `idempotencyKey` of this send. |
+| `update` | Optional. With `idempotencyKey`, a repeated key edits the stored message and returns the same receipt. Without a stored receipt, it posts as usual. |
+| `replace` | Optional. Needs `idempotencyKey`. Set it to the `idempotencyKey` of an earlier send to the same `recipient` and `thread`, not this send's key. After this send posts or edits, ViteHub deletes that message and its receipt. Without a stored receipt, it deletes nothing. |
 
-Use `update` to keep one message current, such as a status card that changes as work progresses:
+Use `update` to keep one message current, such as a status card:
 
 ```ts
 const [error] = await useChannel('teams').send(`Build ${buildId}: ${status}`, {
@@ -113,7 +117,7 @@ const [error] = await useChannel('teams').send(`Build ${buildId}: ${status}`, {
 if (error) throw error
 ```
 
-Use `replace` to remove a temporary message when the final message must be new. Teams and Slack do not notify users when a message is edited, so post the result as a new message and let ViteHub delete the temporary one:
+Teams and Slack do not notify users of edits. To notify, post the result as new and use `replace` to delete the temporary message:
 
 ```ts
 const options = { recipient: teamsChannelThreadId, thread: { key: `ticket:${ticketId}`, root: `Ticket ${ticketId}` } }
@@ -127,8 +131,12 @@ const [error] = await useChannel('teams').send(suggestion, {
 if (error) throw error
 ```
 
-For a channel thread, set `thread.root` on the first send so the temporary message is a reply under a stable root. Without `thread.root`, the first text becomes the root. Replacing that root throws a `TypeError` before posting or editing, preserving the thread and its stored receipts.
+Set `thread.root` on the first send so the temporary message is a reply, not the root. Replacing the root throws a `TypeError` before any post or edit, so the thread and receipts stay.
 
-ViteHub stores the new receipt first and then deletes the replaced message. If the delete fails, the send returns the error. A retry with the same options returns the stored receipt and tries the delete again. A message that the platform no longer has counts as deleted.
+ViteHub stores the new receipt, then deletes the old message. A failed delete returns the error, and a retry with the same options deletes again. A message the platform no longer has counts as deleted.
 
-ViteHub stores roots and receipts in KV under the channel name, such as `teams:` or `slack:`, and keeps them until you remove them. Sends with the same key run one after another within one process. Two processes that send with the same new key at the same time can each post a root, so keep one sender per key or one replica.
+ViteHub keeps roots and receipts in KV under the channel name, such as `teams:` or `slack:`, until you remove them. Sends with the same key run in order within one process.
+
+::warning
+Two processes that send with the same new key at the same time can each post a root. Keep one sender per key, or one replica.
+::

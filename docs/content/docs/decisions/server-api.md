@@ -1,16 +1,16 @@
 ---
 title: Decisions server API
-description: Define choices, load options for one request, resolve text into a selection, and inspect the questions before you send them.
+description: Define choices, load options per request, resolve text into a selection, and inspect the questions before you send them.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-server
 ---
 
-Import the server API from `vite-hub/decisions`. It runs wherever your server code runs. Pass it a gateway that has `ask()`, such as `typesafe()` or `vercel()` from `vite-hub/gateways`. See [AI gateways](/docs/agents/ai-gateways).
+Import the server API from `vite-hub/decisions`. It runs in any server code. Pass a gateway (the model client) with `ask()`, such as `typesafe()` or `vercel()` from `vite-hub/gateways` ([AI gateways](/docs/agents/ai-gateways)).
 
 ## Define choices
 
-`defineChoices()` takes a gateway and your groups. A wrong definition throws when you call it.
+`defineChoices()` takes a gateway and your groups. It throws on a wrong definition.
 
 ```ts [server/utils/forecast-choices.ts]
 import { defineChoices, toOptions } from "vite-hub/decisions"
@@ -37,26 +37,26 @@ export const forecast = defineChoices({
 | Setting | Meaning |
 | --- | --- |
 | `gateway` | An object with `ask()`. The key stays on the server. |
-| `groups` | One entry for each decision. The key names the group in the selection. |
-| `hints` | A short note for the model about your domain. It applies to every question. |
-| `name` | A label for logs and the CLI. It never connects anything. |
+| `groups` | One entry per decision. The key names the group in the selection. |
+| `hints` | A note about your domain, added to every question. |
+| `name` | A label for logs and the CLI. It connects nothing. |
 | `limits` | Change the [limits](/docs/decisions/limits-and-errors#limits). |
 | `thresholds` | Change the [thresholds](/docs/decisions/concepts#thresholds). |
 
-Each group takes these settings:
+Group settings:
 
 | Setting | Meaning |
 | --- | --- |
-| `label` | What people call the group. The model reads it. |
-| `options` | A list, or a function that loads the list for one request. |
+| `label` | The group name. The model reads it. |
+| `options` | A list, or a function that loads it per request. |
 | `multiple` | `true` (default): any number of options. `false`: at most one. |
-| `hints` | A short note for the model about this group. |
+| `hints` | A note about this group for the model. |
 
-`toOptions(items, { value, label, aliases? })` turns your data into options. An option is `{ value, label, aliases? }`. The `value` is a string or a number, and it must be unique in its group.
+`toOptions(items, { value, label, aliases? })` turns your data into options of shape `{ value, label, aliases? }`. `value` is a string or number, unique in its group.
 
 ## Resolve text
 
-Call `resolve()` in a route, a queue worker, or a test. It returns `[error, selection]` and never throws.
+Call `resolve()` in a route, queue worker, or test. It returns `[error, selection]` and never throws.
 
 ```ts [server/api/forecast/choices.post.ts]
 import { forecast } from "../../utils/forecast-choices"
@@ -75,13 +75,13 @@ selection.supplier // { include: ["nord"], exclude: ["vak"] }
 selection.chart // { value: "bar", confidence: 0.8, ranked: [{ value: "bar", probability: 0.8 }, ...] }
 ```
 
-The route is yours. Auth, rate limits, and the context to pass belong there. Use [Rate Limit](/docs/rate-limit) to cap the requests. Each call sends one question per option in multi-select groups, one per non-empty single-select group, and one `supported` check.
+The route is yours, so put auth, rate limits, and context there. Use [Rate Limit](/docs/rate-limit) to cap requests. Each call sends one question per multi-select option, one per non-empty single-select group, and one `supported` check.
 
-`error` has a `code` from `DECISIONS_R0002` to `DECISIONS_R0006`. See [Limits and errors](/docs/decisions/limits-and-errors).
+`error.code` is `DECISIONS_R0002` to `DECISIONS_R0006` ([Limits and errors](/docs/decisions/limits-and-errors)).
 
 ## Load options for one request
 
-An `options` function receives `context`. Annotate its parameter, and `resolve()` asks for the same type.
+An `options` function gets `context`. Type its parameter, and `resolve()` requires the same type.
 
 ```ts
 const sites = defineChoices({
@@ -98,7 +98,7 @@ const sites = defineChoices({
 await sites.resolve(text, { context: { tenantId: session.tenantId } })
 ```
 
-Without a type on the parameter, `resolve()` asks for no context. With a type, TypeScript stops you from forgetting it.
+Without a type, `resolve()` takes no context. With one, TypeScript stops you from forgetting it.
 
 ## Cancel a request
 
@@ -110,14 +110,14 @@ await forecast.resolve(text, { signal: AbortSignal.timeout(10_000) })
 
 ## Inspect
 
-`forecast.inspect(text)` returns `[error, plan]`. The plan has the state and the questions that `resolve()` would send. Nothing leaves your server. Use it in a test or when an answer looks wrong.
+`forecast.inspect(text)` returns `[error, plan]`, with the state and questions that `resolve()` would send. Nothing leaves your server. Use it in tests or when an answer looks wrong.
 
 ```ts
 const [error, plan] = await forecast.inspect("nord parts except vak supply")
 plan.questions // one question for each option of a multiple group, one for each single group, and `supported`
 ```
 
-The CLI runs the same two functions on a file, without a route or a dev server:
+The CLI runs both functions on a file, with no route or dev server:
 
 ```sh
 pnpm vitehub decisions list

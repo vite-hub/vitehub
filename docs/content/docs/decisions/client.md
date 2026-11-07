@@ -1,18 +1,18 @@
 ---
 title: Decisions client
-description: Use useChoices() in Vue or Nuxt to turn the text of an input into a selection that fills your own state.
+description: Use useChoices() in Vue or Nuxt to turn input text into a selection that fills your state.
 navigation.title: Client
 navigation.order: 9
 icon: i-lucide-code-2
 ---
 
-`useChoices()` is a Vue composable. It turns the text of an input into a selection. It owns the status, the debounce, and the cancel of older requests. It does not know your server, your store, or your UI.
+`useChoices()` is a Vue composable that turns input text into a selection. It handles status, debounce, and cancelling old requests, but knows nothing of your server, store, or UI.
 
-Import it from `vite-hub/decisions/vue`. In Nuxt, it is auto-imported.
+Import it from `vite-hub/decisions/vue`. Nuxt auto-imports it.
 
 ## Use it
 
-You give it a `resolve` function that calls your route. You give it an `onSelect` function that applies the selection to your state. These are the two bridges.
+Give it the two bridges: `resolve` calls your route, and `onSelect` applies the selection to your state.
 
 ```vue [FilterBar.vue]
 <script setup lang="ts">
@@ -34,17 +34,17 @@ const ai = useChoices<typeof forecast>({
 </template>
 ```
 
-Give the type of your choices as the generic: `useChoices<typeof forecast>`. Then `selection` and `onSelect` are typed from your options.
+Pass your choices type as the generic, `useChoices<typeof forecast>`, to type `selection` and `onSelect` from your options.
 
 ## Options
 
 | Option | Meaning |
 | --- | --- |
-| `resolve` | Required. Send the text, return the selection. Throw when the request fails. Pass `signal` to your request. |
-| `onSelect` | Called with each new selection. Apply it to your state here. |
-| `debounce` | Wait this many milliseconds after the last key, then resolve. Leave it out to resolve only on `submit()`. |
-| `minLength` | The text must be this long before a debounced resolve runs. Default 3. |
-| `onClear` | Called by `clear()`. Reset your own state here, for example the filters that the last selection set. |
+| `resolve` | Required. Sends the text and returns the selection. Throw when the request fails. Pass `signal` to your request. |
+| `onSelect` | Gets each new selection. Apply it to your state here. |
+| `debounce` | Milliseconds to wait after the last key before resolving. Leave it out to resolve only on `submit()`. |
+| `minLength` | Minimum text length for a debounced resolve. Default 3. |
+| `onClear` | Called by `clear()`. Reset your state here, such as the filters the last selection set. |
 
 ## Returned values
 
@@ -58,21 +58,21 @@ Give the type of your choices as the generic: `useChoices<typeof forecast>`. The
 | `abort()` | Cancel the request and go back to `idle`. |
 | `clear()` | Clear the text, the selection, and the error, then call `onClear`. |
 
-A newer request cancels the older one through `signal`. The older result never reaches `onSelect`. Leaving the component cancels the request too.
+A newer request cancels the older one through `signal`, so the older result never reaches `onSelect`. Unmounting the component also cancels.
 
 ## Choose when to resolve
 
-Each resolve sends one question per option in multi-select groups, one per non-empty single-select group, and one `supported` check to the model. That costs time and money. Two patterns:
+Each resolve sends the model one question per multi-select option, one per non-empty single-select group, and one `supported` check. That costs time and money. Pick one pattern:
 
-- **On Enter.** Leave out `debounce` and call `ai.submit()` on Enter or on a button. Best for short, deliberate input such as filters.
-- **While typing.** Set `debounce` to 600 or more. Pair it with a rate limit on the route.
+- **On Enter.** Leave out `debounce` and call `ai.submit()` on Enter or a button. Best for short input such as filters.
+- **While typing.** Set `debounce` to 600 or more, and rate-limit the route.
 
 ## The selection in your template
 
-`ai.selection.value` is the same object that `resolve()` returns. Use it to show what the model understood, for example the ranked options of a single group:
+`ai.selection.value` is the object that `resolve()` returns. Use it to show what the model understood, such as the ranked options of a group:
 
 ```ts
 ai.selection.value?.chart.ranked // [{ value: "bar", probability: 0.8 }, { value: "line", probability: 0.1 }]
 ```
 
-When `value` is `null`, show the ranked list and let the person choose. The model was not sure enough.
+When `value` is `null`, the model was not sure enough. Show the ranked list and let the person choose.

@@ -2,13 +2,13 @@
 title: Decisions
 layout: landing
 navigation.title: Overview
-description: Turn what people type into choices over options that you declare. Use it for filters, search facets, and command palettes.
+description: Turn what people type into choices from your options, for filters, search facets, and command palettes.
 seo.title: Text to filters and choices for Vite apps with ViteHub
 navigation.order: 1
 icon: i-lucide-list-checks
 ---
 
-::product-hero{tagline="Turn what people type into choices over options that you declare, for filters, search, and command palettes."}
+::product-hero{tagline="Turn what people type into choices from your options, for filters, search, and command palettes."}
   :::product-files
   ```ts [server/utils/forecast-choices.ts]
   import { defineChoices, toOptions } from 'vite-hub/decisions'
@@ -64,27 +64,27 @@ icon: i-lucide-list-checks
 
 ::product-features
   :::product-feature-item{title="Declare options, get typed choices" icon="i-lucide-list-checks" to="/docs/decisions/server-api#define-choices"}
-  `defineChoices()` returns a selection that is typed from your options.
+  `defineChoices()` types the selection from your options.
   :::
 
   :::product-feature-item{title="Include and exclude" icon="i-lucide-search" to="/docs/decisions/concepts#selection"}
-  "nord parts except vak supply" includes one supplier and excludes the other.
+  "nord parts except vak supply" includes one supplier and excludes one.
   :::
 
   :::product-feature-item{title="The model cannot invent a value" icon="i-lucide-shield-check" to="/docs/decisions/concepts#the-model-never-invents-a-value"}
-  Every value in the selection is one of your options.
+  Each selected value is one of your options.
   :::
 
   :::product-feature-item{title="You own the route and the state" icon="i-lucide-code-2" to="/docs/decisions/client"}
-  Auth, limits, and the filters stay in your code. `useChoices()` only connects them.
+  Auth, limits, and filters stay in your code. `useChoices()` connects them.
   :::
 
   :::product-feature-item{title="Try it with no API key" icon="i-lucide-rocket" to="/docs/decisions/get-started"}
-  The tutorial uses a small offline gateway. Swap it for a real model in the last step.
+  The tutorial runs offline. The last step adds a real model.
   :::
 
   :::product-feature-item{title="Know the limits" icon="i-lucide-info" to="/docs/decisions/limits-and-errors#limits"}
-  100 options, 300 characters of text, and one error code for each failure.
+  100 options, 300 characters of text, and one error code per failure.
   :::
 ::
 

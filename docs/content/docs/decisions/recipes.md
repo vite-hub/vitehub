@@ -1,18 +1,16 @@
 ---
 title: Decisions recipes
-description: "Four ways to use Decisions: filters, search facets, a command palette, and dashboard knobs. Each shows both bridges."
+description: "Four uses of Decisions: filters, search facets, a command palette, and dashboard knobs, each with both bridges."
 navigation.title: Recipes
 navigation.order: 10
 icon: i-lucide-blocks
 ---
 
-Every recipe has the same three parts. The server defines the choices and has a route that calls `resolve()`. The browser calls `useChoices()`. You write two bridges: your data to options, and the selection to your state.
-
-The route is the same in each recipe. [Get started](/docs/decisions/get-started) shows it in full.
+In each recipe, the server defines the choices and a route calls `resolve()`. The browser calls `useChoices()`. You write two bridges: data to options, and selection to state. The route is always the same; [Get started](/docs/decisions/get-started) shows it.
 
 ## Filters
 
-A demand forecast has filter chips for suppliers and materials. A person types "nord parts except vak supply" and the chips fill.
+A demand forecast has filter chips for suppliers and materials. Typing "nord parts except vak supply" fills the chips.
 
 **Bridge in.** Your lists become options:
 
@@ -26,7 +24,7 @@ export const forecast = defineChoices({
 })
 ```
 
-**Bridge out.** The selection becomes the filters of your store:
+**Bridge out.** The selection becomes your store filters:
 
 ```ts
 useChoices<typeof forecast>({
@@ -44,11 +42,11 @@ selection.supplier // { include: ["nord"], exclude: ["vak"] }
 selection.material // { include: [], exclude: [] }
 ```
 
-A group the text does not mention comes back with empty lists. Decide in `onSelect` if empty means "leave the chips" or "clear them".
+A group the text does not mention has empty lists. Decide in `onSelect` if empty means "keep the chips" or "clear them".
 
 ## Search facets
 
-A search box on a docs site has facets for the section and the kind of page. "guides about queues" sets the facets and the rest of the query stays in the box.
+A docs search box has facets for section and page kind. "guides about queues" sets the facets, and the rest of the query stays in the box.
 
 **Bridge in.** The facets are fixed lists:
 
@@ -78,13 +76,13 @@ selection.section // { include: ["queue"], exclude: [] }
 selection.kind // { value: "guide", confidence: 0.85, ranked: [...] }
 ```
 
-Decisions picks facets. It does not search. Your search code reads the query as before.
+Decisions picks facets but does not search. Your search code reads the query as before.
 
 ## Command palette
 
-A palette lists commands. "open settings" runs one. Use a single group, so the person gets at most one command.
+"open settings" runs one command from a palette. Use a single group, so at most one command is picked.
 
-**Bridge in.** Your commands become options. The value is the id of the command:
+**Bridge in.** Your commands become options, with the command id as the value:
 
 ```ts [server/utils/palette-choices.ts]
 export const palette = defineChoices({
@@ -95,7 +93,7 @@ export const palette = defineChoices({
 })
 ```
 
-**Bridge out.** The selection runs a command, but only when the model is sure:
+**Bridge out.** Run a command only when the model is sure:
 
 ```ts
 useChoices<typeof palette>({
@@ -111,11 +109,15 @@ useChoices<typeof palette>({
 selection.command // { value: "open-settings", confidence: 0.82, ranked: [{ value: "open-settings", probability: 0.82 }, ...] }
 ```
 
-When `value` is `null`, the ranked list is your suggestion list. Do not run a destructive command from a model answer without a confirm step.
+When `value` is `null`, use the ranked list as suggestions.
+
+::warning
+Do not run a destructive command from a model answer without a confirm step.
+::
 
 ## Dashboard knobs
 
-A dashboard has a metric, a period, and a chart type. "revenue last quarter as bars" sets all three knobs.
+"revenue last quarter as bars" sets three dashboard knobs: metric, period, and chart type.
 
 **Bridge in.** Each knob is a single group:
 
@@ -149,8 +151,8 @@ selection.period // { value: "quarter", confidence: 0.8, ranked: [...] }
 selection.chart // { value: "bar", confidence: 0.8, ranked: [...] }
 ```
 
-A knob the text does not mention has `value: null`, so it keeps its old setting.
+A knob the text does not mention has `value: null` and keeps its setting.
 
 ## What these recipes do not do
 
-Decisions picks among options. It does not compare numbers, so "orders over 500" needs a normal input. It does not search or run commands. Your code does that with the selection. See [Limits and errors](/docs/decisions/limits-and-errors).
+Decisions only picks among options. It does not compare numbers, so "orders over 500" needs a normal input. Your code, not Decisions, searches and runs commands. Read [Limits and errors](/docs/decisions/limits-and-errors).

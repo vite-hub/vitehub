@@ -2,22 +2,21 @@
 title: Limits and errors
 navigation.title: Limits and errors
 navigation.order: 6
-description: Limits and errors for ViteHub Logs, powered by Evlog.
+description: Limits and errors of ViteHub Logs, powered by Evlog.
 icon: i-lucide-logs
 ---
 
-The default local buffer retains 256 entries in one process, with a 16 KiB maximum per entry. Restarting the process clears it. Separate workers do not share the buffer. Invalid, oversized, and evicted events increase the dropped count.
+- The local buffer keeps 256 entries in one process, up to 16 KiB each. A restart clears it. Workers do not share it. Invalid, oversized, and evicted events raise the dropped count.
+- The Console shows at most 1,000 events. Follow polls every two seconds and can miss events during bursts or retention changes.
+- Queries return 200 entries by default and 500 at most. Search text is up to 512 characters. Responses are up to 4 MiB.
+- Errors: an expired cursor returns HTTP 409, an invalid query 400, and a source failure 502.
 
-The Console retains at most 1,000 displayed events. Follow polls every two seconds. It is not a lossless subscription and can miss events during bursts or retention changes.
+Remove secrets and personal data before capture or source delivery. The local Console is a development tool. In production, access goes through your app's Console authorization.
 
-Queries default to 200 entries and accept at most 500. Search text is limited to 512 characters. The API bounds responses to 4 MiB. An expired cursor returns HTTP 409. Invalid queries return 400; source failures return 502.
-
-Redact secrets and personal data before capture or source delivery. A local Console is a development tool. Production access must use the application's configured Console authorization.
-
-For structured error guidance, set a serialized Nostics diagnostic on the event:
+For structured error help, set a serialized Nostics diagnostic on the event:
 
 ```ts
 logger.set({ diagnostic: diagnostic.toJSON() })
 ```
 
-Nostics serializes the diagnostic code as `name`. Preserve `why`, `fix`, `docs`, and any structured data. Logging only an error message loses those fields.
+Nostics writes the diagnostic code as `name`. Keep `why`, `fix`, `docs`, and any structured data. Logging only the error message loses them.
