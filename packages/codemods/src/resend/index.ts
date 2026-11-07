@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { findProperty, keyName, line, quoteString } from "@vite-hub/internal/ast"
+import { snakeCase } from "scule"
 import { glob } from "tinyglobby"
 
 import packageJson from "../../package.json" with { type: "json" }
@@ -106,6 +107,13 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   }
   followUps.push(...readers)
   names.push(...calls.apiKeyVariables)
+  // `new Resend(useRuntimeConfig().key)`: Nuxt fills `runtimeConfig.key` from NUXT_<KEY> and from the variable it names.
+  const runtimeValues = readRuntimeConfig(config).values
+  for (const key of calls.runtimeConfigKeys) {
+    const value = runtimeValues.get(key)
+    names.push(`NUXT_${snakeCase(key).toUpperCase()}`)
+    if (value?.processEnv) names.push(value.processEnv.name)
+  }
   const sources = [...new Set(names)]
   if (!sources.length) sources.push("RESEND_API_KEY")
 
