@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1793688156055,
+      "tag": "0000_tidy_sunfire",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1794049197760,
+      "tag": "0001_comments_and_rate_limit",
+      "breakpoints": true
+    }
+  ]
+}
