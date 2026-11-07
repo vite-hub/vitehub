@@ -838,7 +838,9 @@ function mergeNitroHandlers(nitro: NitroConfig, handlers: Array<{ handler: strin
   const existingHandlers = Array.isArray(nitro.handlers) ? nitro.handlers : []
   return {
     ...nitro,
-    handlers: [...existingHandlers, ...handlers],
+    // Nitro imports a lazy handler on its first request. The Agent runtime and the Agent Definitions then do not load
+    // at server startup, which is Worker startup on Cloudflare.
+    handlers: [...existingHandlers, ...handlers.map(handler => ({ ...handler, lazy: true }))],
   }
 }
 
