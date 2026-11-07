@@ -476,9 +476,31 @@ function invocationUsageProjection(record: AgentInvocationRecord): InvocationUsa
     const observation = record.observations[index]!;
     if (observation.name !== "agent.invocation.finish") continue;
     const incomplete = observation.attributes?.["vitehub.observation.truncated"] === true;
-    return { incomplete, usage: finishUsage(observation.attributes?.["usage.record"], incomplete, configuredModel) };
+    const usage = finishUsage(observation.attributes?.["usage.record"], incomplete, configuredModel);
+    return { incomplete, usage: withRecordedCost(usage, record.observations) };
   }
   return { incomplete: false };
+}
+
+/**
+ * Adds the cost of the `agent.usage.recorded` observations to a finish usage without one. An imported session can
+ * price its usage after the run. Every usage observation must carry a cost, or the cost stays unknown.
+ */
+export function withRecordedCost(
+  usage: ConsoleInvocationUsage | undefined,
+  observations: readonly { attributes?: Readonly<Record<string, unknown>>; name?: string }[],
+): ConsoleInvocationUsage | undefined {
+  if (!usage || usage.cost) return usage;
+  const costs = observations
+    .filter(observation => observation.name === "agent.usage.recorded")
+    .map(({ attributes }) => {
+      const usd = stringValue(attributes?.["usage.costUsd"]);
+      if (!usd || attributes?.["usage.hasCost"] === false || decimal(usd) === undefined) return undefined;
+      const source = stringValue(attributes?.["usage.costSource"]);
+      return { display: "", estimated: attributes?.["usage.costEstimated"] === true, source: source ?? "provider", usd };
+    });
+  const cost = sumCost(costs);
+  return cost ? { ...usage, cost } : usage;
 }
 
 export function invocationUsage(record: AgentInvocationRecord): ConsoleInvocationUsage | undefined {
