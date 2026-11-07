@@ -537,13 +537,15 @@ describe("agent Vite plugin", () => {
     const { hubAgent } = await import("../src/vite.ts")
     const plugin = hubAgent()
     // SAFETY: The plugin under test produced this hook, so the test invokes its documented callable shape.
-    const config = plugin.config as (config: { define?: Record<string, string>; root?: string; server?: { watch?: { ignored?: string | string[] } } }) => { define?: Record<string, string>; server?: { watch?: { ignored?: string[] } } }
+    const config = plugin.config as (config: { define?: Record<string, string>; root?: string; server?: { watch?: { ignored?: string | string[] } | null } }) => { define?: Record<string, string>; server?: { watch?: { ignored?: string[] } | null } }
 
-    const watchIgnored = (input: { server?: { watch?: { ignored?: string[] } } }) => mergeConfig(input, config(input)).server?.watch?.ignored
+    const watchIgnored = (input: { server?: { watch?: { ignored?: string[] } | null } }) => mergeConfig(input, config(input)).server?.watch?.ignored
 
     expect(watchIgnored({})).toEqual(["**/.vitehub/**"])
     expect(watchIgnored({ server: { watch: { ignored: ["**/node_modules/**"] } } })).toEqual(["**/node_modules/**", "**/.vitehub/**"])
     expect(watchIgnored({ server: { watch: { ignored: ["**/.vitehub/**"] } } })).toEqual(["**/.vitehub/**"])
+    const disabledWatcher = { server: { watch: null } }
+    expect(mergeConfig(disabledWatcher, config(disabledWatcher)).server?.watch).toBeNull()
     expect(config({ root: "/repo/apps/web" }).define?.__VITEHUB_AGENT_APP_ROOT__).toBe(JSON.stringify("/repo/apps/web"))
     expect(config({ define: { __VITEHUB_AGENT_APP_ROOT__: "configured" }, root: "/repo/apps/web" }).define?.__VITEHUB_AGENT_APP_ROOT__).toBe("configured")
   })
