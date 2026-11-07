@@ -108,10 +108,19 @@ class RequestStandardProps implements ViteHubStandardProps {
   }
 }
 
-/** Set `request["~standard"]` on a web Request. A value that the host or Nitro set stays. */
-export function installRequestStandardContext(request: Request): asserts request is Request & ViteHubContext {
-  if ("~standard" in request) return
-  Object.defineProperty(request, "~standard", { configurable: true, enumerable: false, value: new RequestStandardProps(request) })
+const requestStandardContexts = new WeakMap<Request, ViteHubStandardProps>()
+
+/** Keep one Standard Context per Request, even when it cannot be extended. A value set by the host stays. */
+export function installRequestStandardContext(request: Request, standard?: ViteHubStandardProps): ViteHubStandardProps {
+  if ("~standard" in request) return (request as Request & ViteHubContext)["~standard"]
+  const props = standard ?? requestStandardContexts.get(request) ?? new RequestStandardProps(request)
+  if (Object.isExtensible(request)) {
+    Object.defineProperty(request, "~standard", { configurable: true, enumerable: false, value: props })
+  }
+  else {
+    requestStandardContexts.set(request, props)
+  }
+  return props
 }
 
 /**
@@ -122,10 +131,7 @@ export function installRequestStandardContext(request: Request): asserts request
  */
 export function getStandardContext(value: Request | ViteHubContext): ViteHubStandardProps {
   if (isObjectLike(value) && "~standard" in value) return (value as ViteHubContext)["~standard"]
-  if (isHostRequest(value)) {
-    installRequestStandardContext(value)
-    return value["~standard"]
-  }
+  if (isHostRequest(value)) return installRequestStandardContext(value)
   throw runtimeErrorDiagnostics.RUNTIME_R0015({ message: "[vitehub] The value is not a Request and has no `~standard`. Pass the Request of a Fetchable handler, or import `getStandardContext` from `vite-hub/runtime/h3` for an H3 event." })
 }
 
