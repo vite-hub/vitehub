@@ -151,7 +151,7 @@ export class ProvisionRequestError extends Diagnostic {
 
   constructor(method: string, path: string, status: number, codes: readonly (number | string)[], kind: ProviderFailureKind) {
     const suffix = codes.length ? ` Provider code${codes.length === 1 ? "" : "s"}: ${codes.join(", ")}.` : ""
-    super({ code: "INTERNAL_R0013", docs: "https://vitehub.dev/docs/reference/diagnostics", why: `Provision request failed: ${method} ${path} (${status}).${suffix}` }, ProvisionRequestError)
+    super({ code: "INTERNAL_R0013", docs: "https://vitehub.dev/docs/development/diagnostics/internal_r0013", why: `Provision request failed: ${method} ${path} (${status}).${suffix}` }, ProvisionRequestError)
     this.name = "ProvisionRequestError"
     this.codes = codes
     this.kind = kind

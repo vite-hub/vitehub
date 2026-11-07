@@ -8,7 +8,7 @@ icon: i-lucide-circle-alert
 
 ## Handle Queue errors
 
-`runQueue()`, `dynamicQueue.run()`, `send()`, and `sendBatch()` return `[error, result]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the code on this page. `error.cause` keeps the provider error.
+`runQueue()`, `dynamicQueue.run()`, `send()`, and `sendBatch()` return `[error, result]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the page of the code in [Queue diagnostics](/docs/queue/diagnostics). `error.cause` keeps the provider error.
 
 ```ts [server/api/signup.post.ts]
 import { runQueue } from '@vite-hub/queue'
