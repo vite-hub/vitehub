@@ -28,12 +28,15 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   vi.unstubAllEnvs()
   await rm(directory, { force: true, recursive: true })
 })
 
 describe("Console journal open", () => {
   it("opens the libSQL journal on first use, once for concurrent first uses", async () => {
+    // Keep cold module loading independent of the store operation deadline.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
     const file = join(directory, "console.sqlite")
     const invocations = createConsoleInvocations(directory, undefined, `file:${file}`)
     expect(opens.count).toBe(0)
