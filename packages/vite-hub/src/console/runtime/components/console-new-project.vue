@@ -159,13 +159,14 @@ function leave(): void {
   projects.navigate(projects.home);
 }
 
-// The page scrolls itself, so it takes focus on load. Then Page Down and Space scroll it before anything is clicked.
-const page = useTemplateRef<HTMLElement>("page");
-onMounted(() => page.value?.focus({ preventScroll: true }));
+// The page scrolls itself, so its heading takes focus on load: a screen reader starts at the title, and Page Down and
+// Space scroll the page before anything is clicked.
+const heading = useTemplateRef<HTMLElement>("heading");
+onMounted(() => heading.value?.focus({ preventScroll: true }));
 </script>
 
 <template>
-  <div ref="page" class="vitehub-new-project" tabindex="-1">
+  <div class="vitehub-new-project">
     <header class="vitehub-new-project__bar">
       <span class="flex items-center gap-2 text-sm font-medium text-highlighted">
         <ConsoleMark class="size-5" />
@@ -177,13 +178,14 @@ onMounted(() => page.value?.focus({ preventScroll: true }));
     <form class="vitehub-new-project__layout" novalidate @submit.prevent="create">
       <main class="grid min-w-0 gap-10">
         <div class="grid gap-1.5">
-          <h1 class="vitehub-new-project__title">New project</h1>
+          <h1 ref="heading" class="vitehub-new-project__title" tabindex="-1">New project</h1>
           <p class="vitehub-new-project__text">
             Pick a host and the features. The Console prints the <code>vite-hub init</code> command for this stack. The address of this page holds the stack, so you can share it.
           </p>
         </div>
 
         <section>
+          <!-- UFormField links the field to its description only through the prop, so the prop stays next to the slot. -->
           <UFormField label="Folder name" name="dir" description="vite-hub init creates the app in this folder." :error="dirError">
             <template #description><code class="vitehub-new-project__code">vite-hub init</code> creates the app in this folder.</template>
             <UInput
@@ -363,7 +365,6 @@ onMounted(() => page.value?.focus({ preventScroll: true }));
 /* The Console locks the page scroll, so this page scrolls itself. The padding keeps the content 72rem wide at most. */
 .vitehub-new-project {
   height: 100dvh;
-  outline: none;
   overflow-y: auto;
   padding: 1rem max(1.5rem, calc((100% - 69rem) / 2)) 4rem;
 }
@@ -408,6 +409,10 @@ onMounted(() => page.value?.focus({ preventScroll: true }));
   display: grid;
   gap: 1rem;
   padding: 1.25rem;
+}
+
+.vitehub-new-project__title:focus {
+  outline: none;
 }
 
 .vitehub-new-project__title {

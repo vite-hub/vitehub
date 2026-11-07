@@ -98,9 +98,8 @@ function back(): void {
   <UModal
     v-model:open="open"
     :title="oauthStep ? `Sign in to ${consoleProjectHost(oauthStep.target)}` : tokenStep ? 'Enter the Console token' : 'Link project'"
-    :dismissible="!busy"
     :content="content"
-    :ui="{ content: 'vitehub-project-dialog sm:max-w-[440px]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere]' }"
+    :ui="{ content: 'vitehub-project-dialog sm:max-w-[440px]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere] pointer-coarse:mt-3' }"
   >
     <template #description>
       <template v-if="oauthStep">{{ consoleProjectHost(oauthStep.target) }} signs you in on its own page.</template>

@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, ref } from "vue";
 import { consoleProblem } from "../client/problem";
 import { consoleSignInURL } from "../client/sign-in";
 import { consolePrimitives } from "../sections";
+import ConsoleCodeText from "./console-code-text.vue";
 
 /**
  * One Console state: an error, an empty list, or a primitive that is not configured.
@@ -115,8 +116,8 @@ onBeforeUnmount(() => {
     <UIcon :name="stateIcon" class="mt-0.5 size-4 text-muted" />
     <div class="grid min-w-0 gap-1">
       <h2 class="text-[13px] font-medium leading-5 text-highlighted">{{ title }}</h2>
-      <p v-if="problem?.why || description" class="leading-5 text-pretty text-muted">{{ problem?.why ?? description }}</p>
-      <p v-if="fix" class="leading-5 text-pretty text-default">{{ fix }}</p>
+      <p v-if="problem?.why || description" class="leading-5 text-pretty text-muted"><ConsoleCodeText :text="problem?.why ?? description ?? ''" /></p>
+      <p v-if="fix" class="leading-5 text-pretty text-default"><ConsoleCodeText :text="fix" /></p>
       <slot />
       <div v-if="stateActions.length" class="mt-1 flex flex-wrap items-center gap-1">
         <UButton v-for="(button, index) in stateActions" :key="index" v-bind="button" />
@@ -143,9 +144,9 @@ onBeforeUnmount(() => {
       <div class="grid max-w-sm gap-1">
         <h2 class="text-sm font-medium text-highlighted">{{ title }}</h2>
         <p v-if="problem?.why || description" class="text-xs leading-5 text-pretty text-muted">
-          {{ problem?.why ?? description }}
+          <ConsoleCodeText :text="problem?.why ?? description ?? ''" />
         </p>
-        <p v-if="fix" class="text-xs leading-5 text-pretty text-default">{{ fix }}</p>
+        <p v-if="fix" class="text-xs leading-5 text-pretty text-default"><ConsoleCodeText :text="fix" /></p>
       </div>
     </div>
     <!-- Extra content for the state, such as a code example for an empty state. -->

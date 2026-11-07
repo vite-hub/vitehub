@@ -64,10 +64,10 @@ export async function checkConsoleToken(request: Request, event: unknown): Promi
   const expected = stored ? hexBytes(stored) : undefined
   if (!expected) {
     const message = stored
-      ? `${consoleTokenHashVariable} is not 64 hex characters, so the server refuses every Console request.`
+      ? `\`${consoleTokenHashVariable}\` is not 64 hex characters, so the server refuses every Console request.`
       : readVariable(event, rawTokenVariable)
-        ? `${rawTokenVariable} is set, but the server reads only ${consoleTokenHashVariable}, the SHA-256 of the token. Store the hash and remove ${rawTokenVariable}.`
-        : `console: { auth: "token" } needs ${consoleTokenHashVariable} in the server environment, and it is not set.`
+        ? `\`${rawTokenVariable}\` is set, but the server reads only \`${consoleTokenHashVariable}\`, the SHA-256 of the token. Store the hash and remove \`${rawTokenVariable}\`.`
+        : `\`console: { auth: "token" }\` needs \`${consoleTokenHashVariable}\` in the server environment, and it is not set.`
     return { ok: false, response: rejection(500, "CONSOLE_TOKEN_NOT_CONFIGURED", message) }
   }
   const received = /^Bearer[ \t]+(\S+)[ \t]*$/i.exec(request.headers.get("authorization") ?? "")?.[1]

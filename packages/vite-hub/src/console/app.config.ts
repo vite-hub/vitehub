@@ -163,6 +163,21 @@ export const consoleAppConfig = {
       base: "pointer-coarse:text-base",
     },
   },
+  inputNumber: {
+    slots: {
+      base: "pointer-coarse:text-base",
+    },
+  },
+  inputTags: {
+    slots: {
+      base: "pointer-coarse:text-base",
+    },
+  },
+  inputMenu: {
+    slots: {
+      base: "pointer-coarse:text-base",
+    },
+  },
   pageCard: {
     slots: {
       container: "gap-0 p-4",
