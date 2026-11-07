@@ -357,6 +357,8 @@
 }
 
 .vh-invocation-thread {
+  /* The typeset grain shows as a lighter box behind each message on the dark timeline. */
+  --comark-grain: none;
   height: 100%;
   min-height: 0;
   min-width: 0;
@@ -1129,9 +1131,27 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   display: none;
 }
 
-.vh-invocation-work__activities > .vh-invocation-message[data-phase="commentary"] {
+.vh-invocation-work__activities > .vh-invocation-message[data-role="assistant"] {
   margin-block: 0.25rem;
   padding: 0.125rem 0.25rem;
+}
+
+/* Drivers send reasoning headings as bold progress notes. Medium weight keeps them from reading as section titles. */
+.vh-invocation-work__activities > .vh-invocation-message[data-role="assistant"] strong {
+  font-weight: 500;
+}
+
+/* A column of chevrons on every step adds noise, so they show on hover, keyboard focus, or while open. */
+@media (hover: hover) {
+  :is(.vh-invocation-event__summary, .vh-invocation-capabilities__summary, .vh-invocation-preparation__summary) > :is(.vh-invocation-event__disclosure, .vh-invocation-capabilities__disclosure, .vh-invocation-preparation__disclosure) {
+    opacity: 0;
+    transition: opacity 150ms ease-out, transform 140ms ease;
+  }
+
+  :is(.vh-invocation-event__summary, .vh-invocation-capabilities__summary, .vh-invocation-preparation__summary):is(:hover, :focus-visible) > :is(.vh-invocation-event__disclosure, .vh-invocation-capabilities__disclosure, .vh-invocation-preparation__disclosure),
+  [open] > :is(.vh-invocation-event__summary, .vh-invocation-capabilities__summary, .vh-invocation-preparation__summary) > :is(.vh-invocation-event__disclosure, .vh-invocation-capabilities__disclosure, .vh-invocation-preparation__disclosure) {
+    opacity: 0.7;
+  }
 }
 
 .vh-invocation-capabilities {
@@ -1518,10 +1538,21 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
   color: var(--vh-text);
 }
 
+/* Recording limits are information, not a failure: keep the note quiet and beside the value it describes. */
 .vh-invocation-event__notice {
-  color: var(--vh-warning, #d97706);
+  color: var(--vh-muted);
   font-size: 0.75rem;
   margin: 0.25rem 0 0.5rem 1.75rem;
+}
+
+.vh-invocation-message .vh-invocation-event__notice {
+  margin: 0.25rem 0 0;
+}
+
+.vh-invocation-lifecycle__rows .vh-invocation-event__notice {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .vh-invocation-command__bar {

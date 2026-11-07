@@ -38,7 +38,9 @@ export default defineEventHandler(async () => {
 })
 ```
 
-When the handler fails, `runSchedule()` resolves with the failed run. It rejects with `SCHEDULE_DEFINITION_NOT_FOUND` for an unknown name and with `SCHEDULE_MANUAL_RUN_DISABLED` when the Definition does not set `manual: true`.
+Pass `scheduledAt` to run the Definition as if its cron fired at that time: `runSchedule('daily-report', { registry, scheduledAt: '2026-01-31T23:59:00Z' })`. It takes a `Date` or an ISO 8601 date-time with `Z` or an offset. The handler gets it as `scheduledAt`, and the run records it. It defaults to now.
+
+When the handler fails, `runSchedule()` resolves with the failed run. It rejects with `SCHEDULE_DEFINITION_NOT_FOUND` for an unknown name, with `SCHEDULE_MANUAL_RUN_DISABLED` when the Definition does not set `manual: true`, and with `SCHEDULE_INVALID_SCHEDULED_AT` when `scheduledAt` is not a valid date-time.
 
 ## Run Static Schedules in a custom Node process
 
@@ -62,7 +64,7 @@ process.once('SIGTERM', () => void controller.close())
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
 | `registry` | `ScheduleDefinitionRegistry` | Required | Static Schedule Definitions that this process runs. |
-| `scheduleRunStore` | `ScheduleRunStore` | Required | Stores Schedule Runs. Catch-up after a restart reads the newest run of each Schedule from it. |
+| `scheduleRunStore` | `ScheduleRunStore` | Required | Stores Schedule Runs. Catch-up after a restart reads the newest cron-triggered run of each Schedule from it. |
 | `onError` | `(error: unknown) => void` | None | Receives handler, store, and `waitUntil` failures. |
 | `intervalMs` | `number` | `60_000` | Milliseconds between two checks, from 1 to 60000. |
 | `concurrency` | `number` | `1` | Maximum number of runs at the same time. |
@@ -72,4 +74,6 @@ Call `controller.close()` during shutdown. It waits for active runs and their `w
 
 ## Read Schedule Runs
 
-`getScheduleRunStore()` returns the installed store. `listRuns({ scheduleId, limit })` lists runs newest first, and `listAttempts(runId)` lists the attempts of one run. `vitehub schedule runs <name>` and `vitehub schedule attempts <runId>` read the same store in development.
+`getScheduleRunStore()` returns the installed store. `listRuns({ scheduleId, idPrefix, limit })` lists runs newest first, and `listAttempts(runId)` lists the attempts of one run. The optional `idPrefix` filters run IDs before applying `limit`, allowing the Process Runtime to read only the newest `srun_static_` run for catch-up. `vitehub schedule runs <name>` and `vitehub schedule attempts <runId>` read the same store in development.
+
+For older custom stores that ignore `idPrefix`, the Process Runtime checks up to 100 additional recent records for a cron-triggered run. If none of those 100 records are cron-triggered, it checks the full `catchUpMs` window rather than using a simulated time as the cursor. Existing static run IDs prevent duplicate execution. Supporting `idPrefix` avoids this conservative fallback and keeps the cursor lookup to one record.
