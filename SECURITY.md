@@ -43,4 +43,4 @@ Maintainers will coordinate the advisory, fixed release, and reporter credit. Yo
 
 ## Use public channels for other reports
 
-Use [GitHub issues](https://github.com/vite-hub/vitehub/issues) for reproducible bugs and documentation gaps. Use the [ViteHub Discord community](https://discord.gg/YTRDsRP3) for implementation questions and design discussion. Neither channel is private, so do not post secrets, customer data, private repository content, or suspected vulnerability details there.
+Use [GitHub issues](https://github.com/vite-hub/vitehub/issues) for reproducible bugs and documentation gaps. Use the [ViteHub Discord community](https://chat.vitehub.dev) for implementation questions and design discussion. Neither channel is private, so do not post secrets, customer data, private repository content, or suspected vulnerability details there.
