@@ -1,4 +1,4 @@
-import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
@@ -49,7 +49,7 @@ describe("migrate", () => {
     expect(migration.edits.map(edit => edit.path).sort()).toEqual(run.result.edits.map(edit => edit.path).sort())
     for (const edit of run.result.edits) expect(await readFile(join(wizard, edit.path), "utf8")).toBe(edit.after)
     expect(migration.steps[0]?.result?.followUps).toEqual(run.result.followUps)
-    expect(await readdir(wizard)).not.toContain(scratchFolder)
+    expect((await readdir(wizard)).filter(entry => entry.startsWith(scratchFolder))).toEqual([])
   })
 
   it("writes nothing in a dry run and prints the combined diff", async () => {
@@ -62,7 +62,43 @@ describe("migrate", () => {
     expect(result.stdout).toContain("Dry run: no files were written.")
     expect(result.stdout).toMatch(/Manual follow-ups \(\d+\):\n {2}1\. \[nuxt-safe-runtime-config\] /)
     expect(await readFile(join(directory, "nuxt.config.ts"), "utf8")).toBe(before)
-    expect(await readdir(directory)).not.toContain(scratchFolder)
+    expect((await readdir(directory)).filter(entry => entry.startsWith(scratchFolder))).toEqual([])
+  })
+
+  it.each([false, true])("preserves an existing scratch directory (supported module: %s)", async (supported) => {
+    const directory = await app(`existing-scratch-${supported}`, {
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ['${supported ? "nuxt-safe-runtime-config" : "@nuxt/ui"}'] })\n`,
+      [`${scratchFolder}/keep.txt`]: "user data\n",
+    })
+    const migration = await runMigration({ cwd: directory })
+    expect(await readFile(join(directory, scratchFolder, "keep.txt"), "utf8")).toBe("user data\n")
+    expect(migration.steps).toHaveLength(supported ? 1 : 0)
+    expect((await readdir(directory)).filter(entry => entry.startsWith(scratchFolder))).toEqual([scratchFolder])
+  })
+
+  it("does not write through a symlinked config during a dry run", async () => {
+    const code = "export default defineNuxtConfig({ modules: ['nuxt-safe-runtime-config'] })\n"
+    const target = await app("linked-config-target", { "config.ts": code })
+    const directory = await app("linked-config", { "package.json": "{}\n" })
+    await symlink(join(target, "config.ts"), join(directory, "nuxt.config.ts"))
+    const migration = await runMigration({ cwd: directory, dryRun: true })
+    expect(await readFile(join(target, "config.ts"), "utf8")).toBe(code)
+    expect(migration.steps[0]?.error).toContain("symbolic link")
+    expect(migration.edits).toEqual([])
+  })
+
+  it("does not write through a symlinked parent directory during a dry run", async () => {
+    const directory = await copyFixture("env-schema", "linked-directory")
+    const code = "export const secret = useSafeRuntimeConfig().apiSecret\n"
+    const target = await app("linked-directory-target", { "api/secret.get.ts": code })
+    const config = await readFile(join(directory, "nuxt.config.ts"), "utf8")
+    await rm(join(directory, "server"), { recursive: true })
+    await symlink(target, join(directory, "server"), "dir")
+    const migration = await runMigration({ cwd: directory, dryRun: true })
+    expect(await readFile(join(target, "api/secret.get.ts"), "utf8")).toBe(code)
+    expect(await readFile(join(directory, "nuxt.config.ts"), "utf8")).toBe(config)
+    expect(migration.steps[0]?.error).toContain("symbolic link")
+    expect(migration.edits).toEqual([])
   })
 
   it("reports an app without supported modules and changes nothing", async () => {

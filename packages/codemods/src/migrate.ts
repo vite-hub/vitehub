@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs"
-import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
-import { basename, dirname, join, relative, resolve } from "node:path"
+import { cp, lstat, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import { codemods } from "./registry.ts"
 import { readDependencies } from "./shared/detect.ts"
@@ -37,7 +37,7 @@ export interface Migration {
 /** Folders that the migration does not copy into its scratch directory. */
 const skippedFolders = new Set([".git", ".nuxt", ".output", ".data", ".vercel", ".netlify", ".wrangler", "node_modules"])
 
-/** Scratch directory inside the project, so that packages and the lockfile resolve as they do from the project. */
+/** Scratch directory prefix inside the project, so packages and the lockfile resolve as they do from the project. */
 export const scratchFolder = ".vitehub-migrate"
 
 /** The Nuxt major versions that a `nuxt` dependency range allows, when the range is a plain one. */
@@ -71,6 +71,26 @@ async function readOptional(path: string): Promise<string | undefined> {
   return existsSync(path) ? readFile(path, "utf8") : undefined
 }
 
+async function checkScratchEdit(scratch: string, file: string): Promise<void> {
+  const local = relative(scratch, resolve(scratch, file))
+  if (local === ".." || local.startsWith(`..${sep}`) || isAbsolute(local)) {
+    throw new CodemodError(`Cannot migrate ${file}: the edit is outside the project.`)
+  }
+  let path = scratch
+  for (const part of local.split(sep)) {
+    path = join(path, part)
+    try {
+      if ((await lstat(path)).isSymbolicLink()) {
+        throw new CodemodError(`Cannot migrate ${file}: it is a symbolic link or is inside a symbolic link. Replace the link with a local file or directory before migrating.`)
+      }
+    }
+    catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") return
+      throw error
+    }
+  }
+}
+
 /**
  * Detects every supported module in the project and runs its codemod. The codemods run one after another on a
  * scratch copy, so each one sees the edits of the ones before it. A codemod that fails adds an error and changes
@@ -83,16 +103,14 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
   const warnings = await projectWarnings(cwd)
   const found = await detectCodemods(cwd)
   const steps: MigrationStep[] = []
+  if (!found.length) return { cwd, dryRun, steps, edits: [], warnings }
   const touched = new Set<string>()
-  const scratch = join(cwd, scratchFolder)
-  await rm(scratch, { recursive: true, force: true })
+  const scratch = await mkdtemp(join(cwd, `${scratchFolder}-`))
   try {
-    if (found.length) {
-      // fs.cp refuses to copy a directory into itself, so copy each top-level entry.
-      for (const entry of await readdir(cwd)) {
-        if (skippedFolders.has(entry) || entry === scratchFolder) continue
-        await cp(join(cwd, entry), join(scratch, entry), { recursive: true, filter: source => !skippedFolders.has(basename(source)) })
-      }
+    // fs.cp refuses to copy a directory into itself, so copy each top-level entry.
+    for (const entry of await readdir(cwd)) {
+      if (skippedFolders.has(entry) || entry === scratchFolder || entry.startsWith(`${scratchFolder}-`)) continue
+      await cp(join(cwd, entry), join(scratch, entry), { recursive: true, filter: source => !skippedFolders.has(basename(source)) })
     }
     // Messages name files in the scratch copy. Show the project paths instead.
     const unscratch = (text: string) => text.replaceAll(scratch, cwd)
@@ -106,6 +124,8 @@ export async function runMigration(options: RunMigrationOptions = {}): Promise<M
           notes: planned.notes.map(unscratch),
           nextSteps: planned.nextSteps.map(unscratch),
         }
+        // Reject the full batch before writing: copied symlinks can still point at the original files.
+        for (const edit of result.edits) await checkScratchEdit(scratch, edit.path)
         for (const edit of result.edits) {
           const path = join(scratch, edit.path)
           await mkdir(dirname(path), { recursive: true })
