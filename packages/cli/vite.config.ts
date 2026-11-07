@@ -10,7 +10,7 @@ export default defineConfig({
       alwaysBundle: [/^@vite-hub\/internal/],
       onlyBundle: false,
     },
-    entry: ["src/index.ts"],
+    entry: ["src/index.ts", "src/setup/index.ts"],
     exports: {
       customExports: normalizePackageExports,
       bin: {

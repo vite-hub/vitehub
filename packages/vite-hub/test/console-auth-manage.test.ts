@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { H3Event } from "h3";
 import { fixture } from "../../auth/test/fixtures/console.ts";
 import { consoleEventsFixture } from "../../auth/test/fixtures/console-events.ts";
 import authManage from "../src/console/runtime/server/auth-manage.ts";
@@ -16,18 +17,16 @@ afterEach(() => {
 });
 
 function event(body: unknown, headers: Record<string, string> = {}) {
-  return {
-    req: new Request("http://localhost:3000/_vitehub/auth/manage", {
-      method: "POST",
-      body: JSON.stringify(body),
-      headers: {
-        "content-type": "application/json",
-        "x-vitehub-console": "1",
-        origin: "http://localhost:3000",
-        ...headers,
-      },
-    }),
-  };
+  return new H3Event(new Request("http://localhost:3000/_vitehub/auth/manage", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: {
+      "content-type": "application/json",
+      "x-vitehub-console": "1",
+      origin: "http://localhost:3000",
+      ...headers,
+    },
+  }));
 }
 
 describe("Auth Console route", () => {

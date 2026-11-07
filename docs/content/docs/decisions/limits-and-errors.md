@@ -34,7 +34,7 @@ A decision model answers from the options you gave it. It can match names, codes
 
 ### DECISIONS_R0001
 
-The definition is wrong: no gateway with `ask()`, no group, a group without a label, or a threshold outside 0 to 1. Fix the definition.
+The definition is wrong: no gateway with `ask()` and no `model`, or both, no group, a group without a label, or a threshold outside 0 to 1. Fix the definition.
 
 ### DECISIONS_R0002
 
@@ -46,7 +46,7 @@ The text is empty or longer than `limits.text`. Nothing was asked.
 
 ### DECISIONS_R0004
 
-The model says the options cannot express the text. Show the person a message and let them use your normal controls.
+The model says the options cannot express the text. Show the person a message and let them use your normal controls. Groups with `infer: true` never cause this error.
 
 ### DECISIONS_R0005
 

@@ -47,13 +47,11 @@ function jar(cookie: string, response: Response): string {
 }
 
 function manage(body: unknown, cookie = "") {
-  return authManage({
-    req: new Request("http://localhost:5173/_vitehub/auth/manage", {
-      method: "POST",
-      body: JSON.stringify(body),
-      headers: { "content-type": "application/json", "x-vitehub-console": "1", origin: "http://localhost:5173", cookie },
-    }),
-  })
+  return authManage(new H3Event(new Request("http://localhost:5173/_vitehub/auth/manage", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json", "x-vitehub-console": "1", origin: "http://localhost:5173", cookie },
+  })))
 }
 
 describe("console.impersonation configuration", () => {
@@ -69,7 +67,7 @@ describe("console.impersonation configuration", () => {
       expect(resolveConsoleAccessBuild({ auth: "app" }, { root })).not.toHaveProperty("impersonation")
       const routes = [{ authorize: true, index: 0, route: "/_vitehub/**" }]
       const file = join(root, "console.mjs")
-      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, undefined, () => true, undefined, false, undefined, { check: { appRoutes: routes }, mode: "auth", impersonation: true })
+      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, () => true, false, { check: { appRoutes: routes }, mode: "auth", impersonation: true })
       const generated = await readFile(file, "utf8")
       expect(generated).toContain("requireSession: vitehubRequireSession, impersonation: true })")
       expect(generated).toMatch(/installConsoleAccess\(\{ mode: "auth", .*impersonation: true \}\)/)
