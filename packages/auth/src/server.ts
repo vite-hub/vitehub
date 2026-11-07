@@ -12,6 +12,7 @@ import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
 import { withSessionMarker } from "./session-marker.ts"
+import { eventClientAddress, setRequestClientAddress, withClientAddress } from "./client-address.ts"
 import { createAuthAccessRouteMatcher } from "./runtime/server.ts"
 
 import type { AuthEventAggregates, AuthEventListInput, AuthEventPage, AuthEventStore, AuthEventWindow } from "./events.ts"
@@ -269,7 +270,7 @@ export function createBetterAuthOptions(
 function createAuthenticationProvider<TAuth = ViteHubAuth>(options: AuthBetterAuthRuntimeOptions): TAuth {
   try {
     // SAFETY: callers pass the options of the Auth Definition that TAuth is inferred from.
-    return withSessionMarker(betterAuth(options)) as TAuth
+    return withSessionMarker(withClientAddress(betterAuth(options))) as TAuth
   }
   catch (cause) {
     throwAuthenticationProviderError(cause, "get-auth-for-request")
@@ -280,7 +281,7 @@ export function createAuth(
   definition: AuthDefinition,
   runtimeOptions?: AuthRuntimeOptions,
 ): ViteHubAuth {
-  return withSessionMarker(betterAuth(createBetterAuthOptions(definition, runtimeOptions))) as ViteHubAuth
+  return withSessionMarker(withClientAddress(betterAuth(createBetterAuthOptions(definition, runtimeOptions)))) as ViteHubAuth
 }
 
 export function createAuthForRequest(
@@ -291,7 +292,7 @@ export function createAuthForRequest(
 ): ViteHubAuth {
 
 
-  return withSessionMarker(betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions)) as ViteHubAuth}
+  return withSessionMarker(withClientAddress(betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions))) as ViteHubAuth}
 
 export function handleAuthRequest(
   definition: AuthDefinition,
@@ -300,7 +301,9 @@ export function handleAuthRequest(
   event: unknown = input,
 ): Promise<Response> {
   const request = unwrapAuthRequest(input)
-  return createAuthForRequest(definition, request, runtimeOptions, event).handler(toRequest(request))
+  // Better Auth limits requests per client IP. It gets the address that the host reports for the event.
+  const address = eventClientAddress(event)
+  return createAuthForRequest(definition, request, runtimeOptions, event).handler(setRequestClientAddress(toRequest(request), address))
 }
 
 /** Return the request of a Web Request or a host server event, including an H3 1 event in Nuxt 4. */
@@ -308,11 +311,14 @@ export function toAuthRequest(input: AuthRequestInput): AuthRequest {
   return unwrapAuthRequest(input)
 }
 
+/** Create a handler whose optional host context supplies the peer address, never a client-sent header. */
 export function createAuthHandler(
   definition: AuthDefinition,
   runtimeOptions?: AuthRuntimeOptions,
-): ViteHubAuth["handler"] {
-  return createAuth(definition, runtimeOptions).handler
+) {
+  const auth = createAuth(definition, runtimeOptions)
+  return (request: Request, host?: { clientAddress?: string }): Promise<Response> =>
+    auth.handler(setRequestClientAddress(request, host?.clientAddress))
 }
 
 export function getAuthForDefinition<TDefinition extends AuthDefinition>(
