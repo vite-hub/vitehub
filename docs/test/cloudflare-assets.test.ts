@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
-import { createApp, defineEventHandler, getCookie, toWebHandler, toWebRequest } from "h3";
-import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { H3, getCookie } from "h3";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import staticAssets, { shouldServePrerenderedAsset } from "../server/middleware/static-assets";
 
 // Nitro builds `#docs/manifest` from the content folder. The test reads the same folder.
@@ -17,21 +17,22 @@ class Fetcher {
   readonly [Symbol.toStringTag] = "Fetcher";
   fetch = fetchAsset;
 }
-vi.stubGlobal("useRuntimeConfig", () => ({ agentDiscovery: { userAgents: ["GPTBot"] } }));
-// Nitro matches the route rules of nuxt.config.ts. The Learn rule is the only one with headers.
-vi.stubGlobal("getRouteRules", (event: { path: string }) => event.path.startsWith("/learn")
-  ? { headers: { "Cross-Origin-Embedder-Policy": "credentialless", "Cross-Origin-Opener-Policy": "same-origin" } }
-  : {});
-const request = toWebHandler(createApp()
-  .use(defineEventHandler((event) => {
-    // Nitro's `cloudflare_module` preset passes the Worker request here.
-    event.context.cloudflare = { env: { ASSETS: new Fetcher() }, request: toWebRequest(event) };
-  }))
+vi.mock("nuxt/server", () => ({
+  useRuntimeConfig: () => ({ agentDiscovery: { userAgents: ["GPTBot"] } }),
+  // Nitro matches the route rules of nuxt.config.ts. The Learn rule is the only one with headers.
+  getRouteRules: (event: { path: string }) => event.path.startsWith("/learn")
+    ? { headers: { "Cross-Origin-Embedder-Policy": "credentialless", "Cross-Origin-Opener-Policy": "same-origin" } }
+    : {},
+}));
+const request = new H3()
+  .use((event) => {
+    event.context.cloudflare = { env: { ASSETS: new Fetcher() }, request: event.req };
+  })
   .use(staticAssets)
-  .use(defineEventHandler(event => getCookie(event, "vh-tutorial-navigation") === "true" ? "rendered: open" : "rendered: hidden")));
+  .use(event => getCookie(event, "vh-tutorial-navigation") === "true" ? "rendered: open" : "rendered: hidden")
+  .fetch;
 
 beforeEach(() => vi.clearAllMocks());
-afterAll(() => vi.unstubAllGlobals());
 
 describe("Cloudflare prerendered page middleware", () => {
   const input = { method: "GET", userAgents: ["GPTBot"] };
