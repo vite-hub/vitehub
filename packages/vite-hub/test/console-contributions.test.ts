@@ -8,7 +8,7 @@ import { describeViteHubConsoleSection } from "@vite-hub/internal/console"
 
 import { consoleContributedSections, consoleRuntimeReaderModule, describeConsoleContributedSections, describeConsoleRuntimeReaders, isConsoleContributedSectionId } from "../src/console/contributions.ts"
 import { parseConsoleContributedSection, parseConsoleSectionContent } from "../src/console/runtime/definitions.ts"
-import { consoleBuiltinSectionIds, consolePrimitives, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
+import { consoleBuiltinSectionIds, consoleDevelopmentSectionIds, consolePrimitives, consoleSectionRouteName, isConsoleBuiltinSectionId, isConsoleSectionId, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 
 describe("Console section contributions", () => {
   it("registers the owner sections with valid ids that do not replace built-in sections", () => {
@@ -132,7 +132,8 @@ describe("Console primitive catalog", () => {
   it("lists every built-in and contributed section once, with the owner label and icon", () => {
     const ids = consolePrimitives.map(entry => entry.id)
     expect(new Set(ids).size).toBe(ids.length)
-    expect([...ids].sort()).toEqual([...consoleBuiltinSectionIds, ...consoleContributedSections.keys()].sort())
+    // Development tools, such as Setup, are not primitives.
+    expect([...ids].sort()).toEqual([...consoleBuiltinSectionIds.filter(id => !consoleDevelopmentSectionIds.includes(id)), ...consoleContributedSections.keys()].sort())
     // The Overview shows primitives that are not enabled, so the catalog repeats the owner descriptor.
     for (const [id, section] of consoleContributedSections) {
       const entry = consolePrimitives.find(primitive => primitive.id === id)

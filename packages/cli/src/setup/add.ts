@@ -5,7 +5,7 @@ import { createInterface } from "node:readline/promises"
 
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
 import { listMatchingFiles, normalizeSuffixDefinitionName } from "@vite-hub/internal/definition-catalog"
-import { featureIds, featurePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
+import { featureIds, featurePackages as runtimeFeaturePackages, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
 import { basename, dirname, join, relative, resolve } from "pathe"
 
@@ -37,7 +37,8 @@ export interface SetupAddArgs {
 export interface SetupChange {
   /** Relative to the project root. */
   path: string
-  kind: "create" | "patch"
+  /** `delete` is a file that `vitehub remove` deletes; its `after` is empty. */
+  kind: "create" | "patch" | "delete"
   before?: string
   after: string
   /** A unified diff from `before` to `after`. */
@@ -69,6 +70,11 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
   "kv.driver": { values: ["upstash"] },
   "realtime.authority": { values: ["memory"] },
   "workflow.provider": { values: ["openworkflow"] },
+}
+
+/** The runtime and development packages of a feature, including its selected provider. */
+export function featurePackages(id: FeatureId, value: JsonValue | undefined, host: DeploymentPreset): { prod: string[], dev: string[] } {
+  return { dev: [...features[id].devPackages], prod: runtimeFeaturePackages(id, value, host) }
 }
 
 /** Option keys that select a provider or a store. A feature that sets one does not use the host default. */
@@ -104,14 +110,15 @@ function installSpecifiers(packages: readonly string[]): string[] {
   return packages.map(name => preview && name.startsWith("@vite-hub/") ? `${preview.base}/${name}@${preview.ref}` : name)
 }
 
-function invalid(message: string): Error {
-  return cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${message} Usage: ${usage}` })
+function invalid(message: string, commandUsage = usage): Error {
+  return cliErrorDiagnostics.CLI_R0003({ message: `[vitehub] ${message} Usage: ${commandUsage}` })
 }
 
-function featureId(value: string): FeatureId {
+/** The feature id of a command argument, such as `rate-limit` for `rateLimit`. Throws `CLI_R0003` for an unknown feature. */
+export function readFeatureId(value: string, commandUsage = usage): FeatureId {
   const key = value.replaceAll("-", "").toLowerCase()
   const id = featureIds.find(item => item.toLowerCase() === key)
-  if (!id) throw invalid(`Unknown feature ${JSON.stringify(value)}. Run \`vitehub catalog\` to list the features.`)
+  if (!id) throw invalid(`Unknown feature ${JSON.stringify(value)}. Run \`vitehub catalog\` to list the features.`, commandUsage)
   return id
 }
 
@@ -132,7 +139,7 @@ function setPath(target: Record<string, JsonValue>, path: readonly string[], val
   target[key] = next
 }
 
-function isRecord(value: JsonValue | undefined): value is { readonly [key: string]: JsonValue } {
+export function isRecord(value: JsonValue | undefined): value is { readonly [key: string]: JsonValue } {
   return !!value && typeof value === "object" && !Array.isArray(value)
 }
 
@@ -156,7 +163,7 @@ export function readAddArgs(args: readonly string[]): SetupAddArgs {
     else if (flag === "--name") parsed.name = value()
     else if (flag === "--option") rawOptions.push(value())
     else if (arg.startsWith("-")) throw invalid(`Unknown argument ${JSON.stringify(arg)}.`)
-    else if (!parsed.features.includes(featureId(arg))) parsed.features.push(featureId(arg))
+    else if (!parsed.features.includes(readFeatureId(arg))) parsed.features.push(readFeatureId(arg))
   }
   if (parsed.name !== undefined && !/^[a-z0-9][a-z0-9-]*$/u.test(parsed.name)) {
     throw invalid(`--name ${JSON.stringify(parsed.name)} must use lowercase letters, digits, and dashes, such as \`welcome-email\`.`)
@@ -229,7 +236,7 @@ function sameValue(left: JsonValue | undefined, right: JsonValue | undefined): b
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
-function toSource(value: JsonValue): string {
+export function toSource(value: JsonValue): string {
   if (Array.isArray(value)) return `[${value.map(toSource).join(", ")}]`
   if (isRecord(value)) {
     const entries = Object.entries(value).map(([key, child]) => `${/^[A-Z_$][\w$]*$/iu.test(key) ? key : JSON.stringify(key)}: ${toSource(child)}`)
@@ -238,9 +245,9 @@ function toSource(value: JsonValue): string {
   return JSON.stringify(value)
 }
 
-/** A unified diff of `path`. An empty `before` is a new file. */
+/** A unified diff of `path`. An empty `before` is a new file and an empty `after` is a deleted file. */
 export function setupDiff(path: string, before: string, after: string): string {
-  return createTwoFilesPatch(before ? `a/${path}` : "/dev/null", `b/${path}`, before, after, undefined, undefined, { context: 3 })
+  return createTwoFilesPatch(before ? `a/${path}` : "/dev/null", after ? `b/${path}` : "/dev/null", before, after, undefined, undefined, { context: 3 })
     .replace(/^=+\n/u, "")
 }
 
@@ -428,8 +435,9 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     return mergeValue(current?.kind === "literal" ? current.value : undefined, args.options[id])
   }
   for (const id of [...addedFeatures, ...implied]) {
-    for (const name of featurePackages(id, configured(id), host)) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
-    for (const name of features[id].devPackages) if (!project.declared(name, true) && !install.dev.includes(name)) install.dev.push(name)
+    const packages = featurePackages(id, configured(id), host)
+    for (const name of packages.prod) if (!project.declared(name, false) && !install.prod.includes(name)) install.prod.push(name)
+    for (const name of packages.dev) if (!project.declared(name, true) && !install.dev.includes(name)) install.dev.push(name)
   }
   install.prod = installSpecifiers(install.prod)
   install.dev = installSpecifiers(install.dev)
@@ -468,7 +476,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   return { files, install, plan, ...(configFile ? { configFile } : {}) }
 }
 
-async function applyPlan(project: SetupProject, planned: SetupAddPlanned, args: SetupAddArgs, context: ViteHubCliContext): Promise<void> {
+/** Applies a `vitehub add` plan: installs the packages, writes the starter Definitions, and writes the config last. */
+export async function applySetupAdd(project: SetupProject, planned: SetupAddPlanned, args: Pick<SetupAddArgs, "install">, context: Pick<ViteHubCliContext, "env" | "spawn">): Promise<void> {
   const { dev, prod } = planned.install
   if (args.install) {
     for (const [packages, isDev] of [[prod, false], [dev, true]] as const) {
@@ -563,7 +572,7 @@ async function runAdd(args: string[], context: ViteHubCliContext): Promise<numbe
       writePlan(plan, context)
       if (!await confirmSetupChange()) throw new SetupFailure(cliErrorDiagnostics.CLI_R0004({ message: "[vitehub] The change was not confirmed. Nothing was written." }), setupExitCodes.error)
     }
-    await applyPlan(project, planned, parsed, context)
+    await applySetupAdd(project, planned, parsed, context)
     const applied: SetupAddPlan = { ...plan, status: "applied" }
     if (parsed.json) writeSetupJson(context, applied)
     else writeResult(applied, context)

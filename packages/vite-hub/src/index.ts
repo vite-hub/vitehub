@@ -82,6 +82,7 @@ import type { PublicUrlConfig } from "@vite-hub/runtime"
 import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import type { DoctorPluginApi } from "vite-doctor/extension"
 import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
+import { setupDevPlugin } from "./setup-dev.ts"
 
 export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
@@ -1207,6 +1208,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   } satisfies Record<string, false | string>
 
   plugins.push(operationsCheckPlugin())
+  // The dev Setup endpoints, for the Setup section of the development Console. `vite build` never loads them.
+  plugins.push(setupDevPlugin())
   // Without a `console` option, `vite dev` still serves the operation RPC (no page, no assets), so `vitehub <command>` works.
   const devOperationsOnly = configuredConsole === undefined
   if (configuredConsole || devOperationsOnly) {

@@ -19,6 +19,8 @@ export interface ConsoleNavigation {
   /** The access may use only some installed sections. The Console then does not call other sections "not enabled". */
   scoped: boolean
   sections: ConsoleSectionId[]
+  /** The route of the dev Setup endpoints. Only a development server sends it. */
+  setup?: string
 }
 
 const navigationRequests = new Map<string, Promise<ConsoleNavigation | undefined>>()
@@ -27,7 +29,7 @@ const navigationErrors = new Map<string, unknown>()
 
 function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   // SAFETY: Reading an optional property is safe for every non-null JavaScript value; the property remains unknown until validated below.
-  const response = value as { auth?: unknown, build?: unknown, contributions?: unknown, operations?: unknown, projectName?: unknown, readOnly?: unknown, scoped?: unknown, sections?: unknown } | null | undefined
+  const response = value as { auth?: unknown, build?: unknown, contributions?: unknown, operations?: unknown, projectName?: unknown, readOnly?: unknown, scoped?: unknown, sections?: unknown, setup?: unknown } | null | undefined
   const contributions: Record<ConsoleSectionId, ConsoleContributedSection> = {}
   for (const entry of Array.isArray(response?.contributions) ? response.contributions : []) {
     const section = parseConsoleContributedSection(entry)
@@ -48,6 +50,7 @@ function parseConsoleNavigation(value: unknown): ConsoleNavigation {
     readOnly: Array.isArray(response?.readOnly) ? response.readOnly.filter((section): section is ConsoleSectionId => isConsoleSectionId(section)) : [],
     scoped: response?.scoped === true,
     sections,
+    ...(typeof response?.setup === "string" && response.setup.startsWith("/") && !response.setup.startsWith("//") ? { setup: response.setup } : {}),
   }
 }
 

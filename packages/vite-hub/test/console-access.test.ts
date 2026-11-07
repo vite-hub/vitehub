@@ -456,15 +456,17 @@ describe("generated Console access", () => {
     await expect(generatedPlugin({}, "serve")).resolves.toContain('installConsoleAccess({ mode: "local" })')
   })
 
-  it("serves development operations without Console pages or assets", async () => {
+  it("serves development operations and the Setup-only page", async () => {
     const assets = [{ baseURL: "/public", dir: "/user-owned-assets" }]
     const config = { base: "/portal/", nitro: { handlers: [], publicAssets: assets } }
 
     await expect(generatedPlugin({ rpcOnly: true }, "serve", config)).resolves.toContain('installConsoleAccess({ mode: "local" })')
 
     expect(config.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/rpc/**" }))
-    expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringMatching(/server\/(?:page\.get|sign-in|client\.get)\.js$/) }))
-    expect(config.nitro.publicAssets).toEqual(assets)
+    // Without `console` options, development serves the Console page with only the Setup section, and no page tools.
+    expect(config.nitro.handlers).toContainEqual(expect.objectContaining({ handler: expect.stringMatching(/server\/page\.get\.js$/) }))
+    expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringMatching(/server\/(?:sign-in|page-session)\.js$/) }))
+    expect(config.nitro.publicAssets).toEqual(expect.arrayContaining(assets))
   })
 
   it("imports console.authorize for open access", async () => {

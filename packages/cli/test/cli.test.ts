@@ -531,6 +531,7 @@ export default ({ mode }) => ({
     const help = stdout.output()
     expect(help).toContain("Project:\n  init         Create a ViteHub app")
     expect(help).toContain("  add          Turn on features")
+    expect(help).toContain("  remove       Turn off features")
     expect(help).toContain("  catalog      List every ViteHub feature")
     expect(help).toContain("  status       Show the host")
     expect(help.indexOf("Project:")).toBeLessThan(help.indexOf("Available namespaces:"))
