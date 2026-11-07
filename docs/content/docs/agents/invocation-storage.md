@@ -327,7 +327,7 @@ const invocations = defineAgentInvocations({
 })
 ```
 
-A store that connects or creates its tables on first use can set `open()`. Agent Invocations call it once, before the first store operation, and give it up to 30 seconds instead of `storeTimeoutMs`. A failed open runs again on the next operation. The libSQL store and the Console journal open this way.
+A store that connects or creates its tables on first use can set `open()`. Agent Invocations wait for it, for up to 30 seconds, before they time store operations, so the first open does not count against `storeTimeoutMs`. A failed or stalled open runs again on the next operation. `open()` is not a gate: each store method must still open the store when it runs first. The libSQL store and the Console journal work this way.
 
 ## Inspect and maintain from the CLI
 

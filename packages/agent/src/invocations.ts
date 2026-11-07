@@ -217,8 +217,9 @@ export interface AgentInvocationStoreUpdateInput {
 
 export interface AgentInvocationStore {
   /**
-   * Opens the backing store, for example a lazy database connection and its tables. Agent Invocations call it once
-   * before the first store operation, with its own limit, so a slow first open does not use up `storeTimeoutMs`.
+   * Warms up a store that connects or creates its tables on first use. Agent Invocations wait for it, with its own
+   * limit, before they time store operations, so a slow first open does not use up `storeTimeoutMs`. It is not a gate:
+   * an operation can start before or without it, so each method must still open the store when it runs first.
    */
   open?(): MaybePromise<void>
   claim(id: string, claimId: string, leaseMs: number, options?: {
@@ -2201,8 +2202,10 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
   const openBounded = async (propagateErrors: boolean) => {
     if (ready) return
     const result = await boundedStoreOperation(openStore, STORE_OPEN_TIMEOUT_MS, propagateErrors)
-    if (result === storeOperationTimedOut && propagateErrors) {
-      throw new Error(`[vitehub] Agent Invocation store open timed out after ${STORE_OPEN_TIMEOUT_MS} ms.`)
+    if (result === storeOperationTimedOut) {
+      // A stalled open must not hold every later operation: the next one calls open() again.
+      opened = undefined
+      if (propagateErrors) throw new Error(`[vitehub] Agent Invocation store open timed out after ${STORE_OPEN_TIMEOUT_MS} ms.`)
     }
     return result
   }

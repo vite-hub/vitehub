@@ -5219,6 +5219,24 @@ describe("Agent Invocations", () => {
     expect(open).toHaveBeenCalledTimes(2)
   })
 
+  it("calls open() again after an open that stalls past its limit", async () => {
+    vi.useFakeTimers()
+    try {
+      const open = vi.fn()
+        .mockImplementationOnce(() => new Promise<void>(() => {}))
+        .mockImplementationOnce(async () => {})
+      const invocations = defineAgentInvocations({ store: { ...createMemoryAgentInvocationStore(), open } })
+      const stalled = expect(invocations.list()).rejects.toThrow("store open timed out after 30000 ms")
+      await vi.advanceTimersByTimeAsync(30_000)
+      await stalled
+      await expect(invocations.list()).resolves.toMatchObject({ invocations: [] })
+      expect(open).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
   it.each([0, 1.5, 60_001])("rejects storeTimeoutMs %s", (storeTimeoutMs) => {
     expect(() => defineAgentInvocations({ store: createMemoryAgentInvocationStore(), storeTimeoutMs }))
       .toThrow("storeTimeoutMs must be an integer between 1 and 60000")
