@@ -40,13 +40,13 @@ icon: i-lucide-gauge
   ```
 
   ```ts [server/api/messages.post.ts]
-  import { defineEventHandler } from 'h3'
+  import { defineEventHandler, type H3Event } from 'h3'
   import { withAuth } from 'vite-hub/auth/server'
   import { requireRateLimit } from 'vite-hub/rate-limit'
 
   // Count per signed-in user, not per address
   export default defineEventHandler(
-    withAuth(async (event, { user }) => {
+    withAuth(async (event: H3Event, { user }) => {
       await requireRateLimit(event, 'send-message', {
         key: user.id,
         limit: 10,

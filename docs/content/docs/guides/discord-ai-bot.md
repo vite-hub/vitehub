@@ -58,19 +58,24 @@ The `node` preset is what starts the Gateway listener in the server process. `wo
 
 ```ts [server/agents/assistant.ts]
 import { defineAgent } from 'vite-hub/agent'
+import { access } from 'vite-hub/agent/capabilities'
 import { discord } from 'vite-hub/agent/channels'
 
-const allowedUsers = new Set(['111111111111111111'])
+const allowedUsers = new Set(['discord:111111111111111111'])
 
 export default defineAgent({
   channels: {
     discord: discord({
       adapter: true,
-      messages: {
-        filter: ({ message }) => allowedUsers.has(message.author.userId),
-      },
     }),
   },
+  capabilities: [
+    access({
+      chat: {
+        resolve: ({ invoker }) => invoker !== undefined && allowedUsers.has(invoker.id),
+      },
+    }),
+  ],
   driver: {
     model: 'openai/gpt-5.1-mini',
     instructions: 'You are a helpful assistant in Discord. Keep answers short.',
@@ -79,7 +84,7 @@ export default defineAgent({
 ```
 
 - `adapter: true` tells ViteHub to build the adapter from Server Env. Without an `adapter` option, `discord()` has no adapter, and ViteHub does not start a Gateway listener for it.
-- `messages.filter` is optional. Here it admits only the Discord user IDs in the set. Return `false` and the Agent does not start or reply. The Discord adapter may already have created an empty thread for a server mention. To copy a user ID, turn on **Developer Mode** in Discord's advanced settings, then right-click the user.
+- `access()` admits only the invoker IDs in the set. Each ID is `discord:<user ID>`. Return `false` and the Agent does not start or reply. The Discord adapter may already have created an empty thread for a server mention. To copy a user ID, turn on **Developer Mode** in Discord's advanced settings, then right-click the user.
 - To answer a role mention, pass `adapter: { mentionRoleIds: ['<role id>'] }` instead of `adapter: true`. Adapter options that you omit still come from Server Env.
 
 The model string runs through AI Gateway, so the server needs `AI_GATEWAY_API_KEY`. Read [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver) to use another model.
@@ -142,6 +147,8 @@ Run one server process for the bot. Each process opens its own Gateway connectio
 A serverless function cannot keep the Gateway connection open, so ViteHub starts the listener only on the `node` preset. You can generate a wake route instead:
 
 ```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+
 vitehub({
   preset: 'vercel',
   agent: { routes: { discordGateway: true } },

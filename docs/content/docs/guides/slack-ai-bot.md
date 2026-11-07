@@ -108,9 +108,10 @@ export default defineConfig({
 ```ts [server/agents/assistant.ts]
 import { createSlackAdapter } from '@chat-adapter/slack'
 import { defineAgent } from 'vite-hub/agent'
+import { access } from 'vite-hub/agent/capabilities'
 import { slack } from 'vite-hub/agent/channels'
 
-const allowedUsers = new Set(['U0123456789'])
+const allowedUsers = new Set(['slack:U0123456789'])
 
 export default defineAgent({
   channels: {
@@ -119,11 +120,15 @@ export default defineAgent({
         botToken: process.env.SLACK_BOT_TOKEN,
         signingSecret: process.env.SLACK_SIGNING_SECRET,
       }),
-      messages: {
-        filter: ({ message }) => allowedUsers.has(message.author.userId),
-      },
     }),
   },
+  capabilities: [
+    access({
+      chat: {
+        resolve: ({ invoker }) => invoker !== undefined && allowedUsers.has(invoker.id),
+      },
+    }),
+  ],
   driver: {
     model: 'openai/gpt-5.1-mini',
     instructions: 'You are a helpful assistant in Slack. Keep answers short.',
@@ -133,7 +138,7 @@ export default defineAgent({
 
 - The file name is the Agent name: `assistant`. The key in `channels` is the webhook name: `slack`. Together they make the Request URL `/api/_vitehub/agents/assistant/webhooks/slack`.
 - `adapter` is a function, so ViteHub creates the adapter when a request arrives and reads the environment at that time.
-- `messages.filter` is optional. Here it admits only the Slack member IDs in the set. Return `false` and the Agent does not start and posts nothing. To copy a member ID, open a profile in Slack and select **Copy member ID**.
+- `access()` admits only the invoker IDs in the set. Each ID is `slack:<member ID>`. Return `false` and the Agent does not start and posts nothing. To copy a member ID, open a profile in Slack and select **Copy member ID**.
 
 The model string runs through AI Gateway, so the server needs `AI_GATEWAY_API_KEY`. Read [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver) to use another model.
 
@@ -166,6 +171,8 @@ cloudflared tunnel --url http://localhost:3000
 Vite blocks requests for host names that it does not know. Add the tunnel domain to `server.allowedHosts` in `vite.config.ts`:
 
 ```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+
 export default defineConfig({
   server: { allowedHosts: ['.trycloudflare.com'] },
   plugins: [/* ... */],
