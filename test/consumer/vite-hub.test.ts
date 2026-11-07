@@ -891,8 +891,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       })
       if (cache === true) expect(existsSync(join(appDir, ".vitehub/data/cache"))).toBe(true)
       else {
-        const keys = await readdir(join(appDir, ".vitehub/data/kv/nitro-cache"), { recursive: true })
-        expect(keys.some(key => key.endsWith(".json"))).toBe(true)
+        // fs-lite writes each key as one file, with `:` escaped as `%3A`.
+        const files = await readdir(join(appDir, ".vitehub/data/kv"))
+        expect(files.some(file => file.startsWith("nitro-cache%3A") && file.endsWith(".json"))).toBe(true)
       }
     }
     finally {

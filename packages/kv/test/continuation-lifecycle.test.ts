@@ -39,7 +39,7 @@ afterEach(() => {
 
 it("disposes abandoned filesystem listings through storage disposal", async () => {
   const base = await mkdtemp(join(tmpdir(), "vitehub-kv-dispose-"))
-  const driver = createFsLiteKVDriver({ base, driver: "fs-lite" })
+  const driver = await createFsLiteKVDriver({ base, driver: "fs-lite" })
   const storage = createStorage({ driver })
   try {
     await writeFile(join(base, "one"), "one")
@@ -87,7 +87,7 @@ it("releases a filesystem iterator that finishes opening after disposal", async 
   const opening = deferred<void>()
   const started = deferred<void>()
   filesystem.beforeOpen = () => { started.resolve(); return opening.promise }
-  const driver = createFsLiteKVDriver({ base, driver: "fs-lite" })
+  const driver = await createFsLiteKVDriver({ base, driver: "fs-lite" })
   try {
     await writeFile(join(base, "one"), "one")
     vi.useFakeTimers()
@@ -122,7 +122,7 @@ it("does not retain an Upstash scan that finishes after disposal", async () => {
 
 it("expires abandoned filesystem cursors and closes their directories", async () => {
   const base = await mkdtemp(join(tmpdir(), "vitehub-kv-expiry-"))
-  const driver = createFsLiteKVDriver({ base, driver: "fs-lite" })
+  const driver = await createFsLiteKVDriver({ base, driver: "fs-lite" })
   try {
     await writeFile(join(base, "one"), "one")
     vi.useFakeTimers()

@@ -22,7 +22,7 @@ describe("fs-lite", () => {
 
     expect(results.filter(Boolean)).toHaveLength(1)
     expect(await storage.getItem("uploads:ticket")).toEqual({ at: 1 })
-    expect(await readFile(join(base, "uploads", "ticket"), "utf8")).toBe("{\"at\":1}")
+    expect(await readFile(join(base, "uploads%3Aticket"), "utf8")).toBe("{\"at\":1}")
     await storage.dispose()
   })
 
@@ -70,11 +70,13 @@ describe("fs-lite", () => {
     await storage.dispose()
   })
 
-  it("rejects a key that names a directory instead of claiming it", async () => {
+  it("claims a key that is also the prefix of another key", async () => {
     const storage = createHostedKVStorage({ store: { driver: "fs-lite", base } })
     await storage.setItem("nonce:child", 1)
 
-    await expect(storage.setIfAbsentItem!("nonce", 1)).rejects.toMatchObject({ code: "EEXIST" })
+    await expect(storage.setIfAbsentItem!("nonce", 1)).resolves.toBe(true)
+    await expect(storage.setIfAbsentItem!("nonce", 2)).resolves.toBe(false)
+    await expect(storage.getItem("nonce:child")).resolves.toBe(1)
     await storage.dispose()
   })
 })

@@ -40,6 +40,8 @@ export default defineConfig({
 | Deno KV | `deno-kv` | Used on Deno hosting. |
 | Upstash | `upstash` | Used when Upstash env vars are present or when Vercel hosting is detected. |
 
+`fs-lite` writes each key as one file in `base`. The file name is the key with `%` and `:` escaped as in a URL, so `signups` and `signups:reset-at` are the files `signups` and `signups%3Areset-at`. Most file systems limit a file name to 255 bytes, so a longer escaped key fails with `KV_OPERATION_FAILED`. Earlier versions wrote `a:b` as the file `a/b`. The store moves those files to their new names when it opens the folder.
+
 ## Nitro cache in KV
 
 Nitro keeps `defineCachedFunction()`, `defineCachedEventHandler()`, and route rule cache entries in its `cache` storage, which is memory in each server instance unless something mounts it. With `vitehub()`, set `cache: { driver: 'kv' }` to keep them in the default KV Store instead:
