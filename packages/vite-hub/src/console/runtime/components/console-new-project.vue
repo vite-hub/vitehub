@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { featureIds, features } from "@vite-hub/internal/features";
-import { computed, nextTick, onBeforeUnmount, ref, shallowRef, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 
 import type { FeatureId } from "@vite-hub/internal/features";
 import type { NewProjectFeature, NewProjectStack } from "../client/new-project";
@@ -158,10 +158,14 @@ onBeforeUnmount(() => clearTimeout(copiedTimer));
 function leave(): void {
   projects.navigate(projects.home);
 }
+
+// The page scrolls itself, so it takes focus on load. Then Page Down and Space scroll it before anything is clicked.
+const page = useTemplateRef<HTMLElement>("page");
+onMounted(() => page.value?.focus({ preventScroll: true }));
 </script>
 
 <template>
-  <div class="vitehub-new-project">
+  <div ref="page" class="vitehub-new-project" tabindex="-1">
     <header class="vitehub-new-project__bar">
       <span class="flex items-center gap-2 text-sm font-medium text-highlighted">
         <ConsoleMark class="size-5" />
@@ -359,6 +363,7 @@ function leave(): void {
 /* The Console locks the page scroll, so this page scrolls itself. The padding keeps the content 72rem wide at most. */
 .vitehub-new-project {
   height: 100dvh;
+  outline: none;
   overflow-y: auto;
   padding: 1rem max(1.5rem, calc((100% - 69rem) / 2)) 4rem;
 }
@@ -368,7 +373,7 @@ function leave(): void {
 }
 
 @media (pointer: coarse) {
-  .vitehub-new-project :is(button:not([role]), input:not([type="checkbox"], [type="radio"])) {
+  .vitehub-new-project :is(button:not([role="checkbox"], [role="radio"]), input:not([type="checkbox"], [type="radio"])) {
     min-height: 44px;
   }
 }

@@ -371,7 +371,7 @@ describe("linking from a pending link", () => {
 
     const unknown = {
       title: "This link cannot be used here",
-      message: "This link was made in another browser or already used. Open the Console in the browser where you started the project.",
+      message: "This link was made in another browser or already used. If you used it in this browser, the project is already in this Console. Otherwise, open the Console in the browser where you started the project.",
     }
     expect(module.startConsoleLink(`#p=${ticket.pendingId}&url=https://app.example.com`)).toEqual({ kind: "problem", problem: unknown })
     expect(await module.confirmConsoleLink(ticket.pendingId, app)).toEqual({ kind: "problem", problem: unknown, final: true })
@@ -394,7 +394,7 @@ describe("linking from a pending link", () => {
     expect(await module.confirmConsoleLink(ticket.pendingId, app)).toEqual({
       kind: "problem",
       final: false,
-      problem: { title: "Cannot reach app.example.com", message: "app.example.com did not answer this Console. If the app is online, add https://console.example.com to its console.origins and redeploy." },
+      problem: { title: "Cannot reach app.example.com", message: "app.example.com did not answer this Console. If the app is online, add https://console.example.com to its `console.origins` and redeploy." },
     })
     expect(state.pendingLinks.lookup(ticket.pendingId).kind).toBe("pending")
     expect(state.store.list()).toEqual([])

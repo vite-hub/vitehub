@@ -269,7 +269,7 @@ describe("discovery", () => {
     expect(await loadConsoleOAuthClient(consoleOrigin, fetch)).toEqual({ client: { clientId: `${consoleOrigin}/oauth-client.json`, redirectUri: `${consoleOrigin}/oauth/callback` } })
     const built = async () => Response.json(consoleOAuthClientDocument("https://console.vitehub.dev"))
     const other = await loadConsoleOAuthClient(consoleOrigin, built)
-    expect("problem" in other && other.problem.message).toBe("Its client document names https://console.vitehub.dev, but this page runs on https://console.example.com. Build the Console again with VITEHUB_CONSOLE_ORIGIN=https://console.example.com.")
+    expect("problem" in other && other.problem.message).toBe("Its client document names https://console.vitehub.dev, but this page runs on https://console.example.com. Build the Console again with `VITEHUB_CONSOLE_ORIGIN=https://console.example.com`.")
     const missing = await loadConsoleOAuthClient(consoleOrigin, async () => new Response("Not found", { status: 404 }))
     expect("problem" in missing && missing.problem.title).toBe("This Console cannot sign in with OAuth")
   })
@@ -530,7 +530,7 @@ describe("OAuth sign-in of a hosted Console", () => {
       session.startConsoleProjects({ ...options, ...blocked })
       expect(await session.startConsoleOAuthSignIn(app, resourceMetadata)).toEqual({
         title: "This browser blocks site data",
-        message: "Allow site data for console.example.com to sign in, or use auth: \"token\" in the project.",
+        message: "Allow site data for console.example.com to sign in, or use `auth: \"token\"` in the project.",
       })
     }
     expect(navigate).not.toHaveBeenCalled()

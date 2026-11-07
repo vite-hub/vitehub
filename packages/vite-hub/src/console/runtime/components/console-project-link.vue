@@ -37,11 +37,16 @@ const content = autofocus ? {} : {
   },
 };
 
+// The check that runs, so closing the dialog can drop its answer.
+let check: AbortController | undefined;
+
 watch(open, (value) => {
   if (value) {
     if (openRequest.value) url.value = openRequest.value.target.url;
     return;
   }
+  check?.abort();
+  check = undefined;
   cancelConsoleOpen();
   url.value = "";
   problem.value = undefined;
@@ -60,8 +65,10 @@ async function link(token?: string): Promise<void> {
   problem.value = undefined;
   // The answer to the last token does not describe this one.
   if (tokenStep.value?.rejected) tokenStep.value = { target: tokenStep.value.target, rejected: false };
+  const current = check = new AbortController();
   try {
-    const result = await linkConsoleProject(tokenStep.value?.target.url ?? url.value, token);
+    const result = await linkConsoleProject(tokenStep.value?.target.url ?? url.value, token, current.signal);
+    if (current.signal.aborted) return;
     if (result.kind === "linked") {
       // The first project opens in place, so the dialog closes first.
       open.value = false;
@@ -74,6 +81,7 @@ async function link(token?: string): Promise<void> {
     busy.value = false;
   }
   catch {
+    if (current.signal.aborted) return;
     problem.value = { title: "Could not link the project", message: "The check stopped. Try again." };
     busy.value = false;
   }
@@ -149,11 +157,14 @@ function back(): void {
 }
 
 @media (pointer: coarse) {
-  .vitehub-project-dialog :is(button:not([role]), input) {
+  .vitehub-project-dialog :is(button:not([role="checkbox"], [role="radio"]), input) {
     min-height: 44px;
   }
 
+  /* The tap area grows around the 28px button, so the X stays in line with the title. */
   .vitehub-project-dialog [data-slot="close"] {
+    justify-content: center;
+    margin: -8px;
     min-width: 44px;
   }
 }

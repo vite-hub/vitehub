@@ -19,7 +19,7 @@ const edited = ref(false);
 // A touch screen keeps its keyboard closed until the person taps the field.
 const autofocus = !("ontouchstart" in window);
 const shown = computed<ConsoleProjectProblem | undefined>(() => empty.value
-  ? { title: "Paste the token first", message: "Paste the Console token that you created for this project." }
+  ? { title: "Paste the token first", message: "" }
   : edited.value ? undefined : props.problem);
 
 watch(token, () => {

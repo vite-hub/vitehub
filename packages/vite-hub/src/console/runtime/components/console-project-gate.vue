@@ -6,6 +6,7 @@ import type { ConsoleProjectProblem } from "../client/project-link";
 import { consoleTokenRefused } from "../client/project-link";
 import { consoleProjectsVolatileNote, forgetConsoleProject, openConsoleNewProject, openConsoleProject, signInConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
+import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleProjectLink from "./console-project-link.vue";
 import ConsoleProjectLinkConfirm from "./console-project-link-confirm.vue";
@@ -89,7 +90,7 @@ onMounted(() => {
       <template v-if="gate.kind === 'empty'">
         <div class="grid gap-1.5">
           <h1 class="vitehub-project-gate__title">Add your first project</h1>
-          <p class="vitehub-project-gate__text">Start a new ViteHub app that links itself to this Console, or link an app that lists this Console in console.origins. The project list and tokens stay in this browser.</p>
+          <p class="vitehub-project-gate__text">Start a new ViteHub app that links itself to this Console, or link an app that lists this Console in <code class="font-mono text-[0.92em]">console.origins</code>. The project list and tokens stay in this browser.</p>
         </div>
         <div class="flex flex-wrap gap-2">
           <UButton icon="i-lucide-plus" label="New project" @click="openConsoleNewProject" />
@@ -121,7 +122,7 @@ onMounted(() => {
       <template v-else-if="gate.kind === 'problem'">
         <div class="grid gap-1.5" role="alert">
           <h1 class="vitehub-project-gate__title">{{ gate.problem.title }}</h1>
-          <p class="vitehub-project-gate__text">{{ gate.problem.message }}</p>
+          <p class="vitehub-project-gate__text"><ConsoleCodeText :text="gate.problem.message" /></p>
         </div>
         <UButton
           :icon="gate.home ? 'i-lucide-arrow-left' : 'i-lucide-refresh-cw'"
@@ -139,7 +140,7 @@ onMounted(() => {
 
       <div v-if="projects.mode === 'hosted' && current && gate.kind !== 'empty' && gate.kind !== 'link'" class="vitehub-project-gate__host">
         <span class="min-w-0 truncate font-mono">{{ current.url }}</span>
-        <UDropdownMenu :items="switchItems" :content="{ align: 'end' }" :ui="{ content: 'min-w-60' }">
+        <UDropdownMenu :items="switchItems" :content="{ align: 'end' }" :ui="{ content: 'min-w-60', item: 'pointer-coarse:min-h-11' }">
           <UButton color="neutral" variant="ghost" size="xs" trailing-icon="i-lucide-chevron-down" label="Switch project" />
         </UDropdownMenu>
       </div>
@@ -193,7 +194,7 @@ onMounted(() => {
 }
 
 @media (pointer: coarse) {
-  .vitehub-project-gate :is(button:not([role]), input) {
+  .vitehub-project-gate :is(button:not([role="checkbox"], [role="radio"]), input) {
     min-height: 44px;
   }
 }

@@ -347,7 +347,7 @@ export async function signInConsoleProject(token: string): Promise<ConsoleProjec
  * Link a project from a URL that a person typed, with a token for the second step. A project that opens is saved and
  * becomes active. The caller then loads the Console for it with `switchConsoleProject()`.
  */
-export async function linkConsoleProject(input: string, token?: string): Promise<ConsoleProjectLinkResult> {
+export async function linkConsoleProject(input: string, token?: string, signal?: AbortSignal): Promise<ConsoleProjectLinkResult> {
   const projects = useState()
   const normalized = normalizeProjectUrl(input)
   if ("error" in normalized) return { kind: "problem", problem: { title: "Check the URL", message: normalized.error } }
@@ -357,6 +357,8 @@ export async function linkConsoleProject(input: string, token?: string): Promise
   }
   const existing = projects.store.find(target.url)
   const probe = token === undefined ? await probeProject(target, existing) : await probeConsoleProject(target, token)
+  // A person who closed the dialog gave up on this project, so a late answer saves nothing.
+  signal?.throwIfAborted()
   if (probe.kind === "token") return { kind: "token", rejected: probe.rejected && token !== undefined, target }
   if (probe.kind === "oauth") return { kind: "oauth", target, resourceMetadata: probe.resourceMetadata }
   if (probe.kind !== "ready") return { kind: "problem", problem: consoleProjectProblem(probe, problemContext(target)) }
@@ -500,7 +502,7 @@ export function openConsoleNewProject(): void {
 /** Why a pending link cannot link a project. */
 const pendingLinkProblems: Record<"expired" | "unknown", ConsoleProjectProblem> = {
   expired: { title: "This link expired", message: "A link works for 24 hours. Make a new link in this Console, and run the new command." },
-  unknown: { title: "This link cannot be used here", message: "This link was made in another browser or already used. Open the Console in the browser where you started the project." },
+  unknown: { title: "This link cannot be used here", message: "This link was made in another browser or already used. If you used it in this browser, the project is already in this Console. Otherwise, open the Console in the browser where you started the project." },
 }
 
 const pendingLinkStorageProblem: ConsoleProjectProblem = {
@@ -576,7 +578,7 @@ async function confirmLockedConsoleLink(projects: ConsoleProjectsState, pendingI
       final: false,
       problem: {
         title: "The host secret does not match",
-        message: `${consoleProjectHost(target)} refused the key of this link. Its VITEHUB_CONSOLE_TOKEN_SHA256 is not the hash from this link. Run the command again or relink.`,
+        message: `${consoleProjectHost(target)} refused the key of this link. Its \`VITEHUB_CONSOLE_TOKEN_SHA256\` is not the hash from this link. Run the command again or relink.`,
       },
     }
   }
@@ -603,7 +605,7 @@ export async function startConsoleOAuthSignIn(target: ConsoleProjectTarget, reso
   if (projects.mode !== "hosted") return { title: "Sign in on the app", message: `Open the Console of ${host} at its own URL to sign in.` }
   // The verifier and the tokens must survive the redirect to the app, so memory is not enough.
   if (!projects.oauthStorage) {
-    return { title: "This browser blocks site data", message: `Allow site data for ${new URL(projects.pageOrigin).host} to sign in, or use auth: "token" in the project.` }
+    return { title: "This browser blocks site data", message: `Allow site data for ${new URL(projects.pageOrigin).host} to sign in, or use \`auth: "token"\` in the project.` }
   }
   let metadata = resourceMetadata
   if (!metadata) {
@@ -692,7 +694,7 @@ export async function finishConsoleOAuthSignIn(search: string): Promise<void> {
   }
   const result = await exchangeConsoleOAuthCode(signIn, callback.code, { fetch: projects.fetch, now: projects.now })
   if (result.kind === "unreachable") {
-    projects.gate.value = callbackProblem({ title: `Cannot reach ${host}`, message: `${host} did not answer the token request. If the app is online, add ${projects.pageOrigin} to its console.origins, redeploy, and sign in again.` }, signIn)
+    projects.gate.value = callbackProblem({ title: `Cannot reach ${host}`, message: `${host} did not answer the token request. If the app is online, add ${projects.pageOrigin} to its \`console.origins\`, redeploy, and sign in again.` }, signIn)
     return
   }
   if (result.kind === "rejected") {

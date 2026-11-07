@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, shallowRef, watch } from "vue";
+import { computed, onMounted, ref, shallowRef, useTemplateRef, watch } from "vue";
 
 import type { ConsoleProjectProblem } from "../client/project-link";
 import type { ConsoleProjectTarget } from "../client/projects";
@@ -26,6 +26,14 @@ watch(() => props.target.url, () => {
   startProblem.value = undefined;
 });
 
+// In the Link project dialog the person just pressed Continue, so the keyboard moves on to the only action here. The full
+// page and a touch screen move no focus.
+const button = useTemplateRef<{ $el: HTMLElement }>("button");
+onMounted(() => {
+  const element = button.value?.$el;
+  if (element?.closest("[role=dialog]") && !("ontouchstart" in window)) element.focus();
+});
+
 async function signIn(): Promise<void> {
   if (busy.value) return;
   busy.value = true;
@@ -45,6 +53,7 @@ async function signIn(): Promise<void> {
   <div class="grid gap-4">
     <ConsoleProjectProblemAlert v-if="shown" :problem="shown" />
     <UButton
+      ref="button"
       block
       icon="i-lucide-log-in"
       :loading="busy"

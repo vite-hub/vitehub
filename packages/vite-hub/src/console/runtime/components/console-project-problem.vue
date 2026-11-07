@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import type { ConsoleProjectProblem } from "../client/project-link";
+import ConsoleCodeText from "./console-code-text.vue";
 
-/** Why the last check did not open the project, under the control that started it. Long URLs and names wrap. */
+/**
+ * Why the last check did not open the project, under the control that started it. Long URLs and names wrap, and names in
+ * backticks render as code. A problem with an empty message shows only its title.
+ */
 defineProps<{ problem: ConsoleProjectProblem }>();
 </script>
 
@@ -9,8 +13,8 @@ defineProps<{ problem: ConsoleProjectProblem }>();
   <div role="alert" class="flex gap-2 text-sm">
     <UIcon name="i-lucide-circle-alert" class="mt-0.5 size-4 shrink-0 text-error" aria-hidden="true" />
     <div class="grid min-w-0 gap-0.5 [overflow-wrap:anywhere]">
-      <p class="font-medium text-highlighted">{{ problem.title }}</p>
-      <p class="text-pretty text-muted">{{ problem.message }}</p>
+      <p class="text-pretty font-medium text-highlighted">{{ problem.title }}</p>
+      <p v-if="problem.message" class="text-pretty text-muted"><ConsoleCodeText :text="problem.message" /></p>
     </div>
   </div>
 </template>

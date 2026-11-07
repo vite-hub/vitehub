@@ -196,7 +196,7 @@ describe("project.get probe", () => {
     expect(await probeConsoleProject(target, "wrong", { fetch: json(401, tokenRejection, { "www-authenticate": 'Bearer realm="vitehub-console", error="invalid_token"' }) })).toEqual({ kind: "token", rejected: true })
     // The server keeps only the hash of the token, so the fix names the hash variable and how to replace a lost token.
     expect(consoleProjectProblem({ kind: "token", rejected: true }, { consoleOrigin: "https://console.example.com", host: "app.example.com", url: "https://app.example.com" }).message)
-      .toBe("app.example.com refused this token. Use the token whose SHA-256 hash is in VITEHUB_CONSOLE_TOKEN_SHA256. If you lost it, create a new token and set its hash.")
+      .toBe("app.example.com refused this token. Use the token whose SHA-256 hash is in `VITEHUB_CONSOLE_TOKEN_SHA256`. If you lost it, create a new token and set its hash.")
   })
 
   it("tells OAuth and app sign-in apart from the token", async () => {
@@ -212,7 +212,7 @@ describe("project.get probe", () => {
     const probe = await probeConsoleProject(target, "secret", { fetch: async () => { throw new TypeError("Failed to fetch") } })
     expect(probe).toEqual({ kind: "unreachable" })
     expect(consoleProjectProblem({ kind: "unreachable" }, { consoleOrigin: "https://console.example.com", host: "app.example.com/portal", url: "https://app.example.com/portal" }).message)
-      .toBe("app.example.com/portal did not answer this Console. If the app is online, add https://console.example.com to its console.origins and redeploy.")
+      .toBe("app.example.com/portal did not answer this Console. If the app is online, add https://console.example.com to its `console.origins` and redeploy.")
   })
 
   it("lets an abort through", async () => {
@@ -283,7 +283,7 @@ describe("linking a project", () => {
     const { module, state } = await session(async () => { throw new TypeError("Failed to fetch") })
     expect(await module.linkConsoleProject("https://app.example.com")).toEqual({
       kind: "problem",
-      problem: { title: "Cannot reach app.example.com", message: "app.example.com did not answer this Console. If the app is online, add https://console.example.com to its console.origins and redeploy." },
+      problem: { title: "Cannot reach app.example.com", message: "app.example.com did not answer this Console. If the app is online, add https://console.example.com to its `console.origins` and redeploy." },
     })
     expect(await module.linkConsoleProject("http://app.example.com")).toMatchObject({ kind: "problem", problem: { title: "Use HTTPS" } })
     expect(await module.linkConsoleProject("ftp://app.example.com")).toMatchObject({ kind: "problem", problem: { title: "Check the URL" } })

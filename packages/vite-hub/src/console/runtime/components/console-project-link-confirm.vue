@@ -5,6 +5,7 @@ import type { ConsoleLinkRequest } from "../client/pending-links";
 import type { ConsoleProjectProblem } from "../client/project-link";
 import { confirmConsoleLink, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
+import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleProjectProblemAlert from "./console-project-problem.vue";
 
 /**
@@ -66,7 +67,7 @@ function leave(): void {
   <template v-else>
     <div class="grid gap-1.5" role="alert">
       <h1 class="vitehub-project-gate__title">{{ shown.problem.title }}</h1>
-      <p class="vitehub-project-gate__text">{{ shown.problem.message }}</p>
+      <p class="vitehub-project-gate__text"><ConsoleCodeText :text="shown.problem.message" /></p>
     </div>
     <UButton label="Open Console" class="justify-self-start" @click="leave" />
   </template>
