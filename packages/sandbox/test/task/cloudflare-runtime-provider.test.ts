@@ -6,6 +6,8 @@ const { resolveCloudflareSandbox } = vi.hoisted(() => ({
 
 vi.mock("../../src/internal/cloudflare.ts", () => ({ resolveCloudflareSandbox }))
 
+import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+
 import { resolveCloudflareTaskSandbox } from "../../src/task/runtime/providers/cloudflare.ts"
 
 const namespace = {
@@ -15,12 +17,10 @@ const namespace = {
 
 describe("Cloudflare Sandbox runtime provider", () => {
   it("defaults idle shutdown to five minutes", async () => {
-    const provider = await resolveCloudflareTaskSandbox({
+    const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () => resolveCloudflareTaskSandbox({
       local: {},
       provider: { provider: "cloudflare" },
-    }, {
-      event: { context: { cloudflare: { env: { SANDBOX: namespace } } } },
-    })
+    }))
 
     await provider.resolveSandbox(["node"])
     expect(provider.closeAfterRun).toBe(false)
@@ -34,12 +34,10 @@ describe("Cloudflare Sandbox runtime provider", () => {
   })
 
   it("preserves an explicit idle shutdown override", async () => {
-    const provider = await resolveCloudflareTaskSandbox({
+    const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () => resolveCloudflareTaskSandbox({
       local: {},
       provider: { provider: "cloudflare", sleepAfter: "30s" },
-    }, {
-      event: { context: { cloudflare: { env: { SANDBOX: namespace } } } },
-    })
+    }))
 
     await provider.resolveSandbox(["node", "npm"])
     expect(resolveCloudflareSandbox).toHaveBeenCalledWith(
@@ -51,35 +49,29 @@ describe("Cloudflare Sandbox runtime provider", () => {
   })
 
   it("closes a Sandbox session when keepAlive disables idle shutdown", async () => {
-    const provider = await resolveCloudflareTaskSandbox({
+    const provider = await runWithActiveCloudflareEnv({ SANDBOX: namespace }, () => resolveCloudflareTaskSandbox({
       local: {},
       provider: { provider: "cloudflare", keepAlive: true },
-    }, {
-      event: { context: { cloudflare: { env: { SANDBOX: namespace } } } },
-    })
+    }))
 
     expect(provider.closeAfterRun).toBe(true)
   })
 
   it("says how to run Sandbox locally when the dev server has no binding", async () => {
-    await expect(resolveCloudflareTaskSandbox({
+    await expect(runWithActiveCloudflareEnv({ DB: {} }, () => resolveCloudflareTaskSandbox({
       local: {},
       provider: { provider: "cloudflare" },
-    }, {
-      event: { context: { cloudflare: { env: { DB: {} } } } },
-    })).rejects.toThrow("build, then run `npx wrangler dev --config .output/server/wrangler.json`")
+    }))).rejects.toThrow("build, then run `npx wrangler dev --config .output/server/wrangler.json`")
   })
 
   it.each(["__proto__", "constructor", "toString"])("rejects inherited Cloudflare binding %s", async (binding) => {
     const env = Object.create({ [binding]: namespace }) as Record<string, unknown>
     resolveCloudflareSandbox.mockClear()
 
-    await expect(resolveCloudflareTaskSandbox({
+    await expect(runWithActiveCloudflareEnv(env, () => resolveCloudflareTaskSandbox({
       local: {},
       provider: { provider: "cloudflare", binding },
-    }, {
-      event: { context: { cloudflare: { env } } },
-    })).rejects.toThrow(`Cloudflare sandbox requires the ${JSON.stringify(binding)} binding`)
+    }))).rejects.toThrow(`Cloudflare sandbox requires the ${JSON.stringify(binding)} binding`)
     expect(resolveCloudflareSandbox).not.toHaveBeenCalled()
   })
 })

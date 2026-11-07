@@ -72,7 +72,7 @@ rm -rf .vitehub/data/blob/.vitehub/blob-writes
 
 This maintenance removes staging files. Published objects and their metadata remain in place. Do not run it while writers are active.
 
-Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Other configured tokens stay unchanged.
+On Vercel, the `vercel-blob` driver uses OIDC when the project has `BLOB_STORE_ID`, which Vercel adds when you connect a store. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`. Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Configured tokens always take precedence over OIDC.
 
 Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
@@ -141,7 +141,7 @@ Upload routes accept client-chosen pathnames. Authorize each request in the rout
 
 Browser clients:
 
-- `@vite-hub/blob/client`: `uploadFiles()` and `createMultipartUploader()`, built only on `fetch`.
+- `@vite-hub/blob/client`: `uploadFiles()` and `createMultipartUploader()`, built on `fetch`. `uploadFiles(route, files, { onProgress })` reports progress from 0 to 100 and sends with XMLHttpRequest, since `fetch` can't report upload progress.
 - `@vite-hub/blob/vue`: `useUpload()` and `useMultipartUpload()`, which add a progress ref. `vue` is an optional peer dependency.
 
 ## Blob reference schemas

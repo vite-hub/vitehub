@@ -44,7 +44,7 @@ Set them under `docs` in `nuxt.config.ts`. Every option is optional.
 | `linkChecker` | `false` | On | Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors. Fragment checks are limited to the current page; fragments on other pages are not validated. Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build stops with [`DocsRedirectError`](/docs/docs-site/limits-and-errors#docsredirecterror) when such a rule goes to no docs page or hides one. Set the app's own `linkChecker` options to change this. |
 | `ogImage` | `false \| { component? }` | On | Share images, rendered with `nuxt-og-image` while the build prerenders. `component` names the app's own template in `components/OgImage/`, which gets `title`, `description`, `site`, `section`, `logo`, and `host`. `false` turns them off. |
 | `assistant` | `boolean` or `{ agent? }` | `false` | The [docs assistant](/docs/docs-site/assistant). `true` uses the Agent named `docs`. |
-| `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to the `comments` option of `vite-hub/nuxt`. `false` sets `comments: false` there, which also keeps the Console from turning Comments on. |
+| `comments` | `boolean` or `{ database?, dialect?, overlay? }` | On with `vite-hub/nuxt` | [Comments](/docs/docs-site/configure#comments) on every page. The object goes to the `comments` option of `vite-hub/nuxt`. `false` sets `comments: false` there. |
 | `rawMarkdown` | `(markdown, page) => string` | None | Rewrites a page before its agent copy is written. It can be async. |
 | `parser` | `string` | None | Path of a module whose default export is `DocsParserOptions`, such as `{ plugins }`. The page route, search, and Console drafts parse with it. See [Add Comark plugins](/docs/docs-site/configure#add-comark-plugins). |
 
@@ -83,6 +83,7 @@ Dotted keys, such as `navigation.order: 2`, are the same as nested keys. `naviga
 | `order` | `number` | The folder position | Position in the rail. Lower comes first. |
 | `category` | `string` | None | Rail group and catalog group. |
 | `group` | `string` | None | Title of the [group](/docs/docs-site/configure#groups) of the section. A `groups` entry that lists the section wins. |
+| `fold` | `boolean` | `false` | Folds each page group of the sidebar. See [Fold page groups](/docs/docs-site/configure#fold-page-groups). |
 | `related` | `string[]` | `[]` | Section ids under Related in the sidebar. |
 
 ## Routes

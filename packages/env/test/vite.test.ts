@@ -21,6 +21,7 @@ import { resolveServerEnv } from "../src/server.ts"
 import { createEnvImportAliases, createEnvTypeScriptPaths, env, hubEnv } from "../src/vite.ts"
 
 import { booleanSchema, stringSchema } from "./helpers.ts"
+import { cloudflareRequest } from "./cloudflare-request.ts"
 
 const temporaryDirectories: string[] = []
 
@@ -390,7 +391,7 @@ describe("Vite plugin", () => {
     expect(types).toContain("\"optionalToken\"?: import(\"@vite-hub/env/secret\").SecretEnv<string>")
     expect(types).toContain("\"appType\": \"SingleTenant\"")
     expect(types).toContain("usePublicEnv(): PublicEnv")
-    expect(types).toContain("useServerEnv(event?: unknown): ServerEnv")
+    expect(types).toContain("useServerEnv(event?: import(\"@vite-hub/env/server\").ViteHubContext): ServerEnv")
     expect(types).toContain("runWithServerEnv")
     expect(types).not.toContain("serverEnv")
     expect(types).not.toContain("buildConfig")
@@ -404,8 +405,8 @@ describe("Vite plugin", () => {
     expect(serverModuleTypes).toContain("import type { SecretEnv } from \"@vite-hub/env/secret\"")
     expect(serverModuleTypes).toContain("export interface ServerEnv")
     expect(serverModuleTypes).toContain("\"airtableToken\": SecretEnv<string>")
-    expect(serverModuleTypes).toContain("export function useServerEnv(event?: unknown): ServerEnv")
-    expect(serverModuleTypes).toContain("export function deriveSecret(purpose: string, event?: unknown): Promise<string>")
+    expect(serverModuleTypes).toContain("export function useServerEnv(event?: import(\"@vite-hub/env/server\").ViteHubContext): ServerEnv")
+    expect(serverModuleTypes).toContain("export function deriveSecret(purpose: string, event?: import(\"@vite-hub/env/server\").ViteHubContext): Promise<string>")
     expect(serverModuleTypes).toContain("runWithServerEnv")
 
     const loadHook = plugin.load as (id: string) => string | undefined
@@ -461,7 +462,7 @@ describe("Vite plugin", () => {
     const root = await temporaryDirectory("vitehub-env-facade-runtime-imports-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "facade-app", type: "module", imports: { "#app/env/server": "./runtime.mjs" } }), "utf8")
     await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
-    await writeFile(join(root, "runtime.d.mts"), 'export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } }\n', "utf8")
+    await writeFile(join(root, "runtime.d.mts"), 'export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } }\nexport interface ViteHubContext { readonly "~standard": { readonly req: Request } }\n', "utf8")
     await writeFile(join(root, "runtime.mjs"), 'export const resolveServerEnv = () => ({ token: "ok" }); export const loadServerEnv = async () => ({ token: "ok" }); export const inspectServerEnv = async () => ({ entries: [] });\n', "utf8")
 
     const plugin = hubEnv({
@@ -579,9 +580,9 @@ describe("Vite plugin", () => {
     expect(virtualModule).toContain(`${root.replace(/\\/g, "/")}/server/env#blue?%/secrets.mjs`)
 
     const serverTypes = await readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")
-    expect(serverTypes).toContain("loadServerEnv(event?: unknown")
+    expect(serverTypes).toContain("loadServerEnv(event?: import(")
     expect(serverTypes).toContain("Promise<ReadonlyServerEnv>")
-    expect(serverTypes).toContain("inspectServerEnv(event?: unknown")
+    expect(serverTypes).toContain("inspectServerEnv(event?: import(")
     expect(serverTypes).toContain('"codexAuth": SecretEnv<string>')
 
     const generatedModuleUrl = `${pathToFileURL(join(root, ".vitehub", "env", "server.mjs")).href}?test=${Date.now()}`
@@ -589,7 +590,7 @@ describe("Vite plugin", () => {
     const nativeAssertions = `
       const generated = await import(${JSON.stringify(generatedModuleUrl)})
       const provider = await import(${JSON.stringify(providerUrl)})
-      const event = { env: { GATEWAY_KEY: "gateway-secret", NESTED: "local" } }
+      const event = { "~standard": { vendor: "test", req: new Request("https://example.test/"), res: {}, runtime: { cloudflare: { env: { GATEWAY_KEY: "gateway-secret", NESTED: "local" } } } } }
       const local = generated.useServerEnv(event)
       const first = await generated.loadServerEnv(event)
       const reads = [provider.stats.reads]
@@ -957,7 +958,7 @@ describe("Vite plugin", () => {
     await mkdir(join(root, "server", "workspaces"), { recursive: true })
     await writeFile(join(root, ".env.production"), "PUBLIC_APP_NAME=Quiver\n", "utf8")
     await writeFile(join(root, "secret.d.ts"), "export interface SecretEnv<T> { unseal(): T }\n", "utf8")
-    await writeFile(join(root, "runtime.d.ts"), 'declare module "@vite-hub/env/server" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } }\n', "utf8")
+    await writeFile(join(root, "runtime.d.ts"), 'declare module "@vite-hub/env/server" { export interface EnvAccessContext { actor: { id: string; kind: "user" | "agent" | "service" } } export interface ViteHubContext { readonly "~standard": { readonly req: Request } } }\n', "utf8")
     const packageJsonPath = join(appRoot, "package.json")
     const packageJson = JSON.stringify({
       imports: {
@@ -1114,12 +1115,10 @@ describe("Vite plugin", () => {
       nested: { staticValue: "ok" }
       optionalToken?: { unseal(): string }
       publicWebhook: string
-    }>(registry, {
-      env: {
+    }>(registry, cloudflareRequest({
         VITEHUB_AIRTABLE_TOKEN: "airtable-secret",
         WEBHOOK_URL: "https://example.test/hook",
-      },
-    })
+      }))
 
     expect(String(serverEnv.airtableToken)).toBe("<redacted>")
     expect(JSON.stringify(serverEnv.airtableToken)).toBe("\"<redacted>\"")
@@ -1139,11 +1138,9 @@ describe("Vite plugin", () => {
       delete (globalThis as { __env__?: Record<string, unknown> }).__env__
     }
 
-    expect(() => resolveServerEnv(registry, {
-      env: {
+    expect(() => resolveServerEnv(registry, cloudflareRequest({
         WEBHOOK_URL: "https://example.test/hook",
-      },
-    })).toThrow("[vitehub] Required Env value is missing.")
+      }))).toThrow("[vitehub] Required Env value is missing.")
   })
 
 })

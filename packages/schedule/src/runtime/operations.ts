@@ -78,6 +78,8 @@ export interface ManualScheduleRunSummary {
   error?: ScheduleRunErrorSummary
   id: string
   scheduleId: string
+  /** The fire time that the handler received. */
+  scheduledAt: string
   startedAt?: string
   status: ScheduleRunStatus
 }
@@ -91,6 +93,7 @@ function summarizeManualScheduleRun(run: ScheduleRunRecord): ManualScheduleRunSu
     ...(error ? { error } : {}),
     id: run.id,
     scheduleId: run.scheduleId,
+    scheduledAt: isoDate(run.scheduledAt) ?? "",
     ...(startedAt ? { startedAt } : {}),
     status: run.status,
   }
@@ -144,9 +147,14 @@ class ScheduleOperationError extends Error {
   }
 }
 
+const errorFix: Readonly<Record<string, string>> = {
+  SCHEDULE_INVALID_SCHEDULED_AT: "Pass `at` as an ISO 8601 date-time with a time zone, such as 2026-01-31T23:59:00Z or 2026-01-31T23:59:00+01:00.",
+}
+
 const errorStatus: Readonly<Record<string, number>> = {
   SCHEDULE_DEFINITION_NOT_FOUND: 404,
   SCHEDULE_HISTORY_INCOMPLETE: 503,
+  SCHEDULE_INVALID_SCHEDULED_AT: 400,
   SCHEDULE_MANUAL_RUN_DISABLED: 403,
   SCHEDULE_RUN_NOT_FOUND: 404,
 }
@@ -160,7 +168,7 @@ async function attempt<T>(work: () => Promise<T>): Promise<T> {
     if (error instanceof ScheduleOperationError) throw error
     const code: unknown = Reflect.get(Object(error), "code")
     const status = String(code) === code ? errorStatus[code] : undefined
-    if (status && error instanceof Error) throw new ScheduleOperationError(status, String(code), redactInspectionText(error.message))
+    if (status && error instanceof Error) throw new ScheduleOperationError(status, String(code), redactInspectionText(error.message), errorFix[String(code)])
     throw new ScheduleOperationError(500, "OPERATION_FAILED", "Schedule operation failed.")
   }
 }
@@ -197,12 +205,12 @@ export async function runScheduleAttempts(input: { id: string }): Promise<Schedu
 const consoleSchedulesKey = Symbol.for("vitehub.console.schedules")
 
 /**
- * Runs a Static Schedule Definition that sets `manual: true`. The registry holds only those definitions, and it is empty
+ * Runs a Static Schedule Definition that sets `manual: true`, as if its cron fired at `at` (default: now). The registry holds only those definitions, and it is empty
  * unless Console invocation is enabled, so anything else is "not available".
  */
-export async function runScheduleNow(input: { name: string }, registry: ScheduleDefinitionRegistry = Reflect.get(globalThis, consoleSchedulesKey) ?? {}): Promise<ScheduleRunResult> {
+export async function runScheduleNow(input: { at?: string, name: string }, registry: ScheduleDefinitionRegistry = Reflect.get(globalThis, consoleSchedulesKey) ?? {}): Promise<ScheduleRunResult> {
   if (!Object.hasOwn(registry, input.name)) {
     throw new ScheduleOperationError(404, "SCHEDULE_DEFINITION_NOT_FOUND", "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.", "Set `manual: true` in defineSchedule() and keep `console.invoke` on (it is on in development).")
   }
-  return await attempt(async () => ({ run: summarizeManualScheduleRun(await runSchedule(input.name, { registry })) }))
+  return await attempt(async () => ({ run: summarizeManualScheduleRun(await runSchedule(input.name, { registry, scheduledAt: input.at })) }))
 }

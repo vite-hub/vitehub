@@ -6,6 +6,7 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
+import { BlobNotFoundError, BlobStoreNotFoundError } from "@vercel/blob"
 import { build as bundle } from "esbuild"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
@@ -55,7 +56,10 @@ const vercelBlobMock = vi.hoisted(() => ({
     url: `https://blob.example/${pathname}`,
   })),
 }))
-vi.mock("@vercel/blob", () => vercelBlobMock)
+vi.mock("@vercel/blob", async importOriginal => {
+  const actual = await importOriginal<typeof import("@vercel/blob")>()
+  return { ...vercelBlobMock, BlobNotFoundError: actual.BlobNotFoundError, BlobStoreNotFoundError: actual.BlobStoreNotFoundError }
+})
 
 vi.mock("files-sdk", () => ({
   Files: class {
@@ -183,9 +187,7 @@ describe("Blob Nitro runtime module", () => {
   })
 
   it("maps Vercel missing-object errors to Blob misses", async () => {
-    const missing = new Error("Vercel Blob: The requested blob does not exist")
-    missing.name = "BlobNotFoundError"
-    vercelBlobMock.head.mockRejectedValueOnce(missing)
+    vercelBlobMock.head.mockRejectedValueOnce(new BlobNotFoundError())
     const driver = createBundledVercelBlobDriver({
       access: "private",
       driver: "vercel-blob",
@@ -194,7 +196,7 @@ describe("Blob Nitro runtime module", () => {
 
     await expect(driver.head("missing.txt")).resolves.toBeNull()
 
-    const missingStore = new Error("Vercel Blob: The requested store does not exist")
+    const missingStore = new BlobStoreNotFoundError()
     vercelBlobMock.head.mockRejectedValueOnce(missingStore)
     await expect(driver.head("missing.txt")).rejects.toBe(missingStore)
   })
