@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { describeHostCredentials, resolveHostCredentials } from "../src/host-credentials.ts"
+import { describeHostCredentials, resolveHostCredentials, runHostCli } from "../src/host-credentials.ts"
 import { resolveCloudflareProvisionConfig, resolveVercelProvisionConfig } from "../src/provision.ts"
 
 const fakeWrangler = fileURLToPath(new URL("./fixtures/wrangler/fake-wrangler.mjs", import.meta.url))
@@ -46,6 +46,13 @@ describe.skipIf(process.platform === "win32")("host credentials", () => {
 
     expect(result).toEqual({ ok: true, host: "cloudflare", source: "env", token: "env-token", accountId: "env-account" })
     expect(calls()).toEqual([])
+  })
+
+  it("cancels a credential CLI at the caller's deadline", async () => {
+    await expect(runHostCli(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+      env: {},
+      signal: AbortSignal.timeout(100),
+    })).rejects.toMatchObject({ name: "AbortError" })
   })
 
   it("leaves account discovery to the env token when no account is set", async () => {
