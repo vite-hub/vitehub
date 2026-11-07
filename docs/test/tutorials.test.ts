@@ -7,7 +7,7 @@ import { parse } from "yaml";
 import { buildRunnableTutorial, createZip, frameworkView, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
 import { runnableTutorials } from "../modules/tutorials/list";
 import { restartsDevServer, tutorialWorkspaceFiles } from "../modules/tutorials/steps";
-import { parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
+import { frameworkNodes, parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const fixturesRoot = resolve(docsRoot, "../fixtures/tutorials");
@@ -287,6 +287,17 @@ describe("runnable tutorials", () => {
   it("splits the lesson into its steps", () => {
     const parts = splitTutorialDocument(["intro", ["tutorial-step", { title: "One" }], "between", ["tutorial-step", { title: "Two" }], "outro"]);
     expect(parts).toEqual({ intro: ["intro"], steps: [["tutorial-step", { title: "One" }], ["tutorial-step", { title: "Two" }]], outro: ["outro"] });
+  });
+
+  it("shows the Vite tab of a framework tabs block in a runnable lesson", () => {
+    expect(frameworkNodes([["tutorial-step", { title: "One" },
+      ["tabs", { sync: "framework" },
+        ["tabs-item", { label: "Nuxt" }, ["pre", { filename: "nuxt.config.ts" }]],
+        ["tabs-item", { label: "Nitro" }, ["pre", { filename: "vite.config.ts" }, "nitro"]],
+        ["tabs-item", { label: "Vite" }, ["pre", { filename: "vite.config.ts" }, "vite"]]],
+      ["tabs", { sync: "os" }, ["tabs-item", { label: "macOS" }, "mac"]]]], "Vite")).toEqual([
+      ["tutorial-step", { title: "One" }, ["pre", { filename: "vite.config.ts" }, "vite"], ["tabs", { sync: "os" }, ["tabs-item", { label: "macOS" }, "mac"]]],
+    ]);
   });
 
   it("runs the request blocks of a lesson, and nothing else", () => {
