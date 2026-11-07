@@ -204,7 +204,7 @@ describe("runnable tutorials", () => {
   it.each(runnableTutorials.map((tutorial, index) => [tutorial.slug, index] as const))("builds %s from its lesson and its fixture", async (slug, index) => {
     const tutorial = await build(index);
     const lesson = await readFile(resolve(docsRoot, `content${tutorial.page}.md`), "utf8");
-    const installation = await readFile(resolve(docsRoot, "content/docs/getting-started/installation.md"), "utf8");
+    const installation = frameworkView(await readFile(resolve(docsRoot, "content/docs/getting-started/installation.md"), "utf8"), "Vite");
 
     // The docs page links to this copy, and the steps are the page's steps.
     expect(lesson).toContain(`::run-tutorial{to="/learn/${slug}"}`);

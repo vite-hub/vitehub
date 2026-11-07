@@ -2,9 +2,9 @@ import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { describe, expect, it } from "vitest"
-import { array, object, parse, picklist, string } from "valibot"
+import { array, object, optional, parse, picklist, string } from "valibot"
 
-import { frameworkView } from "../modules/tutorials/build"
+import { frameworks, frameworkView } from "../modules/tutorials/build"
 
 const docsRoot = resolve(import.meta.dirname, "..")
 const fixturesRoot = resolve(import.meta.dirname, "../../fixtures/docs-hosts")
@@ -14,6 +14,7 @@ const snippetContractsSchema = array(object({
   label: string(),
   page: string(),
   verification: picklist(["build", "json", "typecheck"]),
+  framework: optional(picklist(frameworks)),
 }))
 
 function normalize(source: string) {
@@ -42,17 +43,21 @@ describe("launch-critical documentation snippets", () => {
     const contracts = await readContracts()
     const pages = [...new Set(contracts.map(contract => contract.page))]
 
-    expect(contracts).toHaveLength(21)
+    expect(contracts).toHaveLength(40)
 
+    // A block outside the framework tabs has one contract for every framework. A block in a tab names its framework.
     for (const page of pages) {
-      const blocks = sourceBlocks(frameworkView(await readFile(resolve(docsRoot, "content/docs", page), "utf8"), "Vite"))
-      const pageContracts = contracts.filter(contract => contract.page === page)
-      const expected = await Promise.all(pageContracts.map(async contract => ({
-        label: contract.label,
-        source: normalize(await readFile(resolve(fixturesRoot, contract.fixture), "utf8")),
-      })))
+      const markdown = await readFile(resolve(docsRoot, "content/docs", page), "utf8")
+      for (const framework of frameworks) {
+        const blocks = sourceBlocks(frameworkView(markdown, framework))
+        const pageContracts = contracts.filter(contract => contract.page === page && (contract.framework ?? framework) === framework)
+        const expected = await Promise.all(pageContracts.map(async contract => ({
+          label: contract.label,
+          source: normalize(await readFile(resolve(fixturesRoot, contract.fixture), "utf8")),
+        })))
 
-      expect(expected.sort(compareBlocks), `${page} should inventory every source block`).toEqual(blocks.sort(compareBlocks))
+        expect(expected.sort(compareBlocks), `${page} (${framework}) should inventory every source block`).toEqual(blocks.sort(compareBlocks))
+      }
     }
   })
 

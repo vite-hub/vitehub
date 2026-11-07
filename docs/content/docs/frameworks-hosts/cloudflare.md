@@ -180,18 +180,53 @@ When config generation and Sandbox are enabled, ViteHub writes an explicit gradu
 
 A new Worker has no secrets yet, so `wrangler secret put` cannot set the values that `secrets.required` asks for. To upload them on a deploy from your terminal, name a `.env` or JSON file:
 
-```ts [vite.config.ts]
-import { vitehub } from 'vite-hub'
-
-export default {
-  plugins: vitehub({
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
     preset: 'cloudflare',
     cloudflare: { secretsFile: '.env' },
-  }),
-}
+  },
+})
 ```
+:::
 
-In Nuxt, set the same `cloudflare` key under `vitehub` in `nuxt.config.ts`.
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      cloudflare: { secretsFile: '.env' },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      cloudflare: { secretsFile: '.env' },
+    }),
+  ],
+})
+```
+:::
+::
 
 When the file exists at build time, ViteHub adds `--secrets-file` with its path to the deploy command in `.output/nitro.json`. `nitro deploy --prebuilt` then uploads every key in the file as a Worker secret. Wrangler keeps secrets that the file does not name. The path is relative to the project root, and the command finds it from the project root or from `.output`. ViteHub only checks that the file exists. It never reads or copies the values. A build without the file, such as a Workers Builds or Deploy to Cloudflare build, writes the command without the flag, and the secrets you set in the dashboard stay in use. Do not build with a local secrets file and deploy that `.output` from another machine. The option needs Wrangler 4.74 or later. An app's own `nitro.commands.deploy` replaces it, and it has no effect with `nitro.cloudflare.deployConfig: false`.
 
@@ -221,21 +256,71 @@ The generated binding is request-scoped. If it is unavailable at runtime, the ha
 
 Workspace adds an Artifacts binding when its Store explicitly selects Cloudflare Artifacts:
 
-```ts [vite.config.ts]
-import { hubWorkspace } from '@vite-hub/workspace/vite'
-
-export default {
-  plugins: [
-    hubWorkspace({
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare',
+    workspace: {
       store: {
         provider: 'cloudflare-artifacts',
         binding: 'WORKSPACE_ARTIFACTS',
         namespace: 'vitehub',
       },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      workspace: {
+        store: {
+          provider: 'cloudflare-artifacts',
+          binding: 'WORKSPACE_ARTIFACTS',
+          namespace: 'vitehub',
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      workspace: {
+        store: {
+          provider: 'cloudflare-artifacts',
+          binding: 'WORKSPACE_ARTIFACTS',
+          namespace: 'vitehub',
+        },
+      },
     }),
   ],
-}
+})
 ```
+:::
+::
 
 Inspect the generated `artifacts` entry in `wrangler.json` before deployment. Workspace preserves unrelated app-owned Artifacts bindings. Cloudflare hosting still defaults to the ephemeral `memory` Store because Artifacts requires explicit beta access.
 
@@ -243,16 +328,53 @@ Inspect the generated `artifacts` entry in `wrangler.json` before deployment. Wo
 
 Register the Browser integration when trusted server code needs Cloudflare Browser Run sessions.
 
-```ts [vite.config.ts]
-import { vitehub } from 'vite-hub'
-
-export default {
-  plugins: vitehub({
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
     preset: 'cloudflare',
     browser: true,
-  }),
-}
+  },
+})
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      browser: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      browser: true,
+    }),
+  ],
+})
+```
+:::
+::
 
 ViteHub writes the generated `browser` binding, a compatible default `compatibility_date`, and the `nodejs_compat` flag. Browser Definitions import runtime helpers from `vite-hub/browser`; provider modules and the generated `wrangler.json` are not application import surfaces.
 
