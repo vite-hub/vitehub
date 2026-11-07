@@ -60,9 +60,9 @@ const viewMeta: Record<
   { description: string; icon: string; label: string }
 > = {
   details: {
-    description: "Review the run, runtime, and identifiers.",
-    icon: "i-lucide-circle-dot",
-    label: "Invocation",
+    description: "Review the run, its usage, setup, and identifiers.",
+    icon: "i-lucide-info",
+    label: "Details",
   },
   capabilities: {
     description: "Inspect capabilities, servers, and tool contracts.",
@@ -85,7 +85,7 @@ const viewMeta: Record<
     label: "Diff",
   },
 };
-// A tab with nothing to show is left out. Tools without a Capability are listed in the Invocation tab.
+// A tab with nothing to show is left out. Tools without a Capability are listed in the Details tab.
 const inspectorViews = computed<InspectorTab[]>(() => [
   "details",
   ...(props.invocation.configuration?.capabilities?.length ? (["capabilities"] as const) : []),
@@ -251,7 +251,7 @@ watch(
     if (items.some((item) => String(item.value) === activeSurface.value)) return;
     const fallback = items.at(-1)?.value;
     if (fallback !== undefined) activateSurface(fallback);
-    // An open panel always shows something: the Invocation tab when no other tab is open, such as a link to a tab
+    // An open panel always shows something: the Details tab when no other tab is open, such as a link to a tab
     // that this session does not have.
     else openView("details");
   },
@@ -574,7 +574,7 @@ function message(error: unknown) {
               <TabsTrigger
                 :value="String(item.value)"
                 data-slot="trigger"
-                class="group/tab h-6 max-w-36 shrink-0 grow-0 cursor-pointer justify-start gap-0.5 rounded-md px-1.5 py-0 text-xs"
+                class="cursor-pointer text-xs"
               >
                 <UIcon :name="item.icon" class="session-inspector__surface-icon" aria-hidden="true" />
                 <span class="truncate">{{ item.label }}</span>

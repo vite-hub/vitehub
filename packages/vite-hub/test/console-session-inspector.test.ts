@@ -73,7 +73,7 @@ describe("Console inspector initialization", () => {
     const html = await renderToString(app)
     expect(html).not.toContain("<kbd")
     // A session without recorded capabilities has no Capabilities tab to offer.
-    expect(menuItems.map(item => item.label)).toEqual(["Invocation", "Trace"])
+    expect(menuItems.map(item => item.label)).toEqual(["Details", "Trace"])
     expect(menuItems.filter(item => "kbds" in item)).toEqual([])
   })
 

@@ -57,12 +57,12 @@ const settle = async () => {
 }
 
 describe("Console inspector focus", () => {
-  it("opens the Invocation tab when the panel has no open tab", async () => {
+  it("opens the Details tab when the panel has no open tab", async () => {
     const { app, root } = await mount()
     try {
       await settle()
       const tabs = [...root.querySelectorAll("[role='tab']")].map(tab => tab.textContent)
-      expect(tabs).toEqual([expect.stringContaining("Invocation")])
+      expect(tabs).toEqual([expect.stringContaining("Details")])
       expect(root.textContent).not.toContain("Open a tab")
     }
     finally {
@@ -80,7 +80,7 @@ describe("Console inspector focus", () => {
       await settle()
       expect(root.querySelector("[aria-label='Close Trace']")).toBeNull()
       expect(document.activeElement?.getAttribute("role")).toBe("tab")
-      expect(document.activeElement?.textContent).toContain("Invocation")
+      expect(document.activeElement?.textContent).toContain("Details")
     }
     finally {
       app.unmount()
