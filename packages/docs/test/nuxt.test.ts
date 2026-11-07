@@ -231,7 +231,7 @@ describe("docs Comments", () => {
     expect(dependencies["vite-hub/nuxt"]).toEqual({ optional: true, defaults: { comments: { database: "docs", overlay: false } } })
   })
 
-  it("turns Comments off, also the Console's default, with comments: false in the docs key or the inline options", async () => {
+  it("turns Comments off with comments: false in the docs key or the inline options", async () => {
     const off = { optional: true, defaults: { comments: false } }
     expect((await moduleDependencies(app(["vite-hub/nuxt", "@vite-hub/docs/nuxt"], { comments: false })))["vite-hub/nuxt"]).toEqual(off)
     expect((await moduleDependencies(app(["vite-hub/nuxt", [docsModule, { comments: false }]])))["vite-hub/nuxt"]).toEqual(off)

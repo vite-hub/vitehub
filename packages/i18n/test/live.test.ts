@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { compileMessage } from "@lingui/message-utils/compileMessage"
 import { describe, expect, it, vi } from "vitest"
 
-import { createLiveTranslations } from "../src/live.ts"
+import { createLiveTranslations, readRevisionRecords } from "../src/live.ts"
 import { resolveI18nLocaleConfig } from "../src/locales.ts"
 import { recordPath } from "../src/record-format.ts"
 import { messageId } from "../src/records.ts"
@@ -37,7 +37,9 @@ function memoryWorkspace() {
         if ((heads.get(ref) ?? null) !== ifHead) throw new Error("conflict")
         const base = ifHead ? revisions.get(ifHead)! : {}
         const id = `${ref}-${revisions.size + 1}`
-        revisions.set(id, { ...base, ...changes.put })
+        const files = { ...base, ...changes.put }
+        for (const path of changes.delete ?? []) delete files[path]
+        revisions.set(id, files)
         heads.set(ref, id)
         return { id }
       },
@@ -49,6 +51,136 @@ function memoryWorkspace() {
 const config = { ...resolveI18nLocaleConfig({ locales: ["en", "es"] }), catalogs: {} }
 const deploy = { id: messageId("Deploy your agent"), message: "Deploy your agent" }
 const note = { id: messageId("Server only note"), message: "Server only note" }
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>(done => resolve = done)
+  return { promise, resolve }
+}
+
+describe("Workspace records", () => {
+  it("publishes valid translations alongside invalid ICU in later revisions", async () => {
+    const store = memoryWorkspace()
+    const snapshot = { [note.id]: compileMessage("Nota del servidor") }
+    const live = createLiveTranslations({
+      workspace: () => store.workspace,
+      locales: ["en", "es"],
+      sourceLocale: "en",
+      snapshot: { es: snapshot },
+      clientIds: [deploy.id, note.id],
+      interval: 0,
+    })
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    try {
+      let head: string | null = null
+      for (const translation of ["Primera", "Segunda"]) {
+        const revision = await store.workspace.history.commit({
+          ref: "published",
+          ifHead: head,
+          changes: { put: {
+            [recordPath("es", note.id)]: JSON.stringify({ source: note.message, translation: "{count, plural," }),
+            [recordPath("es", deploy.id)]: JSON.stringify({ source: deploy.message, translation }),
+          } },
+        })
+        head = revision.id
+        await live.refresh()
+        expect(live.revision).toBe(revision.id)
+        // Lingui logs invalid ICU and keeps it as literal text; other records still become live.
+        const messages = { [note.id]: ["{count, plural,"], [deploy.id]: compileMessage(translation) }
+        expect(live.messages("es")).toEqual(messages)
+        expect(live.clientMessages("es")).toEqual(messages)
+      }
+      expect(log).toHaveBeenCalledWith(expect.stringContaining("Message: {count, plural,"))
+    }
+    finally {
+      log.mockRestore()
+    }
+  })
+
+  it.each([undefined, "checkout"])("skips records whose source and context %s do not match their filename", async (context) => {
+    const store = memoryWorkspace()
+    const valid = { source: deploy.message, ...(context === undefined ? {} : { context }), translation: "Publica tu agente" }
+    const id = messageId(valid.source, valid.context)
+    const revision = await store.workspace.history.commit({
+      ref: "published",
+      ifHead: null,
+      changes: { put: {
+        [recordPath("es", id)]: JSON.stringify(valid),
+        [recordPath("es", note.id)]: JSON.stringify({ source: deploy.message, context, translation: "Wrong message" }),
+      } },
+    })
+    expect(await readRevisionRecords(await store.workspace.history.open(revision.id), ["es"])).toEqual({ es: { [id]: valid } })
+  })
+
+  it("skips malformed JSON without blocking valid records in later revisions", async () => {
+    const store = memoryWorkspace()
+    const first = await store.workspace.history.commit({
+      ref: "published",
+      ifHead: null,
+      changes: { put: {
+        [recordPath("es", note.id)]: "{",
+        [recordPath("es", deploy.id)]: JSON.stringify({ source: deploy.message, translation: "Primera" }),
+      } },
+    })
+    const onError = vi.fn()
+    const live = createLiveTranslations({
+      workspace: () => store.workspace,
+      locales: ["en", "es"],
+      sourceLocale: "en",
+      snapshot: {},
+      clientIds: [deploy.id, note.id],
+      interval: 0,
+      onError,
+    })
+    await live.refresh()
+    expect(live.revision).toBe(first.id)
+    expect(live.messages("es")).toEqual({ [deploy.id]: compileMessage("Primera") })
+    const second = await store.workspace.history.commit({
+      ref: "published",
+      ifHead: first.id,
+      changes: { put: { [recordPath("es", deploy.id)]: JSON.stringify({ source: deploy.message, translation: "Segunda" }) } },
+    })
+    await live.refresh()
+    expect(live.revision).toBe(second.id)
+    expect(live.clientMessages("es")).toEqual({ [deploy.id]: compileMessage("Segunda") })
+    expect(onError).not.toHaveBeenCalled()
+  })
+})
+
+describe("forced Workspace refreshes", () => {
+  it("reads the newly published head after an in-flight refresh captured the old head", async () => {
+    const store = memoryWorkspace()
+    const put = (translation: string) => ({ [recordPath("es", deploy.id)]: JSON.stringify({ source: deploy.message, translation }) })
+    const first = await store.workspace.history.commit({ ref: "published", ifHead: null, changes: { put: put("Primera") } })
+    const entered = deferred()
+    const release = deferred()
+    const head = store.workspace.history.head.bind(store.workspace.history)
+    const reads = vi.spyOn(store.workspace.history, "head").mockImplementationOnce(async (options) => {
+      const revision = await head(options)
+      entered.resolve()
+      await release.promise
+      return revision
+    })
+    const live = createLiveTranslations({
+      workspace: () => store.workspace,
+      locales: ["en", "es"],
+      sourceLocale: "en",
+      snapshot: {},
+      clientIds: [deploy.id],
+    })
+    const pending = live.refresh()
+    await entered.promise
+    const second = await store.workspace.history.commit({ ref: "published", ifHead: first.id, changes: { put: put("Segunda") } })
+    const forced = live.refresh({ force: true })
+    const alsoForced = live.refresh({ force: true })
+    release.resolve()
+    await Promise.all([pending, forced, alsoForced])
+    expect(live.revision).toBe(second.id)
+    await live.refresh()
+    expect(live.messages("es")).toEqual({ [deploy.id]: compileMessage("Segunda") })
+    expect(reads).toHaveBeenCalledTimes(2)
+  })
+})
 
 function setup(store = memoryWorkspace()) {
   const context = new AsyncLocalStorage<object>()
@@ -70,6 +202,34 @@ function setup(store = memoryWorkspace()) {
 }
 
 describe("translations in a Workspace", () => {
+  it.each(["deleted", "malformed", "empty"])("replaces the detecting request's catalog when published records are %s", async (change) => {
+    const { store, request } = setup()
+    const extra = { id: messageId("Live only message"), message: "Live only message" }
+    const paths = [recordPath("es", deploy.id), recordPath("es", extra.id)]
+    const first = await store.workspace.history.commit({
+      ref: "published",
+      ifHead: null,
+      changes: { put: {
+        [paths[0]!]: JSON.stringify({ source: deploy.message, translation: "Publica tu agente" }),
+        [paths[1]!]: JSON.stringify({ source: extra.message, translation: "Solo en vivo" }),
+      } },
+    })
+    const render = () => [translate(deploy), translate(extra), translate(note)]
+    expect(await request(render)).toEqual(["Publica tu agente", "Solo en vivo", "Nota del servidor"])
+
+    await store.workspace.history.commit({
+      ref: "published",
+      ifHead: first.id,
+      changes: change === "deleted" ? { delete: paths } : { put: {
+        [paths[0]!]: change === "malformed" ? "{" : JSON.stringify({ source: deploy.message, translation: "" }),
+        [paths[1]!]: change === "malformed" ? "{" : JSON.stringify({ source: extra.message, translation: "" }),
+      } },
+    })
+    const fallback = ["Despliega tu agente", extra.message, "Nota del servidor"]
+    expect(await request(render), "the request that detects the revision removes stale messages").toEqual(fallback)
+    expect(await request(render)).toEqual(fallback)
+  })
+
   it("serves the build snapshot, hides drafts, and serves a publish on the next request", async () => {
     const { request } = setup()
     const translations = useTranslations()
@@ -183,6 +343,60 @@ describe("useTranslations() without a Workspace", () => {
 })
 
 describe("the browser with a Workspace", () => {
+  it.each(["Despliega tu agente", deploy.message])("restores the browser fallback %s after a translation is cleared", async (fallback) => {
+    setup()
+    const translations = useTranslations()
+    await translations.save({ locale: "es", source: deploy.message, translation: "Publica tu agente" })
+    await translations.publish()
+    vi.stubGlobal("document", { cookie: "", documentElement: { lang: "en" } })
+    vi.stubGlobal("fetch", (url: string) => i18nCatalogResponse(new Request(`http://app.test${url}`)))
+    try {
+      configureI18n({
+        ...config,
+        live: "/_vitehub/i18n",
+        catalogs: { es: async () => ({ messages: { [deploy.id]: compileMessage(fallback) } }) },
+      })
+      await setLocale("es")
+      expect(getI18n()._(deploy)).toBe("Publica tu agente")
+
+      await translations.save({ locale: "es", source: deploy.message, translation: "" })
+      const { revision } = await translations.publish()
+      const response = await i18nCatalogResponse(new Request("http://app.test/_vitehub/i18n/es.json"))
+      expect(await response.json()).toEqual({ revision, messages: {} })
+      await setLocale("es")
+      expect(getI18n()._(deploy)).toBe(fallback)
+    }
+    finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("reports a superseded selection while its live catalog is still loading", async () => {
+    const pending = deferred()
+    const page = { cookie: "", documentElement: { lang: "en" } }
+    vi.stubGlobal("document", page)
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url.endsWith("/es.json")) await pending.promise
+      return Response.json({ revision: "rev-2", messages: { [deploy.id]: ["Publica tu agente"] } })
+    })
+    try {
+      configureI18n({ ...config, live: "/_vitehub/i18n", catalogs: {} })
+      const earlier = setLocale("es")
+      expect(await setLocale("en")).toEqual([undefined, "en"])
+      pending.resolve()
+      const [error, locale] = await earlier
+      expect(error).toMatchObject({ code: "I18N_LOCALE_SUPERSEDED" })
+      expect(locale).toBeUndefined()
+      expect(getI18n().locale).toBe("en")
+      expect(page.documentElement.lang).toBe("en")
+      expect(page.cookie).toContain("locale=en;")
+    }
+    finally {
+      pending.resolve()
+      vi.unstubAllGlobals()
+    }
+  })
+
   it("puts published translations over the build catalog, and keeps the build catalog when the route fails", async () => {
     const requests: string[] = []
     let routeUp = true

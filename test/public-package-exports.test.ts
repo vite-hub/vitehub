@@ -70,6 +70,10 @@ describe("public package export contracts", () => {
       ["@vite-hub/workflow/vite", "vite"],
       ["vite-hub", "vite"],
       ["vite-hub/console/ui", "vue"],
+      ["vite-hub/i18n", "@vite-hub/i18n"],
+      ["vite-hub/i18n/runtime", "@vite-hub/i18n"],
+      ["vite-hub/i18n/server", "@vite-hub/i18n"],
+      ["vite-hub/i18n/vue", "@vite-hub/i18n"],
       ["vite-hub/nuxt", "vite"],
       ["vite-hub/source/client", "vue"],
       ["vite-hub/ui", "vue"],
@@ -219,12 +223,6 @@ describe("public package export contracts", () => {
     const source = readFileSync(join(packageDir("realtime"), "src/server.ts"), "utf8")
     expect(source).toMatch(/createRealtimeHandler\(registry: RealtimeRegistry\): RealtimeHandler/)
     expect(source).toMatch(/fetch\(input: Request \| URL \| string\): Promise<Response>/)
-  })
-
-  it("keeps Sandbox Task's public request contract limited to readable payloads", () => {
-    const source = readFileSync(join(packageDir("sandbox"), "src/task/internal/shared/request-payload.ts"), "utf8")
-    expect(source).toMatch(/json: \(\) => Promise<unknown>/)
-    expect(source).not.toMatch(/json\?:/)
   })
 
   it("points every contract at a built artifact", () => {

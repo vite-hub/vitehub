@@ -7,10 +7,11 @@ import { build } from "vite"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 import { createI18nCliContributor } from "../src/cli.ts"
+import { compileMessages } from "../src/catalogs.ts"
 import { createLinguiConfig } from "../src/lingui.ts"
 import { resolveI18nLocaleConfig } from "../src/locales.ts"
 import { inspectI18n } from "../src/inspect.ts"
-import { messageId, recordPath, writeRecord } from "../src/records.ts"
+import { messageId, readRecords, recordPath, writeRecord } from "../src/records.ts"
 import { hubI18n } from "../src/vite.ts"
 
 import type { ViteHubCliContext } from "@vite-hub/internal/cli"
@@ -69,6 +70,16 @@ describe("a Vue app with messages in templates and scripts", () => {
       expect.objectContaining({ locale: "en", source: true, messages: 7, missing: 0 }),
       expect.objectContaining({ locale: "es", source: false, messages: 7, translated: 0, missing: 7, folder: "locales/es" }),
     ])
+  })
+
+  it("treats a cleared translation as missing and preserves its source fallback", async () => {
+    const id = await writeRecord(join(root, "locales"), "es", { source: "Deploy finished", translation: "" })
+    const status = await inspectI18n(linguiConfig())
+    expect(status.locales[1]).toMatchObject({ translated: 0, missing: 7, problems: [] })
+    const { records } = await readRecords(join(root, "locales"), "es")
+    // The server keeps the source descriptor; the browser gets the source from its build catalog.
+    expect(compileMessages(records)).not.toHaveProperty(id)
+    expect(compileMessages(records, status.messages)[id]).toEqual(compileMessages({}, status.messages)[id])
   })
 
   it("exports a PO file and saves its translations as one record per message", async () => {

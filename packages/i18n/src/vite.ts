@@ -1,4 +1,5 @@
-import { readFile } from "node:fs/promises"
+import { randomUUID } from "node:crypto"
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_MAJOR_VERSION } from "@vite-hub/internal/build/vite"
@@ -130,6 +131,9 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   let isBuild = false
   /** Messages of each environment in this build. The client catalogs and the manifest come from it. */
   const manifest: I18nManifest = { environments: {} }
+  const moduleMessages = new Map<string, Map<string, SourceMessages>>()
+  let manifestWrite = Promise.resolve()
+  let serverWrite = Promise.resolve()
   let buildRecords: Promise<Record<string, TranslationRecords>> | undefined
   /** Environments whose code runs in the browser. */
   const browserEnvironments = new Set<string>()
@@ -150,18 +154,22 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   }
 
   // Server code keeps the source text of each message, so the server needs only the translations.
-  const writeServerFiles = async (): Promise<void> => {
-    if (!projectRoot || !locale || !lingui) return
-    const messagesFile = resolve(projectRoot, generatedMessages)
-    const records = await readAllRecords()
-    const messages = Object.fromEntries(locale.locales.map(entry => [entry, compileMessages(records[entry] ?? {})]))
-    await writeFileIfChanged(messagesFile, [
-      `export const config = ${JSON.stringify({ ...locale, catalogs: {} })}`,
-      `export const messages = ${JSON.stringify(messages)}`,
-      "",
-    ].join("\n"))
-    await writeFileIfChanged(resolve(projectRoot, generatedPlugin), renderNitroPlugin(importBase, messagesFile, configured.workspace))
-    if (configured.workspace) await writeFileIfChanged(resolve(projectRoot, generatedRoute), renderCatalogRoute(importBase))
+  const writeServerFiles = (): Promise<void> => {
+    // Watcher callbacks overlap. Read each snapshot inside the queue so an older read cannot overwrite a new one.
+    serverWrite = serverWrite.catch(() => {}).then(async () => {
+      if (!projectRoot || !locale || !lingui) return
+      const messagesFile = resolve(projectRoot, generatedMessages)
+      const records = await readAllRecords()
+      const messages = Object.fromEntries(locale.locales.map(entry => [entry, compileMessages(records[entry] ?? {})]))
+      await writeFileIfChanged(messagesFile, [
+        `export const config = ${JSON.stringify({ ...locale, catalogs: {} })}`,
+        `export const messages = ${JSON.stringify(messages)}`,
+        "",
+      ].join("\n"))
+      await writeFileIfChanged(resolve(projectRoot, generatedPlugin), renderNitroPlugin(importBase, messagesFile, configured.workspace))
+      if (configured.workspace) await writeFileIfChanged(resolve(projectRoot, generatedRoute), renderCatalogRoute(importBase))
+    })
+    return serverWrite
   }
 
   // The CLI can run before Vite resolves the config, so it builds the config from the plugin options.
@@ -176,6 +184,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
   return {
     name: pluginName,
     enforce: "post",
+    sharedDuringBuild: true,
     vitehub: {
       cli: async () => {
         const { createI18nCliContributor } = await import("./cli.ts")
@@ -246,6 +255,9 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       if (!isServerEnvironment(name, config)) return
       return { resolve: { noExternal: mergeNoExternal(config.resolve?.noExternal) } }
     },
+    buildStart() {
+      buildRecords = undefined
+    },
     resolveId(id) {
       if (id === clientModule) return resolvedClientModule
       if (id === clientIdsModule) return resolvedClientIdsModule
@@ -269,17 +281,39 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
       async handler(code, id) {
         if (!lingui || nodeModulesRe.test(id) || otherFormQueryRe.test(id) || !sourceRe.test(id)) return
         const server = this.environment.config.consumer === "server"
-        if (isBuild && !id.includes("?")) {
+        if (isBuild) {
           // The build reads each message from the file on disk, so origins point at the lines that you wrote.
-          const source = await readFile(id, "utf8").catch(() => undefined)
+          const file = id.split("?")[0]!
+          const source = await readFile(file, "utf8").catch(() => undefined)
           if (!server) browserEnvironments.add(this.environment.name)
-          const messages = manifest.environments[this.environment.name] ??= {}
-          for (const message of source ? await extractFileMessages(id, source, lingui) : []) addMessage(messages, message, lingui.rootDir)
+          const messages: SourceMessages = {}
+          for (const message of source ? await extractFileMessages(file, source, lingui) : []) addMessage(messages, message, lingui.rootDir)
+          let modules = moduleMessages.get(this.environment.name)
+          if (!modules) moduleMessages.set(this.environment.name, modules = new Map())
+          modules.set(id, messages)
         }
         // Browser code ships only message IDs. Server code keeps the source text, so a message without a
         // translation falls back to it.
         return transformMacros(code, id, lingui, importBase, isProduction && !server ? "id-only" : "all")
       },
+    },
+    renderStart() {
+      // Cached modules may skip transform on a watch rebuild. Keep their contributions, but only for modules
+      // that are still in the current graph, and replace each changed module's previous contribution.
+      const modules = moduleMessages.get(this.environment.name)
+      const active = new Set(this.getModuleIds())
+      const sources: SourceMessages = {}
+      for (const [id, messages] of modules ?? []) {
+        if (!active.has(id)) {
+          modules!.delete(id)
+          continue
+        }
+        for (const [id, message] of Object.entries(messages)) {
+          const entry = sources[id] ??= { ...message, origins: [] }
+          for (const origin of message.origins) if (!entry.origins.includes(origin)) entry.origins.push(origin)
+        }
+      }
+      manifest.environments[this.environment.name] = sources
     },
     async renderChunk(code) {
       if (code.includes(clientIdsMarker)) {
@@ -305,7 +339,21 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     },
     async writeBundle() {
       if (!projectRoot) return
-      await writeFileIfChanged(resolve(projectRoot, manifestFile), `${JSON.stringify(sortManifest(manifest), null, 2)}\n`)
+      const file = resolve(projectRoot, manifestFile)
+      // Environments can finish concurrently. Serialize snapshots so an older write cannot finish after the
+      // final one, and rename a complete file so readers never see a partially written snapshot.
+      manifestWrite = manifestWrite.catch(() => {}).then(async () => {
+        const temporary = `${file}.${randomUUID()}.tmp`
+        try {
+          await mkdir(resolve(file, ".."), { recursive: true })
+          await writeFile(temporary, `${JSON.stringify(sortManifest(manifest), null, 2)}\n`, "utf8")
+          await rename(temporary, file)
+        }
+        finally {
+          await rm(temporary, { force: true })
+        }
+      })
+      await manifestWrite
     },
     configureServer(server) {
       if (!projectRoot) return
@@ -345,7 +393,7 @@ interface VueOptions {
 
 const templateTransformKey = Symbol.for("vite-hub.i18n.template-transform")
 
-type NodeTransform = (node: unknown, context: { ssr?: boolean }) => unknown
+type NodeTransform = (node: unknown, context: { ssr?: boolean, inSSR?: boolean }) => unknown
 
 /** Browser templates get message IDs only in production. Server templates keep the source text as a fallback. */
 function installTemplateTransform(vueOptions: VueOptions, isProduction: boolean): void {
@@ -355,6 +403,6 @@ function installTemplateTransform(vueOptions: VueOptions, isProduction: boolean)
   if (nodeTransforms.some(transform => isLinguiTemplateTransform(transform) || (transform as { [templateTransformKey]?: true })[templateTransformKey])) return
   const browser = linguiTemplateTransform({ descriptorFields: isProduction ? "id-only" : "all" }) as NodeTransform
   const server = linguiTemplateTransform({ descriptorFields: "all" }) as NodeTransform
-  const transform: NodeTransform = (node, context) => (context.ssr ? server : browser)(node, context)
+  const transform: NodeTransform = (node, context) => (context.ssr || context.inSSR ? server : browser)(node, context)
   nodeTransforms.push(Object.assign(transform, { [templateTransformKey]: true }))
 }

@@ -28,5 +28,9 @@ export const i18nErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ locale, locales }: { locale: string, locales: readonly string[] }) => `\`${locale}\` is not one of the configured locales: ${locales.join(", ")}.`,
       fix: "Pass one of `i18n.locales`, or add the locale to `i18n.locales`.",
     },
+    I18N_LOCALE_SUPERSEDED: {
+      why: ({ locale }: { locale: string }) => `A newer \`setLocale()\` call superseded the selection of \`${locale}\` before its catalog loaded.`,
+      fix: "Use the result of the latest `setLocale()` call.",
+    },
   },
 })
