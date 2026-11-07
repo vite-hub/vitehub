@@ -50,6 +50,13 @@ function fail(code: "DECISIONS_R0002" | "DECISIONS_R0003" | "DECISIONS_R0004" | 
   return decisionsDiagnostics[code]({ message: `[vitehub] ${message}` })
 }
 
+/** Keeps the gateway reason in `message` and `fix`, so a route that returns `error.message` shows why it failed. */
+function gatewayFailed(cause: unknown): ChoicesError {
+  const reason = cause instanceof Error && cause.message ? cause.message.replace(/^\[vitehub\]\s*/, "") : String(cause)
+  const fix = cause instanceof Error ? Reflect.get(cause, "fix") : undefined
+  return decisionsDiagnostics.DECISIONS_R0005({ cause, fix: typeof fix === "string" && fix ? fix : undefined, reason })
+}
+
 function probability(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0
 }
@@ -230,7 +237,7 @@ export function defineChoices<const TGroups extends ChoiceGroups>(definition: Ch
         answers = await definition.gateway.ask(prepared.plan.state, prepared.plan.questions as AskQuestions, { signal: request?.signal })
       }
       catch (cause) {
-        return [decisionsDiagnostics.DECISIONS_R0005({ message: "[vitehub] The gateway request failed.", cause })]
+        return [gatewayFailed(cause)]
       }
       const supported = answers.supported
       if (typeof supported !== "object" || supported.type !== "chance") return [fail("DECISIONS_R0006", "The model did not answer the supported check.")]

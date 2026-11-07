@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { typesafe } from "@vite-hub/gateways"
 import { defineChoices, toOptions } from "../src/index.ts"
 import { wordGateway } from "./support.ts"
 
@@ -133,6 +134,39 @@ describe("defineChoices() errors", () => {
     expect((await throwing.resolve("nord"))[0]?.code).toBe("DECISIONS_R0005")
     const partial = defineChoices({ gateway: { ask: async () => ({ supported: { chance: 0.9, type: "chance" } }) as never }, groups: { s: { label: "S", options: suppliers } } })
     expect((await partial.resolve("nord"))[0]?.code).toBe("DECISIONS_R0006")
+  })
+
+  describe("gateway failures", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs()
+      vi.unstubAllGlobals()
+    })
+
+    it("puts a missing API key in the message", async () => {
+      vi.stubEnv("TYPESAFE_API_KEY", "")
+      const choices = defineChoices({ gateway: typesafe(), groups: { s: { label: "S", options: suppliers } } })
+      const [error] = await choices.resolve("nord")
+      expect(error?.code).toBe("DECISIONS_R0005")
+      expect(error?.message).toMatch(/^\[vitehub\] The gateway request failed: Gateway "typesafe" needs an API key\. Set TYPESAFE_API_KEY/)
+      expect(error?.cause).toMatchObject({ code: "GATEWAYS_R0002" })
+    })
+
+    it("uses the gateway fix for a rejected key", async () => {
+      vi.stubEnv("TYPESAFE_API_KEY", "fake-key")
+      vi.stubGlobal("fetch", vi.fn<typeof globalThis.fetch>(async () => Response.json({ error: { message: "invalid key" } }, { status: 401 })))
+      const choices = defineChoices({ gateway: typesafe(), groups: { s: { label: "S", options: suppliers } } })
+      const [error] = await choices.resolve("nord")
+      expect(error?.code).toBe("DECISIONS_R0005")
+      expect(error?.message).toContain("rejected the API key with HTTP 401")
+      expect(error?.fix).toBe("Set or rotate TYPESAFE_API_KEY.")
+    })
+
+    it("keeps the reason of a gateway that throws a plain error", async () => {
+      const choices = defineChoices({ gateway: { ask: async () => { throw new Error("offline") } }, groups: { s: { label: "S", options: suppliers } } })
+      const [error] = await choices.resolve("nord")
+      expect(error?.message).toBe("[vitehub] The gateway request failed: offline")
+      expect(error?.fix).toBe("Read error.cause for the gateway error.")
+    })
   })
 
   it("throws when you define it wrong", () => {
