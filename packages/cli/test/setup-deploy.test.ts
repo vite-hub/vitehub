@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { readFile, writeFile } from "node:fs/promises"
-import { join } from "node:path"
+import { delimiter, join } from "node:path"
 
 import { describe, expect, it } from "vitest"
 
@@ -9,6 +9,7 @@ import { buildOutput, builtProject, consoleLink, expectNoLeak, fakeHosts, HASH, 
 import { createProject, runSetup } from "./setup-helpers.ts"
 
 import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
+import type { HostCliRun } from "@vite-hub/internal/host-credentials"
 import type { SetupDeployOutput, SetupError, SetupMissing } from "../src/setup/index.ts"
 
 type DeployJson = SetupDeployOutput & { error?: SetupError, missing?: SetupMissing[], rerun?: string }
@@ -19,7 +20,7 @@ const netlifyEnv = { NETLIFY_AUTH_TOKEN: "netlify-token-1" }
 const denoEnv = { DENO_DEPLOY_ORG: "acme", DENO_DEPLOY_TOKEN: "deno-token-1" }
 const tokens = ["cf-token-1", "vercel-token-1", "netlify-token-1", "deno-token-1"]
 
-function deploy(args: string[], root: string, env: NodeJS.ProcessEnv, options: { fetch?: typeof fetch, spawn?: ViteHubCliSpawn } = {}) {
+function deploy(args: string[], root: string, env: NodeJS.ProcessEnv, options: { fetch?: typeof fetch, runHostCli?: HostCliRun, spawn?: ViteHubCliSpawn } = {}) {
   return runSetup<DeployJson>(["deploy", ...args, "--json"], root, env, options)
 }
 
@@ -171,6 +172,35 @@ describe("vitehub deploy on Cloudflare", () => {
 })
 
 describe("vitehub deploy on Vercel", () => {
+  it.each([false, true])("uses a saved CLI login for deploy and Console setup (linked: %s)", async (linked) => {
+    const root = await builtProject("vercel", {
+      ...consoleLink(),
+      ...(linked ? { ".vitehub/link.json": JSON.stringify({ account: { id: "team_1" }, console: { pendingId: PENDING_ID, tokenSha256: HASH }, host: "vercel", linkedAt: "", project: { id: "prj_1", name: "shop" }, schemaVersion: 1, verified: true }) } : {}),
+    })
+    const hosts = await fakeHosts({ VERCEL_TEAM_ID: linked ? "other-team" : "team_1" })
+    const probes: string[][] = []
+    const runHostCli: HostCliRun = async (command, args, options) => {
+      probes.push([command, ...args])
+      expect(options).toEqual({ cwd: root, env: hosts.env })
+      return { exitCode: 0, stdout: "saved-user\n" }
+    }
+    const result = await deploy(["--no-build", "--yes"], root, hosts.env, { runHostCli })
+
+    expect(result.exitCode, result.stdout + result.stderr).toBe(0)
+    expect(probes).toHaveLength(1)
+    expect(probes[0]!.at(-1)).toBe("whoami")
+    expect(probes[0]).toContain(join(hosts.env.PATH!.split(delimiter)[0]!, "vercel"))
+    const calls = await hosts.calls()
+    expect(calls.map(call => call.argv.slice(0, 2))).toEqual(linked
+      ? [["env", "add"], ["env", "ls"], ["deploy", "--prebuilt"]]
+      : [["deploy", "--prebuilt"], ["env", "add"], ["env", "ls"], ["deploy", "--prebuilt"]])
+    for (const call of calls) {
+      expect(call.argv).toEqual(expect.arrayContaining(["--project", linked ? "prj_1" : "my-app", "--scope", "team_1"]))
+    }
+    expect(result.json.console?.secret).toBe("set")
+    expectNoLeak(calls, result.stdout + result.stderr, [HASH, ...tokens])
+  })
+
   it("creates the project with a first deploy, adds the secret over stdin, then deploys again", async () => {
     const root = await builtProject("vercel", consoleLink())
     const hosts = await fakeHosts(vercelEnv)
@@ -476,6 +506,27 @@ describe("vitehub deploy", () => {
     const failed = await deploy(["--yes"], root, hosts.env, { spawn: failing })
     expect(failed.exitCode).toBe(1)
     expect(failed.json.error?.code).toBe("SETUP_DEPLOY_BUILD_FAILED")
+  })
+
+  it.each(["vercel", "netlify", "node"])("rejects a linked Cloudflare host conflicting with configured %s before building or uploading stale output", async (preset) => {
+    const root = await builtProject("cloudflare", {
+      ".vitehub/link.json": JSON.stringify({ host: "cloudflare", linkedAt: "", project: { name: "my-app" }, schemaVersion: 1, verified: true }),
+      "vite.config.ts": `import { vitehub } from "vite-hub"\nexport default { plugins: [vitehub({ preset: "${preset}" })] }\n`,
+    })
+    const hosts = await fakeHosts(cloudflareEnv)
+    const spawned: string[] = []
+    const spawn: ViteHubCliSpawn = async (command) => {
+      spawned.push(command)
+      return { exitCode: 0 }
+    }
+    for (const args of [["--yes"], ["--no-build", "--yes"]]) {
+      const result = await deploy(args, root, hosts.env, { spawn })
+      expect(result.exitCode, result.stdout + result.stderr).toBe(3)
+      expect(result.json.error?.code).toBe("SETUP_DEPLOY_HOST_MISMATCH")
+      expect(result.loadConfig).not.toHaveBeenCalled()
+    }
+    expect(spawned).toEqual([])
+    expect(await hosts.calls()).toEqual([])
   })
 
   it("needs a build script and a build output for the host", async () => {

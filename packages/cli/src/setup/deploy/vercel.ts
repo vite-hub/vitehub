@@ -6,9 +6,23 @@ import { join } from "pathe"
 
 import { cliErrorDiagnostics } from "../../error-diagnostics.ts"
 import { SetupFailure, setupExitCodes } from "../envelope.ts"
-import { hostCli, hostCliFailed, isoTime, isRecord, lastJsonObject, listsName, optionalString, withTemporaryOutput } from "./host.ts"
+import { createDeployRun, hostCli, hostCliFailed, isoTime, isRecord, lastJsonObject, listsName, optionalString, withTemporaryOutput } from "./host.ts"
 
+import type { ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { DeployAdapter, DeployContext, DeployResult, HostDeployment, HostDeploymentSource, ListDeployments } from "./host.ts"
+
+/** Check the CLI's saved session without reading its auth files or exposing a token. */
+export async function hasVercelLogin(root: string, context: ViteHubCliContext): Promise<boolean> {
+  try {
+    const [command, ...args] = hostCli("vercel", "vercel", root, context.env)
+    const run = context.runHostCli ?? createDeployRun(context.stderr, [])
+    const result = await run(command, [...args, "whoami"], { cwd: root, env: context.env })
+    return result.exitCode === 0
+  }
+  catch {
+    return false
+  }
+}
 
 /** Every `.vc-config.json` of a Vercel Build Output API function. */
 async function functionConfigs(folder: string): Promise<string[]> {
@@ -35,7 +49,8 @@ async function readClaim(root: string): Promise<DeployResult["claim"]> {
 // test/fixtures/host-cli-help/. The CLI reads VERCEL_TOKEN from the environment, so no token goes in argv.
 export function vercelAdapter(context: DeployContext): DeployAdapter {
   const vercel = hostCli("vercel", "vercel", context.root, context.env)
-  const team = (context.link?.host === "vercel" ? context.link.account?.id : undefined) ?? (context.credentials.ok ? context.credentials.teamId : undefined)
+  const credentialTeam = context.credentials.ok ? context.credentials.teamId : optionalString(context.env.VERCEL_TEAM_ID?.trim()) ?? optionalString(context.env.VERCEL_ORG_ID?.trim())
+  const team = (context.link?.host === "vercel" ? context.link.account?.id : undefined) ?? credentialTeam
   const project = context.link?.host === "vercel" ? context.link.project.id ?? context.projectName : context.projectName
   const target = context.temporary ? [] : ["--project", project, ...(team ? ["--scope", team] : [])]
   const environment = context.preview ? "preview" : "production"
