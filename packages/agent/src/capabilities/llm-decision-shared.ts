@@ -177,15 +177,15 @@ function decisionText(context: AgentCapabilityRuntimeContext, history: boolean |
 }
 
 /**
- * Decides with TypeSafe Jev through a Decisions group that infers one choice. This is the default for every Agent Driver.
- * Returns `undefined` when the Capability sets a `model`, to keep the chat model path. Jev returns probabilities, not a reason.
+ * Decides with TypeSafe Jev through a Decisions group that infers one choice, when the Capability sets `gateway` or the Agent uses `driver.ask`.
+ * Returns `undefined` otherwise, or when the Capability sets a `model`, to keep the chat model path. Jev returns probabilities, not a reason.
  */
 export async function jevDecision(
   context: AgentCapabilityRuntimeContext,
   options: { gateway?: AiGateway<{ ask: true }>, history?: boolean | number, model?: unknown, prompt?: string },
   decision: { choices: NormalizedLlmDecisionChoice[], label: string, task: string },
 ): Promise<JevDecision | undefined> {
-  if (options.model !== undefined) return
+  if (options.model !== undefined || (!options.gateway && context.driver?.kind !== "ask")) return
   const request = { abortSignal: context.abortSignal, event: { context }, ...(options.gateway ? { gateway: options.gateway } : {}) }
   const choices = defineChoices({
     gateway: { ask: async (state, questions) => await askJev(request, state, questions) },

@@ -34,9 +34,9 @@ export interface LlmRouteOptions<TChoices extends LlmDecisionChoiceMap = LlmDeci
   choices: TChoices
   history?: boolean | number
   id?: string
-  /** Gateway of the Jev decision: `typesafe()`, `vercel()`, or `cloudflare()`. Default: `typesafe()`. Ignored when `model` is set. */
+  /** Decide with TypeSafe Jev through this gateway: `typesafe()`, `vercel()`, or `cloudflare()`. Ask Driver Agents use Jev through `typesafe()` without it. Ignored when `model` is set. */
   gateway?: AiGateway<{ ask: true }>
-  /** A chat model that decides instead of TypeSafe Jev, such as the Agent model. Default: none, so Jev decides through `gateway`. */
+  /** Chat model for the decision. Default: the Agent model, or Jev when `gateway` is set or the Agent uses `driver.ask`. */
   model?: AgentModelResolver
   prompt?: string
 }

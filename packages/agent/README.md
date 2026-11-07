@@ -111,7 +111,7 @@ Each question is recorded in the Invocation trace as `agent.tool.start`, then `a
 
 Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` and `usage.record` on `agent.invocation.finish` sum the calls and name the model when every call used the same one, so the Console usage and cost table counts ask runs. Add `usage({ pricing })` to the Agent to price them.
 
-See [AI gateways](../../docs/content/docs/agents/ai-gateways.md). `llmGate()` and `llmRoute()` decide with Jev on every Driver when they have no `model` option. They ask one `@vite-hub/decisions` group with `infer: true`, through their `gateway` option or `typesafe()`, and their decisions include `probabilities` and no `reason`. Set `model` to decide with a chat model instead.
+See [AI gateways](../../docs/content/docs/agents/ai-gateways.md). `llmGate()` and `llmRoute()` decide with Jev when they have no `model` option and either set `gateway` or run on an ask Driver Agent, which uses `typesafe()`. They ask one `@vite-hub/decisions` group with `infer: true`, and their decisions include `probabilities` and no `reason`. Otherwise they use `model` or the Agent model.
 
 ## Direct invocations
 

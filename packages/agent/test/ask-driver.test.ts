@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { cliproxy, cloudflare, vercel } from "@vite-hub/gateways"
+import { cliproxy, cloudflare, typesafe, vercel } from "@vite-hub/gateways"
 
 import { llmGate, llmRoute } from "../src/capabilities.ts"
 import { createAgentInspectionMetadata, defineAgent, runAgent } from "../src/index.ts"
@@ -331,9 +331,9 @@ describe("Jev decisions", () => {
     expect(options).toEqual(expect.objectContaining({ apiKey: "ts-key" }))
   })
 
-  it("routes with Jev on a model Driver Agent when llmRoute has no model", async () => {
+  it("routes with Jev on another Driver when llmRoute sets gateway", async () => {
     const agent = defineAgent({
-      capabilities: [llmRoute({ choices: { billing: "Invoices and payments.", support: "Other help." }, id: "route" })],
+      capabilities: [llmRoute({ choices: { billing: "Invoices and payments.", support: "Other help." }, gateway: typesafe(), id: "route" })],
       driver: { run: context => context.context.get("route") },
     })
 
@@ -341,9 +341,19 @@ describe("Jev decisions", () => {
     expect(askJev).toHaveBeenCalledOnce()
   })
 
-  it("keeps the end of non-ASCII request text within the Jev byte budget", async () => {
+  it("does not ask Jev on another Driver when llmRoute has no gateway", async () => {
     const agent = defineAgent({
       capabilities: [llmRoute({ choices: { billing: "Invoices and payments.", support: "Other help." }, id: "route" })],
+      driver: { run: context => context.context.get("route") },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "Invoice 42" })).rejects.toThrow(/model/)
+    expect(askJev).not.toHaveBeenCalled()
+  })
+
+  it("keeps the end of non-ASCII request text within the Jev byte budget", async () => {
+    const agent = defineAgent({
+      capabilities: [llmRoute({ choices: { billing: "Invoices and payments.", support: "Other help." }, gateway: typesafe(), id: "route" })],
       driver: { run: context => context.context.get("route") },
     })
 
