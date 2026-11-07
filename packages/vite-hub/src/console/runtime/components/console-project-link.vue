@@ -58,6 +58,8 @@ async function link(token?: string): Promise<void> {
   if (busy.value) return;
   busy.value = true;
   problem.value = undefined;
+  // The answer to the last token does not describe this one.
+  if (tokenStep.value?.rejected) tokenStep.value = { target: tokenStep.value.target, rejected: false };
   try {
     const result = await linkConsoleProject(tokenStep.value?.target.url ?? url.value, token);
     if (result.kind === "linked") {

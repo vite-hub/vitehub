@@ -196,15 +196,6 @@ a {
   outline-color: color-mix(in oklab, var(--ui-error) 70%, transparent);
 }
 
-/* iOS zooms the page into a field whose text is smaller than 16px, so fields use 16px on touch screens. */
-@media (pointer: coarse) {
-  input,
-  textarea,
-  select {
-    font-size: 16px;
-  }
-}
-
 ::selection {
   background: color-mix(in oklab, var(--ui-primary) 24%, transparent);
 }
