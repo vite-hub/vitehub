@@ -319,6 +319,31 @@ describe("refresh", () => {
     expect(stored()).toBeUndefined()
   })
 
+  it.each(["tokens", "invalid_grant", "temporarily_unavailable"])("preserves a newer sign-in when an old refresh returns %s", async (answer) => {
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    let stored: ConsoleOAuthTokens | undefined = tokens({ expiresAt: 0 })
+    const newer = tokens({ accessToken: "new-sign-in", refreshToken: "new-grant" })
+    const writes = vi.fn()
+    const instance = createConsoleOAuthRefresher({
+      fetch: async () => {
+        await pending
+        return answer === "tokens"
+          ? Response.json({ access_token: "old-refresh", refresh_token: "old-grant", token_type: "Bearer", expires_in: 900 })
+          : Response.json({ error: answer }, { status: 400 })
+      },
+      now: () => 0,
+      read: () => stored,
+      write: writes,
+    })
+    const refresh = instance.accessToken(app.url)
+    stored = newer
+    release()
+    expect(await refresh).toBe("new-sign-in")
+    expect(writes).not.toHaveBeenCalled()
+    expect(stored).toEqual(newer)
+  })
+
   it("rotates the refresh token and keeps the new tokens", async () => {
     const server = fakeApp()
     const signIn = pending()
@@ -675,6 +700,42 @@ describe("OAuth sign-in of a hosted Console", () => {
 
     await session.forgetConsoleProject(id)
     expect(createConsoleProjectStore(storage).list()).toEqual([])
+  })
+
+  it.each(["same tab", "other tab"])("keeps a project signed out when a refresh finishes later in the %s", async (tab) => {
+    const server = fakeApp()
+    const { code, session, state, storage } = await signIn(server)
+    await session.finishConsoleOAuthSignIn(`?code=${code}&state=${encodeURIComponent(state)}`)
+    let signingOut = session
+    if (tab === "other tab") {
+      vi.resetModules()
+      signingOut = (await hosted(server, storage)).session
+    }
+
+    let release!: () => void
+    let rotated!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    const refreshing = new Promise<void>((resolve) => { rotated = resolve })
+    const fetch = server.fetch.getMockImplementation()!
+    server.fetch.mockImplementation(async (input, init) => {
+      const response = await fetch(input, init)
+      if (new URLSearchParams(String(init?.body ?? "")).get("grant_type") === "refresh_token") {
+        // Rotation wins at the server, but its answer reaches the Console after sign-out.
+        rotated()
+        await pending
+      }
+      return response
+    })
+    const refresh = session.useConsoleProjects().refresher.accessToken(app.url, { rejected: "access-1" })
+    await refreshing
+    expect(server.hasRefreshToken("refresh-2")).toBe(true)
+    await signingOut.signOutConsoleProject()
+    expect(createConsoleProjectStore(storage).find(app.url)?.oauth).toBeUndefined()
+    release()
+
+    expect(await refresh).toBeUndefined()
+    expect(createConsoleProjectStore(storage).find(app.url)?.oauth).toBeUndefined()
+    expect(server.hasRefreshToken("refresh-2")).toBe(false)
   })
 })
 

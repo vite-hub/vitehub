@@ -534,14 +534,21 @@ export function createConsoleOAuthRefresher(options: {
     if (!latest) return undefined
     if (usable(latest, rejected)) return latest.accessToken
     const result = await refreshConsoleOAuthTokens(latest, { fetch: options.fetch, now })
+    const current = options.read(projectUrl)
+    // Sign-out or Forget can remove the grant while its refresh is at the server, in this or another tab.
+    if (!current) {
+      if (result.kind === "tokens") await revokeConsoleOAuthTokens(result.tokens, { fetch: options.fetch })
+      return undefined
+    }
+    // A later sign-in or another tab's rotation owns the stored grant now.
+    if (current.refreshToken !== latest.refreshToken || current.accessToken !== latest.accessToken) {
+      return current.accessToken === rejected ? undefined : current.accessToken
+    }
     if (result.kind === "tokens") {
       options.write(projectUrl, result.tokens)
       return result.tokens.accessToken
     }
     if (result.kind === "rejected" && !result.retryable) {
-      // Another tab can have rotated the refresh token meanwhile. Its tokens stay, and this tab uses them.
-      const current = options.read(projectUrl)
-      if (current && current.refreshToken !== latest.refreshToken) return current.accessToken === rejected ? undefined : current.accessToken
       options.write(projectUrl, null)
       return undefined
     }
