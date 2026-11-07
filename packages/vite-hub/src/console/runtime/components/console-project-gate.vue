@@ -142,11 +142,13 @@ onMounted(() => {
 </template>
 
 <style>
+/* The top of the form stays in place, so an error below a field moves nothing above it. */
 .vitehub-project-gate {
+  align-items: start;
   display: grid;
+  justify-items: center;
   min-height: 100dvh;
-  padding: 1.5rem;
-  place-items: center;
+  padding: min(18dvh, 10rem) 1.5rem 1.5rem;
 }
 
 .vitehub-project-gate__body {
