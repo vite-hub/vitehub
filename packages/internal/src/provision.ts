@@ -1,4 +1,5 @@
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
+import { readHostCredentialsFromEnv } from "./host-credentials.ts"
 import { classifyProviderFailure, cloudflareProductOfPath, readProviderErrorCodes } from "./provider-failure.ts"
 import { Diagnostic } from "nostics"
 
@@ -90,10 +91,9 @@ export interface CloudflareProvisionConfig {
 }
 
 export function resolveCloudflareProvisionConfig(env: Record<string, string | undefined>): CloudflareProvisionConfig | undefined {
-  const accountId = trimmedEnv(env.CLOUDFLARE_ACCOUNT_ID)
-  const token = trimmedEnv(env.CLOUDFLARE_API_TOKEN)
-  if (!accountId || !token) return
-  return { accountId, token }
+  const credentials = readHostCredentialsFromEnv("cloudflare", env)
+  if (!credentials?.accountId) return
+  return { accountId: credentials.accountId, token: credentials.token }
 }
 
 export interface VercelProvisionConfig {
@@ -102,9 +102,9 @@ export interface VercelProvisionConfig {
 }
 
 export function resolveVercelProvisionConfig(env: Record<string, string | undefined>): VercelProvisionConfig | undefined {
-  const token = trimmedEnv(env.VERCEL_TOKEN)
-  if (!token) return
-  return { token, teamId: trimmedEnv(env.VERCEL_TEAM_ID) ?? trimmedEnv(env.VERCEL_ORG_ID) }
+  const credentials = readHostCredentialsFromEnv("vercel", env)
+  if (!credentials) return
+  return { token: credentials.token, teamId: credentials.teamId }
 }
 
 export interface CloudflareEnvelope<T> {
@@ -258,9 +258,4 @@ export function createVercelProvisionClient(config: VercelProvisionConfig, fetch
     fetchImpl,
     config.teamId ? { teamId: config.teamId } : undefined,
   )
-}
-
-function trimmedEnv(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  return trimmed ? trimmed : undefined
 }

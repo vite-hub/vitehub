@@ -77,7 +77,8 @@ under that directory. `dataDir` works only with the `node` host.
 ## Mount a server handler
 
 Some packages expose a stable handler that any Node framework can mount. The Auth
-handler accepts a Web `Request` and returns a `Promise<Response>`.
+handler accepts a Web `Request`, an optional host context with `clientAddress`, and
+returns a `Promise<Response>`.
 
 ```ts [server/manual-auth-handler.ts]
 import { defineAuth } from 'vite-hub/auth'
@@ -91,8 +92,22 @@ const definition = defineAuth({
 export const handleAuth = createAuthHandler(definition)
 ```
 
-Adapt the handler at the framework boundary. Do not import a generated Nitro
-route.
+At the framework boundary, pass the peer address from Node's
+`incomingMessage.socket.remoteAddress`:
+
+```ts
+const response = await handleAuth(webRequest, {
+  clientAddress: incomingMessage.socket.remoteAddress,
+})
+```
+
+Use the address supplied by the host, never a request header sent by the client.
+Auth uses it for per-client rate limiting and `session.ipAddress`. A plain Web
+`Request` has no peer address; without the host context, those requests share an
+addressless rate-limit bucket. Requests from srvx already carry their host address
+as `ip`. Behind a trusted proxy, configure
+[`advanced.trustedProxyHeaders`](/docs/auth/configure#behind-a-proxy-that-ends-tls).
+Do not import a generated Nitro route.
 
 ## Production notes
 
