@@ -214,8 +214,8 @@ You can also send a job from the CLI, with no route. `vitehub queue list` shows 
 
 ```bash [commands/dispatch]
 pnpm vitehub queue list
-pnpm vitehub queue send welcome '{"userId":7}' --delay-seconds 30
-pnpm vitehub queue send welcome '{"userId":7}' --url https://app.example.com
+pnpm vitehub queue send welcome-email '{"email":"dev@example.com"}' --delay-seconds 30
+pnpm vitehub queue send welcome-email '{"email":"dev@example.com"}' --url https://app.example.com
 ```
 
 The second argument is the payload, as JSON. Add `--url` to send to a deployed app. `queue send` returns `{ queue, status: "queued", messageId }`. Like the route, this means that the queue took the job, not that the job ran.
