@@ -27,6 +27,8 @@ import { registerViteHubDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 
 Source readers use `createSourceScanner(file)` from `@vite-hub/internal/source-scanner` to bind the file grammar. Its matching, splitting, object, and comment readers keep that grammar for source fragments. The standalone readers use JavaScript and TypeScript grammar without JSX. Filenames that end in `.jsx` or `.tsx` enable JSX, with TypeScript generic heads recognized only for `.tsx`.
 
+`locateViteHubConfig(file, code)` from `@vite-hub/internal/config-edit` finds the ViteHub options in a `vite.config` or `nuxt.config` file without evaluating it: the `vitehub()` call, the `vite-hub/nuxt` module tuple, or the top-level `vitehub` key. `editViteHubConfig(file, code, edits)` sets or deletes top-level options, copies the indentation, quotes, and trailing commas of sibling properties, and changes no other bytes. A config that it cannot edit safely returns `{ ok: false, reason }`, such as `dynamic-options` or `spread`. `@vite-hub/internal/ast` holds the Babel helpers that it shares with `@vite-hub/codemods`.
+
 ## Used by
 
 Packages use it for definition discovery, generated runtime registries, Provider Output, hosted runtime helpers, and hosting normalization.

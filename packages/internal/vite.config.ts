@@ -6,15 +6,18 @@ export default defineConfig({
       // The scanner uses the oxc parser that the consumer's Vite ships. Packages that bundle
       // `@vite-hub/internal/valibot` depend on the converter, so apps share one copy.
       // Nitro must resolve its own dependencies from its installed package.
-      neverBundle: ["vite", /^nitro(?:\/|$)/, "@valibot/to-json-schema"],
+      // `ast` exposes Babel node types. Consumers resolve them from their own `@babel/types`.
+      neverBundle: ["vite", /^nitro(?:\/|$)/, "@valibot/to-json-schema", "@babel/types"],
     },
     dts: true,
     entry: [
       "src/abort.ts",
       "src/agent-workflow.ts",
       "src/arrays.ts",
+      "src/ast.ts",
       "src/channel-archive.ts",
       "src/cli.ts",
+      "src/config-edit.ts",
       "src/console.ts",
       "src/contributions.ts",
       "src/definition-catalog.ts",
