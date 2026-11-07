@@ -164,7 +164,7 @@ describe("hubDb", () => {
     const compiledHooks: Array<() => Promise<void>> = []
     const createNitro = (preset: string) => {
       const options: { cloudflare?: { wrangler?: { d1_databases?: unknown } }, output: { serverDir: string }, preset: string } = { output: { serverDir }, preset }
-      return { hooks: { hook: (_name: "compiled", callback: () => Promise<void>) => void compiledHooks.push(callback) }, options }
+      return { hooks: { hook: (name: string, callback: () => Promise<void>) => { if (name === "compiled") compiledHooks.push(callback) } }, options }
     }
     const cloudflareNitro = createNitro("cloudflare-module")
     cloudflareNitro.options.cloudflare = {
