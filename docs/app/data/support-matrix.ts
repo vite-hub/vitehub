@@ -261,6 +261,11 @@ const applicationFeatures: SupportMatrixGroup = {
       "Logs read the log source that the app configures for the deployment host.",
       "Host source",
     )),
+    featureRow("mcp", "The app's own MCP server", cell(
+      "package",
+      "The MCP route runs in the Nitro output of the selected preset.",
+      "Nitro route",
+    )),
     featureRow("observability", "Agent telemetry and request logs", cell(
       "package",
       "Evlog runs in the Nitro output of the selected preset.",

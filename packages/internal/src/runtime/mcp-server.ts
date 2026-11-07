@@ -1,27 +1,45 @@
-import { Validator } from "@cfworker/json-schema"
-import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
+import { forwardedRequestOrigin } from "./request-origin.ts"
 
-import { consoleRequestText } from "./request.ts"
-
-import type { Schema } from "@cfworker/json-schema"
-import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
+/**
+ * The MCP server of ViteHub: the Console MCP at `/_vitehub/mcp` and the app MCP of `vite-hub/mcp` answer through it.
+ * It has no MCP library and no session.
+ */
 
 /** MCP revisions that this server answers, newest first. It speaks the stateless JSON subset of Streamable HTTP. */
 export const mcpProtocolVersions: readonly string[] = ["2025-11-25", "2025-06-18"]
 
+/** One block of a tool result, such as `{ type: "text", text }`. */
+export type McpContentBlock = { type: "text", text: string } | { type: string, [key: string]: unknown }
+
 /** The result of `tools/call`. */
 export interface McpToolResult {
-  content: Array<{ type: "text", text: string }>
+  content: McpContentBlock[]
   structuredContent?: Record<string, unknown>
   isError: boolean
 }
 
+/** The MCP tool annotations that clients read before a call. */
+export interface McpToolAnnotations {
+  readOnlyHint?: boolean
+  destructiveHint?: boolean
+  idempotentHint?: boolean
+  openWorldHint?: boolean
+}
+
 /** A tool as `tools/list` shows it, with the handler that `tools/call` runs. It has the shape of an okmcp `defineTool()`. */
-export interface McpTool extends Pick<ViteHubMcpTool, "name" | "title" | "description" | "annotations"> {
+export interface McpTool {
+  name: string
+  title?: string
+  description: string
+  annotations?: McpToolAnnotations
   /** The JSON Schema of the arguments, an object schema. */
   inputSchema: object
-  /** The handler checks the input with its own schema, which names the fields to fix, so the JSON Schema check is skipped. */
-  checksInput?: boolean
+  /**
+   * Checks the arguments before the handler runs and returns the problems, or nothing when they are valid. Since
+   * 2025-11-25 a problem is a tool error, which the Agent reads. Older clients get JSON-RPC `-32602`. A tool without it
+   * checks its input in the handler.
+   */
+  validate?: (input: Record<string, unknown>) => string | undefined
   /** The largest `tools/call` request for this tool, in bytes. Without it, the server limit applies. */
   maxRequestBytes?: number
   /** The OAuth scopes that a call needs. A caller without them does not see the tool. */
@@ -44,7 +62,30 @@ type JsonRpcId = string | number | null
 
 const maximumBodyBytes = 2 * 1_024 * 1_024
 const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" }
-const validators = new WeakMap<object, Validator>()
+const tooLargeBody: unique symbol = Symbol("too large")
+
+/** Reads the body as text and stops after `limit` bytes, since a client can leave out or lie about content-length. */
+async function readText(body: ReadableStream<Uint8Array>, limit: number): Promise<string | typeof tooLargeBody> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let text = ""
+  let bytes = 0
+  try {
+    while (true) {
+      const chunk = await reader.read()
+      if (chunk.done) return text + decoder.decode()
+      bytes += chunk.value.byteLength
+      if (bytes > limit) {
+        await reader.cancel().catch(() => undefined)
+        return tooLargeBody
+      }
+      text += decoder.decode(chunk.value, { stream: true })
+    }
+  }
+  finally {
+    reader.releaseLock()
+  }
+}
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value instanceof Object && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : undefined
@@ -56,15 +97,6 @@ function reply(id: JsonRpcId, result: unknown): Response {
 
 function rpcError(id: JsonRpcId, code: number, message: string, status = 200): Response {
   return Response.json({ jsonrpc: "2.0", id, error: { code, message } }, { headers, status })
-}
-
-/** The schema errors of `input`, or nothing when it is valid. Each schema compiles once. */
-function invalidInput(tool: McpTool, input: Record<string, unknown>): string | undefined {
-  let validator = validators.get(tool.inputSchema)
-  // SAFETY: The owner of a tool declares its arguments as a JSON Schema.
-  if (!validator) validators.set(tool.inputSchema, validator = new Validator(tool.inputSchema as Schema, "2020-12"))
-  const validation = validator.validate(input)
-  return validation.valid ? undefined : `Invalid arguments for ${tool.name}: ${validation.errors.map(error => error.error).join("; ")}`
 }
 
 function missingScopes(server: McpServer, tool: McpTool): string[] {
@@ -91,13 +123,12 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
   let message: Record<string, unknown> | undefined
   let bytes = 0
   try {
-    // Count bytes while reading, since a client can leave out or lie about content-length.
-    const text = request.body ? await consoleRequestText(request.body, readLimit) : ""
+    const text = request.body ? await readText(request.body, readLimit) : ""
+    if (text === tooLargeBody) return tooLarge(readLimit)
     bytes = new TextEncoder().encode(text).byteLength
     message = record(JSON.parse(text))
   }
-  catch (error) {
-    if (Reflect.get(Object(error), "statusCode") === 413) return tooLarge(readLimit)
+  catch {
     return rpcError(null, -32700, "The body is not one JSON-RPC message.", 400)
   }
   if (!message || message.jsonrpc !== "2.0") return rpcError(null, -32600, "The body is not one JSON-RPC message.", 400)
@@ -153,7 +184,7 @@ export async function serveMcp(request: Request, server: McpServer): Promise<Res
       }
       const input = params.arguments === undefined ? {} : record(params.arguments)
       if (!input) return rpcError(id, -32602, `Invalid arguments for ${tool.name}: expected an object.`)
-      const invalid = tool.checksInput ? undefined : invalidInput(tool, input)
+      const invalid = tool.validate?.(input)
       // Since 2025-11-25 (SEP-1303), a bad argument is a tool error, so the Agent reads it and calls again.
       if (invalid) return version === "2025-11-25" ? reply(id, { content: [{ type: "text", text: invalid }], isError: true }) : rpcError(id, -32602, invalid)
       return reply(id, await tool.handler(input))

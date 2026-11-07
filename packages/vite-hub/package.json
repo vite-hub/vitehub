@@ -803,6 +803,11 @@
       "import": "./dist/markdown-template/file.js",
       "default": "./dist/markdown-template/file.js"
     },
+    "./mcp": {
+      "types": "./dist/mcp.d.ts",
+      "import": "./dist/mcp.js",
+      "default": "./dist/mcp.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
@@ -1386,6 +1391,7 @@
     "@vite-hub/docs": "workspace:*",
     "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/mcp": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
@@ -1448,6 +1454,7 @@
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/docs": "workspace:*",
+    "@vite-hub/mcp": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
@@ -1532,6 +1539,9 @@
       "optional": true
     },
     "@vite-hub/docs": {
+      "optional": true
+    },
+    "@vite-hub/mcp": {
       "optional": true
     },
     "@vite-hub/presets": {

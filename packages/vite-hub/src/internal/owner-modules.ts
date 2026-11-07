@@ -20,6 +20,7 @@ export const ownerModules = {
   contentVite: await importOptionalOwner("@vite-hub/content", () => import("@vite-hub/content/vite")),
   databaseConfig: await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/config")),
   databaseVite: await importOptionalOwner("@vite-hub/database", () => import("@vite-hub/database/vite")),
+  mcpVite: await importOptionalOwner("@vite-hub/mcp", () => import("@vite-hub/mcp/vite")),
   realtimeVite: await importOptionalOwner("@vite-hub/realtime", () => import("@vite-hub/realtime/vite")),
   scheduleVite: await importOptionalOwner("@vite-hub/schedule", () => import("@vite-hub/schedule/vite")),
   workspaceVite: await importOptionalOwner("@vite-hub/workspace", () => import("@vite-hub/workspace/vite")),
@@ -92,16 +93,16 @@ export function commentsOffPlugin(): Plugin {
   }
 }
 
-const ownerFacade = /^vite-hub\/(ui|presets|shell)(?:\/|$)/
+const ownerFacade = /^vite-hub\/(mcp|ui|presets|shell)(?:\/|$)/
 
-/** The feature of a `vite-hub` subpath that re-exports `@vite-hub/ui`, `@vite-hub/presets`, or `@vite-hub/shell`. */
-export function ownerFacadeFeature(specifier: string): "presets" | "shell" | "ui" | undefined {
+/** The feature of a `vite-hub` subpath that re-exports `@vite-hub/mcp`, `@vite-hub/ui`, `@vite-hub/presets`, or `@vite-hub/shell`. */
+export function ownerFacadeFeature(specifier: string): "mcp" | "presets" | "shell" | "ui" | undefined {
   const feature = ownerFacade.exec(specifier)?.[1]
-  return feature === "ui" || feature === "presets" || feature === "shell" ? feature : undefined
+  return feature === "mcp" || feature === "ui" || feature === "presets" || feature === "shell" ? feature : undefined
 }
 
 /**
- * `vite-hub/ui`, `vite-hub/presets/*`, and `vite-hub/shell` re-export optional owner packages. This plugin fails an
+ * `vite-hub/mcp`, `vite-hub/ui`, `vite-hub/presets/*`, and `vite-hub/shell` re-export optional owner packages. This plugin fails an
  * import of one of them with the install command when the app did not install its package.
  */
 export function optionalOwnerImportsPlugin(): Plugin {

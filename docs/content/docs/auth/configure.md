@@ -257,6 +257,8 @@ The first account that signs up with a listed email gets the role. This is a boo
 
 An app with its own MCP server, such as `/mcp`, can make Better Auth its OAuth 2.1 authorization server. An MCP client such as Claude Code, Codex, or Cursor then registers itself, opens the browser once, and sends a bearer token. For the Console endpoint `/_vitehub/mcp`, use [Console MCP OAuth](/docs/development/mcp#set-up-oauth) instead.
 
+With `vitehub({ auth: true, mcp: true })`, the [app MCP server](/docs/development/app-mcp) checks the token and answers the discovery documents for you. Add `mcpOAuth()` below. The other helpers are for an MCP server that you write yourself.
+
 Install `@better-auth/oauth-provider` at the version of `better-auth` that ViteHub uses, then add `mcpOAuth()` to the Auth. It returns `jwt()`, `oauthProvider()`, and a registration guard:
 
 ```ts [server/auth.ts]

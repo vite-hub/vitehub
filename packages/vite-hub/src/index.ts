@@ -70,6 +70,7 @@ import type { EmailVitePluginOptions } from "@vite-hub/email/vite"
 import type { EnvIntegrationOptions, EnvRuntimeRegistry } from "@vite-hub/env"
 import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
+import type { McpOptions } from "@vite-hub/mcp"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/esbuild"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
@@ -128,6 +129,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/gateways": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
+  "@vite-hub/mcp": true,
   "@vite-hub/presets": true,
   "@vite-hub/queue": true,
   "@vite-hub/rate-limit": true,
@@ -407,6 +409,11 @@ export interface ViteHubOptions {
   kv?: boolean | KVModuleOptions
   /** Read an existing log source, or inspect a bounded Evlog buffer during development. */
   logs?: boolean | LogsOptions
+  /**
+   * The app MCP server at `/mcp`, with one tool per file in `server/mcp/tools/`. With `auth`, MCP clients sign in with
+   * `mcpOAuth()` from `vite-hub/auth/mcp`. Needs `@vite-hub/mcp`.
+   */
+  mcp?: boolean | McpOptions
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
@@ -1122,6 +1129,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     ["connections", options.connections],
     // `withConnectionsDatabase()` turns `database` on for Connections, so name the feature that the app enabled.
     ["database", options.database && !options.connections],
+    ["mcp", options.mcp],
     ["realtime", options.realtime],
     ["schedule", options.schedule],
     ["workspace", options.workspace],
@@ -1355,6 +1363,19 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(afterApplicationConfig(hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" })))
   }
   if (options.bundle) plugins.push(hubBundle())
+  if (options.mcp) {
+    const mcpConfig: McpOptions = options.mcp === true ? {} : options.mcp
+    const { auth: mcpAuth = Boolean(options.auth), ...mcpOptions } = mcpConfig
+    if (mcpAuth && !options.auth) {
+      throw viteHubErrorDiagnostics.VITE_HUB_R0138({ message: "[vitehub] mcp.auth needs Auth. Set auth in vitehub() and add mcpOAuth() from vite-hub/auth/mcp to server/auth.ts, or set mcp: { auth: false } for a public MCP server." })
+    }
+    plugins.push(requireOptionalOwner(ownerModules.mcpVite, "mcp").hubMcp({
+      ...mcpOptions,
+      auth: mcpAuth,
+      imports: { authMcp: "vite-hub/auth/mcp", runtime: "@vite-hub/mcp/runtime" },
+      ...(options.name ? { name: options.name } : {}),
+    }))
+  }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
     // SAFETY: ViteHub adds its private generated import base to the public Rate Limit options before calling the owned integration.

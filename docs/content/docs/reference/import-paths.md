@@ -116,6 +116,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/kv` | KV Runtime Helper. |
 | `vite-hub/markdown-template` | Portable Markdown rendering from template strings. |
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
+| `vite-hub/mcp` | `defineMcpTool()` for the tools of the app's MCP server in `server/mcp/tools/`. Requires `@vite-hub/mcp`. See [App MCP server](/docs/development/app-mcp). |
 | `vite-hub/operations` | `defineOperation()` and its types. See [Operations](/docs/development/operations). |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Source-local managed Rate Limit handles and direct Rate Limiters. |
@@ -237,6 +238,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/kv` | KV Package | KV Runtime Helper. |
 | `@vite-hub/markdown-template` | Markdown Template Package | Portable Markdown rendering from template strings. |
 | `@vite-hub/markdown-template/file` | Markdown Template Package | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
+| `@vite-hub/mcp` | MCP Package | `defineMcpTool()` and the types of the app MCP server. |
 | `@vite-hub/queue` | Queue Package | Queue Definition and enqueue Runtime Helper. |
 | `@vite-hub/rate-limit` | Rate Limit Package | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `@vite-hub/rate-limit/drivers/memory` | Rate Limit Package | Local, test, and single-process fixed-window enforcement. |
