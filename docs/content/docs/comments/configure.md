@@ -169,7 +169,7 @@ import { defineComments } from 'vite-hub/comments'
 import { findSession } from './utils/session'
 
 export const comments = defineComments({
-  // `event['~standard'].req` is the Web Request of the call, with its cookies.
+  // `event` is the Request of the call or its server event. `event['~standard'].req` is the Request, with its cookies.
   identify: async ({ event }) => {
     const session = await findSession(event['~standard'].req)
     return session ? { id: session.userId, name: session.name, image: session.avatar } : null
@@ -621,4 +621,4 @@ The Console serves [ViteHub MCP](/docs/development/mcp) at `/_vitehub/mcp`. An A
 
 An app with its own MCP server can register the same tools: `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them with a JSON Schema and a `call(input, { user })` function each.
 
-Your server must authenticate `user` before calling a tool; pass `null` for an anonymous caller. Without an event, the tools use this user even when Comments defines `identify`. To use request-based Comments identity, pass `call(input, { user, event })` with the H3 request event. With `identify`, it names the user and `authorize` decides. Without `identify`, pass Console access through `commentsMcpTools(comments, { consoleSession })`: a `false` result or a failed read denies access before `authorize`. Otherwise the Console reader is used, then the Auth reader in `{ session }` if no Console reader is supplied, or `user` when neither reader is supplied. Browser guest headers name an author only when `authorize` permits the anonymous caller.
+Your server must authenticate `user` before calling a tool; pass `null` for an anonymous caller. Without an event, the tools use this user even when Comments defines `identify`. To use request-based Comments identity, pass `call(input, { user, event })` with the Request or the H3 event of the call. With `identify`, it names the user and `authorize` decides. Without `identify`, pass Console access through `commentsMcpTools(comments, { consoleSession })`: a `false` result or a failed read denies access before `authorize`. Otherwise the Console reader is used, then the Auth reader in `{ session }` if no Console reader is supplied, or `user` when neither reader is supplied. Browser guest headers name an author only when `authorize` permits the anonymous caller.

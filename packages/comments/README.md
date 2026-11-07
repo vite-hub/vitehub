@@ -111,7 +111,16 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 
 Generated files under `.vitehub/nitro/comments` are inspectable build output, not application imports.
 
-`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. With an H3 request `event`, a configured Comments `identify` or session reader takes precedence over `user`. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
+`createCommentsHandler(options)` returns a Fetchable, `{ fetch(request) }`. Mount it as a Nitro or H3 route at `/api/_vitehub/comments/**`, or call `handler.fetch(request)` yourself. Every outcome is a `Response`, also the errors. The handler gives the Request to `identify` as `event`, and reads cookies, the Cloudflare bindings, and `waitUntil` from its Standard Context, `request["~standard"]`. In a ViteHub app, Nitro sets it. For a Request from elsewhere, the handler sets it.
+
+```ts
+import { createCommentsHandler } from "@vite-hub/comments/runtime";
+
+const handler = createCommentsHandler({ comments, realtime: false });
+const response = await handler.fetch(new Request("https://site.test/api/_vitehub/comments/threads?page=/"));
+```
+
+`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. With a request `event`, such as the Request or an H3 event, a configured Comments `identify` or session reader takes precedence over `user`. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
 
 ## Learn more
 

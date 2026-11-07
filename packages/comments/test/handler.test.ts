@@ -1,5 +1,3 @@
-import { Readable } from "node:stream"
-
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
 import { H3 } from "h3"
@@ -467,35 +465,31 @@ describe("Comments API", () => {
     const comments = await createComments({ identify: () => ({ id: "ada" }), authorize: () => true, people: { byIds: async () => [{ id: "grace", name: "Grace" }], search: async () => [] }, onMention })
     const waitUntil = vi.fn()
     const handler = createCommentsHandler({ comments, realtime: false })
-    const response: unknown = await Reflect.apply(handler, undefined, [{
-      req: new Request(`${origin}/api/_vitehub/comments/threads`, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ page: "/", body: "@Grace", mentions: ["grace"] }) }),
-      res: { headers: new Headers() },
-      context: { waitUntil },
-    }])
-    expect(response).toBeInstanceOf(Response)
-    expect((response as Response).status).toBe(200)
+    // srvx puts the host's waitUntil on the Request.
+    const request = Object.assign(new Request(`${origin}/api/_vitehub/comments/threads`, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ page: "/", body: "@Grace", mentions: ["grace"] }) }), { waitUntil })
+    const response = await handler.fetch(request)
+    expect(response.status).toBe(200)
     expect(onMention).toHaveBeenCalledOnce()
     expect(waitUntil).toHaveBeenCalledOnce()
     finish()
     await waitUntil.mock.calls[0]![0]
   })
 
-  it.each([false, true])("answers Nuxt 4 H3 1 events and retains forge work: %s", async (forge) => {
+  it.each([false, true])("answers a bare Request and retains forge work: %s", async (forge) => {
     const comments = await createComments({ identify: () => ({ id: "ada", name: "Ada" }), authorize: () => true, forge: forge ? { provider: "github" } : undefined })
     const work: Promise<unknown>[] = []
     const waitUntil = vi.fn((promise: Promise<unknown>) => { work.push(promise) })
     const handler = createCommentsHandler({ comments, realtime: false })
     const send = async (method: string, path: string, json?: unknown) => {
-      const req = Object.assign(Readable.from(json === undefined ? [] : [JSON.stringify(json)]), {
+      const request = new Request(`${origin}/api/_vitehub/comments${path}`, {
         method,
-        url: `/api/_vitehub/comments${path}`,
-        headers: { host: "site.test", origin, "content-type": "application/json" },
+        headers: { origin, "content-type": "application/json" },
+        ...(json === undefined ? {} : { body: JSON.stringify(json) }),
       })
-      const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req, res: {} }, context: { waitUntil } }])
-      if (!(response instanceof Response)) throw new TypeError("Expected a Response")
+      const response = await handler.fetch(Object.assign(request, { waitUntil }))
       return await response.json() as { data?: unknown }
     }
-    const created = await send("POST", "/threads", { page: "/", anchor, body: "From Nuxt 4" })
+    const created = await send("POST", "/threads", { page: "/", anchor, body: "From a Request" })
     expect(created.data).toMatchObject({ subject: { kind: "page", id: "/" }, author: { id: "ada" } })
     expect((await send("GET", "/threads?page=/")).data).toHaveLength(1)
     expect(waitUntil).toHaveBeenCalledTimes(forge ? 1 : 0)

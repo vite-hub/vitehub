@@ -1,8 +1,7 @@
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
-import { getStandardContext } from "@vite-hub/runtime/h3"
+import { installRequestStandardContext } from "@vite-hub/runtime"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
-import { defineEventHandler } from "h3"
 import * as v from "valibot"
 
 import { commentsErrors } from "../errors.ts"
@@ -12,11 +11,9 @@ import { commentActions, commentAnchorSchema, commentInputSchemas } from "../ope
 import { deniedForMissingPolicy } from "../operations-core/define.ts"
 import { can as policyCan, contextSchema, deniedError, mentionedPeople } from "../operations-core/service.ts"
 import { commentsRoute, normalizeCommentPage } from "../page.ts"
-import { requestOf } from "./request.ts"
 import { resolveCommentsIdentity } from "./session.ts"
 
-import type { Result, ResultError } from "@vite-hub/runtime"
-import type { H3Event } from "h3"
+import type { Result, ResultError, ViteHubContext } from "@vite-hub/runtime"
 import type { Comments } from "../index.ts"
 import type { CommentsGitHubLogin } from "./github-login.ts"
 import type { CommentsCaller } from "../operations-core/operations.ts"
@@ -71,6 +68,9 @@ export interface CommentsHandlerOptions extends CommentsSessionOptions {
    */
   components?: Readonly<Record<string, readonly string[]>>
 }
+
+/** The Request of a Comments call, with its Standard Context. */
+type CommentsRequest = Request & ViteHubContext
 
 const fieldEditGrant = defineGrant("vitehub.comments.field-edit", (input: { collection: ContentCollectionLike, id: string, field: string, user: CommentUser }) => input)
 
@@ -224,10 +224,11 @@ function leaseHolder(error: unknown): string {
 }
 
 /**
- * The Comments API at `/api/_vitehub/comments/**`. The overlay calls it; every route checks the `authorize` policy of
- * `defineComments()` for the user of the request, and inline edits also check `content.can()`.
+ * The Comments API at `/api/_vitehub/comments/**`, as a Fetchable: mount it as a Nitro or H3 route, or call
+ * `fetch(request)`. The overlay calls it; every route checks the `authorize` policy of `defineComments()` for the user of
+ * the request, and inline edits also check `content.can()`.
  */
-export function createCommentsHandler(options: CommentsHandlerOptions): ReturnType<typeof defineEventHandler> {
+export function createCommentsHandler(options: CommentsHandlerOptions): { fetch(request: Request): Promise<Response> } {
   const { comments } = options
   const sessionOptions: CommentsSessionOptions = {
     ...options,
@@ -235,35 +236,35 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   }
 
   /** The user of the request for `action`, or `false` when the Console refused them. See `resolveCommentsIdentity()`. */
-  async function identityOf(event: H3Event, action: CommentAction = "read"): Promise<CommentsIdentity | false> {
-    return resolveCommentsIdentity(comments, event, sessionOptions, action)
+  async function identityOf(request: CommentsRequest, action: CommentAction = "read"): Promise<CommentsIdentity | false> {
+    return resolveCommentsIdentity(comments, request, sessionOptions, action)
   }
 
-  async function access(event: H3Event, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<Result<CommentsIdentity & { author: CommentUser | undefined }, "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
-    const identity = await identityOf(event, action)
+  async function access(request: CommentsRequest, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<Result<CommentsIdentity & { author: CommentUser | undefined }, "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
+    const identity = await identityOf(request, action)
     if (identity === false) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
     const { user, gate } = identity
     if (!await comments.can({ user, action, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) }, gate)) {
       return [deniedForMissingPolicy(comments.options, user, { ...gate, development: (await resolveCommentsRuntime(comments))?.development === true }) ? commentsErrors.COMMENTS_POLICY_MISSING() : commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
     }
     // A user writes as itself; without one, a guest that named itself, when the policy lets anonymous people act.
-    const author = user ? authorOf(user) : guestFromHeaders(requestOf(event).headers)
+    const author = user ? authorOf(user) : guestFromHeaders(request.headers)
     return [undefined, { user, gate, author }]
   }
 
   /** The caller of a comment action: the user of the request. A person that the Console refuses is denied before the policy runs. */
-  async function callerOf(event: H3Event, action: CommentAction): Promise<{ who: CommentsCaller } | { denied: Response }> {
+  async function callerOf(request: CommentsRequest, action: CommentAction): Promise<{ who: CommentsCaller } | { denied: Response }> {
     const runtime = await resolveCommentsRuntime(comments)
     if (!runtime) return { denied: failure(commentsErrors.COMMENTS_NOT_INSTALLED()) }
-    const identity = await identityOf(event, action)
+    const identity = await identityOf(request, action)
     if (identity === false) return { denied: failure(commentsErrors.COMMENTS_FORBIDDEN({ action })) }
-    const waitUntil = getStandardContext(event).waitUntil
-    return { who: { gate: { ...identity.gate, development: runtime.development === true }, request: requestOf(event), runtime, user: identity.user, ...(waitUntil ? { waitUntil } : {}) } }
+    const waitUntil = request["~standard"].waitUntil
+    return { who: { gate: { ...identity.gate, development: runtime.development === true }, request, runtime, user: identity.user, ...(waitUntil ? { waitUntil } : {}) } }
   }
 
   /** Runs a comment action for the request, and answers its diagnostics as the API's error objects. */
-  async function act<T>(event: H3Event, action: CommentAction, run: (who: CommentsCaller) => Promise<T>, answer: (value: T, who: CommentsCaller) => Promise<Response> | Response): Promise<Response> {
-    const called = await callerOf(event, action)
+  async function act<T>(request: CommentsRequest, action: CommentAction, run: (who: CommentsCaller) => Promise<T>, answer: (value: T, who: CommentsCaller) => Promise<Response> | Response): Promise<Response> {
+    const called = await callerOf(request, action)
     if ("denied" in called) return called.denied
     let value: T
     try {
@@ -294,9 +295,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }
   }
 
-  async function readJson(event: H3Event): Promise<unknown> {
+  async function readJson(request: CommentsRequest): Promise<unknown> {
     try {
-      return await requestOf(event).json()
+      return await request.json()
     }
     catch {
       return undefined
@@ -308,12 +309,12 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   }
 
   /** Who the overlay's person is and what they may do. The page tools session decides whether the overlay loads. */
-  async function session(event: H3Event, subject?: CommentSubject): Promise<Response> {
-    const identity = await identityOf(event)
+  async function session(request: CommentsRequest, subject?: CommentSubject): Promise<Response> {
+    const identity = await identityOf(request)
     const user = identity === false ? false : identity.user
-    const [read, comment, resolve, remove] = await Promise.all((["read", "write", "resolve", "delete"] as const).map(action => can(event, identity, action, undefined, subject)))
+    const [read, comment, resolve, remove] = await Promise.all((["read", "write", "resolve", "delete"] as const).map(action => can(request, identity, action, undefined, subject)))
     const github = options.githubLogin?.configured() ? options.githubLogin : undefined
-    const pathname = new URL(requestOf(event).url).pathname
+    const pathname = new URL(request.url).pathname
     const route = pathname.slice(0, pathname.indexOf(commentsRoute) + commentsRoute.length)
     // People who are not signed in can sign in with GitHub, and a GitHub account that may not comment can switch.
     const signIn = user !== false && !user && !comments.options.identify && github ? { provider: "github" as const, url: `${route}/auth/github` } : undefined
@@ -331,15 +332,15 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     })
   }
 
-  async function can(event: H3Event, identity: CommentsIdentity | false, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<boolean> {
+  async function can(request: CommentsRequest, identity: CommentsIdentity | false, action: CommentAction, thread?: CommentThread, subject?: CommentSubject): Promise<boolean> {
     if (identity === false) return false
     // The Console grants reading and writing separately, so a person it admitted to read checks again to write.
-    if (identity.gate.console && action !== "read" && await identityOf(event, action) === false) return false
+    if (identity.gate.console && action !== "read" && await identityOf(request, action) === false) return false
     return comments.can({ user: identity.user, action, ...(thread ? { thread } : {}), ...(subject ? { subject } : {}) }, identity.gate)
   }
 
-  async function permissions(event: H3Event, who: CommentsCaller, thread: CommentThread) {
-    const [comment, resolve, remove] = await Promise.all((["write", "resolve", "delete"] as const).map(action => can(event, who, action, thread)))
+  async function permissions(request: CommentsRequest, who: CommentsCaller, thread: CommentThread) {
+    const [comment, resolve, remove] = await Promise.all((["write", "resolve", "delete"] as const).map(action => can(request, who, action, thread)))
     return { ...thread, can: { comment, resolve, delete: remove } }
   }
 
@@ -349,9 +350,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   }
 
   /** A thread with what the reader may do with it, and the people that it mentions. */
-  async function threadResponse(event: H3Event, who: CommentsCaller, thread: CommentThread | null, extra: Record<string, unknown> = {}): Promise<Response> {
+  async function threadResponse(request: CommentsRequest, who: CommentsCaller, thread: CommentThread | null, extra: Record<string, unknown> = {}): Promise<Response> {
     if (!thread) return json({ data: null, ...extra })
-    return json({ data: await permissions(event, who, thread), people: await people(who, [thread]), ...extra })
+    return json({ data: await permissions(request, who, thread), people: await people(who, [thread]), ...extra })
   }
 
   /** Lists check `read` on the filter first, so a person who may not read gets `403`, not an empty list. */
@@ -401,9 +402,9 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return [undefined, completeContext({ ...context, url: `${origin}${subject.id}` })]
   }
 
-  async function fieldTarget(event: H3Event, address: string, subject?: CommentSubject): Promise<Result<{ collection: ContentCollectionLike, id: string, path: string[], document: ContentDocumentLike, author: CommentUser, user: CommentsUser | null }, "COMMENTS_CONTENT_MISSING" | "COMMENTS_FIELD_INVALID" | "COMMENTS_FIELD_FORBIDDEN" | "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
+  async function fieldTarget(request: CommentsRequest, address: string, subject?: CommentSubject): Promise<Result<{ collection: ContentCollectionLike, id: string, path: string[], document: ContentDocumentLike, author: CommentUser, user: CommentsUser | null }, "COMMENTS_CONTENT_MISSING" | "COMMENTS_FIELD_INVALID" | "COMMENTS_FIELD_FORBIDDEN" | "COMMENTS_FORBIDDEN" | "COMMENTS_POLICY_MISSING">> {
     if (!options.content) return [commentsErrors.COMMENTS_CONTENT_MISSING(), undefined]
-    const [denied, allowed] = await access(event, "write", undefined, subject)
+    const [denied, allowed] = await access(request, "write", undefined, subject)
     if (denied) return [denied, undefined]
     const parsed = options.content.parseField(address)
     const collection = parsed && options.content.runtime.collections().find(candidate => candidate.name === parsed.collection)
@@ -418,8 +419,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return [undefined, { collection, id, path: parsed.field.split("."), document, author: allowed.author, user: allowed.user }]
   }
 
-  async function readField(event: H3Event, address: string, subject?: CommentSubject): Promise<Response> {
-    const [error, target] = await fieldTarget(event, address, subject)
+  async function readField(request: CommentsRequest, address: string, subject?: CommentSubject): Promise<Response> {
+    const [error, target] = await fieldTarget(request, address, subject)
     if (error) return failure(error)
     const value = readPath(target.document.data, target.path)
     return json({
@@ -434,10 +435,10 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     })
   }
 
-  async function saveField(event: H3Event, subject?: CommentSubject): Promise<Response> {
-    const parsed = v.safeParse(fieldBody, await readJson(event))
+  async function saveField(request: CommentsRequest, subject?: CommentSubject): Promise<Response> {
+    const parsed = v.safeParse(fieldBody, await readJson(request))
     if (!parsed.success) return invalid(parsed.issues)
-    const [error, target] = await fieldTarget(event, parsed.output.field, subject)
+    const [error, target] = await fieldTarget(request, parsed.output.field, subject)
     if (error) return failure(error)
     if (typeof readPath(target.document.data, target.path) !== "string") return failure(commentsErrors.COMMENTS_FIELD_NOT_EDITABLE({ field: parsed.output.field }))
     if (target.document.digest !== parsed.output.ifDigest) return failure(commentsErrors.COMMENTS_FIELD_CONFLICT({ field: parsed.output.field }))
@@ -471,21 +472,24 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }
   }
 
-  async function handle(event: H3Event) {
-    const request = requestOf(event)
-    const response = await route(event, request).catch(diagnosticResponse)
+  async function handle(request: CommentsRequest): Promise<Response> {
+    const response = await route(request).catch(diagnosticResponse)
     // A change starts its pull request sync. Hosts that end work with the response keep it running until it ends.
-    if (request.method !== "GET" && comments.options.forge) getStandardContext(event).waitUntil?.(comments.flush())
+    if (request.method !== "GET" && comments.options.forge) request["~standard"].waitUntil?.(comments.flush())
     return response
   }
 
-  return defineEventHandler((event) => {
-    // Nitro's workerd dev server gives the Cloudflare bindings only with the request, so the database finds D1 there.
-    const env = getStandardContext(event).runtime?.cloudflare?.env
-    return env ? runWithActiveCloudflareEnv(env, () => handle(event)) : handle(event)
-  })
+  return {
+    async fetch(request) {
+      // In a ViteHub app, Nitro already set the Standard Context of the request. Set it for a Request from elsewhere.
+      installRequestStandardContext(request)
+      // Nitro's workerd dev server gives the Cloudflare bindings only with the request, so the database finds D1 there.
+      const env = request["~standard"].runtime?.cloudflare?.env
+      return env ? await runWithActiveCloudflareEnv(env, () => handle(request)) : await handle(request)
+    },
+  }
 
-  async function route(event: H3Event, request: Request): Promise<Response> {
+  async function route(request: CommentsRequest): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname.slice(url.pathname.indexOf(commentsRoute) + commentsRoute.length).replace(/\/+$/, "") || "/"
     const parts = path.split("/").filter(Boolean)
@@ -496,75 +500,75 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const subject: CommentSubject | undefined = page ? { kind: "page", id: normalizeCommentPage(page) } : subjectKind && subjectId ? { kind: subjectKind, id: subjectId } : undefined
     if (method !== "GET" && !sameOrigin(request)) return json({ error: { code: "COMMENTS_FORBIDDEN", why: "Comments requests must come from the site's own pages." } }, { status: 403 })
 
-    if (method === "GET" && path === "/session") return await session(event, subject)
+    if (method === "GET" && path === "/session") return await session(request, subject)
     // Better Auth checks the origin of its own POST routes.
-    if (path.startsWith("/auth/") && options.githubLogin) return await options.githubLogin.handle(event, path)
+    if (path.startsWith("/auth/") && options.githubLogin) return await options.githubLogin.handle(request, path)
 
     if (path === "/threads") {
       if (method === "GET") {
         const [invalidQuery, query] = listQuery(url)
         if (invalidQuery) return failure(invalidQuery)
-        return await act(event, "read", async (who) => {
+        return await act(request, "read", async (who) => {
           await mayRead(who, query.subject)
           return await commentActions.list(query, who)
-        }, async (threads, who) => json({ data: await Promise.all(threads.map(thread => permissions(event, who, thread))), people: await people(who, threads) }))
+        }, async (threads, who) => json({ data: await Promise.all(threads.map(thread => permissions(request, who, thread))), people: await people(who, threads) }))
       }
       if (method === "POST") {
-        const parsed = v.safeParse(createBody, await readJson(event))
+        const parsed = v.safeParse(createBody, await readJson(request))
         if (!parsed.success) return invalid(parsed.issues)
         const { page, subject: given, context, anchor, ...input } = parsed.output
         const target = given ?? (page === undefined ? undefined : { kind: "page", id: normalizeCommentPage(page) })
         if (!target) return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "subject: Give a subject, or a page." }))
         const [badContext, checked] = context ? checkContext(request, context, target) : [undefined, undefined]
         if (badContext) return failure(badContext)
-        return await act(event, "write", who => commentActions.create({ ...input, anchor: anchor ?? { kind: "page" }, subject: target, ...(checked ? { context: checked } : {}) }, who), (thread, who) => threadResponse(event, who, thread))
+        return await act(request, "write", who => commentActions.create({ ...input, anchor: anchor ?? { kind: "page" }, subject: target, ...(checked ? { context: checked } : {}) }, who), (thread, who) => threadResponse(request, who, thread))
       }
     }
 
     if (parts[0] === "scopes" && parts[1] && parts[2] === "threads" && parts[3] && !parts[4] && method === "GET") {
       const parsed = v.safeParse(commentInputSchemas.get, { scope: decodeURIComponent(parts[1]), n: Number(parts[3]) })
       if (!parsed.success) return invalid(parsed.issues)
-      return await act(event, "read", who => commentActions.get(parsed.output, who), (thread, who) => threadResponse(event, who, thread))
+      return await act(request, "read", who => commentActions.get(parsed.output, who), (thread, who) => threadResponse(request, who, thread))
     }
 
     if (parts[0] === "threads" && parts[1]) {
       const threadId = decodeURIComponent(parts[1])
       const action = parts[2]
       const messageId = parts[3] ? decodeURIComponent(parts[3]) : undefined
-      if (method === "GET" && !action) return await act(event, "read", who => commentActions.get({ id: threadId }, who), (thread, who) => threadResponse(event, who, thread))
+      if (method === "GET" && !action) return await act(request, "read", who => commentActions.get({ id: threadId }, who), (thread, who) => threadResponse(request, who, thread))
       if (method === "POST" && action === "comments" && !messageId) {
-        const parsed = v.safeParse(replyBody, await readJson(event))
+        const parsed = v.safeParse(replyBody, await readJson(request))
         if (!parsed.success) return invalid(parsed.issues)
         // The overlay reads the message as `data`; other clients read the thread as `thread`.
-        return await act(event, "write", who => commentActions.reply({ ...parsed.output, threadId }, who), async ({ message, thread }, who) => json({
+        return await act(request, "write", who => commentActions.reply({ ...parsed.output, threadId }, who), async ({ message, thread }, who) => json({
           data: message,
-          thread: await permissions(event, who, thread),
+          thread: await permissions(request, who, thread),
           people: await people(who, [thread]),
         }))
       }
       if (method === "PATCH" && action === "comments" && messageId) {
-        const parsed = v.safeParse(editBody, await readJson(event))
+        const parsed = v.safeParse(editBody, await readJson(request))
         if (!parsed.success) return invalid(parsed.issues)
-        return await act(event, "write", who => commentActions.edit({ ...parsed.output, threadId, messageId }, who), (thread, who) => threadResponse(event, who, thread))
+        return await act(request, "write", who => commentActions.edit({ ...parsed.output, threadId, messageId }, who), (thread, who) => threadResponse(request, who, thread))
       }
       if (method === "POST" && (action === "resolve" || action === "reopen") && !messageId) {
-        return await act(event, "resolve", who => commentActions.setStatus({ threadId }, who, action === "resolve" ? "resolved" : "open"), (thread, who) => threadResponse(event, who, thread))
+        return await act(request, "resolve", who => commentActions.setStatus({ threadId }, who, action === "resolve" ? "resolved" : "open"), (thread, who) => threadResponse(request, who, thread))
       }
       if (method === "DELETE" && (action === "comments" ? messageId : !action)) {
         // Authors delete their own messages with `write`; deleting anything else needs `delete`, which the action checks.
-        return await act(event, "delete", who => commentActions.delete({ threadId, ...(messageId ? { messageId } : {}) }, who), (thread, who) => threadResponse(event, who, thread))
+        return await act(request, "delete", who => commentActions.delete({ threadId, ...(messageId ? { messageId } : {}) }, who), (thread, who) => threadResponse(request, who, thread))
       }
     }
 
     if (path === "/attachments" && method === "POST") {
-      const parsed = v.safeParse(commentInputSchemas.upload, await readJson(event))
+      const parsed = v.safeParse(commentInputSchemas.upload, await readJson(request))
       if (!parsed.success) return invalid(parsed.issues)
-      return await act(event, "write", who => commentActions.upload(parsed.output, who), attachment => json({ data: attachment }))
+      return await act(request, "write", who => commentActions.upload(parsed.output, who), attachment => json({ data: attachment }))
     }
 
     if (parts[0] === "attachments" && parts.length > 1 && method === "GET") {
       const key = parts.slice(1).map(part => decodeURIComponent(part)).join("/")
-      return await act(event, "read", who => commentActions.attachment({ key }, who), file => new Response(file.data.stream(), { headers: attachmentHeaders(file) }))
+      return await act(request, "read", who => commentActions.attachment({ key }, who), file => new Response(file.data.stream(), { headers: attachmentHeaders(file) }))
     }
 
     if (method === "GET" && path === "/people") {
@@ -572,7 +576,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       const [missing, current] = threadId ? await comments.get(threadId) : [undefined, undefined]
       if (missing) return failure(missing)
       const target = current?.subject ?? subject
-      const [denied, allowed] = await access(event, "read", current, target)
+      const [denied, allowed] = await access(request, "read", current, target)
       if (denied) return failure(denied)
       const limit = Number(url.searchParams.get("limit") ?? 20)
       return respond(await comments.people({ query: url.searchParams.get("q") ?? "", user: allowed.user, gate: allowed.gate, ...(Number.isFinite(limit) ? { limit } : {}), ...(current ? { thread: current } : {}), ...(target ? { subject: target } : {}) }))
@@ -580,8 +584,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
     if (path === "/fields") {
       if (!subject || subject.kind !== "page") return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "page: Give the current page for a field edit." }))
-      if (method === "GET") return await readField(event, url.searchParams.get("field") ?? "", subject)
-      if (method === "POST") return await saveField(event, subject)
+      if (method === "GET") return await readField(request, url.searchParams.get("field") ?? "", subject)
+      if (method === "POST") return await saveField(request, subject)
     }
 
     return json({ error: { code: "COMMENTS_NOT_FOUND", why: `No Comments route ${method} ${path}.` } }, { status: 404 })

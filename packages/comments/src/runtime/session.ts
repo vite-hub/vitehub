@@ -1,4 +1,4 @@
-import { installStandardContext } from "@vite-hub/runtime/h3"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 
 import type { Comments } from "../index.ts"
 import type { CommentsPolicyGate } from "../operations-core/define.ts"
@@ -29,8 +29,8 @@ export interface CommentsIdentity {
  */
 export async function resolveCommentsIdentity(comments: Comments, event: CommentsRequestEvent, options: CommentsSessionOptions = {}, action: CommentAction = "read"): Promise<CommentsIdentity | false> {
   if (comments.options.identify) {
-    // `identify` reads `event["~standard"]`. Set it when Nitro did not, such as for an H3 app without the ViteHub plugin.
-    installStandardContext(event)
+    // `identify` reads `event["~standard"]`. Set it when Nitro did not, such as for a Request from a test.
+    getStandardContext(event)
     return { user: await comments.options.identify({ event }) ?? null, gate: {} }
   }
   if (options.consoleSession) {

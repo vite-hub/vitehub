@@ -329,13 +329,13 @@ it.each(["admin", "stranger"])("identifies %s through the standalone CLI operati
     headers: { "content-type": "application/json", "x-vitehub-console": "1", "x-person": person },
     body: JSON.stringify({ operation: "comments.create", input }),
   })
-  const event = new H3Event(request)
-  const response = await handler(event)
+  const response = await handler.fetch(request)
   expect(response.status).toBe(person === "admin" ? 200 : 403)
   expect(await response.json()).toMatchObject(person === "admin"
     ? { ok: true, value: { author: { id: "admin", name: "Admin" } } }
     : { ok: false, status: 403 })
-  expect(identify).toHaveBeenCalledWith({ event })
+  // The RPC passes the Request as the event of the call, and `identify` reads its Standard Context.
+  expect(identify).toHaveBeenCalledWith({ event: request })
   expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user: person === "admin" ? identified : null }))
 })
 
