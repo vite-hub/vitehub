@@ -434,7 +434,7 @@ export interface DeliverChannelOptions {
   /** The Agent name in the webhook URL and in each run. Defaults to `agent`. */
   agentName?: string
   /** Request headers, such as the signature or secret header that the Channel checks. */
-  headers?: HeadersInit
+  headers?: ConstructorParameters<typeof Headers>[0]
 }
 
 /**
