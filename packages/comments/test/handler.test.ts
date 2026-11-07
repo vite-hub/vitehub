@@ -8,7 +8,7 @@ import { commentsConsoleSession } from "../src/runtime/console-session.ts"
 import { anchor, createComments } from "./harness.ts"
 
 import type { CommentsContent, CommentsHandlerOptions } from "../src/runtime/handler.ts"
-import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
+import type { CommentsIdentifyContext, CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 
 const origin = "http://site.test"
 
@@ -227,8 +227,8 @@ describe("Comments API", () => {
 
     /** Drop's shape: members by session, share-link readers by token, guests by name, strangers signed in but not shared with. */
     async function app() {
-      const identify = ({ event }: { event: { req: Request } }): Person | null => {
-        const who = event.req.headers.get("x-test-person")
+      const identify = ({ event }: CommentsIdentifyContext): Person | null => {
+        const who = event["~standard"].req.headers.get("x-test-person")
         if (who === "member") return { id: "member", name: "Member", role: "member" }
         if (who === "share") return { id: "share:abc", share: "abc" }
         if (who === "stranger") return { id: "stranger", name: "Stranger" }
@@ -467,6 +467,7 @@ describe("Comments API", () => {
     const handler = createCommentsHandler({ comments, realtime: false })
     const response: unknown = await Reflect.apply(handler, undefined, [{
       req: new Request(`${origin}/api/_vitehub/comments/threads`, { method: "POST", headers: { origin, "content-type": "application/json" }, body: JSON.stringify({ page: "/", body: "@Grace", mentions: ["grace"] }) }),
+      res: { headers: new Headers() },
       context: { waitUntil },
     }])
     expect(response).toBeInstanceOf(Response)
@@ -488,7 +489,7 @@ describe("Comments API", () => {
         headers: { origin, "content-type": "application/json" },
         ...(json === undefined ? {} : { body: JSON.stringify(json) }),
       })
-      const response: unknown = await Reflect.apply(handler, undefined, [{ req, context: { waitUntil } }])
+      const response: unknown = await Reflect.apply(handler, undefined, [{ req, res: { headers: new Headers() }, context: { waitUntil } }])
       if (!(response instanceof Response)) throw new TypeError("Expected a Response")
       return await response.json() as { data?: unknown }
     }
