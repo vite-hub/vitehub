@@ -18,6 +18,7 @@ import consoleMcpAuthorizationServerHandler from "../src/console/runtime/server/
 import consoleMcpHandler from "../src/console/runtime/server/mcp.ts"
 import consoleMcpMetadataHandler from "../src/console/runtime/server/mcp-metadata.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
+import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { resolveConsoleAccessBuild } from "../src/console/vite.ts"
 
@@ -33,10 +34,20 @@ const greet = defineOperation({
   section: "fixture",
 })
 
+const rename = defineOperation({
+  description: "Rename someone.",
+  input: v.strictObject({}),
+  kind: "write",
+  name: "fixture.rename",
+  run: () => null,
+  section: "fixture",
+})
+
 afterEach(() => {
   installConsoleDevelopment("/tmp/console-mcp-auth", false)
   installConsoleAccess({ mode: "open" })
   installConsoleOperations([])
+  installConsoleSections("/tmp/console-mcp-auth", [])
 })
 
 /** The Console Auth that ViteHub generates, on a real Better Auth with a SQLite database. */
@@ -183,17 +194,24 @@ describe("MCP sign-in against a real Better Auth", () => {
         // The OAuth provider signs its access tokens with the issuer of the Auth, its baseURL with the base path.
         body: { overrideOptions: { jwt: { expirationTime: "5m" } }, payload: { aud: resource, iss: context.baseURL, scope: "vitehub:read", sub: user.id } },
       })
-      installConsoleOperations([{ operations: [greet], plugin: "fixture" }])
+      installConsoleOperations([{ operations: [greet, rename], plugin: "fixture" }])
+      installConsoleSections("/tmp/console-mcp-auth", ["fixture"])
       installConsoleAccess({ authorize: ({ user: person }) => person?.email === "ada@example.com", check: async () => new Response("{}", { status: 401 }), mode: "auth", oauth: { auth, path: "/_vitehub/mcp" } })
       installConsoleDevelopment("/tmp/console-mcp-auth", true)
-      const answer = await defineHandler(consoleMcpHandler).fetch(new Request(resource, {
-        body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/call", params: { arguments: { name: "Ada" }, name: "fixture_greet" } }),
+      const tool = (name: string, arguments_: Record<string, unknown>) => defineHandler(consoleMcpHandler).fetch(new Request(resource, {
+        body: JSON.stringify({ id: 1, jsonrpc: "2.0", method: "tools/call", params: { arguments: arguments_, name } }),
         headers: { "authorization": `Bearer ${signed.token}`, "content-type": "application/json" },
         method: "POST",
       }))
+      const answer = await tool("fixture_greet", { name: "Ada" })
+      // A token with only `vitehub:read` cannot call a write operation, so project.get does not list it.
+      const project = await tool("project_get", {})
       installConsoleDevelopment("/tmp/console-mcp-auth", false)
       expect(answer.status).toBe(200)
       await expect(answer.json()).resolves.toMatchObject({ result: { structuredContent: { greeting: "Hello Ada", user: "ada@example.com" } } })
+      const { operations } = v.parse(v.object({ result: v.object({ structuredContent: v.object({ operations: v.array(v.string()) }) }) }), await project.json()).result.structuredContent
+      expect(operations).toEqual(expect.arrayContaining(["fixture.greet", "project.get"]))
+      expect(operations).not.toContain("fixture.rename")
       // The metadata names the issuer of the real instance, and Better Auth's metadata is served at the root.
       const metadata = await defineHandler(consoleMcpMetadataHandler).fetch(new Request(`${app}/.well-known/oauth-protected-resource`, { headers: {} }))
       expect(metadata.status).toBe(503)
