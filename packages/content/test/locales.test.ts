@@ -171,4 +171,14 @@ describe("documents() with locales", () => {
     expect(posts).not.toHaveProperty("locales")
     expect(await rejection(posts.get("hello", { locale: "en" }))).toMatchObject({ code: "CONTENT_R0008" })
   })
+
+  it("reads a locale field in the url of a collection without locales", async () => {
+    const workspace = await historyWorkspace(cleanup)
+    const posts = documents({ path: "posts/*.md", url: "/:locale/blog/:id", fields: { title: z.string(), locale: z.string() } })
+    const content = defineContent({ workspace, collections: { posts }, logger: false })
+    cleanup.push(() => content.dispose())
+    await content.collection("posts").save("hello", { data: { title: "Hola", locale: "es" } })
+    await content.publish({ collection: "posts" })
+    expect(await content.resolve("/es/blog/hello")).toEqual({ collection: "posts", id: "hello" })
+  })
 })

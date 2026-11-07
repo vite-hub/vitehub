@@ -454,9 +454,12 @@ function assertUrl(helper: string, path: string, url: unknown, fields: ContentFi
   }
 }
 
-/** Whether `url` is a pattern whose only placeholders are `:id` and `:locale`, so a document's URL needs no read of the document. */
-export function contentUrlNeedsOnlyId(url: ContentDocumentUrl<any>): boolean {
-  return String(url) === url && [...url.matchAll(urlToken)].every(([, name]) => name === "id" || name === "locale")
+/**
+ * Whether `url` is a pattern whose only placeholders are `:id`, and `:locale` in a collection with locales, so a
+ * document's URL needs no read of the document. Without locales, `:locale` is a field.
+ */
+export function contentUrlNeedsOnlyId(url: ContentDocumentUrl<any>, localized: boolean): boolean {
+  return String(url) === url && [...url.matchAll(urlToken)].every(([, name]) => name === "id" || (localized && name === "locale"))
 }
 
 /**

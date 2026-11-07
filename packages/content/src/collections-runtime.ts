@@ -1928,7 +1928,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const merged = new Map([...source, ...own])
         return [...merged].map(([id, entry]) => ({ id, entry, locale }))
       })
-      const documents = url === undefined || contentUrlNeedsOnlyId(url)
+      const documents = url === undefined || contentUrlNeedsOnlyId(url, locales !== undefined)
         ? found.map(({ id, locale }) => ({ id, data: {}, ...localeKey(locale) }))
         : (await mapLimit(found, 8, async ({ id, entry, locale }) => {
             const parsed = await parseEntry(opened, entry)
