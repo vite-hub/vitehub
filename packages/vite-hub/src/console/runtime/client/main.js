@@ -32,7 +32,8 @@ import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSection
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { consoleProjectReady, noteConsoleProjectsVolatile, startConsoleProjects } from "./project-session";
+import { consoleProjectReady, noteConsoleProjectsVolatile, startConsoleLink, startConsoleProjects } from "./project-session";
+import { takeConsoleLinkHash } from "./pending-links";
 import { browserProjectStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
@@ -43,6 +44,9 @@ const hosted = document.querySelector('meta[name="vitehub-console-mode"]')?.getA
 const hostBase = hosted ? "" : consoleMountBase(window.location.pathname);
 const consoleBase = hosted ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
 
+// A one-time link of a new project: /link#p=<pendingId>&url=<appOrigin>. Only the hosted Console links new projects.
+const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
+
 startConsoleProjects({
   base: hostBase,
   home: consoleBase,
@@ -51,7 +55,9 @@ startConsoleProjects({
   pageOrigin: window.location.origin,
   // A browser that blocks or fills storage keeps the projects in memory until the page reloads.
   storage: browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile),
+  pendingLinkLocks: navigator.locks,
 });
+if (linkHash !== undefined) startConsoleLink(linkHash);
 const sectionsBase = "/api/_vitehub/console/sections";
 const capabilitiesBase = "/api/_vitehub/console/invocation-capabilities";
 
