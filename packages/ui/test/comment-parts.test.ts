@@ -874,3 +874,57 @@ describe("review fixes", () => {
     expect(comments.threads[0]!.messages.at(-1)).toMatchObject({ attachments: ["uploads/shot.png"], body: "" });
   });
 });
+
+describe("agent messages and replies since resolved", () => {
+  const claude = { id: "claude-code", image: "/agents/claude.svg", name: "Claude" };
+  const resolvedBy = { status: "resolved" as const, resolvedAt: 2_000, resolvedBy: ana };
+
+  it("shows an agent's message as the agent with the person beside it, and its logo", () => {
+    const wrapper = keep(mount(CommentThread, {
+      attachTo: document.body,
+      global,
+      props: { thread: thread(1, { messages: [message("m1"), message("m2", { actor: claude, createdAt: 1_500 })] }), user: ana },
+    }));
+    const authors = wrapper.findAll("[data-slot=comment-reply-author]");
+    expect(authors.map(author => author.text())).toEqual(["Ana Ruiz", "Claude (Ana Ruiz)"]);
+    expect(authors[1]!.attributes("data-agent")).toBe("true");
+    const images = wrapper.findAll("[data-slot=comment-reply] [data-slot=avatar-stack-image]");
+    expect(images.map(image => image.attributes("src"))).toEqual(["/agents/claude.svg"]);
+  });
+
+  it("puts a reply since the thread was resolved below the Resolved line, and offers Resolve again", async () => {
+    const onResolve = vi.fn().mockResolvedValue(undefined);
+    const later = thread(1, { ...resolvedBy, messages: [message("m1"), message("m2", { actor: claude, createdAt: 3_000 })] });
+    const wrapper = keep(mount(CommentThread, { attachTo: document.body, global, props: { onResolve, thread: later, user: ana } }));
+    const messages = wrapper.get("[data-slot=comment-thread-messages]").element;
+    expect([...messages.children].map(child => child.getAttribute("data-slot"))).toEqual(["comment-reply", "marker", "comment-reply"]);
+    expect(messages.children[1]!.textContent).toBe("Resolved by Ana Ruiz");
+    await wrapper.get("[aria-label=Resolve]").trigger("click");
+    expect(onResolve).toHaveBeenCalledOnce();
+
+    const quiet = thread(2, { ...resolvedBy, messages: [message("m3"), message("m4", { createdAt: 1_500 })] });
+    const done = keep(mount(CommentThread, { attachTo: document.body, global, props: { thread: quiet, user: ana } }));
+    expect(done.find("[aria-label=Reopen]").exists()).toBe(true);
+    expect([...done.get("[data-slot=comment-thread-messages]").element.children].at(-1)?.textContent).toContain("Resolved by Ana Ruiz");
+  });
+
+  it("lists a resolved thread with a later reply under Open, and as resolved under Resolved", async () => {
+    const comments = client([
+      thread(1),
+      thread(2, { ...resolvedBy, messages: [message("m2"), message("m3", { actor: claude, createdAt: 3_000 })] }),
+      thread(3, { ...resolvedBy }),
+    ]);
+    const wrapper = keep(mount(CommentPanel, { attachTo: document.body, global, props: { client: comments, subject: pricing } }));
+    await vi.waitFor(() => expect(comments.status).toBe("ready"));
+    await flushPromises();
+    expect(wrapper.findAll("[data-slot=comment-panel-filter]").map(button => button.text())).toEqual(["Open 2", "Resolved 2"]);
+    const sections = wrapper.findAll("[data-slot=comment-panel-groups] > *");
+    expect(sections[0]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-1"]);
+    expect(wrapper.get("[data-slot=comment-panel-group-header]").text()).toBe("Replied since resolved");
+    expect(sections[1]!.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2"]);
+
+    await wrapper.findAll("[data-slot=comment-panel-filter]")[1]!.trigger("click");
+    expect(wrapper.findAll("[data-slot=comment-panel-item]").map(row => row.attributes("data-thread-id"))).toEqual(["thread-2", "thread-3"]);
+    expect(wrapper.find("[data-slot=comment-panel-group-header]").exists()).toBe(false);
+  });
+});
