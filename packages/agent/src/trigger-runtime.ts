@@ -174,6 +174,20 @@ export function bindAgentChannelTriggerQueue(request: Request, channelId: string
   channelTriggerQueues.set(request, { admit, channelId })
 }
 
+const channelWebhookStates = new WeakMap<Request, string>()
+
+/** Marks a webhook request whose Channel has webhook State, which deduplicates deliveries by ID. */
+export function bindAgentChannelWebhookState(request: Request, channelId: string): void {
+  channelWebhookStates.set(request, channelId)
+}
+
+/** How the webhook route that runs this request can own a delivery: through the webhook queue, by delivery ID, or not. */
+export function agentChannelDeliveryMode(request: Request | undefined, channelId: string): "queue" | "dedupe" | "none" {
+  if (!request) return "none"
+  if (channelTriggerQueues.get(request)?.channelId === channelId) return "queue"
+  return channelWebhookStates.get(request) === channelId ? "dedupe" : "none"
+}
+
 async function queueAgentChannelItems<TRuntimeConfig extends AgentRuntimeConfig>(
   context: ResolvedAgentRuntimeContext<TRuntimeConfig>,
   channelId: string,

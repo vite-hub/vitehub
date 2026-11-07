@@ -2,78 +2,60 @@
 title: Channels
 layout: landing
 navigation.title: Overview
-description: Send messages from your server to Slack, Telegram, or any service through a named Channel.
+description: One connection to Slack, Teams, Stripe, or any HTTP sender, for messages in both directions.
 navigation.order: 1
 icon: i-lucide-send
 ---
 
-::product-hero{tagline="Send messages to Slack, Telegram, or your own API from server code, through one named destination." hosts="Node, Docker, Cloudflare, Vercel, Netlify, Deno" channels="Telegram, Slack, Your API" channel-mode="custom"}
+::product-hero{tagline="Receive webhooks with signature checks, dedupe and retry, and send messages from any server code, through one named Channel." hosts="Node, Docker, Cloudflare, Vercel" channels="Stripe, Slack, Teams, Your API" channel-mode="custom"}
   :::product-files
-  ```ts [server/channels/alerts.ts]
-  import {
-    defineOutboundChannel,
-  } from 'vite-hub/channels'
-  import { postToSlack } from '../utils/slack'
+  ```ts [server/channels/stripe.ts]
+  import { defineChannel, stripe } from 'vite-hub/channels'
+  import { runQueue } from 'vite-hub/queue'
 
-  // The file name makes this the "alerts" Channel.
-  // Each connector is one way to deliver a message.
-  export default defineOutboundChannel({
-    connectors: {
-      // Prints to the terminal while you test
-      log: {
-        send(text: string, meta: { label: string }) {
-          console.log(`[${meta.label}] ${text}`)
-          return { id: `log-${meta.label}` }
-        },
-      },
-      slack: { send: postToSlack },
+  // The file name makes this the "stripe" Channel.
+  export default defineChannel({
+    // Checks Stripe-Signature with STRIPE_WEBHOOK_SECRET
+    adapter: stripe(),
+    on: {
+      // Runs once per Stripe event ID, after ViteHub stores it.
+      // A failed Result retries the event.
+      'checkout.session.completed': event =>
+        runQueue('fulfil', event.data),
     },
   })
   ```
 
-  ```ts [server/utils/slack.ts]
-  import { useServerEnv } from '#vitehub/env/server'
+  ```ts [server/queues/fulfil.ts]
+  import type { StripeEvent } from 'vite-hub/channels'
+  import { defineQueue } from 'vite-hub/queue'
 
-  // Post to a Slack incoming webhook.
-  // Declare the URL as a secret in vite.config.ts.
-  export async function postToSlack(text: string) {
-    const env = useServerEnv()
-    const url = env.slack.webhookUrl.unseal()
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text }),
-    })
-    if (!response.ok) throw new Error('Slack failed')
-    return {}
-  }
-  ```
-
-  ```ts [server/api/builds.post.ts]
-  import { defineEventHandler } from 'h3'
-  import { useChannel } from 'vite-hub/channels/server'
-
-  export default defineEventHandler(async () => {
-    // Choose the connector on each send
-    const [error, receipt] = await useChannel('alerts')
-      .send('Build finished.', { connector: 'slack' })
-    // A failed send returns an error, not a throw
-    if (error) throw error
-    return receipt
+  export default defineQueue<StripeEvent>(async ({ payload }) => {
+    // Fulfil the order of payload.data.object
+    console.log('fulfil', payload.data.object.id)
   })
   ```
 
-  ```ts [server/api/test-alert.post.ts]
+  ```ts [server/channels/slack.ts]
+  import { createSlackAdapter } from '@chat-adapter/slack'
+  import { slack } from 'vite-hub/agent/channels'
+  import { defineChannel } from 'vite-hub/channels'
+
+  // Sends through your Chat SDK Slack adapter
+  export default defineChannel({
+    adapter: slack({ adapter: createSlackAdapter() }),
+  })
+  ```
+
+  ```ts [server/api/deploys.post.ts]
   import { defineEventHandler } from 'h3'
   import { useChannel } from 'vite-hub/channels/server'
 
-  // Each connector takes its own options
   export default defineEventHandler(async () => {
-    const [error, receipt] = await useChannel('alerts')
-      .send('Test alert.', {
-        connector: 'log',
-        label: 'test',
-      })
+    // Send through the same Channel from any server code
+    const [error, receipt] = await useChannel('slack')
+      .send('Deploy finished.', { recipient: 'slack:C0123:' })
+    // A failed send returns an error, not a throw
     if (error) throw error
     return receipt
   })
@@ -82,35 +64,31 @@ icon: i-lucide-send
 ::
 
 ::product-features
-  :::product-feature-item{title="One file for each destination" icon="i-lucide-file-code-2" to="/docs/channels/get-started#define-a-named-channel"}
-  Add a file to `server/channels`. Its name is the Channel name.
+  :::product-feature-item{title="One file for each connection" icon="i-lucide-file-code-2" to="/docs/channels/get-started"}
+  Add a file to `server/channels`. Its name is the Channel name, for both directions.
   :::
 
-  :::product-feature-item{title="You write the delivery code" icon="i-lucide-plug" to="/docs/channels/server-api#add-another-connector"}
-  A connector is a `send()` function you write. One Channel can have several, such as Slack and Telegram.
+  :::product-feature-item{title="Webhooks that run once" icon="i-lucide-shield-check" to="/docs/channels/server-api#receive-webhooks"}
+  ViteHub checks the signature, stores the delivery, drops repeats by delivery ID, and retries the target.
   :::
 
-  :::product-feature-item{title="Pick the connector on each send" icon="i-lucide-route" to="/docs/channels/server-api#add-another-connector"}
-  Name the connector in each call, so it is clear where a message goes.
+  :::product-feature-item{title="A target for each event" icon="i-lucide-route" to="/docs/channels/server-api#receive-webhooks"}
+  Send an event to a handler, a Queue, a Workflow, or a trigger that starts an Agent.
   :::
 
-  :::product-feature-item{title="Errors without try and catch" icon="i-lucide-code-2" to="/docs/channels/server-api#send-from-an-h3-or-nitro-handler"}
-  `send()` returns `[undefined, receipt]` or `[error, undefined]`. The receipt has a delivery id.
+  :::product-feature-item{title="Send from anywhere" icon="i-lucide-code-2" to="/docs/channels/server-api#send-a-message"}
+  `useChannel(name).send()` returns `[undefined, receipt]` or `[error, undefined]`.
   :::
 
-  :::product-feature-item{title="Logs without message text" icon="i-lucide-activity" to="/docs/channels/server-api#send-from-an-h3-or-nitro-handler"}
-  Each send logs when it starts and when it ends. The logs leave out the message text and options.
-  :::
-
-  :::product-feature-item{title="Test before you add a service" icon="i-lucide-terminal" to="/docs/channels/get-started#send-and-verify-one-delivery"}
-  A connector that prints to the terminal lets you check your code first.
+  :::product-feature-item{title="Logs without message text" icon="i-lucide-activity" to="/docs/channels/server-api#send-a-message"}
+  Each send logs when it starts and ends. The logs leave out the text and options.
   :::
 ::
 
 ::agent-only{skill="channels"}
-Use Channels for outbound message delivery through named connectors such as HTTP, chat, GitHub, Slack, or email. For inbound webhooks, chat admission, or Agent input, use [Agent Channels](https://vitehub.dev/raw/docs/agents/channels.md) and [Triggers](https://vitehub.dev/raw/docs/agents/triggers.md).
+A Channel is one connection to a platform, defined once in `server/channels/<name>.ts` with `defineChannel({ adapter, on })` from `vite-hub/channels`. Use it for both directions: inbound webhooks go to the `on` targets (a handler, a Queue or Workflow through a handler, or a `defineChannelTrigger()`). Outbound messages go through `useChannel(name).send()` from any server code.
 
-Keep connector credentials and delivery or reply policy in the Channel Definition. A Channel does not grant an Agent every application capability. Grant tools separately. For inbound webhook verification or chat admission, follow the Agent Channels and Triggers guidance instead.
+Use `stripe()` or `webhook({ signature, secret })` from `vite-hub/channels` for HTTP senders, and `slack()`, `teams()`, `discord()`, `telegram()`, `github()`, or `gmail()` from `vite-hub/agent/channels` for chat, forge, and mail. Inbound Channels need `agent: true` next to `channels: true`. Keep secrets in Server Env and never parse or verify a webhook by hand.
 
-Prove one outbound delivery and its result on the target channel.
+Prove one signed delivery reaching its target, one duplicate that does not run twice, and one outbound send with its receipt.
 ::

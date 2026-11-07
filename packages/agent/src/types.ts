@@ -1,3 +1,4 @@
+import type { ChannelDefinition } from "@vite-hub/channels"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AiGateway, AskAnswerType, AskQuestion } from "@vite-hub/gateways"
@@ -2909,8 +2910,9 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
 export type AgentChannelFactory<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   () => AgentChannelDefinition<TRuntimeConfig>
 
+/** A Channel from `defineChannel()` in `vite-hub/channels`, or an adapter from `vite-hub/agent/channels`. */
 export type AgentChannelInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
-  AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig>
+  AgentChannelDefinition<TRuntimeConfig> | AgentChannelFactory<TRuntimeConfig> | ChannelDefinition
 
 export type AgentChannelInputs<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   Record<string, AgentChannelInput<TRuntimeConfig>>
@@ -3282,3 +3284,15 @@ export type AgentAdapterFactory<
   TOptions = unknown,
   Name extends WorkspaceName = WorkspaceName,
 > = (context: ResolvedAgentRuntimeContext<TRuntimeConfig>) => MaybePromise<AgentAdapter<TOptions, TRuntimeConfig, Name>>
+
+declare module "@vite-hub/channels" {
+  /** The Channel options that an Agent reads when it lists the Channel. */
+  interface ChannelExtensionOptions {
+    /** Trusted Markdown that ViteHub adds to the Agent instructions for each Invocation that this Channel starts. */
+    instructions?: string
+    /** Capabilities that the Agent gets only for Invocations that this Channel starts. */
+    capabilities?: readonly AgentCapabilityDefinition[]
+    /** Past messages that `replayChannel()` sends through a trigger. */
+    history?: AgentChannelHistory
+  }
+}

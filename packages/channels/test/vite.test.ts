@@ -20,7 +20,7 @@ async function createTempProject(): Promise<string> {
 async function writeChannel(root: string, path: string): Promise<string> {
   const file = join(root, path)
   await mkdir(dirname(file), { recursive: true })
-  await writeFile(file, "export default { connectors: { fixture: { send: async () => ({ id: 'fixture-1' }) } } }\n")
+  await writeFile(file, "export default { adapter: { kind: 'fixture', send: async () => ({ id: 'fixture-1' }) } }\n")
   return file
 }
 
@@ -72,6 +72,16 @@ describe("hubChannels", () => {
     })
 
     await expect(readFile(registryFile, "utf8")).resolves.toContain(JSON.stringify(addedDefinition))
+  })
+
+  it("fails when a Channel receives webhooks and the Agent plugin is off", async () => {
+    const root = await createTempProject()
+    await mkdir(join(root, "server/channels"), { recursive: true })
+    await writeFile(join(root, "server/channels/payments.ts"), "import { defineChannel, stripe } from 'vite-hub/channels'\nexport default defineChannel({ adapter: stripe() })\n")
+    const configure = (plugins: Array<{ name: string }>) => (hubChannels().configResolved as (config: { plugins: Array<{ name: string }>, root: string }) => Promise<void>)({ plugins, root })
+
+    await expect(configure([])).rejects.toMatchObject({ code: "CHANNELS_B0001", message: expect.stringContaining('The Channel "payments" receives webhooks') })
+    await expect(configure([{ name: "@vite-hub/agent/vite" }])).resolves.toBeUndefined()
   })
 
   it("serves a discovered registry through a stable virtual module", async () => {

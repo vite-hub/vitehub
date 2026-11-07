@@ -50,6 +50,7 @@ import { agentInvokerLabel, hasResolvedAgentInvokerInput, resolveInputAgentInvok
 import { createAgentUIMessageStreamResponse, isUIMessageStreamResponse, uiMessageStreamFromResponse } from "../stream-output.ts"
 import {
   bindAgentChannelTriggerQueue,
+  bindAgentChannelWebhookState,
   bindAgentChannelTriggerState,
   agentChannelOptions,
   agentTriggerTask,
@@ -9633,6 +9634,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             keyPrefix: `${channelState.keyPrefix}channel-state:`,
             state: channelState.state,
           })
+          if (webhookDeliveryState) bindAgentChannelWebhookState(request, registration.channelId)
           if (webhookDeliveryState && hasAgentWebhookQueue(webhookDeliveryState.state)) {
             bindAgentChannelTriggerQueue(
               request,

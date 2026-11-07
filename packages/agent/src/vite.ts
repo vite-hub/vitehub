@@ -2014,7 +2014,7 @@ async function generateAgentDeploymentCatalog(
         ? [
             // A standalone Channel's host Agent only serves the Channel's webhooks. Its trigger selects the Agent that runs.
             ...standaloneChannels.flatMap((channel, index) => [
-              `const standaloneChannelHost${index} = defineAgent({ name: ${JSON.stringify(channel.agent)}, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: { run() { throw new Error(${JSON.stringify(`[vitehub] The trigger of Channel "${channel.name}" must select an Agent with a task.`)}) } } })`,
+              `const standaloneChannelHost${index} = defineAgent({ name: ${JSON.stringify(channel.agent)}, runtime: false, channels: { [${JSON.stringify(channel.name)}]: standaloneChannel${index} }, driver: { run() { throw new Error(${JSON.stringify(`[vitehub] The trigger of Channel "${channel.name}" must select an Agent with a task.`)}) } } })`,
               `agentIdentities[${JSON.stringify(channel.agent)}] = { name: ${JSON.stringify(channel.agent)} }`,
             ]),
             "const chatHandlers = Object.fromEntries(Object.entries(agents).filter(([, agent]) => hasChannelChatRoute(agent)).map(([name, agent]) => [name, createChannelChatRouteHandler(agent)]))",

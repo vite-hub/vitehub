@@ -19,6 +19,13 @@ export interface StandaloneChannel {
 }
 
 const agentChannelModules = new Set(["vite-hub/agent/channels", "@vite-hub/agent/channels"])
+const channelModules = new Set(["vite-hub/channels", "@vite-hub/channels"])
+const webhookAdapterFactories = new Set(["stripe", "webhook"])
+
+/** The webhook route that every Channel with an HTTP sender adapter gets, next to its own `path`. */
+export function channelWebhookRoute(name: string): string {
+  return `/api/_vitehub/channels/${name}`
+}
 
 function exportName(node: { type: "Identifier", name: string } | { type: "Literal", value: string }): string {
   return node.type === "Identifier" ? node.name : node.value
@@ -29,23 +36,40 @@ function standaloneChannelError(file: string, message: string): Error {
 }
 
 /**
- * Reads the `webhooks.path` and `webhooks.aliases` values of `export default defineChannel(kind, options)` without
- * running the module. Returns undefined when the module does not default-export a `defineChannel()` call with a path.
+ * Reads the webhook routes of a Channel module without running it. A `defineChannel({ adapter })` from
+ * `vite-hub/channels` with a `webhook()` or `stripe()` adapter receives webhooks: its routes are `path` and
+ * `aliases` of the adapter, after the default route. An Agent `defineChannel(kind, options)` receives webhooks when it
+ * has `webhooks.path`. Returns undefined when the module does not receive webhooks.
  */
-function readStandaloneChannelPaths(file: string): string[] | undefined {
+function readStandaloneChannelPaths(file: string, name: string): string[] | undefined {
   const module = scanModule(readFileSync(file, "utf8"), file)
   if (module.errors.length) throw standaloneChannelError(file, `cannot parse the module: ${module.errors[0]!.message}`)
 
   const bindings = new Map<string, Expression>()
   const factories = new Set<string>()
   const namespaces = new Set<string>()
+  const channelFactories = new Set<string>()
+  const channelNamespaces = new Set<string>()
+  const adapterFactories = new Set<string>()
   let defaultExport: Expression | undefined
   for (const statement of module.program.body) {
     if (statement.type === "ImportDeclaration") {
-      if (statement.importKind === "type" || !agentChannelModules.has(statement.source.value)) continue
-      for (const specifier of statement.specifiers) {
-        if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && exportName(specifier.imported) === "defineChannel") factories.add(specifier.local.name)
-        if (specifier.type === "ImportNamespaceSpecifier") namespaces.add(specifier.local.name)
+      if (statement.importKind === "type") continue
+      const source = statement.source.value
+      if (agentChannelModules.has(source)) {
+        for (const specifier of statement.specifiers) {
+          if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && exportName(specifier.imported) === "defineChannel") factories.add(specifier.local.name)
+          if (specifier.type === "ImportNamespaceSpecifier") namespaces.add(specifier.local.name)
+        }
+      }
+      if (channelModules.has(source)) {
+        for (const specifier of statement.specifiers) {
+          if (specifier.type === "ImportNamespaceSpecifier") channelNamespaces.add(specifier.local.name)
+          if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") continue
+          const imported = exportName(specifier.imported)
+          if (imported === "defineChannel") channelFactories.add(specifier.local.name)
+          if (webhookAdapterFactories.has(imported)) adapterFactories.add(specifier.local.name)
+        }
       }
       continue
     }
@@ -90,16 +114,42 @@ function readStandaloneChannelPaths(file: string): string[] | undefined {
     }
   }
 
-  function isDefineChannel(callee: Node): boolean {
-    if (callee.type === "Identifier") return factories.has(callee.name)
-    if (callee.type !== "MemberExpression" || callee.object.type !== "Identifier" || !namespaces.has(callee.object.name)) return false
+  function isCall(callee: Node, locals: Set<string>, namespaceNames: Set<string>, names: Set<string>): boolean {
+    if (callee.type === "Identifier") return locals.has(callee.name)
+    if (callee.type !== "MemberExpression" || callee.object.type !== "Identifier" || !namespaceNames.has(callee.object.name)) return false
     return callee.computed
-      ? callee.property.type === "Literal" && callee.property.value === "defineChannel"
-      : callee.property.type === "Identifier" && callee.property.name === "defineChannel"
+      ? callee.property.type === "Literal" && typeof callee.property.value === "string" && names.has(callee.property.value)
+      : callee.property.type === "Identifier" && names.has(callee.property.name)
+  }
+
+  function readPaths(registration: Expression | undefined, label: string): { aliases: string[], path?: string } {
+    const result: { aliases: string[], path?: string } = { aliases: [] }
+    const pathNode = property(registration, "path")
+    if (pathNode) {
+      const path = staticString(pathNode)
+      if (path === undefined) throw standaloneChannelError(file, `${label}path must be a string literal. ViteHub reads it without running the module.`)
+      result.path = path
+    }
+    const aliasesNode = property(registration, "aliases")
+    if (!aliasesNode) return result
+    const values = aliasesNode.type === "ArrayExpression"
+      ? aliasesNode.elements.map(element => element && element.type !== "SpreadElement" ? staticString(resolveValue(unwrapExpression(element))) : undefined)
+      : [undefined]
+    if (values.some(value => value === undefined)) throw standaloneChannelError(file, `${label}aliases must be an array of string literals. ViteHub reads it without running the module.`)
+    result.aliases.push(...values.filter(value => value !== undefined))
+    return result
   }
 
   const definition = resolveValue(defaultExport)
-  if (definition?.type !== "CallExpression" || !isDefineChannel(unwrapExpression(definition.callee))) return
+  if (definition?.type !== "CallExpression") return
+  const callee = unwrapExpression(definition.callee)
+  if (isCall(callee, channelFactories, channelNamespaces, new Set(["defineChannel"]))) {
+    const adapter = resolveValue(property(argumentExpression(definition.arguments[0]), "adapter"))
+    if (adapter?.type !== "CallExpression" || !isCall(unwrapExpression(adapter.callee), adapterFactories, channelNamespaces, webhookAdapterFactories)) return
+    const { aliases, path } = readPaths(argumentExpression(adapter.arguments[0]), "the adapter ")
+    return [...new Set([channelWebhookRoute(name), ...(path === undefined ? [] : [path]), ...aliases])]
+  }
+  if (!isCall(callee, factories, namespaces, new Set(["defineChannel"]))) return
   const webhooks = property(argumentExpression(definition.arguments[1]), "webhooks")
   const registrations = webhooks?.type === "ArrayExpression"
     ? webhooks.elements.flatMap(element => element && element.type !== "SpreadElement" ? [unwrapExpression(element)] : [])
@@ -107,18 +157,10 @@ function readStandaloneChannelPaths(file: string): string[] | undefined {
   const paths: string[] = []
   const aliases: string[] = []
   for (const registration of registrations) {
-    const pathNode = property(registration, "path")
-    if (!pathNode) continue
-    const path = staticString(pathNode)
-    if (path === undefined) throw standaloneChannelError(file, "webhooks.path must be a string literal. ViteHub reads it without running the module.")
-    paths.push(path)
-    const aliasesNode = property(registration, "aliases")
-    if (!aliasesNode) continue
-    const values = aliasesNode.type === "ArrayExpression"
-      ? aliasesNode.elements.map(element => element && element.type !== "SpreadElement" ? staticString(resolveValue(unwrapExpression(element))) : undefined)
-      : [undefined]
-    if (values.some(value => value === undefined)) throw standaloneChannelError(file, "webhooks.aliases must be an array of string literals. ViteHub reads it without running the module.")
-    aliases.push(...values.filter(value => value !== undefined))
+    const read = readPaths(registration, "webhooks.")
+    if (read.path === undefined) continue
+    paths.push(read.path)
+    aliases.push(...read.aliases)
   }
   return paths.length ? [...paths, ...aliases] : undefined
 }
@@ -130,7 +172,7 @@ function readStandaloneChannelPaths(file: string): string[] | undefined {
  */
 export function discoverStandaloneChannels(serverDirs: string[]): StandaloneChannel[] {
   return discoverServerChannelModules(serverDirs).flatMap((module) => {
-    const paths = readStandaloneChannelPaths(module.handler)
+    const paths = readStandaloneChannelPaths(module.handler, module.name)
     return paths ? [{ agent: `channel-${module.name}`, handler: module.handler, name: module.name, paths }] : []
   })
 }
