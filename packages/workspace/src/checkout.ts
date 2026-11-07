@@ -41,13 +41,14 @@ export class WorkspaceCheckoutError extends Error {
 type Bytes = Uint8Array
 
 // Folders that never belong to a checkout, in lower case. The Workspace reserves `.git` and `.vitehub`. The match
-// ignores case, because Windows and macOS file systems open `NODE_MODULES` and `.GIT` as the same folders.
+// ignores case and trailing dots and spaces, because Windows opens `NODE_MODULES` and `node_modules.` as
+// `node_modules`, and macOS ignores case. A remote path can come from any system, so the match is the same everywhere.
 const ignored = new Set([".git", ".vitehub", "node_modules", ".ds_store"])
 const conflictStart = /^<{7}(?: |$)/m
 const conflictEnd = /^>{7}(?: |$)/m
 
 function ignoredName(name: string): boolean {
-  return ignored.has(name.toLowerCase())
+  return ignored.has(name.toLowerCase().replace(/[. ]+$/, ""))
 }
 
 function ignoredPath(path: string): boolean {

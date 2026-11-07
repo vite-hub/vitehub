@@ -613,4 +613,22 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect((await local.run("pull")).code).toBe(1)
     expect(await local.lock()).toEqual(before)
   })
+
+  it("excludes names that Windows reads as an excluded folder, with trailing dots or spaces", async () => {
+    const remoteApp = await app()
+    const ignored = ["node_modules./pkg/index.js", "node_modules /pkg/index.js", "nested/.vitehub ./state.json", ".DS_Store.."]
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One."), ...Object.fromEntries(ignored.map(path => [path, "remote\n"])) } })
+    const local = await project(remoteApp.fetch, "ignored-trailing")
+
+    const pulled = await local.json("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+
+    expect(pulled.value[0].files).toEqual([{ action: "added", path: "posts/hello.md" }])
+    for (const path of ignored) expect(await local.exists(path)).toBe(false)
+    await local.write("node_modules./pkg/index.js", "local dependency\n")
+    await local.write(".git./config", "[core]\n")
+    expect((await local.status())[0]!.local).toEqual({ added: [], conflicted: [], deleted: [], modified: [] })
+    expect((await local.run("push")).stdout).toBe("content: nothing to push.\n")
+    expect((await local.run("pull", "--theirs", "node_modules /pkg/index.js")).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+  })
+
 })
