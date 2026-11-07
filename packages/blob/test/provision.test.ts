@@ -147,7 +147,7 @@ describe("blob cloudflare provision step", () => {
     })
 
     const actions = await plan(fetchImpl)
-    await expect(actions[0]!.apply()).resolves.toEqual({})
+    await expect(actions[0]!.apply()).resolves.toEqual({ ids: { cloudflare: { r2: { default: "default/assets" } } } })
   })
 
   it("does not treat another Cloudflare 400 response as a duplicate bucket", async () => {
