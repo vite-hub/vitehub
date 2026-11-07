@@ -4,7 +4,7 @@ import "virtual:vite-hub/i18n/client"
 import { createLingui, Trans } from "@lingui/vue"
 import { inject, readonly, shallowRef } from "vue"
 
-import { activateLocale, getI18n, getI18nConfig, getLocales, resolveBrowserLocale, setI18nTracker, setLocale } from "./runtime.ts"
+import { activateLocale, getI18n, getI18nConfig, getLocales, resolveBrowserLocale, setI18nTracker, setLocale, setLocaleFor } from "./runtime.ts"
 
 import type { I18n, MessageDescriptor } from "@lingui/core"
 import type { App, ComponentCustomProperties, InjectionKey, Plugin, Ref } from "vue"
@@ -57,7 +57,11 @@ export function i18nPlugin(options: { i18n?: I18n } = {}): Plugin {
         void locale.value
         return i18n._(descriptor)
       }) as unknown as ComponentCustomProperties["t"]
-      app.provide(localeKey, { locale: readonly(locale), locales: getLocales(), setLocale })
+      app.provide(localeKey, {
+        locale: readonly(locale),
+        locales: getLocales(),
+        setLocale: locale => setLocaleFor(i18n, locale),
+      })
     },
   }
 }

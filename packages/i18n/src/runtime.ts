@@ -132,12 +132,16 @@ export function resolveRequestLocale(headers: { get(name: string): string | null
  * cookie, so the next server render uses it too. A superseded selection returns `I18N_LOCALE_SUPERSEDED`.
  */
 export async function setLocale(locale: string): Promise<Result<string, "I18N_UNKNOWN_LOCALE" | "I18N_LOCALE_SUPERSEDED">> {
+  return setLocaleFor(getI18n(), locale)
+}
+
+/** Select a locale on the instance owned by a Vue app or server request. */
+export async function setLocaleFor(target: I18n, locale: string): Promise<Result<string, "I18N_UNKNOWN_LOCALE" | "I18N_LOCALE_SUPERSEDED">> {
   const current = state()
   const config = current.config
   const locales = config?.locales ?? []
   const match = locales.find(entry => entry.toLowerCase() === locale.toLowerCase())
   if (!config || !match) return [i18nErrorDiagnostics.I18N_UNKNOWN_LOCALE({ locale, locales }), undefined]
-  const target = getI18n()
   const selections = current.selections ||= new WeakMap<I18n, symbol>()
   const selection = Symbol()
   selections.set(target, selection)
