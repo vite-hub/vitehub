@@ -16,41 +16,43 @@ const docsShellUi = {
 </script>
 
 <template>
-  <!-- On wide screens there is no site header: the sidebar carries the brand and the links. -->
-  <UMain class="vh-docs-shell" :class="{ 'is-tutorial': hasCodePanel }">
-    <!-- The sidebar holds about 30 links, so keyboard users can jump past it. The link shows only when it has focus. -->
-    <a href="#docs-content" class="vh-skip-link">Skip to content</a>
-    <UPage :ui="docsShellUi">
-      <template v-if="showsNavigation" #left>
-        <UPageAside class="vh-docs-aside hidden lg:flex">
-          <DocsSidebars class="vh-docs-aside-sidebars" panel />
-        </UPageAside>
-      </template>
+  <DocsAppShell layout>
+    <!-- On wide screens there is no site header: the sidebar carries the brand and the links. -->
+    <UMain class="vh-docs-shell" :class="{ 'is-tutorial': hasCodePanel }">
+      <!-- The sidebar holds about 30 links, so keyboard users can jump past it. The link shows only when it has focus. -->
+      <a href="#docs-content" class="vh-skip-link">Skip to content</a>
+      <UPage :ui="docsShellUi">
+        <template v-if="showsNavigation" #left>
+          <UPageAside class="vh-docs-aside hidden lg:flex">
+            <DocsSidebars class="vh-docs-aside-sidebars" panel />
+          </UPageAside>
+        </template>
 
-      <!-- The banner spans the page column, so its border meets the sidebar and the right edge. -->
-      <div id="docs-content" tabindex="-1" class="relative">
-        <!-- Narrow screens open the navigation from the header menu and keep the code inline, so the button shows only on wide screens. -->
-        <!-- A toggle keeps one name, and `aria-pressed` says whether the navigation shows. -->
-        <UTooltip v-if="hasCodePanel" :text="tutorialNavigation ? 'Hide navigation' : 'Show navigation'" :content="{ side: 'bottom', sideOffset: 6 }" :delay-duration="150">
-          <button
-            type="button"
-            class="vh-tutorial-toggle"
-            :class="{ 'beside-navigation': showsNavigation }"
-            aria-label="Show navigation"
-            :aria-pressed="tutorialNavigation"
-            @click="tutorialNavigation = !tutorialNavigation"
-          >
-            <UIcon name="i-lucide-panel-left" class="size-4" />
-          </button>
-        </UTooltip>
-        <!-- 40px including the border, the same height as the sidebar search, so both bottom rules line up. It grows when the text wraps. -->
-        <div v-if="banner" class="flex min-h-10 items-center justify-center border-b border-[var(--ui-border)] bg-default px-4 py-2 text-center text-sm/5">
-          <span class="text-muted">{{ banner }}</span>
+        <!-- The banner spans the page column, so its border meets the sidebar and the right edge. -->
+        <div id="docs-content" tabindex="-1" class="relative">
+          <!-- Narrow screens open the navigation from the header menu and keep the code inline, so the button shows only on wide screens. -->
+          <!-- A toggle keeps one name, and `aria-pressed` says whether the navigation shows. -->
+          <UTooltip v-if="hasCodePanel" :text="tutorialNavigation ? 'Hide navigation' : 'Show navigation'" :content="{ side: 'bottom', sideOffset: 6 }" :delay-duration="150">
+            <button
+              type="button"
+              class="vh-tutorial-toggle"
+              :class="{ 'beside-navigation': showsNavigation }"
+              aria-label="Show navigation"
+              :aria-pressed="tutorialNavigation"
+              @click="tutorialNavigation = !tutorialNavigation"
+            >
+              <UIcon name="i-lucide-panel-left" class="size-4" />
+            </button>
+          </UTooltip>
+          <!-- 40px including the border, the same height as the sidebar search, so both bottom rules line up. It grows when the text wraps. -->
+          <div v-if="banner" class="flex min-h-10 items-center justify-center border-b border-[var(--ui-border)] bg-default px-4 py-2 text-center text-sm/5">
+            <span class="text-muted">{{ banner }}</span>
+          </div>
         </div>
-      </div>
-      <slot />
-    </UPage>
-  </UMain>
+        <slot />
+      </UPage>
+    </UMain>
+  </DocsAppShell>
 </template>
 
 <style scoped>
