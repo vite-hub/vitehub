@@ -43,7 +43,6 @@ Available namespaces:
   workspace   Workspace development workflows and retained history.
   pull        Merge the remote changes of a Workspace ref into a local folder.
   push        Pull, then commit the local changes of a checkout folder to its ref.
-  status      Show local and remote changes of each checkout folder.
   resolve     Keep the local version of binary files that both sides changed.
   console     Console development workflows.
   agent       Agent development workflows.
@@ -74,7 +73,7 @@ Available namespaces:
 | Command | Status | Owner | Use it for |
 | --- | --- | --- | --- |
 | `vitehub catalog` | Available | ViteHub CLI | List every feature and how each host supports it. Does not load the project config. |
-| `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, and what each one still needs. Does not load the project config. |
+| `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, what each one still needs, and the checkout folders of `vitehub.lock`. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent codex-home` | Available | Agent Package | Inspect or manage the Agent Codex home. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
@@ -156,7 +155,6 @@ Available namespaces:
 | `vitehub workspace commit` | Available | Workspace Package | Commit files to a ref when its head is still `ifHead`. `vitehub push` calls it. |
 | `vitehub pull` | Available | Workspace Package | Merge the remote changes of each checked-out Workspace ref into its local folder, and update `vitehub.lock`. |
 | `vitehub push` | Available | Workspace Package | Pull, then commit the local changes of each checkout folder to its ref. It never publishes or deploys. |
-| `vitehub status` | Available | Workspace Package | Show local changes, conflicts, and with `--remote` the remote changes of each checkout folder. |
 | `vitehub resolve` | Available | Workspace Package | Keep the local version of binary files that both sides changed. |
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub inspect definitions` | Available | ViteHub CLI plus package inspection contributors | List the Definitions that each active package discovered. |
@@ -175,7 +173,9 @@ pnpm vitehub status --json
 
 `catalog` lists every feature key of `vitehub({...})`, the packages that it needs, and how each host supports it: `native`, `explicit` (an option chooses the provider), or `unsupported`. It needs no project.
 
-`status` reads `vite.config.*` or `nuxt.config.*` in the current folder and reports:
+`status` reads `vite.config.*` or `nuxt.config.*` in the current folder and reports the items below. With `vitehub.lock`, it also lists each checkout folder with its local changes and conflicts, read by the installed Workspace package without calling the app; `--json` puts them in `checkouts`. See [Work on Workspace files in a local folder](#work-on-workspace-files-in-a-local-folder).
+
+`status` reports:
 
 - `framework`: `vite`, `nuxt`, or `none`, from the config files and the dependencies.
 - `config`: the file and the config form, or `manual` with the reason when the options are not an object literal.
@@ -861,7 +861,7 @@ Connected to docs at http://localhost:5173
 
 ```bash [Terminal]
 pnpm vitehub pull site --dir content --ref draft --url https://docs.example.com
-pnpm vitehub status --remote
+pnpm vitehub pull --dry-run
 pnpm vitehub push --message "Fix the install guide"
 ```
 
