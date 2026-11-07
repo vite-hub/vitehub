@@ -95,7 +95,7 @@ icon: i-lucide-send
   :::
 
   :::product-feature-item{title="Errors without try and catch" icon="i-lucide-code-2" to="/docs/channels/server-api#send-from-an-h3-or-nitro-handler"}
-  `send()` returns `[null, receipt]` or `[error, null]`. The receipt has a delivery id.
+  `send()` returns `[undefined, receipt]` or `[error, undefined]`. The receipt has a delivery id.
   :::
 
   :::product-feature-item{title="Logs without message text" icon="i-lucide-activity" to="/docs/channels/server-api#send-from-an-h3-or-nitro-handler"}

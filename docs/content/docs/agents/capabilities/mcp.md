@@ -141,7 +141,7 @@ mcp({
 
 `optional: true` leaves the server out, without an unavailable notice, until the Connection is connected. `tools` exposes only the named server tools. It also works on a client config without a Connection.
 
-Outside an Agent, `callMcpTool()` from `vite-hub/agent/mcp` calls one tool through the Connection as the `server` actor. Allow it with `access: { server: { read: true, write: ['fetch'] } }`. It returns an `[error, value]` tuple and does not reject for a failed call. `value` is the tool's `structuredContent`, or its text content parsed as JSON when possible.
+Outside an Agent, `callMcpTool()` from `vite-hub/agent/mcp` calls one tool through the Connection as the `server` actor. Allow it with `access: { server: { read: true, write: ['fetch'] } }`. It returns a `Result` from `vite-hub/runtime`, `[error, undefined]` or `[undefined, value]`, and does not reject for a failed call. `value` is the tool's `structuredContent`, or its text content parsed as JSON when possible.
 
 ```ts [server/api/crm/search.get.ts]
 import { callMcpTool } from 'vite-hub/agent/mcp'
@@ -154,7 +154,7 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-`error` is set when the server cannot be reached or the tool reports an error. Approval-gated writes fail like the Agent client. A tool that is not in `tools` returns an `MCP_TOOL_NOT_FOUND` error. `retries` repeats a failed call after 100 ms, then 200 ms, and so on, and stops when `signal` aborts. It returns the last error.
+`error` is set when the server cannot be reached, the tool reports an error, the call times out, or `signal` aborts. Approval-gated writes fail like the Agent client. A tool that is not in `tools` returns an `MCP_TOOL_NOT_FOUND` error. See [callMcpTool() errors](#callmcptool-errors) for each code. `retries` repeats a failed call after 100 ms, then 200 ms, and so on, and stops when `signal` aborts. It returns the last error.
 
 Each request maps to a Connection Operation id:
 
@@ -336,6 +336,30 @@ Confirm that the Capability fails before model execution.
 
 Cover MCP usage guidance in Agent Driver Instructions with explicit Capability coverage blocks. Keep MCP tool descriptions with the MCP Server because they are structured tool contracts.
 
+## callMcpTool() errors
+
+`callMcpTool()` returns these errors. Each one has `code`, `why`, `fix`, and `docs`. `error.cause` keeps the lower-level error, and `JSON.stringify(error)` does not include it.
+
+### MCP_SERVER_FAILED
+
+The client could not connect, the server failed, or the server entry is not valid. Read `error.cause` for the connection or server error. Retry when the server is available, or pass `retries`.
+
+### MCP_TOOL_CALL_FAILED
+
+The tool answered with `isError: true`. `error.why` has the start of the tool's text content. Change the arguments or retry.
+
+### MCP_TOOL_CANCELLED
+
+The `signal` option aborted the call. `error.cause` is the abort reason.
+
+### MCP_TOOL_NOT_FOUND
+
+The server has no tool with this name, or the server entry lists `tools` without it.
+
+### MCP_TOOL_TIMEOUT
+
+The tool did not answer within the `timeout` option, in milliseconds. Raise `timeout`, or pass `retries`.
+
 ## Related pages
 
 - [Official capabilities](/docs/agents/capabilities/official)
@@ -349,4 +373,4 @@ Open an Invocation's **Capabilities** tab and select **MCP**. Each configured se
 
 The snapshot distinguishes resolved servers, skipped optional servers, and resolution or discovery failures. Resolved servers can have no tools. These are observations from the selected Invocation, not current connection health. Opening the view does not reconnect or call tools. MCP resources mounted through Sources are outside this Capability's inventory.
 
-Enable `configuration: 'content'` on the Invocation journal to retain the custom view and tool contracts. Missing schemas are shown as not recorded. The built-in Console journal enables configuration capture.
+Enable `configuration: 'content'` on the Invocation journal to retain the custom view and tool contracts. Missing schemas are shown as not recorded. The default Agent journal enables configuration capture.
