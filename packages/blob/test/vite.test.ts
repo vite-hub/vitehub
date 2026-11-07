@@ -1,15 +1,16 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { build as bundle } from "esbuild"
+import { installStandardContext } from "@vite-hub/runtime/h3"
 import { H3, setResponseHeader } from "h3"
 import { afterAll, describe, expect, it, vi } from "vitest"
+import { resolveConfig as resolveViteConfig } from "vite"
 import { createProviderDeploymentOutputGenerationState, getProviderRuntimeModule, getVercelRuntimePackages, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
@@ -29,46 +30,19 @@ async function temporaryDirectory(prefix: string) {
 
 const execFileAsync = promisify(execFile)
 const workspaceRoot = resolve(import.meta.dirname, "../../..")
-const internalCloudflareEnv = resolve(workspaceRoot, "packages/internal/src/runtime/cloudflare-env.ts")
-const nuxtH3 = join(dirname(createRequire(import.meta.resolve("nitropack/package.json")).resolve("h3/package.json")), "dist/index.mjs")
-
-// The `h3` that a generated route resolves from the app can be another major version than the host runs. A Nuxt 4 app
-// that does not depend on `h3` resolves H3 2 while Nitro 2 runs H3 1, so resolve the other version here.
-function appRootH3(nuxt: boolean): import("esbuild").Plugin {
-  return {
-    name: "test-app-root-h3",
-    setup(build) {
-      build.onResolve({ filter: /^h3$/ }, () => ({ path: nuxt ? fileURLToPath(import.meta.resolve("h3")) : nuxtH3 }))
-    },
-  }
-}
-
-async function serveRouteRequest(artifactFile: string, nuxt: boolean, routeBase = "", priorCacheControl?: string) {
+/** Mount the generated Fetchable route like Nitro: Standard Context first, then middleware, then the route. */
+async function serveRouteRequest(artifactFile: string, routeBase = "", priorCacheControl?: string, baseURL = "", requestBase = routeBase) {
+  routeBase = routeBase.replace(/\/+$/, "").replace(/\[([^\]]+)\]/g, ":$1")
+  requestBase = requestBase.replace(/\/+$/, "")
   const artifact = await import(pathToFileURL(artifactFile).href) as {
-    default: (event: unknown) => Promise<Response>
+    default: { fetch: (request: Request) => Promise<Response> }
   }
-  if (nuxt) {
-    const { createApp, setResponseHeader: setHeader, toWebHandler } = await import(pathToFileURL(nuxtH3).href) as {
-      createApp: () => { use: (route: string, handler: (event: { context: { params?: { _: string } }, path: string }) => unknown) => void }
-      setResponseHeader: (event: unknown, name: string, value: string) => void
-      toWebHandler: (app: unknown) => (request: Request) => Promise<Response>
-    }
-    const app = createApp()
-    app.use("/", (event) => {
-      if (priorCacheControl) setHeader(event, "Cache-Control", priorCacheControl)
-      event.context.params = { _: event.path.slice(routeBase.length + 1).split("?")[0] }
-      return artifact.default(event)
-    })
-    const fetch = toWebHandler(app)
-    return (pathname: string, headers: Record<string, string> = {}, method = "GET") => fetch(new Request(`http://localhost${routeBase}/${pathname}`, { headers, method }))
-  }
-  const app = new H3()
-  app.all("/**", (event) => {
+  const app = new H3({ onRequest: event => installStandardContext(event) })
+  app.use((event) => {
     if (priorCacheControl) setResponseHeader(event, "Cache-Control", priorCacheControl)
-    event.context.params = { _: event.url.pathname.slice(routeBase.length + 1) }
-    return artifact.default(event)
   })
-  return (pathname: string, headers: Record<string, string> = {}, method = "GET") => app.fetch(new Request(`http://localhost${routeBase}/${pathname}`, { headers, method }))
+  app.all(`${baseURL}${routeBase}/**`, artifact.default)
+  return (pathname: string, headers: Record<string, string> = {}, method = "GET") => app.fetch(new Request(`http://localhost${baseURL}${requestBase}/${pathname}`, { headers, method }))
 }
 
 function driverImports(source: string) {
@@ -729,12 +703,12 @@ describe("hubBlob", () => {
     expect(() => config(userConfig, { command: "build" })).toThrow("Cloudflare binding \"BLOB\" from blob is already assigned to an incompatible resource.")
   })
 
-  it("bundles Cloudflare middleware with Nuxt's H3 and preserves each host's event bindings", async () => {
+  it("bundles Cloudflare middleware and reads Standard Context bindings on H3 requests", async () => {
     const tempDir = join(workspaceRoot, ".cache/blob-middleware")
     await mkdir(tempDir, { recursive: true })
-    const root = await mkdtemp(join(tempDir, "nuxt-"))
+    const root = await mkdtemp(join(tempDir, "nitro-"))
     try {
-      await writeFile(join(root, "package.json"), JSON.stringify({ name: "blob-nuxt-middleware", private: true }))
+      await writeFile(join(root, "package.json"), JSON.stringify({ name: "blob-nitro-middleware", private: true }))
       const plugin = hubBlob({ driver: "cloudflare-r2", bucketName: "assets" })
       const config: { build: { outDir: string }, nitro: { preset: string, handlers?: Array<{ handler: string, route?: string }> }, root: string } = {
         build: { outDir: "dist" }, nitro: { preset: "cloudflare_module" }, root,
@@ -747,7 +721,7 @@ describe("hubBlob", () => {
           contents: `export { default as middleware } from ${JSON.stringify(middleware)}; export { state } from '@vite-hub/blob/runtime/state'`,
           resolveDir: root,
         },
-        alias: { nitro: nitroEntry, h3: nuxtH3 },
+        alias: { nitro: nitroEntry, h3: fileURLToPath(import.meta.resolve("h3")) },
         bundle: true,
         format: "esm",
         packages: "external",
@@ -761,8 +735,7 @@ describe("hubBlob", () => {
               resolveDir: root,
               contents: args.path === "cloudflare:workers"
                 ? 'export const env = { source: "module" }'
-                // The real shared helper, so the test covers each host's event shape.
-                : `export { installCloudflareRequestEnv } from ${JSON.stringify(internalCloudflareEnv)}; import { getActiveCloudflareEnv } from ${JSON.stringify(internalCloudflareEnv)}; export const state = { get env() { return getActiveCloudflareEnv() } }`,
+                : 'export const state = {}; export function setActiveCloudflareEnv(env) { state.env = env }; export function getRequestCloudflareEnv(event) { return event["~standard"].runtime?.cloudflare?.env }',
             }))
             // Isolate Nitro's public entry and its H3 contract from unrelated runtime internals.
             build.onResolve({ filter: /^\./ }, args => args.importer === nitroEntry ? { path: args.path, external: true } : undefined)
@@ -774,30 +747,22 @@ describe("hubBlob", () => {
         state: { env: unknown }
       }
       const env = { source: "request" }
-      for (const event of [
-        { env },
-        { context: { cloudflare: { env } } },
-        { context: { _platform: { cloudflare: { env } } } },
-        { req: { runtime: { cloudflare: { env } } } },
-        { node: { req: { runtime: { cloudflare: { env } } } } },
-      ]) {
-        expect(handle(event)).toBeUndefined()
-        expect(state.env).toBe(env)
-      }
-      handle({})
+      expect(handle({ "~standard": { runtime: { cloudflare: { env } } } })).toBeUndefined()
+      expect(state.env).toBe(env)
+      handle({ "~standard": { runtime: {} } })
       expect(state.env).toEqual({ source: "module" })
 
-      const { createApp, toWebHandler } = await import(pathToFileURL(nuxtH3).href) as {
-        createApp: () => { use: (route: string, handler: (event: unknown) => unknown) => void }
-        toWebHandler: (app: unknown) => (request: Request) => Promise<Response>
-      }
-      const app = createApp()
-      app.use("/", (event) => { Object.assign(event as object, { context: { cloudflare: { env } } }) })
       const registration = config.nitro.handlers?.find(handler => handler.handler === middleware)
       expect(registration).toBeDefined()
-      app.use(registration!.route || "/", handle)
-      app.use("/ordinary-route", () => state.env)
-      const response = await toWebHandler(app)(new Request("http://localhost/ordinary-route"))
+      const app = new H3({
+        onRequest(event) {
+          event.context.cloudflare = { env }
+          // The ViteHub Nitro plugin sets Standard Context in the `request` hook, before middleware.
+          installStandardContext(event)
+          handle(event)
+        },
+      }).get("/ordinary-route", () => state.env)
+      const response = await app.fetch(new Request("http://localhost/ordinary-route"))
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual(env)
     }
@@ -831,9 +796,10 @@ describe("hubBlob", () => {
       expect(nitroPlugin).toContain("setActiveCloudflareEnv(vitehubEnv)")
       expect(nitroPlugin).not.toContain("hooks.hook('request'")
       const middleware = await readFile(join(root, ".vitehub", "nitro", "blob", "middleware.ts"), "utf8")
-      expect(middleware).toContain("export default function vitehubBlobMiddleware(event: unknown)")
+      expect(middleware).toContain("export default function vitehubBlobMiddleware(event: Parameters<typeof getRequestCloudflareEnv>[0])")
       expect(middleware).not.toContain("from 'nitro'")
-      expect(middleware).toContain("installCloudflareRequestEnv(event, vitehubEnv as unknown as Record<string, unknown>)")
+      expect(middleware).toContain("setActiveCloudflareEnv(env)")
+      expect(middleware).toContain("getRequestCloudflareEnv(event) ?? (vitehubEnv as unknown as Record<string, unknown>)")
       expect(middleware).not.toContain("next")
 
       await symlink(join(workspaceRoot, "node_modules"), join(root, "node_modules"), "dir")
@@ -893,7 +859,8 @@ describe("hubBlob", () => {
       expect(nitroPlugin).not.toContain("cloudflare:workers")
       expect(nitroPlugin).toContain('"driver":"cloudflare-r2"')
       expect(middleware).not.toContain("cloudflare:workers")
-      expect(middleware).toContain("installCloudflareRequestEnv(event)")
+      expect(middleware).toContain("const env = getRequestCloudflareEnv(event)")
+      expect(middleware).toContain("if (env) setActiveCloudflareEnv(env)")
       expect(value).toHaveProperty("nitro.handlers", expect.arrayContaining([
         expect.objectContaining({ handler: resolve(root, ".vitehub/nitro/blob/middleware.ts"), middleware: true }),
       ]))
@@ -1035,18 +1002,15 @@ describe("hubBlob", () => {
     const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
     expect(handler).not.toContain("from 'nitro/cache'")
     expect(handler).toContain("const storeName = \"media\"")
-    expect(handler).toContain("const responseHeaders = {\"Cache-Control\":\"public, max-age=300\",\"X-Content-Type-Options\":\"nosniff\"}")
-    // Nuxt resolves `h3` imports from `.vitehub` to H3 2, but its Nitro 2 routes receive H3 1 events.
+    expect(handler).toContain("headers: {\"Cache-Control\":\"public, max-age=300\",\"X-Content-Type-Options\":\"nosniff\"}")
     expect(handler).not.toMatch(/from ['"]h3['"]/)
-    expect(handler).toContain("for (const [name, value] of Object.entries(responseHeaders)) headers.set(name, value)")
-    expect(handler).toContain("blob.store(storeName).serve(event, pathname, options)")
-    expect(handler).toContain("export default serveBlob")
-    expect(handler.indexOf("headers.set(name, value)")).toBeLessThan(
-      handler.indexOf("blob.store(storeName).serve(event, pathname, options)"),
-    )
+    expect(handler).not.toContain("node.res")
+    expect(handler).toContain("blob.store(storeName).serve(request, pathname, options)")
+    expect(handler).toContain("const routeSegments: string[] = [\"assets\"]")
+    expect(handler).toContain("export default { fetch: serveBlob }")
   })
 
-  const serveCacheCases: Array<{ expectedCacheControl: string, headers: Record<string, string> | undefined, name: string }> = [
+  const serveCacheCases: Array<{ baseURL?: string, expectedCacheControl: string, headers?: Record<string, string>, name: string, requestRoute?: string, route?: string }> = [
     {
       expectedCacheControl: "public, max-age=0, s-maxage=0",
       headers: undefined,
@@ -1072,13 +1036,22 @@ describe("hubBlob", () => {
       headers: { "cache-control": "public, max-age=300", "Cache-Control": "private, max-age=60" },
       name: "duplicate canonical last",
     },
+    ...[
+      { name: "root route behind a base URL", route: "/", baseURL: "/app" },
+      { name: "route repeated in the base URL", route: "/assets", baseURL: "/assets" },
+      { name: "overlapping route segments", route: "/api/files", baseURL: "/api/files/api" },
+      { name: "literal space in the route", route: "/my files", baseURL: "/app" },
+      { name: "encoded space in the route", route: "/my%20files", baseURL: "/app" },
+      { name: "parameterized route", route: "/files/:tenant", baseURL: "/files/acme", requestRoute: "/files/acme" },
+      { name: "bracket parameter route", route: "/files/[tenant]", baseURL: "/files/acme", requestRoute: "/files/acme" },
+    ].map(test => ({ ...test, expectedCacheControl: "public, max-age=0, s-maxage=0" })),
   ]
-  it.each(serveCacheCases.flatMap(config => [false, true].map(nuxt => ({ ...config, nuxt }))))("preserves non-text bytes with $name cache headers (Nuxt: $nuxt)", async ({ expectedCacheControl, headers, nuxt }) => {
+  it.each(serveCacheCases)("preserves the Blob path and response with $name", async ({ expectedCacheControl, headers, route: serveRoute = "/api/_vitehub/blob", baseURL = "", requestRoute = serveRoute }) => {
     const root = await temporaryDirectory("vitehub-blob-cached-route-")
     try {
       const plugin = hubBlob({
         driver: "fs",
-        serve: { headers },
+        serve: { headers, route: serveRoute },
       }, { importBase: "virtual:blob-test" })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
         build: { outDir: "dist" },
@@ -1094,7 +1067,7 @@ describe("hubBlob", () => {
         nodePaths: [join(workspaceRoot, "node_modules")],
         outfile: artifactFile,
         platform: "node",
-        plugins: [appRootH3(nuxt), {
+        plugins: [{
           name: "blob-route-stub",
           setup(build) {
             build.onResolve({ filter: /^virtual:blob-test$/ }, () => ({
@@ -1108,6 +1081,7 @@ describe("hubBlob", () => {
                 "const storage = createBlobStorage({",
                 "  name: 'blob-route-test',",
                 "  async head(pathname) {",
+                "    globalThis.__vitehubBlobHeadPaths?.push(pathname)",
                 "    if (pathname === 'missing.bin') return null",
                 "    return { pathname, contentType: 'application/octet-stream', size: 5, httpEtag: '\"binary-v1\"', uploadedAt: new Date(0), httpMetadata: {}, customMetadata: {} }",
                 "  },",
@@ -1126,7 +1100,7 @@ describe("hubBlob", () => {
         target: "node24",
       })
 
-      const request = await serveRouteRequest(artifactFile, nuxt)
+      const request = await serveRouteRequest(artifactFile, serveRoute, undefined, baseURL, requestRoute)
       const response = await request("binary.bin")
 
       expect(response.headers.get("Cache-Control")).toBe(expectedCacheControl)
@@ -1167,13 +1141,30 @@ describe("hubBlob", () => {
       const missing = await request("missing.bin", { "If-None-Match": "*" })
       expect(missing.status).toBe(404)
       expect(missing.headers.get("Cache-Control")).toBeNull()
+
+      // The router keeps the raw catch-all after the baseURL; `serve()` decodes it once.
+      const paths: string[] = []
+      Reflect.set(globalThis, "__vitehubBlobHeadPaths", paths)
+      const withBase = await serveRouteRequest(artifactFile, serveRoute, undefined, baseURL || "/app", requestRoute)
+      expect((await withBase("dir/a%20b%2Fc.bin", {}, "HEAD")).status).toBe(200)
+      expect(paths).toEqual(["dir/a b/c.bin"])
+      expect((await withBase("")).status).toBe(404)
+
+      // Outside Nitro, the route copies the status and the headers that `serve()` sets to the Response.
+      const { default: route } = await import(pathToFileURL(artifactFile).href) as { default: { fetch: (request: Request) => Promise<Response> } }
+      const direct = await route.fetch(new Request(`http://localhost${requestRoute.replace(/\/+$/, "")}/binary.bin`, { headers: { Range: "bytes=1-2" } }))
+      expect(direct.status).toBe(206)
+      expect(direct.headers.get("Content-Range")).toBe("bytes 1-2/5")
+      expect(direct.headers.get("Cache-Control")).toBe(expectedCacheControl)
+      expect(new Uint8Array(await direct.arrayBuffer())).toEqual(new Uint8Array([128, 255]))
+      Reflect.deleteProperty(globalThis, "__vitehubBlobHeadPaths")
     }
     finally {
       await rm(root, { force: true, recursive: true })
     }
   })
 
-  describe.each([false, true])("serve authorization (Nuxt: %s)", (nuxt) => {
+  describe("serve authorization", () => {
     const authPlugin = { name: "@vite-hub/auth/vite", api: { getConfig: () => ({ definition: {} }) } }
 
     async function bundleServeRoute(root: string, priorCacheControl?: string, route = "/photos") {
@@ -1186,7 +1177,7 @@ describe("hubBlob", () => {
         nodePaths: [join(workspaceRoot, "node_modules")],
         outfile: artifactFile,
         platform: "node",
-        plugins: [appRootH3(nuxt), {
+        plugins: [{
           name: "blob-authorize-route-stub",
           setup(build) {
             build.onResolve({ filter: /^virtual:blob-test$/ }, args => ({
@@ -1242,7 +1233,7 @@ describe("hubBlob", () => {
         }],
         target: "node24",
       })
-      return await serveRouteRequest(artifactFile, nuxt, route, priorCacheControl)
+      return await serveRouteRequest(artifactFile, route, priorCacheControl)
     }
 
     it("requires a session before the store read and before conditional handling", async () => {
@@ -1258,7 +1249,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("withAuthorization(true, (event: RouteEvent) => serveBlob(event))")
+        expect(handler).toContain("export default { fetch: withAuthorization(true, (request: Request) => serveBlob(request)) }")
 
         const request = await bundleServeRoute(root, "public, max-age=3600")
         const anonymous = await request("u1/meal.jpg")
@@ -1311,7 +1302,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain(`import { authorize } from ${JSON.stringify(join(root, "server", `blob${extension}`))}`)
-        expect(handler).toContain("withAuthorization(authorize, (event: RouteEvent) => serveBlob(event))")
+        expect(handler).toContain("export default { fetch: withAuthorization(authorize, (request: Request) => serveBlob(request)) }")
 
         const request = await bundleServeRoute(root)
         const own = await request("u1/meal.jpg", { cookie: "session=u1" })
@@ -1350,7 +1341,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).toContain("import { withAnonymousAuthorization } from \"#vitehub/auth/server\"")
-        expect(handler).toContain("withAnonymousAuthorization(authorize, (event: RouteEvent) => serveBlob(event))")
+        expect(handler).toContain("export default { fetch: withAnonymousAuthorization(authorize, (request: Request) => serveBlob(request)) }")
 
         const request = await bundleServeRoute(root, "public, max-age=3600", "/f")
         const shared = await request("public/meal.jpg")
@@ -1436,7 +1427,7 @@ describe("hubBlob", () => {
         } as never)
         const handler = await readFile(join(root, ".vitehub", "blob", "serve-route.ts"), "utf8")
         expect(handler).not.toContain(JSON.stringify(join(root, "server", "blob.ts")))
-        expect(handler).toContain("withAuthorization(true, (event: RouteEvent) => serveBlob(event))")
+        expect(handler).toContain("export default { fetch: withAuthorization(true, (request: Request) => serveBlob(request)) }")
       }
       finally {
         await rm(root, { force: true, recursive: true })
@@ -1464,5 +1455,128 @@ describe("hubBlob", () => {
     expect(middleware).toContain("from 'vite-hub/_internal/blob/runtime/state'")
     expect(handler).toContain("from 'vite-hub/_internal/blob'")
     expect(`${nitroPlugin}\n${middleware}\n${handler}`).not.toContain("@vite-hub/blob")
+  })
+})
+
+describe("hubBlob in vite dev", () => {
+  async function resolveConfig(plugin: ReturnType<typeof hubBlob>, command: "build" | "serve", nitro: Record<string, unknown> = {}) {
+    const root = await temporaryDirectory("vitehub-blob-dev-remote-")
+    await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, command, nitro, plugins: [{ name: "nitro:main" }], root } as never)
+    return root
+  }
+
+  it.each([
+    ["vercel", { driver: "vercel-blob" }, false],
+    ["vercel", { driver: "vercel-blob" }, true],
+    ["netlify", { driver: "netlify-blobs", name: "vitehub-blob" }, false],
+    ["netlify", { driver: "netlify-blobs", name: "vitehub-blob" }, true],
+    ["cloudflare", { driver: "cloudflare-r2" }, false],
+    ["cloudflare", { driver: "cloudflare-r2" }, true],
+  ] as const)("keeps the %s preset (%o, remote=%s) when application config replaces Blob options", async (preset, options, remote) => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "")
+    vi.stubEnv("BLOB_STORE_ID", "")
+    try {
+      const plugin = hubBlob(options, { presetDriver: effective => effective === options })
+      if (plugin.config && typeof plugin.config !== "function") plugin.config.order = "post"
+      const root = await temporaryDirectory("vitehub-blob-app-remote-")
+      await resolveViteConfig({
+        configFile: false,
+        logLevel: "silent",
+        plugins: [
+          { name: "app-blob-config", config: () => ({ blob: { remote }, vitehub: { host: preset } }) },
+          plugin,
+        ],
+        root,
+      }, "serve")
+
+      const developmentDriver = preset === "vercel" && !remote ? "fs" : options.driver
+      expect(plugin.api.getConfig().blob).toMatchObject({
+        store: { driver: developmentDriver, ...(remote ? { remote: true } : {}) },
+      })
+      const runtime = await readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
+      expect(runtime).toContain(`/drivers/${developmentDriver === "vercel-blob" ? "vercel" : developmentDriver === "cloudflare-r2" ? "cloudflare" : developmentDriver}`)
+      const [inspector] = plugin.vitehub.inspect!().definitions!
+      expect(await inspector?.list()).toMatchObject([{ fields: [{
+        label: "Development",
+        value: remote ? expect.stringContaining("Remote.") : preset === "netlify" ? expect.stringContaining("configured `netlify-blobs`") : expect.stringContaining("Local."),
+      }] }])
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("keeps a Vercel Blob token in env out of the dev runtime", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "secret-token")
+    try {
+      const plugin = hubBlob()
+      const root = await resolveConfig(plugin, "serve")
+
+      expect(plugin.api.getConfig().blob).toMatchObject({ store: { driver: "fs" } })
+      const runtime = await readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
+      expect(runtime).toContain("/drivers/fs")
+      expect(runtime).not.toContain("/drivers/vercel")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("keeps the build on Vercel Blob with or without remote", async () => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "secret-token")
+    try {
+      const runtimes = await Promise.all([hubBlob(), hubBlob({ remote: true })].map(async (plugin) => {
+        const root = await resolveConfig(plugin, "build")
+        return readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
+      }))
+
+      expect(runtimes[0]).toContain("/drivers/vercel")
+      expect(runtimes[1]).toBe(runtimes[0])
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it("gives the Cloudflare dev plugin a local fs fallback", async () => {
+    const root = await resolveConfig(hubBlob(), "serve", { preset: "cloudflare_module" })
+
+    const nitroPlugin = await readFile(join(root, ".vitehub", "nitro", "blob", "plugin.ts"), "utf8")
+    expect(nitroPlugin).toContain('"localFallback":{"base":".vitehub/data/blob","driver":"fs"}')
+  })
+
+  it("gives the generated dev runtime of a vitehub() R2 store a local fs fallback", async () => {
+    const base = await temporaryDirectory("vitehub-blob-dev-fallback-")
+    vi.stubEnv("BLOB_FS_BASE", base)
+    try {
+      const root = await resolveConfig(hubBlob({ bucketName: "app-blob", driver: "cloudflare-r2" }, { presetDriver: true }), "serve")
+      const runtime = await import(pathToFileURL(join(root, ".vitehub", "nitro", "blob", "runtime.mjs")).href) as { blob: import("../src/types.ts").BlobStorage }
+
+      const [error] = await runtime.blob.put("hello.txt", "hello")
+
+      expect(error).toBeUndefined()
+      expect(await readFile(join(base, "hello.txt"), "utf8")).toBe("hello")
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it.each([
+    [{ remote: true }, "Remote. `vite dev` uses the real store, so writes change real data."],
+    [undefined, "Local. `vite dev` uses the `fs` driver in .vitehub/data/blob."],
+  ] as const)("shows the development store of %o in inspect", async (options, development) => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "secret-token")
+    try {
+      const plugin = hubBlob(options)
+      await resolveConfig(plugin, "serve")
+      const [inspector] = plugin.vitehub.inspect!().definitions!
+
+      expect(inspector?.kind).toBe("blob")
+      expect(await inspector?.list()).toEqual([{ fields: [{ label: "Development", value: development }], file: "vite.config", name: "default", source: "blob config" }])
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
   })
 })

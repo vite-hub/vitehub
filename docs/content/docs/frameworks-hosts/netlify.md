@@ -43,7 +43,7 @@ export default defineConfig({
   plugins: [
     vitehub({
       host: 'netlify',
-      agent: true,
+      agent: { invocations: false },
       blob: true,
     }),
     hubSchedule({ providerOutput: 'standalone' }),
@@ -52,6 +52,8 @@ export default defineConfig({
 ```
 
 The `netlify` host selects the Netlify Blobs driver and the Agent function output. Each static Schedule Definition generates a function such as `.netlify/v1/functions/vitehub-schedule-heartbeat.mjs`.
+
+The standalone Agent function does not install an app-wide Invocation journal. Set `agent.invocations: false` and configure `invocations` on each Agent Definition when records are needed. An omitted or configured app-wide journal fails with `VITE_HUB_R0132`.
 
 ## Generated functions
 

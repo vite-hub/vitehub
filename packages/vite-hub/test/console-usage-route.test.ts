@@ -9,6 +9,7 @@ import { installConsoleAgentDefinitions } from "../src/console/runtime/server/ag
 import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
 import { allowed } from "./support/console-access.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { consoleEvent } from "./console-event.ts"
 
 const usageHandler = allowed(usageHandlerRoute)
 
@@ -62,10 +63,7 @@ it.each([false, true].flatMap(invoke => pricingCases.map(pricing => ({ ...pricin
     }], { projectRoot: process.cwd(), invoke })
 
     for (const query of ["", "?agent=usage-agent"]) {
-      expect(await usageHandler({
-        method: "GET",
-        req: { url: `http://localhost/api/_vitehub/console/usage${query}` },
-      })).toMatchObject({ available: false, costSupported })
+      expect(await usageHandler(consoleEvent({ url: `http://localhost/api/_vitehub/console/usage${query}` }))).toMatchObject({ available: false, costSupported })
     }
   },
 )
@@ -105,9 +103,6 @@ it.each([false, true])("keeps provider-recorded cost when pricing is disabled an
   }], { projectRoot: process.cwd(), invoke })
 
   for (const query of ["", "?agent=usage-agent"]) {
-    expect(await usageHandler({
-      method: "GET",
-      req: { url: `http://localhost/api/_vitehub/console/usage${query}` },
-    })).toMatchObject({ costSupported: true, totals: { costUsd: "0.01", costEstimated: false } })
+    expect(await usageHandler(consoleEvent({ url: `http://localhost/api/_vitehub/console/usage${query}` }))).toMatchObject({ costSupported: true, totals: { costUsd: "0.01", costEstimated: false } })
   }
 })

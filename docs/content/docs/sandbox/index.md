@@ -8,7 +8,7 @@ icon: i-lucide-terminal-square
 ---
 
 ::product-hero{tagline="Run code in an isolated cloud machine on Vercel or Cloudflare, and get the result in your route." hosts="Vercel, Cloudflare"}
-  :::product-files
+  :::product-files{feature="sandboxTask"}
   ```ts [server/sandbox-tasks/pixels/index.ts]
   type ImageSize = { width: number, height: number }
 
@@ -55,11 +55,13 @@ icon: i-lucide-terminal-square
   import { defineConfig } from 'vite'
   import { vitehub } from 'vite-hub'
 
-  // The Vercel host uses Vercel Sandbox.
-  // Use host 'cloudflare' for Cloudflare Sandbox.
   export default defineConfig({
     plugins: [
-      vitehub({ host: 'vercel', sandboxTask: true }),
+      vitehub({
+        host: 'vercel',
+        // Each run starts a Vercel Sandbox
+        sandboxTask: true,
+      }),
     ],
   })
   ```

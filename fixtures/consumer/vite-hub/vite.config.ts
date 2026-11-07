@@ -34,7 +34,7 @@ export default defineConfig({
           sandboxTask: host === "vercel" || host === "cloudflare",
         }
       : {
-          agent: true,
+          agent: host === "netlify" ? { invocations: false } : true,
           workflow: host === "netlify" ? false : true,
           workspace: process.env.VITEHUB_CONSUMER_DISABLE_WORKSPACE !== "1",
         }),

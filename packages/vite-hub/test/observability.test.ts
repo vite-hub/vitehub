@@ -90,8 +90,8 @@ describe("vitehub({ observability })", () => {
   })
 
   it.each([
-    { host: "netlify" as const, agent: true },
-    { host: "node" as const, agent: { runtime: "deno" as const } },
+    { host: "netlify" as const, agent: { invocations: false as const } },
+    { host: "node" as const, agent: { invocations: false as const, runtime: "deno" as const } },
   ])("rejects standalone Agent output: %j", (target) => {
     const plugin = observabilityPlugin({ ...target, observability: { service: "support" } })
     // SAFETY: The hook reads only the hosting and Agent config supplied through vitehub().

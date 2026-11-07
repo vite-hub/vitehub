@@ -400,6 +400,41 @@ export default ({ mode }) => ({
     expect(stderr.output()).toBe("")
   })
 
+  it("passes positional arguments to the default feature when they name no other feature", async () => {
+    const run = vi.fn(() => 0)
+    const other = vi.fn(() => 0)
+    const config = async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [{ defaultFeature: "pull", features: [{ name: "pull", run }, { name: "other", run: other }], name: "pull" }] } } }],
+      root: "/repo",
+    })
+
+    expect(await runViteHubCli({ args: ["pull", "site", "--dir", "content"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+    expect(await runViteHubCli({ args: ["pull", "other"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+
+    expect(run).toHaveBeenCalledWith(["site", "--dir", "content"], expect.objectContaining({ rootDir: "/repo" }))
+    expect(other).toHaveBeenCalledWith([], expect.anything())
+  })
+
+  it("sends --help to the command of a namespace that is one command", async () => {
+    const run = vi.fn(() => 0)
+    const config = async () => ({ plugins: [{ vitehub: { cli: { namespaces: [{ defaultFeature: "pull", features: [{ name: "pull", run }], name: "pull" }] } } }], root: "/repo" })
+
+    expect(await runViteHubCli({ args: ["pull", "--help"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+
+    expect(run).toHaveBeenCalledWith(["--help"], expect.anything())
+  })
+
+  it("passes a Workspace named like the command to a namespace that is one command", async () => {
+    const run = vi.fn(() => 0)
+    const config = async () => ({ plugins: [{ vitehub: { cli: { namespaces: [{ defaultFeature: "push", features: [{ name: "push", run }], name: "push" }] } } }], root: "/repo" })
+
+    expect(await runViteHubCli({ args: ["push", "push"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+    expect(await runViteHubCli({ args: ["push"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+
+    expect(run).toHaveBeenNthCalledWith(1, ["push"], expect.anything())
+    expect(run).toHaveBeenNthCalledWith(2, [], expect.anything())
+  })
+
   it("reserves the inspect namespace for built-in commands", async () => {
     const stdout = stream()
     const stderr = stream()
@@ -521,6 +556,44 @@ export default ({ mode }) => ({
     expect(stdout.output()).toContain("  blob         Blob commands.")
     expect(stdout.output()).toContain("  inspect")
     expect(stdout.output()).toContain("  provision")
+  })
+
+  it("lists a namespace once when a runtime namespace replaces a project one", async () => {
+    const stdout = stream()
+    const loadConfig = vi.fn(async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [{ description: "Project secrets.", features: [], name: "secret" }] } } }],
+      root: "/repo",
+    }))
+    const runtimeNamespaces = [{ description: "Runtime secrets.", features: [], name: "secret" }]
+
+    expect(await runViteHubCli({ args: ["--help"], cwd: "/app", loadConfig, runtimeNamespaces, stdout })).toBe(0)
+    expect(stdout.output().match(/^  secret /gm)).toHaveLength(1)
+    expect(stdout.output()).toContain("  secret       Runtime secrets.")
+  })
+
+  it("lists project commands in root help", async () => {
+    const stdout = stream()
+    const loadConfig = vi.fn(async () => ({ plugins: [], root: "/repo" }))
+
+    expect(await runViteHubCli({ args: ["--help"], cwd: "/app", loadConfig, stdout })).toBe(0)
+    const help = stdout.output()
+    expect(help).toContain("Project:\n  add          Turn on features")
+    expect(help).toContain("  catalog      List every ViteHub feature")
+    expect(help).toContain("  status       Show the host")
+    expect(help.indexOf("Project:")).toBeLessThan(help.indexOf("Available namespaces:"))
+  })
+
+  it("dispatches setup commands before config loading", async () => {
+    const stdout = stream()
+    const run = vi.fn(async () => 3)
+    const loadConfig = vi.fn(async () => {
+      throw new Error("config must not load")
+    })
+    const commands = [{ description: "Show status.", name: "status", run, usage: "vitehub status" }]
+
+    expect(await runViteHubCli({ args: ["status", "--json"], commands, cwd: "/app", loadConfig, stdout })).toBe(3)
+    expect(run).toHaveBeenCalledWith(["--json"], expect.objectContaining({ cwd: "/app", rootDir: "/app" }))
+    expect(loadConfig).not.toHaveBeenCalled()
   })
 
   it("prints namespace help", async () => {

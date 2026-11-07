@@ -165,13 +165,13 @@ When a person signs in to the app with `auth: 'app'`, or opens the Console, the 
 Return the user from `identify` to use your own login. Return `null` for an anonymous request. When `identify` is configured, it names the user and `authorize` decides what they may do. Comments then reads neither the ViteHub Auth session nor the Console's access, so members, guests, and readers of a share link can comment in an app that also has the Console. The comment operations of the Console, the CLI, and MCP ask `identify` too, with the request of the call, so `authorize` always sees the user that `identify` builds. An agent's call has no request, so it has no user. Without `authorize`, a production build lets nobody in that `identify` names: write the policy.
 
 ```ts [server/comments.ts]
-import { getCookie } from 'h3'
 import { defineComments } from 'vite-hub/comments'
 import { findSession } from './utils/session'
 
 export const comments = defineComments({
+  // `event['~standard'].req` is the Web Request of the call, with its cookies.
   identify: async ({ event }) => {
-    const session = await findSession(getCookie(event, 'sid'))
+    const session = await findSession(event['~standard'].req)
     return session ? { id: session.userId, name: session.name, image: session.avatar } : null
   },
 })
@@ -351,7 +351,7 @@ Stop comment writes while you migrate, including writes from older app instances
 
 **A ViteHub Database.** The migration must go in the migration history, so `vitehub db generate` does not try to change the old table itself:
 
-1. Run `vitehub db generate --custom --name comments_one_model`. It writes an empty SQL migration and the snapshot of the new tables.
+1. Run `vitehub db generate --custom --schema-snapshot --name comments_one_model`. It writes an empty SQL migration and the snapshot of the new tables. Without `--schema-snapshot`, the snapshot is a copy of the previous one, and the next `vitehub db generate` tries to move the tables again.
 2. Print the SQL and put it in that file, one statement before each `--> statement-breakpoint`:
 
 ```bash

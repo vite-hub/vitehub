@@ -14,7 +14,7 @@ describe("feature catalog parity with vite-hub", () => {
   it("names the same packages as optionalFeaturePackages", () => {
     for (const id of featureIds) {
       const expected = id === "observability"
-        ? optionalFeaturePackages.agent
+        ? [...optionalFeaturePackages.agent, "evlog"]
         : (optionalFeaturePackages as Partial<Record<FeatureId, readonly string[]>>)[id] ?? []
       expect(features[id].packages, id).toEqual(expected)
     }
