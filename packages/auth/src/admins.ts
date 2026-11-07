@@ -1,4 +1,4 @@
-import { createAuthMiddleware } from "better-auth/api"
+import { createAuthMiddleware, getSessionFromCtx } from "better-auth/api"
 import { createSessionStore, expireCookie } from "better-auth/cookies"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { authCloudflareEnv } from "./request.ts"
@@ -83,19 +83,21 @@ export function createAdminsPlugin(admins: readonly AdminAccount[], plugins: rea
   const role = firstAdminRole(admin)
   const replaced = defaultRole(admin)
   const listed = (account: { providerId: string, accountId: string }) => admins.some(entry => entry.providerId === account.providerId && entry.accountId === account.accountId)
+  const linkedAdminContexts = new WeakSet<object>()
   return {
     id: adminsPluginId,
     options: { admins: admins.map(formatAdminAccount), role },
     hooks: {
       after: [{
-        matcher: ctx => Boolean(ctx.context.newSession && ctx.context.options.session?.cookieCache?.enabled),
+        matcher: ctx => Boolean((ctx.context.newSession || linkedAdminContexts.has(ctx.context)) && ctx.context.options.session?.cookieCache?.enabled),
         handler: createAuthMiddleware(async (ctx) => {
-          const session = ctx.context.newSession
+          const session = ctx.context.newSession ?? await getSessionFromCtx(ctx, { disableRefresh: true })
           if (!session) return
           const user = await ctx.context.internalAdapter.findUserById(session.user.id)
           if (!user || Reflect.get(user, "role") === Reflect.get(session.user, "role")) return
           Reflect.set(session.user, "role", Reflect.get(user, "role"))
           // OAuth serializes the user loaded before the database hooks grant the role.
+          // Linking keeps the existing session, whose incoming cookie can also have the old role.
           // Drop that cache so get-session reads the granted role, including old cookie chunks.
           const cookie = ctx.context.authCookies.sessionData
           expireCookie(ctx, cookie)
@@ -117,7 +119,15 @@ export function createAdminsPlugin(admins: readonly AdminAccount[], plugins: rea
       return {
         options: {
           databaseHooks: {
-            account: { create: { after: async (account) => { if (listed(account)) await grant(account.userId) } } },
+            account: {
+              create: {
+                after: async (account, endpoint) => {
+                  if (!listed(account)) return
+                  await grant(account.userId)
+                  if (endpoint) linkedAdminContexts.add(endpoint.context)
+                },
+              },
+            },
             session: {
               create: {
                 after: async (session) => {

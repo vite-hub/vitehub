@@ -40,30 +40,38 @@ async function signUp(auth: ReturnType<typeof createAuthForRequest>, email: stri
   return (body as { user: { id: string, role?: string } }).user
 }
 
-/** Runs Better Auth's GitHub sign-in: the redirect, then the callback with GitHub's answers stubbed. */
-async function signInWithGitHub(auth: ReturnType<typeof createAuthForRequest>) {
-  const start = await auth.handler(new Request(`${origin}/api/auth/sign-in/social`, {
+/** Runs Better Auth's GitHub sign-in or linking flow with GitHub's answers stubbed. */
+async function githubOAuth(auth: ReturnType<typeof createAuthForRequest>, signedIn?: Response) {
+  const previous = signedIn ? [signedIn] : []
+  const start = await auth.handler(new Request(`${origin}/api/auth/${signedIn ? "link-social" : "sign-in/social"}`, {
     body: JSON.stringify({ provider: "github", callbackURL: "/" }),
-    headers: { "content-type": "application/json", origin },
+    headers: { "content-type": "application/json", origin, cookie: cookieHeader(...previous) },
     method: "POST",
   }))
   expect(start.status).toBe(200)
   const { url } = await start.json() as { url: string }
   const state = new URL(url).searchParams.get("state")
-  const cookie = start.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+  const cookie = cookieHeader(...previous, start)
   const callback = await auth.handler(new Request(`${origin}/api/auth/callback/github?code=code&state=${state}`, { headers: { cookie } }))
   expect(callback.status).toBe(302)
   expect(callback.headers.get("location")).not.toContain("error")
   return callback
 }
 
-async function sessionOf(auth: ReturnType<typeof createAuthForRequest>, response: Response) {
+function cookieHeader(...responses: Response[]) {
   // Browsers keep the last value when a response writes a cookie more than once.
-  const cookies = new Map(response.headers.getSetCookie().map(value => {
+  const cookies = new Map<string, string>()
+  for (const value of responses.flatMap(response => response.headers.getSetCookie())) {
     const pair = value.split(";")[0]!
-    return [pair.slice(0, pair.indexOf("=")), pair]
-  }))
-  const session = await auth.handler(new Request(`${origin}/api/auth/get-session`, { headers: { cookie: [...cookies.values()].join("; ") } }))
+    const name = pair.slice(0, pair.indexOf("="))
+    if (/;\s*max-age=0(?:;|$)/i.test(value)) cookies.delete(name)
+    else cookies.set(name, pair)
+  }
+  return [...cookies.values()].join("; ")
+}
+
+async function sessionOf(auth: ReturnType<typeof createAuthForRequest>, ...responses: Response[]) {
+  const session = await auth.handler(new Request(`${origin}/api/auth/get-session`, { headers: { cookie: cookieHeader(...responses) } }))
   expect(session.status).toBe(200)
   return await session.json() as { user: { role?: string } }
 }
@@ -85,7 +93,7 @@ describe("VITEHUB_ADMINS", () => {
       socialProviders: { github },
       plugins: [admin()],
     }), new Request(origin))
-    const response = await signInWithGitHub(auth)
+    const response = await githubOAuth(auth)
     expect(await roleOf(auth, "owner@example.com")).toBe("admin")
     if (strategy) expect(response.headers.getSetCookie().some(cookie => cookie.includes("better-auth.session_data="))).toBe(true)
     expect((await sessionOf(auth, response)).user.role).toBe("admin")
@@ -101,7 +109,7 @@ describe("VITEHUB_ADMINS", () => {
     vi.stubEnv("VITEHUB_ADMINS", "github:22072217")
     stubGitHub({ id: 1, email: "guest@example.com" })
     const auth = createAuthForRequest(defineAuth({ socialProviders: { github }, plugins: [admin()] }), new Request(origin))
-    await signInWithGitHub(auth)
+    await githubOAuth(auth)
     expect(await roleOf(auth, "guest@example.com")).toBe("user")
   })
 
@@ -114,15 +122,40 @@ describe("VITEHUB_ADMINS", () => {
       plugins: [admin()],
     })
     const before = createAuthForRequest(definition, new Request(origin))
-    const first = await signInWithGitHub(before)
+    const first = await githubOAuth(before)
     expect(await roleOf(before, "owner@example.com")).toBe("user")
     expect((await sessionOf(before, first)).user.role).toBe("user")
     vi.stubEnv("VITEHUB_ADMINS", "github:22072217")
     const after = createAuthForRequest(definition, new Request(origin))
-    const response = await signInWithGitHub(after)
+    const response = await githubOAuth(after)
     expect(await roleOf(after, "owner@example.com")).toBe("admin")
     if (strategy) expect(response.headers.getSetCookie().some(cookie => cookie.includes("better-auth.session_data="))).toBe(true)
     expect((await sessionOf(after, response)).user.role).toBe("admin")
+  })
+
+  it.each([["compact", false], ["jwt", false], ["jwe", false], ["compact", true]] as const)("updates the active session after linking a listed account (cache: %s, chunked: %s)", async (strategy, chunked) => {
+    vi.stubEnv("VITEHUB_ADMINS", "github:22072217")
+    stubGitHub({ id: 22072217, email: "owner@example.com" })
+    const auth = createAuthForRequest(defineAuth({
+      emailAndPassword: { enabled: true },
+      runtime: { database: memoryAdapter({ account: [], session: [], user: [], verification: [] }) },
+      session: { cookieCache: { enabled: true, strategy } },
+      socialProviders: { github },
+      plugins: [admin()],
+    }), new Request(origin))
+    const user = await signUp(auth, "owner@example.com")
+    if (chunked) await (await auth.$context).internalAdapter.updateUser(user.id, { name: "Owner".repeat(2000) })
+    const signedIn = await auth.handler(new Request(`${origin}/api/auth/sign-in/email`, {
+      body: JSON.stringify({ email: "owner@example.com", password: "correct-horse-battery" }),
+      headers: { "content-type": "application/json", origin },
+      method: "POST",
+    }))
+    expect(signedIn.status).toBe(200)
+    if (chunked) expect(signedIn.headers.getSetCookie().some(cookie => cookie.includes("better-auth.session_data.0="))).toBe(true)
+    expect((await sessionOf(auth, signedIn)).user.role).toBe("user")
+    const linked = await githubOAuth(auth, signedIn)
+    expect(await roleOf(auth, "owner@example.com")).toBe("admin")
+    expect((await sessionOf(auth, signedIn, linked)).user.role).toBe("admin")
   })
 
   it("gives the role when a listed account is linked to an existing user, and keeps other roles", async () => {
