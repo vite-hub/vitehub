@@ -228,9 +228,17 @@ function zodIssues(schema: unknown, path: string[], issues: Map<string, string[]
   }
 }
 
+// Checks that zod3ToJsonSchema writes as JSON Schema keywords. Other checks need follow-ups.
+const zod3JsonChecks = new Set(["url", "email", "uuid", "min", "max", "length", "regex", "int"])
+
 function zod3Issues(schema: unknown, path: string[], issues: Map<string, string[]>): void {
   const definition = zod3Definition(schema)
   if (!definition) return
+  for (const check of Array.isArray(definition.checks) ? definition.checks : []) {
+    if (!isRecord(check) || typeof check.kind !== "string") continue
+    if (["trim", "toLowerCase", "toUpperCase"].includes(check.kind)) addIssue(issues, path, `a Zod ${check.kind} transform`)
+    else if (!zod3JsonChecks.has(check.kind)) addIssue(issues, path, `the Zod ${check.kind} check`)
+  }
   const type = definition.typeName
   if (type === "ZodEffects") {
     const effect = isRecord(definition.effect) ? definition.effect.type : undefined
@@ -247,6 +255,9 @@ function zod3Issues(schema: unknown, path: string[], issues: Map<string, string[
   }
   else if (type === "ZodLazy" || type === "ZodAny" || type === "ZodUnknown") {
     addIssue(issues, path, `a Zod ${type.slice(3).toLowerCase()} schema`)
+  }
+  else if (type === "ZodBranded") {
+    zod3Issues(definition.type, path, issues)
   }
   else if (definition.innerType) {
     zod3Issues(definition.innerType, path, issues)

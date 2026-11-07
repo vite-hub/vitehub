@@ -428,6 +428,32 @@ describe("schema migration safety", () => {
 })
 
 describe("schema conversion", () => {
+  it("reports Zod 3 transforms and checks that Env cannot keep, including branded refinements", async () => {
+    const { z } = await import("zod/v3")
+    const schema = z.object({
+      title: z.string().trim().toLowerCase(),
+      code: z.string().toUpperCase(),
+      prefix: z.string().startsWith("app-"),
+      count: z.number().multipleOf(2),
+      refined: z.string().refine(value => value.length > 2).brand(),
+    })
+    expect(schema.parse({ title: " TITLE ", code: "abc", prefix: "app-code", count: 4, refined: "okay" }))
+      .toEqual({ title: "title", code: "ABC", prefix: "app-code", count: 4, refined: "okay" })
+    expect(schema.safeParse({ title: "title", code: "abc", prefix: "other", count: 3, refined: "no" }).success).toBe(false)
+    const issues = schemaIssues(schema)
+    expect(issues.get("title")).toEqual(["a Zod trim transform", "a Zod toLowerCase transform"])
+    expect(issues.get("code")).toEqual(["a Zod toUpperCase transform"])
+    expect(issues.get("prefix")).toEqual(["the Zod startsWith check"])
+    expect(issues.get("count")).toEqual(["the Zod multipleOf check"])
+    expect(issues.get("refined")).toEqual(["a Zod refinement"])
+    const jsonSchema = await schemaToJsonSchema(schema)
+    const plan = planFromJsonSchema({ jsonSchema, issues, runtimeConfig: new Map() })
+    expect(plan.fields).toHaveLength(5)
+    for (const name of Object.keys(schema.shape)) {
+      expect(plan.followUps).toContainEqual(expect.objectContaining({ message: expect.stringContaining(`${name}: Env does not keep`) }))
+    }
+  })
+
   it("preserves optional Zod 3 inputs through wrappers", async () => {
     const { z } = await import("zod/v3")
     const schema = z.object({
