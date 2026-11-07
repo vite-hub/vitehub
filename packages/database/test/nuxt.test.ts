@@ -893,6 +893,29 @@ describe("Database Nuxt integration", () => {
     }
   })
 
+  it.each(["default", "orders"])("rejects D1 Definition %s without cloudflare options before Vite builds", async (name) => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-unnamed-d1-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      const definition = join(rootDir, "server/databases", ...(name === "default" ? [] : [name]), "config.ts")
+      await mkdir(dirname(definition), { recursive: true })
+      await writeFile(definition, `export default defineDatabase({ name: '${name}', schema: {} })\n`)
+      const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
+      await hubDb({ driver: "d1" })(undefined, nuxt)
+      const config = { alias: {}, preset: "cloudflare_module" }
+
+      await expect(callHook(hooks, "nitro:config", config)).rejects.toMatchObject({
+        code: "DATABASE_MISSING_D1_RESOURCE",
+        why: expect.stringContaining("`cloudflare.databaseName`"),
+      })
+      expect(config.alias).not.toHaveProperty("@vite-hub/database/drizzle")
+      await expect(readFile(join(rootDir, ".vitehub/database/cloudflare-runtime.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
   it.each([true, false])("handles a separate opaque D1 resource with HTTP available: %s", async (http) => {
     const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-nuxt-separate-migrations-"))
     const definition = join(rootDir, "server/databases/config.ts")
