@@ -360,4 +360,17 @@ const touchIconButton = "pointer-coarse:size-11 max-[22.5rem]:pointer-coarse:w-1
     height: 2.75rem;
   }
 }
+
+/* 44px wide on touch, like the other header buttons, and 40px below 360px so the row still fits a 320px screen. */
+@media (width < 60rem) and (pointer: coarse) {
+  .vh-header-github {
+    width: 2.75rem;
+  }
+}
+
+@media (width < 22.5rem) and (pointer: coarse) {
+  .vh-header-github {
+    width: 2.5rem;
+  }
+}
 </style>

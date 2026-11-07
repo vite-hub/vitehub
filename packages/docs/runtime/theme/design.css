@@ -69,12 +69,12 @@ html {
   background-color: var(--ui-bg);
 }
 
-/* The grain sits on the page, and on the sticky surfaces that cover it. `fixed` lines the tiles up across them. */
+/* The grain sits on the page, and on the sticky surfaces that cover it. It scrolls with them: a `fixed` background
+   would line the tiles up, but makes the browser repaint the whole page on every scrolled frame. */
 body,
 .vh-grain-surface {
   background-color: var(--ui-bg);
   background-image: var(--vh-grain);
-  background-attachment: fixed;
   background-repeat: repeat;
   background-size: 256px 256px;
 }
