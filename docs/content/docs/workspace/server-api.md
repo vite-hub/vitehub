@@ -195,7 +195,11 @@ The commands call two operations of the app, which the Console section `workspac
 | `workspace.changes` `{ workspace, ref?, since?, content? }` | read | `{ head, files }`: each file that differs between revision `since` and the head of `ref`, with its content at the head and at `since`. Without `since`, every file of the head. `content: false` leaves the content out. |
 | `workspace.commit` `{ workspace, ref?, ifHead, put?, delete?, message? }` | write | `{ revision }`. `put` maps paths to `{ content, encoding: "utf8" \| "base64" }`. Write rules and validators run as for `history.commit()`. A moved head fails with `WORKSPACE_CONFLICT` and status 409. |
 
-The folder holds the Workspace root. `.git`, `.vitehub`, and `node_modules` folders inside it are never part of the checkout. A push sends whole files and the operation call has a timeout of two minutes, so keep a checkout to text and media of a docs site or a translation catalog, not to large binaries.
+The folder holds the Workspace root. Checkout folders must be separate: they cannot share a folder or contain one another. Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components are excluded from pulls, status, and pushes; their remote files stay unchanged, and `--theirs` cannot select them.
+
+Commands reject existing symbolic links in the checkout folder and its ancestors inside the project. These checks do not isolate files from another process that can replace paths during an operation. Use an OS or container boundary for that isolation.
+
+A push sends whole files and the operation call has a timeout of two minutes, so keep a checkout to text and media of a docs site or a translation catalog, not to large binaries.
 
 ### Derived files
 
