@@ -54,13 +54,17 @@ function sideLines(label: string, side: BundleSide, startupMeaning: string): str
   return lines
 }
 
+function fileCount(count: number): string {
+  return `${count} ${count === 1 ? "file" : "files"}`
+}
+
 function routeLines(explanation: NonNullable<ReturnType<typeof explainBundleRoute>>): string[] {
   const { route } = explanation
   const js = route.files.filter(file => !file.file.endsWith(".css"))
   const startup = js.filter(file => file.startup)
   const lines = [
     `Route ${route.path}: ${formatBytes(route.bytes)} of JavaScript on a first visit (gzip ${formatBytes(route.gzip)}), ${formatBytes(route.cssBytes)} of CSS.`,
-    `  Startup files: ${formatBytes(route.bytes - route.pageBytes)} in ${startup.length} files. Page files: ${formatBytes(route.pageBytes)} in ${js.length - startup.length} files.`,
+    `  Startup files: ${formatBytes(route.bytes - route.pageBytes)} in ${fileCount(startup.length)}. Page files: ${formatBytes(route.pageBytes)} in ${fileCount(js.length - startup.length)}.`,
     `  Components: ${route.components.join(", ") || "none"}`,
     "  Files (bytes, gzip):",
   ]
