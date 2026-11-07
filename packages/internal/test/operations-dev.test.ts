@@ -22,7 +22,7 @@ function fixture() {
 describe("local operation RPC", () => {
   it("uses project identity for discovered targets but not explicit deployment URLs", async () => {
     const { handler, run } = fixture()
-    const fetch: typeof globalThis.fetch = (url, init) => handler({ req: new Request(url, init) })
+    const fetch: typeof globalThis.fetch = (url, init) => handler.fetch(new Request(url, init))
     const result = await callOperationFromCli({ rootDir: "/client/project", env: {}, url: "http://localhost", fetch }, "test.echo", { text: "deployed" })
     expect(result).toEqual({ ok: true, value: "deployed" })
     const stale = await callOperationFromCli({ rootDir: "/client/project", env: { VITEHUB_DEV_SERVER_URL: "http://localhost" }, fetch }, "test.echo", { text: "wrong project" })
@@ -35,7 +35,7 @@ describe("local operation RPC", () => {
     { "x-forwarded-host": "public.test" }, { "x-vitehub-console": "" },
   ])("refuses an untrusted request before running an operation: %j", async (headers) => {
     const { handler, run, request } = fixture()
-    expect((await handler({ req: request({ operation: "test.echo", input: { text: "unsafe" } }, headers) })).status).toBe(403)
+    expect((await handler.fetch(request({ operation: "test.echo", input: { text: "unsafe" } }, headers))).status).toBe(403)
     expect(run).not.toHaveBeenCalled()
   })
 
@@ -43,18 +43,18 @@ describe("local operation RPC", () => {
     const { handler, run, request } = fixture()
     const req = request({ operation: "test.echo", input: { text: "unsafe" } })
     Object.assign(req, { ip: "192.0.2.4" })
-    expect((await handler({ req })).status).toBe(403)
+    expect((await handler.fetch(req)).status).toBe(403)
     expect(run).not.toHaveBeenCalled()
   })
 
   it("validates input and applies the selected operation's byte limit", async () => {
     const { handler, request } = fixture()
     const headers = { [operationExpectedRootsHeader]: projectRootHash("/server/project") }
-    expect((await handler({ req: request({ operation: "test.echo", input: { text: 42 } }, headers) })).status).toBe(400)
+    expect((await handler.fetch(request({ operation: "test.echo", input: { text: 42 } }, headers))).status).toBe(400)
     const input = { text: "x".repeat(70 * 1024) }
-    expect((await handler({ req: request({ operation: "test.echo", input }) })).status).toBe(413)
-    expect((await handler({ req: request({ operation: "test.large", input }) })).status).toBe(200)
-    expect((await handler({ req: request({ operation: "test.large", input: { text: "x".repeat(130 * 1024) } }) })).status).toBe(413)
+    expect((await handler.fetch(request({ operation: "test.echo", input }))).status).toBe(413)
+    expect((await handler.fetch(request({ operation: "test.large", input }))).status).toBe(200)
+    expect((await handler.fetch(request({ operation: "test.large", input: { text: "x".repeat(130 * 1024) } }))).status).toBe(413)
   })
 })
 
