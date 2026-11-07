@@ -23,7 +23,8 @@ The package is pre-1.0. Pin its version and review changes before you upgrade.
 | `@ai-sdk/vue`                              | `useChat()` and other Vue transport helpers. Optional when the app supplies its own state. |
 | `@nuxt/ui` and `tailwindcss`              | Styled components. Not needed for `@vite-hub/ui/headless`. |
 | `vite` and `@vitejs/plugin-vue`           | The `@vite-hub/ui/vite` plugin.                           |
-| `@iconify-json/lucide`, `@iconify-json/ph` | The Nuxt module. It adds the component icons to the `@nuxt/icon` client bundle. |
+| `vite-hub`                                | Nuxt. `vite-hub/nuxt` gives the components their Nuxt runtime. |
+| `@iconify-json/lucide`, `@iconify-json/ph` | Nuxt. `vite-hub/nuxt` adds the component icons to the `@nuxt/icon` client bundle. |
 
 `@nuxt/ui` and `vite` are optional peers, so an application that only uses the headless entry point does not install them.
 
@@ -32,18 +33,27 @@ The package is pre-1.0. Pin its version and review changes before you upgrade.
 Install the package and its peers:
 
 ```bash [commands/install-nuxt]
-pnpm add @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
+pnpm add vite-hub @vite-hub/ui @nuxt/ui ai tailwindcss vue @iconify-json/lucide @iconify-json/ph
 ```
 
-Add the module to `nuxt.config.ts`:
+Add Nuxt UI and ViteHub to `nuxt.config.ts`. Register Nuxt UI first:
 
 ```ts [nuxt/nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ["@vite-hub/ui/nuxt"],
+  modules: ["@nuxt/ui", "vite-hub/nuxt"],
+  css: ["~/assets/css/main.css"],
 });
 ```
 
-The module installs Nuxt UI, loads `@vite-hub/ui/styles.css`, and auto-imports every public component, for example `Chat`, `Markdown`, and `Trace`. You do not register a Vue plugin.
+Load Tailwind CSS, Nuxt UI, and the package styles in this order:
+
+```css [nuxt/assets/css/main.css]
+@import "tailwindcss";
+@import "@nuxt/ui";
+@import "@vite-hub/ui/styles.css";
+```
+
+`vite-hub/nuxt` auto-imports every public component, for example `Chat`, `Markdown`, and `Trace`. It also gives them Nuxt UI's Nuxt icon and adds their icons to the `@nuxt/icon` client bundle. You do not register a Vue plugin. The stylesheet stays an explicit import, so you choose where it loads.
 
 For explicit imports, each public component or part family also has a kebab-case entry such as `@vite-hub/ui/chat` or `@vite-hub/ui/trace`. These entries export the same component objects as `@vite-hub/ui` and keep the development import graph focused.
 
@@ -119,7 +129,7 @@ Vite, put the template in `App.vue` and import `Markdown` from
 
 Start your application and open it in the browser. You should see
 **ViteHub UI is ready.** in bold. If the component is missing, check the Nuxt
-module or the Vue import. If it appears without styles, check the CSS imports.
+modules or the Vue import. If it appears without styles, check the CSS imports.
 
 You can now follow the [UI tutorial](/docs/ui/get-started) to display a chat
 message, or choose a [Console block](/docs/ui/blocks/chat-app). Connecting a
@@ -127,15 +137,19 @@ model or chat endpoint is a separate step in your application.
 
 ## Defaults
 
-The package defaults are designed for a Console. Keep them until your product has a reason to change them. If you do need a package-wide override, use the same option in the Nuxt module or the Vite plugin.
+The package defaults are designed for a Console. Keep them until your product has a reason to change them. If you do need a package-wide override, set it in the Nuxt runtime config or pass it to `createViteHubUI()`.
 
 ```ts [nuxt/defaults/nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ["@vite-hub/ui/nuxt"],
-  viteHubUI: {
-    defaults: {
-      markdown: { class: "vh-typeset vh-typeset-chat" },
-      messageScroller: { edgeThreshold: 8, previousItemPeek: 64 },
+  modules: ["@nuxt/ui", "vite-hub/nuxt"],
+  runtimeConfig: {
+    public: {
+      viteHubUI: {
+        defaults: {
+          markdown: { class: "vh-typeset vh-typeset-chat" },
+          messageScroller: { edgeThreshold: 8, previousItemPeek: 64 },
+        },
+      },
     },
   },
 });
@@ -162,7 +176,7 @@ Read the resolved defaults in your own components with `useViteHubUI()`.
 
 ## Nuxt UI components
 
-The parts import the Nuxt UI components that they render, such as `UButton` and `UModal`, from `@nuxt/ui`. They do not look for them by name, so they work when the app registers Nuxt UI per template, as Nuxt does, or not at all. Icons are the exception in Nuxt: the Nuxt module, and `vite-hub/nuxt` when the app installs `@vite-hub/ui`, give the parts Nuxt UI's Nuxt icon, which reads the `@nuxt/icon` client bundle.
+The parts import the Nuxt UI components that they render, such as `UButton` and `UModal`, from `@nuxt/ui`. They do not look for them by name, so they work when the app registers Nuxt UI per template, as Nuxt does, or not at all. Icons are the exception in Nuxt: `vite-hub/nuxt` gives the parts Nuxt UI's Nuxt icon when the app installs `@vite-hub/ui`, which reads the `@nuxt/icon` client bundle.
 
 To render other components, for example on a page without Nuxt UI, pass them by name:
 

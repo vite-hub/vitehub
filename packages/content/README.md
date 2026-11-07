@@ -73,7 +73,7 @@ const { data: page } = await useFetch("/api/content/get/docs/introduction")
 </template>
 ```
 
-With the framework distribution, import from `vite-hub/ui/markdown`. The UI Nuxt module auto-imports `Markdown`. There is no separate Comark UI install, component map, or stylesheet to configure. Pass `components` only to override a renderer for your application.
+With the framework distribution, import from `vite-hub/ui/markdown`. There is no separate Comark UI install, component map, or stylesheet to configure. Pass `components` only to override a renderer for your application.
 
 Without Vue, `renderContentHtml(await content.get(path), { components? })` renders a parsed document to an HTML string with the same Comark UI preset. The app does not install `@comark/html`.
 

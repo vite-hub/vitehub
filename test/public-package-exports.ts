@@ -88,7 +88,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/source/client", { "vue": "both" }],
   ["vite-hub/ui", { "vue": "both" }],
   ["vite-hub/ui/headless", { "vue": "both" }],
-  ["vite-hub/ui/nuxt", { "vue": "declaration" }],
   // The Console renders its panels with @json-render/vue, which imports Vue.
   ["vite-hub/console/ui", { "@vite-hub/ui": "both", "vue": "both" }],
   ["vite-hub/ui/vite", { "@nuxt/ui": "both" }],
@@ -115,7 +114,6 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/realtime/vite", { "vite": "declaration" }],
   ["@vite-hub/sandbox/task/vite", { "vite": "declaration" }],
   ["@vite-hub/schedule/vite", { "vite": "both" }],
-  ["@vite-hub/schedule/nuxt", { "vite": "both" }],
   ["@vite-hub/workflow/vite", { "vite": "both" }],
   ["@vite-hub/workspace/vite", { "vite": "declaration" }],
   ["@vite-hub/schedule/runtime/kv", { "@vite-hub/kv": "runtime" }],

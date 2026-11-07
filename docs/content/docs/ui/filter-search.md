@@ -15,7 +15,7 @@ Type `suppliers except vak` and press Enter. Type `error` to see the error state
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/filter-search`:
+Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). `vite-hub/nuxt` auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/filter-search`:
 
 ```ts
 import { FilterSearch } from "@vite-hub/ui";
@@ -76,7 +76,7 @@ FilterSearch
 
 ## Headless parts
 
-Use the parts without Nuxt UI when you need your own markup, for example in a command palette. Import them from `@vite-hub/ui/choices-input`, or from `@vite-hub/ui/headless`. They have no styles, and the Nuxt module does not auto-import them:
+Use the parts without Nuxt UI when you need your own markup, for example in a command palette. Import them from `@vite-hub/ui/choices-input`, or from `@vite-hub/ui/headless`. They have no styles, and `vite-hub/nuxt` does not auto-import them:
 
 ```vue
 <script setup lang="ts">
