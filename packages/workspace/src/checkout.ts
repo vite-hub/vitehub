@@ -314,7 +314,7 @@ async function scan(rootDir: string, folder: string): Promise<Map<string, Bytes>
 }
 
 /** Checks every existing path component inside the project before a checkout reads or writes it. */
-async function assertNoSymlinks(rootDir: string, target: string): Promise<void> {
+export async function assertNoSymlinks(rootDir: string, target: string): Promise<void> {
   let current = rootDir
   for (const segment of relative(rootDir, target).split(sep)) {
     current = join(current, segment)

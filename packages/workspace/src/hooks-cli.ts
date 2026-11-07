@@ -4,7 +4,7 @@ import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/pr
 import { join, relative, resolve, sep } from "node:path"
 import { promisify } from "node:util"
 
-import { folderOf, formatWorkspaceStatus, ignoredName, localCheckoutStatus, workspaceLockFile } from "./checkout.ts"
+import { assertNoSymlinks, folderOf, formatWorkspaceStatus, ignoredName, localCheckoutStatus, WorkspaceCheckoutError, workspaceLockFile } from "./checkout.ts"
 import { workspaceCheckoutFeatures } from "./checkout-cli.ts"
 
 import type { WorkspaceCheckoutCliContext } from "./checkout-cli.ts"
@@ -158,11 +158,13 @@ async function checkoutFiles(rootDir: string): Promise<Map<string, string>> {
   catch {
     // `vitehub push` reports a lock file that is not JSON.
   }
-  // Skip the folders that `vitehub push` skips without reading them, such as a large `node_modules`.
+  // Skip the folders that `vitehub push` skips without reading them, such as a large `node_modules`. `readdir` entries
+  // do not follow links, and a link fails the hook as it fails `vitehub push`.
   const walk = async (folder: string): Promise<void> => {
     for (const entry of await readdir(folder, { withFileTypes: true }).catch(() => [])) {
       if (ignoredName(entry.name)) continue
       const path = join(folder, entry.name)
+      if (entry.isSymbolicLink()) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_SYMLINK", `${relative(rootDir, path)} in the checkout folder is a symbolic link.`, "Replace the link with a real folder or file.")
       if (entry.isDirectory()) await walk(path)
       else if (entry.isFile()) await digest(relative(rootDir, path).split(sep).join("/"))
     }
@@ -176,6 +178,8 @@ async function checkoutFiles(rootDir: string): Promise<Map<string, string>> {
       // A committed lock can name a folder outside the project. Read nothing there: `vitehub push` rejects the lock.
       continue
     }
+    // A checkout folder, or a folder above it, can be a link to a folder outside the project.
+    await assertNoSymlinks(rootDir, folder)
     await walk(folder)
   }
   return files
@@ -218,7 +222,23 @@ export interface WorkspaceHooksOptions {
   readInput?: () => Promise<string>
 }
 
+/** Writes an error of a hook as the checkout commands write it, and fails the hook. */
+function fail(context: WorkspaceCheckoutCliContext, error: unknown): number {
+  const failure = error instanceof WorkspaceCheckoutError ? error : new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_FAILED", error instanceof Error ? error.message : String(error))
+  context.stderr.write(`${failure.code}: ${failure.message}\n${failure.fix ? `${failure.fix}\n` : ""}`)
+  return 1
+}
+
 async function prePush(context: WorkspaceCheckoutCliContext, options: WorkspaceHooksOptions): Promise<number> {
+  try {
+    return await prePushChecked(context, options)
+  }
+  catch (error) {
+    return fail(context, error)
+  }
+}
+
+async function prePushChecked(context: WorkspaceCheckoutCliContext, options: WorkspaceHooksOptions): Promise<number> {
   if (!await hasCheckouts(context.rootDir)) return 0
   const target = await defaultBranch(context.rootDir)
   const branches = pushedBranches(await (options.readInput ?? readStandardInput)())

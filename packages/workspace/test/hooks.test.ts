@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -253,6 +253,37 @@ describe("vitehub hooks", () => {
     expect(pushed.code).toBe(1)
     expect(pushed.stderr).toContain("must be a folder inside the project")
     expect(opened.filter(path => path.startsWith(outside))).toEqual([])
+  })
+
+  it("reads no folder outside the project through a link at or above a checkout folder, or inside it", async () => {
+    const { rootDir, top } = await repository()
+    const outside = join(top, "secret")
+    await mkdir(outside)
+    await writeFile(join(outside, "key.pem"), "secret\n")
+    const lock = (dir: string) => JSON.stringify({ version: 1, workspaces: { site: { dir, files: {}, head: "r1", ref: "draft", remote: "https://docs.example.test" } } })
+
+    for (const [link, dir] of [["content", "content"], ["linked", "linked/content"]] as const) {
+      await rm(join(rootDir, link), { force: true, recursive: true })
+      await symlink(outside, join(rootDir, link))
+      await writeFile(join(rootDir, "vitehub.lock"), lock(dir))
+      opened.length = 0
+
+      const pushed = await run("pre-push", rootDir, pushMain)
+
+      expect(pushed).toMatchObject({ code: 1, stderr: `WORKSPACE_CHECKOUT_SYMLINK: ${link} is a symbolic link. A checkout reads and writes only real files and folders.\nReplace the link with a real folder or file, then try again.\n` })
+      expect(opened.filter(path => path.startsWith(join(rootDir, link)))).toEqual([])
+      await rm(join(rootDir, link))
+    }
+
+    await mkdir(join(rootDir, "content"))
+    await symlink(outside, join(rootDir, "content/leak"))
+    await writeFile(join(rootDir, "vitehub.lock"), lock("content"))
+    opened.length = 0
+
+    const pushed = await run("pre-push", rootDir, pushMain)
+
+    expect(pushed).toMatchObject({ code: 1, stderr: expect.stringContaining("WORKSPACE_CHECKOUT_SYMLINK: content/leak in the checkout folder is a symbolic link.") })
+    expect(opened.filter(path => path.startsWith(join(rootDir, "content/leak")))).toEqual([])
   })
 
   it("reads the remote branches from the pre-push input", () => {
