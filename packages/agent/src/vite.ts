@@ -3024,7 +3024,6 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
     // CLI stage servers resolve a serve config for discovery without starting an interactive dev server.
     // SAFETY: Vite preserves this optional discovery flag from the inline config.
     const cliStageServer = (config as ResolvedConfig & { vitehubCliDiscovery?: unknown }).vitehubCliDiscovery === true
-      || config.server?.middlewareMode === true
     setChannelSimulation(Boolean(normalized && agent && agent.channels?.simulate && config.command === "serve" && !cliStageServer), config)
     if (normalized) validateInspectionRoute(normalized.routes)
     const processDiscordGateway = Boolean(getInternalAgentOptions(agent)?.processDiscordGateway)

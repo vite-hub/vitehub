@@ -73,6 +73,8 @@ Point an AI SDK `useChat` client at the same route to chat from a page. The Agen
 
 The option sets the Server Env value `VITEHUB_CHANNELS=simulate` in `vite dev` only, and `vite dev` prints a line when it does. `VITEHUB_CHANNELS=simulate vite dev` works too. The runtime ignores the value when `NODE_ENV` is `production`.
 
+Simulation applies to every app in the same Node.js process. To simulate only one app, start its dev server in a separate process.
+
 ## Answer replies in subscribed threads
 
 Built-in chat Channels require a mention for channel messages by default. Set
