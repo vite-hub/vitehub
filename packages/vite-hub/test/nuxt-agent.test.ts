@@ -233,7 +233,7 @@ it("leaves the serve-only Console out of the workflow registry of a Nuxt build",
   await nitroConfigHook({})
 
   // The Vite build transforms this file again without the Console. Both must agree, or the registry imports twice.
-  const registry = await readFile(join(rootDir, ".vitehub/workflow/registry.mjs"), "utf8")
+  const registry = await readFile(join(rootDir, ".vitehub/workflow/registry-runtime.mjs"), "utf8")
   expect(registry).toContain("setAgentChannelDeliveryWorkflowStateResolver")
   expect(registry).not.toContain("vite-hub/console/server")
 })
