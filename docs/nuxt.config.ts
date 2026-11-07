@@ -27,7 +27,7 @@ export default defineNuxtConfig({
         { label: "Templates", to: "/templates", icon: "i-ph-layout-light" },
       ],
     },
-    socials: [{ label: "ViteHub on Discord", icon: "i-ph-discord-logo-light", to: "https://discord.gg/YTRDsRP3" }],
+    socials: [{ label: "ViteHub on Discord", icon: "i-ph-discord-logo-light", to: "https://chat.vitehub.dev" }],
     banner: "ViteHub is still experimental. Expect bugs and breaking changes.",
     github: { repo: "vite-hub/vitehub", dir: "docs/content" },
     icons: docsIcons,
