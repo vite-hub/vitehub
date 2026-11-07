@@ -154,14 +154,15 @@ html.dark .shiki span {
 
 /*
  * comark-ui draws the headings, and wraps one with an anchor in `.cl-heading`, so the space and the rule above a
- * section go on the wrapper when there is one, and the type on the heading.
+ * section go on the wrapper when there is one, and the type on the heading. A component marked `.not-prose`, such as
+ * a catalog of cards, styles its own headings.
  */
 .docs-content :where(h2, h3, h4) {
   color: var(--ui-text-highlighted);
   scroll-margin-top: calc(var(--ui-header-height) + 1rem);
 }
 
-.docs-content h2 {
+.docs-content h2:not(.not-prose *) {
   margin: 0;
   font-size: 1.125rem;
   font-weight: 600;
@@ -169,14 +170,14 @@ html.dark .shiki span {
   line-height: 1.3;
 }
 
-.docs-content :is(h2:not(.cl-heading > h2), .cl-heading:has(> h2)) {
+.docs-content :is(h2:not(.cl-heading > h2), .cl-heading:has(> h2)):not(.not-prose *) {
   margin-top: 3.5rem;
   margin-bottom: 1rem;
   border-top: 1px solid var(--ui-border);
   padding-top: 1.25rem;
 }
 
-.docs-content h3 {
+.docs-content h3:not(.not-prose *) {
   margin: 0;
   font-family: var(--font-mono);
   font-size: 0.875rem;
@@ -184,12 +185,12 @@ html.dark .shiki span {
   line-height: 1.5;
 }
 
-.docs-content :is(h3:not(.cl-heading > h3), .cl-heading:has(> h3)) {
+.docs-content :is(h3:not(.cl-heading > h3), .cl-heading:has(> h3)):not(.not-prose *) {
   margin-top: 2.25rem;
   margin-bottom: 0.5rem;
 }
 
-.docs-content h4 {
+.docs-content h4:not(.not-prose *) {
   margin: 1.5rem 0 0.5rem;
   font-size: 0.9375rem;
   font-weight: 600;
