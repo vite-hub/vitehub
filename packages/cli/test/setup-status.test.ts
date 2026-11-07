@@ -214,10 +214,9 @@ describe("vitehub status", () => {
   it.each([
     ["{ agent: process.env.AGENT === '1' }", "workflow", "unknown"],
     ["{ agent: process.env.AGENT === '1', preset: 'netlify' }", "workflow", "off"],
-    ["{ console: process.env.CONSOLE === '1' }", "comments", "unknown"],
-    ["{ console: process.env.CONSOLE === '1' }", "database", "unknown"],
-    ["{ console: process.env.CONSOLE === '1', comments: false }", "database", "off"],
-    ["{ console: process.env.CONSOLE === '1', database: false }", "database", "off"],
+    ["{ console: true }", "comments", "off"],
+    ["{ comments: process.env.COMMENTS === '1' }", "database", "unknown"],
+    ["{ comments: process.env.COMMENTS === '1', database: false }", "database", "off"],
     ["{ kv: true, ...shared }", "kv", "unknown"],
     ["{ ...shared, kv: true }", "kv", "on"],
   ] as const)("propagates only possible implications: %s / %s", async (options, id, enabled) => {

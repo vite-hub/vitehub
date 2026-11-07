@@ -61,7 +61,7 @@ describe("support matrix and feature catalog", () => {
     }
   });
 
-  it.each(["comments", "connections", "console"])("qualifies %s with its hosted Database requirement", (id) => {
+  it.each(["comments", "connections"])("qualifies %s with its hosted Database requirement", (id) => {
     const row = catalogRows().find((entry) => entry.id === id)!;
     expect("values" in row).toBe(true);
     if (!("values" in row)) return;

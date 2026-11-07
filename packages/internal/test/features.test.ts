@@ -62,8 +62,9 @@ describe("feature catalog", () => {
     expect(impliedFeatures(["agent"], "node", ["workflow"])).toEqual([])
   })
 
-  it("chains implications from Console to Comments to Database", () => {
-    expect(impliedFeatures(["console"], "node")).toEqual(["comments", "database"])
+  it("leaves Comments off with the Console, and implies Database from Comments", () => {
+    expect(impliedFeatures(["console"], "node")).toEqual([])
+    expect(impliedFeatures(["comments"], "node")).toEqual(["database"])
     expect(impliedFeatures(["connections", "database"], "node")).toEqual([])
   })
 

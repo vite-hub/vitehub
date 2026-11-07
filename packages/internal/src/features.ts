@@ -212,7 +212,6 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     docs: "/docs/development/console",
     hosts: everywhere("nitro", "Nitro"),
     id: "console",
-    implies: [{ feature: "comments" }],
     summary: "The ViteHub Console at `/_vitehub` to inspect and operate every primitive.",
     title: "Console",
   }),
