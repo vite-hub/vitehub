@@ -14,8 +14,8 @@ const name = v.pipe(v.string(), v.check(value => value.trim() !== "", "Name a Wo
 const nonEmpty = (message: string) => v.pipe(v.string(), v.check(value => value !== "", message))
 
 function defineWorkspaceOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "kind" | "section" | "user">, kind: "read" | "write" = "read"): OperationDefinition<Input, Output> {
-  // Console section `workspaces` grants these. None reads the signed-in user.
-  return defineOperation({ ...definition, kind, section: "workspaces", user: false })
+  // Console section `workspaces` grants these. Only a write reads the signed-in user: the commit records it as the author.
+  return defineOperation({ ...definition, kind, section: "workspaces", ...(kind === "read" ? { user: false as const } : {}) })
 }
 
 function table(rows: readonly (readonly string[])[]): string {
@@ -130,7 +130,7 @@ const changes = defineWorkspaceOperation<{ content?: boolean, ref?: string, sinc
 
 const commit = defineWorkspaceOperation<{ delete?: string[], ifHead: string | null, message?: string, put?: Record<string, { content: string, encoding: "base64" | "utf8" }>, ref?: string, workspace: string }, WorkspaceCommitResult>({
   cli: { command: "commit", namespace: "workspace", positional: ["workspace"] },
-  description: "Commit files to a ref when its head is still `ifHead`, else fail with WORKSPACE_CONFLICT. `put` writes files and `delete` removes paths; other files keep their content. Workspace write rules and validators run. `vitehub push` calls it.",
+  description: "Commit files to a ref when its head is still `ifHead`, else fail with WORKSPACE_CONFLICT. `put` writes files and `delete` removes paths; other files keep their content. A replaced file keeps its media type and metadata. The revision records the signed-in user as its author. Workspace write rules and validators run. `vitehub push` calls it.",
   input: v.object({
     delete: v.optional(v.array(nonEmpty("A path cannot be empty."))),
     ifHead: v.nullable(nonEmpty("The head cannot be empty.")),
@@ -140,7 +140,7 @@ const commit = defineWorkspaceOperation<{ delete?: string[], ifHead: string | nu
     workspace: name,
   }),
   name: "workspace.commit",
-  run: async input => await (await runtime()).runWorkspaceCommit(input),
+  run: async (input, context) => await (await runtime()).runWorkspaceCommit(input, context),
 }, "write")
 
 /** The `workspace.*` operations: history, refs, show, changes, and commit. The Console, `vitehub workspace`, and agents run them. */

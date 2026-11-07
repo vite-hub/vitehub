@@ -91,6 +91,8 @@ describe("workspace operations", { timeout: 30_000 }, () => {
       ["workspace.changes", "read", "workspaces", { command: "changes", namespace: "workspace" }],
       ["workspace.commit", "write", "workspaces", { command: "commit", namespace: "workspace" }],
     ])
+    // The Console looks up the signed-in user only for the commit, which records it as the author.
+    expect(workspaceOperations.filter(operation => operation.user !== false).map(operation => operation.name)).toEqual(["workspace.commit"])
   })
 
   it("lists revisions across refs, newest first, with ref, author, message, and ISO time", async () => {
