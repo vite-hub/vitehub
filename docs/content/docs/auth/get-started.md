@@ -22,20 +22,45 @@ In this tutorial, you sign up a user with an email and a password. Then you use 
 Add Auth and Better Auth to your app:
 
 ```bash pm [commands/install]
-pnpm add @vite-hub/auth @vite-hub/runtime better-auth h3
+pnpm add vite-hub @vite-hub/auth better-auth h3
 pnpm add -D vite
 ```
 
-Add `hubAuth()` to the plugins in `vite.config.ts`. Keep the other plugins of your app.
+Add `auth: true` to the ViteHub options of your app. Keep the other options and plugins of your app.
 
-```ts [vite.config.ts]
-import { hubAuth } from '@vite-hub/auth/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubAuth()],
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { auth: true },
 })
 ```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ auth: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ auth: true })],
+})
+```
+::::
+:::
 
 ::
 
@@ -53,7 +78,7 @@ export default defineAuth({
 })
 ```
 
-- `hubAuth()` finds this file. Better Auth then answers all requests to `/api/auth/**`.
+- ViteHub finds this file. Better Auth then answers all requests to `/api/auth/**`.
 - `emailAndPassword.enabled` turns on sign-up and sign-in with an email and a password. You do not write these routes yourself.
 
 ::

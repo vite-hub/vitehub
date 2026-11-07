@@ -48,13 +48,40 @@ You do not need a Better Auth secret when the deployment sets [`VITEHUB_SECRET`]
 
 Use a Definition callback or the `runtime` field when values depend on the request, Server Env, provider credentials, or request origin. Declare the secrets in [Env](/docs/env) first.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    auth: true,
+    env: {
+      server: {
+        auth: {
+          github: {
+            clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
+            clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+          },
+          secret: env({ secret: true, source: env.source('BETTER_AUTH_SECRET') }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
-import { hubAuth } from '@vite-hub/auth/vite'
-import { env, hubEnv } from '@vite-hub/env/vite'
 import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [hubEnv(), hubAuth()],
+  plugins: [vitehub({ auth: true }), nitro()],
   env: {
     server: {
       auth: {
@@ -68,6 +95,31 @@ export default defineConfig({
   },
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({ auth: true })],
+  env: {
+    server: {
+      auth: {
+        github: {
+          clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+        },
+        secret: env({ secret: true, source: env.source('BETTER_AUTH_SECRET') }),
+      },
+    },
+  },
+})
+```
+:::
+::
 
 ```ts [server/auth.ts]
 import { defineAuth } from '@vite-hub/auth'

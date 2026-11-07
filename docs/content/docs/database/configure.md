@@ -6,21 +6,60 @@ navigation.order: 3
 icon: i-lucide-sliders-horizontal
 ---
 
-## Configure the Vite Integration
+## Configure the integration
 
-`hubDb()` accepts the integration options below. You can also set them under the `database` key in `vite.config.ts`. That key takes precedence over the options passed to `hubDb()`.
+Pass the integration options below to the `database` option. A directly composed `hubDb()` accepts the same options.
 
-```ts [vite.config.ts]
-import { hubDb } from '@vite-hub/database/vite'
-import { defineConfig } from 'vite'
-
-export default defineConfig({
-  plugins: [hubDb()],
-  database: {
-    cli: { generate: false },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    database: {
+      cli: { generate: false },
+    },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      database: {
+        cli: { generate: false },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      database: {
+        cli: { generate: false },
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -115,12 +154,39 @@ For D1 HTTP, `vitehub db migrate` uses Wrangler's migrations table: `cloudflare.
 
 A self-hosted Node server, for example in a Docker image, often has only `.output` and no sources or CLI to run `vitehub db migrate` with. Set `migrateOnStart` to apply the pending migrations when the server starts:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
-  modules: ['@vite-hub/database/nuxt'],
-  database: { migrateOnStart: true },
+  modules: ['vite-hub/nuxt'],
+  vitehub: { database: { migrateOnStart: true } },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ database: { migrateOnStart: true } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ database: { migrateOnStart: true } })],
+})
+```
+:::
+::
 
 The build reads each database's migrations folder and writes the migrations into a Nitro plugin, so the output does not need the folder. When the server starts, the plugin reads Drizzle Kit's `__drizzle_migrations` table and applies the pending migrations before the server handles a request. It writes the same ledger rows as `vitehub db migrate`, so either can migrate the database next. All pending migrations of a database run in one transaction, and the server logs each one it applied.
 
@@ -368,7 +434,7 @@ A Definition inherits the integration resource when it omits both `cloudflare.da
 
 Owned native resources need a nonblank database ID and name at build time. For a native D1 binding, use a Cloudflare block that ViteHub can read as a literal. An identifier, top-level spread, or other opaque resource expression fails the Cloudflare build when no D1 HTTP or remote libSQL connection is known, even if the evaluated block would inherit the integration resource. A known HTTP or libSQL connection keeps opaque Definitions supported.
 
-Keep an explicit `cloudflare` property when its value is opaque. For a wholly hidden Definition, declare D1 intent with `hubDb({ driver: 'd1' })` in Vite or set `database.driver` to `'d1'` in Nuxt. Without that intent, ViteHub does not project native D1 output. Opaque local SQLite Definitions remain supported.
+Keep an explicit `cloudflare` property when its value is opaque. For a wholly hidden Definition, declare D1 intent with `database: { driver: 'd1' }`. Without that intent, ViteHub does not project native D1 output. Opaque local SQLite Definitions remain supported.
 
 A Named Definition without an explicit `cloudflare.binding` uses its per-name binding. A Default Definition without an explicit binding keeps the integration binding. Named Definitions can inherit the integration resource through different binding names. Generated native D1 binding names must be unique, including bindings for identical resources. Set distinct binding values when explicit bindings or normalized names collide.
 

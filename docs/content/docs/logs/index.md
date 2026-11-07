@@ -8,7 +8,16 @@ icon: i-lucide-logs
 ---
 
 ::product-hero{tagline="Structured logs powered by Evlog, with Explorer, Stream, and a data inspector." hosts="Local development, existing backends"}
-  :::code-group
+  :::product-files
+  ::::framework{name="Nuxt"}
+  ```ts [nuxt.config.ts]
+  export default defineNuxtConfig({
+    modules: ['vite-hub/nuxt'],
+    vitehub: { preset: 'node', logs: true },
+  })
+  ```
+  ::::
+  ::::framework{name="Nitro"}
   ```ts [vite.config.ts]
   import { nitro } from 'nitro/vite'
   import { defineConfig } from 'vite'
@@ -18,6 +27,17 @@ icon: i-lucide-logs
     plugins: [vitehub({ preset: 'node', logs: true }), nitro()],
   })
   ```
+  ::::
+  ::::framework{name="Vite"}
+  ```ts [vite.config.ts]
+  import { defineConfig } from 'vite'
+  import { vitehub } from 'vite-hub'
+
+  export default defineConfig({
+    plugins: [vitehub({ preset: 'node', logs: true })],
+  })
+  ```
+  ::::
   :::
 ::
 

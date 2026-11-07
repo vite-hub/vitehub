@@ -23,13 +23,56 @@ The `comments()` plugin has one option of its own, [`database`](#choose-the-data
 
 In a ViteHub app, Comments is on when the app has `server/comments.ts`. `vitehub({ comments: true })` turns it on without the file. The [Console](/docs/development/console) does not turn it on. Without the file, Comments uses `defineComments()` with no options. Comments turns on the Database when `database` is unset, and adds the Comments section to the Console. An object turns it on too, and sets the Database, the SQL dialect, or `overlay: false`:
 
-```ts [vite.config.ts]
-vitehub({
-  preset: 'node',
-  console: { auth: 'app' },
-  comments: { database: 'team' },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    console: { auth: 'app' },
+    comments: { database: 'team' },
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      console: { auth: 'app' },
+      comments: { database: 'team' },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      console: { auth: 'app' },
+      comments: { database: 'team' },
+    }),
+  ],
+})
+```
+:::
+::
 
 `comments: false` turns Comments off. With `comments: false` and a `server/comments.ts`, the build fails with `VITE_HUB_B0019`: remove one of them. With Comments on and `database: false`, the build fails with `VITE_HUB_B0018`. Comments keeps its threads in the Database, so remove `database: false` or set `comments: false`.
 

@@ -76,7 +76,7 @@ Keep both values secret. After you change scopes or events, install the app agai
 
 ## Set up the app
 
-Start with the Vite app from [Installation](/docs/getting-started/installation). Install the Slack adapter:
+Start with the app from [Installation](/docs/getting-started/installation). Install the Slack adapter:
 
 ```bash [Terminal]
 pnpm add @chat-adapter/slack
@@ -199,14 +199,63 @@ Keep it running, then open the tunnel in a second terminal:
 cloudflared tunnel --url http://localhost:3000
 ```
 
-Vite blocks requests for host names that it does not know. Add the tunnel domain to `server.allowedHosts` in `vite.config.ts`:
+Vite blocks requests for host names that it does not know. Add the tunnel domain to `server.allowedHosts`. In Nuxt, it goes in `vite.server.allowedHosts`.
 
-```ts [vite.config.ts]
-export default defineConfig({
-  server: { allowedHosts: ['.trycloudflare.com'] },
-  plugins: [/* ... */],
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    agent: true,
+    workflow: false,
+  },
+  vite: {
+    server: { allowedHosts: ['.trycloudflare.com'] },
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  server: { allowedHosts: ['.trycloudflare.com'] },
+  plugins: [
+    vitehub({
+      preset: 'node',
+      agent: true,
+      workflow: false,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  server: { allowedHosts: ['.trycloudflare.com'] },
+  plugins: [
+    vitehub({
+      preset: 'node',
+      agent: true,
+      workflow: false,
+    }),
+  ],
+})
+```
+:::
+::
 
 Check that the webhook route answers. A `HEAD` request returns `204` and names the provider:
 

@@ -25,18 +25,55 @@ pnpm add vite-hub nitro h3
 pnpm add -D vite wrangler
 ```
 
-Then turn on Browser in `vite.config.ts`:
+Then turn on Browser in the config of your app:
 
-```ts [vite.config.ts]
-import { vitehub } from 'vite-hub'
-
-export default {
-  plugins: [vitehub({
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
     preset: 'cloudflare',
     browser: { remote: true },
-  })],
-}
+  },
+})
 ```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      browser: { remote: true },
+    }),
+    nitro(),
+  ],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      browser: { remote: true },
+    }),
+  ],
+})
+```
+::::
+:::
 
 - `preset: 'cloudflare'` builds your app for Cloudflare. Browser works only with this preset.
 - `remote: true` lets your app call the browser on Cloudflare while you test on your computer.

@@ -27,7 +27,7 @@ The Chat SDK adapter asks the Gateway for the Guilds, Guild Messages, Message Co
 
 ## Set up the app
 
-Start with the Vite app from [Installation](/docs/getting-started/installation). Install the Discord adapter. ViteHub does not install it for you.
+Start with the app from [Installation](/docs/getting-started/installation). Install the Discord adapter. ViteHub does not install it for you.
 
 ```bash [Terminal]
 pnpm add @chat-adapter/discord
@@ -177,12 +177,53 @@ Run one server process for the bot. Each process opens its own Gateway connectio
 
 A serverless function cannot keep the Gateway connection open, so ViteHub starts the listener only on the `node` preset. You can generate a wake route instead:
 
-```ts [vite.config.ts]
-vitehub({
-  preset: 'vercel',
-  agent: { routes: { discordGateway: true } },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'vercel',
+    agent: { routes: { discordGateway: true } },
+  },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'vercel',
+      agent: { routes: { discordGateway: true } },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'vercel',
+      agent: { routes: { discordGateway: true } },
+    }),
+  ],
+})
+```
+:::
+::
 
 This adds `GET /api/_vitehub/agents/<agent>/discord/gateway`. In production the route requires `VITEHUB_DISCORD_GATEWAY_SECRET` and an `Authorization: Bearer <secret>` header. Each call opens the Gateway for 9 minutes, or for `VITEHUB_DISCORD_GATEWAY_DURATION_MS`, and forwards each event to the Agent webhook route at `/api/_vitehub/agents/<agent>/webhooks/discord`.
 

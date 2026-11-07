@@ -33,7 +33,7 @@ Add `logs` and `console` to `vitehub()` in `vite.config.ts`:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', logs: true, console: { auth: false, local: true } },
+  vitehub: { preset: 'node', logs: true, console: { auth: false } },
 })
 ```
 ::::
@@ -46,7 +46,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', logs: true, console: { auth: false, local: true } }),
+    vitehub({ preset: 'node', logs: true, console: { auth: false } }),
     nitro(),
   ],
 })
@@ -60,7 +60,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', logs: true, console: { auth: false, local: true } }),
+    vitehub({ preset: 'node', logs: true, console: { auth: false } }),
   ],
 })
 ```

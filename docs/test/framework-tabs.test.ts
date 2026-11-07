@@ -10,7 +10,31 @@ const frameworks = ["Nuxt", "Nitro", "Vite"]
  * Config blocks that stay without framework tabs, with the reason. A block here shows something that exists in one
  * framework only, so a tab for the others would show code that does not work.
  */
-const singleFramework: Record<string, string> = {}
+const singleFramework: Record<string, string> = {
+  "docs-site/assistant.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
+  "docs-site/configure.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
+  "docs-site/get-started.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
+  "docs-site/index.md nuxt.config.ts": "@vite-hub/docs is a Nuxt module.",
+  "frameworks-hosts/nuxt.md nuxt.config.ts": "The page is about the Nuxt module.",
+  "getting-started/migrate-from-nuxthub.md nuxt.config.ts": "The page migrates a NuxtHub app, which is a Nuxt app.",
+  "agents/build-a-chat-app.md nuxt.config.ts": "The tutorial builds a Nuxt app with Nuxt UI.",
+  "development/console.md nuxt.config.ts": "Nuxt route rules for @nuxtjs/robots have no Vite form.",
+  "reference/doctor-rules.md nuxt.config.ts": "Each example shows the config that one Doctor rule reports.",
+  "reference/doctor-rules.md vite.config.ts": "Each example shows the config that one Doctor rule reports.",
+  "ui/installation.md nuxt/nuxt.config.ts": "The page installs the Vue UI package in Nuxt and in Vite side by side.",
+  "ui/installation.md nuxt/defaults/nuxt.config.ts": "The page installs the Vue UI package in Nuxt and in Vite side by side.",
+  "ui/installation.md vite/vite.config.ts": "The page installs the Vue UI package in Nuxt and in Vite side by side.",
+  "ui/get-started.md nuxt.config.ts": "The tutorial uses the UI Nuxt module. Installation shows Vue with Vite.",
+  "agents/process-hosts.md vite.config.ts": "processAgentHost() and agentHostRoutes() set Nitro up from a Vite plugin, which Nuxt does not read.",
+  "agents/sandbox-tutorial.md vite.config.ts": "The tutorial runs @vite-hub/sandbox alone with plain Nitro.",
+  "auth/configure.md vite.config.ts": "hubAuth(false) and the top-level auth key belong to the package plugin and have no vitehub() form.",
+  "comments/configure.md vite.config.ts": "These Database strings belong to comments() used alone.",
+  "comments/get-started.md vite.config.ts": "The tutorial adds Comments alone, without a ViteHub app.",
+  "comments/get-started.md node/vite.config.ts": "The tutorial adds Comments alone, without a ViteHub app.",
+  "comments/index.md vite.config.ts": "The landing shows Comments alone, without a ViteHub app.",
+  "queue/configure.md vite.config.ts": "vitehub() takes queue as a boolean, so region, base, and binding need hubQueue().",
+  "sandbox/get-started.md vite.config.ts": "vitehub() takes sandboxTask as a boolean, so a Node app picks the Vercel provider with hubSandboxTask().",
+}
 
 async function markdownFiles(directory: string): Promise<string[]> {
   const files: string[] = []
@@ -142,9 +166,15 @@ function vitehubOptions(source: string): string | undefined {
     options = code[open] === ")" ? new Map() : entries(code, open)
     const config = /defineConfig\(\{/.exec(code)
     const topEnv = config ? /^ {2}env:\s*/m.exec(code.slice(config.index)) : null
-    if (config && topEnv) env = entries(code, config.index + topEnv.index + topEnv[0].length)
+    if (config && topEnv) {
+      const at = config.index + topEnv.index + topEnv[0].length
+      // A value such as envSchema(...) compares as a whole.
+      if (code[at] === "{") env = entries(code, at)
+      else options.set("env", code.slice(at, closing(code, code.indexOf("(", at))).replace(/\s+/g, " "))
+    }
   }
   const optionEnv = options.get("env")
+  if (optionEnv !== undefined && !optionEnv.startsWith("{")) options.set("env", optionEnv.replace(/\s+/g, " "))
   if (optionEnv?.startsWith("{")) {
     options.delete("env")
     for (const [key, value] of entries(optionEnv, 0)) env.set(key, value)

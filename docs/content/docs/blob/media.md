@@ -156,16 +156,62 @@ const [error, stream] = await blob.serve(event, pathname, {
 
 Set `transformer: 'photon'` to make variants with WebAssembly on Workers and Node. See [Photon on Workers and Node](#photon-on-workers-and-node).
 
-```ts [vite.config.ts]
-export default defineConfig({
-  plugins: [hubBlob()],
-  blob: {
-    driver: 'cloudflare-r2',
-    serve: true,
-    images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    blob: {
+      driver: 'cloudflare-r2',
+      serve: true,
+      images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
+    },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'cloudflare-r2',
+        serve: true,
+        images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'cloudflare-r2',
+        serve: true,
+        images: { transformer: 'cloudflare-images', sizes: [320, 640, 1280, 1920], quality: 70 },
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 An explicit `sharp` fails the build when the project cannot resolve sharp. An explicit `cloudflare-images` fails variant requests with `BLOB_R0034` when the binding is missing. `images: false` always serves originals. To use another image service, pass an object with `name` and `transform(input, operation)` as `images` to `createBlobStorage()`. The operation has the region to cut, the exact output size, the format, and the quality.
 
@@ -179,16 +225,62 @@ The `photon` transformer makes variants with [`@cf-wasm/photon`](https://github.
 pnpm add @cf-wasm/photon
 ```
 
-```ts [vite.config.ts]
-export default defineConfig({
-  plugins: [hubBlob()],
-  blob: {
-    driver: 'cloudflare-r2',
-    serve: true,
-    images: { transformer: 'photon' },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    blob: {
+      driver: 'cloudflare-r2',
+      serve: true,
+      images: { transformer: 'photon' },
+    },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'cloudflare-r2',
+        serve: true,
+        images: { transformer: 'photon' },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'cloudflare-r2',
+        serve: true,
+        images: { transformer: 'photon' },
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 Photon reads JPEG, PNG, WebP, and GIF sources. It turns JPEG images upright from their EXIF orientation, cuts the region, resizes to the exact size, and writes only pixels, so EXIF, GPS, and other metadata of the source do not reach the variant. Each step frees the previous image from WebAssembly memory.
 

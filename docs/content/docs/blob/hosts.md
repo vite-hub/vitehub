@@ -32,29 +32,123 @@ pnpm vitehub blob variants avatars/ada.png
 
 Cloudflare R2 Blob Stores use the configured runtime binding when it exists. `binding` defaults to `BLOB`, and `bucketName` lets ViteHub add the matching Cloudflare R2 bucket binding to Nitro's generated `wrangler.json`.
 
-```ts [vite.config.ts]
-export default defineConfig({
-  blob: {
-    driver: 'cloudflare-r2',
-    binding: 'BLOB',
-    bucketName: 'assets',
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    blob: {
+      driver: 'cloudflare-r2',
+      binding: 'BLOB',
+      bucketName: 'assets',
+    },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'cloudflare-r2',
+        binding: 'BLOB',
+        bucketName: 'assets',
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'cloudflare-r2',
+        binding: 'BLOB',
+        bucketName: 'assets',
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 ### Jurisdictional buckets
 
 Set `jurisdiction` when the bucket uses a [Cloudflare R2 jurisdiction](https://developers.cloudflare.com/r2/reference/data-location/#jurisdictional-restrictions). The values are `eu`, `fedramp`, and `us`.
 
-```ts [vite.config.ts]
-export default defineConfig({
-  blob: {
-    driver: 'cloudflare-r2',
-    bucketName: 'assets',
-    jurisdiction: 'eu',
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    blob: {
+      driver: 'cloudflare-r2',
+      bucketName: 'assets',
+      jurisdiction: 'eu',
+    },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'cloudflare-r2',
+        bucketName: 'assets',
+        jurisdiction: 'eu',
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 'cloudflare-r2',
+        bucketName: 'assets',
+        jurisdiction: 'eu',
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 ViteHub uses the jurisdiction in three places:
 
@@ -64,7 +158,7 @@ ViteHub uses the jurisdiction in three places:
 
 You cannot change the jurisdiction of a bucket after Cloudflare creates it. If your `wrangler` config already has an `r2_buckets` entry with the same `binding` and a different `jurisdiction`, the build fails. Set `jurisdiction` in the Blob config and remove the duplicate entry.
 
-When no runtime binding exists, ViteHub falls back to R2 HTTP access through its bundled Files SDK adapter. Set `accessKeyId` and `secretAccessKey` with runtime env, not `vite.config.ts`; non-secret values such as `bucketName` can stay in config.
+When no runtime binding exists, ViteHub falls back to R2 HTTP access through its bundled Files SDK adapter. Set `accessKeyId` and `secretAccessKey` with runtime env, not the app config; non-secret values such as `bucketName` can stay in config.
 
 ```env [.env]
 R2_ACCOUNT_ID=account-id
@@ -95,17 +189,68 @@ Use `driver: 's3'` for production S3-compatible object storage that is not one o
 pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
-```ts [vite.config.ts]
-export default defineConfig({
-  blob: {
-    driver: 's3',
-    bucket: 'app-assets',
-    endpoint: process.env.S3_ENDPOINT,
-    region: process.env.S3_REGION,
-    publicBaseUrl: 'https://assets.example.com',
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    blob: {
+      driver: 's3',
+      bucket: 'app-assets',
+      endpoint: process.env.S3_ENDPOINT,
+      region: process.env.S3_REGION,
+      publicBaseUrl: 'https://assets.example.com',
+    },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 's3',
+        bucket: 'app-assets',
+        endpoint: process.env.S3_ENDPOINT,
+        region: process.env.S3_REGION,
+        publicBaseUrl: 'https://assets.example.com',
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      blob: {
+        driver: 's3',
+        bucket: 'app-assets',
+        endpoint: process.env.S3_ENDPOINT,
+        region: process.env.S3_REGION,
+        publicBaseUrl: 'https://assets.example.com',
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 Store S3 credentials in Server Env or the provider credential chain used by the S3 SDK. Put non-secret routing values such as `bucket`, `endpoint`, `region`, and `publicBaseUrl` in config.
 
@@ -119,13 +264,39 @@ Use MinIO when you want Docker Compose or local staging to exercise object-stora
 pnpm add @aws-sdk/client-s3 @aws-sdk/lib-storage @aws-sdk/s3-presigned-post @aws-sdk/s3-request-presigner
 ```
 
-```ts [vite.config.ts]
-export default defineConfig({
-  blob: {
-    driver: 'minio',
-  },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { blob: { driver: 'minio' } },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ blob: { driver: 'minio' } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ blob: { driver: 'minio' } })],
+})
+```
+:::
+::
 
 ```env [.env]
 MINIO_ENDPOINT=http://minio:9000

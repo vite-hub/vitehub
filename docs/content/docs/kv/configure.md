@@ -10,17 +10,65 @@ icon: i-lucide-sliders-horizontal
 
 Configure a default store directly, or configure named stores with `kv.stores`.
 
-```ts [vite.config.ts]
-export default defineConfig({
-  plugins: [hubKv()],
-  kv: {
-    stores: {
-      default: { driver: 'fs-lite' },
-      rateLimit: { driver: 'upstash' },
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    kv: {
+      stores: {
+        default: { driver: 'fs-lite' },
+        rateLimit: { driver: 'upstash' },
+      },
     },
   },
 })
 ```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      kv: {
+        stores: {
+          default: { driver: 'fs-lite' },
+          rateLimit: { driver: 'upstash' },
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      kv: {
+        stores: {
+          default: { driver: 'fs-lite' },
+          rateLimit: { driver: 'upstash' },
+        },
+      },
+    }),
+  ],
+})
+```
+:::
+::
 
 | Shape | Description |
 | --- | --- |
