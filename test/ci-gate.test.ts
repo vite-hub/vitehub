@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -13,7 +13,7 @@ const workflowSchema = object({ permissions: record(string(), string()), jobs: r
   needs: optional(pipe(union([string(), array(string())]), transform(value => typeof value === "string" ? [value] : value))),
   if: optional(string()),
   "continue-on-error": optional(boolean()),
-  steps: array(object({ run: optional(string()), env: optional(record(string(), string())) })),
+  steps: array(object({ name: optional(string()), run: optional(string()), env: optional(record(string(), string())) })),
 })) })
 const workflow = parse(workflowSchema, parseYaml(readFileSync(new URL("../.github/workflows/ci.yml", import.meta.url), "utf8")))
 const jobNames = Object.keys(workflow.jobs).filter(name => name !== "ci")
@@ -124,17 +124,107 @@ describe("CI merge gate", () => {
     expect(docs?.steps.some(step => step.run === "vp run --filter vitehub-docs test")).toBe(true)
   })
 
-  it("requires successful docs verification and deployment on pushes", () => {
-    expect(workflow.jobs["docs-deploy"]?.["continue-on-error"]).not.toBe(true)
-    expect(workflow.jobs["docs-deploy"]?.needs?.toSorted()).toEqual(jobNames.filter(name => !["docs-deploy", "prepublish-contracts", "package-tests", "consumer-contracts"].includes(name)).toSorted())
-    for (const name of ["docs", "docs-deploy"]) {
+  // Each site deploys after every verification job and its own build, and not after the other site.
+  const sites = { docs: "docs-deploy", console: "console-deploy" }
+
+  it.each(Object.entries(sites))("requires successful %s verification and deployment on pushes", (build, deploy) => {
+    const otherSites = Object.entries(sites).filter(([name]) => name !== build).flat()
+    expect(workflow.jobs[deploy]?.["continue-on-error"]).not.toBe(true)
+    expect(workflow.jobs[deploy]?.if).toBe("${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}")
+    expect(workflow.jobs[deploy]?.needs?.toSorted()).toEqual(jobNames.filter(name => ![deploy, ...otherSites, "prepublish-contracts", "package-tests", "consumer-contracts"].includes(name)).toSorted())
+    for (const name of [build, deploy]) {
       for (const result of ["failure", "cancelled", "skipped"]) {
         const run = runGate({ ...successfulJobs, [name]: { result } }, "push")
         expect(run.status, `${name}: ${result}`).not.toBe(0)
         expect(run.stderr).toContain(`${name}: ${result}`)
       }
     }
-    expect(runGate({ ...successfulJobs, "docs-deploy": { result: "skipped" } }).status).toBe(0)
+    expect(runGate({ ...successfulJobs, [deploy]: { result: "skipped" } }).status).toBe(0)
+  })
+
+  it("checks that the hosted Console builds on pull requests", () => {
+    const hosted = workflow.jobs.console
+    expect(hosted?.if).toBeUndefined()
+    expect(hosted?.steps.some(step => step.run === "vp run --filter vite-hub build:console-hosted")).toBe(true)
+  })
+
+  it("rejects a stale hosted Console with the same entry script, including workflow reruns", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-console-deploy-"))
+    const output = join(directory, "packages/vite-hub/.vitehub/console-hosted")
+    const live = join(directory, "live.html")
+    const identify = workflow.jobs.console?.steps.find(step => step.name === "Identify hosted Console build")?.run
+    const check = workflow.jobs["console-deploy"]?.steps.find(step => step.name === "Check the live site")?.run
+    if (!check) throw new Error("The Console deployment must check the live site")
+    const html = '<html><head><script type="module" src="/assets/console-unchanged.js"></script></head></html>'
+    const run = (command: string, attempt: string, curlStatus = "0") => spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", command], {
+      cwd: directory,
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, GITHUB_SHA: "same-commit", GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: attempt, LIVE_HTML: live, CURL_STATUS: curlStatus },
+    })
+    try {
+      mkdirSync(output, { recursive: true })
+      for (const [name, contents] of Object.entries({ curl: '#!/bin/sh\ncat "$LIVE_HTML"\nexit "$CURL_STATUS"\n', sleep: "#!/bin/sh\nexit 0\n" })) {
+        const path = join(directory, name)
+        writeFileSync(path, contents)
+        chmodSync(path, 0o755)
+      }
+      for (const attempt of ["1", "2"]) {
+        for (const name of ["index.html", "404.html"]) writeFileSync(join(output, name), html)
+        if (identify) {
+          const result = run(identify, attempt)
+          expect(result.status, result.stderr).toBe(0)
+        }
+        if (attempt === "1") writeFileSync(live, readFileSync(join(output, "index.html")))
+      }
+
+      const stale = run(check, "2")
+      expect(stale.status, "An older deployment with an unchanged entry must fail").not.toBe(0)
+      expect(stale.stderr).toContain("does not serve this build")
+      expect(readFileSync(join(output, "404.html"), "utf8")).toBe(readFileSync(join(output, "index.html"), "utf8"))
+
+      writeFileSync(live, readFileSync(join(output, "index.html")))
+      const current = run(check, "2")
+      expect(current.status, current.stderr).toBe(0)
+      expect(run(check, "2", "22").status, "An unsuccessful HTTP response must fail even with the expected marker").not.toBe(0)
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("accepts the reused build when only the Console deploy job is rerun, and rejects a build of another run", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-console-deploy-rerun-"))
+    const output = join(directory, "packages/vite-hub/.vitehub/console-hosted")
+    const live = join(directory, "live.html")
+    const identify = workflow.jobs.console?.steps.find(step => step.name === "Identify hosted Console build")?.run
+    const check = workflow.jobs["console-deploy"]?.steps.find(step => step.name === "Check the live site")?.run
+    if (!identify || !check) throw new Error("The Console build must mark its output and the deployment must check the live site")
+    const run = (command: string, runId: string, attempt: string) => spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c", command], {
+      cwd: directory,
+      encoding: "utf8",
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, GITHUB_SHA: "same-commit", GITHUB_RUN_ID: runId, GITHUB_RUN_ATTEMPT: attempt, LIVE_HTML: live, CURL_STATUS: "0" },
+    })
+    try {
+      mkdirSync(output, { recursive: true })
+      for (const [name, contents] of Object.entries({ curl: '#!/bin/sh\ncat "$LIVE_HTML"\nexit "$CURL_STATUS"\n', sleep: "#!/bin/sh\nexit 0\n" })) {
+        const path = join(directory, name)
+        writeFileSync(path, contents)
+        chmodSync(path, 0o755)
+      }
+      for (const name of ["index.html", "404.html"]) writeFileSync(join(output, name), "<html><head></head></html>")
+      // Attempt 1 builds and deploys. Only console-deploy is rerun as attempt 2, with the artifact of attempt 1.
+      expect(run(identify, "123", "1").status).toBe(0)
+      writeFileSync(live, readFileSync(join(output, "index.html")))
+      const rerun = run(check, "123", "2")
+      expect(rerun.status, rerun.stderr).toBe(0)
+
+      const otherRun = run(check, "456", "1")
+      expect(otherRun.status, "A build of another run must fail even when the site serves it").not.toBe(0)
+      expect(otherRun.stderr).toContain("no deployment marker for this commit and run")
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 
   it.each(["push", "workflow_dispatch"])("rejects a partial package test rerun with failed shards on %s", (event) => {
@@ -169,11 +259,12 @@ describe("CI merge gate", () => {
     "package-tests-success",
     "node-22",
     "docs",
+    "console",
   ]
 
   it("accepts the checks intentionally skipped on pull requests", () => {
     const results = Object.fromEntries(jobNames.map(name => [name, {
-      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "node-22", "docs", "prepublish-contracts"].includes(name) ? "success" : "skipped",
+      result: ["checks", "workflow-lint", "contracts-examples", "contract-tests", "package-tests", "package-tests-success", "node-22", "docs", "console", "prepublish-contracts"].includes(name) ? "success" : "skipped",
     }]))
     expect(runGate(results).status).toBe(0)
     expect(runGate(results, "push").status).not.toBe(0)

@@ -25,6 +25,7 @@ export default defineConfig({
     entry: [
       "src/ai.ts",
       "src/blob-database.ts",
+      "src/checkout.ts",
       "src/cloudflare.ts",
       "src/files.ts",
       "src/hosted.ts",
