@@ -44,7 +44,7 @@ export function nuxtPageRoutes(pages: readonly NuxtPageLike[], layouts: Readonly
     }
   }
   walk(pages, "", [], "default")
-  return [...routes.values()].sort((left, right) => left.path.localeCompare(right.path))
+  return [...routes.values()].sort((left, right) => left.path < right.path ? -1 : 1)
 }
 
 interface RouteGraph {
