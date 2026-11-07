@@ -660,6 +660,8 @@ The token endpoint and the revocation endpoint, `/api/auth/oauth2/revoke`, answe
 
 A call that needs a scope that the token does not have gets `403` with `CONSOLE_ACCESS_DENIED`. RPC calls and uploads include a `WWW-Authenticate` Bearer challenge with `error="insufficient_scope"` and the required `scope`. The token's user still goes through `console.authorize`, which decides the sections. A bearer call never starts or stops impersonation.
 
+Auth management changes also need the user's Better Auth admin permissions and the live login session named by the token's `sid`. Auth uses that session for its plugin APIs and the action's actor. It sends no session cookie to the remote Console. Browser cookies on the request cannot change the OAuth actor.
+
 #### Token lifetime and revocation
 
 Console access tokens are signed JWTs that are valid for 15 minutes. A refresh token is valid for 7 days, and each refresh replaces it. MCP tokens keep Better Auth's defaults: 1 hour for an access token and 30 days for a refresh token.

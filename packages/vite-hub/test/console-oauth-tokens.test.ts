@@ -7,7 +7,7 @@ import { defineOperation } from "@vite-hub/internal/operations"
 import { admin, jwt } from "better-auth/plugins"
 import { defineHandler } from "h3"
 import * as v from "valibot"
-import { afterEach, beforeEach, describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { consoleMcpOAuth, consoleResourceOf } from "../src/console/auth.ts"
 import { installConsoleAccess, resolveConsoleAppAuthIdentity } from "../src/console/runtime/server/access.ts"
@@ -22,6 +22,17 @@ import scheduleRunHandler from "../src/console/runtime/server/schedule-run.ts"
 import { resolveConsoleAccessBuild } from "../src/console/vite.ts"
 
 import type { ConsoleOAuthAuth } from "../src/console/runtime/server/bearer.ts"
+
+vi.mock("@vite-hub/auth/server", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@vite-hub/auth/server")>()
+  const { createAuthConsole } = await import("@vite-hub/auth/console-runtime")
+  return {
+    ...original,
+    // Use the fixture's real provider in place of generated Auth Definition discovery.
+    getAuthConsoleForRequest: (request: Request, _event: unknown, host: Parameters<typeof original.getAuthConsoleForRequest>[2]) =>
+      createAuthConsole(real(request), { fields: { plan: { editable: true } } }, undefined, host),
+  }
+})
 
 const app = "https://app.example.com"
 const mcpResource = `${app}/_vitehub/mcp`
@@ -81,6 +92,7 @@ beforeEach(async () => {
     emailAndPassword: { enabled: true },
     plugins: [admin(), ...consoleMcpOAuth({ clientMetadataFetch, resource: mcpResource })],
     secret: "test-secret-at-least-32-bytes-long",
+    user: { additionalFields: { plan: { type: "string", required: false } } },
   }))
   real = request => createAuthForRequest(definition, request)
   await (await real(new Request(app)).$context).runMigrations()
@@ -295,6 +307,53 @@ describe("OAuth Console tokens", () => {
       expect(response.headers.has("www-authenticate")).toBe(false)
       await expect(response.json()).resolves.toMatchObject({ message: "Invalid Auth Console request." })
     }
+  })
+
+  it("runs Auth management as the OAuth administrator without app cookies", async () => {
+    installConsoleSections("console-oauth-auth-manage", ["auth"])
+    const administrator = await signUp()
+    database.prepare('UPDATE "user" SET "role" = \'admin\' WHERE "id" = ?').run(administrator.id)
+    const member = await signUp("member@example.com")
+    const { access_token } = await consoleTokens({ cookie: administrator.cookie })
+    const manage = (body: Record<string, unknown>) => authManageHandler({ res: { headers: new Headers() }, req: new Request(`${app}/_vitehub/auth/manage`, {
+      body: JSON.stringify(body),
+      headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "origin": local, "x-vitehub-console": "1" },
+      method: "POST",
+    }) })
+    const description = await manage({ operation: "describe" })
+    expect(description.status, await description.clone().text()).toBe(200)
+    await expect(description.json()).resolves.toMatchObject({ actions: { ban: { enabled: true }, impersonate: { enabled: false } } })
+    const session = database.prepare('SELECT "id" FROM "session" WHERE "userId" = ?').get(member.id)
+    for (const body of [
+      { action: "editField", userId: member.id, field: "plan", value: "pro" },
+      { action: "setRole", userId: member.id, role: "user" },
+      { action: "revokeSession", id: session?.id },
+      { action: "revokeSessions", userId: member.id },
+      { action: "ban", userId: member.id },
+      { action: "unban", userId: member.id },
+      { action: "remove", userId: member.id },
+    ]) {
+      const response = await manage(body)
+      expect(response.status, await response.clone().text()).toBe(200)
+      await expect(response.json()).resolves.toMatchObject({ action: body.action, actor: `user:${administrator.id}`, ok: true })
+      expect(response.headers.has("set-cookie")).toBe(false)
+      expect(response.headers.get("access-control-allow-origin")).toBe(local)
+    }
+    expect(database.prepare('SELECT "id" FROM "user" WHERE "id" = ?').get(member.id)).toBeUndefined()
+  })
+
+  it("does not use a browser administrator cookie to elevate an OAuth member", async () => {
+    installConsoleSections("console-oauth-auth-manage", ["auth"])
+    const administrator = await signUp("admin@example.com")
+    database.prepare('UPDATE "user" SET "role" = \'admin\' WHERE "id" = ?').run(administrator.id)
+    const { access_token } = await consoleTokens()
+    const response = await authManageHandler({ res: { headers: new Headers() }, req: new Request(`${app}/_vitehub/auth/manage`, {
+      body: JSON.stringify({ action: "ban", userId: administrator.id }),
+      headers: { "authorization": `Bearer ${access_token}`, "content-type": "application/json", "cookie": administrator.cookie, "origin": local, "x-vitehub-console": "1" },
+      method: "POST",
+    }) })
+    expect(response.status).toBe(403)
+    expect(database.prepare('SELECT "banned" FROM "user" WHERE "id" = ?').get(administrator.id)?.banned).toBeFalsy()
   })
 
   it.each(["deleted", "disabled"])("refuses a token after its issuing client is %s", async (state) => {

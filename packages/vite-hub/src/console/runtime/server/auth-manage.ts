@@ -127,7 +127,10 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
     return consoleScopeRejection(call, call.kind === "read" ? "reading Auth data" : "changing Auth data");
   const impersonation = consoleImpersonation();
   installStandardContext(event);
-  const api = getAuthConsoleForRequest(request, event, { impersonation });
+  const api = getAuthConsoleForRequest(request, event, {
+    impersonation,
+    ...(access.via === "oauth" && access.user ? { bearer: { user: access.user, sessionId: access.sessionId } } : {}),
+  });
   try {
     if ("operation" in output) {
       const { operation, query, id, activity } = output;

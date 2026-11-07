@@ -246,7 +246,7 @@ export function isBearerRejection(response: Response): boolean {
 
 /** `audience` is the resource that the token was checked for: the MCP endpoint, or the Console data routes. */
 export type ConsoleBearerResult =
-  | { ok: true, audience: "console" | "mcp", scopes: readonly string[], user: ConsoleUser }
+  | { ok: true, audience: "console" | "mcp", scopes: readonly string[], user: ConsoleUser, sessionId?: string }
   | { ok: false, audience: "console" | "mcp", state: ConsoleOAuthState }
 
 function grantedScopes(payload: Record<string, unknown>): string[] {
@@ -322,7 +322,7 @@ export async function verifyConsoleBearer(request: Request, event: ConsoleReques
     if (!isRecord(user) || bannedUser(user)) return { audience, ok: false, state }
     if (audience === "console" && !await liveConsoleToken(state.context, payload)) return { audience, ok: false, state }
     // SAFETY: A Console user is an Auth user record, which is what the adapter returns.
-    return { audience, ok: true, scopes: grantedScopes(payload), user: user as ConsoleUser }
+    return { audience, ok: true, scopes: grantedScopes(payload), user: user as ConsoleUser, ...(typeof payload.sid === "string" ? { sessionId: payload.sid } : {}) }
   }
   catch {
     return { audience, ok: false, state }

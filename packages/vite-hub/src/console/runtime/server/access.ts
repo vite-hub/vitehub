@@ -57,6 +57,8 @@ export interface ConsoleAccess {
   /** The OAuth scopes of the access token; sessions have no scope limit. See `consoleScopesAllow()`. */
   readonly scopes?: readonly string[]
   readonly user?: ConsoleUser
+  /** The verified OAuth token's login session, used only by Auth management. */
+  readonly sessionId?: string
   /**
    * The bearer that the access check accepted: `"token"` for `VITEHUB_CONSOLE_TOKEN`, `"oauth"` for an OAuth access token.
    * Not set for a session, Cloudflare Access, or an open Console. Only a bearer call may come from another origin.
@@ -378,6 +380,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   if (!policy) return rejection(500, "CONSOLE_ACCESS_NOT_CONFIGURED", "Console access is not configured. The generated Console output did not install an access policy.")
   let user: ConsoleUser | undefined
   let scopes: readonly string[] | undefined
+  let sessionId: string | undefined
   let via: ConsoleAccess["via"]
   if (policy.mode === "local") {
     if (!isConsoleDevelopmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
@@ -401,6 +404,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
       // A valid access token is the sign-in. `authorize` still decides the sections, and the scopes limit the calls.
       user = bearer.user
       scopes = bearer.scopes
+      sessionId = bearer.sessionId
       via = "oauth"
       if (policy.oauth?.authorize) {
         const allowed = await policy.oauth.authorize({ request: consoleRequest(event), user })
@@ -437,7 +441,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
       sections = allowed
     }
   }
-  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(scopes ? { scopes } : {}), ...(user ? { user } : {}), ...(via ? { via } : {}) })
+  const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(scopes ? { scopes } : {}), ...(user ? { user } : {}), ...(sessionId ? { sessionId } : {}), ...(via ? { via } : {}) })
   if (policy.mode === "auth" && !user && policy.user) {
     // Read the user once per access, however many handlers ask for it.
     let pending: Promise<ConsoleUser | undefined> | undefined
