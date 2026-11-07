@@ -460,7 +460,6 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
   let command: string | undefined
   let resolved: ResolvedConfig | undefined
   let siblingRuntime: BlobRuntimeContribution | undefined
-  let cloudflareHost = false
   const presetDriver = () => typeof internalOptions.presetDriver === "function" ? internalOptions.presetDriver(blob) : internalOptions.presetDriver
   const siblingRuntimeGenerations = createProviderDeploymentOutputGenerationState()
   const getConfig = () => runtimeConfig ??= resolveBlobViteConfig(options)
@@ -483,7 +482,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
           kind: "blob",
           label: "Blob stores",
           list: () => inspectBlobStores(
-            resolveBlobViteConfig(blob, { dev: true, presetDriver: presetDriver(), ...(cloudflareHost ? { hosting: "cloudflare" } : {}) }).blob,
+            resolveBlobViteConfig(blob, { dev: true, presetDriver: presetDriver(), hosting: resolved ? devServerHost(resolved) : undefined }).blob,
             resolved?.configFile ? relative(rootDir, resolved.configFile) : "vite.config",
           ),
         }],
@@ -514,10 +513,9 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const cloudflare = isNitroCloudflareHost(configuredNitro)
-      cloudflareHost = cloudflare
       const development = (config.command ?? command) === "serve"
       // In `vite dev`, a store stays local unless it sets `remote: true`.
-      const blobConfig = resolveBlobViteConfig(blob, { dev: development, presetDriver: presetDriver(), ...(cloudflare ? { hosting: "cloudflare" } : {}) })
+      const blobConfig = resolveBlobViteConfig(blob, { dev: development, presetDriver: presetDriver(), hosting: development ? devServerHost(config) : cloudflare ? "cloudflare" : undefined })
       const nitro = mergeNitroBlobConfig(
         configuredNitro,
         blobConfig.blob ? blobConfig.blob.serve : undefined,

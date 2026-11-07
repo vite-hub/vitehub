@@ -10,6 +10,7 @@ import { promisify } from "node:util"
 import { build as bundle } from "esbuild"
 import { H3, setResponseHeader } from "h3"
 import { afterAll, describe, expect, it, vi } from "vitest"
+import { resolveConfig as resolveViteConfig } from "vite"
 import { createProviderDeploymentOutputGenerationState, getProviderRuntimeModule, getVercelRuntimePackages, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
@@ -1473,6 +1474,47 @@ describe("hubBlob in vite dev", () => {
     await (plugin.configResolved as (config: unknown) => void | Promise<void>)({ build: { outDir: "dist" }, command, nitro, plugins: [{ name: "nitro:main" }], root } as never)
     return root
   }
+
+  it.each([
+    ["vercel", { driver: "vercel-blob" }, false],
+    ["vercel", { driver: "vercel-blob" }, true],
+    ["netlify", { driver: "netlify-blobs", name: "vitehub-blob" }, false],
+    ["netlify", { driver: "netlify-blobs", name: "vitehub-blob" }, true],
+    ["cloudflare", { driver: "cloudflare-r2" }, false],
+    ["cloudflare", { driver: "cloudflare-r2" }, true],
+  ] as const)("keeps the %s preset (%o, remote=%s) when application config replaces Blob options", async (preset, options, remote) => {
+    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "")
+    vi.stubEnv("BLOB_STORE_ID", "")
+    try {
+      const plugin = hubBlob(options, { presetDriver: effective => effective === options })
+      if (plugin.config && typeof plugin.config !== "function") plugin.config.order = "post"
+      const root = await temporaryDirectory("vitehub-blob-app-remote-")
+      await resolveViteConfig({
+        configFile: false,
+        logLevel: "silent",
+        plugins: [
+          { name: "app-blob-config", config: () => ({ blob: { remote }, vitehub: { preset } }) },
+          plugin,
+        ],
+        root,
+      }, "serve")
+
+      const developmentDriver = preset === "vercel" && !remote ? "fs" : options.driver
+      expect(plugin.api.getConfig().blob).toMatchObject({
+        store: { driver: developmentDriver, ...(remote ? { remote: true } : {}) },
+      })
+      const runtime = await readFile(join(root, ".vitehub", "nitro", "blob", "runtime.mjs"), "utf8")
+      expect(runtime).toContain(`/drivers/${developmentDriver === "vercel-blob" ? "vercel" : developmentDriver === "cloudflare-r2" ? "cloudflare" : developmentDriver}`)
+      const [inspector] = plugin.vitehub.inspect!().definitions!
+      expect(await inspector?.list()).toMatchObject([{ fields: [{
+        label: "Development",
+        value: remote ? expect.stringContaining("Remote.") : preset === "netlify" ? expect.stringContaining("configured `netlify-blobs`") : expect.stringContaining("Local."),
+      }] }])
+    }
+    finally {
+      vi.unstubAllEnvs()
+    }
+  })
 
   it("keeps a Vercel Blob token in env out of the dev runtime", async () => {
     vi.stubEnv("BLOB_READ_WRITE_TOKEN", "secret-token")
