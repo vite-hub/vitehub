@@ -189,7 +189,7 @@ export function hubI18n(options: I18nVitePluginOptions = {}): I18nVitePlugin {
     vitehub: {
       cli: async () => {
         const { createI18nCliContributor } = await import("./cli.ts")
-        return createI18nCliContributor(resolveLingui)
+        return createI18nCliContributor(resolveLingui, () => configured.workspace)
       },
       inspect: () => ({
         definitions: [{

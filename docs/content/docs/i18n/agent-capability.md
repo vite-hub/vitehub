@@ -56,6 +56,6 @@ i18n({ policy: 'require-approval' })
 
 ## Limits
 
-- **A Workspace is required.** Without `i18n.workspace`, every tool fails with [`I18N_NO_WORKSPACE`](/docs/i18n/limits-and-errors#i18n_no_workspace). Translations in `locales/` change only through a commit.
+- **A Workspace is required.** Without `i18n.workspace`, every tool fails with [`I18N_NO_WORKSPACE`](/docs/i18n/limits-and-errors#i18n_no_workspace). Translations in `locales/` change only through a commit, or through [`vitehub pull`](/docs/i18n/configure#bring-workspace-translations-into-locales) from the Workspace.
 - **`i18n_publish` publishes every changed draft.** It does not pin the drafts that the approver saw. A draft that someone saves during the approval goes out with it.
 - **Development reads the messages once.** In development, the server reads the messages of the code when it starts. Restart it to show a message that you added after that.
