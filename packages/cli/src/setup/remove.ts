@@ -194,6 +194,11 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
   const after = simulate([...edits.values()])
 
   const turnedOff = featureIds.filter(id => enabled(status, id).enabled === "on" && enabled(after.status, id).enabled !== "on")
+  // Unknown Nuxt directories can hide Definitions and auto-imported discovery files.
+  const needsDirectories = [...args.features, ...turnedOff].some(id => enabled(status, id).enabled !== "off" && (features[id].definition || features[id].enabledByDiscovery))
+  if (!args.force && project.framework === "nuxt" && !project.serverDirs?.length && needsDirectories) {
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_SERVER_DIR_MANUAL({ command: "remove" }), setupExitCodes.conflict)
+  }
   const remaining = featureIds.filter(id => enabled(after.status, id).enabled !== "off")
   const afterKeys = after.code && project.configFile ? locateViteHubConfig(project.configFile, after.code) : project.config
   const valueOf = (source: typeof project.config, id: FeatureId): JsonValue | undefined => {

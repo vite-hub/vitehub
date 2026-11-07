@@ -76,6 +76,38 @@ describe("vitehub remove", () => {
     expect(existsSync(join(root, serverDir))).toBe(false)
   })
 
+  it.each([
+    ['srcDir: "app"', "app/server/comments.ts", "comments"],
+    ['extends: ["./base"]', "base/server/comments.ts", "comments"],
+    ["", "layers/base/server/comments.ts", "comments"],
+    ["serverDir: process.env.SERVER_DIR", "backend/comments.ts", "comments"],
+    ['srcDir: "app"', "app/server/schedules/nightly.ts", "schedule"],
+  ])("requires --force when Nuxt Definition directories are unresolved: %s (%s)", async (options, path, feature) => {
+    const content = feature === "comments" ? "export const comments = defineComments()\n" : "export default defineSchedule({})\n"
+    const root = await createProject({
+      [path]: content,
+      "package.json": JSON.stringify({ dependencies: { [`@vite-hub/${feature}`]: "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),
+      "nuxt.config.ts": `export default defineNuxtConfig({ modules: ["vite-hub/nuxt"], ${options ? `${options}, ` : ""}vitehub: { preset: "node", ${feature}: true } })`,
+    })
+    const original = await snapshot(root)
+    const pm = fakePackageManager(root)
+
+    const refused = await remove([feature, "--yes"], root, pm.spawn)
+
+    expect(refused.exitCode).toBe(3)
+    expect(refused.json.error?.code).toBe("SETUP_SERVER_DIR_MANUAL")
+    expect(refused.json.error?.fix).toContain("--force")
+    expect(await snapshot(root)).toEqual(original)
+    expect(pm.calls).toEqual([])
+
+    const forced = await remove([feature, "--yes", "--force"], root, pm.spawn)
+
+    expect(forced.exitCode, JSON.stringify(forced.json.error)).toBe(0)
+    expect(forced.json.changes.map(change => change.kind)).toEqual(["patch"])
+    expect(await readFile(join(root, path), "utf8")).toBe(content)
+    expect(await readFile(join(root, "nuxt.config.ts"), "utf8")).not.toContain(`${feature}: true`)
+  })
+
   it("turns off features that only the removed feature implied and uninstalls their packages", async () => {
     const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "cloudflare" }`) })
     const original = await snapshot(root)

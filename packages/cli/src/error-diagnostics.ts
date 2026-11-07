@@ -48,7 +48,9 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SETUP_SERVER_DIR_MANUAL: {
       docs: "https://vitehub.dev/docs/development/cli#setup_server_dir_manual",
-      fix: "Create the Definition in your evaluated Nuxt server directory and rerun without --name, or use literal rootDir and serverDir options without layers.",
+      fix: ({ command }: { command?: unknown }) => command === "remove"
+        ? "Use literal rootDir and serverDir options without layers, or pass --force to turn the features off without checking unresolved Definition files."
+        : "Create the Definition in your evaluated Nuxt server directory and rerun without --name, or use literal rootDir and serverDir options without layers.",
       why: "ViteHub cannot determine the Nuxt application server directory without running the config.",
     },
     SETUP_INPUT_NEEDED: {
