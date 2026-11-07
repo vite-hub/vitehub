@@ -36,7 +36,7 @@ describe("diagnostic catalogs", () => {
   })
 
   it("reads the production shorthand catalogs", () => {
-    expect(code("CONNECTIONS_STATE_MISMATCH")).toMatchObject({ pkg: "connections", file: "packages/connections/src/error-diagnostics.ts", why: "The callback has no `state` cookie of this browser, or the cookie does not match.", docsBase: "https://vitehub.dev/docs/connections/limits-and-errors" })
+    expect(code("CONNECTIONS_STATE_MISMATCH")).toMatchObject({ pkg: "connections", file: "packages/connections/src/error-diagnostics.ts", why: "The callback has no `state` cookie of this browser, or the cookie does not match.", docsBase: "https://vitehub.dev/docs/connections/diagnostics" })
     expect(code("RUNTIME_R0001").file).toBe("packages/runtime/src/error-diagnostics.ts")
   })
 
@@ -89,7 +89,7 @@ describe("diagnostic pages", () => {
     expect(overview).toContain("navigation.panel: true")
     expect(overview).not.toContain("seo.index")
     expect(overview).toContain("title: \"Queue diagnostics\"")
-    expect(overview).toContain("Its `docs` link can open a shared index or a limits and errors page.")
+    expect(overview).toContain("Its `docs` link opens the page of that code.")
     for (const queueCode of codes.filter(candidate => candidate.pkg === "queue")) expect(overview).toContain(`(${diagnosticPath("queue", queueCode.code)})`)
   })
 

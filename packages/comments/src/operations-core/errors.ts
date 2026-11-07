@@ -2,7 +2,7 @@ import { defineDiagnostics } from "nostics"
 
 // Each code identifies one failure site. Keep published codes stable.
 export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/diagnostics",
+  docsBase: "https://vitehub.dev/docs/comments/diagnostics",
   codes: {
     COMMENTS_R0001: {
       why: ({ target }: { target: string }) => `createAnchor() found nothing to anchor to for ${target}.`,
