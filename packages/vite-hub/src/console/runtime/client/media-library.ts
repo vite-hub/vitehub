@@ -183,6 +183,10 @@ function settleUpload(answer: ConsoleUploadAnswer): unknown {
 
 function sendUpload(url: string, headers: Record<string, string>, form: FormData, options: ConsoleMediaUploadOptions): Promise<ConsoleUploadAnswer> {
   return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(new DOMException("The upload was cancelled.", "AbortError"))
+      return
+    }
     // SAFETY: The media library runs in the browser, where XMLHttpRequest exists with this shape.
     const XHR = Reflect.get(globalThis, "XMLHttpRequest") as new () => ConsoleUploadRequest
     const request = new XHR()

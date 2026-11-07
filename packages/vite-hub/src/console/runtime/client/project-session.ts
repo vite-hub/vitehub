@@ -7,6 +7,7 @@ import {
   storageOAuthLock,
   consoleAuthorizationUrl,
   consoleCodeChallenge,
+  consoleOAuthGrantLockName,
   consoleOAuthStateLifetime,
   createConsoleCodeVerifier,
   createConsoleOAuthRefresher,
@@ -76,6 +77,8 @@ interface ConsoleProjectsState {
   oauthStorage: boolean
   /** Refreshes the OAuth access tokens of the projects, one refresh at a time per project. */
   refresher: ConsoleOAuthRefresher
+  /** Serializes short grant updates and removals across tabs. */
+  lock: ConsoleOAuthLock
   /** The `fetch` of OAuth metadata, token, and revocation requests. */
   fetch: ConsoleOAuthFetch
   now: () => number
@@ -202,6 +205,7 @@ export function startConsoleProjects(options: {
   const started: ConsoleProjectsState = {
     current: shallowRef(current),
     fetch: request,
+    lock,
     now: options.now ?? Date.now,
     oauthStates: createConsoleOAuthStateStore(options.sessionStorage ?? memoryProjectStorage(), options.now ? { now: options.now } : {}),
     oauthStorage: options.durableStorage !== false && options.sessionStorage !== undefined,
@@ -362,10 +366,15 @@ async function revoke(tokens: ConsoleOAuthTokens | undefined): Promise<void> {
  */
 export async function forgetConsoleProject(id: string): Promise<void> {
   const projects = useState()
-  const tokens = projects.store.get(id)?.oauth
-  projects.store.forget(id)
+  const project = projects.store.get(id)
+  if (!project) return
+  const tokens = await projects.lock(consoleOAuthGrantLockName(project.url), async () => {
+    const latest = projects.store.get(id)
+    projects.store.forget(id)
+    return latest?.oauth
+  })
   projects.projects.value = projects.store.list()
-  await revoke(tokens)
+  if (tokens) void revokeConsoleOAuthTokens(tokens, { fetch: projects.fetch })
   if (projects.current.value?.id === id) projects.navigate(projects.home)
 }
 
@@ -376,13 +385,16 @@ export async function forgetConsoleProject(id: string): Promise<void> {
 export async function signOutConsoleProject(): Promise<void> {
   const projects = useState()
   const current = projects.current.value
-  const project = current?.id ? projects.store.get(current.id) : undefined
-  if (project?.oauth && projects.mode === "hosted") {
-    projects.store.save({ url: project.url, oauth: null })
+  if (current?.id) {
+    const tokens = await projects.lock(consoleOAuthGrantLockName(current.url), async () => {
+      const project = projects.store.get(current.id)
+      if (project?.oauth && projects.mode === "hosted") projects.store.save({ url: project.url, oauth: null, token: null })
+      else projects.store.forget(current.id)
+      return project?.oauth
+    })
     projects.projects.value = projects.store.list()
-    await revoke(project.oauth)
+    if (tokens) void revokeConsoleOAuthTokens(tokens, { fetch: projects.fetch })
   }
-  else if (current?.id) projects.store.forget(current.id)
   projects.navigate(projects.home)
 }
 

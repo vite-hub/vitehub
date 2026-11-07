@@ -18,7 +18,7 @@ import {
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
 import { consoleProjectsStorageKey, createConsoleProjectStore, memoryProjectStorage, openConsoleStorage } from "../src/console/runtime/client/projects.ts"
 
-import type { ConsoleOAuthFetch, ConsoleOAuthPendingSignIn, ConsoleOAuthTokens } from "../src/console/runtime/client/oauth.ts"
+import type { ConsoleOAuthLock, ConsoleOAuthFetch, ConsoleOAuthPendingSignIn, ConsoleOAuthTokens } from "../src/console/runtime/client/oauth.ts"
 
 const pageProject = consoleProject()
 afterEach(() => {
@@ -498,19 +498,19 @@ describe("refresh across tabs without Web Locks", () => {
 })
 
 describe("OAuth sign-in of a hosted Console", () => {
-  async function hosted(server: ReturnType<typeof fakeApp>, storage = memoryProjectStorage()) {
+  async function hosted(server: ReturnType<typeof fakeApp>, storage = memoryProjectStorage(), lock?: ConsoleOAuthLock) {
     vi.stubGlobal("fetch", server.fetch)
     const session = await import("../src/console/runtime/client/project-session.ts")
     // The session sets the transport of its own module graph, which `vi.resetModules()` renews for each test.
     const { projectFetch } = await import("../src/console/runtime/client/project.ts")
     const navigate = vi.fn()
     const tab = memoryProjectStorage()
-    const state = session.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate, pageOrigin: consoleOrigin, storage, sessionStorage: tab, durableStorage: true })
+    const state = session.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate, pageOrigin: consoleOrigin, storage, sessionStorage: tab, durableStorage: true, ...(lock ? { lock } : {}) })
     return { navigate, projectFetch, session, state, storage, tab }
   }
 
-  async function signIn(server: ReturnType<typeof fakeApp>) {
-    const context = await hosted(server)
+  async function signIn(server: ReturnType<typeof fakeApp>, storage = memoryProjectStorage(), lock?: ConsoleOAuthLock) {
+    const context = await hosted(server, storage, lock)
     const linked = await context.session.linkConsoleProject("app.example.com")
     expect(linked).toEqual({ kind: "oauth", target: app, resourceMetadata })
     expect(await context.session.startConsoleOAuthSignIn(app, resourceMetadata)).toBeUndefined()
@@ -691,6 +691,98 @@ describe("OAuth sign-in of a hosted Console", () => {
     expect(project?.oauth).toBeUndefined()
   })
 
+  it("clears both credential types when signing out of a project", async () => {
+    const server = fakeApp()
+    const { code, session, state, storage } = await signIn(server)
+    await session.finishConsoleOAuthSignIn(`?code=${code}&state=${encodeURIComponent(state)}`)
+    const store = createConsoleProjectStore(storage)
+    store.save({ url: app.url, token: "console-token" })
+
+    await session.signOutConsoleProject()
+    expect(store.find(app.url)).toMatchObject({ label: "Shop", url: app.url })
+    expect(store.find(app.url)?.token).toBeUndefined()
+    expect(store.find(app.url)?.oauth).toBeUndefined()
+  })
+
+  it.each(["sign out", "forget"])("finishes local %s without waiting for revocation", async (action) => {
+    const server = fakeApp()
+    const { code, session, state, storage, navigate } = await signIn(server)
+    await session.finishConsoleOAuthSignIn(`?code=${code}&state=${encodeURIComponent(state)}`)
+    const id = createConsoleProjectStore(storage).find(app.url)!.id
+    let release!: () => void
+    const pending = new Promise<void>((resolve) => { release = resolve })
+    const fetch = server.fetch.getMockImplementation()!
+    server.fetch.mockImplementation(async (input, init) => {
+      if (String(input).endsWith("/revoke")) await pending
+      return await fetch(input, init)
+    })
+    navigate.mockClear()
+    let finished = false
+    const removal = (action === "forget" ? session.forgetConsoleProject(id) : session.signOutConsoleProject()).then(() => { finished = true })
+    try {
+      await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith("/"), { timeout: 500 })
+      expect(finished).toBe(true)
+      expect(createConsoleProjectStore(storage).get(id)?.oauth).toBeUndefined()
+    }
+    finally {
+      release()
+      await removal
+    }
+  })
+
+  it.each([
+    ["sign out", 1],
+    ["forget", 2],
+    ["forget", 3],
+  ] as const)("serializes %s with refresh persistence at storage read %i", async (action, readNumber) => {
+    // A shared lock service models navigator.locks in two independent tab module graphs.
+    const queues = new Map<string, Promise<unknown>>()
+    const lock: ConsoleOAuthLock = async (name, run) => {
+      const previous = queues.get(name) ?? Promise.resolve()
+      const next = previous.then(run)
+      queues.set(name, next.catch(() => {}))
+      return await next
+    }
+    const data = memoryProjectStorage()
+    let reads = 0
+    let remaining = 0
+    let remove: (() => Promise<void>) | undefined
+    let removal: Promise<void> | undefined
+    const storage = {
+      getItem: (key: string) => {
+        const snapshot = data.getItem(key)
+        // Let the other tab run after this storage read but before the following write.
+        if (key === consoleProjectsStorageKey && remaining && ++reads === remaining) {
+          remaining = 0
+          removal = remove!()
+        }
+        return snapshot
+      },
+      setItem: data.setItem,
+    }
+    const server = fakeApp()
+    const { code, session, state } = await signIn(server, storage, lock)
+    await session.finishConsoleOAuthSignIn(`?code=${code}&state=${encodeURIComponent(state)}`)
+    const id = createConsoleProjectStore(storage).find(app.url)!.id
+    vi.resetModules()
+    const other = await hosted(server, storage, lock)
+    remove = () => action === "forget" ? other.session.forgetConsoleProject(id) : other.session.signOutConsoleProject()
+    const fetch = server.fetch.getMockImplementation()!
+    server.fetch.mockImplementation(async (input, init) => {
+      const response = await fetch(input, init)
+      if (new URLSearchParams(String(init?.body ?? "")).get("grant_type") === "refresh_token") remaining = readNumber
+      return response
+    })
+
+    await session.useConsoleProjects().refresher.accessToken(app.url, { rejected: "access-1" })
+    expect(removal).toBeDefined()
+    await removal
+    const saved = createConsoleProjectStore(storage).get(id)
+    if (action === "forget") expect(createConsoleProjectStore(storage).list()).toEqual([])
+    else expect(saved?.oauth).toBeUndefined()
+    expect(server.hasRefreshToken("refresh-2")).toBe(false)
+  })
+
   it("forgets the project even when the revocation fails", async () => {
     const server = fakeApp()
     const { code, session, state, storage } = await signIn(server)
@@ -782,7 +874,7 @@ describe("browser storage", () => {
 })
 
 describe("media upload with OAuth", () => {
-  it("refreshes once and uploads again when the project refuses the access token", async () => {
+  it.each([false, true])("handles an upload rejected by the project with cancellation during renewal: %s", async (cancel) => {
     const sent: (string | undefined)[] = []
     class FakeUpload {
       headers: Record<string, string> = {}
@@ -814,11 +906,21 @@ describe("media upload with OAuth", () => {
     vi.stubGlobal("XMLHttpRequest", FakeUpload)
     const { setConsoleProject: open } = await import("../src/console/runtime/client/project.ts")
     const { createConsoleMediaClient } = await import("../src/console/runtime/client/media-library.ts")
-    const renew = vi.fn(async (response: Response) => /invalid_token/.test(response.headers.get("www-authenticate") ?? "") ? "Bearer new" : undefined)
+    const controller = new AbortController()
+    const renew = vi.fn(async (response: Response) => {
+      if (cancel) controller.abort()
+      return /invalid_token/.test(response.headers.get("www-authenticate") ?? "") ? "Bearer new" : undefined
+    })
     open({ origin: "https://app.example.com", base: "", authorization: () => "Bearer old", renew })
-    const result = await createConsoleMediaClient("/api/_vitehub/console/media", "docs").upload(new File(["x"], "a.png", { type: "image/png" }))
-    expect(result).toEqual({ duplicate: false, file: { pathname: "a.png" } })
-    expect(sent).toEqual(["Bearer old", "Bearer new"])
+    const upload = createConsoleMediaClient("/api/_vitehub/console/media", "docs").upload(new File(["x"], "a.png", { type: "image/png" }), { signal: controller.signal })
+    if (cancel) {
+      await expect(upload).rejects.toMatchObject({ name: "AbortError" })
+      expect(sent).toEqual(["Bearer old"])
+    }
+    else {
+      expect(await upload).toEqual({ duplicate: false, file: { pathname: "a.png" } })
+      expect(sent).toEqual(["Bearer old", "Bearer new"])
+    }
     expect(renew).toHaveBeenCalledOnce()
   })
 })

@@ -447,6 +447,9 @@ export async function revokeConsoleOAuthTokens(tokens: ConsoleOAuthTokens, optio
 /** Runs one callback at a time per name, in every tab of the origin, such as the Web Locks API. */
 export type ConsoleOAuthLock = <T>(name: string, run: () => Promise<T>) => Promise<T>
 
+/** Serializes grant persistence with sign-out and Forget, without waiting for a token request. */
+export const consoleOAuthGrantLockName = (projectUrl: string): string => `vitehub-console:oauth:${projectUrl}:grant`
+
 /** The Web Locks API of the browser, or `undefined` where it does not exist. */
 export function browserOAuthLock(): ConsoleOAuthLock | undefined {
   const navigator: unknown = Reflect.get(globalThis, "navigator")
@@ -534,26 +537,34 @@ export function createConsoleOAuthRefresher(options: {
     if (!latest) return undefined
     if (usable(latest, rejected)) return latest.accessToken
     const result = await refreshConsoleOAuthTokens(latest, { fetch: options.fetch, now })
-    const current = options.read(projectUrl)
-    // Sign-out or Forget can remove the grant while its refresh is at the server, in this or another tab.
-    if (!current) {
-      if (result.kind === "tokens") await revokeConsoleOAuthTokens(result.tokens, { fetch: options.fetch })
-      return undefined
+    let discarded: ConsoleOAuthTokens | undefined
+    const persist = async (): Promise<string | undefined> => {
+      const current = options.read(projectUrl)
+      // This check and the write share the removal lock, including the store's read-modify-write operations.
+      if (!current) {
+        if (result.kind === "tokens") discarded = result.tokens
+        return undefined
+      }
+      // A later sign-in or another tab's rotation owns the stored grant now.
+      if (current.refreshToken !== latest.refreshToken || current.accessToken !== latest.accessToken) {
+        if (result.kind === "tokens" && result.tokens.refreshToken !== current.refreshToken) discarded = result.tokens
+        return current.accessToken === rejected ? undefined : current.accessToken
+      }
+      if (result.kind === "tokens") {
+        options.write(projectUrl, result.tokens)
+        return result.tokens.accessToken
+      }
+      if (result.kind === "rejected" && !result.retryable) {
+        options.write(projectUrl, null)
+        return undefined
+      }
+      // Temporary request failure: keep the tokens, so the Console works again when the project answers.
+      return latest.accessToken === rejected ? undefined : latest.accessToken
     }
-    // A later sign-in or another tab's rotation owns the stored grant now.
-    if (current.refreshToken !== latest.refreshToken || current.accessToken !== latest.accessToken) {
-      return current.accessToken === rejected ? undefined : current.accessToken
-    }
-    if (result.kind === "tokens") {
-      options.write(projectUrl, result.tokens)
-      return result.tokens.accessToken
-    }
-    if (result.kind === "rejected" && !result.retryable) {
-      options.write(projectUrl, null)
-      return undefined
-    }
-    // Temporary request failure: keep the tokens, so the Console works again when the project answers.
-    return latest.accessToken === rejected ? undefined : latest.accessToken
+    const token = await (options.lock ? options.lock(consoleOAuthGrantLockName(projectUrl), persist) : persist())
+    // Keep network work outside the grant lock so a slow endpoint cannot delay local sign-out.
+    if (discarded) await revokeConsoleOAuthTokens(discarded, { fetch: options.fetch })
+    return token
   }
   return {
     accessToken(projectUrl: string, { rejected }: { rejected?: string } = {}): Promise<string | undefined> {
