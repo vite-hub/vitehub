@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { classifyProviderFailure, cloudflareProductOfPath, readProviderErrorCodes } from "../src/provider-failure.ts"
-import { createCloudflareProvisionClient, createVercelProvisionClient } from "../src/provision.ts"
+import { createCloudflareApiClient, createCloudflareProvisionClient, createNetlifyApiClient, createVercelProvisionClient } from "../src/provision.ts"
 
 describe("classifyProviderFailure", () => {
   it.each([
@@ -19,6 +19,7 @@ describe("classifyProviderFailure", () => {
   ] as const)("maps HTTP status %i to %s", (status, kind) => {
     expect(classifyProviderFailure({ host: "cloudflare" }, { status })).toBe(kind)
     expect(classifyProviderFailure({ host: "vercel" }, { status })).toBe(kind)
+    expect(classifyProviderFailure({ host: "netlify" }, { status })).toBe(kind)
   })
 
   it("reads a Cloudflare code in the table of its product", () => {
@@ -79,6 +80,18 @@ describe("cloudflareProductOfPath", () => {
 })
 
 describe("provision request failure kind", () => {
+  it.each([
+    ["Cloudflare accounts", createCloudflareApiClient, "/accounts", "https://api.cloudflare.com/client/v4/accounts"],
+    ["Netlify sites", createNetlifyApiClient, "/sites", "https://api.netlify.com/api/v1/sites"],
+  ] as const)("classifies %s API failures without losing request identity", async (_name, createClient, path, url) => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({}, { status: 401 }))
+    const request = createClient("token", fetch)
+
+    await expect(request(path)).rejects.toMatchObject({ kind: "unauthorized", status: 401 })
+    expect(String(fetch.mock.calls[0]?.[0])).toBe(url)
+    expect(fetch.mock.calls[0]?.[1]?.headers).toEqual({ authorization: "Bearer token" })
+  })
+
   it("classifies a Cloudflare KV duplicate title as a conflict", async () => {
     // Shape seen in https://github.com/cloudflare/workers-sdk/issues/14284
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({
