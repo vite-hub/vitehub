@@ -488,7 +488,7 @@ onBeforeUnmount(() => {
               thead: 'bg-default',
               th: 'whitespace-nowrap border-r border-default font-mono font-normal last:border-r-0',
               td: 'max-w-72 truncate whitespace-nowrap border-r border-default font-mono text-xs last:border-r-0',
-              tr: 'cursor-pointer border-b border-default outline-none hover:bg-elevated/50 focus-visible:bg-elevated/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary',
+              tr: 'cursor-pointer border-b border-default outline-none hover:bg-elevated/50 focus-visible:bg-elevated/50 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--vitehub-console-focus)',
               empty: 'h-40 border-r-0 text-center text-[13px] text-muted',
             }"
           >
@@ -541,7 +541,7 @@ onBeforeUnmount(() => {
               :style="{ left: `${table.position.x}px`, top: `${table.position.y}px` }"
             >
               <button
-                class="flex h-10 w-full items-center gap-2 border-b border-default px-3 text-left hover:bg-elevated/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary"
+                class="flex h-10 w-full items-center gap-2 border-b border-default px-3 text-left hover:bg-elevated/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--vitehub-console-focus)"
                 type="button"
                 @click="openTable(table.name)"
               >
