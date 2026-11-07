@@ -1,5 +1,7 @@
 // The Console sign-in pages and the app Auth access check. The Console plugin imports this module when the server starts,
 // so it must not import Better Auth. Auth instances come from the resolver that the caller passes.
+import { installStandardContext } from "@vite-hub/runtime/h3"
+import { H3Event } from "h3"
 import * as v from "valibot"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
 import { consoleDocumentMetadata } from "./document-metadata.ts"
@@ -316,10 +318,11 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
 } {
   async function requestAuth(event: object) {
     const request = consoleEventRequest(event)
+    // Request-only callers need a response target before Auth can read Standard Context.
+    const authEvent = "~standard" in event || "res" in event ? event : new H3Event(request)
+    installStandardContext(authEvent)
     const url = consoleRequestURL({ req: request })
     const authRequest = { headers: request.headers, url: url.href }
-    // SAFETY: Nitro installs Standard Context; Auth also adapts standalone H3 events on first use.
-    const authEvent = event as ViteHubContext
     let auth = await resolveAuth(authRequest, undefined, authEvent)
     let context = await auth.$context
     // A static provider has no origin until its first HTTP request. Resolve it before reading its URLs.

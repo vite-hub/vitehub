@@ -260,24 +260,24 @@ describe("hubConnections", () => {
       `import actor from ${JSON.stringify(join(root, "server/connections-auth.ts"))}`,
     );
     expect(handler).toContain('createConnectionsHandler({ actor, basePath: "/_vitehub/connections" })');
-    expect(handler).toContain("export default (event: { req: Request }) => handle(event.req, event)");
+    expect(handler).toContain("handle(event)");
     expect(handler).not.toContain("user:local");
   });
 
-  it("passes the Web Request of the H3 event and the original event", async () => {
+  it("passes the request event to the handler, which reads its request through Standard Context", async () => {
     const root = await createTempProject();
     const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
     await (hubConnections().config as unknown as ConfigHook)(config, { command: "serve", mode: "development" });
     const handlers = (config.nitro as { handlers: Array<{ handler: string }> }).handlers;
     const source = await readFile(handlers[0]!.handler, "utf8");
-    // Execute the generated adapter with a recording handler at its Web Request boundary.
-    const handle = vi.fn((request: Request, event: unknown) => ({ request, event }));
+    expect(source).not.toContain("node");
+    const handle = vi.fn((event: unknown) => event);
     const code = source.replace(/^import .*\n/gm, "").replace(/^const handle = .*\n/m, "").replace("export default", "const generated =");
-    const adapt = new Function("handle", `return (function() { ${stripTypeScriptTypes(code)} return generated })()`)(handle) as (event: unknown) => Promise<{ request: Request, event: unknown }>;
-    const web = new Request("https://public.example/_vitehub/connections", { method: "POST", body: JSON.stringify({ action: "list" }) });
-    const webEvent = { req: web };
-    expect(await adapt(webEvent)).toEqual({ request: web, event: webEvent });
-    expect(handle).toHaveBeenLastCalledWith(web, webEvent);
+    const adapt = new Function("handle", `return (function() { ${stripTypeScriptTypes(code)} return generated })()`)(handle) as (event: unknown) => unknown;
+    const request = new Request("https://public.example/_vitehub/connections");
+    const event = { req: request, "~standard": { req: request } };
+    expect(adapt(event)).toBe(event);
+    expect(handle).toHaveBeenCalledWith(event);
   });
 
   it.each(["node-server", "cloudflare-module"])("preserves the Nuxt app base in production H3 requests on %s", async (preset) => {

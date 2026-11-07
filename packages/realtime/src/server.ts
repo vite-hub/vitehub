@@ -8,8 +8,6 @@ import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
 import type { H3Event, WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
-// Adds `~standard` to the H3Event type. The ViteHub Nitro plugin sets it at runtime.
-import type {} from "@vite-hub/runtime/h3"
 import type { RealtimeRoomSql } from "./cloudflare-sql.ts"
 import type { RealtimeIdentity } from "./presence.ts"
 import type {
@@ -67,6 +65,7 @@ import { workspaceDocument } from "./workspace-document.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 
 export { isRealtimeAvailable } from "./availability.ts"
@@ -704,20 +703,12 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     clearTimeout(held.timer)
   }
 
-  function resolveCloudflare(event: { context: Record<string, unknown>, req: Request }): Record<string, unknown> | undefined {
-    const runtime = (event.req as Request & { runtime?: { cloudflare?: Record<string, unknown> } }).runtime?.cloudflare
-    const platform = (event.context._platform as { cloudflare?: Record<string, unknown> } | undefined)?.cloudflare
-    if (!runtime) return platform
-    if (!platform) return runtime
-    return {
-      ...runtime,
-      ...platform,
-      context: runtime.context ?? platform.context,
-      env: platform.env ?? runtime.env,
-    }
+  /** The Cloudflare bindings and execution context, or the Durable Object state, in the event's Standard Context. */
+  function resolveCloudflare(event: H3Event): { context?: unknown, env?: unknown } | undefined {
+    return getStandardContext(event).runtime?.cloudflare
   }
 
-  async function forwardToCloudflareDurableObject(event: { context: Record<string, unknown>, req: Request }): Promise<Response | undefined> {
+  async function forwardToCloudflareDurableObject(event: H3Event): Promise<Response | undefined> {
     const cloudflare = resolveCloudflare(event)
     const context = cloudflare?.context
     const binding = (cloudflare?.env as Record<string, unknown> | undefined)?.$DurableObject as {
@@ -735,7 +726,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return await binding.get(binding.idFromName(durableRoomsInstance)).fetch(request)
   }
 
-  function resolveRealtimeRoomSql(event: { context: Record<string, unknown>, req: Request }): RealtimeRoomSql | undefined {
+  function resolveRealtimeRoomSql(event: H3Event): RealtimeRoomSql | undefined {
     const context = resolveCloudflare(event)?.context
     if (!context || typeof context !== "object" || !Object.hasOwn(context, "storage")) return undefined
     const storageDescriptor = Object.getOwnPropertyDescriptor(context, "storage")

@@ -518,7 +518,8 @@ export function hubConnections(options: ConnectionsVitePluginOptions = {}): Conn
               ? `const handle = createConnectionsHandler({ actor, basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`
               : `const handle = createConnectionsHandler({ actor: "development", basePath: ${JSON.stringify(managementRoute)}${options.agentName ? `, agentName: ${JSON.stringify(options.agentName)}` : ""} })`,
             "",
-            "export default (event: { req: Request }) => handle(event.req, event)",
+            // `handle` reads the Web Request from the H3 event's Standard Context.
+            "export default (event: Parameters<typeof handle>[0]) => handle(event)",
             "",
           ].join("\n"),
         );

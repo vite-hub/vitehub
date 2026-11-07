@@ -80,11 +80,6 @@ export async function consoleRequestText(fetchBody: ReadableStream<Uint8Array>, 
 export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumBytes: number = maximumConsoleRequestBodyBytes): Promise<unknown> {
   const fetchBody = event.req?.body
   if (fetchBody === null) return undefined
-  if (typeof fetchBody === "string" || fetchBody instanceof Uint8Array) {
-    const bytes = typeof fetchBody === "string" ? stringByteLength(fetchBody) : fetchBody.byteLength
-    if (bytes > maximumBytes) throw consoleRequestError(413, "Console request body exceeds the byte limit.")
-    return JSON.parse(typeof fetchBody === "string" ? fetchBody : new TextDecoder().decode(fetchBody))
-  }
   if (fetchBody) return JSON.parse(await consoleRequestText(fetchBody, maximumBytes))
   if (!event.req?.json) throw new SyntaxError("Request body is unavailable.")
   const body = await event.req.json()
