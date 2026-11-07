@@ -57,7 +57,7 @@ export function renderDatabaseRuntimeModule(options: RenderDatabaseRuntimeModule
     "}",
     "export const databases = deferred(resolved)",
     "export function useDatabase(name) {",
-    "  if (!Object.hasOwn(configured(), name)) throw databaseNotFoundError(String(name))",
+    "  if (name !== \"default\" && !Object.hasOwn(configured(), name)) throw databaseNotFoundError(String(name))",
     "  return resolved()[name]",
     "}",
     "export const agentDb = createAgentDatabase(databases)",

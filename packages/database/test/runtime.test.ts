@@ -187,7 +187,8 @@ describe("drizzle runtime", () => {
     const script = [
       'const { db, schema, useDatabase } = await import("@vite-hub/database")',
       'const { databases } = await import("@vite-hub/database/runtime/registry")',
-      'try { useDatabase("default"); throw new Error("expected useDatabase to throw") } catch (error) { if (error.code !== "DATABASE_NOT_FOUND") throw error }',
+      'if (useDatabase("default") !== databases.default) throw new Error("expected the default entry")',
+      'try { useDatabase("missing"); throw new Error("expected useDatabase to throw") } catch (error) { if (error.code !== "DATABASE_NOT_FOUND") throw error }',
       'if (JSON.stringify(schema) !== "{}") throw new Error("expected empty schema fallback")',
       'if (JSON.stringify(databases.default.schema) !== "{}") throw new Error("expected empty default database schema")',
       'try {',

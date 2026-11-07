@@ -90,6 +90,31 @@ describe("root-accessors edge cases", () => {
     expect(run.result.followUps).toEqual([{ file: "server/api/run.ts", line: 4, message: "`runSchedule()` no longer takes a `registry` option. Remove it from these options." }])
   })
 
+  it("keeps a re-export of a removed name and reports it", async () => {
+    const { after, run } = await migrate({
+      "server/utils/db.ts": "export { agentDb } from 'vite-hub/database/drizzle'\nexport { db } from 'vite-hub/database/drizzle'\n",
+      "server/utils/dynamic.ts": "export const load = async () => (await import('vite-hub/database/drizzle')).agentDb\n",
+    })
+    expect(after["server/utils/db.ts"]).toBe("export { agentDb } from 'vite-hub/database/drizzle'\nexport { db } from 'vite-hub/database'\n")
+    expect(after["server/utils/dynamic.ts"]).toBe("export const load = async () => (await import('vite-hub/database')).agentDb\n")
+    expect(run.result.followUps.map(item => `${item.file}:${item.line}`)).toEqual(["server/utils/db.ts:1", "server/utils/dynamic.ts:1"])
+  })
+
+  it("keeps the schedule registry import when another expression reads it", async () => {
+    const { after } = await migrate({
+      "server/api/run.ts": "import registry from '#vitehub/schedule/registry'\nimport { runSchedule } from 'vite-hub/schedule/runtime'\nexport default () => runSchedule('a', { registry, scheduledAt: pick(registry) })\n",
+    })
+    expect(after["server/api/run.ts"]).toBe("import registry from '#vitehub/schedule/registry'\nimport { runSchedule } from 'vite-hub/schedule'\nexport default () => runSchedule('a', { scheduledAt: pick(registry) })\n")
+  })
+
+  it("leaves runSchedule() calls alone when a local declaration shadows the import", async () => {
+    const { after, run } = await migrate({
+      "server/api/run.ts": "import registry from '#vitehub/schedule/registry'\nimport { runSchedule } from 'vite-hub/schedule/runtime'\nexport const retry = (runSchedule) => runSchedule('a', { registry })\n",
+    })
+    expect(after["server/api/run.ts"]).toBe("import registry from '#vitehub/schedule/registry'\nimport { runSchedule } from 'vite-hub/schedule'\nexport const retry = (runSchedule) => runSchedule('a', { registry })\n")
+    expect(run.result.followUps.map(item => `${item.file}:${item.line}`)).toEqual(["server/api/run.ts:3"])
+  })
+
   it("reports module paths in strings, such as test stubs, without changing them", async () => {
     const { run } = await migrate({
       "test/stubs.ts": "export const stubs = {\n  \"vite-hub/database/drizzle\": \"export const db = globalThis.db\",\n  \"#vitehub/env/server\": \"export const useServerEnv = () => ({})\",\n}\n",

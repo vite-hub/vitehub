@@ -77,10 +77,11 @@ export const db = deferred(() => getRuntimeDatabases().databases.default.db, tru
 // SAFETY: the generated registry gives the schema type of the default database.
 export const schema = deferred(() => virtualSchema) as DefaultDatabaseEntry["schema"]
 
-/** Returns the Drizzle database and schema of a Database Definition. An unknown name throws `DATABASE_NOT_FOUND`. */
+/** Returns the Drizzle database and schema of a Database Definition. An unknown name throws `DATABASE_NOT_FOUND`; `"default"` always resolves. */
 export function useDatabase<Name extends keyof RuntimeDatabaseRegistry>(name: Name): RuntimeDatabaseRegistry[Name] {
   const runtime = getRuntimeDatabases()
-  if (!runtime.configured.has(name)) throw databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: String(name) })
+  // The default entry always exists. Its `db` throws when the app has no Default Database.
+  if (name !== "default" && !runtime.configured.has(name)) throw databaseErrorDiagnostics.DATABASE_NOT_FOUND({ database: String(name) })
   // SAFETY: the generated registry types each configured name with its schema and dialect.
   return runtime.databases[name] as RuntimeDatabaseRegistry[Name]
 }

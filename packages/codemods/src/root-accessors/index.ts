@@ -1,12 +1,12 @@
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
-import { detectStyle, end, isReference, line, listItemRemoval, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
+import { detectStyle, end, isReference, keyName, line, listItemRemoval, parseProgram, quoteString, start, walk } from "@vite-hub/internal/ast"
 import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
-import type { CallExpression, File, ImportDeclaration, ObjectExpression, StringLiteral } from "@babel/types"
+import type { File, ImportDeclaration, ObjectExpression, StringLiteral } from "@babel/types"
 import type { CodeStyle, Node } from "@vite-hub/internal/ast"
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 
@@ -133,11 +133,19 @@ function runScheduleBindings(program: File, scheduleModules: ReadonlySet<string>
  */
 function rewriteRunScheduleCalls(context: FileContext, names: ReadonlySet<string>): number {
   const { block, output } = context
+  // A local declaration with the same name, such as a parameter, can shadow the import. The codemod has no scope
+  // analysis, so it leaves every call in that block for a manual check.
+  const shadowed = localDeclarations(context.program, names)
   let kept = 0
   walk(context.program, (node) => {
     if (node.type !== "CallExpression" || node.callee.type !== "Identifier" || !names.has(node.callee.name)) return
     const options = node.arguments[1]
     if (!options) return
+    if (shadowed.has(node.callee.name)) {
+      kept++
+      followUp(context, node, `\`${node.callee.name}\` is also declared in this file, so the codemod left this call. If it calls \`runSchedule()\`, remove its \`registry\` option.`)
+      return
+    }
     if (options.type !== "ObjectExpression") {
       kept++
       followUp(context, node, "`runSchedule()` no longer takes a `registry` option. Remove it from these options.")
@@ -181,9 +189,45 @@ function countReferences(program: File, name: string, ignored: (node: Node, ance
   return count
 }
 
-function isRemovedRegistryOption(ancestors: readonly Node[], callNames: ReadonlySet<string>): boolean {
-  const call = ancestors.findLast(node => node.type === "CallExpression") as CallExpression | undefined
-  return Boolean(call && call.callee.type === "Identifier" && callNames.has(call.callee.name) && call.arguments[1]?.type === "ObjectExpression")
+/** True for the value of a `registry` property that `rewriteRunScheduleCalls()` removes, such as `{ registry }`. */
+function isRemovedRegistryOption(node: Node, ancestors: readonly Node[], callNames: ReadonlySet<string>): boolean {
+  const [call, options, property] = ancestors.slice(-3)
+  return call?.type === "CallExpression"
+    && call.callee.type === "Identifier"
+    && callNames.has(call.callee.name)
+    && options?.type === "ObjectExpression"
+    && call.arguments[1] === options
+    && property?.type === "ObjectProperty"
+    && property.value === node
+    && registryProperty(options) === property
+}
+
+/** Names of `names` that a function, class, variable, parameter, or catch clause declares in `program`. */
+function localDeclarations(program: File, names: ReadonlySet<string>): Set<string> {
+  const declared = new Set<string>()
+  const addPattern = (pattern: Node | null | undefined) => {
+    if (!pattern) return
+    if (pattern.type === "Identifier") {
+      if (names.has(pattern.name)) declared.add(pattern.name)
+    }
+    else if (pattern.type === "AssignmentPattern") addPattern(pattern.left)
+    else if (pattern.type === "RestElement") addPattern(pattern.argument)
+    else if (pattern.type === "ArrayPattern") pattern.elements.forEach(addPattern)
+    else if (pattern.type === "ObjectPattern") {
+      for (const property of pattern.properties) addPattern(property.type === "RestElement" ? property.argument : property.value)
+    }
+    else if (pattern.type === "TSParameterProperty") addPattern(pattern.parameter)
+  }
+  walk(program, (node) => {
+    if (node.type === "VariableDeclarator") addPattern(node.id)
+    else if (node.type === "CatchClause") addPattern(node.param)
+    else if (node.type === "FunctionDeclaration" || node.type === "FunctionExpression" || node.type === "ArrowFunctionExpression" || node.type === "ObjectMethod" || node.type === "ClassMethod") {
+      if ("id" in node) addPattern(node.id)
+      node.params.forEach(addPattern)
+    }
+    else if (node.type === "ClassDeclaration" || node.type === "ClassExpression") addPattern(node.id)
+  })
+  return declared
 }
 
 /** Rewrites one script block. Returns true when it changed. */
@@ -202,7 +246,7 @@ function rewriteBlock(context: FileContext, movesBySource: ReadonlyMap<string, M
   for (const statement of program.program.body) {
     if (statement.type === "ImportDeclaration" && statement.source.value === scheduleRegistry) {
       const local = statement.specifiers.find(specifier => specifier.type === "ImportDefaultSpecifier")?.local.name
-      const used = local ? countReferences(program, local, (_, ancestors) => isRemovedRegistryOption(ancestors, runScheduleNames)) : 0
+      const used = local ? countReferences(program, local, (node, ancestors) => isRemovedRegistryOption(node, ancestors, runScheduleNames)) : 0
       // The import stays for other uses, such as `installProcessScheduleRuntime({ registry })`.
       if (local && !used && !keptRegistryCalls && statement.specifiers.length === 1) {
         const [from, to] = listItemRemoval(block.code, statement)
@@ -217,6 +261,21 @@ function rewriteBlock(context: FileContext, movesBySource: ReadonlyMap<string, M
       if (move.names) {
         followUp(context, statement, `Re-export \`runSchedule\` from \`${move.to}\` and the other names from \`${move.from}\`.`)
         continue
+      }
+      if (move.removed && statement.type === "ExportNamedDeclaration") {
+        const removed = statement.specifiers.flatMap((specifier) => {
+          const name = specifier.type === "ExportSpecifier" ? keyName(specifier.local) : undefined
+          const message = name ? move.removed!.get(name) : undefined
+          return message ? [message] : []
+        })
+        // The new root does not export these names, so a rewrite would not load. The re-export stays as it is.
+        if (removed.length) {
+          for (const message of removed) followUp(context, statement, message)
+          continue
+        }
+      }
+      if (move.removed && statement.type === "ExportAllDeclaration") {
+        followUp(context, statement, `\`export *\` from \`${move.to}\` no longer includes ${[...move.removed.keys()].map(name => `\`${name}\``).join(" or ")}. Check that no importer reads them.`)
       }
       replaceSource(context, statement.source, move.to)
       continue
@@ -252,7 +311,13 @@ function rewriteBlock(context: FileContext, movesBySource: ReadonlyMap<string, M
     else if (node.type === "CallExpression" && node.callee.type === "MemberExpression" && node.callee.property.type === "Identifier" && moduleCalls.has(node.callee.property.name)) source = node.arguments[0]
     if (source?.type !== "StringLiteral") return
     const move = movesBySource.get(source.value)
-    if (applies(move) && !move.names) replaceSource(context, source, move.to)
+    if (!applies(move) || move.names) return
+    replaceSource(context, source, move.to)
+    // A dynamic import can read a name that the new root does not export, such as `(await import(...)).agentDb`.
+    if (node.type !== "TSModuleDeclaration" && move.removed) {
+      const names = [...move.removed.keys()].filter(name => new RegExp(`\\b${name}\\b`).test(block.code))
+      if (names.length) followUp(context, node, `This file names ${names.map(name => `\`${name}\``).join(" and ")}, which \`${move.to}\` does not export. Check what this import reads.`)
+    }
   })
 
   // Test stubs and aliases name module paths as plain strings, such as `{ "vite-hub/database/drizzle": "..." }`.

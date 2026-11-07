@@ -111,7 +111,7 @@ The database uses D1 HTTP, and a value is missing at runtime: `cloudflare.databa
 
 `useDatabase(name)`, or the Database Agent Capability, received a name that has no Database Definition. A query on a Named Database that has no runtime configuration also throws it.
 
-`useDatabase(name)` does not throw this error. For an unknown name it returns `undefined`, so `const { db } = useDatabase('typo')` fails with a `TypeError`. `useDatabase('default')` always returns an entry. Its `db` throws `DATABASE_DISABLED` when the app has no Default Database.
+`useDatabase(name)` throws it for a name without a Database Definition, so check the name instead of a `?.` fallback. `useDatabase('default')` always returns an entry. Its `db` throws `DATABASE_DISABLED` when the app has no Default Database.
 
 Run `vitehub inspect definitions --kind database` to see the discovered database names.
 

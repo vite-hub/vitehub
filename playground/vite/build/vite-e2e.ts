@@ -180,14 +180,14 @@ function renderDbRuntimeModule(file: string, config: ResolvedDBViteConfig) {
     "export const databases = {",
     ...databaseEntries,
     "}",
-    "export function useDatabase(name) { return databases[name] }",
+    "export function useDatabase(name) {",
+    "  if (!Object.hasOwn(databases, name)) throw new Error(`The database \"${name}\" is not configured.`)",
+    "  return databases[name]",
+    "}",
     "",
-    ...(config.databaseNames.includes("default")
-      ? [
-          "export const db = databases.default.db",
-          "export const schema = databases.default.schema",
-        ]
-      : []),
+    // The Database root re-exports `db` and `schema`, so the registry has them also without a default Database.
+    "export const db = databases.default?.db ?? new Proxy({}, { get() { throw new Error('The database \"default\" is not configured.') } })",
+    "export const schema = databases.default?.schema ?? {}",
     "",
   ].join("\n")
 }
