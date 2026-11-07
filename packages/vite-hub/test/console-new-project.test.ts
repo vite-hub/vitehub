@@ -207,20 +207,15 @@ describe("newProjectCommand", () => {
 })
 
 describe("newProjectPrompt", () => {
-  it("asks an agent to run the command, build the idea, deploy, and hand back the link", () => {
+  it("asks an agent to run the command, deploy, and hand back the link", () => {
     const value = stack({ host: "cloudflare", features: ["kv"] })
-    const prompt = newProjectPrompt(value, ticket, "  A Slack bot that sums up long threads.  ")!
-    expect(prompt.split("\n")[0]).toBe("Create a ViteHub app in the folder my-app. The app: A Slack bot that sums up long threads.")
+    const prompt = newProjectPrompt(value, ticket)!
+    expect(prompt.split("\n")[0]).toBe("Create a ViteHub app in the folder my-app.")
     expect(prompt).toContain(`\n\n${newProjectCommand(value, ticket)}\n\n`)
-    expect(prompt).toContain("2. Build the app with ViteHub. The docs are at https://vitehub.dev/llms.txt.")
-    expect(prompt).toMatch(/give me the link that the command printed/)
+    expect(prompt.split("\n").at(-1)).toBe("2. Deploy the app. Then give me the link that the command printed. I open it in my browser to link the app.")
   })
 
-  it("works without an idea, and not for a stack with problems", () => {
-    const plain = newProjectPrompt(stack({ host: "node" }), ticket, " ")!
-    expect(plain.split("\n")[0]).toBe("Create a ViteHub app in the folder my-app.")
-    expect(plain).not.toContain("llms.txt")
-    expect(plain.split("\n").at(-1)).toMatch(/^2\. Deploy the app\./)
-    expect(newProjectPrompt(stack({ features: ["kv"] }), ticket, "x")).toBeUndefined()
+  it("is undefined for a stack with problems", () => {
+    expect(newProjectPrompt(stack({ features: ["kv"] }), ticket)).toBeUndefined()
   })
 })
