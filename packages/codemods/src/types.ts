@@ -7,12 +7,12 @@ export interface FollowUp {
   message: string
 }
 
-/** The planned content of one file. `before` is `undefined` for a new file. */
+/** The planned content of one file. `before` is `undefined` for a new file, and `after` is `null` for a deleted file. */
 export interface FileEdit {
   /** Path relative to the project directory. */
   path: string
   before: string | undefined
-  after: string
+  after: string | null
 }
 
 export interface CodemodResult {

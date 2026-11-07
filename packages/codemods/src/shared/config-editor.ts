@@ -289,6 +289,15 @@ export function useViteHubModule(editor: ConfigEditor, config: NuxtConfigFile, r
   return [`modules: [${moduleText}]`]
 }
 
+export const nodePresetNote = `ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.`
+
+/** The preset to add when nuxt.config sets none, instead of "node". */
+export interface DefaultPreset {
+  preset: string
+  /** A follow-up about the choice, if any. */
+  note?: string
+}
+
 /** One property that a codemod adds under `vitehub`. */
 export interface ViteHubOption {
   key: string
@@ -308,7 +317,7 @@ export interface ViteHubOptionsResult {
  * Adds `options` under `vitehub`, and a deployment preset when the app has none. Then inserts `rootEntries`
  * after the last root property that `removedRootProperties` does not hold.
  */
-export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, input: { options: readonly ViteHubOption[], rootEntries: readonly string[], removedRootProperties: ReadonlySet<Node> }): ViteHubOptionsResult {
+export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, input: { options: readonly ViteHubOption[], rootEntries: readonly string[], removedRootProperties: ReadonlySet<Node>, defaultPreset?: DefaultPreset }): ViteHubOptionsResult {
   const style = editor.style
   const rootEntries = [...input.rootEntries]
   const existingOptions = findProperty(config.root, "vitehub")
@@ -318,8 +327,8 @@ export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, 
   if (preset.property && preset.value === undefined && !inlinePreset && !existingPreset) {
     throw new CodemodError(`${config.fileName} sets nitro.preset to an expression. Make it a string literal or set an explicit vitehub.preset, then run the codemod again.`)
   }
-  let vitehubPreset: string | undefined = "node"
-  let presetNote: string | undefined = `ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.`
+  let vitehubPreset: string | undefined = input.defaultPreset?.preset ?? "node"
+  let presetNote: string | undefined = input.defaultPreset ? input.defaultPreset.note : nodePresetNote
   if (preset.value) {
     vitehubPreset = nitroPresets[preset.value.trim().toLowerCase().replaceAll("_", "-")]
     presetNote = vitehubPreset
