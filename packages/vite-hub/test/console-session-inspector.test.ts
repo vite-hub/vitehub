@@ -71,9 +71,9 @@ describe("Console inspector initialization", () => {
       app.component(name, { render: () => null })
     }
     const html = await renderToString(app)
-    expect(html).toContain("Open a tab")
     expect(html).not.toContain("<kbd")
-    expect(menuItems.map(item => item.label)).toEqual(["Invocation", "Capabilities", "Trace"])
+    // A session without recorded capabilities has no Capabilities tab to offer.
+    expect(menuItems.map(item => item.label)).toEqual(["Invocation", "Trace"])
     expect(menuItems.filter(item => "kbds" in item)).toEqual([])
   })
 

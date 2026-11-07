@@ -76,9 +76,10 @@ const viewMeta: Record<
     label: "Diff",
   },
 };
+// A tab with nothing to show is left out. Tools without a Capability are listed in the Invocation tab.
 const inspectorViews = computed<InspectorTab[]>(() => [
   "details",
-  "capabilities",
+  ...(props.invocation.configuration?.capabilities?.length ? (["capabilities"] as const) : []),
   "trace",
   ...(props.workspaceBase ? (["workspace"] as const) : []),
   ...(diffs.value.length ? (["diff"] as const) : []),
@@ -235,12 +236,11 @@ watch(
     if (items.some((item) => String(item.value) === activeSurface.value)) return;
     const fallback = items.at(-1)?.value;
     if (fallback !== undefined) activateSurface(fallback);
-    else {
-      activeSurface.value = "";
-      selectedPath.value = undefined;
-    }
+    // An open panel always shows something: the Invocation tab when no other tab is open, such as a link to a tab
+    // that this session does not have.
+    else openView("details");
   },
-  { flush: "post" },
+  { flush: "post", immediate: true },
 );
 
 watch(activeSurface, async () => {
