@@ -1883,23 +1883,26 @@
     pointer-events: auto;
   }
 
+  /* Drop's pin: the face fills the pin, and a ring of the page color keeps it apart from what is under it. */
   [data-slot="comment-pin"] {
     align-items: center;
     background: var(--vh-primary);
-    border: 2px solid var(--vh-bg);
-    border-radius: 9999px 9999px 9999px 0;
-    box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+    border: 0;
+    border-radius: 9999px 9999px 9999px 0.1875rem;
+    box-shadow: 0 1px 4px rgb(0 0 0 / 0.3), 0 0 0 2px var(--vh-bg);
     color: var(--vh-inverted);
     cursor: pointer;
     display: grid;
-    height: 2rem;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    height: 1.75rem;
     padding: 0;
     place-items: center;
     position: absolute;
     transform: translateY(-100%);
     transform-origin: bottom left;
     transition: scale 120ms ease;
-    width: 2rem;
+    width: 1.75rem;
   }
 
   [data-slot="comment-pin"]:is(:hover, :focus-visible, [data-active="true"]) {
@@ -1912,12 +1915,18 @@
   }
 
   [data-slot="comment-pin"] [data-slot="avatar-stack"] {
-    --vh-avatar-size: 1.625rem;
+    --vh-avatar-size: 1.75rem;
+    border-radius: inherit;
   }
 
+  /* Initials sit on the pin's own color, so they show without the app's theme colors. */
   [data-slot="comment-pin"] [data-slot="avatar-stack-item"] {
+    background: none;
     border-radius: inherit;
     box-shadow: none;
+    color: inherit;
+    font-size: inherit;
+    font-weight: inherit;
   }
 
   [data-slot="comment-pin-number"] {
@@ -1938,11 +1947,6 @@
   [data-slot="comment-pin"][data-status="resolved"] {
     filter: grayscale(1);
     opacity: 0.6;
-  }
-
-  [data-slot="comment-pin"][data-draft="true"] {
-    outline: 2px dashed var(--vh-primary);
-    outline-offset: 2px;
   }
 
   [data-slot="comment-layer-popover"] {
