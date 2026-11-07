@@ -428,6 +428,51 @@ describe("the browser with a Workspace", () => {
 })
 
 describe("missing translations for Agents", () => {
+  it.each([
+    ["Click <0>here</0>", "Haz clic <0>aquí"],
+    ["Click <0>here</0>", "Haz clic aquí</0>"],
+    ["Click <0>here</0>", "Haz clic </0>aquí<0>"],
+    ["Click <0>here</0>", "Haz clic <0>aquí</0></0>"],
+    ["Click <0>here</0>", "Haz clic <0>aquí</0> <0>ahora</0>"],
+    ["Click <0>here</0> or <0>there</0>", "Haz clic <0>aquí</0>"],
+    ["Click <0>here</0>", "Haz clic <0/>aquí"],
+    ["Click <0><1>here</1></0>", "Haz clic <0><1>aquí</0></1>"],
+    ["{count, plural, one {<0>Item</0>} other {<0>Items</0>}}", "{count, plural, one {<0>Artículo} other {Artículos</0>}}"],
+    ["{count, plural, one {<0>Item</0>} other {<0>Items</0>}}", "{count, plural, one {<0>Artículo</0>} other {Artículos}}"],
+  ])("refuses malformed or changed rich-text tags: %s → %s", async (source, translation) => {
+    const store = memoryWorkspace()
+    installI18nServer({ hooks: { hook: () => undefined } }, {
+      config,
+      messages: {},
+      current: () => undefined,
+      workspace: { name: "translations", open: () => store.workspace, clientIds: null, interval: 0 },
+    })
+    const [error] = await useTranslations().save({ locale: "es", source, translation })
+    expect(error).toMatchObject({ code: "I18N_INVALID_TRANSLATION" })
+    expect(store.heads.size).toBe(0)
+  })
+
+  it.each([
+    ["Click <0>here</0> or <1>there</1>", "Haz clic <1>allí</1> o <0>aquí</0>"],
+    ["Hello <0>{name}</0><1/>", "Hola <0>{name}</0><1/>"],
+    ["Click <0><1>here</1></0>", "Haz clic <0><1>aquí</1></0>"],
+    ["{count, plural, one {<0>Item</0>} other {<0>Items</0>}}", "{count, plural, one {<0>Artículo</0>} many {<0>Artículos</0>} other {<0>Artículos</0>}}"],
+    ["<0>{count, plural, one {Item} other {Items}}</0>", "{count, plural, one {<0>Artículo} other {<0>Artículos}}</0>"],
+  ])("saves valid rich-text tags across ICU branches: %s → %s", async (source, translation) => {
+    const store = memoryWorkspace()
+    installI18nServer({ hooks: { hook: () => undefined } }, {
+      config,
+      messages: {},
+      current: () => undefined,
+      workspace: { name: "translations", open: () => store.workspace, clientIds: null, interval: 0 },
+    })
+    const translations = useTranslations()
+    const [error] = await translations.save({ locale: "es", source, translation })
+    expect(error).toBeUndefined()
+    const [, drafts] = await translations.list("es", { ref: "draft" })
+    expect(drafts).toMatchObject({ [messageId(source)]: { source, translation } })
+  })
+
   it("lists what a locale lacks, with the old translation of a changed message, and refuses broken translations", async () => {
     const store = memoryWorkspace()
     const sources = {

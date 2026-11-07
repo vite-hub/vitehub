@@ -840,6 +840,7 @@ describe("vitehub", () => {
         console: false,
         db: "vite-hub/database/drizzle",
         email: "vite-hub/email/server",
+        i18n: false,
         kv: "vite-hub/_internal/kv",
       },
       workflowImportBase: "vite-hub/_internal/workflow",
