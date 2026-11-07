@@ -27,6 +27,7 @@ describe("workspace inventory", () => {
       "env",
       "forge",
       "gateways",
+      "i18n",
       "kv",
       "markdown-template",
       "presets",
