@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { constants } from "node:fs"
+import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve, sep } from "node:path"
 
 import type { WorkspaceChangedFile, WorkspaceChanges, WorkspaceCommitResult, WorkspaceHistoryContent, WorkspaceHistoryDetails } from "./results.ts"
@@ -75,22 +76,42 @@ function lines(value: string): string[] {
   return value.match(/[^\n]*\n|[^\n]+$/g) ?? []
 }
 
-/** For each line of `base`, the index of the same line in `side` on a longest common subsequence, or -1. */
+// The largest middle part, in base lines times side lines, that gets a full line match. Past it, the middle counts as
+// one changed region: about 16 MB of table.
+const maximumMatchCells = 4_000_000
+
+/**
+ * For each line of `base`, the index of the same line in `side` on a longest common subsequence, or -1. The common
+ * first and last lines match directly, so the table covers only the changed middle.
+ */
 function matches(base: readonly string[], side: readonly string[]): number[] {
-  const rows = base.length + 1
-  const columns = side.length + 1
-  const table = new Uint32Array(rows * columns)
-  for (let i = base.length - 1; i >= 0; i--) {
-    for (let j = side.length - 1; j >= 0; j--) {
-      table[i * columns + j] = base[i] === side[j] ? table[(i + 1) * columns + j + 1]! + 1 : Math.max(table[(i + 1) * columns + j]!, table[i * columns + j + 1]!)
+  const result = Array.from({ length: base.length }, () => -1)
+  let start = 0
+  while (start < base.length && start < side.length && base[start] === side[start]) {
+    result[start] = start
+    start++
+  }
+  let baseEnd = base.length
+  let sideEnd = side.length
+  while (baseEnd > start && sideEnd > start && base[baseEnd - 1] === side[sideEnd - 1]) {
+    baseEnd--
+    sideEnd--
+    result[baseEnd] = sideEnd
+  }
+  const rows = baseEnd - start
+  const columns = sideEnd - start + 1
+  if (rows * columns > maximumMatchCells) return result
+  const table = new Uint32Array((rows + 1) * columns)
+  for (let i = rows - 1; i >= 0; i--) {
+    for (let j = columns - 2; j >= 0; j--) {
+      table[i * columns + j] = base[start + i] === side[start + j] ? table[(i + 1) * columns + j + 1]! + 1 : Math.max(table[(i + 1) * columns + j]!, table[i * columns + j + 1]!)
     }
   }
-  const result = Array.from({ length: base.length }, () => -1)
   let i = 0
   let j = 0
-  while (i < base.length && j < side.length) {
-    if (base[i] === side[j]) {
-      result[i] = j
+  while (i < rows && j < columns - 1) {
+    if (base[start + i] === side[start + j]) {
+      result[start + i] = start + j
       i++
       j++
     }
@@ -110,8 +131,9 @@ interface WorkspaceMergeResult {
 }
 
 /**
- * A three-way merge by line, as `git merge-file` does. A region that only one side changed takes that side. A region
- * that both sides changed in different ways gets Git conflict markers, with the local lines first.
+ * A three-way merge by line, as `git merge-file` does. A region that only one side changed takes that side. In a region
+ * that both sides changed, lines that each side replaced one for one merge line by line. Other lines that both sides
+ * changed in different ways get Git conflict markers, with the local lines first.
  */
 export function mergeText(base: string, local: string, remote: string, labels: { local: string, remote: string } = { local: "local", remote: "remote" }): WorkspaceMergeResult {
   const o = lines(base)
@@ -121,14 +143,38 @@ export function mergeText(base: string, local: string, remote: string, labels: {
   const mb = matches(o, b)
   const out: string[] = []
   let conflicts = 0
+  const conflict = (localLines: string[], remoteLines: string[]) => {
+    conflicts++
+    const close = (part: string[]) => part.length && !part.at(-1)!.endsWith("\n") ? [...part.slice(0, -1), `${part.at(-1)!}\n`] : part
+    out.push(`<<<<<<< ${labels.local}\n`, ...close(localLines), "=======\n", ...close(remoteLines), `>>>>>>> ${labels.remote}\n`)
+  }
   const chunk = (baseLines: string[], localLines: string[], remoteLines: string[]) => {
     if (same(localLines, baseLines)) out.push(...remoteLines)
     else if (same(remoteLines, baseLines) || same(localLines, remoteLines)) out.push(...localLines)
-    else {
-      conflicts++
-      const close = (part: string[]) => part.length && !part.at(-1)!.endsWith("\n") ? [...part.slice(0, -1), `${part.at(-1)!}\n`] : part
-      out.push(`<<<<<<< ${labels.local}\n`, ...close(localLines), "=======\n", ...close(remoteLines), `>>>>>>> ${labels.remote}\n`)
+    else if (baseLines.length === localLines.length && baseLines.length === remoteLines.length) {
+      // Both sides replaced lines one for one, such as edits to two adjacent lines.
+      let localRun: string[] = []
+      let remoteRun: string[] = []
+      const flush = () => {
+        if (localRun.length) conflict(localRun, remoteRun)
+        localRun = []
+        remoteRun = []
+      }
+      baseLines.forEach((line, index) => {
+        const localLine = localLines[index]!
+        const remoteLine = remoteLines[index]!
+        if (localLine === line || remoteLine === line || localLine === remoteLine) {
+          flush()
+          out.push(localLine === line ? remoteLine : localLine)
+        }
+        else {
+          localRun.push(localLine)
+          remoteRun.push(remoteLine)
+        }
+      })
+      flush()
     }
+    else conflict(localLines, remoteLines)
   }
   let io = 0
   let ia = 0
@@ -203,7 +249,7 @@ function folderOf(rootDir: string, dir: string): string {
   return folder
 }
 
-/** Every file of the checkout folder by Workspace path, with its bytes. */
+/** Every file of the checkout folder by Workspace path, with its bytes. Fails on a symbolic link inside it. */
 async function scan(folder: string): Promise<Map<string, Bytes>> {
   const files = new Map<string, Bytes>()
   const walk = async (dir: string) => {
@@ -218,6 +264,8 @@ async function scan(folder: string): Promise<Map<string, Bytes>> {
     for (const entry of entries) {
       if (ignored.has(entry.name)) continue
       const path = join(dir, entry.name)
+      // A skipped link would look like a deleted file, and the next push would delete it on the remote.
+      if (entry.isSymbolicLink()) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_SYMLINK", `${relative(folder, path)} in the checkout folder is a symbolic link.`, "Replace the link with a real folder or file.")
       if (entry.isDirectory()) await walk(path)
       else if (entry.isFile()) files.set(relative(folder, path).split(sep).join("/"), new Uint8Array(await readFile(path)))
     }
@@ -226,14 +274,43 @@ async function scan(folder: string): Promise<Map<string, Bytes>> {
   return files
 }
 
-async function put(folder: string, path: string, bytes: Bytes): Promise<void> {
-  const target = join(folder, ...path.split("/"))
-  await mkdir(dirname(target), { recursive: true })
-  await writeFile(target, bytes)
+/**
+ * The local file of a Workspace path. Every existing folder from the project root down, and the file, must be a real
+ * folder or file: a symbolic link could send the write outside the project.
+ */
+async function localPath(rootDir: string, folder: string, path: string): Promise<string> {
+  const segments = path.split("/")
+  if (segments.some(segment => !segment || segment === "." || segment === ".." || segment.includes("\\"))) {
+    throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_PATH", `The remote path "${path}" is not a relative Workspace path.`)
+  }
+  const target = join(folder, ...segments)
+  let current = rootDir
+  for (const segment of relative(rootDir, target).split(sep)) {
+    current = join(current, segment)
+    let stat
+    try {
+      stat = await lstat(current)
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") break
+      throw error
+    }
+    if (stat.isSymbolicLink()) {
+      throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_SYMLINK", `${relative(rootDir, current)} is a symbolic link. A checkout writes only real files and folders, so it does not write "${path}".`, "Replace the link with a real folder or file, then pull again.")
+    }
+  }
+  return target
 }
 
-async function remove(folder: string, path: string): Promise<void> {
-  await rm(join(folder, ...path.split("/")), { force: true })
+async function put(rootDir: string, folder: string, path: string, bytes: Bytes): Promise<void> {
+  const target = await localPath(rootDir, folder, path)
+  await mkdir(dirname(target), { recursive: true })
+  // O_NOFOLLOW: a link that appears after the check fails the write instead of following it.
+  await writeFile(target, bytes, { flag: constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW })
+}
+
+async function remove(rootDir: string, folder: string, path: string): Promise<void> {
+  await rm(await localPath(rootDir, folder, path), { force: true })
 }
 
 interface WorkspaceLocalChanges {
@@ -331,14 +408,14 @@ async function pullEntry(context: WorkspaceCheckoutContext, workspace: string, e
   const local = await scan(folder)
   const conflicts = new Set(entry.conflicts ?? [])
   const labels = { local: "local", remote: `${entry.ref} ${result.head ?? ""}`.trim() }
-  for (const file of changes.files) result.files.push(await applyRemote(folder, entry, file, local.get(file.path), conflicts, labels))
+  for (const file of changes.files) result.files.push(await applyRemote(context.rootDir, folder, entry, file, local.get(file.path), conflicts, labels))
   entry.head = result.head
   if (conflicts.size) entry.conflicts = [...conflicts]
   else delete entry.conflicts
   return result
 }
 
-async function applyRemote(folder: string, entry: WorkspaceCheckout, file: WorkspaceChangedFile, localBytes: Bytes | undefined, conflicts: Set<string>, labels: { local: string, remote: string }): Promise<WorkspacePullFile> {
+async function applyRemote(rootDir: string, folder: string, entry: WorkspaceCheckout, file: WorkspaceChangedFile, localBytes: Bytes | undefined, conflicts: Set<string>, labels: { local: string, remote: string }): Promise<WorkspacePullFile> {
   const { path } = file
   const remoteBytes = file.head ? decode(file.head) : undefined
   const known = entry.files[path]
@@ -349,17 +426,17 @@ async function applyRemote(folder: string, entry: WorkspaceCheckout, file: Works
   // No local change: take the remote side.
   if (localDigest === known) {
     if (remoteBytes) {
-      await put(folder, path, remoteBytes)
+      await put(rootDir, folder, path, remoteBytes)
       return { path, action: localBytes ? "updated" : "added" }
     }
-    if (localBytes) await remove(folder, path)
+    if (localBytes) await remove(rootDir, folder, path)
     return { path, action: "deleted" }
   }
   // Both sides made the same change.
   if (localDigest === remoteDigest) return { path, action: remoteBytes ? "updated" : "deleted" }
   if (!remoteBytes) return { path, action: "kept", note: "The remote deleted this file and you changed it. Your file stays; push it to restore it on the remote, or delete it." }
   if (!localBytes) {
-    await put(folder, path, remoteBytes)
+    await put(rootDir, folder, path, remoteBytes)
     return { path, action: "updated", note: "You deleted this file and the remote changed it. The remote version is back; delete it again to remove it." }
   }
   const baseText = file.base ? text(decode(file.base)) : ""
@@ -370,7 +447,7 @@ async function applyRemote(folder: string, entry: WorkspaceCheckout, file: Works
     return { path, action: "conflict", note: "Both sides changed this binary file. Your file stays. Run `vitehub resolve` to keep it, or `vitehub pull --theirs` to take the remote file." }
   }
   const merged = mergeText(baseText, localText, remoteText, labels)
-  await put(folder, path, new TextEncoder().encode(merged.text))
+  await put(rootDir, folder, path, new TextEncoder().encode(merged.text))
   if (merged.conflicts) return { path, action: "conflict", note: `${merged.conflicts} conflicting ${merged.conflicts === 1 ? "region" : "regions"}. Edit the file, remove the markers, then push.` }
   return { path, action: "merged" }
 }
@@ -422,11 +499,11 @@ async function takeTheirs(context: WorkspaceCheckoutContext, workspace: string, 
     if (shown && !shown.ok && shown.status !== 404) throw new WorkspaceCheckoutError(shown.code ?? "WORKSPACE_CHECKOUT_FAILED", shown.message, shown.fix)
     if (file) {
       const bytes = decode(file)
-      await put(folder, path, bytes)
+      await put(context.rootDir, folder, path, bytes)
       entry.files[path] = digestOf(bytes)
     }
     else {
-      await remove(folder, path)
+      await remove(context.rootDir, folder, path)
       delete entry.files[path]
     }
     entry.conflicts = entry.conflicts?.filter(candidate => candidate !== path)

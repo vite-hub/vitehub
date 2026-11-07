@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -113,6 +113,22 @@ describe("mergeText", () => {
     expect(mergeText("a\nb\nc\n", "a\nX\nc\n", "a\nY\nc\n")).toEqual({ conflicts: 1, text: "a\n<<<<<<< local\nX\n=======\nY\n>>>>>>> remote\nc\n" })
     expect(mergeText("", "local\n", "remote\n").conflicts).toBe(1)
     expect(mergeText("a\nb", "a\nb\nlocal", "z\na\nb")).toEqual({ conflicts: 0, text: "z\na\nb\nlocal" })
+  })
+
+  it("merges edits to adjacent lines and marks only the lines that both sides changed", () => {
+    expect(mergeText("a\nb\n", "A\nb\n", "a\nB\n")).toEqual({ conflicts: 0, text: "A\nB\n" })
+    expect(mergeText("a\nb\nc\n", "A\nX\nc\n", "a\nY\nC\n")).toEqual({ conflicts: 1, text: "A\n<<<<<<< local\nX\n=======\nY\n>>>>>>> remote\nC\n" })
+    // An insertion next to the other side's edit has no single order, as in Git.
+    expect(mergeText("a\nb\n", "a\nnew\nb\n", "a\nB\n").conflicts).toBe(1)
+  })
+
+  it("merges large files without a full line table", () => {
+    const base = Array.from({ length: 20_000 }, (_, index) => `line ${index}\n`).join("")
+    const local = base.replace("line 10\n", "local 10\n")
+    const remote = base.replace("line 19990\n", "remote 19990\n")
+    expect(mergeText(base, local, remote)).toEqual({ conflicts: 0, text: local.replace("line 19990\n", "remote 19990\n") })
+    const shuffled = Array.from({ length: 5_000 }, (_, index) => `other ${index}\n`).join("")
+    expect(mergeText(base, shuffled, `${base}end\n`).conflicts).toBe(1)
   })
 })
 
@@ -300,6 +316,30 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect(await local.read("posts/race.md")).toBe(post("Race", "Console."))
     expect(await remoteApp.read("posts/hello.md")).toBe(post("Hello", "Local."))
     expect(await remoteApp.read("posts/race.md")).toBe(post("Race", "Console."))
+  })
+
+  it("refuses to write through a symbolic link, and to push while the folder has one", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const local = await project(remoteApp.fetch, "symlink")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    const outside = await tempDir("outside")
+    await writeFile(join(outside, "secret.md"), "keep\n")
+    await symlink(outside, join(local.rootDir, "content", "linked"))
+    await remoteApp.edit({ put: { "linked/secret.md": "overwritten\n" } })
+
+    const pulled = await local.run("pull")
+
+    expect(pulled).toMatchObject({ code: 1, stderr: expect.stringContaining("WORKSPACE_CHECKOUT_SYMLINK") })
+    expect(await readFile(join(outside, "secret.md"), "utf8")).toBe("keep\n")
+    expect((await local.run("push")).stderr).toContain("WORKSPACE_CHECKOUT_SYMLINK")
+
+    // The checkout folder itself is a link.
+    const other = await project(remoteApp.fetch, "symlink-folder")
+    await symlink(outside, join(other.rootDir, "content"))
+    expect((await other.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).stderr).toContain("content is a symbolic link")
+    expect(await readFile(join(outside, "secret.md"), "utf8")).toBe("keep\n")
+    await expect(readFile(join(outside, "posts/hello.md"))).rejects.toThrow()
   })
 
   it("asks for --dir on the first pull and refuses a folder outside the project", async () => {
