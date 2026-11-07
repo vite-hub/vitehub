@@ -4,7 +4,7 @@ import * as v from "valibot"
 import { workspaceHistoryDefaultLimit, workspaceHistoryMaximumLimit } from "./results.ts"
 
 import type { AnyOperation, OperationDefinition } from "@vite-hub/internal/operations"
-import type { WorkspaceHistoryDetails, WorkspaceHistoryFile, WorkspaceHistoryList, WorkspaceHistoryRefs, WorkspaceHistoryRevision } from "./results.ts"
+import type { WorkspaceChanges, WorkspaceCommitResult, WorkspaceHistoryDetails, WorkspaceHistoryFile, WorkspaceHistoryList, WorkspaceHistoryRefs, WorkspaceHistoryRevision } from "./results.ts"
 
 // The runtime module reads the Workspace registry of the app, which only exists in the Nitro runtime. The operations
 // load it when they run, so the CLI and `vitehub inspect` can list them without it.
@@ -13,9 +13,9 @@ const runtime = () => import("./runtime/operations.ts")
 const name = v.pipe(v.string(), v.check(value => value.trim() !== "", "Name a Workspace."))
 const nonEmpty = (message: string) => v.pipe(v.string(), v.check(value => value !== "", message))
 
-function defineWorkspaceOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "kind" | "section" | "user">): OperationDefinition<Input, Output> {
-  // Console section `workspaces` grants these. They only read the retained history, and none reads the signed-in user.
-  return defineOperation({ ...definition, kind: "read", section: "workspaces", user: false })
+function defineWorkspaceOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "kind" | "section" | "user">, kind: "read" | "write" = "read"): OperationDefinition<Input, Output> {
+  // Console section `workspaces` grants these. None reads the signed-in user.
+  return defineOperation({ ...definition, kind, section: "workspaces", user: false })
 }
 
 function table(rows: readonly (readonly string[])[]): string {
@@ -107,7 +107,43 @@ const show = defineWorkspaceOperation<{ path?: string, target: string, workspace
   run: async input => await (await runtime()).runWorkspaceOperation("show", input),
 })
 
-/** The `workspace.*` operations: history, refs, and show. The Console, `vitehub workspace`, and agents run them. */
-export const workspaceOperations: readonly AnyOperation[] = [history, refs, show]
+function formatChanges(result: WorkspaceChanges): string {
+  if (!result.head) return `Ref ${result.ref} has no revisions.\n`
+  if (!result.files.length) return `No changes. Ref ${result.ref} is at ${result.head.id}.\n`
+  return `${table([["PATH", "CHANGE"], ...result.files.map(file => [file.path, file.deleted ? "deleted" : file.base ? "changed" : "added"])])}\nHead: ${result.head.id}\n`
+}
 
-export type { WorkspaceHistoryContent, WorkspaceHistoryDetails, WorkspaceHistoryFile, WorkspaceHistoryList, WorkspaceHistoryRefs, WorkspaceHistoryRevision } from "./results.ts"
+const encodedFile = v.object({ content: v.string(), encoding: v.picklist(["base64", "utf8"]) })
+
+const changes = defineWorkspaceOperation<{ content?: boolean, ref?: string, since?: string | null, workspace: string }, WorkspaceChanges>({
+  cli: { command: "changes", format: formatChanges, namespace: "workspace", positional: ["workspace"] },
+  description: "List the files of a ref that changed since a revision, with their content at the head and at that revision. Without `since`, list every file of the head. `vitehub workspace pull` reads it.",
+  input: v.object({
+    content: v.optional(v.boolean()),
+    ref: v.optional(nonEmpty("The ref cannot be empty.")),
+    since: v.optional(v.nullable(nonEmpty("The revision cannot be empty."))),
+    workspace: name,
+  }),
+  name: "workspace.changes",
+  run: async input => await (await runtime()).runWorkspaceChanges(input),
+})
+
+const commit = defineWorkspaceOperation<{ delete?: string[], ifHead: string | null, message?: string, put?: Record<string, { content: string, encoding: "base64" | "utf8" }>, ref?: string, workspace: string }, WorkspaceCommitResult>({
+  cli: { command: "commit", namespace: "workspace", positional: ["workspace"] },
+  description: "Commit files to a ref when its head is still `ifHead`, else fail with WORKSPACE_CONFLICT. `put` writes files and `delete` removes paths; other files keep their content. Workspace write rules and validators run. `vitehub workspace push` calls it.",
+  input: v.object({
+    delete: v.optional(v.array(nonEmpty("A path cannot be empty."))),
+    ifHead: v.nullable(nonEmpty("The head cannot be empty.")),
+    message: v.optional(v.string()),
+    put: v.optional(v.record(nonEmpty("A path cannot be empty."), encodedFile)),
+    ref: v.optional(nonEmpty("The ref cannot be empty.")),
+    workspace: name,
+  }),
+  name: "workspace.commit",
+  run: async input => await (await runtime()).runWorkspaceCommit(input),
+}, "write")
+
+/** The `workspace.*` operations: history, refs, show, changes, and commit. The Console, `vitehub workspace`, and agents run them. */
+export const workspaceOperations: readonly AnyOperation[] = [history, refs, show, changes, commit]
+
+export type { WorkspaceChangedFile, WorkspaceChanges, WorkspaceCommitResult, WorkspaceHistoryContent, WorkspaceHistoryDetails, WorkspaceHistoryFile, WorkspaceHistoryList, WorkspaceHistoryRefs, WorkspaceHistoryRevision } from "./results.ts"

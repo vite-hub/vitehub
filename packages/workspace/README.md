@@ -205,6 +205,19 @@ vitehub workspace show content draft posts/hello.md
 Add `--json` for machine-readable output. A Store without retained history
 fails with `WORKSPACE_R0069`.
 
+Work on one ref in a local folder, as with `git pull` and `git push`:
+
+```bash
+vitehub workspace pull content --dir content --ref draft --url https://docs.example.com
+vitehub workspace status --remote   # local changes, and remote changes since the last pull
+vitehub workspace push              # pull, then commit the local changes to `draft`
+```
+
+The first pull writes `vitehub.lock`: commit it. Pull merges text by line and writes
+Git conflict markers where both sides changed the same lines; push refuses until they
+are gone. The commands call the `workspace.changes` and `workspace.commit` operations.
+See [Work on a ref in a local folder](https://vitehub.dev/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
+
 ## JSON Collections
 
 Expose a JSON array stored in a Workspace file as a [Source Collection](https://vitehub.dev/docs/source/server-api#collections-over-an-array). `workspaceFile()` reads the file on every request and queries it in memory with `array()` from `@vite-hub/source`, so the browser gets bounded pages, `total`, and `facets` instead of the whole file.

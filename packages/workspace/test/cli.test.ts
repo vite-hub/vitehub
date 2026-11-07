@@ -63,10 +63,13 @@ describe("workspace CLI", () => {
     await expect(hubWorkspace().vitehub?.cli?.()).resolves.toEqual({
       namespaces: [{
         description: "Workspace development workflows.",
-        features: [expect.objectContaining({
-          name: "dev",
-          usage: "vitehub workspace dev <workspace> [exec <command...>]",
-        })],
+        features: [
+          expect.objectContaining({ name: "dev", usage: "vitehub workspace dev <workspace> [exec <command...>]" }),
+          expect.objectContaining({ name: "pull" }),
+          expect.objectContaining({ name: "push" }),
+          expect.objectContaining({ name: "status" }),
+          expect.objectContaining({ name: "resolve" }),
+        ],
         name: "workspace",
       }],
     })

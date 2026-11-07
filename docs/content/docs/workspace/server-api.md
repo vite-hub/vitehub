@@ -171,6 +171,32 @@ A commit waits for Definition synchronization before checking Source ownership. 
 
 Retained history requires access to the complete Workspace. A facade restricted to selected paths or Sources throws `WORKSPACE_R0069` instead of exposing or replacing a complete folder outside that scope.
 
+### Work on a ref in a local folder
+
+`vitehub workspace pull`, `push`, and `status` keep a folder of your project in sync with one ref, as `git pull` and `git push` do with a branch. Edit the files in your editor or with your Agent, and edit the same ref in the Console. The next pull merges the two.
+
+```bash [Terminal]
+pnpm vitehub workspace pull content --dir content --ref draft --url https://docs.example.com
+pnpm vitehub workspace status --remote
+pnpm vitehub workspace push --message "Fix the install guide"
+```
+
+The first pull of a Workspace needs `--dir`, and `--ref` when the ref is not `main`. It writes `vitehub.lock` at the project root. Commit that file: it records the folder, the ref, the remote app, the revision that the folder matches, and the SHA-256 of each file at that revision. Later commands read it, so `pnpm vitehub workspace pull` with no arguments pulls every Workspace in it. Without `--url` and without `remote` in the lock file, the commands use the dev server of the project.
+
+- **Pull.** A file that only the remote changed takes the remote version. A text file that both sides changed is merged by line. Lines that both sides changed get Git conflict markers, with your lines first. A remote edit of a file that you deleted brings the file back. Your edit of a file that the remote deleted stays, and the next push restores it. `--theirs <path>` takes the remote version of one path.
+- **Push.** It pulls first, then commits every local change to the ref in one revision with `ifHead` set to the pulled head. When another save lands between the two steps, it pulls and tries again. It refuses while a file has conflict markers.
+- **Binary files.** When both sides change one, the pull keeps your file and lists the path in `conflicts` of the lock file. Run `vitehub workspace resolve <workspace> <path>` to keep your file, or pull with `--theirs <path>`.
+- **Status.** `status` lists added, modified, deleted, and conflicting files. `--remote` also lists what changed on the ref since the last pull. `--check` exits with `1` while a conflict is open, so a pre-commit hook can run it.
+
+The commands call two operations of the app, which the Console section `workspaces` grants:
+
+| Operation | Kind | Result |
+| --- | --- | --- |
+| `workspace.changes` `{ workspace, ref?, since?, content? }` | read | `{ head, files }`: each file that differs between revision `since` and the head of `ref`, with its content at the head and at `since`. Without `since`, every file of the head. `content: false` leaves the content out. |
+| `workspace.commit` `{ workspace, ref?, ifHead, put?, delete?, message? }` | write | `{ revision }`. `put` maps paths to `{ content, encoding: "utf8" \| "base64" }`. Write rules and validators run as for `history.commit()`. A moved head fails with `WORKSPACE_CONFLICT` and status 409. |
+
+The folder holds the Workspace root. `.git`, `.vitehub`, and `node_modules` folders inside it are never part of the checkout. A push sends whole files and the operation call has a timeout of two minutes, so keep a checkout to text and media of a docs site or a translation catalog, not to large binaries.
+
 ## Add plugins to a Workspace
 
 `registerWorkspacePlugin(workspace, plugin)` adds a `WorkspacePlugin` with `id`, `rules`, and `hooks` to a Workspace by name. Use it from a package that owns some paths in a Workspace it does not define, for example to validate documents before every write:
