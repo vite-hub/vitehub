@@ -1,14 +1,14 @@
-import { installConsoleProjectRoot } from "./operation-contributions.ts"
+import { installConsoleProjectRoot } from "./project-root.ts"
 import { installConsoleBuildScope, installConsoleProjectNameScope, installConsoleSectionScope, resolveConsoleAuth, resolveConsoleBuild, resolveConsoleProjectName, resolveConsoleSections } from "../../internal.ts"
 
 import type { ConsoleAuthMode } from "../../internal.ts"
 import type { ConsoleSectionId } from "../sections.ts"
 
 // Generated Console output installs its access policy from this entry, next to its sections.
-export { consoleConnectionsActor, consoleRealtimeAccess, installConsoleAccess, resolveConsoleAppAuthIdentity } from "./access.ts"
+export { consoleConnectionsActor, consoleRealtimeAccess, resolveConsoleAppAuthIdentity } from "./access.ts"
+export { installConsoleAccess } from "./access-policy.ts"
 export { createConsoleAppAuthAccess, createConsoleAppAuthPages } from "../../auth-pages.ts"
 export { installConsolePageTool } from "./page-tool.ts"
-export { installConsoleOperations } from "./operation-contributions.ts"
 export { installConsoleRuntime } from "./runtime.ts"
 export type { ConsoleRealtimeAccess, ConsoleRealtimeUser } from "./access.ts"
 export { installConsoleDevelopment } from "./development.ts"
