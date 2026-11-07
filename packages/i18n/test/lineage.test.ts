@@ -35,6 +35,30 @@ describe("previous translations of changed messages", () => {
     expect(previous.size).toBe(2)
   })
 
+  it.each([false, true])("keeps both viable matches when messages compete for a record (reversed: %s)", (reversed) => {
+    const texts = ["Search agents today", "Search available agents today"]
+    const code = messages(...(reversed ? texts.reverse() : texts))
+    const stored = records({ "Search agents": "Buscar agentes", "Search agents now": "Buscar agentes ahora" })
+    const previous = findPreviousTranslations(code, stored)
+    expect(previous.size).toBe(2)
+    expect(previous.get(messageId("Search agents today"))?.id).toBe(messageId("Search agents now"))
+    expect(previous.get(messageId("Search available agents today"))?.id).toBe(messageId("Search agents"))
+  })
+
+  it.each(["rejected", "invalid", "visible"])("treats a %s current record according to its visibility", (state) => {
+    const next = "Search all {0} agents"
+    const stored = records({ "Search {0} agents": "Buscar {0} agentes" })
+    stored[messageId(next)] = createRecord({
+      segment: messageSegment(next),
+      text: state === "invalid" ? "Buscar agentes" : "Buscar todos los {0} agentes",
+      origin: "human",
+      ...(state === "rejected" ? { review: "rejected", rejectedBy: { by: "ana", at: "2026-11-07T10:00:00.000Z" } } : {}),
+    })
+    const previous = findPreviousTranslations(messages(next), stored)
+    if (state === "visible") expect(previous.size).toBe(0)
+    else expect(previous.get(messageId(next))).toMatchObject({ id: messageId("Search {0} agents") })
+  })
+
   it("needs the same context and the same placeholders", () => {
     expect(findPreviousTranslations(messages(["Save draft", "button"]), records({ "Save drafts": "Guardar borradores" })).size).toBe(0)
     expect(findPreviousTranslations(messages(["Save draft", "button"]), records({ "Save drafts": "Guardar borradores" }, "button")).size).toBe(1)

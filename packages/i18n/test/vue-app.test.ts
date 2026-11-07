@@ -199,4 +199,18 @@ describe("a Vue app with messages in templates and scripts", () => {
     expect(JSON.parse((await cli("import", "es", "changed.po", "--json")).stdout)).toMatchObject({ saved: 1, fuzzy: 0 })
     expect((await inspectI18n(linguiConfig())).locales[1]).toMatchObject({ translated: 4, changed: 0, unused: 1 })
   })
+
+  it.each(["rejected", "invalid"])("offers a fuzzy draft when the current record is %s", async (state) => {
+    await writeRecord(join(root, "locales"), "es", createRecord({
+      segment: messageSegment("Search all agents"),
+      text: state === "invalid" ? "Buscar {name}" : "Buscar todos los agentes",
+      origin: "human",
+      ...(state === "rejected" ? { review: "rejected", rejectedBy: { by: "ana", at: "2026-11-07T10:00:00.000Z" } } : {}),
+    }))
+    expect((await inspectI18n(linguiConfig())).locales[1]).toMatchObject({ translated: 3, missing: 4, changed: 1, unused: 1 })
+    expect((await cli("status")).stdout).toContain("4 missing (1 changed), 1 unused")
+    const exported = await cli("export", "es")
+    expect(exported.stdout).toContain("#. Previous source: Search agents")
+    expect(exported.stdout).toMatch(/#, fuzzy\nmsgid "Search all agents"\nmsgstr "Buscar agentes"/)
+  })
 })
