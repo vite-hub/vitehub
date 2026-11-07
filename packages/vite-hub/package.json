@@ -1133,6 +1133,11 @@
       "import": "./dist/workspace/blob-database.js",
       "default": "./dist/workspace/blob-database.js"
     },
+    "./workspace/checkout": {
+      "types": "./dist/workspace/checkout.d.ts",
+      "import": "./dist/workspace/checkout.js",
+      "default": "./dist/workspace/checkout.js"
+    },
     "./workspace/cloudflare": {
       "types": "./dist/workspace/cloudflare.d.ts",
       "import": "./dist/workspace/cloudflare.js",

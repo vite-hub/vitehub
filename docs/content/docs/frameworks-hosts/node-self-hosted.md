@@ -71,7 +71,7 @@ native binaries.
 
 Set `dataDir` in `vitehub()` to put local state in one persistent directory, for
 example `dataDir: '/var/lib/app'`. ViteHub then stores KV `fs-lite` data, Blob
-`fs` data, the Agent State database, the Console journal, and Workspace files
+`fs` data, the Agent State database, the Agent Invocation journal, and Workspace files
 under that directory. `dataDir` works only with the `node` preset.
 
 ## Mount a server handler
