@@ -6,7 +6,9 @@ import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
+import { BlobNotFoundError, BlobStoreNotFoundError } from "@vercel/blob"
 import { build as bundle } from "esbuild"
+import { S3Client } from "@aws-sdk/client-s3"
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest"
 
 import { normalizeBlobOptions } from "../src/config.ts"
@@ -55,7 +57,10 @@ const vercelBlobMock = vi.hoisted(() => ({
     url: `https://blob.example/${pathname}`,
   })),
 }))
-vi.mock("@vercel/blob", () => vercelBlobMock)
+vi.mock("@vercel/blob", async importOriginal => {
+  const actual = await importOriginal<typeof import("@vercel/blob")>()
+  return { ...vercelBlobMock, BlobNotFoundError: actual.BlobNotFoundError, BlobStoreNotFoundError: actual.BlobStoreNotFoundError }
+})
 
 vi.mock("files-sdk", () => ({
   Files: class {
@@ -148,6 +153,57 @@ afterEach(async () => {
 })
 
 describe("Blob Nitro runtime module", () => {
+  it.each(["lazy", "eager"])("uses native and HTTP R2 per development store when only one is remote (%s)", async (kind) => {
+    const rootDir = await createWorkspaceTempDir("vitehub-blob-remote-r2-")
+    const resolved = normalizeBlobOptions({
+      stores: {
+        default: { binding: "BLOB", bucketName: "local-assets", driver: "cloudflare-r2" },
+        remote: {
+          accountId: "account",
+          accessKeyId: "access-key",
+          binding: "REMOTE_BLOB",
+          bucketName: "assets",
+          driver: "cloudflare-r2",
+          publicBaseUrl: "https://assets.example.test",
+          remote: true,
+          secretAccessKey: "secret-key",
+        },
+      },
+    }, { dev: true })
+    if (!resolved) throw new Error("Blob config must resolve to a store.")
+    const localList = vi.fn(async () => ({ objects: [], truncated: false }))
+    const localPut = vi.fn(async () => ({ key: "local.txt", size: 5 }))
+    vi.stubGlobal("BLOB", { list: localList, put: localPut })
+    const list = vi.fn()
+    const put = vi.fn()
+    vi.stubGlobal("REMOTE_BLOB", { list, put })
+    const send = vi.spyOn(S3Client.prototype, "send").mockImplementation(async () => ({ Contents: [], ETag: '"etag"', IsTruncated: false }))
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const file = join(rootDir, "runtime.mjs")
+      await writeFile(file, `${renderBlobRuntimeModule(file, resolved, "cloudflare")}\nexport { createGeneratedBlobStorage }\n`, "utf8")
+      const runtime = await import(pathToFileURL(file).href) as { blob: BlobStorage, createGeneratedBlobStorage: () => BlobStorage }
+      const storage = kind === "lazy" ? runtime.blob : runtime.createGeneratedBlobStorage()
+
+      expect(await storage.list()).toMatchObject([null, { blobs: [], hasMore: false }])
+      expect(await storage.put("local.txt", "hello")).toMatchObject([null, { pathname: "local.txt", size: 5 }])
+      expect(localList).toHaveBeenCalledOnce()
+      expect(localPut).toHaveBeenCalledWith("local.txt", "hello", expect.any(Object))
+      expect(send).not.toHaveBeenCalled()
+
+      const remote = storage.store("remote")
+      expect(await remote.list()).toMatchObject([null, { blobs: [], hasMore: false }])
+      expect((await remote.put("remote.txt", "hello"))[0]).toBeNull()
+      expect(send).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ Bucket: "assets", Key: "remote.txt" }) }), undefined)
+      expect(list).not.toHaveBeenCalled()
+      expect(put).not.toHaveBeenCalled()
+    }
+    finally {
+      send.mockRestore()
+      warn.mockRestore()
+    }
+  })
+
   it.each([
     { objectAccess: "private" as const, storeAccess: "public" as const },
     { objectAccess: "public" as const, storeAccess: "private" as const },
@@ -183,9 +239,7 @@ describe("Blob Nitro runtime module", () => {
   })
 
   it("maps Vercel missing-object errors to Blob misses", async () => {
-    const missing = new Error("Vercel Blob: The requested blob does not exist")
-    missing.name = "BlobNotFoundError"
-    vercelBlobMock.head.mockRejectedValueOnce(missing)
+    vercelBlobMock.head.mockRejectedValueOnce(new BlobNotFoundError())
     const driver = createBundledVercelBlobDriver({
       access: "private",
       driver: "vercel-blob",
@@ -194,7 +248,7 @@ describe("Blob Nitro runtime module", () => {
 
     await expect(driver.head("missing.txt")).resolves.toBeNull()
 
-    const missingStore = new Error("Vercel Blob: The requested store does not exist")
+    const missingStore = new BlobStoreNotFoundError()
     vercelBlobMock.head.mockRejectedValueOnce(missingStore)
     await expect(driver.head("missing.txt")).rejects.toBe(missingStore)
   })

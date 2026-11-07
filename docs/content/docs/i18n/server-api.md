@@ -63,12 +63,12 @@ Returns the message in the active locale. A message without a translation return
 ## plural, selectOrdinal, and select
 
 ```ts
-plural(count, { one: "# file", other: "# files" })
+plural(count, { 0: "No files", one: "# file", other: "# files" })
 selectOrdinal(place, { one: "#st", two: "#nd", few: "#rd", other: "#th" })
 select(role, { admin: "Admin", other: "Member" })
 ```
 
-`plural()` and `selectOrdinal()` take the forms `zero`, `one`, `two`, `few`, `many`, and `other`, and exact numbers such as `"0"`. `other` is required. `#` in a form is the number. Translators write the forms of their own language in the catalog.
+`plural()` and `selectOrdinal()` take the forms `zero`, `one`, `two`, `few`, `many`, and `other`, and exact numeric keys such as `0`. Write numeric keys without quotes. `other` is required. `#` in a form is the number. Translators write the forms of their own language in the catalog.
 
 `select()` takes one form for each value, and `other` for every other value.
 
@@ -145,6 +145,8 @@ export default async () => {
 
 `save()` and `list()` return [`I18N_UNKNOWN_LOCALE`](/docs/i18n/limits-and-errors#i18n_unknown_locale) for the source locale or a locale that is not in `i18n.locales`. Without `i18n.workspace`, `useTranslations()` throws [`I18N_NO_WORKSPACE`](/docs/i18n/limits-and-errors#i18n_no_workspace). Workspace errors, such as a conflict with another save at the same time, throw.
 
+`save()` keeps the `source`, `context`, and `translation` input names. It stores a Diglot record with `context` as `salt` and `translation` as `text`. A `machine` save has `origin: "mt"` and `review: "none"`; other saves have `origin: "human"`. A verified save also records `verifiedBy`. An empty translation marks the record as rejected and keeps its last text, or the source text if no translation exists. The site then uses its build or source fallback. Rejected records and records with invalid ICU arguments do not override the build catalog.
+
 ## Vue
 
 Import the Vue API from `vite-hub/i18n/vue`. Nuxt 5 apps get the plugin from `vite-hub/nuxt` and `useLocale()` as an auto-import.
@@ -161,7 +163,7 @@ Import the Vue API from `vite-hub/i18n/vue`. Nuxt 5 apps get the plugin from `vi
 | Type | Meaning |
 | --- | --- |
 | `I18nOptions` | The `i18n` option: `{ locales, cookie?, workspace? }`. |
-| `TranslationRecord` | One translation: `{ source, context?, translation, review?, updatedAt?, by? }`. |
+| `TranslationRecord` | A Diglot record: `{ hash, source, salt?, text, origin, review, derived, updatedAt, by?, verifiedBy?, rejectedBy? }`. |
 | `MessageDescriptor` | What `msg` returns and `translate()` takes. |
 | `MessageValue` | A value in a message: a string, a number, or `{ name: value }`. |
 | `PluralForms` | The forms of `plural()` and `selectOrdinal()`. |

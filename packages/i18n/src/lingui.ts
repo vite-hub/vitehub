@@ -17,7 +17,7 @@ export interface LinguiSetup {
 /** Folders that never hold app messages. */
 const excluded = ["**/node_modules/**", "**/.output/**", "**/.nuxt/**", "**/.vitehub/**", "**/.data/**", "**/dist/**", "**/.git/**"]
 
-/** The folder of the translation records: `locales/<locale>/<file>.json` in the project. */
+/** The folder of the translation records: `locales/<locale>/segments/<hh>/<hash>.json` in the project, as in a Diglot repository. */
 export function recordsRoot(rootDir: string): string {
   return `${rootDir}/locales`
 }

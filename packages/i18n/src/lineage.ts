@@ -1,5 +1,7 @@
 import { compileMessageOrThrow } from "@lingui/message-utils/compileMessage"
 
+import { isVisible } from "./record-format.ts"
+
 import type { CompiledMessage } from "@lingui/message-utils/compileMessage"
 import type { SourceMessages } from "./manifest.ts"
 import type { TranslationRecord, TranslationRecords } from "./record-format.ts"
@@ -75,13 +77,13 @@ function placeholders(text: string): string | undefined {
  */
 export function findPreviousTranslations(messages: SourceMessages, records: TranslationRecords): Map<string, PreviousTranslation> {
   const missing = Object.entries(messages).filter(([id]) => !(id in records))
-  const unused = Object.entries(records).filter(([id]) => !(id in messages))
+  const unused = Object.entries(records).filter(([id, record]) => !(id in messages) && isVisible(record))
   const candidates: Array<{ next: string } & PreviousTranslation> = []
   for (const [next, message] of missing) {
     const signature = placeholders(message.message)
     if (signature === undefined) continue
     for (const [id, record] of unused) {
-      if ((record.context ?? "") !== (message.context ?? "") || placeholders(record.source) !== signature) continue
+      if ((record.salt ?? "") !== (message.context ?? "") || placeholders(record.source) !== signature) continue
       const score = similarity(record.source, message.message)
       if (score >= threshold) candidates.push({ next, id, record, similarity: score })
     }

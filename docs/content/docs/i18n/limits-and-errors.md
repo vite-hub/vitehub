@@ -10,7 +10,7 @@ icon: i-lucide-circle-alert
 
 - **Nitro 3 only.** i18n runs in Vite with Nitro 3 and in Nuxt 5. Nuxt 4 builds the server with Nitro 2, which has no request context on every host, so the build stops with [`I18N_UNSUPPORTED_HOST`](#i18n_unsupported_host).
 - **Async context.** ViteHub turns on Nitro's `experimental.asyncContext`, so `t` finds the request that runs it.
-- **Translations at build time.** The build reads `locales/<locale>/` when it starts. A translation that you add after the build shows after the next build. In development, a saved record shows after a reload.
+- **Translations at build time.** The build reads `locales/<locale>/segments/` when it starts. A translation that you add after the build shows after the next build. In development, a saved record shows after a reload.
 - **Messages from files on disk.** The build reads the messages of each module from its file, so a message that another Vite plugin generates is not collected. It still works on the server, but in the browser a production build shows its ID.
 - **Build time.** A production build parses each source file that it compiles a second time, to collect the messages.
 - **A Workspace needs retained history.** `i18n.workspace` works with the Blob and Database store and the GitHub store. The local store has no `draft` and `published` refs.
