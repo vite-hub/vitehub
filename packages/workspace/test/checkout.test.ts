@@ -20,6 +20,7 @@ import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.
 import { registerWorkspacePlugin, useWorkspace } from "../src/index.ts"
 import { workspaceOperations } from "../src/operations.ts"
 
+import type { OperationUser } from "@vite-hub/internal/operations"
 import type { WorkspaceDefinition } from "../src/core/types.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
@@ -38,8 +39,8 @@ async function tempDir(name: string) {
   return root
 }
 
-/** A deployed app with one Blob + Database Workspace, reached through the operation RPC. */
-async function app() {
+/** A deployed app with one Blob + Database Workspace, reached through the operation RPC as `user`. */
+async function app(user: OperationUser | null = null) {
   const root = await tempDir("app")
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
@@ -54,7 +55,7 @@ async function app() {
     expect(String(url)).toBe(`${remote}/_vitehub/rpc/__call`)
     const { input, operation } = JSON.parse(String(init!.body)) as { input: unknown, operation: string }
     calls.push(operation)
-    const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+    const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user })
     return Response.json(result, { status: result.ok ? 200 : result.status ?? 500 })
   }
   /** An edit in the Console: one commit on `draft`. */
@@ -67,6 +68,18 @@ async function app() {
     return await (await history.open(head!.id)).readFile(path, { encoding: "utf8" })
   }
   return { calls, edit, fetch: fetch as typeof globalThis.fetch, history, read }
+}
+
+/** Runs `work` as if Node ran on `platform`. */
+async function onPlatform<T>(platform: NodeJS.Platform, work: () => Promise<T>): Promise<T> {
+  const original = Object.getOwnPropertyDescriptor(process, "platform")!
+  Object.defineProperty(process, "platform", { ...original, value: platform })
+  try {
+    return await work()
+  }
+  finally {
+    Object.defineProperty(process, "platform", original)
+  }
 }
 
 /** A project with the CLI commands, as `vitehub workspace <command>` runs them. */
@@ -461,6 +474,116 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect((await local.run("push")).stderr).toContain("WORKSPACE_CHECKOUT_OVERLAP")
     expect((await local.run("pull")).stderr).toContain("WORKSPACE_CHECKOUT_OVERLAP")
     expect(remoteApp.calls).toHaveLength(calls)
+  })
+
+  it("keeps the media type and metadata of a file that a push replaces", async () => {
+    const remoteApp = await app()
+    const head = await remoteApp.history.head({ ref: "draft" })
+    await remoteApp.history.commit({
+      ref: "draft",
+      ifHead: head?.id ?? null,
+      changes: { put: { "posts/hello.md": { content: post("Hello", "One."), mediaType: "text/x-post", metadata: { locale: "en", tags: ["intro"] } } } },
+    })
+    const local = await project(remoteApp.fetch, "metadata")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+
+    await local.write("posts/hello.md", post("Hello", "Edited locally."))
+    await local.write("posts/new.md", post("New", "Added locally."))
+    expect((await local.run("push")).code).toBe(0)
+
+    const view = await remoteApp.history.open((await remoteApp.history.head({ ref: "draft" }))!.id)
+    expect(await view.readFile("posts/hello.md", { encoding: "utf8" })).toBe(post("Hello", "Edited locally."))
+    expect(await view.stat("posts/hello.md")).toMatchObject({ mediaType: "text/x-post", metadata: { locale: "en", tags: ["intro"] } })
+    expect(await view.stat("posts/new.md")).toMatchObject({ mediaType: "text/markdown" })
+  })
+
+  it("records the caller as the author of a pushed revision, and no author without a signed-in user", async () => {
+    const remoteApp = await app({ id: "user-1", name: "Ana", email: "ana@example.com", image: "https://example.com/ana.png" })
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const local = await project(remoteApp.fetch, "author")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await local.write("posts/hello.md", post("Hello", "Two."))
+
+    const pushed = await local.json("push")
+
+    expect(pushed.value[0].revision).toBeTruthy()
+    const revision = await remoteApp.history.head({ ref: "draft" })
+    expect(revision!.metadata).toEqual({ author: { email: "ana@example.com", id: "user-1", name: "Ana" }, source: "cli" })
+    const listed = await runOperation(registry, "workspace.history", { workspace: "content", ref: "draft", limit: 1 }, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+    expect(listed).toMatchObject({ ok: true, value: { revisions: [{ author: "Ana", id: revision!.id }] } })
+
+    resetWorkspaceRegistry()
+    const anonymous = await app()
+    await anonymous.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const other = await project(anonymous.fetch, "anonymous")
+    await other.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await other.write("posts/hello.md", post("Hello", "Two."))
+    expect((await other.run("push")).code).toBe(0)
+    expect((await anonymous.history.head({ ref: "draft" }))!.metadata).toEqual({ source: "cli" })
+  })
+
+  it.each([
+    { command: "push", flag: "--dry-run", args: ["--dry-run"] },
+    { command: "push", flag: "--mesage", args: ["--mesage", "Typo"] },
+    { command: "pull", flag: "--theirs-all", args: ["--theirs-all"] },
+    { command: "resolve", flag: "--dir", args: ["content", "--dir", "content"] },
+  ])("fails on unknown flag $flag of $command before it calls the app", async ({ command, flag, args }) => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const local = await project(remoteApp.fetch, "flags")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await local.write("posts/hello.md", post("Hello", "Local."))
+    const head = await remoteApp.history.head({ ref: "draft" })
+    const calls = remoteApp.calls.length
+
+    const result = await local.run(command, ...args)
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).toMatch(new RegExp(`^Unknown flag ${flag}\\.\nUsage: vitehub ${command} `))
+    expect(remoteApp.calls).toHaveLength(calls)
+    expect((await remoteApp.history.head({ ref: "draft" }))?.id).toBe(head!.id)
+  })
+
+  it("excludes .git, .vitehub, node_modules, and .DS_Store in any case", async () => {
+    const remoteApp = await app()
+    const ignored = ["NODE_MODULES/pkg/index.js", "nested/Node_Modules/pkg/index.js", ".DS_STORE", "nested/.Vitehub/state.json"]
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One."), ...Object.fromEntries(ignored.map(path => [path, "remote\n"])) } })
+    const local = await project(remoteApp.fetch, "ignored-case")
+
+    const pulled = await local.json("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+
+    expect(pulled.value[0].files).toEqual([{ action: "added", path: "posts/hello.md" }])
+    for (const path of ignored) expect(await local.exists(path)).toBe(false)
+    await local.write("NODE_MODULES/pkg/index.js", "local dependency\n")
+    await local.write(".GIT/config", "[core]\n")
+    expect((await local.status())[0]!.local).toEqual({ added: [], conflicted: [], deleted: [], modified: [] })
+    expect((await local.run("push")).stdout).toBe("content: nothing to push.\n")
+    expect((await local.run("pull", "--theirs", ignored[0]!)).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+  })
+
+  it.each(["darwin", "win32"] as const)("treats folders that differ only in case as one folder on %s", async (platform) => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "hello.md": "Hello\n" } })
+    const local = await project(remoteApp.fetch, "overlap-case")
+    expect((await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).code).toBe(0)
+    const calls = remoteApp.calls.length
+
+    await onPlatform(platform, async () => {
+      expect((await local.run("pull", "other", "--dir", "CONTENT", "--url", remote)).stderr).toContain("WORKSPACE_CHECKOUT_OVERLAP")
+      expect((await local.run("pull", "other", "--dir", "Content/nested", "--url", remote)).stderr).toContain("WORKSPACE_CHECKOUT_OVERLAP")
+    })
+    expect(remoteApp.calls).toHaveLength(calls)
+  })
+
+  it("keeps folders that differ only in case apart on Linux", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "hello.md": "Hello\n" } })
+    const local = await project(remoteApp.fetch, "case-linux")
+    expect((await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).code).toBe(0)
+
+    const pulled = await onPlatform("linux", async () => await local.run("pull", "other", "--dir", "CONTENT", "--ref", "draft", "--url", remote))
+
+    expect(pulled.stderr).not.toContain("WORKSPACE_CHECKOUT_OVERLAP")
   })
 
   it("asks for --dir on the first pull and refuses a folder outside the project", async () => {

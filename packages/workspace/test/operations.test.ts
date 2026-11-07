@@ -92,6 +92,8 @@ describe("workspace operations", { timeout: 30_000 }, () => {
       ["workspace.commit", "write", "workspaces", { command: "commit", namespace: "workspace" }],
       ["workspace.stale", "read", "workspaces", { command: "stale", namespace: "workspace" }],
     ])
+    // The Console looks up the signed-in user only for the commit, which records it as the author.
+    expect(workspaceOperations.filter(operation => operation.user !== false).map(operation => operation.name)).toEqual(["workspace.commit"])
   })
 
   it("prints the source digest of each stale file, which the translator writes back as derivedFrom.digest", () => {

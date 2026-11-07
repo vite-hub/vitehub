@@ -193,9 +193,11 @@ The commands call two operations of the app, which the Console section `workspac
 | Operation | Kind | Result |
 | --- | --- | --- |
 | `workspace.changes` `{ workspace, ref?, since?, content? }` | read | `{ head, files }`: each file that differs between revision `since` and the head of `ref`, with its content at the head and at `since`. Without `since`, every file of the head. `content: false` leaves the content out. |
-| `workspace.commit` `{ workspace, ref?, ifHead, put?, delete?, message? }` | write | `{ revision }`. `put` maps paths to `{ content, encoding: "utf8" \| "base64" }`. Write rules and validators run as for `history.commit()`. A moved head fails with `WORKSPACE_CONFLICT` and status 409. |
+| `workspace.commit` `{ workspace, ref?, ifHead, put?, delete?, message? }` | write | `{ revision }`. `put` maps paths to `{ content, encoding: "utf8" \| "base64" }`. A file that exists at `ifHead` keeps its media type and metadata. The revision metadata records `source` (the surface, such as `cli`) and `author` (`{ id, name, email }` of the signed-in user, as Content records it). Without a signed-in user, such as a local dev server, the revision has no author. Write rules and validators run as for `history.commit()`. A moved head fails with `WORKSPACE_CONFLICT` and status 409. |
 
-The folder holds the Workspace root. Checkout folders must be separate: they cannot share a folder or contain one another. Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components are excluded from pulls, status, and pushes; their remote files stay unchanged, and `--theirs` cannot select them.
+The folder holds the Workspace root. Checkout folders must be separate: they cannot share a folder or contain one another. On Windows and macOS, folder names that differ only in case are one folder. Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components, in any letter case, are excluded from pulls, status, and pushes; their remote files stay unchanged, and `--theirs` cannot select them.
+
+Each command fails on a flag that it does not know, before it calls the app. `vitehub push --dry-run` fails and commits nothing: use `vitehub pull --dry-run` or `vitehub status` to see the changes first.
 
 Commands reject existing symbolic links in the checkout folder and its ancestors inside the project. These checks do not isolate files from another process that can replace paths during an operation. Use an OS or container boundary for that isolation.
 
