@@ -1,5 +1,5 @@
 /**
- * What a failed Cloudflare or Vercel API call means, in one closed set.
+ * What a failed Cloudflare, Vercel, or Netlify API call means, in one closed set.
  *
  * - `not-found`: the resource does not exist.
  * - `conflict`: the resource already exists, or its current state rejects the change.
@@ -16,6 +16,7 @@ export type CloudflareProduct = "d1" | "kv" | "queues" | "r2"
 export type ProviderFailureSource =
   | { host: "cloudflare", product?: CloudflareProduct }
   | { host: "vercel" }
+  | { host: "netlify" }
 
 export interface ProviderFailureInput {
   /** Provider error codes: Cloudflare `errors[].code` or Vercel `error.code`. */
@@ -124,7 +125,7 @@ export function classifyProviderFailure(source: ProviderFailureSource, { codes =
   for (const code of codes) {
     const kind = source.host === "vercel"
       ? (typeof code === "string" && Object.hasOwn(vercelCodes, code) ? vercelCodes[code] : undefined)
-      : (source.product && typeof code === "number" && Object.hasOwn(cloudflareCodes[source.product], code) ? cloudflareCodes[source.product][code] : undefined)
+      : (source.host === "cloudflare" && source.product && typeof code === "number" && Object.hasOwn(cloudflareCodes[source.product], code) ? cloudflareCodes[source.product][code] : undefined)
     if (kind) return kind
   }
   return status === undefined ? undefined : kindFromStatus(status)
