@@ -36,6 +36,8 @@ it("loads the Agent routes and Agent Definitions on the first request, not at Wo
       "",
       "export default defineAgent({",
       "  channels: { web: webChat() },",
+      // An Agent that runs as a Workflow also loads through the Cloudflare Workflow classes, which Workers export at startup.
+      "  runtime: false,",
       "  driver: {",
       "    async *run() {",
       "      yield { type: \"text-delta\" as const, text: \"Hello from the Agent\" }",
