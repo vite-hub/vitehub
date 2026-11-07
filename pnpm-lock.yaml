@@ -681,6 +681,9 @@ importers:
       '@vite-hub/docs':
         specifier: workspace:*
         version: link:../packages/docs
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../packages/internal
       '@vite-hub/ui':
         specifier: workspace:*
         version: link:../packages/ui
@@ -1284,6 +1287,31 @@ importers:
       playwright-core:
         specifier: catalog:browser
         version: 1.63.0
+      publint:
+        specifier: catalog:tooling
+        version: 0.3.25
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.3
+      vite-plus:
+        specifier: catalog:tooling
+        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
+      vitest:
+        specifier: catalog:tooling
+        version: 4.1.11(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(@vitest/browser-preview@4.1.11)(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(happy-dom@21.0.3)
+
+  packages/bundle:
+    dependencies:
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
+        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
+    devDependencies:
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.19.1
+      '@vite-hub/internal':
+        specifier: workspace:*
+        version: link:../internal
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -3225,6 +3253,9 @@ importers:
       '@vite-hub/browser':
         specifier: workspace:*
         version: link:../browser
+      '@vite-hub/bundle':
+        specifier: workspace:*
+        version: link:../bundle
       '@vite-hub/channels':
         specifier: workspace:*
         version: link:../channels
