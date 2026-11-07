@@ -421,8 +421,15 @@ feature.
 Stop the old application first. ViteHub does not read NuxtHub's `.data/`
 folder.
 
-- **Database**: copy `.data/db/sqlite.db` to `.vitehub/data/database/sqlite.db`,
-  then follow [Baseline an existing SQLite database](#baseline-an-existing-sqlite-database).
+- **Database**: copy the database file together with its `-wal` and `-shm`
+  files, if they exist. The `-wal` file can hold committed rows that are not in
+  `sqlite.db` yet. Then follow
+  [Baseline an existing SQLite database](#baseline-an-existing-sqlite-database).
+
+  ```bash [Terminal]
+  mkdir -p .vitehub/data/database && cp .data/db/sqlite.db* .vitehub/data/database/
+  ```
+
 - **KV**: both use the same file layout. Copy the folder before the first
   ViteHub start:
 
