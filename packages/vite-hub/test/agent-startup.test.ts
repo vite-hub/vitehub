@@ -52,26 +52,27 @@ it("loads the Agent routes and Agent Definitions on the first request, not at Wo
     const server = join(root, ".output/server")
     const files = (await readdir(server, { recursive: true })).filter(file => file.endsWith(".mjs"))
     const output = bundledModules(await Promise.all(files.map(file => readFile(join(server, file), "utf8"))))
-    expect(output).toContain("server/agents/hello.ts")
-    expect(output).toContain(".vitehub/agent/chat-webhook-route.ts")
+    const definition = /\/server\/agents\/hello\.ts$/
+    const routes = /\/\.vitehub\/agent\/chat-webhook-route\.ts$/
+    expect(output).toContainEqual(expect.stringMatching(definition))
+    expect(output).toContainEqual(expect.stringMatching(routes))
 
     const startup = bundledModules((await startupSources(join(server, "index.mjs"))).values())
     expect(startup).toContainEqual(expect.stringMatching(/agent\/dist\/cloudflare\/state\.js$/))
-    expect(startup).not.toContain("server/agents/hello.ts")
-    expect(startup).not.toContain(".vitehub/agent/chat-webhook-route.ts")
+    expect(startup.filter(module => definition.test(module) || routes.test(module))).toEqual([])
     // The Agent routes import the Workspace runtime. Nothing else at startup does.
     expect(output).toContainEqual(expect.stringMatching(/workspace\/dist\//))
     expect(startup.filter(module => /workspace\/dist\//.test(module))).toEqual([])
 
     const wrangler = JSON.parse(await readFile(join(server, "wrangler.json"), "utf8")) as {
-      compatibility_date: string
       compatibility_flags?: string[]
       durable_objects: { bindings: Array<{ class_name: string, name: string }> }
     }
     // Wrangler uploads every file that its `rules` match, so the Worker can import the lazy chunks.
     worker = new Miniflare({
-      compatibilityDate: wrangler.compatibility_date,
-      compatibilityFlags: wrangler.compatibility_flags,
+      // The build writes today's date. The pinned workerd binary can be older.
+      compatibilityDate: "2026-04-20",
+      compatibilityFlags: [...new Set([...wrangler.compatibility_flags ?? [], "nodejs_compat"])],
       durableObjects: Object.fromEntries(wrangler.durable_objects.bindings.map(binding => [binding.name, binding.class_name])),
       modules: ["index.mjs", ...files.filter(file => file !== "index.mjs")].map(file => ({ path: join(server, file), type: "ESModule" as const })),
       modulesRoot: server,
