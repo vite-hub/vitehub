@@ -4189,7 +4189,10 @@ describe("Agent Invocation UI", () => {
     } } });
     const summary = wrapper.get(".vh-invocation-inspector__usage").text();
     expect(summary).toContain("Cache writes1,024");
-    expect(summary).toContain(`Cost$0.01${estimated ? "Estimated from pricing" : "Reported by the provider"}`);
+    expect(summary).toContain(`${estimated ? "Estimated cost" : "Cost"}$0.01`);
+    // The source of the prices is in the tooltip, not a line of its own.
+    expect(wrapper.get(".vh-invocation-inspector__usage .vh-invocation-inspector__metrics > div").attributes("title"))
+      .toBe(estimated ? "Estimated from pricing" : "Reported by the provider");
   });
 
   it("groups recorded Agent Definition details as captured setup", () => {
@@ -4240,14 +4243,15 @@ describe("Agent Invocation UI", () => {
     expect(summary).toContain("Tokens1,200");
     expect(summary).toContain("Input1,100");
     expect(summary).toContain("Output100");
-    expect(summary).toContain("Cached input0");
-    expect(summary).toContain("Cache writes0");
+    // Token types without tokens are left out.
+    expect(summary).not.toContain("Cached input");
+    expect(summary).not.toContain("Cache writes");
     expect(summary).not.toContain("Reasoning");
     // A run without a recorded cost shows no cost, not "Unknown".
     expect(summary).not.toContain("Cost");
 
-    expect(wrapper.get(".vh-invocation-inspector__group--execution").text()).toContain("GPT 5.6 Sol");
-    expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("OpenAI");
+    expect(wrapper.get(".vh-invocation-execution").text()).toContain("GPT 5.6 Sol");
+    expect(wrapper.get(".vh-invocation-execution__model-icon").attributes("data-brand")).toBe("openai");
     expect(wrapper.find(".vh-invocation-execution__model-icon path").exists()).toBe(true);
     expect(wrapper.find(".vh-invocation-execution__workspace").exists()).toBe(false);
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("node");
@@ -4260,8 +4264,10 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.get('.vh-invocation-inspector__badge[href="https://github.com/vite-hub/vitehub"] .vh-channel-icon').attributes("aria-label")).toBe("GitHub");
     expect(wrapper.get(".vh-agent-tool-list__disclosure").text()).toContain("Run a shell command.");
     expect(wrapper.get(".vh-agent-tool-list__schema").text()).toContain("command");
-    expect(wrapper.get(".vh-invocation-inspector__group--execution").text()).toContain("GPT 5.6 Sol");
-    expect(wrapper.get(".vh-invocation-inspector__group--execution").text()).toContain("OpenAI");
+    expect(wrapper.get(".vh-invocation-execution").text()).toContain("GPT 5.6 Sol");
+    // OpenAI made the model and serves it, so it shows once, as the mark and the tooltip of the model.
+    expect(wrapper.find(".vh-invocation-execution__provider").exists()).toBe(false);
+    expect(wrapper.get(".vh-invocation-execution__model").attributes("title")).toBe("gpt-5.6-sol by OpenAI");
     expect(wrapper.get(".vh-invocation-inspector__groups").text()).toContain("1 of 2 used");
     expect(wrapper.findAll(".vh-agent-tool-list > *").map(item => item.attributes("data-used"))).toEqual(["true", "false"]);
 
@@ -4274,7 +4280,7 @@ describe("Agent Invocation UI", () => {
         },
       },
     } });
-    expect(namespacedModel.get(".vh-invocation-inspector__group--execution").text()).toContain("GPT 5");
+    expect(namespacedModel.get(".vh-invocation-execution").text()).toContain("GPT 5");
     expect(namespacedModel.get(".vh-invocation-execution__model-icon").attributes("data-brand")).toBe("openai");
     expect(namespacedModel.find(".vh-invocation-execution__provider").exists()).toBe(false);
 
@@ -4288,9 +4294,39 @@ describe("Agent Invocation UI", () => {
       invocation: { ...invocation, configuration: { ...invocation.configuration, runtime: { name: "unknown" }, truncated: true } },
     } });
     expect(shortened.get('[role="note"]').text()).toContain("Some setup values were shortened");
-    expect(shortened.get(".vh-invocation-inspector__group--execution").text()).not.toContain("unknown");
+    expect(shortened.get(".vh-invocation-execution").text()).not.toContain("unknown");
 
   });
+  it("shows an imported coding agent session in plain words", () => {
+    const invocation: AgentInvocationView = {
+      id: "imported", status: "completed", traceId: "trace", createdAt: "2026-11-07T00:00:00Z", updatedAt: "2026-11-07T00:05:00Z", observations: [],
+      usage: { totalTokens: 1200, inputTokens: 1100, outputTokens: 100, reasoningTokens: 0, cost: { usd: "0.086012", estimated: true, source: "models.dev" } },
+      configuration: {
+        driver: { kind: "codex", provider: "codex", model: { id: "gpt-6-luna", provider: "codex" } },
+        runtime: { name: "import" },
+        skills: [{ name: "imagegen", description: "Make images.", source: "codex-system" }, { name: "openai-docs" }],
+        mcpServers: [{ name: "nuxt", status: "connected" }],
+      },
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+    const usage = wrapper.get(".vh-invocation-inspector__usage");
+    expect(usage.text()).toContain("Estimated cost$0.086");
+    expect(usage.text()).not.toContain("Reasoning");
+    expect(usage.get(".vh-invocation-inspector__metrics > div").attributes("title")).toBe("$0.086012, Estimated from models.dev");
+
+    const setup = wrapper.get(".vh-invocation-execution");
+    expect(setup.findAll("dt").map(label => label.text())).toEqual(["Model", "Provider", "Runtime"]);
+    expect(setup.text()).toContain("GPT 6 Luna");
+    expect(setup.text()).toContain("Codex");
+    expect(setup.text()).toContain("Imported session");
+    expect(setup.text()).not.toContain("import ");
+
+    const chips = wrapper.findAll(".vh-invocation-inspector__chips > li");
+    expect(chips.map(chip => chip.text())).toEqual(["imagegen", "openai-docs", "nuxt, connected"]);
+    expect(chips[0]!.attributes("title")).toBe("Make images.\nSource: codex-system");
+    expect(chips[2]!.get(".vh-invocation-inspector__dot").attributes("data-status")).toBe("connected");
+  });
+
   it("preserves terminal usage and capability visibility in details", () => {
     const invocation: AgentInvocationView = {
       id: "summary", status: "completed", traceId: "trace", createdAt: "2026-09-05T00:00:00Z", updatedAt: "2026-09-05T00:00:00Z", observations: [],
@@ -4299,7 +4335,7 @@ describe("Agent Invocation UI", () => {
     };
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
     expect(wrapper.get(".vh-invocation-inspector__usage").text()).toContain("1,234");
-    expect(wrapper.get(".vh-invocation-inspector__usage").text()).toContain("Cost~$0.02Estimated");
+    expect(wrapper.get(".vh-invocation-inspector__usage").text()).toContain("Estimated cost~$0.02");
     expect(wrapper.get(".vh-invocation-inspector__usage").text()).not.toContain("(estimated)");
     expect(wrapper.text()).not.toContain("Capabilities");
     expect(wrapper.get(".vh-agent-tool-list").text()).toContain("read_file");

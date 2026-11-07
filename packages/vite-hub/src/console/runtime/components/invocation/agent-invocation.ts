@@ -1114,20 +1114,21 @@ function renderActivityGroup(
 
 const tokenFormat = new Intl.NumberFormat("en");
 
-/** A USD amount with cents, and up to four decimals below one dollar so a small run does not read as $0.00. */
+/** A USD amount with cents. Below ten cents it keeps two significant digits, so a small run does not read as $0.00. */
 function formatUsd(usd: string): string {
   const value = Number(usd);
+  const small = value > 0 && value < 0.1;
   return new Intl.NumberFormat("en", {
     currency: "USD",
-    maximumFractionDigits: value > 0 && value < 1 ? 4 : 2,
+    maximumFractionDigits: small ? Math.min(6, 1 - Math.floor(Math.log10(value))) : 2,
     minimumFractionDigits: 2,
     style: "currency",
   }).format(value);
 }
 
 /**
- * Tokens and cost of the session. The cost shows only when the run recorded one. An estimate names where its prices
- * come from, such as models.dev.
+ * Tokens and cost of the session. The cost shows only when the run recorded one. An estimate says so in its label, and
+ * its tooltip names where the prices come from, such as models.dev. Token types without tokens are left out.
  */
 function inspectorUsage(
   usage: AgentInvocationView["usage"],
@@ -1144,50 +1145,53 @@ function inspectorUsage(
     ["Cache writes", partition?.cacheWriteTokens],
     ["Output", partition?.outputTokens],
     ["Reasoning", partition?.reasoningTokens],
-  ] as const).flatMap(([label, value]) => value === undefined ? [] : [h("div", [h("dt", label), h("dd", tokenFormat.format(value))])]);
+  ] as const).flatMap(([label, value]) => !value ? [] : [h("div", [h("dt", label), h("dd", tokenFormat.format(value))])]);
   if (costText === undefined && totalTokens === undefined && !rows.length) return null;
-  const costNote = cost?.estimated === true
-    ? `Estimated${cost.source && cost.source !== "provider" ? ` from ${cost.source}` : ""}`
+  const estimated = cost?.estimated === true;
+  const costNote = estimated
+    ? cost.source && cost.source !== "provider" ? `Estimated from ${cost.source}` : "Estimated"
     : cost?.estimated === false ? "Reported by the provider" : undefined;
+  const costTitle = [usd === undefined ? undefined : `$${usd}`, costNote].filter(Boolean).join(", ") || undefined;
   return inspectorSection("Usage", h("div", { class: "vh-invocation-inspector__usage", "data-slot": "invocation-usage" }, [
-    h("div", { class: "vh-invocation-inspector__usage-totals" }, [
-      costText === undefined ? null : h("div", [
-        h("span", "Cost"),
-        h("strong", usd === undefined ? {} : { title: `$${usd}` }, costText),
-        costNote ? h("small", costNote) : null,
+    h("dl", { class: "vh-invocation-inspector__metrics" }, [
+      costText === undefined ? null : h("div", { title: costTitle }, [
+        h("dt", estimated ? "Estimated cost" : "Cost"),
+        h("dd", costText),
       ]),
       totalTokens === undefined ? null : h("div", [
-        h("span", "Tokens"),
-        h("strong", tokenFormat.format(totalTokens)),
+        h("dt", "Tokens"),
+        h("dd", tokenFormat.format(totalTokens)),
       ]),
     ]),
-    rows.length ? h("dl", { class: "vh-invocation-inspector__usage-rows" }, rows) : null,
+    rows.length ? h("dl", { class: "vh-invocation-inspector__list vh-invocation-inspector__list--numbers" }, rows) : null,
   ]));
 }
 
-/** Skills that the harness offered the Agent. A long list starts folded. */
+/** Skills that the harness offered the Agent, one chip each. The description and source are in the tooltip. */
 function inspectorSkills(skills: readonly { description?: string; name: string; source?: string }[]) {
-  const list = h("ul", { class: "vh-invocation-inspector__entries" }, skills.map(skill => h("li", { key: skill.name, title: skill.description }, [
-    h("code", skill.name),
-    skill.source ? h("small", skill.source) : null,
-    skill.description ? h("p", skill.description) : null,
-  ])));
-  const count = `${skills.length} offered`;
-  return skills.length > 6
-    ? inspectorDisclosure("Skills", count, list)
+  const list = h("ul", { class: "vh-invocation-inspector__chips" }, skills.map(skill => h("li", {
+    key: skill.name,
+    title: [skill.description, skill.source ? `Source: ${skill.source}` : undefined].filter(Boolean).join("\n") || undefined,
+  }, skill.name)));
+  return skills.length > 12
+    ? inspectorDisclosure("Skills", String(skills.length), list)
     : h("div", { class: "vh-invocation-inspector__group" }, [
-        h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Skills"), h("small", count)]),
+        h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Skills"), h("small", skills.length)]),
         list,
       ]);
 }
 
-/** MCP servers that the harness connected, with the status it recorded. */
+/** MCP servers that the harness connected. A dot shows the status it recorded. */
 function inspectorMcpServers(servers: readonly { name: string; status?: string }[]) {
   return h("div", { class: "vh-invocation-inspector__group" }, [
     h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "MCP servers"), h("small", servers.length)]),
-    h("ul", { class: "vh-invocation-inspector__entries" }, servers.map(server => h("li", { key: server.name }, [
-      h("code", server.name),
-      server.status ? h("small", { "data-status": server.status }, server.status) : null,
+    h("ul", { class: "vh-invocation-inspector__chips" }, servers.map(server => h("li", {
+      key: server.name,
+      title: server.status ? `${server.name}: ${server.status}` : undefined,
+    }, [
+      server.status ? h("span", { "aria-hidden": "true", class: "vh-invocation-inspector__dot", "data-status": server.status }) : null,
+      server.name,
+      server.status ? h("span", { class: "vh-visually-hidden" }, `, ${server.status}`) : null,
     ]))),
   ]);
 }
@@ -1301,6 +1305,12 @@ function isRecordedChannel(value: unknown): value is NonNullable<AgentInvocation
     && hasRuntimeType(channel.kind, "string");
 }
 
+/** Runtime names that mean nothing to a reader on their own. */
+const runtimeLabels: Readonly<Record<string, { label: string; title: string }>> = {
+  import: { label: "Imported session", title: "This session ran outside ViteHub. Its session file was imported." },
+};
+
+/** Model, provider, and runtime as rows. The provider row shows only when it is not the company that made the model. */
 function inspectorExecution(configuration: AgentInvocationConfiguration) {
   const model = configuration.driver?.model;
   const modelId = model?.id;
@@ -1308,22 +1318,26 @@ function inspectorExecution(configuration: AgentInvocationConfiguration) {
   const provider = invocationBrand(model?.provider ?? configuration.driver?.provider);
   const runtime = configuration.runtime?.name;
   if (!modelId && !provider && (!runtime || runtime === "unknown")) return null;
-  return h("div", { class: "vh-invocation-inspector__group vh-invocation-inspector__group--execution" }, [
-    h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Model")]),
-    h("div", { class: "vh-invocation-execution" }, [
-      modelId || provider ? h("div", { class: "vh-invocation-execution__model" }, [
+  const runtimeLabel = runtime && Object.hasOwn(runtimeLabels, runtime) ? runtimeLabels[runtime] : undefined;
+  return h("dl", { class: "vh-invocation-inspector__list vh-invocation-execution" }, [
+    modelId ? h("div", [
+      h("dt", "Model"),
+      h("dd", { class: "vh-invocation-execution__model", title: maker ? `${modelId} by ${maker.label}` : modelId }, [
         invocationBrandMark(maker ?? provider ?? { id: "fallback", label: "Model" }, "vh-invocation-execution__model-icon"),
-        h("div", { class: "vh-invocation-execution__details" }, [
-          h("strong", modelId ? invocationModelName(modelId) : provider?.label),
-          modelId && provider ? h("span", { class: "vh-invocation-execution__provider" }, [
-            invocationBrandMark(provider, "vh-invocation-execution__provider-icon"), provider.label,
-          ]) : null,
-        ]),
-      ]) : null,
-      runtime && runtime !== "unknown" ? h("dl", { class: "vh-invocation-inspector__list vh-invocation-execution__runtime" }, [
-        inspectorRow("Runtime", runtime),
-      ]) : null,
-    ]),
+        h("span", invocationModelName(modelId)),
+      ]),
+    ]) : null,
+    provider && provider.id !== maker?.id ? h("div", [
+      h("dt", "Provider"),
+      h("dd", { class: "vh-invocation-execution__provider" }, [
+        invocationBrandMark(provider, "vh-invocation-execution__provider-icon"),
+        h("span", provider.label),
+      ]),
+    ]) : null,
+    runtime && runtime !== "unknown" ? h("div", [
+      h("dt", "Runtime"),
+      h("dd", { title: runtimeLabel?.title }, runtimeLabel?.label ?? runtime),
+    ]) : null,
   ]);
 }
 
@@ -1997,7 +2011,7 @@ const agentInvocationInspector = defineComponent({
               agentName
                 ? h("div", { class: "vh-invocation-inspector__agent" }, [
                     h("span", "Agent"),
-                    h("code", agentName),
+                    h("strong", agentName),
                     configuration?.agent?.version
                       ? h("small", `v${configuration.agent.version}`)
                       : null,
