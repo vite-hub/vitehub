@@ -51,11 +51,35 @@ export function writeSetupJson(context: Pick<ViteHubCliContext, "stdout">, data:
   context.stdout.write(`${JSON.stringify({ schemaVersion: 1, ...data })}\n`)
 }
 
-/** Reports `error` as one JSON document on stdout with `--json`, else on stderr, and returns exit code 1. */
-export function writeSetupError(context: Pick<ViteHubCliContext, "stderr" | "stdout">, json: boolean, error: unknown): number {
-  if (json) writeSetupJson(context, { error: toSetupError(error) })
-  else context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
-  return setupExitCodes.error
+/** One input that the command needs. `choices` lists the accepted values when there are few. */
+export interface SetupMissing {
+  field: string
+  choices?: readonly string[]
+}
+
+export interface SetupFailure {
+  exitCode: number
+  missing?: readonly SetupMissing[]
+  /** A command that succeeds as it is. */
+  rerun?: string
+  /** More fields of the JSON document, such as the plan. */
+  data?: object
+}
+
+/**
+ * Reports `error` as one JSON document on stdout with `--json`, else on stderr, and returns `failure.exitCode`.
+ * The document has `error`, and `missing` and `rerun` when the failure has them.
+ */
+export function writeSetupError(context: Pick<ViteHubCliContext, "stderr" | "stdout">, json: boolean, error: unknown, failure: SetupFailure = { exitCode: setupExitCodes.error }): number {
+  const { data, exitCode, missing, rerun } = failure
+  if (json) {
+    writeSetupJson(context, { ...data, error: toSetupError(error), ...(missing ? { missing } : {}), ...(rerun ? { rerun } : {}) })
+    return exitCode
+  }
+  context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
+  if (missing?.length) context.stderr.write(`Missing: ${missing.map(item => item.choices ? `${item.field} (${item.choices.join(", ")})` : item.field).join(", ")}\n`)
+  if (rerun) context.stderr.write(`Run: ${rerun}\n`)
+  return exitCode
 }
 
 export interface SetupArgs {
