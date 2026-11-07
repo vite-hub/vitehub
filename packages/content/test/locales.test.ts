@@ -157,7 +157,7 @@ describe("documents() with locales", () => {
     expect(await docs.status("guide")).toMatchObject({ translations: { es: "current" } })
 
     // derivedFrom is Content's to write, and sourceDigest is only for a translation in the lineage form.
-    await docs.save("guide", { data: { title: "Guía", derivedFrom: a }, body: "Versión B.\n" }, { locale: "es" })
+    await docs.save("guide", { data: Object.assign({ title: "Guía" }, { derivedFrom: a }), body: "Versión B.\n" }, { locale: "es" })
     expect(await docs.status("guide")).toMatchObject({ translations: { es: "current" } })
     expect(await rejection(docs.save("guide", { data: { title: "Guía" } }, { locale: "es", sourceDigest: read!.digest }))).toMatchObject({ code: "CONTENT_R0008", message: expect.stringMatching(/source\.digest/) })
     expect(await rejection(docs.save("guide", { data: { title: "Guide" } }, { sourceDigest: b }))).toMatchObject({ code: "CONTENT_R0008", message: expect.stringMatching(/translation/) })
