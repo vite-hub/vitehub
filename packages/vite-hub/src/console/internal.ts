@@ -4,6 +4,7 @@ import type { AgentInvocations } from "@vite-hub/agent"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
 import type { ScheduleDefinitionRegistry } from "@vite-hub/schedule"
+import type { ViteHubContext } from "@vite-hub/runtime"
 import type { ConsoleSectionCatalog } from "./runtime/definitions.ts"
 import type { ConsoleDocumentEditors } from "./runtime/server/documents.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
@@ -59,7 +60,7 @@ type ConsoleInvocationsByRoot = {
 type ConsoleDefinitionsByRoot = ConsoleProjectRegistry<ConsoleSectionCatalog>
 
 export type ConsoleEnvInspection = ServerEnvDescription & {
-  inspect?: (event: ConsoleRequestEvent) => Promise<ServerEnvInspection>
+  inspect?: (event: ConsoleRequestEvent & ViteHubContext) => Promise<ServerEnvInspection>
   manage?: (request: Request) => Promise<Response>
 }
 
