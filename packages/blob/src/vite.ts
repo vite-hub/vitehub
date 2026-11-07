@@ -165,10 +165,6 @@ function isGeneratedNitroRegistration(value: unknown, generatedPath: string): bo
 /** Merges the generated Blob registrations into the Nitro config. */
 function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean, root?: string): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
-  const externals = cloneNitroConfig(nitro.externals)
-  const inline = Array.isArray(externals.inline) ? externals.inline : []
-  // Generated file imports and package imports must share Nitro's bundled runtime.
-  nitro.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, blobPackageName])] }
   const plugin = root ? resolve(root, generatedNitroBlobPlugin) : generatedNitroBlobPlugin
   const middleware = root ? resolve(root, generatedNitroBlobMiddleware) : generatedNitroBlobMiddleware
   const serveHandler = root ? resolve(root, generatedBlobServeRouteHandler) : generatedBlobServeRouteHandler
