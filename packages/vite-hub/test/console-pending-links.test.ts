@@ -394,7 +394,7 @@ describe("linking from a pending link", () => {
     expect(await module.confirmConsoleLink(ticket.pendingId, app)).toEqual({
       kind: "problem",
       final: false,
-      problem: { title: "Cannot reach app.example.com", message: "https://console.example.com is not in console.origins for app.example.com. Add it and redeploy. The project may also be offline." },
+      problem: { title: "Cannot reach app.example.com", message: "app.example.com did not answer this Console. If the app is online, add https://console.example.com to its console.origins and redeploy." },
     })
     expect(state.pendingLinks.lookup(ticket.pendingId).kind).toBe("pending")
     expect(state.store.list()).toEqual([])

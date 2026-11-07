@@ -2,6 +2,7 @@
 import { computed, defineAsyncComponent, onMounted, ref, shallowRef } from "vue";
 
 import type { DropdownMenuItem } from "@nuxt/ui";
+import type { ConsoleProjectProblem } from "../client/project-link";
 import { consoleTokenRefused } from "../client/project-link";
 import { consoleProjectsVolatileNote, forgetConsoleProject, openConsoleNewProject, openConsoleProject, signInConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost, consoleProjectName } from "../client/projects";
@@ -22,7 +23,7 @@ const ConsoleNewProject = defineAsyncComponent(() => import("./console-new-proje
 const projects = useConsoleProjects();
 const gate = projects.gate;
 const busy = ref(false);
-const tokenError = shallowRef<string>();
+const tokenError = shallowRef<ConsoleProjectProblem>();
 
 const current = computed(() => projects.current.value);
 const host = computed(() => current.value ? consoleProjectHost(current.value) : "");
@@ -41,9 +42,9 @@ async function signIn(token: string): Promise<void> {
   tokenError.value = undefined;
   const next = await signInConsoleProject(token).catch(() => undefined);
   busy.value = false;
-  if (!next) tokenError.value = `Could not reach ${host.value}. Check the connection and try again.`;
-  else if (next.kind === "token") tokenError.value = consoleTokenRefused(host.value);
-  else if (next.kind === "problem") tokenError.value = next.problem.message;
+  if (!next) tokenError.value = { title: `Cannot reach ${host.value}`, message: "Check the connection and try again." };
+  else if (next.kind === "token") tokenError.value = { title: "The token is not correct", message: consoleTokenRefused(host.value) };
+  else if (next.kind === "problem") tokenError.value = next.problem;
 }
 
 async function retry(): Promise<void> {
@@ -98,12 +99,12 @@ onMounted(() => {
 
       <template v-else-if="gate.kind === 'token'">
         <div class="grid gap-1.5">
-          <h1 class="vitehub-project-gate__title">Enter the Console token for {{ host }}</h1>
+          <h1 class="vitehub-project-gate__title">Enter the Console token</h1>
           <p class="vitehub-project-gate__text">
-            {{ gate.rejected && !tokenError ? `The saved token no longer works for ${host}. Paste the current token.` : "This project uses auth: \"token\"." }}
+            {{ gate.rejected && !tokenError ? `The saved token no longer works for ${host}. Paste the current token.` : `${host} uses auth: "token".` }}
           </p>
         </div>
-        <ConsoleProjectToken :busy="busy" :error="tokenError" @submit="signIn" />
+        <ConsoleProjectToken :busy="busy" :problem="tokenError" @submit="signIn" />
       </template>
 
       <template v-else-if="gate.kind === 'oauth'">

@@ -8,6 +8,7 @@ import { cancelConsoleOpen, finishConsoleOpen, useConsoleOpenRequest } from "../
 import { consoleProjectsVolatileNote, linkConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import ConsoleProjectOAuth from "./console-project-oauth.vue";
+import ConsoleProjectProblemAlert from "./console-project-problem.vue";
 import ConsoleProjectToken from "./console-project-token.vue";
 
 const open = defineModel<boolean>("open", { required: true });
@@ -22,7 +23,9 @@ const problem = shallowRef<ConsoleProjectProblem>();
 const tokenStep = shallowRef<{ target: ConsoleProjectTarget, rejected: boolean }>();
 // A project with `auth: "app"` signs the Console in on its own sign-in page.
 const oauthStep = shallowRef<{ target: ConsoleProjectTarget, resourceMetadata: string }>();
+// A touch screen keeps its keyboard closed until the person taps a field, so the dialog moves focus nowhere.
 const autofocus = !("ontouchstart" in window);
+const content = autofocus ? {} : { onOpenAutoFocus: (event: Event) => event.preventDefault() };
 
 watch(open, (value) => {
   if (value) {
@@ -74,10 +77,11 @@ function back(): void {
 <template>
   <UModal
     v-model:open="open"
-    :title="oauthStep ? `Sign in to ${consoleProjectHost(oauthStep.target)}` : tokenStep ? `Enter the Console token for ${consoleProjectHost(tokenStep.target)}` : 'Link project'"
-    :description="oauthStep ? 'This project uses the sign-in of the app.' : tokenStep ? 'The project uses auth: &quot;token&quot;.' : 'Open a ViteHub app in this Console. The app must list this Console in console.origins.'"
+    :title="oauthStep ? `Sign in to ${consoleProjectHost(oauthStep.target)}` : tokenStep ? 'Enter the Console token' : 'Link project'"
+    :description="oauthStep ? 'This project uses the sign-in of the app.' : tokenStep ? `${consoleProjectHost(tokenStep.target)} uses auth: &quot;token&quot;.` : 'Open a ViteHub app in this Console. The app must list this Console in console.origins.'"
     :dismissible="!busy"
-    :ui="{ content: 'sm:max-w-[440px]' }"
+    :content="content"
+    :ui="{ content: 'sm:max-w-[440px]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere]' }"
   >
     <template #body>
       <div v-if="oauthStep" class="grid gap-3">
@@ -87,7 +91,7 @@ function back(): void {
       <div v-else-if="tokenStep" class="grid gap-3">
         <ConsoleProjectToken
           :busy="busy"
-          :error="problem?.message ?? (tokenStep.rejected ? consoleTokenRefused(consoleProjectHost(tokenStep.target)) : undefined)"
+          :problem="problem ?? (tokenStep.rejected ? { title: 'The token is not correct', message: consoleTokenRefused(consoleProjectHost(tokenStep.target)) } : undefined)"
           @submit="link"
         />
         <UButton color="neutral" variant="link" size="sm" class="justify-self-start px-0" icon="i-lucide-arrow-left" label="Use another URL" :disabled="busy" @click="back" />
@@ -112,13 +116,7 @@ function back(): void {
             :aria-describedby="problem ? 'vitehub-project-link-problem' : undefined"
           />
         </UFormField>
-        <div v-if="problem" id="vitehub-project-link-problem" role="alert" class="flex gap-2 text-sm">
-          <UIcon name="i-lucide-circle-alert" class="mt-0.5 size-4 shrink-0 text-error" aria-hidden="true" />
-          <div class="grid gap-0.5">
-            <p class="font-medium text-highlighted">{{ problem.title }}</p>
-            <p class="text-pretty text-muted">{{ problem.message }}</p>
-          </div>
-        </div>
+        <ConsoleProjectProblemAlert v-if="problem" id="vitehub-project-link-problem" :problem="problem" />
         <UButton type="submit" block :loading="busy" :label="busy ? 'Checking…' : 'Continue'" />
         <p v-if="!persistent" class="text-xs text-pretty text-muted">{{ consoleProjectsVolatileNote }}</p>
       </form>

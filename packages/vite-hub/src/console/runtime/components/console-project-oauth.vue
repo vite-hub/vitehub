@@ -5,6 +5,7 @@ import type { ConsoleProjectProblem } from "../client/project-link";
 import type { ConsoleProjectTarget } from "../client/projects";
 import { startConsoleOAuthSignIn } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
+import ConsoleProjectProblemAlert from "./console-project-problem.vue";
 
 /**
  * The sign-in step of a project with `auth: "app"`: one button that opens the sign-in page of the project. `problem`
@@ -42,13 +43,7 @@ async function signIn(): Promise<void> {
 
 <template>
   <div class="grid gap-4">
-    <div v-if="shown" role="alert" class="flex gap-2 text-sm">
-      <UIcon name="i-lucide-circle-alert" class="mt-0.5 size-4 shrink-0 text-error" aria-hidden="true" />
-      <div class="grid gap-0.5">
-        <p class="font-medium text-highlighted">{{ shown.title }}</p>
-        <p class="text-pretty text-muted">{{ shown.message }}</p>
-      </div>
-    </div>
+    <ConsoleProjectProblemAlert v-if="shown" :problem="shown" />
     <UButton
       block
       icon="i-lucide-log-in"
@@ -56,7 +51,7 @@ async function signIn(): Promise<void> {
       :label="busy ? `Opening ${host}…` : `Sign in with ${host}`"
       @click="signIn"
     />
-    <p class="text-xs text-dimmed text-pretty">
+    <p class="text-xs text-dimmed text-pretty [overflow-wrap:anywhere]">
       You sign in on {{ host }}, and it asks you to allow this Console. The Console keeps the access in this browser.
     </p>
   </div>

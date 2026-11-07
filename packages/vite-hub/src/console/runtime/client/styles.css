@@ -184,10 +184,20 @@ a {
 
 /*
  * Blue marks focus, links, and selection; buttons stay black and white. Unlayered, so it wins over the neutral outline
- * that Nuxt UI gives solid neutral buttons. The ring appears at once, without a transition.
+ * that Nuxt UI gives solid neutral buttons. The ring appears at once, without a transition. Fields keep the soft
+ * outline that Nuxt UI gives them, so a field with an error keeps its red ring instead of a second one.
  */
-:focus-visible {
+:focus-visible:not(input, textarea, select) {
   outline-color: var(--ui-primary);
+}
+
+/* iOS zooms the page into a field whose text is smaller than 16px, so fields use 16px on touch screens. */
+@media (pointer: coarse) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
 }
 
 ::selection {

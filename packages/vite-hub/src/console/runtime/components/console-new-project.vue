@@ -180,7 +180,8 @@ function leave(): void {
         </div>
 
         <section>
-          <UFormField label="Folder name" name="dir" description="vite-hub init creates the app in this folder." :error="dirError">
+          <UFormField label="Folder name" name="dir" :error="dirError">
+            <template #description><code class="vitehub-new-project__code">vite-hub init</code> creates the app in this folder.</template>
             <UInput
               id="new-project-dir"
               :model-value="stack.dir"

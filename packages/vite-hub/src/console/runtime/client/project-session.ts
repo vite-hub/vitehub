@@ -692,7 +692,7 @@ export async function finishConsoleOAuthSignIn(search: string): Promise<void> {
   }
   const result = await exchangeConsoleOAuthCode(signIn, callback.code, { fetch: projects.fetch, now: projects.now })
   if (result.kind === "unreachable") {
-    projects.gate.value = callbackProblem({ title: `Cannot reach ${host}`, message: `The token request failed. ${projects.pageOrigin} must be in console.origins for ${host}. Add it, redeploy, and sign in again.` }, signIn)
+    projects.gate.value = callbackProblem({ title: `Cannot reach ${host}`, message: `${host} did not answer the token request. If the app is online, add ${projects.pageOrigin} to its console.origins, redeploy, and sign in again.` }, signIn)
     return
   }
   if (result.kind === "rejected") {

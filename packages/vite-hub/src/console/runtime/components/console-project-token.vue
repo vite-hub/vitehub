@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 
+import type { ConsoleProjectProblem } from "../client/project-link";
+import ConsoleProjectProblemAlert from "./console-project-problem.vue";
+
 defineProps<{
   /** Why the last token did not open the project. */
-  error?: string;
+  problem?: ConsoleProjectProblem;
   busy?: boolean;
 }>();
 
@@ -33,8 +36,8 @@ function submit(): void {
     <UFormField
       label="Console token"
       name="token"
-      description="The token you created for this project. The server keeps only its SHA-256 hash in VITEHUB_CONSOLE_TOKEN_SHA256. This browser keeps the token with the project."
-      :error="empty ? 'Paste the token first.' : error"
+      description="The token you created for this project. This browser keeps it with the project."
+      :error="empty ? 'Paste the token first.' : problem ? true : undefined"
     >
       <UInput
         v-model="token"
@@ -46,8 +49,10 @@ function submit(): void {
         class="w-full"
         :autofocus="autofocus"
         :disabled="busy"
+        :aria-describedby="problem ? 'vitehub-project-token-problem' : undefined"
       />
     </UFormField>
+    <ConsoleProjectProblemAlert v-if="problem && !empty" id="vitehub-project-token-problem" :problem="problem" />
     <UButton type="submit" block :loading="busy" :label="busy ? 'Signing in…' : 'Sign in'" />
   </form>
 </template>

@@ -196,7 +196,7 @@ export async function discoverConsoleOAuth(
   context: { consoleOrigin: string, fetch: ConsoleOAuthFetch },
 ): Promise<{ discovery: ConsoleOAuthDiscovery } | { problem: ConsoleProjectProblem }> {
   const host = `${new URL(target.origin).host}${target.base}`
-  const unreachable = { title: `Cannot read the sign-in settings of ${host}`, message: `${context.consoleOrigin} must be in console.origins for ${host}. Add it and redeploy. The project may also be offline.` }
+  const unreachable = { title: `Cannot read the sign-in settings of ${host}`, message: `${host} did not send its sign-in settings. If the app is online, add ${context.consoleOrigin} to its console.origins and redeploy.` }
   const metadataUrl = endpoint(resourceMetadata)
   if (!metadataUrl) return { problem: { title: `${host} sent an invalid sign-in challenge`, message: "Its resource_metadata is not an https:// URL. Update vite-hub in the project." } }
   let resourceDocument: unknown

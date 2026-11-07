@@ -148,7 +148,8 @@ export function consoleProjectProblem(probe: Exclude<ConsoleProjectProbe, { kind
           : `This project runs an older vite-hub. This Console needs protocol ${consoleProjectProtocol}. Update vite-hub.`,
       }
     case "unreachable":
-      return { title: `Cannot reach ${context.host}`, message: `${context.consoleOrigin} is not in console.origins for ${context.host}. Add it and redeploy. The project may also be offline.` }
+      // The browser hides why a cross-origin request failed, so the message names both causes, the likely one last.
+      return { title: `Cannot reach ${context.host}`, message: `${context.host} did not answer this Console. If the app is online, add ${context.consoleOrigin} to its console.origins and redeploy.` }
     case "missing":
       return { title: "No project found", message: `No ViteHub Console answers at ${context.url}. Check the URL, and check that the app sets console in vitehub().` }
     case "failed":

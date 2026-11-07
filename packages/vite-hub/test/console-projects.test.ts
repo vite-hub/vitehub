@@ -50,6 +50,8 @@ describe("project URLs", () => {
     ["ftp://app.example.com", "Use an https:// URL"],
     ["https://user:secret@app.example.com", "Remove the user name and password"],
     ["https://exa mple.com", "is not a URL"],
+    // Chrome's URL parser encodes the space in the host instead of throwing, as Node's does.
+    ["comark ui", "is not a URL"],
   ])("rejects %j with a fix", (input, message) => {
     const result = normalizeProjectUrl(input)
     expect("error" in result && result.error).toContain(message)
@@ -210,7 +212,7 @@ describe("project.get probe", () => {
     const probe = await probeConsoleProject(target, "secret", { fetch: async () => { throw new TypeError("Failed to fetch") } })
     expect(probe).toEqual({ kind: "unreachable" })
     expect(consoleProjectProblem({ kind: "unreachable" }, { consoleOrigin: "https://console.example.com", host: "app.example.com/portal", url: "https://app.example.com/portal" }).message)
-      .toBe("https://console.example.com is not in console.origins for app.example.com/portal. Add it and redeploy. The project may also be offline.")
+      .toBe("app.example.com/portal did not answer this Console. If the app is online, add https://console.example.com to its console.origins and redeploy.")
   })
 
   it("lets an abort through", async () => {
@@ -281,7 +283,7 @@ describe("linking a project", () => {
     const { module, state } = await session(async () => { throw new TypeError("Failed to fetch") })
     expect(await module.linkConsoleProject("https://app.example.com")).toEqual({
       kind: "problem",
-      problem: { title: "Cannot reach app.example.com", message: "https://console.example.com is not in console.origins for app.example.com. Add it and redeploy. The project may also be offline." },
+      problem: { title: "Cannot reach app.example.com", message: "app.example.com did not answer this Console. If the app is online, add https://console.example.com to its console.origins and redeploy." },
     })
     expect(await module.linkConsoleProject("http://app.example.com")).toMatchObject({ kind: "problem", problem: { title: "Use HTTPS" } })
     expect(await module.linkConsoleProject("ftp://app.example.com")).toMatchObject({ kind: "problem", problem: { title: "Check the URL" } })
