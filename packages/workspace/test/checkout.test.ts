@@ -567,4 +567,20 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect((await local.run("push")).stderr).toContain("has no checked-out Workspace")
     expect(await localCheckoutStatus(local.rootDir)).toBeUndefined()
   })
+
+  it("keeps no lock entry when a first pull fails, and keeps the lock of a later failed pull", async () => {
+    const remoteApp = await app()
+    const denied = (async () => new Response(JSON.stringify({ code: "UNAUTHORIZED", message: "Sign in." }), { status: 401, headers: { "content-type": "application/json" } })) as typeof globalThis.fetch
+    const failing = await project(denied, "first-pull-fails")
+    expect((await failing.run("pull", "content", "--dir", "content", "--url", remote)).code).toBe(1)
+    expect(await readFile(join(failing.rootDir, "vitehub.lock"), "utf8").catch(() => undefined)).toBeUndefined()
+
+    let deny = false
+    const local = await project((async (input, init) => await (deny ? denied : remoteApp.fetch)(input, init)) as typeof globalThis.fetch, "later-pull-fails")
+    expect((await local.run("pull", "content", "--dir", "content", "--url", remote)).code).toBe(0)
+    const before = await local.lock()
+    deny = true
+    expect((await local.run("pull")).code).toBe(1)
+    expect(await local.lock()).toEqual(before)
+  })
 })

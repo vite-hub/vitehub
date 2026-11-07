@@ -518,6 +518,7 @@ interface WorkspacePullOptions {
 export async function pullWorkspaces(context: WorkspaceCheckoutContext, options: WorkspacePullOptions = {}): Promise<WorkspacePullResult[]> {
   const lock = await readWorkspaceLock(context.rootDir)
   if (options.dir) folderOf(context.rootDir, options.dir)
+  const created = options.workspace !== undefined && !lock.workspaces[options.workspace]
   if (options.workspace) checkoutEntry(context.rootDir, lock, options.workspace, options)
   const results: WorkspacePullResult[] = []
   try {
@@ -528,8 +529,14 @@ export async function pullWorkspaces(context: WorkspaceCheckoutContext, options:
       results.push(result)
     }
   }
+  catch (error) {
+    // A first pull that failed before it wrote a file, such as on a 401, leaves no entry, so a wrong --dir or --url is not kept.
+    const entry = created ? lock.workspaces[options.workspace!] : undefined
+    if (entry && entry.head === null && !Object.keys(entry.files).length) delete lock.workspaces[options.workspace!]
+    throw error
+  }
   finally {
-    await writeWorkspaceLock(context.rootDir, lock)
+    if (Object.keys(lock.workspaces).length || await lstat(join(context.rootDir, workspaceLockFile)).then(() => true, () => false)) await writeWorkspaceLock(context.rootDir, lock)
   }
   return results
 }
