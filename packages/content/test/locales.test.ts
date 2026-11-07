@@ -167,6 +167,19 @@ describe("documents() with locales", () => {
     expect(await content.markdown("/es/docs/intro.md")).toBe("# Intro\n\nStart.\n")
   })
 
+  it("lists each published translation in the sitemap, without fallback pages", async () => {
+    const { content, docs } = await setup({ url: "/docs/:id", seo: { site: "https://example.com", sitemap: true } })
+    await docs.save("guide", { data: { title: "Guide" } })
+    await docs.save("intro", { data: { title: "Intro" } })
+    await docs.save("guide", { data: { title: "Guía" } }, { locale: "es" })
+    await content.publish({ collection: "docs" })
+    expect((await content.sitemap()).map(({ loc, locale }) => ({ loc, locale }))).toEqual([
+      { loc: "https://example.com/docs/guide", locale: "en" },
+      { loc: "https://example.com/docs/intro", locale: "en" },
+      { loc: "https://example.com/es/docs/guide", locale: "es" },
+    ])
+  })
+
   it("puts :locale where the url pattern says", async () => {
     const { docs } = await setup({ url: "/:locale/docs/:id" })
     await docs.save("guide", { data: { title: "Guide" } })
