@@ -12251,8 +12251,8 @@ describe("server helpers", () => {
     { timeout: 1_800_000, inputTimeout: 1_200_000, deadline: 1_200_000 },
     { timeout: 2_147_483_648, inputTimeout: undefined, deadline: 900_000 },
     { timeout: 1_800_000, inputTimeout: 2_147_483_648, deadline: 900_000 },
-  ])("expires a queued webhook invocation at its configured deadline $deadline", async ({ timeout, inputTimeout, deadline }) => {
-    vi.useFakeTimers()
+  ])("expires a queued webhook invocation at its configured deadline $deadline", { timeout: 15_000 }, async ({ timeout, inputTimeout, deadline }) => {
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { createChannelWebhookRouteHandler } = await import("../src/server/internal.ts")
@@ -12288,8 +12288,9 @@ describe("server helpers", () => {
 
     try {
       // #2646: a queue waits one retry interval (1 s) before its first drain of a scope that it finds through its prefix.
+      await expect.poll(() => vi.getTimerCount(), { interval: 0, timeout: 5_000 }).toBeGreaterThan(0)
       await vi.advanceTimersByTimeAsync(1_000)
-      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+      await expect.poll(() => run.mock.calls.length, { interval: 0, timeout: 5_000 }).toBe(1)
       await vi.advanceTimersByTimeAsync(899_000)
       expect(complete).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(1_000)
@@ -12297,7 +12298,7 @@ describe("server helpers", () => {
         expect(complete).not.toHaveBeenCalled()
         await vi.advanceTimersByTimeAsync(deadline - 900_000)
       }
-      await vi.waitFor(() => expect(complete).toHaveBeenCalled())
+      await expect.poll(() => complete.mock.calls.length, { interval: 0, timeout: 5_000 }).toBe(1)
       expect(retry).not.toHaveBeenCalled()
     } finally {
       await stop()
@@ -12314,8 +12315,9 @@ describe("server helpers", () => {
     { rehydrate: false, deadline: 1_800_000, setupMs: 60_000 },
     { rehydrate: false, deadline: 120_000, setupMs: 60_000 },
     { rehydrate: true, deadline: 30_000, setupMs: 60_000 },
-  ])("honors replayed webhook timeout $deadline after $setupMs setup (rehydrate: $rehydrate)", async ({ rehydrate, deadline, setupMs }) => {
-    vi.useFakeTimers()
+  ])("honors replayed webhook timeout $deadline after $setupMs setup (rehydrate: $rehydrate)", { timeout: 15_000 }, async ({ rehydrate, deadline, setupMs }) => {
+    // Keep discovery polling on real time: advancing a long execution deadline must not enqueue thousands of SQLite reads.
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] })
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
@@ -12375,14 +12377,16 @@ describe("server helpers", () => {
     const stop = createChannelWebhookRouteHandler(agent as never).resume({ agentName: "review", webhookState: state })
     try {
       // #2646: a queue waits one retry interval (1 s) before its first drain of a scope that it finds through its prefix.
+      await expect.poll(() => vi.getTimerCount(), { interval: 0, timeout: 5_000 }).toBeGreaterThan(0)
       await vi.advanceTimersByTimeAsync(1_000)
       if (deadline > setupMs) {
-        await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
+        // SQLite setup must settle without consuming the execution's fake-time budget.
+        await expect.poll(() => run.mock.calls.length, { interval: 0, timeout: 5_000 }).toBe(1)
         await vi.advanceTimersByTimeAsync(replayStartedAt + deadline - Date.now() - 1_000)
         expect(complete).not.toHaveBeenCalled()
         await vi.advanceTimersByTimeAsync(1_000)
       }
-      await vi.waitFor(() => expect(complete).toHaveBeenCalled())
+      await expect.poll(() => complete.mock.calls.length, { interval: 0, timeout: 5_000 }).toBe(1)
       if (deadline <= setupMs) expect(run).not.toHaveBeenCalled()
       expect(retry).not.toHaveBeenCalled()
       expect(consoleError.mock.calls.flat().map(String).join(" ")).toContain(`timed out after ${deadline}ms`)
