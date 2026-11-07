@@ -11,9 +11,9 @@ Set up an app with ViteHub, then check that it answers a request. Every tutorial
 
 ## Prerequisites
 
-- Node.js 22.22 or newer. On Nuxt, use 22.22+, 24.11+, or 26+.
+- Node.js 22.22 or newer on 22.x, or 24.11 or newer. Node.js 23 and Node.js 24 before 24.11 are not supported.
 - pnpm. The examples use pnpm.
-- For Nuxt: an app on Nuxt 4.5.2 or newer.
+- For Nuxt: an app on Nuxt 5, which uses Nitro 3. Nuxt 5 is only in nightly builds for now: `pnpm add nuxt@npm:nuxt-nightly@5x`.
 
 ::details{summary="Why Node.js 22.22?"}
 `vite-hub` installs Nitro, and Nitro needs Node.js 22.22. A package that you install alone, without `vite-hub`, can need less: Queue needs 22.19, and most others need 22.18.
@@ -93,14 +93,16 @@ Write the types once:
 pnpm vitehub types prepare
 ```
 
+If your `tsconfig.json` sets `files`, add `.vitehub/types.d.ts` to that list. Your `files` list replaces the one from `vite-hub/tsconfig`, so without it the editor does not see the ViteHub types.
+
 To do this again after each install, add `"postinstall": "vitehub types prepare"` to the scripts. `vite dev` and `vite build` also update the types.
 :::
 
 :::tabs-item{label="Nuxt"}
-In your Nuxt app, install ViteHub and H3. The tutorials import H3 helpers explicitly.
+In your Nuxt 5 app, install ViteHub and H3. The tutorials import H3 helpers explicitly.
 
 ```bash pm [commands/install-nuxt]
-pnpm add vite-hub h3@^1.15.11
+pnpm add vite-hub h3@^2.0.8
 ```
 
 Add the module to `nuxt.config.ts`. Keep your other options.
@@ -109,7 +111,6 @@ Add the module to `nuxt.config.ts`. Keep your other options.
 import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
-  buildDir: ".nuxt",
   modules: [
     [viteHubNuxt, { preset: "node" }],
   ],
@@ -118,7 +119,7 @@ export default defineNuxtConfig({
 
 `preset` tells ViteHub where the app runs. `node` is a Node.js server, which is correct for your computer.
 
-Keep `buildDir` outside `node_modules`, because Nitro 2 cannot compile the generated TypeScript there. Keep the `tsconfig.json` that Nuxt makes. The module adds the ViteHub types to it.
+Keep the `tsconfig.json` that Nuxt makes. The module adds the ViteHub types to it.
 
 The [Nuxt guide](/docs/frameworks-hosts/nuxt) has more Nuxt options.
 :::

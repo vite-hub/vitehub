@@ -23,8 +23,10 @@ Schedule is a separate package. Add it to your app:
 pnpm add @vite-hub/schedule
 ```
 
-Then add `kv` and `schedule` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
+Then add `kv` and `schedule` to the ViteHub options. Keep the other options of your app.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -39,6 +41,24 @@ export default defineConfig({
   ],
 })
 ```
+:::
+
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import viteHubNuxt from 'vite-hub/nuxt'
+
+export default defineNuxtConfig({
+  modules: [
+    [viteHubNuxt, {
+      preset: 'node',
+      kv: true,
+      schedule: { runtime: { driver: 'process' } },
+    }],
+  ],
+})
+```
+:::
+::
 
 - `schedule` turns on Schedule. A Node server has no cron of its own, so the `process` runtime checks for due schedules once a minute while the server runs.
 - `kv` gives Schedule a place to save each run. You read those runs in the last step.
@@ -85,6 +105,8 @@ Open a second terminal in the same folder, and start the schedule by hand:
 pnpm vitehub schedule run daily-report
 ```
 
+On Nuxt, add `--url http://localhost:3000`, with the port of your dev server.
+
 The command prints the result of the run:
 
 ```txt [output/run.txt]
@@ -130,12 +152,23 @@ To see the same runs in a page, with a button to run the schedule, turn on the [
 
 ## What happens when you deploy
 
-You do not change the schedule file. The host that you deploy to decides who starts it:
+You keep the schedule file. You change the `schedule` option for the host:
 
-- **Node or Docker**: the server process starts it at 08:00 UTC. Keep exactly one process running. Two processes would both run it, and a stopped process runs nothing.
-- **Cloudflare, Vercel, Netlify, or Deno**: the build writes the cron settings of the host. The host starts the schedule.
+- **Node or Docker**: keep `runtime: { driver: 'process' }`. The server process starts the schedule at 08:00 UTC. Keep exactly one process running. Two processes would both run it, and a stopped process runs nothing.
+- **Cloudflare, Vercel, or Netlify**: set the preset of the host and `schedule: true`. The build then writes the cron settings of the host, and the host starts the schedule. Do not keep `runtime`. With `runtime`, the server process starts the schedules, and the build writes no cron settings.
 
-[Hosts](/docs/schedule/hosts) shows the output for each host.
+For example, on Vercel:
+
+```ts [vercel/vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', schedule: true })],
+})
+```
+
+The `deno` preset does not support Schedule. [Hosts](/docs/schedule/hosts) shows the output for each host.
 
 ## Next steps
 
