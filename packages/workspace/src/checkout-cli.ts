@@ -125,6 +125,7 @@ async function run(command: keyof typeof usage, args: readonly string[], context
   let parsed: Parsed
   try {
     parsed = parse(args, commandFlags[command])
+    if (command !== "resolve" && parsed.positional.length > 1) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_USAGE", `${command} accepts at most one Workspace name.`)
   }
   catch (error) {
     context.stderr.write(`${(error as Error).message}\nUsage: ${usage[command]}\n`)

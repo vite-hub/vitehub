@@ -218,13 +218,21 @@ Git conflict markers where both sides changed the same lines; push refuses until
 are gone. The commands call the `workspace.changes` and `workspace.commit` operations.
 A push keeps the media type and metadata of the files that it replaces, and records
 the signed-in user as `author` of the revision. When a Store starts a new ref from
-another ref, the first push also pulls the files of that ref. Unknown flags fail
-before any call, so `vitehub push --dry-run` commits nothing.
+another ref, the first push also pulls the files of that ref. Unknown flags and extra
+positional arguments to pull or push fail before any call, so `vitehub push --dry-run` commits nothing.
 Checkout folders must be separate: they cannot share a folder or contain one another.
 On Windows and macOS, folder names that differ only in case are one folder.
 Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components, in any letter
 case and with any trailing dots or spaces, are excluded from pulls, status, and pushes;
 their remote files stay unchanged.
+Checkout paths must use portable names on every platform. Different spellings of a
+file or directory that differ only in case or Unicode normalization fail with
+`WORKSPACE_CHECKOUT_PATH` before remote changes are written. Names with trailing dots
+or spaces, Windows device names, and Windows-invalid characters also fail. A pull does
+not replace a file with a directory or a directory with a file. For these transitions,
+keep local edits elsewhere, remove the lock entry, and pull into a new empty folder.
+Top-level files named `__proto__`, `constructor`, or `prototype` fail with the same
+error because the operation input map cannot carry these keys. Workspace names have no such restriction.
 One push is one `workspace.commit` call of at most 4 MiB, which fits the request body
 limit of every host (Vercel Functions: 4.5 MB). A larger push fails with
 `WORKSPACE_CHECKOUT_TOO_LARGE` before the call and names the largest files. A pull reads

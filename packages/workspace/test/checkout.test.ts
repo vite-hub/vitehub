@@ -60,16 +60,16 @@ async function tempDir(name: string) {
 }
 
 /** A deployed app with one Blob + Database Workspace, reached through the operation RPC as `user`. */
-async function app(user: OperationUser | null = null, rules?: WorkspaceDefinition["rules"]) {
+async function app(user: OperationUser | null = null, rules?: WorkspaceDefinition["rules"], workspace = "content") {
   const root = await tempDir("app")
   const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
   cleanup.push(() => client.close())
   const database = drizzle(client, { schema: workspaceHistorySchema })
   for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
   const blob = createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") }))
-  const definition: WorkspaceDefinition = { name: "content", store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "content" }), rules }
-  registerWorkspace("content", { store: definition.store, rules })
-  const { history } = useWorkspace("content", { definition, mode: "write" })
+  const definition: WorkspaceDefinition = { name: workspace, store: createBlobDatabaseWorkspaceStore({ blob, database, workspace }), rules }
+  registerWorkspace(workspace, { store: definition.store, rules })
+  const { history } = useWorkspace(workspace, { definition, mode: "write" })
   // A second Workspace of the same app.
   const notesDefinition: WorkspaceDefinition = { name: "notes", store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "notes" }) }
   registerWorkspace("notes", { store: notesDefinition.store })
@@ -177,6 +177,110 @@ describe("mergeText", () => {
 })
 
 describe("workspace checkout", { timeout: 60_000 }, () => {
+  it.each([
+    ["README", "readme"],
+    ["Docs/a.md", "docs/b.md"],
+    ["foo", "foo."],
+    ["folder/a.md", "folder /b.md"],
+    ["caf\u00e9/a.md", "cafe\u0301/b.md"],
+    ["\u03a3/a.md", "\u03c2/b.md"],
+  ])("rejects remote aliases %s and %s before writing any file", async (first, second) => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "0-safe.md": "safe\n", [first]: "first\n", [second]: "second\n" } })
+    const local = await project(remoteApp.fetch, "aliases")
+
+    const result = await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(await local.exists("0-safe.md")).toBe(false)
+    expect(await readFile(join(local.rootDir, "vitehub.lock")).then(() => true, () => false)).toBe(false)
+  })
+
+  it("rejects incoming aliases of unchanged remote paths and local directories without advancing the lock", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "Docs/a.md": "base\n" } })
+    const local = await project(remoteApp.fetch, "incremental-alias")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    const before = await local.lock()
+    await remoteApp.edit({ put: { "0-safe.md": "new\n", "docs/b.md": "remote\n" } })
+    expect((await local.run("pull")).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(await local.lock()).toEqual(before)
+    expect(await local.read("Docs/a.md")).toBe("base\n")
+    expect(await local.exists("0-safe.md")).toBe(false)
+
+    await remoteApp.edit({ delete: ["docs/b.md"], put: { "drafts/remote.md": "remote\n" } })
+    await local.write("Drafts/local.md", "local\n")
+    expect((await local.run("push")).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(await local.lock()).toEqual(before)
+    expect(await local.read("Drafts/local.md")).toBe("local\n")
+    expect(remoteApp.calls).not.toContain("workspace.commit")
+  })
+
+  it("checks empty local directories and --theirs paths for aliases", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "docs/a.md": "base\n" } })
+    const local = await project(remoteApp.fetch, "empty-directory-alias")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    const before = await local.lock()
+    const calls = remoteApp.calls.length
+    expect((await local.run("pull", "--theirs", "Docs/a.md")).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(remoteApp.calls.slice(calls)).toEqual(["workspace.changes"])
+    await mkdir(join(local.rootDir, "content", "Drafts"))
+    await remoteApp.edit({ put: { "drafts/new.md": "remote\n" } })
+    expect((await local.run("pull")).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(await local.exists("drafts/new.md")).toBe(false)
+    expect(await local.lock()).toEqual(before)
+  })
+
+  it.each(["aux.txt", "file:stream", "file?", "trailing ", "__proto__", "constructor", "prototype"])("rejects unsupported remote path %s before writing", async (path) => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "0-safe.md": "safe\n", [path]: "remote\n" } })
+    const local = await project(remoteApp.fetch, "nonportable")
+    expect((await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(await local.exists("0-safe.md")).toBe(false)
+  })
+
+  it("refuses a directory-to-file replacement before deleting files or advancing the lock", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "docs/a.md": "base\n" } })
+    const local = await project(remoteApp.fetch, "directory-replacement")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    const before = await local.lock()
+    await remoteApp.edit({ delete: ["docs/a.md"], put: { docs: "new file\n" } })
+
+    expect((await local.run("pull")).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+    expect(await local.read("docs/a.md")).toBe("base\n")
+    expect(await local.lock()).toEqual(before)
+  })
+
+  it.each(["__proto__", "constructor", "toString"])("pulls, pushes, and reloads a Workspace named %s", async (name) => {
+    const remoteApp = await app(null, undefined, name)
+    await remoteApp.edit({ put: { "hello.md": "base\n" } })
+    const local = await project(remoteApp.fetch, "own-workspace-name")
+    expect((await local.run("pull", name, "--dir", "content", "--ref", "draft", "--url", remote)).code).toBe(0)
+    expect(Object.keys((await local.lock()).workspaces)).toEqual([name])
+    await local.write("hello.md", "local\n")
+    expect((await local.run("push", name)).code).toBe(0)
+    expect(await remoteApp.read("hello.md")).toBe("local\n")
+    expect((await local.status())[0]).toMatchObject({ workspace: name, local: { added: [], modified: [], deleted: [] } })
+    expect((await local.run("resolve", name)).code).toBe(0)
+  })
+
+  it("tracks file names that match Object properties when another file is normalized", async () => {
+    const remoteApp = await app(null, { "note.txt": { write: true, validate: input => ({ ...input, content: String(input.content).toUpperCase() }) } })
+    const paths = ["toString", "note.txt"]
+    await remoteApp.edit({ put: Object.fromEntries(paths.map(path => [path, "BASE\n"])) })
+    const local = await project(remoteApp.fetch, "own-file-name")
+    expect((await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).code).toBe(0)
+    for (const path of paths) await local.write(path, "local\n")
+    expect((await local.run("push")).code).toBe(0)
+    expect(Object.keys((await local.lock()).workspaces.content.files).sort()).toEqual(paths.toSorted())
+    expect(await remoteApp.read("toString")).toBe("local\n")
+    expect(await local.read("note.txt")).toBe("LOCAL\n")
+    expect((await local.status())[0]!.local).toEqual({ added: [], modified: [], deleted: [], conflicted: [] })
+  })
+
   it("clones a ref into a folder and records the remote revision in vitehub.lock", async () => {
     const remoteApp = await app()
     const first = await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "First post."), "media/logo.bin": new Uint8Array([0, 255, 1]) } })
@@ -628,6 +732,9 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
   })
 
   it.each([
+    { command: "push", error: "push accepts at most one Workspace name.", args: ["content", "accidental-extra"] },
+    { command: "pull", error: "pull accepts at most one Workspace name.", args: ["content", "accidental-extra"] },
+    { command: "pull", error: "pull accepts at most one Workspace name.", args: ["content", "accidental-extra", "--dry-run"] },
     { command: "push", error: "Unknown flag --dry-run.", args: ["--dry-run"] },
     { command: "push", error: "Unknown flag --mesage.", args: ["--mesage", "Typo"] },
     { command: "pull", error: "Unknown flag --theirs-all.", args: ["--theirs-all"] },
