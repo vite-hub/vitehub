@@ -63,6 +63,8 @@ Writes from `vite dev` then change real data. The development server prints `KV 
 
 With `remote: true`, development infers the driver as a build does: Upstash env, or the Vercel or Cloudflare preset. On Cloudflare, ViteHub writes `remote: true` on the generated Wrangler KV binding, so the dev runtime connects the binding to the real namespace. This needs a runner that provides bindings. Use `remote: true` on the store instead of `experimental_remote` in your own `kv_namespaces`.
 
+Upstash credentials in development can come from Vite's `.env` files for the current mode and `envDir`. Existing process environment values take precedence. These credentials stay in the development server runtime.
+
 An explicit `driver` is honored in development as before: an `upstash` store uses Upstash and prints the notice. Only inference and the Cloudflare fallback depend on `remote`. Builds ignore `remote`, so the build output does not change. `remote: true` with `fs-lite` or `deno-kv`, `remote: false` with `upstash`, and `remote: true` in development without a hosted store fail with [`KV_REMOTE_CONFLICT`](/docs/kv/limits-and-errors#kv_remote_conflict).
 
 ## Nitro cache in KV

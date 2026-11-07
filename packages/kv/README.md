@@ -62,6 +62,8 @@ In `vite dev` (and `nuxt dev`), a KV store is local unless it sets `remote: true
 
 `kv: { remote: true }` lets development infer the hosted store as a build does. On Cloudflare, ViteHub then writes `remote: true` on the generated Wrangler KV binding. The first operation prints `KV store "<name>" is remote`, and `vitehub inspect definitions --kind kv` shows `Development: Remote`. Writes change real data.
 
+Development reads Upstash credentials from Vite's `.env` files for the current mode and `envDir`, with process environment values taking precedence. The credentials stay in the development server runtime.
+
 An explicit `driver` is honored as before; an `upstash` store prints the same notice. Builds ignore `remote`. A `remote` value that is not a boolean fails with `KV_INVALID_REMOTE`. `remote: true` with `fs-lite` or `deno-kv`, `remote: false` with `upstash`, and `remote: true` in development without a hosted store fail with `KV_REMOTE_CONFLICT`.
 
 ## Nitro cache

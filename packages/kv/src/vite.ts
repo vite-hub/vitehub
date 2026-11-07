@@ -1,4 +1,7 @@
 import { fileURLToPath } from "node:url"
+import { resolve } from "node:path"
+
+import { loadEnv } from "vite"
 
 import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 
@@ -24,10 +27,11 @@ import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { configureCloudflareKV } from "./integrations/cloudflare.ts"
 import { inspectKVStores } from "./inspect.ts"
 import { createKVCloudflareProvisionStep } from "./provision.ts"
+import { resolveUpstashRuntimeValues } from "./runtime/upstash.ts"
 
 import type { KVResolutionInput } from "./config.ts"
 import type { KVViteRuntimeConfig } from "./vite-config.ts"
-import type { KVModuleOptions, ResolvedKVModuleOptions } from "./types.ts"
+import type { KVModuleOptions, ResolvedKVModuleOptions, ResolvedKVStoreConfig } from "./types.ts"
 import type { ProviderJsonRecord } from "@vite-hub/internal/build/deployment-output"
 import type { ViteHubCliContributor, ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -74,10 +78,17 @@ export function hubKvOptionalPeerResolver(): Plugin {
   }
 }
 
-function serializeVirtualConfig(config: KVViteRuntimeConfig): string {
+function serializeVirtualConfig(config: KVViteRuntimeConfig, env?: Record<string, string | undefined>): string {
+  const resolveStore = (store: ResolvedKVStoreConfig) => env && store.driver === "upstash" ? resolveUpstashRuntimeValues(store, env) : store
+  // Only the development server module gets .env credentials. The public plugin config and build output stay masked.
+  const kv = config.kv && env ? {
+    ...config.kv,
+    store: resolveStore(config.kv.store),
+    ...(config.kv.stores ? { stores: Object.fromEntries(Object.entries(config.kv.stores).map(([name, store]) => [name, resolveStore(store)])) } : {}),
+  } : config.kv
   return [
     `export const hosting = ${JSON.stringify(config.hosting)};`,
-    `export const kv = ${JSON.stringify(config.kv)};`,
+    `export const kv = ${JSON.stringify(kv)};`,
     "export default { hosting, kv };",
   ].join("\n")
 }
@@ -277,8 +288,10 @@ function configureNitroCloudflareKV(
 /** `input.hosting` names the host preset for driver inference, as `vitehub()` passes it. Without it, KV reads the host from env. */
 export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, "hosting"> = {}): KVVitePlugin {
   let command: "build" | "serve" = "build"
+  let mode = "development"
+  let viteEnv: Record<string, string> | undefined
   // `vite dev` keeps a store local unless it sets `remote: true`. Builds ignore `remote`.
-  const resolutionInput = (): KVResolutionInput => ({ dev: command === "serve", hosting: input.hosting })
+  const resolutionInput = (): KVResolutionInput => ({ dev: command === "serve", env: command === "serve" ? viteEnv : undefined, hosting: input.hosting })
   let nitroOwned = false
   let nitroOptions: NitroCloudflareKVTarget | undefined
   const ownedNitroNamespaces = new Set<{ binding: string, id?: string }>()
@@ -304,7 +317,7 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
     vitehub: {
       inspect: () => {
         const build = resolveKVViteConfig(configuredOptions, { hosting: input.hosting }).kv
-        const dev = resolveKVViteConfig(configuredOptions, { dev: true, hosting: input.hosting }).kv
+        const dev = resolveKVViteConfig(configuredOptions, { dev: true, env: viteEnv, hosting: input.hosting }).kv
         if (!build || !dev) return
         const file = resolved?.configFile ? relativeDefinitionFile(projectRoot, resolved.configFile) : "vite.config.ts"
         return { definitions: [{ kind: "kv", label: "KV stores", list: () => inspectKVStores(build, dev, file) }] }
@@ -323,9 +336,11 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
       order: "pre",
       handler(config, env) {
         command = env?.command ?? "build"
+        mode = env?.mode ?? config.mode ?? (command === "serve" ? "development" : "production")
         runtimeConfig = undefined
         configuredOptions = config.kv ?? options
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
+        viteEnv = loadEnv(mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."), "")
         nitroOwned = configureNitroCloudflareKV(config, options, resolutionInput(), ownedNitroNamespaces, readProvisionStateSync(projectRoot))
         return installStandaloneOperationRpc(config, env?.command ?? "build", "@vite-hub/kv/operations")
       },
@@ -336,8 +351,10 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
         resolved = config
         // The Nuxt replay passes a Vite config without `command`; the `config` hook already set it.
         if (config.command) command = config.command
+        mode = config.mode ?? mode
         configuredOptions = config.kv ?? options
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
+        viteEnv = loadEnv(mode, config.envDir === false ? false : resolve(config.root || process.cwd(), config.envDir ?? "."), "")
         providerOutput = useProviderOutputCatalog(config)
         runtimeConfig = resolveKVViteConfig(config.kv ?? options, resolutionInput())
         const provisionState = readProvisionStateSync(projectRoot)
@@ -374,12 +391,12 @@ export function hubKv(options?: KVModuleOptions, input: Pick<KVResolutionInput, 
     },
     load: {
       order: "pre",
-      handler(id) {
+      handler(id, options) {
         if (id === RESOLVED_KV_RUNTIME_ID) {
           const kv = getConfig().kv
           if (command === "build" && isCloudflareKVConfig(kv)) return serializeCloudflareRuntime(kv)
         }
-        if (id === RESOLVED_KV_VIRTUAL_CONFIG_ID) return serializeVirtualConfig(getConfig())
+        if (id === RESOLVED_KV_VIRTUAL_CONFIG_ID) return serializeVirtualConfig(getConfig(), command === "serve" && options?.ssr ? viteEnv : undefined)
       },
     },
     buildStart: {

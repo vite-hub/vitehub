@@ -102,6 +102,12 @@ describe("KV in vite dev", () => {
     expect(normalizeKVOptions(undefined, { dev: true, env: {}, hosting: "vercel" })).toEqual({ store: { base: ".vitehub/data/kv", driver: "fs-lite" } })
   })
 
+  it("keeps .env credentials local without a remote opt-in", async () => {
+    await writeFile(join(directory, ".env"), `KV_REST_API_URL=${upstashEnv.KV_REST_API_URL}\nKV_REST_API_TOKEN=${upstashEnv.KV_REST_API_TOKEN}\n`)
+    const { kv: config } = await resolvePlugin("serve")
+    expect(config).toEqual({ store: { base: ".vitehub/data/kv", driver: "fs-lite" } })
+  })
+
   it("uses Upstash with `remote: true` and prints the notice once", async () => {
     for (const [name, value] of Object.entries(upstashEnv)) vi.stubEnv(name, value)
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
@@ -202,6 +208,54 @@ describe("KV in vite dev", () => {
 })
 
 describe("KV in a Vite dev server", () => {
+  it.each(["inferred", "explicit", "named"])("uses mode-specific .env credentials for a remote %s store", async (kind) => {
+    for (const name of [...Object.keys(upstashEnv), "UPSTASH_REDIS_REST_URL", "UPSTASH_REDIS_REST_TOKEN"]) vi.stubEnv(name, undefined)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const upstash = stubUpstash()
+    await mkdir(join(directory, "node_modules/@vite-hub"), { recursive: true })
+    await symlink(resolve(import.meta.dirname, ".."), join(directory, "node_modules/@vite-hub/kv"), "dir")
+    await mkdir(join(directory, "env"))
+    await writeFile(join(directory, "env/.env"), "KV_REST_API_URL=https://wrong.test\nKV_REST_API_TOKEN=wrong-token\n")
+    await writeFile(join(directory, "env/.env.remote"), `KV_REST_API_URL=${upstashEnv.KV_REST_API_URL}\nKV_REST_API_TOKEN=${upstashEnv.KV_REST_API_TOKEN}\n`)
+    await writeFile(join(directory, "package.json"), JSON.stringify({ name: "kv-env-fixture", private: true, type: "module" }))
+    await writeFile(join(directory, "worker.ts"), [
+      `import { kv, disposeKVStores } from "@vite-hub/kv"`,
+      `export { disposeKVStores }`,
+      `export async function handle() {`,
+      `  const store = ${kind === "named" ? 'kv.store("remote")' : "kv"}`,
+      `  const [writeError] = await store.set("theme", "dark")`,
+      `  if (writeError) throw writeError`,
+      `  return store.get("theme")`,
+      `}`,
+    ].join("\n"))
+    const options: KVModuleOptions = kind === "inferred" ? { remote: true }
+      : kind === "explicit" ? { driver: "upstash" }
+        : { stores: { default: { driver: "fs-lite" }, remote: { driver: "upstash" } } }
+    const plugin = hubKv(options)
+    const server = await createServer({ appType: "custom", configFile: false, envDir: "env", logLevel: "silent", mode: "remote", plugins: [plugin], root: directory, server: { middlewareMode: true, ws: false } })
+    try {
+      // SAFETY: The fixture module above exports these functions.
+      const worker = await server.ssrLoadModule("/worker.ts") as { disposeKVStores: () => Promise<void>, handle: () => Promise<unknown> }
+      try {
+        await expect(worker.handle()).resolves.toEqual([undefined, "dark"])
+        expect(upstash.data.get("theme")).toBe("dark")
+        expect(String(upstash.fetch.mock.calls[0]![0])).toContain(upstashEnv.KV_REST_API_URL)
+        expect(new Headers(upstash.fetch.mock.calls[0]![1].headers).get("authorization")).toBe(`Bearer ${upstashEnv.KV_REST_API_TOKEN}`)
+        expect(warn).toHaveBeenCalledTimes(1)
+        expect(process.env.KV_REST_API_TOKEN).toBeUndefined()
+        expect(JSON.stringify(plugin.api.getConfig())).not.toContain(upstashEnv.KV_REST_API_TOKEN)
+        const load = hook<(id: string, options: { ssr: boolean }) => unknown>(plugin.load)
+        expect(await load("\0#vitehub/kv/config", { ssr: false })).not.toContain(upstashEnv.KV_REST_API_TOKEN)
+      }
+      finally {
+        await worker.disposeKVStores()
+      }
+    }
+    finally {
+      await server.close()
+    }
+  })
+
   it.each([
     ["the Cloudflare preset", undefined, "cloudflare-module"],
     ["an explicit Cloudflare store", { driver: "cloudflare-kv-binding" } satisfies KVModuleOptions, undefined],
