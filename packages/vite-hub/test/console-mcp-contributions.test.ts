@@ -2,6 +2,7 @@ import { Readable } from "node:stream"
 
 import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { H3 } from "h3"
+import { loadOptions } from "nitro/builder"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { commentsOperations } from "../../comments/src/operations-core/operations.ts"
@@ -16,6 +17,7 @@ import { installConsoleSections } from "../src/console/runtime/server/sections.t
 
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
 import type { H3Event } from "h3"
+import type { NitroEventHandler } from "nitro/types"
 
 const policyKey = Symbol.for("vitehub.console.access")
 const calls: Array<{ input: Record<string, unknown>, user: unknown }> = []
@@ -77,6 +79,17 @@ describe("MCP owner contributions", () => {
     const readOnly = await rpc({ jsonrpc: "2.0", id: 5, method: "tools/list" })
     expect(readOnly.body.result.tools.some((entry: { name: string }) => entry.name === "comments_reply")).toBe(false)
     expect((await rpc({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "comments_reply", arguments: { id: thread!.id, body: "Denied" } } })).body.error.code).toBe(-32602)
+  })
+
+  it("keeps the delegating discovery middleware a virtual module through Nitro 3's options", async () => {
+    const config: { handlers: NitroEventHandler[], virtual?: Record<string, string> } = {
+      handlers: [{ route: "/.well-known/oauth-protected-resource", handler: "/app/metadata.js", method: "GET" }],
+    }
+    addConsoleRpcHandler(config, "/runtime", "/", [], true)
+    const options = await loadOptions({ rootDir: "/app", handlers: config.handlers, virtual: config.virtual }, { dotenv: false })
+    const middleware = options.handlers.find(handler => handler.middleware && !handler.route)
+    expect(middleware?.handler).toBeDefined()
+    expect(options.virtual).toHaveProperty([middleware!.handler])
   })
 
   it("retains application OAuth wildcard discovery handlers", () => {

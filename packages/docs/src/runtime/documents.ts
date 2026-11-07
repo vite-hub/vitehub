@@ -8,30 +8,31 @@ const parsed = new Map<string, Promise<DocsDocument | null>>()
 const pending = new Map<string, Promise<DocsDocument | null>>()
 
 /** Page JSON and search share in-flight parses; drafts always use the parser directly. */
-export function loadDocsDocument(file: string, cache = true): Promise<DocsDocument | null> {
+export function loadDocsDocument(file: string, source = "docs", cache = true): Promise<DocsDocument | null> {
+  const key = `${source}:${file}`
   const load = async () => {
     try {
-      const source = await useStorage("assets:docs").getItem<string>(file)
-      if (source === null) {
-        parsed.delete(file)
+      const content = await useStorage(`assets:${source}`).getItem<string>(file)
+      if (content === null) {
+        parsed.delete(key)
         return null
       }
-      return await parseDocsDocument(String(source))
+      return await parseDocsDocument(String(content))
     } catch (error) {
-      parsed.delete(file)
+      parsed.delete(key)
       throw error
     } finally {
-      pending.delete(file)
+      pending.delete(key)
     }
   }
   if (import.meta.dev) return load()
-  const cached = parsed.get(file) ?? pending.get(file)
+  const cached = parsed.get(key) ?? pending.get(key)
   if (cached) {
-    if (cache) parsed.set(file, cached)
+    if (cache) parsed.set(key, cached)
     return cached
   }
   const document = Promise.resolve().then(load)
-  pending.set(file, document)
-  if (cache || import.meta.prerender) parsed.set(file, document)
+  pending.set(key, document)
+  if (cache || import.meta.prerender) parsed.set(key, document)
   return document
 }
