@@ -75,7 +75,7 @@ function onTreeKeydown(event: KeyboardEvent) {
       :aria-labelledby="`${id}-tab-${index}`"
     >
       <p class="vh-files-path">{{ file.path }}</p>
-      <div class="vh-files-body">
+      <div class="vh-files-body" data-code-header>
         <component :is="file.node" hide-header tabindex="-1" />
       </div>
     </div>
@@ -213,5 +213,17 @@ function onTreeKeydown(event: KeyboardEvent) {
 
 .vh-files-body :deep(> div) {
   margin: 0;
+}
+
+/* The panel names the file and frames the code. `data-code-header` tells comark-ui's code block not to make room for its own bar, and the block drops its frame. */
+.vh-files-body :deep(.ck) {
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.vh-files-body :deep(.ck-bar) {
+  display: none;
 }
 </style>
