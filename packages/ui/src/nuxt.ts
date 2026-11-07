@@ -41,14 +41,17 @@ export function addViteHubUIRuntime(nuxt: ViteHubUIRuntimeNuxt): void {
 
 export { viteHubUIIcons };
 
+// Nuxt reads dependency defaults before module setup, including when vite-hub/nuxt installs the runtime alone.
+export const viteHubUIIconDependencies = {
+  "@nuxt/icon": { optional: true, defaults: { customCollections: [viteHubIcons] } },
+};
+
 const viteHubUINuxtModule: ViteHubUINuxtModule = defineNuxtModule<ViteHubUINuxtOptions>({
   meta: { configKey: "viteHubUI", name: "@vite-hub/ui" },
   defaults: {},
   // The `vitehub` Iconify collection, so `i-vitehub-kv` resolves in the app like the icons of an `@iconify-json/*` package.
   // @nuxt/ui installs @nuxt/icon, so this only adds options and does not install it a second time.
-  moduleDependencies: {
-    "@nuxt/icon": { optional: true, defaults: { customCollections: [viteHubIcons] } },
-  },
+  moduleDependencies: viteHubUIIconDependencies,
   async setup({ prefix = "", ...options }, nuxt) {
     const resolver = createResolver(import.meta.url);
     await installModule("@nuxt/ui", {}, nuxt);

@@ -2,7 +2,7 @@ import viteHub from "vite-hub/nuxt";
 
 export default defineNuxtConfig({
   buildDir: ".nuxt",
-  modules: ["@nuxt/ui", [viteHub, {
+  modules: ["@nuxt/ui", "@vite-hub/ui/nuxt", [viteHub, {
     preset: "node",
     agent: true,
     workflow: false,

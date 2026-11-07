@@ -581,6 +581,7 @@ describe("ViteHub Nuxt integration", () => {
       },
     })
     try {
+      expect(await viteHubNuxtModule.getModuleDependencies()).toEqual({})
       const { nuxt, runIconHook } = createNuxt()
       await viteHubNuxtModule({ console: false, env: false, preset: "node" }, nuxt)
       expect(nuxt.options.plugins).toEqual([])
@@ -597,6 +598,21 @@ describe("ViteHub Nuxt integration", () => {
     runModulesDoneHook()
     expect(nuxt.options.plugins).toEqual([])
     expect([...runIconHook()]).toEqual([])
+  })
+
+  it("registers the ViteHub Iconify collection before Nuxt Icon setup", async () => {
+    const dependencies = await viteHubNuxtModule.getModuleDependencies()
+    expect(dependencies).toMatchObject({
+      "@nuxt/icon": {
+        optional: true,
+        defaults: {
+          customCollections: [expect.objectContaining({
+            prefix: "vitehub",
+            icons: expect.objectContaining({ kv: expect.objectContaining({ body: expect.any(String) }) }),
+          })],
+        },
+      },
+    })
   })
 
   it.each([false, true])("gives the vite-hub/ui parts their Nuxt runtime and icons when Nuxt UI installs later: %s", async (later) => {

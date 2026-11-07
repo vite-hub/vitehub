@@ -960,6 +960,7 @@ function resolvedKVFromPlugin(plugin: Plugin | undefined, configured: KVModuleOp
 /** Matches Nuxt's `NuxtModule` contract, so `modules: [viteHubNuxt]` type-checks. */
 type ViteHubNuxtModule = {
   (inlineOptions: Partial<ViteHubNuxtOptions> | undefined, nuxt?: unknown): Promise<void>
+  getModuleDependencies: () => Promise<Record<string, { optional: boolean; defaults: Record<string, unknown> }>>
   getMeta: () => Promise<{
     configKey: "vitehub"
     name: "vite-hub/nuxt"
@@ -1741,6 +1742,12 @@ viteHubNuxtModule.getMeta = async () => ({
   configKey: "vitehub",
   name: "vite-hub/nuxt",
 })
+
+viteHubNuxtModule.getModuleDependencies = async () => {
+  if (!isPackageInstalled("@nuxt/ui")) return {}
+  const ui = await importOptionalOwner("@vite-hub/ui", () => import("@vite-hub/ui/nuxt"))
+  return ui?.viteHubUIIconDependencies ?? {}
+}
 
 export default viteHubNuxtModule
 
