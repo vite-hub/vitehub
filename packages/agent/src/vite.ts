@@ -1836,7 +1836,7 @@ function generatedHostedWorkspaceRuntimeSetup(
 async function writeAgentRuntimeRegistry(
   root: string,
   definitions: DiscoveredAgentDefinition[],
-  options: { agentImportBase: string, workspaceImportBase: string, channelsHost?: boolean },
+  options: { agentImportBase: string, workspaceImportBase: string, agentHost?: boolean },
 ): Promise<void> {
   const seen = new Set<string>()
   for (const definition of definitions) {
@@ -1876,7 +1876,7 @@ async function writeAgentRuntimeRegistry(
     "resetPublicUrlAgentNames()",
     `export default {${entries.length ? `\n  ${entries.join(",\n  ")}\n` : ""}}`,
     `export const metadata = {${generatedAgentIdentityEntries(definitions)}}`,
-    `export async function loadChannelsHost() {${options.channelsHost ? ' await import("./chat-webhook-route") ' : ""}}`,
+    `export async function loadAgentHost() {${options.agentHost ? ' await import("./chat-webhook-route") ' : ""}}`,
     "",
   ].join("\n"))
 }
@@ -3011,7 +3011,7 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       : []
     await writeAgentRuntimeRegistry(generatedRoot, registryDefinitions, {
       agentImportBase: getAgentImportBase(agent, frameworkOptions),
-      channelsHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
+      agentHost: Boolean(normalized && hasHostedAgents && normalized.runtime !== "deno"),
       workspaceImportBase: getWorkspaceImportBase(agent, frameworkOptions),
     })
     if (normalized && config.command === "serve") {
@@ -3716,13 +3716,13 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
         }))
         if (retainedSources && normalized) {
           const retainedGeneratedRoot = join(retainedSources.resolve(config.root), ".vitehub")
-          const channelsHost = hostedDefinitions.length > 0 && normalized.runtime !== "deno"
+          const agentHost = hostedDefinitions.length > 0 && normalized.runtime !== "deno"
           await writeAgentRuntimeRegistry(retainedGeneratedRoot, retainedDefinitions, {
             agentImportBase: getAgentImportBase(buildAgent, frameworkOptions),
-            channelsHost,
+            agentHost,
             workspaceImportBase: getWorkspaceImportBase(buildAgent, frameworkOptions),
           })
-          if (channelsHost) {
+          if (agentHost) {
             const handlerPath = join(retainedGeneratedRoot, generatedAgentWebhookRouteHandler)
             await writeFile(handlerPath, await generateAgentNetlifyFunctionRouteHandler(retainedDefinitions.filter(definition => hostedDefinitions.some(hosted => hosted.name === definition.name)), handlerPath, {
               agentImportBase: getAgentImportBase(buildAgent, frameworkOptions),

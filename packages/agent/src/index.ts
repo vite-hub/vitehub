@@ -13,7 +13,7 @@ import { agentHostCapabilities } from "./internal/host-capabilities.ts"
 import { agentDefinitionSourceSymbol } from "./internal/agent-definition-source.ts"
 import { asUnknownBoundary, hasRuntimeType, isCallableMember, isRuntimeObject, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { Diagnostic } from "nostics"
-import agentRegistry from "#vitehub/agent/registry"
+import agentRegistry, { loadAgentHost } from "#vitehub/agent/registry"
 import { acquireAgentCapacity, configureAgentCapacity, inspectAgentCapacity } from "./internal/agent-capacity.ts"
 import { normalizeAgentDriver, normalizeAgentDriverCapacity } from "./internal/agent-driver.ts"
 import { providerAgentRuntime } from "./internal/provider-driver-runtime.ts"
@@ -8421,6 +8421,7 @@ async function executeAgentInvocation<
   input: AgentRunInput<CALL_OPTIONS>,
   options: AgentInvocationExecutionOptions,
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  await loadAgentHost()
   // Streamed runs do not pass through withAgentIdentityOwner(), so attach the forge access here.
   context = withForgeAccess(agent.channels, context)
   // SAFETY: Agent definition normalization establishes the asserted internal Agent contract.
@@ -8928,6 +8929,9 @@ export async function runAgent<
   // SAFETY: The Runtime Context overload returned above; the remaining third argument contains invocation options.
   const standaloneOptions = inputOrOptions as RunAgentOptions | undefined
   const schedule = standaloneOptions?.schedule
+  // The host routes load on their first request. A run that starts first, such as one in a Schedule, loads them here,
+  // so it gets their capabilities, Workflow loaders, and Workspaces.
+  await loadAgentHost()
   // Preserve the caller's runtime-config subtype through standalone context creation.
   const callerContext = standaloneOptions?.runtimeContext as Partial<AgentRuntimeContext<TRuntimeConfig>> | undefined
   // Inside a running host, a standalone run, such as one a Schedule starts, gets the runtime capabilities

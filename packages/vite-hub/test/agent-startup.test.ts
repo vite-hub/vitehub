@@ -59,7 +59,9 @@ it("loads the Agent routes and Agent Definitions on the first request, not at Wo
     expect(startup).toContainEqual(expect.stringMatching(/agent\/dist\/cloudflare\/state\.js$/))
     expect(startup).not.toContain("server/agents/hello.ts")
     expect(startup).not.toContain(".vitehub/agent/chat-webhook-route.ts")
-    expect(startup.filter(module => /agent\/dist\/(?:index|server\/internal)\.js$/.test(module))).toEqual([])
+    // The Agent routes import the Workspace runtime. Nothing else at startup does.
+    expect(output).toContainEqual(expect.stringMatching(/workspace\/dist\//))
+    expect(startup.filter(module => /workspace\/dist\//.test(module))).toEqual([])
 
     const wrangler = JSON.parse(await readFile(join(server, "wrangler.json"), "utf8")) as {
       compatibility_date: string
