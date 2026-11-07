@@ -2,7 +2,8 @@ import type { ConnectionApproval, ConnectionInspection } from "@vite-hub/connect
 import type { EnvActivity } from "@vite-hub/env/bridge"
 import * as v from "valibot"
 import { envActorSchema } from "./env-management"
-import { ConsoleNetworkError, consoleResponseError } from "./request"
+import { projectFetch, projectUrl } from "./project"
+import { ConsoleNetworkError, ConsoleRequestError, consoleResponseError } from "./request"
 
 /** An approval as the Console shows it. The Console never reads call inputs. */
 export type ConsoleConnectionApproval = Omit<ConnectionApproval, "input">
@@ -84,9 +85,11 @@ export function connectionActivityLabel(action: EnvActivity["action"]): string {
  * path such as the Console page, the result page of the flow returns there.
  */
 export function connectionConnectURL(endpoint: string, name: string, returnTo?: string): string {
-  const url = `${endpoint.replace(/\/+$/, "")}/connect/${encodeURIComponent(name)}`
+  const url = projectUrl(`${endpoint.replace(/\/+$/, "")}/connect/${encodeURIComponent(name)}`)
   return returnTo ? `${url}?return=${encodeURIComponent(returnTo)}` : url
 }
+
+export const connectionKeyTransportMessage = "The Console sends an API key only over HTTPS or to a local development server."
 
 /** The Console sends an API key only over HTTPS or to a loopback development server. */
 export function canSendConnectionKey(location: { hostname: string, protocol: string }): boolean {
@@ -94,12 +97,33 @@ export function canSendConnectionKey(location: { hostname: string, protocol: str
   return location.protocol === "https:" || (location.protocol === "http:" && (host === "localhost" || host.endsWith(".localhost") || host === "[::1]" || /^127(?:\.\d{1,3}){3}$/.test(host)))
 }
 
+/**
+ * Whether the Console may send an API key to the Connections management API at `endpoint`. The key goes to the
+ * project, so the check reads the project URL, resolved against the Console page at `page`.
+ */
+export function canSendConnectionKeyTo(endpoint: string, page: string | undefined = consolePageURL()): boolean {
+  try {
+    return canSendConnectionKey(new URL(projectUrl(endpoint), page))
+  }
+  catch {
+    return false
+  }
+}
+
+/** The URL of the Console page. The Console types build without the DOM library. */
+function consolePageURL(): string | undefined {
+  const location: unknown = Reflect.get(globalThis, "location")
+  const href: unknown = location instanceof Object ? Reflect.get(location, "href") : undefined
+  return String(href) === href ? href : undefined
+}
+
 /** Run one action on the Connections management API and validate the response. */
 export async function requestConnectionsManagement<T extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>>(endpoint: string, action: string, schema: T, input: Record<string, unknown> = {}, init: Pick<RequestInit, "redirect"> = {}): Promise<v.InferOutput<T>> {
+  if (action === "set-key" && !canSendConnectionKeyTo(endpoint)) throw new ConsoleRequestError(400, connectionKeyTransportMessage)
   const body = JSON.stringify({ ...input, action })
   let response: Response
   try {
-    response = await fetch(endpoint, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body, ...init })
+    response = await projectFetch(endpoint, { method: "POST", headers: { "content-type": "application/json" }, body, ...init })
   }
   catch (error) {
     if (error instanceof Error && error.name === "AbortError") throw error

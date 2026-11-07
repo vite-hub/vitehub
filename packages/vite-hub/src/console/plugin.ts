@@ -91,7 +91,7 @@ export function assertConsoleRetention(retention: AgentRetentionPolicy | undefin
  * `authorize` is the `console.authorize` server file.
  */
 export interface ConsoleAccessBuild {
-  mode: "open" | "auth" | "cloudflare-access" | "local"
+  mode: "open" | "auth" | "cloudflare-access" | "local" | "token"
   authorize?: string
   check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
   /** How MCP clients sign in with OAuth. Only `auth` mode accepts access tokens. `path` is the mounted MCP endpoint. */
@@ -100,6 +100,8 @@ export interface ConsoleAccessBuild {
   impersonation?: true
   /** Path of the sign-in page under the application mount, such as `/sign-in`. */
   signInPage?: string
+  /** `console.origins`, for `token` mode only: the browser origins that may call the data routes with the token. */
+  origins?: readonly string[]
 }
 
 interface ConsoleRuntimeCapabilityImport {
@@ -184,6 +186,9 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
   }
   if (access.impersonation) fields.push("impersonation: true")
   if (access.signInPage) fields.push(`signInPage: ${JSON.stringify(access.signInPage)}`)
+  // Install the list even when it is empty, so a reload in the same process revokes origins that were removed.
+  imports.push('import { installConsoleOrigins as vitehubInstallConsoleOrigins } from "vite-hub/console/sections"')
+  afterInstall.push(`vitehubInstallConsoleOrigins(${JSON.stringify(access.origins ?? [])})`)
   return {
     imports,
     install: [
@@ -254,7 +259,7 @@ function renderConsoleNitroPlugin(
   ]
   const runtimeInstall = [
     ...(blobEnabled ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`] : []),
-    ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv(), async request => { try { return await (await import("#vitehub/env/server")).manageServerEnv(request) } catch { return Response.json({ message: "Env management is unavailable." }, { status: 503, headers: { "cache-control": "no-store" } }) } }, async event => (await import("#vitehub/env/server")).inspectServerEnv(event))`] : []),
+    ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv(), async (request, options) => { try { return await (await import("#vitehub/env/server")).manageServerEnv(request, options) } catch { return Response.json({ message: "Env management is unavailable." }, { status: 503, headers: { "cache-control": "no-store" } }) } }, async () => (await import("#vitehub/env/server")).inspectServerEnv())`] : []),
     `installConsoleOperations([${[...(mcpClientEnabled ? ["{ operations: vitehubConsoleMcpClientOperations, plugin: \"vite-hub\" }"] : []), ...operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`)].join(", ")}], { invoke: ${invoke} })`,
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
     ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),

@@ -232,7 +232,7 @@ export type AuthBetterAuthRuntimeOptions<
   BetterAuthOptions;
 export type AuthRequest = Pick<Request, "body" | "headers" | "method" | "signal" | "url">
 /**
- * A Web Request, or a request event with Standard Context properties, such as an H3 1 or H3 2 event in a ViteHub app.
+ * A Web Request, or a request event with Standard Context properties, such as an H3 2 event in a ViteHub app.
  * Auth reads the request and the Cloudflare bindings of an event from `event["~standard"]`.
  */
 export type AuthRequestInput = AuthRequest | ViteHubContext

@@ -120,37 +120,6 @@ describe("env CLI", () => {
     expect(await feature("inspect", async () => broken).run([], context)).toBe(0)
   })
 
-  it("lets missing host secrets pass check with --allow-missing-secrets", async () => {
-    // A Cloudflare build: the Worker holds the secrets, so the build env lacks them.
-    const deployBuild: ServerEnvInspection = {
-      entries: [
-        { masked: true, path: "env.server.apiToken", required: true, source: "env", status: "missing" },
-        { masked: false, path: "env.server.account", required: true, source: "env", status: "available" },
-      ],
-    }
-    const strict = captureContext("/app")
-    expect(await feature("check", async () => deployBuild).run([], strict.context)).toBe(1)
-
-    const { context, output } = captureContext("/app")
-    expect(await feature("check", async () => deployBuild).run(["--allow-missing-secrets"], context)).toBe(0)
-    expect(output.stdout).toMatch(/apiToken\s+missing\s+host env/)
-    expect(output.stdout).not.toContain("missing !")
-    expect(output.stdout).toContain("Server Env check passed.")
-  })
-
-  it("still fails --allow-missing-secrets for missing values that are not secret, invalid secrets, and provider secrets", async () => {
-    const cases: ServerEnvInspection["entries"][number][] = [
-      { masked: false, path: "env.server.account", required: true, source: "env", status: "missing" },
-      { masked: true, path: "env.server.apiToken", required: true, source: "env", status: "invalid" },
-      { masked: true, path: "env.server.remote", provider: "vault", required: true, source: "provider", status: "missing" },
-    ]
-    for (const entry of cases) {
-      const { context, output } = captureContext("/app")
-      expect(await feature("check", async () => ({ entries: [entry] })).run(["--allow-missing-secrets"], context)).toBe(1)
-      expect(output.stdout).toContain(`${entry.status} !`)
-    }
-  })
-
   it("prints JSON with the check result", async () => {
     const { context, output } = captureContext("/app")
     expect(await feature("check", async () => broken).run(["--json", "--stage", "preview"], context)).toBe(1)
@@ -161,7 +130,7 @@ describe("env CLI", () => {
     for (const args of [["--stage"], ["--stage", "--json"], ["--unknown"]]) {
       const { context, output } = captureContext("/app")
       expect(await feature("check", async () => healthy).run(args, context)).toBe(1)
-      expect(output.stderr).toContain("Usage: vitehub env check [--stage <name>] [--json] [--allow-missing-secrets]")
+      expect(output.stderr).toContain("Usage: vitehub env check [--stage <name>] [--json]")
       expect(output.stdout).toBe("")
     }
   })
@@ -339,24 +308,6 @@ describe("env CLI with Vite stage files", () => {
     expect(await realFeature("check").run(["--stage", "production"], context)).toBe(1)
     expect(output.stdout).toMatch(/apiToken\s+missing !/)
     expect(output.stdout).toContain("Server Env check failed.")
-  }, 60_000)
-
-  it("checks a build without host secrets, but still fails on a missing value that is not secret", async () => {
-    const root = await createStageFixture()
-    // A Worker build: the build env has the plain values, and the Worker holds the API token.
-    const build = captureContext(root, { ...process.env, ENV_CLI_REGION: "process-region" })
-    expect(await realFeature("check").run(["--stage", "production", "--allow-missing-secrets"], build.context)).toBe(0)
-    expect(build.output.stdout).toMatch(/apiToken\s+missing\s+host env\s+yes\s+yes/)
-    expect(build.output.stdout).toContain("Server Env check passed.")
-
-    const strict = captureContext(root, { ...process.env, ENV_CLI_REGION: "process-region" })
-    expect(await realFeature("check").run(["--stage", "production"], strict.context)).toBe(1)
-
-    // The region is also missing: this is the build that must not deploy.
-    const broken = captureContext(root, { ...process.env })
-    expect(await realFeature("check").run(["--stage", "production", "--allow-missing-secrets"], broken.context)).toBe(1)
-    expect(broken.output.stdout).toMatch(/region\s+missing !/)
-    expect(broken.output.stdout).toContain("Server Env check failed.")
   }, 60_000)
 
   it("restores process env after the stage server closes", async () => {

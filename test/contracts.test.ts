@@ -108,7 +108,8 @@ describe("package manifest contracts", () => {
       expect(manifest.types).toBe(subpathOnly ? undefined : "./dist/index.d.ts")
       expect(manifest.files).toEqual(expect.arrayContaining(["dist", "package.json"]))
       expect(manifest.scripts?.build).toEqual(expect.any(String))
-      expect(manifest.scripts?.typecheck).toEqual(expect.any(String))
+      // The typecheck reads workspace dependencies from their dist, so it builds them first.
+      expect(manifest.scripts?.typecheck).toMatch(new RegExp(`^vp run --cache -t ${manifest.name}#build && `))
       expect(manifest.scripts?.test).toEqual(expect.any(String))
       if (packageName === "markdown-template") {
         expect(manifest.exports?.["."]).toEqual({
@@ -196,7 +197,7 @@ describe("package manifest contracts", () => {
 
     expect(security).toContain("https://github.com/vite-hub/vitehub/security/advisories")
     expect(security).toContain("https://github.com/vite-hub/vitehub/issues/new")
-    expect(security).toContain("https://discord.gg/YTRDsRP3")
+    expect(security).toContain("https://chat.vitehub.dev")
     expect(security).toContain("Published 0.x versions | No backports")
     expect(security).not.toMatch(/mailto:|[\w.+-]+@[\w.-]+/)
     expect(readme).toContain("[Apache License 2.0](LICENSE)")
