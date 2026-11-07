@@ -20,6 +20,8 @@ export interface SetupProject {
   configFile?: string
   /** Where `vitehub()` options are in `configFile`. `undefined` when there is no config file. */
   config: LocateResult | undefined
+  /** True when the target manifest declares `name` for production, or for development when `dev` is true. */
+  declared: (name: string, dev: boolean) => boolean
   /** Static discovery directories; undefined when Nuxt directories or layers need evaluation. */
   serverDirs?: readonly string[]
   /** True when `name` is resolvable from the project or present in an ancestor's node_modules. */
@@ -113,6 +115,7 @@ export async function readSetupProject(root: string, env: NodeJS.ProcessEnv): Pr
     config,
     ...(configFile ? { configFile } : {}),
     framework,
+    declared: (name, dev) => Object.hasOwn(manifest?.dependencies ?? {}, name) || (dev && Object.hasOwn(manifest?.devDependencies ?? {}, name)),
     installed: (name) => {
       // Yarn PnP and other active loader hooks can resolve packages without node_modules.
       // Resolve metadata or an entry point without evaluating either one.
