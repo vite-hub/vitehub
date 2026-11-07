@@ -10,7 +10,7 @@ The ViteHub Console is the admin of this site. It runs in the same Worker at [`/
 ::steps{level="3"}
 ### Sign in
 
-Open [`/_vitehub/sign-in`](/_vitehub/sign-in) and sign in with your email and password, or select **Create one** to make an account. GitHub sign-in shows on the same page when the site has a GitHub OAuth App. The emails in the `VITEHUB_ADMIN_EMAILS` secret get the `admin` role on their first sign-up. Other accounts get no CMS role until an admin gives them one in the Auth section.
+Open [`/_vitehub/sign-in`](/_vitehub/sign-in) and sign in with your email and password, or select **Create one** to make an account. GitHub sign-in shows on the same page when the site has a GitHub OAuth App. Only the site owner's GitHub account gets the `admin` role. Other accounts get no CMS role until an admin gives them one in the Auth section.
 
 ### Open the pill
 
