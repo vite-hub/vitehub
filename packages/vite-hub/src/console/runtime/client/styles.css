@@ -184,16 +184,11 @@ a {
 
 /*
  * The primary color marks focus, links, and selection. Unlayered, so it wins over the neutral outline that Nuxt UI gives
- * solid neutral buttons. The ring appears at once, without a transition. Fields, including the select button, keep the
- * soft outline that Nuxt UI gives them, so a field with an error keeps one red ring instead of a second one.
+ * solid neutral buttons. The ring appears at once, without a transition. Fields, including the select button, show focus
+ * with their own ring instead (`app.config.ts`), so a field with an error keeps one red ring.
  */
 :focus-visible:not(input, textarea, select, [role="combobox"]) {
   outline-color: var(--ui-primary);
-}
-
-/* Nuxt UI's error outline is 25% red, too faint to tell a focused field from the others. */
-:is(input, textarea, [role="combobox"])[aria-invalid="true"]:focus-visible {
-  outline-color: color-mix(in oklab, var(--ui-error) 70%, transparent);
 }
 
 ::selection {
