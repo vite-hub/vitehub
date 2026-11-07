@@ -172,23 +172,42 @@ function singleMetadata(candidates: FsBlobMetadata[]): FsBlobMetadata | undefine
   return { contentType: first.contentType, customMetadata: first.customMetadata }
 }
 
+// One read of the sidecar directory, grouped by pathname prefix and shared
+// by every key in one operation. A per-key scan makes list() quadratic after
+// a copy, because every key then misses its inode-keyed sidecar.
+type SidecarIndex = () => Promise<Map<string, string[]>>
+
+function sidecarIndex(root: string): SidecarIndex {
+  let index: Promise<Map<string, string[]>> | undefined
+  return () => index ??= (async () => {
+    const directory = resolve(root, ".vitehub", "blob-meta")
+    const groups = new Map<string, string[]>()
+    let names: string[]
+    try {
+      await assertNoSymlinkPath(root, directory)
+      names = await readdir(directory)
+    }
+    catch (error) {
+      if (isNotFound(error) || isDirectoryError(error)) return groups
+      throw error
+    }
+    for (const name of names) {
+      const prefix = /^generation-[\da-f]{64}-/.exec(name)?.[0]
+      if (!prefix || !name.endsWith(".json")) continue
+      groups.set(prefix, [...groups.get(prefix) ?? [], name])
+    }
+    return groups
+  })()
+}
+
 // Copying, restoring, or moving the data root gives each payload a new inode,
 // so its generation sidecar name no longer matches. Accept another generation
 // of the same pathname only when it recorded these exact bytes. When several
 // generations recorded these bytes with different metadata, the modification
 // time must also match, or no metadata is applied.
-async function readCopiedMetadata(root: string, pathname: string, stats: BigIntStats, contentHash: () => Promise<string>): Promise<FsBlobMetadata | undefined> {
+async function readCopiedMetadata(root: string, pathname: string, stats: BigIntStats, contentHash: () => Promise<string>, sidecars: SidecarIndex): Promise<FsBlobMetadata | undefined> {
   const directory = resolve(root, ".vitehub", "blob-meta")
-  const prefix = generationMetaPrefix(root, pathname)
-  let names: string[]
-  try {
-    await assertNoSymlinkPath(root, directory)
-    names = (await readdir(directory)).filter(name => name.startsWith(prefix) && name.endsWith(".json"))
-  }
-  catch (error) {
-    if (isNotFound(error) || isDirectoryError(error)) return
-    throw error
-  }
+  const names = (await sidecars()).get(generationMetaPrefix(root, pathname)) ?? []
   const candidates = (await Promise.all(names.map(async (name) => {
     const path = resolve(directory, name)
     await assertNoSymlinkPath(root, path)
@@ -208,8 +227,8 @@ async function readCopiedMetadata(root: string, pathname: string, stats: BigIntS
   const matches = candidates.flatMap(candidate => candidate?.contentHash === hash ? [candidate] : [])
   const metadata = singleMetadata(matches) ?? singleMetadata(matches.filter(candidate => candidate.mtimeNs === mtimeNs))
   if (!metadata) return
-  // Re-key only while the payload is still this generation, so the hash above
-  // describes the bytes the new sidecar name points at.
+  // Skip the re-key when the payload already changed. A write can still land
+  // before the sidecar is published, so readers also check its recorded hash.
   const path = resolveBlobPath(root, pathname)
   if (fileVersion(stats) === fileVersion(await stat(path, { bigint: true }))) {
     await writeAtomic(root, generationMetaPath(root, pathname, stats), JSON.stringify({ ...metadata, contentHash: hash, mtimeNs, size: Number(stats.size) })).catch((error) => {
@@ -219,16 +238,21 @@ async function readCopiedMetadata(root: string, pathname: string, stats: BigIntS
   return metadata
 }
 
-async function readMetadata(root: string, pathname: string, stats: BigIntStats, contentHash: () => Promise<string>): Promise<FsBlobMetadata> {
+async function readMetadata(root: string, pathname: string, stats: BigIntStats, contentHash: () => Promise<string>, sidecars = sidecarIndex(root)): Promise<FsBlobMetadata> {
   const generation = generationMetaPath(root, pathname, stats)
   await assertNoSymlinkPath(root, generation)
   try {
-    return parse(fsBlobMetadataSchema, JSON.parse(await readFile(generation, "utf8")))
+    const sidecar: unknown = JSON.parse(await readFile(generation, "utf8"))
+    const recorded = parse(fsBlobGenerationSchema, sidecar)
+    // An in-place write keeps the inode, so a recorded hash must still match.
+    if (recorded.contentHash === undefined || (recorded.size === Number(stats.size) && recorded.contentHash === await contentHash())) {
+      return parse(fsBlobMetadataSchema, sidecar)
+    }
   }
   catch (error) {
     if (!isNotFound(error)) throw error
   }
-  const copied = await readCopiedMetadata(root, pathname, stats, contentHash)
+  const copied = await readCopiedMetadata(root, pathname, stats, contentHash, sidecars)
   if (copied) return copied
   // Existing plain files and legacy sidecars remain readable.
   try {
@@ -307,7 +331,7 @@ function toBlobObject(entry: FsBlobEntry): BlobObject {
   }
 }
 
-async function readEntry(root: string, pathname: string): Promise<FsBlobEntry | null> {
+async function readEntry(root: string, pathname: string, sidecars = sidecarIndex(root)): Promise<FsBlobEntry | null> {
   try {
     const path = resolveBlobPath(root, pathname)
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -335,7 +359,7 @@ async function readEntry(root: string, pathname: string): Promise<FsBlobEntry | 
         })
       }
       const hash = contentHash
-      const meta = await readMetadata(root, pathname, stats, async () => hash)
+      const meta = await readMetadata(root, pathname, stats, async () => hash, sidecars)
       if (version !== fileVersion(await stat(path, { bigint: true }))) continue
       return {
         contentHash,
@@ -380,7 +404,8 @@ async function walkFiles(root: string, dir = root): Promise<string[]> {
 }
 
 async function listEntries(root: string, paths: string[]) {
-  const entries = await Promise.all(paths.map(path => readEntry(root, path)))
+  const sidecars = sidecarIndex(root)
+  const entries = await Promise.all(paths.map(path => readEntry(root, path, sidecars)))
   return entries.filter((entry): entry is FsBlobEntry => Boolean(entry))
 }
 
@@ -574,7 +599,8 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
           })()
           if (!before?.isFile()) return null
           const bytes = await readFile(path)
-          const meta = await readMetadata(root, pathname, before, async () => sha256(bytes))
+          let hash: string | undefined
+          const meta = await readMetadata(root, pathname, before, async () => hash ??= sha256(bytes))
           if (fileVersion(before) !== fileVersion(await stat(path, { bigint: true }))) continue
           return new Blob([bytes], { type: meta.contentType || "" })
         }

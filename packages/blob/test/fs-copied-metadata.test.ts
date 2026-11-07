@@ -1,17 +1,26 @@
 import { execFile } from "node:child_process"
-import { cp, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { cp, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createDriver } from "../src/drivers/fs.ts"
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs/promises")>()
+  return { ...fs, readdir: vi.fn(fs.readdir), rename: vi.fn(fs.rename) }
+})
+
+const fs = await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
 
 const run = promisify(execFile)
 const tempDirs: string[] = []
 
 afterEach(async () => {
+  vi.mocked(readdir).mockReset().mockImplementation(fs.readdir)
+  vi.mocked(rename).mockReset().mockImplementation(fs.rename)
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
@@ -109,5 +118,43 @@ describe("fs Blob metadata after copying the data root", () => {
     await copyPreserved(original, copied)
     await expect(createDriver({ base: copied, driver: "fs" }).head("users/avatar")).resolves.toMatchObject({ contentType: undefined, customMetadata: {} })
     expect(JSON.parse(await readFile(join(copied, ".vitehub", "blob-meta", sidecar!), "utf8"))).toEqual(avatar)
+  })
+
+  it("does not trust a re-keyed sidecar after an in-place write lands before it is published", async () => {
+    const original = await tempDir()
+    await createDriver({ base: original, driver: "fs" }).put("users/avatar", "hello", avatar)
+    const copied = join(await tempDir(), "data")
+    await copyPreserved(original, copied)
+    const metaDir = join(copied, ".vitehub", "blob-meta")
+    // Same inode and size, different bytes, written just before the re-keyed sidecar is published.
+    let rewritten = false
+    vi.mocked(rename).mockImplementation(async (from, to) => {
+      if (!rewritten && String(to).startsWith(metaDir)) {
+        rewritten = true
+        await fs.writeFile(join(copied, "users/avatar"), "world")
+      }
+      await fs.rename(from, to)
+    })
+
+    const driver = createDriver({ base: copied, driver: "fs" })
+    await expect(driver.head("users/avatar")).resolves.toMatchObject({ contentType: undefined, customMetadata: {}, size: 5 })
+    expect(await readdir(metaDir)).toHaveLength(2)
+    await expect(driver.head("users/avatar")).resolves.toMatchObject({ contentType: undefined, customMetadata: {} })
+    expect((await driver.get("users/avatar"))?.type).toBe("")
+  })
+
+  it("reads the sidecar directory once per list", async () => {
+    const original = await tempDir()
+    const writer = createDriver({ base: original, driver: "fs" })
+    await Promise.all(Array.from({ length: 20 }, (_, index) => writer.put(`files/${index}`, `body ${index}`, avatar)))
+    const copied = join(await tempDir(), "data")
+    await copyPreserved(original, copied)
+    const metaDir = join(copied, ".vitehub", "blob-meta")
+    vi.mocked(readdir).mockClear()
+
+    const { blobs } = await createDriver({ base: copied, driver: "fs" }).list({ prefix: "files/" })
+    expect(blobs).toHaveLength(20)
+    expect(blobs.every(blob => blob.contentType === avatar.contentType)).toBe(true)
+    expect(vi.mocked(readdir).mock.calls.filter(([path]) => path === metaDir)).toHaveLength(1)
   })
 })
