@@ -3,6 +3,8 @@ export type { SetupAddArgs, SetupAddPlan, SetupAddPlanned, SetupChange, SetupOpt
 export { setupCatalog } from "./catalog.ts"
 export type { SetupCatalog } from "./catalog.ts"
 export { setupCommands } from "./commands.ts"
+export { CONSOLE_TOKEN_VARIABLE, deployCommand, readDeployArgs } from "./deploy.ts"
+export type { SetupDeployArgs, SetupDeployOutput } from "./deploy.ts"
 export { setupExitCodes } from "./envelope.ts"
 export type { SetupChoice, SetupError, SetupFailure, SetupFailureDetails, SetupMissing } from "./envelope.ts"
 export { initCommandDefinition, initPackages, nuxiPackage, readInitArgs, readSetupStack } from "./init.ts"
