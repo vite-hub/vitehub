@@ -28,6 +28,21 @@ function zod3Definition(schema: unknown): JsonObject | undefined {
   return isRecord(schema) && isRecord(schema._def) && typeof schema._def.typeName === "string" ? schema._def : undefined
 }
 
+function zod3OptionalInput(schema: unknown): boolean {
+  const definition = zod3Definition(schema)
+  if (!definition) return false
+  switch (definition.typeName) {
+    case "ZodOptional":
+    case "ZodDefault": return true
+    case "ZodEffects": return zod3OptionalInput(definition.schema)
+    case "ZodPipeline": return zod3OptionalInput(definition.in)
+    case "ZodBranded": return zod3OptionalInput(definition.type)
+    case "ZodNullable":
+    case "ZodReadonly": return zod3OptionalInput(definition.innerType)
+    default: return false
+  }
+}
+
 /** Converts a Zod 3 schema, which has no JSON Schema output of its own, to the JSON Schema of its input. */
 function zod3ToJsonSchema(schema: unknown): JsonObject {
   const definition = zod3Definition(schema)
@@ -56,7 +71,12 @@ function zod3ToJsonSchema(schema: unknown): JsonObject {
     }
     case "ZodBoolean": return { type: "boolean" }
     case "ZodEnum": return Array.isArray(definition.values) ? { type: "string", enum: definition.values } : {}
-    case "ZodNativeEnum": return isRecord(definition.values) ? { enum: Object.values(definition.values).filter(value => typeof value === "string") } : {}
+    case "ZodNativeEnum": {
+      const values = definition.values
+      if (!isRecord(values)) return {}
+      // Numeric TypeScript enums also contain reverse mappings from numbers to member names.
+      return { enum: Object.values(values).filter(value => (typeof value === "string" || typeof value === "number") && typeof values[value] !== "number") }
+    }
     case "ZodLiteral": return { const: definition.value }
     case "ZodOptional": return zod3ToJsonSchema(definition.innerType)
     case "ZodNullable": return { anyOf: [zod3ToJsonSchema(definition.innerType), { type: "null" }] }
@@ -79,7 +99,7 @@ function zod3ToJsonSchema(schema: unknown): JsonObject {
     case "ZodObject": {
       const shape: unknown = typeof definition.shape === "function" ? Reflect.apply(definition.shape, undefined, []) : definition.shape
       if (!isRecord(shape)) return { type: "object" }
-      const required = Object.entries(shape).filter(([, child]) => !["ZodOptional", "ZodDefault"].includes(String(zod3Definition(child)?.typeName))).map(([key]) => key)
+      const required = Object.entries(shape).filter(([, child]) => !zod3OptionalInput(child)).map(([key]) => key)
       return { type: "object", properties: Object.fromEntries(Object.entries(shape).map(([key, child]) => [key, zod3ToJsonSchema(child)])), required }
     }
     default: return {}
