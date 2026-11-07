@@ -2,7 +2,7 @@ import type { BigIntStats, Dirent } from "node:fs"
 import { createHash, randomUUID } from "node:crypto"
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, sep } from "node:path"
-import { object, optional, parse, record, safeParse, string } from "valibot"
+import { number, object, optional, parse, record, safeParse, string } from "valibot"
 
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobListResult, BlobMultipartOptions, BlobObject, BlobPutBody, BlobPutOptions, ResolvedFsBlobStoreConfig } from "../types.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
@@ -36,6 +36,15 @@ interface FsBlobMetadata {
 const fsBlobMetadataSchema = object({
   contentType: optional(string()),
   customMetadata: optional(record(string(), string())),
+})
+
+// Generation sidecars also record which bytes they describe, so metadata can
+// follow a payload whose inode changed when the data root was copied.
+const fsBlobGenerationSchema = object({
+  ...fsBlobMetadataSchema.entries,
+  contentHash: optional(string()),
+  mtimeNs: optional(string()),
+  size: optional(number()),
 })
 
 const fsBlobHashSchema = object({ contentHash: string(), fileVersion: string() })
@@ -148,7 +157,69 @@ function generationMetaPath(root: string, pathname: string, stats: BigIntStats) 
   return resolve(root, ".vitehub", "blob-meta", `${generationMetaPrefix(root, pathname)}${stats.dev}-${stats.ino}-${stats.birthtimeNs}.json`)
 }
 
-async function readMetadata(root: string, pathname: string, stats: BigIntStats): Promise<FsBlobMetadata> {
+function sha256(bytes: Uint8Array) {
+  return createHash("sha256").update(bytes).digest("hex")
+}
+
+function metadataKey(metadata: FsBlobMetadata) {
+  const custom = Object.entries(metadata.customMetadata || {}).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
+  return JSON.stringify([metadata.contentType ?? null, custom])
+}
+
+function singleMetadata(candidates: FsBlobMetadata[]): FsBlobMetadata | undefined {
+  const [first] = candidates
+  if (!first || candidates.some(candidate => metadataKey(candidate) !== metadataKey(first))) return
+  return { contentType: first.contentType, customMetadata: first.customMetadata }
+}
+
+// Copying, restoring, or moving the data root gives each payload a new inode,
+// so its generation sidecar name no longer matches. Accept another generation
+// of the same pathname only when it recorded these exact bytes. When several
+// generations recorded these bytes with different metadata, the modification
+// time must also match, or no metadata is applied.
+async function readCopiedMetadata(root: string, pathname: string, stats: BigIntStats, contentHash: () => Promise<string>): Promise<FsBlobMetadata | undefined> {
+  const directory = resolve(root, ".vitehub", "blob-meta")
+  const prefix = generationMetaPrefix(root, pathname)
+  let names: string[]
+  try {
+    await assertNoSymlinkPath(root, directory)
+    names = (await readdir(directory)).filter(name => name.startsWith(prefix) && name.endsWith(".json"))
+  }
+  catch (error) {
+    if (isNotFound(error) || isDirectoryError(error)) return
+    throw error
+  }
+  const candidates = (await Promise.all(names.map(async (name) => {
+    const path = resolve(directory, name)
+    await assertNoSymlinkPath(root, path)
+    try {
+      const result = safeParse(fsBlobGenerationSchema, JSON.parse(await readFile(path, "utf8")))
+      return result.success ? result.output : undefined
+    }
+    catch (error) {
+      if (isNotFound(error) || error instanceof SyntaxError) return
+      throw error
+    }
+  }))).filter(candidate => candidate?.contentHash !== undefined && candidate.size === Number(stats.size))
+  // Old sidecars without a content hash cannot prove which bytes they describe.
+  if (candidates.length === 0) return
+  const hash = await contentHash()
+  const mtimeNs = String(stats.mtimeNs)
+  const matches = candidates.flatMap(candidate => candidate?.contentHash === hash ? [candidate] : [])
+  const metadata = singleMetadata(matches) ?? singleMetadata(matches.filter(candidate => candidate.mtimeNs === mtimeNs))
+  if (!metadata) return
+  // Re-key only while the payload is still this generation, so the hash above
+  // describes the bytes the new sidecar name points at.
+  const path = resolveBlobPath(root, pathname)
+  if (fileVersion(stats) === fileVersion(await stat(path, { bigint: true }))) {
+    await writeAtomic(root, generationMetaPath(root, pathname, stats), JSON.stringify({ ...metadata, contentHash: hash, mtimeNs, size: Number(stats.size) })).catch((error) => {
+      console.error("[vitehub/blob] Filesystem metadata re-key failed", error)
+    })
+  }
+  return metadata
+}
+
+async function readMetadata(root: string, pathname: string, stats: BigIntStats, contentHash: () => Promise<string>): Promise<FsBlobMetadata> {
   const generation = generationMetaPath(root, pathname, stats)
   await assertNoSymlinkPath(root, generation)
   try {
@@ -157,6 +228,8 @@ async function readMetadata(root: string, pathname: string, stats: BigIntStats):
   catch (error) {
     if (!isNotFound(error)) throw error
   }
+  const copied = await readCopiedMetadata(root, pathname, stats, contentHash)
+  if (copied) return copied
   // Existing plain files and legacy sidecars remain readable.
   try {
     const path = resolveMetaPath(root, pathname)
@@ -250,18 +323,19 @@ async function readEntry(root: string, pathname: string): Promise<FsBlobEntry | 
         }
       })()
       if (!stats?.isFile()) return null
-      const meta = await readMetadata(root, pathname, stats)
       const version = fileVersion(stats)
       const cached = await readHash(root, pathname)
       let contentHash = cached?.fileVersion === version ? cached.contentHash : undefined
       if (!contentHash) {
-        contentHash = createHash("sha256").update(await readFile(path)).digest("hex")
+        contentHash = sha256(await readFile(path))
         const after = await stat(path, { bigint: true })
         if (version !== fileVersion(after)) continue
         await writeHash(root, pathname, { contentHash, fileVersion: version }).catch((error) => {
           console.error("[vitehub/blob] Filesystem hash cache write failed", error)
         })
       }
+      const hash = contentHash
+      const meta = await readMetadata(root, pathname, stats, async () => hash)
       if (version !== fileVersion(await stat(path, { bigint: true }))) continue
       return {
         contentHash,
@@ -500,7 +574,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
           })()
           if (!before?.isFile()) return null
           const bytes = await readFile(path)
-          const meta = await readMetadata(root, pathname, before)
+          const meta = await readMetadata(root, pathname, before, async () => sha256(bytes))
           if (fileVersion(before) !== fileVersion(await stat(path, { bigint: true }))) continue
           return new Blob([bytes], { type: meta.contentType || "" })
         }
@@ -577,6 +651,9 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         await writeAtomic(root, metadataPath, JSON.stringify({
           contentType: putOptions.contentType || (isBlob(body) ? body.type : undefined),
           customMetadata: putOptions.customMetadata,
+          contentHash: sha256(bytes),
+          mtimeNs: String(stats.mtimeNs),
+          size: Number(stats.size),
         }))
       })
       const entry = await readEntry(root, pathname)
