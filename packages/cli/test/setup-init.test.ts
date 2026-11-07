@@ -206,18 +206,20 @@ describe("vitehub init", () => {
     expect(await snapshot(root)).toEqual(before)
   })
 
-  it("adopts an app with a namespace registration without adding another plugin", async () => {
-    const config = 'import * as hub from "vite-hub"\nexport default { plugins: [hub.vitehub({ preset: "node" })] }\n'
+  it.each(["vite", "nuxt"] as const)("adopts a %s app with a namespace registration without adding another plugin", async (framework) => {
+    const config = framework === "nuxt"
+      ? 'import * as hub from "vite-hub/nuxt"\nexport default { modules: [[hub.default, { preset: "node" }]] }\n'
+      : 'import * as hub from "vite-hub"\nexport default { plugins: [hub.vitehub({ preset: "node" })] }\n'
+    const file = `${framework}.config.ts`
     const root = await createProject({
-      "package.json": JSON.stringify({ devDependencies: { vite: "^8" }, type: "module" }),
-      "vite.config.ts": config,
+      "package.json": JSON.stringify({ devDependencies: { [framework]: "*" }, type: "module" }),
+      [file]: config,
     })
     const args = [".", "--host", "cloudflare", "--features", "kv", "--no-install", "--yes"]
     const result = await init(args, root)
     expect(result.exitCode, result.stdout).toBe(0)
-    const after = await readFile(join(root, "vite.config.ts"), "utf8")
-    expect(after).toContain('hub.vitehub({ preset: "cloudflare", kv: true })')
-    expect(after).not.toContain("import { vitehub }")
+    const after = await readFile(join(root, file), "utf8")
+    expect(after).toBe(config.replace('preset: "node"', 'preset: "cloudflare", kv: true'))
     const again = await init(args, root)
     expect(again.exitCode, again.stdout).toBe(0)
     expect(again.json).toMatchObject({ changes: [], status: "unchanged" })
@@ -259,6 +261,18 @@ describe("vitehub init", () => {
     const result = await init([".", "--host", "node", "--features", "browser", "--no-install", "--yes"], root)
     expect(result.exitCode).toBe(3)
     expect(result.json.error?.code).toBe("SETUP_FEATURE_UNSUPPORTED")
+    expect(await snapshot(root)).toEqual(before)
+  })
+
+  it("leaves a config-less Nuxt app with local layers manual", async () => {
+    const root = await createProject({
+      "package.json": JSON.stringify({ dependencies: { nuxt: "*" } }),
+      "layers/base/nuxt.config.ts": 'export default { modules: ["vite-hub/nuxt"] }\n',
+    })
+    const before = await snapshot(root)
+    const result = await init([".", "--host", "node", "--features", "kv", "--no-install", "--yes"], root)
+    expect(result.exitCode).toBe(3)
+    expect(result.json.error?.code).toBe("SETUP_CONFIG_MANUAL")
     expect(await snapshot(root)).toEqual(before)
   })
 

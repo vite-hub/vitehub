@@ -123,6 +123,7 @@
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "@types/node": "catalog:tooling",
     "zod": "catalog:runtime",
     "@vite-hub/internal": "workspace:*",
     "publint": "catalog:tooling",

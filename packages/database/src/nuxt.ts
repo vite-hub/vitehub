@@ -187,7 +187,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       const refreshLocalRuntime = () => {
         const refresh = async () => {
           if (!localNitroConfig || closed) return
-          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions)
+          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions, undefined, true)
           for (const source of runtime?.definitions.flatMap(definition => definition.schemaSources) ?? []) {
             definitionFiles.add(source.handler)
             definitionDirectories.add(dirname(source.handler))
@@ -435,25 +435,41 @@ async function installNitroLocalDatabaseRuntime(
   d1?: ResolvedDatabaseNuxtD1Options,
   contributions: CollectedDatabaseContributions = { definitions: [], tables: [], uses: [] },
   resolvedRuntime?: ResolvedDBViteConfig,
+  /** True for `nuxt dev`, where a Definition's `remote` switch applies. */
+  dev = false,
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
+  const defaultsFile = resolve(generatedRoot, "database/definition-defaults.mjs")
   const alias = isRecord(config.alias) ? config.alias : undefined
   const existingAlias = alias?.[databaseDrizzleImport]
-  if (existingAlias && existingAlias !== file) {
+  const customRegistry = !!existingAlias && existingAlias !== file
+  if (customRegistry) {
     await rm(file, { force: true })
-    return
+    if (!dev) return
   }
 
   const runtime = resolvedRuntime ?? resolveDBViteConfig(options, root, { contributions, provisionRoot, serverDirs })
   assertDistinctNuxtD1Bindings(runtime, d1, config)
   if (!runtime?.definitions.length) {
     await rm(file, { force: true })
+    if (dev) {
+      await rm(defaultsFile, { force: true })
+      if (alias?.[databaseDefinitionDefaultsImport] === defaultsFile) delete alias[databaseDefinitionDefaultsImport]
+    }
     if (alias && existingAlias === file) {
       delete alias[databaseDrizzleImport]
       if (!Object.keys(alias).length) delete config.alias
     }
     return
   }
+
+  const definitionDefaults = serializeGeneratedRegistry(dev ? { ...runtime.definitionDefaults, dev: true } : runtime.definitionDefaults)
+  if (dev) {
+    // Direct Definition imports need these defaults even when the app supplies its own registry.
+    await writeFileIfChanged(defaultsFile, `export default ${definitionDefaults}\n`)
+    ensureRecord(config, "alias")[databaseDefinitionDefaultsImport] ??= defaultsFile
+  }
+  if (customRegistry) return runtime
 
   // Nitro dev keeps running when a Definition needs Nuxt auto-imports to load; collisions are then checked on literal keys.
   const tableNameOptions = {
@@ -519,12 +535,11 @@ async function installNitroLocalDatabaseRuntime(
       ...(usesPostgres(runtime) ? [`import { createPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "postgres.js")).href)}`] : []),
       ...imports,
       "",
-      `const definitionDefaults = ${serializeGeneratedRegistry(runtime.definitionDefaults)}`,
+      `const definitionDefaults = ${definitionDefaults}`,
       ...schemas,
     ],
   }))
-  if (alias) alias[databaseDrizzleImport] = file
-  else config.alias = { [databaseDrizzleImport]: file }
+  ensureRecord(config, "alias")[databaseDrizzleImport] = file
   return runtime
 }
 
@@ -688,14 +703,13 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
   config.rollupConfig = rollupConfig
   await writeFileIfChanged(resolve(root, generatedNitroDatabaseMiddleware), [
     "import { env as vitehubEnv } from 'cloudflare:workers'",
-    "import { runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
+    "import { getRequestCloudflareEnv, runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
     "",
     "const nativeEnv = (globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ ?? vitehubEnv",
     "",
     "// h3 v2 passes next(). Running it inside the env scope gives each request its own database clients and D1 sessions.",
-    "export default (event: unknown, next?: () => unknown) => {",
-    "  const target = event as { env?: Record<string, unknown>, context?: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } }, req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } } }",
-    "  const mergedEnv = Object.assign({}, nativeEnv, target.req?.runtime?.cloudflare?.env, target.context?._platform?.cloudflare?.env, target.context?.cloudflare?.env, target.env)",
+    "export default (event: Parameters<typeof getRequestCloudflareEnv>[0], next?: () => unknown) => {",
+    "  const mergedEnv = Object.assign({}, nativeEnv, getRequestCloudflareEnv(event))",
     "  for (const property of Reflect.ownKeys(nativeEnv)) {",
     "    if (!Object.hasOwn(mergedEnv, property)) Object.defineProperty(mergedEnv, property, { configurable: true, get: () => Reflect.get(nativeEnv as object, property) })",
     "  }",

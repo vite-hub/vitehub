@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
-import { features } from "@vite-hub/internal/features"
+import { consoleFeaturePackages, features } from "@vite-hub/internal/features"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -37,8 +37,8 @@ export const optionalFeaturePackages = {
   // Connections store grants in the default Database and turn `database` on.
   "connections": features.connections.packages,
   // The Console journal of Agent Invocations.
-  "console agents": ["@libsql/client", "drizzle-orm"],
-  "console sign-in": ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
+  "console agents": consoleFeaturePackages.agents,
+  "console sign-in": consoleFeaturePackages.signIn,
   "content": ["@vite-hub/content"],
   // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
   "database": features.database.packages,

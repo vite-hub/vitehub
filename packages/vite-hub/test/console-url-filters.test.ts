@@ -140,7 +140,7 @@ describe("Comments operation view", () => {
     ])
     const { router, state } = await mountPage<{ search: string, visibleItems: Array<{ id: string }> }>(OperationView, { definitionsBase: "/definitions", details, sectionsBase: "/sections" }, "/comments?filter=open&q=pricing", routes)
     await vi.waitFor(() => expect(state.visibleItems.map(item => item.id)).toEqual(["1"]))
-    expect(mocks.operation).toHaveBeenLastCalledWith("/definitions", details.view, { status: "open" }, expect.anything())
+    expect(mocks.operation).toHaveBeenLastCalledWith(details.view, { status: "open" }, expect.anything())
     state.search = "bo"
     await settle(router, { filter: "open", q: "bo" })
     expect(state.visibleItems.map(item => item.id)).toEqual(["2"])

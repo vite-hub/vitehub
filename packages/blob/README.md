@@ -72,7 +72,20 @@ rm -rf .vitehub/data/blob/.vitehub/blob-writes
 
 This maintenance removes staging files. Published objects and their metadata remain in place. Do not run it while writers are active.
 
-Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Other configured tokens stay unchanged.
+On Vercel, the `vercel-blob` driver uses OIDC when the project has `BLOB_STORE_ID`, which Vercel adds when you connect a store. Off Vercel, it uses `BLOB_READ_WRITE_TOKEN`. Configured Vercel Blob tokens that match `BLOB_READ_WRITE_TOKEN` are masked at build time and read from that variable again at runtime. Configured tokens always take precedence over OIDC.
+
+## Remote stores in development
+
+`vite dev` keeps Blob local unless a store sets `remote: true`. A store without a `driver` that ViteHub infers as Vercel Blob, from `BLOB_STORE_ID`, `BLOB_READ_WRITE_TOKEN`, or the Vercel preset, uses the local `fs` driver in `.vitehub/data/blob`. On the Cloudflare preset, a store without a `driver` uses the R2 binding of the dev runner when it has one, which is a local emulation, and the local `fs` driver without one.
+
+```ts
+export default defineConfig({
+  blob: { remote: true },
+  plugins: [hubBlob(), nitro()],
+})
+```
+
+With `remote: true`, `vite dev` uses the real store and prints `Blob store "<name>" is remote` on first use. Writes then change real data. `vitehub inspect definitions --kind blob` shows `Development: Remote`. On a `cloudflare-r2` store, `remote: true` uses the R2 API and its HTTP credentials, not the local binding. Builds ignore `remote`. An explicit `driver` is used in `vite dev` as configured, with or without `remote`. A `remote` value that is not a boolean fails with `BLOB_C0017`, and `remote: true` on a local `fs` store fails with `BLOB_C0018`.
 
 Set `blob.serve` to generate a Nitro route for serving Blob-backed assets. `serve: true` uses `/api/_vitehub/blob` as a safe namespaced API route. Use `serve.route` for product-facing paths such as `/assets`.
 Objects from the served store receive an absolute URL when `serve.publicBaseUrl` is configured, or a route-relative URL otherwise.
@@ -120,6 +133,17 @@ With a partial prefix such as `docs/re`, a native page can be empty while `hasMo
 
 Filesystem listings skip child directories removed or replaced by files during traversal, so unaffected blobs remain visible. Permission and path-safety errors still propagate. A store root that is a regular file still fails.
 
+## Read-only handles
+
+`blob.store(name, { mode: "read" })` returns a `ReadonlyBlobStorage` handle with `get()`, `head()`, `list()`, `serve()`, `sign()` for `GET` requests, and `media.get()`, `media.list()`, and `media.variants()`. Write methods are a type error and absent at runtime. `mode` defaults to `"write"`. Another value throws `BLOB_R0038`, and a `PUT` sign request throws `BLOB_R0037`.
+
+```ts
+const reports = blob.store("reports", { mode: "read" })
+const [error, file] = await reports.get("2026/q1.pdf")
+```
+
+The mode limits this API, not the host. The R2 binding or provider token keeps full access, and code can still import the full `blob` export, so it is not a security boundary against code that reads the binding directly. `media.get()` and `serve()` with a transform or variant can store derived records and variants under the reserved `_vitehub/` prefix. They never change your objects.
+
 ## Uploads
 
 `blob.handleUpload(event, options)` stores the files of a `multipart/form-data` request and returns `[error, objects]`. Options: `formKey` (default `"files"`), `multiple` (default `true`), `ensure` (checked with `ensureBlob()`), and `put` (write options). Request errors throw H3 400 errors before anything is stored. When the build targets Vercel, `vite dev` also throws an H3 413 error for a request body above 4.5 MB, as a [Vercel Function](https://vercel.com/docs/functions/limitations#request-body-size) does.
@@ -130,7 +154,7 @@ Upload routes accept client-chosen pathnames. Authorize each request in the rout
 
 Browser clients:
 
-- `@vite-hub/blob/client`: `uploadFiles()` and `createMultipartUploader()`, built only on `fetch`.
+- `@vite-hub/blob/client`: `uploadFiles()` and `createMultipartUploader()`, built on `fetch`. `uploadFiles(route, files, { onProgress })` reports progress from 0 to 100 and sends with XMLHttpRequest, since `fetch` can't report upload progress.
 - `@vite-hub/blob/vue`: `useUpload()` and `useMultipartUpload()`, which add a progress ref. `vue` is an optional peer dependency.
 
 ## Blob reference schemas

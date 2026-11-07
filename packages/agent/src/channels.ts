@@ -11,7 +11,7 @@ export { channelEnv, channelEnvValue } from "./channel-env.ts"
 export { channelMessageContextKey } from "./internal/channel-delivery-handlers.ts"
 import { createHash, randomUUID } from "node:crypto"
 import { ForgeResponseError, forgeErrorStatus, forgeProvider, githubAppCredentials, readGitHubAppPrivateKey } from "@vite-hub/forge"
-import { getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import type { ForgeKind } from "@vite-hub/forge"
 import { AgentHttpError } from "./http-error.ts"
 import { CHAT_FINISH_EXTENSION_CONTEXT_KEY } from "./chat-trigger.ts"
@@ -1625,12 +1625,14 @@ function runtimeEnv<TRuntimeConfig extends AgentRuntimeConfig>(
 const serverEnvModuleId = "#vitehub/env/server"
 
 /** Reads one namespace of the application's Server Env. Returns an empty object without Server Env. */
-async function serverEnvNamespace(name: string, event?: unknown): Promise<Record<string, unknown>> {
+async function serverEnvNamespace(name: string, cloudflareEnv?: Record<string, unknown>): Promise<Record<string, unknown>> {
   try {
     // hubEnv() rewrites the tagged import so Vite can resolve its generated module.
     // SAFETY: The generated server env module exposes the optional useServerEnv entrypoint.
-    const module = await import(/* @vite-ignore */ /* @vitehub-env */ serverEnvModuleId) as { useServerEnv?: (event?: unknown) => unknown }
-    const env = module.useServerEnv?.(event)
+    const module = await import(/* @vite-ignore */ /* @vitehub-env */ serverEnvModuleId) as { useServerEnv?: () => unknown }
+    const useServerEnv = module.useServerEnv
+    // Server Env reads the active Cloudflare bindings when it gets no request event.
+    const env = useServerEnv && (cloudflareEnv ? runWithActiveCloudflareEnv(cloudflareEnv, () => useServerEnv()) : useServerEnv())
     const namespace = isRecord(env) ? env[name] : undefined
     return isRecord(namespace)
       ? Object.fromEntries(Object.entries(namespace).filter(([, value]) => value !== undefined))
@@ -4017,7 +4019,7 @@ function gmailInstructions(labels: Record<string, GmailLabelSettings>): string {
 }
 
 async function gmailChannelSettings<TRuntimeConfig extends AgentRuntimeConfig>(context?: AgentCallbackContext<TRuntimeConfig>): Promise<GmailSettings> {
-  return gmailSettings(await serverEnvNamespace("gmail", context?.event), name => context ? runtimeEnv(name, context) : globalThis.process?.env?.[name])
+  return gmailSettings(await serverEnvNamespace("gmail", context?.cloudflare?.env), name => context ? runtimeEnv(name, context) : globalThis.process?.env?.[name])
 }
 
 /** Validates the Channel options and returns the declared labels with lowercase colors. */

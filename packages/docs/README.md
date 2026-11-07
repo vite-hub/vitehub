@@ -39,7 +39,7 @@ content/
   docs/
     index.md                  → /docs
     guide/
-      .navigation.yml         section title, icon, order, category
+      .navigation.yml         section title, icon, order, category, group, fold
       index.md                → /docs/guide
       install.md              → /docs/guide/install
 ```
@@ -76,6 +76,8 @@ Dotted keys work too, such as `navigation.order: 2`. A wrong field stops the bui
 | `icon` | Section icon. |
 | `order` | Position in the rail. Lower comes first. |
 | `category` | Rail group and catalog group. List the categories in the `categories` option to order them. |
+| `group` | Title of the group of the section. See `groups`. |
+| `fold` | `true` folds each page group of the sidebar. The group of the current page opens itself. |
 | `related` | Section ids listed under Related in the sidebar. |
 
 ## Layouts and rails
@@ -114,6 +116,7 @@ Most changes are options in `nuxt.config.ts`:
 | `site` | `{ name: "Docs" }` | `name`, `url` (canonical origin), `description`, `logo` (one-color SVG path), `badge` (`{ label, tooltip }`). |
 | `categories` | `[]` | Order of section categories in the rail and the catalog. |
 | `railExclude` | `[]` | Categories that the catalog lists but the rail leaves out. |
+| `groups` | `[]` | `[{ title, icon, sections }]`: rail items that hold several sections, such as every component package of a library. The sidebar of a member lists every section of its group, one row per section. A section also joins with `group` in its `.navigation.yml`. |
 | `start` | None | `{ section, links }`: the section that new readers open first, and site pages listed at its top. |
 | `socials` | `[]` | Community links at the foot of the sidebar. |
 | `banner` | None | One line above every docs page. |
@@ -205,7 +208,7 @@ The module sets the `comments` option of `vite-hub/nuxt`, which turns on the Dat
 - `@` suggests the users of ViteHub Auth when the app has Auth, else the people who wrote in the threads.
 - The Console's Comments section lists the threads.
 
-Turn it off with `docs: { comments: false }`, which also keeps the Console from turning it on. An object goes to the `comments` option of `vite-hub/nuxt`, such as `{ database: "docs" }` or `{ overlay: false }`. A site without `vite-hub/nuxt` has no Comments; `comments: true` there fails the build with `DocsCommentsSetupError`.
+Turn it off with `docs: { comments: false }`. An object goes to the `comments` option of `vite-hub/nuxt`, such as `{ database: "docs" }` or `{ overlay: false }`. A site without `vite-hub/nuxt` has no Comments; `comments: true` there fails the build with `DocsCommentsSetupError`.
 
 ## Docs assistant
 

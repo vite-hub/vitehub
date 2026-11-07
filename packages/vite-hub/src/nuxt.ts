@@ -13,6 +13,7 @@ import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL,
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { nitroGeneratedRelativeImports } from "./internal/nitro-generated-imports.ts"
+import { nitroInjectSourcemapsModule, nitroInjectSourcemapsModuleName } from "./internal/nitro-inject-sourcemaps.ts"
 import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
@@ -49,6 +50,7 @@ import { serializeConsoleRefresh } from "./console/refresh.ts"
 import { assertConsoleAccess, assertConsoleProductionAccess, closeConsoleInvocationRootState, consoleAuthConfig, consoleOpenAccessBuildWarning, resolveConsoleOptions, configureConsoleFixtureLifecycle, consoleInvocationRootPlugin, createConsoleInvocationRootState, generatedConsolePluginRegistration, resolveConsoleAccessBuild, resolveGeneratedConsolePlugin, type ConsoleInvocationRootState, updateConsoleInvocationRootState } from "./console/vite.ts"
 
 import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
+import type { BundleVitePlugin } from "@vite-hub/bundle/vite"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
 import type { CommentsVitePlugin } from "@vite-hub/comments/vite"
 import type { AuthModuleOptions } from "@vite-hub/auth"
@@ -171,7 +173,7 @@ type NuxtLike = {
     (name: "app:templatesGenerated", callback: (app: { components: Parameters<CommentsVitePlugin["api"]["setComponents"]>[0] }) => Promise<void>): void
     (name: "close" | "nitro:config", callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>)): void
     (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
-    (name: "modules:done", callback: () => void): void
+    (name: "build:before" | "modules:done", callback: () => void): void
   }
   options: {
     _installedModules?: Array<{ meta: { name?: string } }>
@@ -1264,6 +1266,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       && !plugins.some(candidate => candidate.name === plugin.name),
     ),
   ]
+  // Nuxt runs separate Vite builds and then Nitro; all phases belong to this build command.
+  const bundlePlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/bundle/vite") as BundleVitePlugin | undefined
+  if (bundlePlugin && !nuxt.options.dev) nuxt.hook?.("build:before", () => { bundlePlugin.api.startBuild() })
   // Nuxt rewrites production component names using its resolved registry, including directory prefixes and modes.
   // SAFETY: The plugin name identifies the Comments plugin and its public component registry API.
   const commentsPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/comments/vite") as CommentsVitePlugin | undefined
@@ -1600,6 +1605,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     installNitroRuntimeResolvers(config, replayPlugins)
     normalizeGeneratedNitroPlugins(config, projectRoot)
     installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.preset === "cloudflare", consoleSections)
+    if (nitroMajorVersion === 2) {
+      const modules = Array.isArray(config.modules) ? config.modules : config.modules ? [config.modules] : []
+      if (!modules.some(module => isRecord(module) && module.name === nitroInjectSourcemapsModuleName)) config.modules = [...modules, nitroInjectSourcemapsModule]
+    }
     if (nuxt.options.dev && plan.preset === "cloudflare") {
       const alias = (config.alias ??= {}) as Record<string, string>
       alias["cloudflare:workers"] ??= await writeCloudflareWorkersDevShim(nuxt.options.buildDir)

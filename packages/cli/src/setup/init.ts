@@ -319,6 +319,8 @@ function manualConfig(file: string, reason: string, host: InitHost, framework: I
 /** The config of an existing app with ViteHub registered on `host`. */
 function adoptConfig(project: SetupProject, host: InitHost, framework: InitFramework): { file: string, before?: string, after: string } {
   const file = project.configFile ?? (framework === "nuxt" ? "nuxt.config.ts" : "vite.config.ts")
+  const config = project.config
+  if (config && !config.ok && config.reason !== "no-vitehub") throw manualConfig(file, config.reason, host, framework)
   if (!project.configFile) {
     const name = packageNameOf(project.root)
     const files = framework === "nuxt" ? nuxtAppFiles(name, host) : viteAppFiles(name, host)
@@ -326,7 +328,6 @@ function adoptConfig(project: SetupProject, host: InitHost, framework: InitFrame
   }
   const before = project.configSource
   if (before === undefined) throw manualConfig(file, "no-vitehub", host, framework)
-  const config = project.config
   if (!config?.ok) {
     if (config?.reason !== "no-vitehub") throw manualConfig(file, config?.reason ?? "no-vitehub", host, framework)
     const inserted = insertViteHubConfig(file, before, { preset: host })
