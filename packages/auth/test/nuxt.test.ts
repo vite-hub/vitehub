@@ -97,7 +97,8 @@ describe("Auth Nuxt integration", () => {
       expect.objectContaining({ name: "@vite-hub/env/vite" }),
       expect.objectContaining({ name: "@vite-hub/auth/vite" }),
     ])
-    expect(nuxt.hooks).toHaveLength(2)
+    // nitro:config, modules:done, and prepare:types for the definePageMeta({ auth }) type.
+    expect(nuxt.hooks).toHaveLength(3)
   })
 
   it("keeps Auth enabled when Env is disabled", () => {
@@ -135,7 +136,8 @@ describe("Auth Nuxt integration", () => {
     authPlugin.config = authConfig
     await (nuxt.hooks[0] as (config: Record<string, unknown>) => Promise<void>)({})
     expect(authConfig).toHaveBeenCalledWith(expect.objectContaining({ root: "/tmp/vite-root" }), expect.anything())
-    expect(nuxt.hooks).toHaveLength(2)
+    // nitro:config, modules:done, and prepare:types for the definePageMeta({ auth }) type.
+    expect(nuxt.hooks).toHaveLength(3)
   })
 
   it("resolves relative Env roots from the Vite root", () => {

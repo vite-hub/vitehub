@@ -75,7 +75,8 @@ async function signedIn(): Promise<boolean> {
   return Boolean(result.data?.session)
 }
 
-export default defineNuxtPlugin({
+// Typed `unknown` because the package build cannot see Nuxt's plugin type. Nuxt only reads the value.
+const viteHubAuthPlugin: unknown = defineNuxtPlugin({
   name: "vitehub:auth",
   enforce: "pre",
   async setup(nuxtApp: NuxtApp) {
@@ -102,3 +103,5 @@ export default defineNuxtPlugin({
     }, { global: true })
   },
 })
+
+export default viteHubAuthPlugin
