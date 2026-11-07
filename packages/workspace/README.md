@@ -217,8 +217,9 @@ The first pull writes `vitehub.lock`: commit it. Pull merges text by line and wr
 Git conflict markers where both sides changed the same lines; push refuses until they
 are gone. The commands call the `workspace.changes` and `workspace.commit` operations.
 A push keeps the media type and metadata of the files that it replaces, and records
-the signed-in user as `author` of the revision. Unknown flags fail before any call, so
-`vitehub push --dry-run` commits nothing.
+the signed-in user as `author` of the revision. When a Store starts a new ref from
+another ref, the first push also pulls the files of that ref. Unknown flags fail
+before any call, so `vitehub push --dry-run` commits nothing.
 Checkout folders must be separate: they cannot share a folder or contain one another.
 On Windows and macOS, folder names that differ only in case are one folder.
 Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components, in any letter

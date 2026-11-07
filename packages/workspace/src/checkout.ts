@@ -400,6 +400,8 @@ export interface WorkspacePushResult {
   revision?: string
   pushed: string[]
   pull: WorkspacePullResult
+  /** The pull after the first push to a new ref that the remote started with the files of another ref. */
+  after?: WorkspacePullResult
 }
 
 export interface WorkspaceStatus {
@@ -523,6 +525,7 @@ interface WorkspacePullOptions {
 export async function pullWorkspaces(context: WorkspaceCheckoutContext, options: WorkspacePullOptions = {}): Promise<WorkspacePullResult[]> {
   const lock = await readWorkspaceLock(context.rootDir)
   if (options.dir) folderOf(context.rootDir, options.dir)
+  const created = options.workspace !== undefined && !lock.workspaces[options.workspace]
   if (options.workspace) checkoutEntry(context.rootDir, lock, options.workspace, options)
   const results: WorkspacePullResult[] = []
   try {
@@ -533,8 +536,14 @@ export async function pullWorkspaces(context: WorkspaceCheckoutContext, options:
       results.push(result)
     }
   }
+  catch (error) {
+    // A first pull that failed before it wrote a file, such as on a 401, leaves no entry, so a wrong --dir or --url is not kept.
+    const entry = created ? lock.workspaces[options.workspace!] : undefined
+    if (entry && entry.head === null && !Object.keys(entry.files).length) delete lock.workspaces[options.workspace!]
+    throw error
+  }
   finally {
-    await writeWorkspaceLock(context.rootDir, lock)
+    if (Object.keys(lock.workspaces).length || await lstat(join(context.rootDir, workspaceLockFile)).then(() => true, () => false)) await writeWorkspaceLock(context.rootDir, lock)
   }
   return results
 }
@@ -607,8 +616,15 @@ async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, e
     const { revision } = called.value as WorkspaceCommitResult
     for (const path of [...local.added, ...local.modified]) entry.files[path] = digestOf(files.get(path)!)
     for (const path of local.deleted) delete entry.files[path]
-    entry.head = revision.id
-    return { workspace, ref: entry.ref, revision: revision.id, pushed, pull }
+    const result: WorkspacePushResult = { workspace, ref: entry.ref, revision: revision.id, pushed, pull }
+    // A new ref with a parent started from another ref, as the GitHub Store starts one from the default branch.
+    // Pull every file of the new ref, so the folder also has the files that it copied.
+    if (entry.head === null && revision.parentId !== null) {
+      const after = await pullEntry(context, workspace, entry)
+      result.after = { ...after, files: after.files.filter(file => !pushed.includes(file.path)) }
+    }
+    else entry.head = revision.id
+    return result
   }
 }
 
