@@ -1461,6 +1461,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
+    disabledTypeFiles: workflowEnabled ? [] : ["workflow.d.ts"],
     prepareSources: sourcePlugin.api.prepareSources,
   }))
   // Nitro is the host output. Its plugins step aside when the app adds `nitro()` itself.

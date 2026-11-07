@@ -152,6 +152,8 @@ corepack pnpm exec vp run --filter vitehub-docs test:snippets
 
 Write a block as a file that works when an Agent copies it: include its imports. The blocks of one page form one project, so a block labeled `[server/db/schema.ts]` can be imported by the other blocks of that page. Mark a block that is an excerpt of a larger file with `fragment` after its label, for example ```` ```ts [server/agents/support.ts] fragment ````. The site does not show the marker. `docs/scripts/check-snippets.baseline.json` lists the blocks that failed when the check started. Fix a listed block and remove its entry; the check fails when a listed block passes, its code or label changes, or its diagnostics change.
 
+Run `corepack pnpm --dir docs run test:snippets --update-baseline` to remove fixed entries. The command leaves the baseline unchanged and fails if it finds a new or changed failure.
+
 ### Content for agents
 
 Agents get each page as raw Markdown at `/raw/<page>.md`, in llms-full.txt, and through the docs MCP server. They get everything a human sees, plus agent-only blocks:

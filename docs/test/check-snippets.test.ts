@@ -1,8 +1,10 @@
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
-import { baselineEntry, checkSnippets, collectSnippets, compareBaseline, extractBlocks, generatedDeclarations, repoRoot } from "../scripts/check-snippets.mjs"
+import { baselineEntry, checkSnippets, collectSnippets, compareBaseline, extractBlocks, generatedDeclarations, repoRoot, updateBaseline } from "../scripts/check-snippets.mjs"
 
 describe("documentation snippet check", () => {
   it("reads labels, fragments, and indented blocks", () => {
@@ -53,6 +55,43 @@ describe("documentation snippet check", () => {
   it("reports a listed block that now passes", () => {
     const expected = baselineEntry(knownFailure)
     expect(compareBaseline([], [expected])).toEqual({ fresh: [], stale: [expected] })
+  })
+
+  describe("baseline updates", () => {
+    let directory: string
+    let path: string
+    const original = `${JSON.stringify([baselineEntry(knownFailure)], null, 2)}\n`
+
+    beforeEach(() => {
+      directory = mkdtempSync(join(tmpdir(), "vitehub-snippet-baseline-"))
+      path = join(directory, "baseline.json")
+      writeFileSync(path, original)
+    })
+
+    afterEach(() => rmSync(directory, { recursive: true, force: true }))
+
+    it("removes fixed failures while preserving known failures", () => {
+      expect(updateBaseline([knownFailure], path)).toBe(true)
+      expect(readFileSync(path, "utf8")).toBe(original)
+      expect(updateBaseline([], path)).toBe(true)
+      expect(JSON.parse(readFileSync(path, "utf8"))).toEqual([])
+    })
+
+    it.each([
+      ["new block", { ...knownFailure, snippet: { ...knownFailure.snippet, page: "new-page.md" } }],
+      ["edited block", { ...knownFailure, snippet: { ...knownFailure.snippet, code: "export const value = missing" } }],
+      ["changed label", { ...knownFailure, snippet: { ...knownFailure.snippet, label: "other.ts" } }],
+      ["changed diagnostics", { ...knownFailure, diagnostics: knownFailure.diagnostics.slice(1) }],
+    ])("rejects a %s without changing the baseline", (_name, current) => {
+      expect(updateBaseline([current], path)).toBe(false)
+      expect(readFileSync(path, "utf8")).toBe(original)
+    })
+
+    it("cannot admit a failure when the baseline is absent", () => {
+      rmSync(path)
+      expect(updateBaseline([knownFailure], path)).toBe(false)
+      expect(() => readFileSync(path)).toThrow()
+    })
   })
 
   it("compares complete diagnostic messages without checkout-specific paths", () => {
