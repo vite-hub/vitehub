@@ -319,9 +319,10 @@ async function runNamespace(namespace: ViteHubCliCommandNamespace, args: string[
   const { stderr, stdout } = context
   const featureName = args[1]
   const defaultFeature = namespace.defaultFeature ? namespace.features.find(item => item.name === namespace.defaultFeature) : undefined
-  // A namespace whose only feature has its own name, such as `vitehub pull`, is one command and prints its help.
-  const command = defaultFeature?.name === namespace.name && namespace.features.length === 1 ? defaultFeature : undefined
-  if ((featureName === "-h" || featureName === "--help") && !command) {
+  // A namespace whose only feature has its own name, such as `vitehub pull`, is one command. It gets every argument,
+  // so `vitehub push push` pushes the Workspace named `push` and `vitehub pull --help` prints the command help.
+  if (defaultFeature?.name === namespace.name && namespace.features.length === 1) return await defaultFeature.run(args.slice(1), context) ?? 0
+  if (featureName === "-h" || featureName === "--help") {
     writeNamespaceHelp(namespace, stdout)
     return 0
   }

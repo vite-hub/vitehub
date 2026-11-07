@@ -1,7 +1,9 @@
-import { createHash } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { constants } from "node:fs"
-import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { lstat, mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { basename, dirname, join, relative, resolve, sep } from "node:path"
+
+import { workspaceCommitRequestBytes } from "./results.ts"
 
 import type { WorkspaceChangedFile, WorkspaceChanges, WorkspaceCommitResult, WorkspaceHistoryContent, WorkspaceHistoryDetails } from "./results.ts"
 
@@ -41,13 +43,18 @@ export class WorkspaceCheckoutError extends Error {
 type Bytes = Uint8Array
 
 // Folders that never belong to a checkout, in lower case. The Workspace reserves `.git` and `.vitehub`. The match
-// ignores case, because Windows and macOS file systems open `NODE_MODULES` and `.GIT` as the same folders.
+// ignores case and trailing dots and spaces, because Windows opens `NODE_MODULES` and `node_modules.` as
+// `node_modules`, and macOS ignores case. A remote path can come from any system, so the match is the same everywhere.
 const ignored = new Set([".git", ".vitehub", "node_modules", ".ds_store"])
 const conflictStart = /^<{7}(?: |$)/m
 const conflictEnd = /^>{7}(?: |$)/m
 
+/** The suffix of the temporary file of an atomic write. A command that stopped before the rename leaves one behind. */
+const temporarySuffix = ".vitehub-tmp"
+
 function ignoredName(name: string): boolean {
-  return ignored.has(name.toLowerCase())
+  const normalized = name.toLowerCase().replace(/[. ]+$/, "")
+  return ignored.has(normalized) || normalized.endsWith(temporarySuffix)
 }
 
 function ignoredPath(path: string): boolean {
@@ -215,13 +222,45 @@ export function mergeText(base: string, local: string, remote: string, labels: {
   return { conflicts, text: out.join("") }
 }
 
+/**
+ * Writes a file as a new file in the same folder, then renames it over `target`. A hard link to the old file keeps
+ * its content, a link at `target` is replaced and not followed, and a failed write leaves the old file.
+ */
+async function writeAtomic(target: string, bytes: Bytes | string): Promise<void> {
+  // A replaced file keeps its permission bits, such as an executable script.
+  const mode = await lstat(target).then(stat => stat.isFile() ? stat.mode & 0o777 : 0o666, () => 0o666)
+  const temporary = join(dirname(target), `.${basename(target)}.${randomBytes(6).toString("hex")}${temporarySuffix}`)
+  // O_EXCL and O_NOFOLLOW fail on any path that exists at the temporary name, including a link created after the check.
+  await writeFile(temporary, bytes, { flag: constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode })
+  try {
+    await rename(temporary, target)
+  }
+  catch (error) {
+    await rm(temporary, { force: true })
+    throw error
+  }
+}
+
+function lockSymlinkError(): WorkspaceCheckoutError {
+  return new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_SYMLINK", `${workspaceLockFile} is a symbolic link. A checkout reads and writes only a real lock file.`, `Replace ${workspaceLockFile} with a real file, then try again.`)
+}
+
 async function readWorkspaceLock(rootDir: string): Promise<WorkspaceLock> {
   let source: string
   try {
-    source = await readFile(join(rootDir, workspaceLockFile), "utf8")
+    if ((await lstat(join(rootDir, workspaceLockFile))).isSymbolicLink()) throw lockSymlinkError()
+    // O_NOFOLLOW also rejects a link created after the check.
+    const handle = await open(join(rootDir, workspaceLockFile), constants.O_RDONLY | constants.O_NOFOLLOW)
+    try {
+      source = await handle.readFile("utf8")
+    }
+    finally {
+      await handle.close()
+    }
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, workspaces: {} }
+    if ((error as NodeJS.ErrnoException).code === "ELOOP") throw lockSymlinkError()
     throw error
   }
   let parsed: unknown
@@ -260,7 +299,60 @@ async function writeWorkspaceLock(rootDir: string, lock: WorkspaceLock): Promise
       ...(entry.conflicts?.length ? { conflicts: [...entry.conflicts].sort() } : {}),
     }
   }
-  await writeFile(join(rootDir, workspaceLockFile), `${JSON.stringify(sorted, null, 2)}\n`)
+  await writeAtomic(join(rootDir, workspaceLockFile), `${JSON.stringify(sorted, null, 2)}\n`)
+}
+
+// A command holds this file only while it reads, merges, and writes the lock file, for milliseconds. A file older than
+// `lockStaleMs` is left by a command that stopped, and the next command removes it.
+const lockMutexFile = `${workspaceLockFile}.lock`
+const lockWaitMs = 10_000
+const lockStaleMs = 30_000
+
+async function withLockMutex<T>(rootDir: string, work: () => Promise<T>): Promise<T> {
+  const path = join(rootDir, lockMutexFile)
+  const started = Date.now()
+  for (;;) {
+    try {
+      await writeFile(path, `${process.pid}\n`, { flag: "wx" })
+      break
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+      const stat = await lstat(path).catch(() => undefined)
+      if (stat && Date.now() - stat.mtimeMs > lockStaleMs) {
+        await rm(path, { force: true })
+        continue
+      }
+      if (Date.now() - started > lockWaitMs) {
+        throw new WorkspaceCheckoutError("WORKSPACE_LOCK_BUSY", `Another vitehub command is writing ${workspaceLockFile}: ${lockMutexFile} exists.`, `Wait for that command to finish and try again. If no vitehub command runs, delete ${lockMutexFile}.`)
+      }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+  }
+  try {
+    return await work()
+  }
+  finally {
+    await rm(path, { force: true })
+  }
+}
+
+/**
+ * Writes the entries of `names` from `lock` into the lock file as it is now, and keeps the other entries. Another
+ * command can have changed them since this command read the lock, such as a concurrent pull of another Workspace.
+ * A name without an entry in `lock` is removed.
+ */
+async function saveWorkspaceLock(rootDir: string, lock: WorkspaceLock, names: readonly string[]): Promise<void> {
+  await withLockMutex(rootDir, async () => {
+    const current = await readWorkspaceLock(rootDir)
+    for (const name of names) {
+      const entry = lock.workspaces[name]
+      if (entry) current.workspaces[name] = entry
+      else delete current.workspaces[name]
+    }
+    validateCheckoutFolders(rootDir, current)
+    if (Object.keys(current.workspaces).length || await lstat(join(rootDir, workspaceLockFile)).then(() => true, () => false)) await writeWorkspaceLock(rootDir, current)
+  })
 }
 
 function folderOf(rootDir: string, dir: string): string {
@@ -344,8 +436,7 @@ async function localPath(rootDir: string, folder: string, path: string): Promise
 async function put(rootDir: string, folder: string, path: string, bytes: Bytes): Promise<void> {
   const target = await localPath(rootDir, folder, path)
   await mkdir(dirname(target), { recursive: true })
-  // O_NOFOLLOW rejects a link at the final component, including one created after the check.
-  await writeFile(target, bytes, { flag: constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW })
+  await writeAtomic(target, bytes)
 }
 
 async function remove(rootDir: string, folder: string, path: string): Promise<void> {
@@ -523,8 +614,10 @@ export async function pullWorkspaces(context: WorkspaceCheckoutContext, options:
   const created = options.workspace !== undefined && !lock.workspaces[options.workspace]
   if (options.workspace) checkoutEntry(context.rootDir, lock, options.workspace, options)
   const results: WorkspacePullResult[] = []
+  const touched = created ? [options.workspace!] : []
   try {
     for (const name of selected(lock, options.workspace)) {
+      if (!touched.includes(name)) touched.push(name)
       const entry = lock.workspaces[name]!
       const result = await pullEntry(context, name, entry)
       if (options.theirs?.length) await takeTheirs(context, name, entry, options.theirs, result)
@@ -538,7 +631,7 @@ export async function pullWorkspaces(context: WorkspaceCheckoutContext, options:
     throw error
   }
   finally {
-    if (Object.keys(lock.workspaces).length || await lstat(join(context.rootDir, workspaceLockFile)).then(() => true, () => false)) await writeWorkspaceLock(context.rootDir, lock)
+    await saveWorkspaceLock(context.rootDir, lock, touched)
   }
   return results
 }
@@ -574,11 +667,15 @@ interface WorkspacePushOptions {
 export async function pushWorkspaces(context: WorkspaceCheckoutContext, options: WorkspacePushOptions = {}): Promise<WorkspacePushResult[]> {
   const lock = await readWorkspaceLock(context.rootDir)
   const results: WorkspacePushResult[] = []
+  const touched: string[] = []
   try {
-    for (const name of selected(lock, options.workspace)) results.push(await pushEntry(context, name, lock.workspaces[name]!, options.message))
+    for (const name of selected(lock, options.workspace)) {
+      touched.push(name)
+      results.push(await pushEntry(context, name, lock.workspaces[name]!, options.message))
+    }
   }
   finally {
-    await writeWorkspaceLock(context.rootDir, lock)
+    await saveWorkspaceLock(context.rootDir, lock, touched)
   }
   return results
 }
@@ -596,14 +693,16 @@ async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, e
     const pushed = [...local.added, ...local.modified, ...local.deleted].sort()
     if (!pushed.length) return { workspace, ref: entry.ref, pushed, pull }
     const putFiles = Object.fromEntries([...local.added, ...local.modified].map(path => [path, encode(files.get(path)!)]))
-    const called = await context.call("workspace.commit", {
+    const input = {
       workspace,
       ref: entry.ref,
       ifHead: entry.head,
       ...(Object.keys(putFiles).length ? { put: putFiles } : {}),
       ...(local.deleted.length ? { delete: local.deleted } : {}),
       ...(message ? { message } : {}),
-    }, entry.remote)
+    }
+    assertCommitSize(workspace, input, putFiles)
+    const called = await context.call("workspace.commit", input, entry.remote)
     if (!called.ok) {
       if (called.code === "WORKSPACE_CONFLICT" && attempt < 3) continue
       throw new WorkspaceCheckoutError(called.code ?? "WORKSPACE_CHECKOUT_FAILED", called.message, called.fix)
@@ -621,6 +720,31 @@ async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, e
     else entry.head = revision.id
     return result
   }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes >= 1_024 * 1_024) return `${Number((bytes / 1_024 / 1_024).toFixed(1))} MiB`
+  if (bytes >= 1_024) return `${Number((bytes / 1_024).toFixed(1))} KiB`
+  return `${bytes} bytes`
+}
+
+/**
+ * A push is one revision, so it cannot be split into more calls. Fails before the call when the request body, as
+ * `callOperation()` sends it, is over the request limit of `workspace.commit`, and names the largest files.
+ */
+function assertCommitSize(workspace: string, input: object, putFiles: Record<string, { content: string }>): void {
+  const bytes = Buffer.byteLength(JSON.stringify({ operation: "workspace.commit", input }))
+  if (bytes <= workspaceCommitRequestBytes) return
+  const largest = Object.entries(putFiles)
+    .map(([path, file]) => ({ path, bytes: Buffer.byteLength(file.content) }))
+    .sort((left, right) => right.bytes - left.bytes)
+    .slice(0, 3)
+    .map(file => `${file.path} (${formatBytes(file.bytes)})`)
+  throw new WorkspaceCheckoutError(
+    "WORKSPACE_CHECKOUT_TOO_LARGE",
+    `The push of Workspace "${workspace}" is ${formatBytes(bytes)}, over the ${formatBytes(workspaceCommitRequestBytes)} limit of one push.${largest.length ? ` Largest files: ${largest.join(", ")}.` : ""}`,
+    "A push is one revision and sends each changed file whole, with binary files in base64. Keep large media in Blob, or add new files in smaller groups with a push after each group.",
+  )
 }
 
 interface WorkspaceStatusOptions {
@@ -688,6 +812,6 @@ export async function resolveWorkspaceConflicts(rootDir: string, workspace: stri
   if (!entry) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_MISSING", `Workspace "${workspace}" is not checked out.`)
   const resolved = (entry.conflicts ?? []).filter(path => !paths.length || paths.includes(path))
   entry.conflicts = (entry.conflicts ?? []).filter(path => !resolved.includes(path))
-  await writeWorkspaceLock(rootDir, lock)
+  await saveWorkspaceLock(rootDir, lock, [workspace])
   return resolved
 }
