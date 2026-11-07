@@ -99,10 +99,25 @@ export class ConfigEditor {
   }
 
   /** Inserts properties before the closing brace of `object`, after its last kept property. */
+  /** Indentation of the properties of `object`. A one-line object gets the indentation it would have on several lines. */
+  propertyIndent(object: ObjectExpression): string {
+    const firstProperty = object.properties[0]
+    if (firstProperty && this.code.slice(start(object), start(firstProperty)).includes("\n")) return indentAt(this.code, start(firstProperty))
+    return `${indentAt(this.code, start(object))}${this.style.indent}`
+  }
+
   insertProperties(object: ObjectExpression, entries: string[], removedProperties: ReadonlySet<Node>): void {
     const kept = object.properties.filter(property => !removedProperties.has(property))
     const last = kept.at(-1)
     const closing = end(object) - 1
+    // A one-line object such as `{ preset: 'node' }` goes on several lines, so the new entries can span lines.
+    if (last && kept.length === object.properties.length && !this.code.slice(start(object), end(object)).includes("\n")) {
+      const indent = this.propertyIndent(object)
+      this.output.overwrite(start(object) + 1, start(kept[0]!), `\n${indent}`)
+      kept.slice(1).forEach((property, index) => this.output.overwrite(end(kept[index]!), start(property), `,\n${indent}`))
+      this.output.overwrite(end(last), closing, `,\n${entries.map(entry => `${indent}${entry},\n`).join("")}${indentAt(this.code, start(object))}`)
+      return
+    }
     const firstProperty = object.properties[0]
     const indent = firstProperty ? indentAt(this.code, start(firstProperty)) : `${indentAt(this.code, start(object))}${this.style.indent}`
     const closingIndent = indentAt(this.code, closing)
@@ -172,7 +187,8 @@ export class ConfigEditor {
     }
   }
 
-  private removeStatement(statement: Statement): void {
+  /** Removes a top-level statement with its leading comments and line break. */
+  removeStatement(statement: Statement): void {
     const from = Math.min(start(statement), ...(statement.leadingComments ?? []).map(comment => comment.start ?? start(statement)))
     let to = end(statement)
     while (to < this.code.length && /[ \t]/.test(this.code[to] ?? "")) to++
@@ -339,10 +355,13 @@ export function addViteHubOptions(editor: ConfigEditor, config: NuxtConfigFile, 
     for (const option of input.options) {
       if (findProperty(existing, option.key)) throw new CodemodError(`${config.fileName} already sets vitehub.${option.key}. Merge ${option.label} by hand.`)
     }
-    const innerIndent = existing.properties[0] ? indentAt(config.code, start(existing.properties[0])) : `${baseIndent}${unit}`
+    const innerIndent = existing.properties.length ? editor.propertyIndent(existing) : `${baseIndent}${unit}`
     const entries = input.options.map(option => `${option.key}: ${option.value(innerIndent)}`)
     if (vitehubPreset && !findProperty(existing, "preset")) entries.unshift(`preset: ${quoteString(vitehubPreset, style)}`)
-    else if (findProperty(existing, "preset")) presetNote = undefined
+    else if (findProperty(existing, "preset")) {
+      vitehubPreset = undefined
+      presetNote = undefined
+    }
     editor.insertProperties(existing, entries, new Set())
   }
   else {

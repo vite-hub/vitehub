@@ -1,0 +1,30 @@
+t3-env: migrated 7 variables from env.ts to vite-hub/nuxt Env (1 public, 6 server), deployment preset "node".
+Dry run: no files were written.
+
+Files to change (6):
+  nuxt.config.ts
+  app/lib/client.ts
+  app/pages/index.vue
+  server/api/mail.post.ts
+  server/utils/db.ts
+  package.json
+
+Manual follow-ups (7):
+  1. nuxt.config.ts:8 ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
+  2. env.ts:10 DATABASE_URL: Env does not keep the URL format. Check the value where code reads it, or use envSchema() with a .env.example for length, range, integer, and URL checks.
+  3. env.ts:13 MOCK_EMAIL: Env does not keep a Zod transform. Check the value where code reads it, or use envSchema() with a .env.example for length, range, integer, and URL checks.
+  4. env.ts:13 MOCK_EMAIL had a transform, so code received the transformed value. Env returns the parsed string. Check the code that reads it.
+  5. env.ts:14 TIMEOUT is a union, which Env cannot declare. It is declared as a string, so parse the value where code reads it.
+  6. env.ts:6 NUXT_PUBLIC_APP_URL: Env does not keep the URL format. Check the value where code reads it, or use envSchema() with a .env.example for length, range, integer, and URL checks.
+  7. app/pages/index.vue:5 SMTP_PORT is a server variable, and this file runs in the browser. Move the read to server code.
+
+Notes:
+  - Each declaration reads its original variable with env.source(). Env reads the canonical name VITEHUB_<NAME> first, for example VITEHUB_DATABASE_URL before DATABASE_URL.
+  - Secret values are SecretEnv values. Where code needed the raw string, the codemod calls .unseal(). Pass the SecretEnv on instead where a library accepts it.
+  - Public Env values are fixed when you build. Set NUXT_PUBLIC_* variables for the build.
+  - createEnv() options skipValidation have no Env equivalent and were dropped.
+  - env.ts stays because code still imports it. Delete it and remove @t3-oss/env-nuxt after the follow-ups.
+
+Next steps:
+  - Run `pnpm install` to install vite-hub.
+  - Run `npx nuxi prepare` to generate the Env types, then type-check the app.
