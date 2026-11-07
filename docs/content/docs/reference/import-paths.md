@@ -91,6 +91,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/browser/actions` | ViteHub Browser actions backed by Cloudflare Browser Run. |
 | `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Advanced raw CDP and Playwright Browser Session controllers. |
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
+| `vite-hub/bundle` | Read the bundle report of the last build: `readBundleReport()` and `explainBundleTarget()`. Re-exports `@vite-hub/bundle`. |
 | `vite-hub/channels` and `vite-hub/channels/server` | Outbound Channel Definitions with `defineOutboundChannel()` and discovered named delivery. |
 | `vite-hub/comments` | `defineComments()` for `server/comments.ts`, as the `comments` export or the default export. One definition runs the overlay, the Comments API, presence, MCP, and the [comment operations](/docs/comments/operations/get-started). |
 | `vite-hub/comments/anchor`, `vite-hub/comments/database`, `vite-hub/comments/realtime`, `vite-hub/comments/runtime`, and `vite-hub/comments/runtime/auth` | Pin anchors for the browser, the Comments tables, and the presence room, API handler, Nitro plugin, and Auth session reader that generated output imports. |
@@ -120,7 +121,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/rate-limit` | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing, saved through [Realtime document adapters](/docs/realtime/server-api#custom-document-adapters). |
 | `vite-hub/runtime` | Runtime Host Context, policy, approval, trace, and capability APIs. |
-| `vite-hub/runtime/h3` | H3 Runtime Context adapter, Standard Context types, and `installStandardContext()`. |
+| `vite-hub/runtime/h3` | H3 Runtime Context adapter, Standard Context types, `getStandardContext()`, and `installStandardContext()`. |
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
 | `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
@@ -141,6 +142,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/ui`, `vite-hub/ui/headless`, and `vite-hub/ui/styles.css` | AI interface components, headless message scrolling, and default styles. |
 | `vite-hub/ui/chat`, `vite-hub/ui/chat-message`, `vite-hub/ui/prompt-input`, `vite-hub/ui/message-parts`, `vite-hub/ui/markdown`, `vite-hub/ui/chat-session` | Focused imports for chat components. |
 | `vite-hub/ui/filter-search` and `vite-hub/ui/choices-input` | The `FilterSearch` text box for `useChoices()`, and its headless parts. |
+| `vite-hub/ui/markdown-editor` | `MarkdownEditor`, a Markdown editor with uploads to Blob, outside the root barrel so it loads Tiptap only where it's used. |
 | `vite-hub/ui/message`, `vite-hub/ui/bubble`, `vite-hub/ui/marker`, `vite-hub/ui/attachment`, `vite-hub/ui/trace`, `vite-hub/ui/code-block` | shadcn/ui part families. |
 | `vite-hub/ui/tool-list`, `vite-hub/ui/trace-run` | Focused imports for tool contract and trace run components. |
 | `vite-hub/ui/code-view`, `vite-hub/ui/file-view`, `vite-hub/ui/file-diff`, `vite-hub/ui/multi-file-diff`, `vite-hub/ui/patch-diff`, `vite-hub/ui/unresolved-file` | Focused imports for code and diff components. |
@@ -150,6 +152,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
 | `vite-hub/workspace` and `vite-hub/workspace/runtime` | Workspace Definitions, Sources, history contracts, runtime facades, registry APIs, and the `workspaceFile()` Collection source. |
+| `vite-hub/workspace/files` | `useWorkspaceFiles()` for file and history access without constructing Agent tools. |
 | `vite-hub/workspace/cloudflare` | Cloudflare Workspace runtime setup. |
 | `vite-hub/workspace/blob-database` | Content-addressed Workspace history Store and Database schema. Requires `drizzle-orm`. |
 | `vite-hub/workspace/loader` and `vite-hub/workspace/server` | Workspace loader and manual server extension APIs. |
@@ -256,6 +259,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/source` | Source Package | Source Definitions, loaders, and registry APIs. |
 | `@vite-hub/workflow/runtime/openworkflow-worker` | Workflow Package | OpenWorkflow-specific worker lifecycle helpers; install `openworkflow` explicitly. |
 | `@vite-hub/workspace` | Workspace Package | Workspace Definition, Source helpers, history contracts, Workspace facade access, and authoring types. |
+| `@vite-hub/workspace/files` | Workspace Package | `useWorkspaceFiles()` for file and history access without constructing Agent tools. |
 | `@vite-hub/workspace/runtime` | Workspace Package | Workspace runtime registry, `useWorkspace()`, and source resolution/request helpers for integrations. |
 
 ## Integration imports

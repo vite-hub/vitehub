@@ -2,7 +2,7 @@ import { H3Event } from "h3"
 import { describe, expect, it, vi } from "vitest"
 import { toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 
-import { getRuntimeContext, installStandardContext } from "../src/h3.ts"
+import { getRuntimeContext, getStandardContext, installStandardContext } from "../src/h3.ts"
 
 describe("@vite-hub/runtime/h3", () => {
   it("reads the Cloudflare env and lifetime from an H3 event", () => {
@@ -85,6 +85,48 @@ describe("@vite-hub/runtime/h3", () => {
     expect(standard.runtime).toBe(runtime)
     expect(standard.waitUntil).toBe(waitUntil)
     expect(reads).toEqual(afterFirstRead)
+  })
+
+  it("returns Standard Context and sets it when Nitro did not", () => {
+    const req = new Request("https://example.test/")
+    const event = { req, res: { headers: new Headers() } }
+
+    const standard = getStandardContext(event as never)
+    expect(standard.req).toBe(req)
+    expect(getStandardContext(event as never)).toBe(standard)
+
+    const hostStandard = { vendor: "host", req, res: {} }
+    expect(getStandardContext({ "~standard": hostStandard })).toBe(hostStandard)
+    expect(() => getStandardContext({} as never)).toThrow(expect.objectContaining({ name: "RUNTIME_R0015" }))
+  })
+
+  it("reads the peer address from each host carrier", () => {
+    const h3V2 = (request: Request) => {
+      const event = { req: request, res: { headers: new Headers() } }
+      installStandardContext(event)
+      return event["~standard"].runtime?.clientAddress
+    }
+    const request = (fields: Record<string, unknown>) => Object.assign(new Request("http://localhost/"), fields)
+    // A host adapter sets `request.context.clientAddress`, as H3 2's getRequestIP() reads it.
+    expect(h3V2(request({ context: { clientAddress: "203.0.113.7" } }))).toBe("203.0.113.7")
+    expect(h3V2(request({ ip: "203.0.113.8" }))).toBe("203.0.113.8")
+    expect(h3V2(request({ runtime: { node: { req: { socket: { remoteAddress: "203.0.113.9" } } } } }))).toBe("203.0.113.9")
+    expect(h3V2(request({ context: { clientAddress: "" }, ip: "203.0.113.10" }))).toBe("203.0.113.10")
+    expect(h3V2(new Request("http://localhost/", { headers: { "x-forwarded-for": "198.51.100.1" } }))).toBeUndefined()
+
+    const h3V1 = { context: { clientAddress: "203.0.113.11" }, node: { req: { headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" }, async *[Symbol.asyncIterator]() {} }, res: { getHeader: vi.fn(), getHeaders: () => ({}), removeHeader: vi.fn(), setHeader: vi.fn(), statusCode: 200 } } }
+    installStandardContext(h3V1)
+    expect(h3V1["~standard"].runtime?.clientAddress).toBe("203.0.113.11")
+  })
+
+  it("keeps the Cloudflare execution context when the event has no bindings", () => {
+    const waitUntil = vi.fn()
+    const context = { waitUntil, passThroughOnException: vi.fn() }
+    const event = new H3Event(new Request("https://example.test/"))
+    event.context.cloudflare = { context }
+
+    expect(getStandardContext(event).runtime?.cloudflare).toEqual({ context })
+    expect(getRuntimeContext(event).runtime).toBe("cloudflare-agents")
   })
 
   it("does not set Standard Context on an event without a request", () => {

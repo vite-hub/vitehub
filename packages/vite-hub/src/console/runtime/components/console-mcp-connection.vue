@@ -14,7 +14,6 @@ import type { ConsoleMcpConnection } from "../mcp-client";
  * details. The tokens stay on the server; this view shows only when they expire and what they allow.
  */
 const props = defineProps<{
-  base: string;
   connection: ConsoleMcpConnection;
   /** Connections to the same server, including this one. */
   peers: readonly ConsoleMcpConnection[];
@@ -92,7 +91,7 @@ async function reconnect(prompt?: "login"): Promise<void> {
   busy.value = "reconnect";
   actionError.value = undefined;
   try {
-    const result = await requestConsoleMcp(props.base, "mcp-client.reconnect", { id: props.connection.id, ...(prompt ? { prompt } : {}) });
+    const result = await requestConsoleMcp("mcp-client.reconnect", { id: props.connection.id, ...(prompt ? { prompt } : {}) });
     if (result.authorizationUrl) {
       window.location.assign(result.authorizationUrl);
       return;
@@ -112,7 +111,7 @@ async function reconnect(prompt?: "login"): Promise<void> {
 async function disconnect(): Promise<void> {
   busy.value = "disconnect";
   try {
-    const result = await requestConsoleMcp(props.base, "mcp-client.disconnect", { id: props.connection.id });
+    const result = await requestConsoleMcp("mcp-client.disconnect", { id: props.connection.id });
     confirmOpen.value = false;
     const name = account.value.primary;
     toast.show({ title: props.connection.auth !== "oauth" || result.revoked ? `${name} disconnected` : `${name} disconnected. The server did not confirm that it revoked the token.` });
@@ -195,7 +194,6 @@ async function disconnect(): Promise<void> {
       v-if="activeTab !== 'server'"
       :key="`${connection.id}:${activeTab}`"
       v-model:selected="item"
-      :base="base"
       :connection="connection"
       :kind="activeTab"
       :peers="peers"

@@ -73,7 +73,12 @@ function importedNames(program: File, source: string, accept: (imported: string 
 /** The default export, following an identifier to its top-level `const`. */
 function defaultExport(program: File): Node | undefined {
   const exported = program.program.body.find(statement => statement.type === "ExportDefaultDeclaration")
-  const declaration = exported?.type === "ExportDefaultDeclaration" ? exported.declaration : undefined
+  let declaration: Node | undefined = exported?.type === "ExportDefaultDeclaration" ? exported.declaration : undefined
+  if (!declaration) {
+    const named = program.program.body.flatMap(statement => statement.type === "ExportNamedDeclaration" && !statement.source && statement.exportKind !== "type" ? statement.specifiers : [])
+      .find(specifier => specifier.type === "ExportSpecifier" && specifier.exportKind !== "type" && keyName(specifier.exported) === "default")
+    if (named?.type === "ExportSpecifier") declaration = named.local
+  }
   if (declaration?.type !== "Identifier") return declaration
   for (const statement of program.program.body) {
     const variables = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
@@ -161,18 +166,34 @@ function siteFor(code: string, form: ConfigForm, options: Node | undefined, cont
 
 function locateVite(code: string, program: File): Located | Failure {
   const names = importedNames(program, viteModule, imported => imported === undefined || imported === "vitehub")
+  const namespaces = new Set<string>()
+  for (const statement of program.program.body) {
+    if (statement.type !== "ImportDeclaration" || statement.source.value !== viteModule || statement.importKind === "type") continue
+    for (const specifier of statement.specifiers) {
+      if (specifier.type === "ImportNamespaceSpecifier") namespaces.add(specifier.local.name)
+    }
+  }
+  const isViteHubCall = (node: Node): node is CallExpression => node.type === "CallExpression" && (
+    (node.callee.type === "Identifier" && names.has(node.callee.name))
+    || (node.callee.type === "MemberExpression" && node.callee.object.type === "Identifier" && namespaces.has(node.callee.object.name) && keyName(node.callee.property, node.callee.computed) === "vitehub")
+  )
   const root = defaultExport(program)
-  if (!names.size || !root) return fail("no-vitehub")
+  if ((!names.size && !namespaces.size) || !root) return fail("no-vitehub")
   const calls: Array<CallExpression> = []
-  walk(root, (node) => {
-    if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name)) calls.push(node)
+  let conditional: CallExpression | undefined
+  walk(root, (node, ancestors) => {
+    if (isViteHubCall(node)) {
+      calls.push(node)
+      if (ancestors.some(parent => parent.type === "ConditionalExpression" || parent.type === "LogicalExpression" || parent.type === "IfStatement" || parent.type === "SwitchCase")) conditional = node
+    }
   })
+  if (conditional) return fail("dynamic-options", conditional)
   const [call, second] = calls
   if (!call) {
     // A call outside the export may reach it through a binding. Do not claim it is absent.
     let factored: CallExpression | undefined
     walk(program, (node) => {
-      if (node.type === "CallExpression" && node.callee.type === "Identifier" && names.has(node.callee.name)) factored = node
+      if (isViteHubCall(node)) factored = node
     })
     return factored ? fail("dynamic-options", factored) : fail("no-vitehub")
   }
@@ -196,7 +217,6 @@ function locateNuxt(code: string, program: File): Located | Failure {
   walk(program, (node) => {
     if (node.type === "StringLiteral" && node.value === nuxtModule) mentioned = true
   })
-  if (!mentioned) return fail("no-vitehub")
   const exported = defaultExport(program)
   if (!exported) return fail("no-vitehub")
   let root = unwrap(exported)
@@ -204,6 +224,11 @@ function locateNuxt(code: string, program: File): Located | Failure {
   if (root.type !== "ObjectExpression") return fail("dynamic-options", root)
   const nuxt = readKeys(code, root)
   if ("ok" in nuxt) return nuxt
+  if (!mentioned) {
+    const extended = nuxt.keys.extends
+    if (extended && !(extended.kind === "literal" && Array.isArray(extended.value) && extended.value.length === 0)) return fail("dynamic-options", root)
+    return fail("no-vitehub")
+  }
   const located = locateNuxtOptions(code, program, root, names)
   return "ok" in located ? located : { ...located, site: { ...located.site, nuxt } }
 }
@@ -216,6 +241,8 @@ function locateNuxtOptions(code: string, program: File, root: ObjectExpression, 
   if (!modulesProperty) return fail("no-vitehub")
   const modules = unwrap(modulesProperty.value)
   if (modules.type !== "ArrayExpression") return fail("dynamic-options", modules)
+  const dynamicEntry = modules.elements.find(element => element?.type === "SpreadElement" || element?.type === "ConditionalExpression" || element?.type === "LogicalExpression")
+  if (dynamicEntry) return fail("dynamic-options", dynamicEntry)
   const isHead = (node: Node | null | undefined) => Boolean(node && ((node.type === "StringLiteral" && node.value === nuxtModule) || (node.type === "Identifier" && names.has(node.name))))
   const entries = modules.elements.filter((element): element is Expression => {
     if (!element || element.type === "SpreadElement") return false
@@ -371,14 +398,30 @@ function applyEdit(code: string, located: Located, edit: ConfigEdit): string | F
   const matches = members.filter((member): member is ObjectProperty | ObjectMethod => member.type !== "SpreadElement" && keyName(member.key, member.computed) === edit.key)
 
   if (edit.op === "delete") {
-    const lastMatch = matches.at(-1)
-    if (lastMatch && members.slice(members.indexOf(lastMatch) + 1).some(member => member.type === "SpreadElement")) return fail("spread", object)
-    if (!matches.length) {
-      if (site.spread) return fail("spread", object)
-      return code
-    }
+    if (site.spread) return fail("spread", object)
+    if (!matches.length) return code
     if (!object) return code
     if (matches.length === members.length) {
+      const hasComments = located.program.comments?.some((comment) => {
+        const from = comment.start ?? -1
+        const to = comment.end ?? -1
+        return from > start(object) && to < end(object)
+          && !matches.some(member => from >= start(member) && to <= end(member))
+      })
+      if (hasComments) {
+        for (const member of matches) {
+          let from = start(member)
+          let to = end(member)
+          const comma = skipBlanks(code, to)
+          if (code[comma] === ",") {
+            to = comma + 1
+            // appendMember inserts this prefix before an empty object's existing comments.
+            if (code.slice(start(object) + 1, from) === " ") from = start(object) + 1
+          }
+          output.remove(from, to)
+        }
+        return output.toString()
+      }
       if (container.kind === "call") {
         const argument = container.node.arguments[0]
         const next = container.node.arguments[1]

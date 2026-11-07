@@ -137,6 +137,7 @@ Available namespaces:
 | `vitehub decisions run` | Available | Decisions Package | Run one Decision with a text and print the selection as JSON, or the questions with `--inspect`. |
 | `vitehub queue list` | Available | Queue Package | List the Queue Definitions of the app and the provider that sends their jobs. |
 | `vitehub queue send` | Available | Queue Package | Send one job to a Queue Definition. |
+| `vitehub queue jobs` | Available | Queue Package | List, show, retry, or clear stored jobs in development or on a Node server with the local provider. Supports `--json` and `--url`. Clearing jobs asks for confirmation, or needs `--yes` without a terminal. |
 | `vitehub task list` | Available | ViteHub Framework | List the Nitro tasks that the app registers. |
 | `vitehub task run` | Available | ViteHub Framework | Run one Nitro task, such as a seed or a backfill, with the app's bindings. |
 | `vitehub usage` | Available | ViteHub Framework | Read token use and cost of Agent Invocations over a time window. |
@@ -198,7 +199,11 @@ The host decides what `add` accepts. A feature that the host does not support ex
 
 Some host defaults build and run but keep state in one process. `nextSteps` names them, with the option that selects a durable provider. For example, Workflow on Node and Deno runs inline in the request process until you select OpenWorkflow, and Workspace on Vercel keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. A provider option that needs more packages, such as `workflow.provider=openworkflow` or `blob.driver=s3`, adds them to the install.
 
-Console requires an explicit access choice with `--option console.auth=false` for no sign-in, `--option console.auth=app` for an app with an Auth Definition and Console authorization, or nested `console.auth` options for Console Auth. ViteHub does not choose an access policy for you. When running a pkg.pr.new preview of the CLI, added ViteHub packages use the same preview reference.
+Console requires an explicit access choice with `--option console.auth=false` for no sign-in, `--option console.auth=app --option console.authorize=server/console-authorize.ts` for an app with enabled Auth, an Auth Definition, and an existing Console authorization file, or nested `console.auth` options for Console Auth. The CLI requires the authorization file because it does not evaluate app Auth access callbacks. To use Auth access routes alone, configure Console by hand. ViteHub does not choose an access policy for you.
+
+Connections management requires Console; Observability papercut reports require Agent and Console. The command collects Console access and their provider inputs before applying these options.
+
+When running a pkg.pr.new preview of the CLI, added ViteHub packages use the same preview reference.
 
 ### `SETUP_FEATURE_UNSUPPORTED`
 
@@ -698,7 +703,7 @@ The generated commands need the Console RPC. `vitehub()` installs it, and standa
 
 An operation that runs code of the app, `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, and `schedule.run`, is registered only when `console.invoke` is on. That is the default in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
 
-The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|del`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub search query`, `vitehub sections list`, `vitehub usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
+The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|del`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub project info`, `vitehub search query`, `vitehub sections list`, `vitehub usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
 
 | Option | Use it for |
 | --- | --- |
@@ -716,12 +721,15 @@ A failed command prints `<code>: <message>` and a `Fix:` line on stderr, and exi
 
 ## Run a Schedule on demand
 
-`schedule run` starts a Static Schedule Definition that sets `manual: true`. It prints the run status, duration, and run id. Add `--json` to print the run record. A run that fails still prints and exits with `0`: read `status` or `error` to tell. A name that is not available fails with `SCHEDULE_DEFINITION_NOT_FOUND` (`404`), and a definition without `manual: true` with `SCHEDULE_MANUAL_RUN_DISABLED` (`403`).
+`schedule run` starts a Static Schedule Definition that sets `manual: true`. It prints the run status, duration, run id, and scheduled time. Add `--json` to print the run record. A run that fails still prints and exits with `0`: read `status` or `error` to tell. A name that is not available fails with `SCHEDULE_DEFINITION_NOT_FOUND` (`404`), and a definition without `manual: true` with `SCHEDULE_MANUAL_RUN_DISABLED` (`403`).
 
 ```bash [Terminal]
 pnpm vitehub schedule run sync
+pnpm vitehub schedule run sync --at 2026-01-31T23:59:00Z
 pnpm vitehub schedule run sync --url https://app.example.com
 ```
+
+`--at` runs the definition as if its cron fired at that time. The handler gets it as `scheduledAt`, and `vitehub schedule runs <name>` lists the run under that time. Use it to test code that depends on the fire time, such as a daily job near midnight or a job on the last day of a month. The value is an ISO 8601 date-time with `Z` or an offset, such as `2026-01-31T23:59:00+01:00`. A value without a time zone, a date only, or a day that does not exist, such as `2026-02-30`, fails with `SCHEDULE_INVALID_SCHEDULED_AT` (`400`) and the run does not start. `--at` does not check the cron: the run starts at any time that you pass.
 
 `schedule run` is the `schedule.run` [operation](/docs/development/operations) of the Schedules section. Without `--url`, it calls the dev server of the project, which runs the definition in its Nitro runtime, so the handler has the Nitro plugins and dev bindings of the app, and the run appears in `vitehub schedule runs <name>`. With `--url`, it calls the deployment with the credentials in the [table above](#run-any-operation). The deployment runs only definitions that the Console installed, which needs the [Console](/docs/development/console) with `invoke: true`. `invoke` is on in development and off in a production build.
 
@@ -1008,6 +1016,7 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 | `INTERNAL_R0024` from an operation command | The command could not reach the app, or the app asked for sign-in. | Start `vite dev`, or pass `--url` and set `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or the Cloudflare Access variables. |
 | `vitehub schedule run` fails with `SCHEDULE_DEFINITION_NOT_FOUND` | The Definition does not set `manual: true`, is not discovered, or the Console did not install it because `console.invoke` is off. | Set `manual: true`, and keep `console.invoke` on. |
 | `vitehub schedule run` fails with `SCHEDULE_MANUAL_RUN_DISABLED` | The Definition exists but does not set `manual: true`. | Set `manual: true` in `defineSchedule()`. |
+| `vitehub schedule run --at` fails with `SCHEDULE_INVALID_SCHEDULED_AT` | The time has no time zone, has no time, or names a day that does not exist. | Pass an ISO 8601 date-time with `Z` or an offset, such as `2026-01-31T23:59:00Z`. |
 | `Unknown Workspace Dev target` | The named Workspace is not discovered by the running Vite dev server. | Check the Workspace Definition name and make sure `hubWorkspace()` is active. |
 | `Agent Dev Loop command requires workspace.mode: "write"` | A `!` command targeted an Agent without writable Workspace access. | Configure the selected Agent with `workspace: { mode: 'write' }`, or send a normal Agent message instead. |
 | Agent Dev Loop request times out | A streamed invocation emitted no events before the inactivity timeout, or a Capability CLI/Workspace command exceeded its wall-clock deadline. | Pass `--timeout <ms>` for the dev-loop operation or inspect the stalled work. |

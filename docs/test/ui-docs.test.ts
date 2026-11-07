@@ -182,15 +182,13 @@ describe("UI documentation", () => {
     expect(header).toContain(":class=\"{ 'lg:hidden': isDocsRoute }\"");
   });
 
-  it("keeps the docs sidebar visible without disclosure toggles", () => {
+  it("keeps the docs sidebar panel visible and scrollable", () => {
     const sidebar = readFileSync(resolve(packageApp, "components/DocsAsideLeftBody.vue"), "utf8");
     const layout = readFileSync(resolve(packageApp, "layouts/docs.vue"), "utf8");
     const sidebarPanel = readFileSync(resolve(packageApp, "components/DocsSidebars.vue"), "utf8");
 
     expect(sidebar).toContain("flex: 1 1 0");
     expect(sidebar).toContain("min-height: 0");
-    expect(sidebar).not.toContain("<details");
-    expect(sidebar).not.toContain("<summary");
     expect(layout).toContain("UPageAside class=\"vh-docs-aside hidden lg:flex\"");
     expect(layout).toContain('<DocsSidebars class="vh-docs-aside-sidebars" panel />');
     expect(layout).toContain("height: calc(100dvh - var(--ui-header-height));");
