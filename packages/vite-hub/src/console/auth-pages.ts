@@ -13,7 +13,7 @@ import { consoleDiagnosticBody, isConsoleImpersonationRejection } from "./runtim
 
 import type { ConsoleUser } from "./auth-types.ts"
 
-export const consoleAuthBasePath = "/api/_vitehub/console/auth"
+export const consoleAuthBasePath = "/_vitehub/api/auth"
 
 function escapeHTML(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")

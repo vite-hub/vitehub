@@ -163,11 +163,11 @@ describe("Cloudflare Access Console Auth", () => {
     const token = await accessToken()
     expect(await handleCloudflareAccessConsoleRequest(consoleEvent("https://app.example.com/api/app"), settings, "/", verify)).toBeUndefined()
     expect(await handleCloudflareAccessConsoleRequest(consoleEvent("https://app.example.com/_vitehub", token), settings, "/", verify)).toBeUndefined()
-    const identity = await handleCloudflareAccessConsoleRequest(consoleEvent("https://app.example.com/portal/api/_vitehub/console/auth/identity", token), settings, "/portal/", verify)
+    const identity = await handleCloudflareAccessConsoleRequest(consoleEvent("https://app.example.com/portal/_vitehub/api/auth/identity", token), settings, "/portal/", verify)
     expect(identity?.status).toBe(200)
     expect(identity?.headers.get("cache-control")).toBe("no-store")
     expect(await identity?.json()).toEqual({ email: "maintainer@example.com", signOutURL: "/cdn-cgi/access/logout" })
-    expect((await handleCloudflareAccessConsoleRequest(consoleEvent("https://app.example.com/api/_vitehub/console/auth/identity", token, "POST"), settings, "/", verify))?.status).toBe(405)
+    expect((await handleCloudflareAccessConsoleRequest(consoleEvent("https://app.example.com/_vitehub/api/auth/identity", token, "POST"), settings, "/", verify))?.status).toBe(405)
     expect((await handleCloudflareAccessConsoleRequest(consoleEvent("https://app.example.com/portal/_vitehub"), settings, "/portal/", verify))?.status).toBe(401)
   })
 
@@ -209,7 +209,7 @@ describe("Cloudflare Access Console Auth", () => {
       expect(await guard.default(consoleEvent("https://app.example.com/api/app"))).toBeUndefined()
       expect((await guard.default(consoleEvent("https://app.example.com/_vitehub")))?.status).toBe(401)
       expect(await guard.default(consoleEvent("https://app.example.com/_vitehub", await accessToken()))).toBeUndefined()
-      expect(await guard.default(consoleEvent("https://app.example.com/api/_vitehub/console/status", await accessToken()))).toBeUndefined()
+      expect(await guard.default(consoleEvent("https://app.example.com/_vitehub/api/status", await accessToken()))).toBeUndefined()
       expect((await guard.default(consoleEvent("https://app.example.com/_vitehub/rpc/stream", await accessToken({ aud: "other-app" }))))?.status).toBe(401)
       expect((await guard.default(consoleEvent("https://app.example.com/_vitehub", await accessToken({ iss: "https://other.cloudflareaccess.com" }))))?.status).toBe(401)
       expect((await guard.default(consoleEvent("https://app.example.com/_vitehub", await accessToken({ exp: Math.floor(Date.now() / 1000) - 60 }))))?.status).toBe(401)
@@ -255,7 +255,7 @@ describe("Cloudflare Access Console Auth", () => {
     try {
       const allowed = await worker.dispatchFetch("https://app.example.com/_vitehub", { headers: { "cf-access-jwt-assertion": await accessToken() } })
       expect(await allowed.text()).toBe("next")
-      const identity = await worker.dispatchFetch("https://app.example.com/api/_vitehub/console/auth/identity", { headers: { "cf-access-jwt-assertion": await accessToken() } })
+      const identity = await worker.dispatchFetch("https://app.example.com/_vitehub/api/auth/identity", { headers: { "cf-access-jwt-assertion": await accessToken() } })
       expect(await identity.json()).toEqual({ email: "maintainer@example.com", signOutURL: "/cdn-cgi/access/logout" })
       const missing = await worker.dispatchFetch("https://app.example.com/_vitehub")
       expect(missing.status).toBe(401)
@@ -355,7 +355,7 @@ describe("Cloudflare Access Console Auth", () => {
       const file = join(root, "guard.mjs")
       await writeFile(file, bundled)
       const { default: guard } = await import(pathToFileURL(file).href) as { default: (event: ReturnType<typeof consoleEvent>) => Promise<Response | undefined> }
-      for (const path of ["/_vitehub", "/_vitehub/rpc/__call", "/api/_vitehub/console/auth/identity"]) {
+      for (const path of ["/_vitehub", "/_vitehub/rpc/__call", "/_vitehub/api/auth/identity"]) {
         for (const method of ["GET", "POST"]) {
           expect((await guard(consoleEvent(`https://app.example.com${mount}${path}`, undefined, method)))?.status).toBe(401)
         }
@@ -387,7 +387,7 @@ describe("Cloudflare Access Console Auth", () => {
       const file = join(root, "guard.mjs")
       await writeFile(file, bundled)
       const { default: guard } = await import(pathToFileURL(file).href) as { default: (event: ReturnType<typeof consoleEvent>) => Promise<Response | undefined> }
-      for (const path of ["/_vitehub", "/_vitehub/rpc/__call", "/api/_vitehub/console/auth/identity"]) {
+      for (const path of ["/_vitehub", "/_vitehub/rpc/__call", "/_vitehub/api/auth/identity"]) {
         for (const method of ["GET", "POST"]) {
           expect((await guard(consoleEvent(`https://app.example.com${mount}${path}`, undefined, method)))?.status).toBe(401)
         }
@@ -414,10 +414,10 @@ describe("Cloudflare Access Console Auth", () => {
       const production = await run("build")
       expect(production).toEqual(expect.arrayContaining([
         expect.objectContaining({ route: "/**", middleware: true, handler: resolve(root, ".vitehub/nitro/console/auth-middleware.mjs") }),
-        expect.objectContaining({ route: "/api/_vitehub/console/client.js", handler: expect.stringContaining("server/client.get.js") }),
+        expect.objectContaining({ route: "/_vitehub/api/client.js", handler: expect.stringContaining("server/client.get.js") }),
       ]))
       expect(production.map(entry => entry.route)).not.toContain("/_vitehub/sign-in")
-      expect(production.map(entry => entry.route)).not.toContain("/api/_vitehub/console/auth/**")
+      expect(production.map(entry => entry.route)).not.toContain("/_vitehub/api/auth/**")
       expect(await readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"], "cloudflare-access")`)
 
       const development = await run("serve")

@@ -23,7 +23,7 @@ class H3V1Event {
   }
 }
 
-const routes = [{ authorize: true, index: 0, route: "/_vitehub/**" }, { authorize: false, index: 1, method: "GET", route: "/api/_vitehub/console/**" }]
+const routes = [{ authorize: true, index: 0, route: "/_vitehub/**" }, { authorize: false, index: 1, method: "GET", route: "/_vitehub/api/**" }]
 
 function appAccess() {
   const requireAuthAccessRoutes = vi.fn(async () => undefined)

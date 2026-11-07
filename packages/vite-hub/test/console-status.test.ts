@@ -30,7 +30,7 @@ describe("Console status", () => {
     installConsoleAgentDefinitions([{ definition, fallbackName: "bot" }], { invocations })
 
     expect(getConsoleAgentDefinition("bot")).toBeUndefined()
-    expect(await statusHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/status?agent=bot" } })).toEqual({ agents: [ready], observability: null })
+    expect(await statusHandler({ method: "GET", req: { url: "http://localhost/_vitehub/api/status?agent=bot" } })).toEqual({ agents: [ready], observability: null })
     expect(getConsoleAgentDefinition("bot")).toBeUndefined()
     await expect(agentInvocationsHandler({ method: "POST", context: { params: { agent: "bot" } } })).rejects.toMatchObject({ statusCode: 404 })
     expect(definition.resolve).not.toHaveBeenCalled()
@@ -39,11 +39,11 @@ describe("Console status", () => {
 
   it("includes HTTP status messages for invalid and unavailable status requests", async () => {
     const invalid = "a".repeat(513)
-    await expect(statusHandler({ method: "GET", req: { url: `http://localhost/api/_vitehub/console/status?agent=${invalid}` } })).rejects.toMatchObject({
+    await expect(statusHandler({ method: "GET", req: { url: `http://localhost/_vitehub/api/status?agent=${invalid}` } })).rejects.toMatchObject({
       statusCode: 400,
       statusMessage: "Invalid Agent name.",
     })
-    await expect(statusHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/status?agent=missing" } })).rejects.toMatchObject({
+    await expect(statusHandler({ method: "GET", req: { url: "http://localhost/_vitehub/api/status?agent=missing" } })).rejects.toMatchObject({
       statusCode: 404,
       statusMessage: "Agent status is unavailable.",
     })
@@ -52,11 +52,11 @@ describe("Console status", () => {
     const nitroRoot = dirname(require.resolve("nitro/package.json"))
     const { default: onError }: { default: NonNullable<H3Config["onError"]> } = await import(pathToFileURL(join(nitroRoot, "dist/runtime/internal/error/prod.mjs")).href)
     // SAFETY: Mount the direct Nitro handler on H3 with Nitro's production error serializer.
-    const app = new H3({ onError }).get("/api/_vitehub/console/status", statusHandler as never)
-    const invalidResponse = await app.request(`/api/_vitehub/console/status?agent=${invalid}`)
+    const app = new H3({ onError }).get("/_vitehub/api/status", statusHandler as never)
+    const invalidResponse = await app.request(`/_vitehub/api/status?agent=${invalid}`)
     expect(invalidResponse.status).toBe(400)
     await expect(invalidResponse.json()).resolves.toMatchObject({ error: true, status: 400, statusText: "Invalid Agent name.", message: "Invalid Agent name." })
-    const unavailableResponse = await app.request("/api/_vitehub/console/status?agent=missing")
+    const unavailableResponse = await app.request("/_vitehub/api/status?agent=missing")
     expect(unavailableResponse.status).toBe(404)
     await expect(unavailableResponse.json()).resolves.toMatchObject({ error: true, status: 404, statusText: "Agent status is unavailable.", message: "Agent status is unavailable." })
   })
@@ -67,7 +67,7 @@ describe("Console status", () => {
     Object.assign(globalThis, { [slot]: { capability: { id: "observability" }, status: () => status } })
     try {
       installConsoleAgentDefinitions([{ definition: agent(vi.fn(async () => ready)), fallbackName: "bot" }], { invocations: defineAgentInvocations({ store: createMemoryAgentInvocationStore() }) })
-      expect(await statusHandler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/status?agent=bot" } })).toEqual({ agents: [ready], observability: status })
+      expect(await statusHandler({ method: "GET", req: { url: "http://localhost/_vitehub/api/status?agent=bot" } })).toEqual({ agents: [ready], observability: status })
     }
     finally {
       Reflect.deleteProperty(globalThis, slot)

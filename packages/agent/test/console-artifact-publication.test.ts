@@ -16,7 +16,7 @@ it.each([false, true])("publishes response image bytes before exposing links, fa
   const context = {
     capabilities: { blob: { put } }, context: new Map(), driver: { kind: "provider" },
     output: { final(renderer: AgentOutputRenderer) { render = renderer } },
-    request: new Request("http://vitehub.local/api/_vitehub/console/agents/test/invocations"),
+    request: new Request("http://vitehub.local/_vitehub/api/agents/test/invocations"),
     run: { runId: "test" },
     workspace: { fs: { stat: async () => ({ type: "file", mediaType: "image/png" }), readFile: async () => bytes } },
   } as unknown as AgentCapabilityRuntimeContext
@@ -37,7 +37,7 @@ it("keeps the Workspace diff available to later output Capabilities", async () =
     context: createAgentInvocationContextStore(),
     driver: { kind: "provider" },
     output: { final(renderer: AgentOutputRenderer) { renders.push(renderer) } },
-    request: new Request("http://vitehub.local/api/_vitehub/console/agents/test/invocations"),
+    request: new Request("http://vitehub.local/_vitehub/api/agents/test/invocations"),
     run: { runId: "test" },
     workspace: { fs: { stat: async () => ({ type: "file", mediaType: "image/png" }), readFile: async () => new Uint8Array([137, 80, 78, 71]) } },
   } as unknown as AgentCapabilityRuntimeContext
