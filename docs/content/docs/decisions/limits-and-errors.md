@@ -46,7 +46,7 @@ The text is empty or longer than `limits.text`. Nothing was asked.
 
 ### DECISIONS_R0004
 
-The model says the options cannot express the text. Show the person a message and let them use your normal controls.
+The model says the options cannot express the text. Show the person a message and let them use your normal controls. Groups with `infer: true` never cause this error.
 
 ### DECISIONS_R0005
 
