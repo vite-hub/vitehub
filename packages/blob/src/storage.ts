@@ -33,7 +33,7 @@ interface BlobServeEvent {
   res: { headers: Headers, status?: number }
 }
 
-function serveEvent(event: ViteHubContext): BlobServeEvent {
+function serveEvent(event: Request | ViteHubContext): BlobServeEvent {
   const { req, res } = getStandardContext(event)
   res.headers ??= new Headers()
   // SAFETY: The line above gives `res` its headers, and `serve()` must write status and headers to the host's object.
