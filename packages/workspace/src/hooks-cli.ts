@@ -187,9 +187,17 @@ function changedFiles(before: Map<string, string>, after: Map<string, string>): 
 
 const feature = (name: string) => workspaceCheckoutFeatures().find(candidate => candidate.name === name)!
 
-/** The branch names that a pre-push hook pushes to, read from the lines that Git writes to its standard input. */
+/**
+ * The branch names that a pre-push hook updates, read from the `<local ref> <local sha> <remote ref> <remote sha>` lines
+ * that Git writes to its standard input. A deleted branch has the local ref `(delete)` and an all-zero sha: it updates
+ * nothing.
+ */
 export function pushedBranches(input: string): string[] {
-  return input.split("\n").map(line => line.trim().split(/\s+/)[2]).filter((ref): ref is string => ref?.startsWith("refs/heads/") === true).map(ref => ref.slice("refs/heads/".length))
+  return input.split("\n").flatMap((line) => {
+    const [localRef, localSha, remoteRef] = line.trim().split(/\s+/)
+    if (localRef === "(delete)" || !localSha || /^0+$/.test(localSha) || !remoteRef?.startsWith("refs/heads/")) return []
+    return [remoteRef.slice("refs/heads/".length)]
+  })
 }
 
 async function defaultBranch(rootDir: string): Promise<string> {

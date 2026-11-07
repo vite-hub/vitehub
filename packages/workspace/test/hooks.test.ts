@@ -190,6 +190,9 @@ describe("vitehub hooks", () => {
     await writeFile(join(rootDir, "vitehub.lock"), JSON.stringify({ version: 1, workspaces: { site: { dir: "content", files: {}, head: "r1", ref: "draft", remote: "https://docs.example.test" } } }))
 
     expect(await run("pre-push", rootDir, "refs/heads/feature 1 refs/heads/feature 0\n")).toMatchObject({ code: 0, stdout: expect.stringContaining("does not update main") })
+    // Deleting the default branch on the remote pushes no commit.
+    const zero = "0".repeat(40)
+    expect(await run("pre-push", rootDir, `(delete) ${zero} refs/heads/main ${"a".repeat(40)}\n`)).toMatchObject({ code: 0, stdout: expect.stringContaining("does not update main") })
     // The push reaches the remote, which is not there, so the hook fails and Git stops.
     const failed = await run("pre-push", rootDir, "refs/heads/main 1 refs/heads/main 0\n")
     expect(failed.code).toBe(1)
@@ -255,5 +258,6 @@ describe("vitehub hooks", () => {
   it("reads the remote branches from the pre-push input", () => {
     expect(pushedBranches("refs/heads/a 1 refs/heads/main 0\nrefs/tags/v1 2 refs/tags/v1 0\n")).toEqual(["main"])
     expect(pushedBranches("")).toEqual([])
+    expect(pushedBranches(`(delete) ${"0".repeat(40)} refs/heads/main ${"a".repeat(40)}\nrefs/heads/b ${"0".repeat(64)} refs/heads/old 1\n`)).toEqual([])
   })
 })
