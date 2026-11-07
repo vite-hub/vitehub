@@ -328,6 +328,22 @@ The Console then opens the project and shows only the sections that the project 
 | `This project runs vite-hub <version>. This Console needs protocol 1.` | Update `vite-hub` in the app. |
 | `This project signs in with OAuth` | OAuth sign-in for a Console on another origin is not ready. Use `auth: "token"`. |
 
+### Link a new project
+
+A one-time link lets a new project link itself, so you do not copy a token by hand. The setup command that makes these links, `vite-hub init --console`, is not released yet. Until then, use [Link a project](#link-a-project) with the app URL and its token.
+
+The hosted Console makes a random key and keeps it in this browser, in `localStorage` under `vitehub-console:pending-links`. It gives out only an id and the SHA-256 of the key. The setup command stores that hash in the app as `VITEHUB_CONSOLE_TOKEN_SHA256` and prints a link such as `https://console.vitehub.dev/link#p=<id>&url=<app origin>`. The link holds no secret.
+
+When you open the link, the Console removes it from the address bar and asks **Link `<host>`?**. It sends nothing before you confirm. Select **Link project** only when the host is the app that you just started, because a changed link can name another host. The Console then sends the key to that app, saves the project with the key as its Console token, and deletes the one-time entry.
+
+The link has limits:
+
+- It works only in the browser profile that made it. Teammates use [`auth: "app"`](#use-the-app-auth), or link the project with their own token.
+- It works once, and for 24 hours. A used or unknown link says `This link was made in another browser or already used`. Make a new link and run the command again.
+- When the app refuses the key, its `VITEHUB_CONSOLE_TOKEN_SHA256` is not the hash of this link. Run the command again, or relink.
+- The first confirmation binds the link to that app URL, also when the request fails. You can fix the app and confirm the same URL again. Another app needs a new link.
+- Tabs take turns with [Web Locks](https://developer.mozilla.org/en-US/docs/Web/API/Web_Locks_API), so only one tab can use a link. A browser without Web Locks, or a Console on plain `http:` outside `localhost`, cannot confirm a link.
+
 ### Switch projects
 
 The top of the rail shows the name and the host of the open project. Select it, or press <kbd>⌘</kbd><kbd>K</kbd> and choose **Switch project**, to see the linked projects. A dot shows if each one is reachable, needs a new token, or is unreachable. The Console loads the project that you choose, and opens it again after a reload.
