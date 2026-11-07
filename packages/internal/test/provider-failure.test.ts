@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
 import { classifyProviderFailure, cloudflareProductOfPath, readProviderErrorCodes } from "../src/provider-failure.ts"
-import { createCloudflareProvisionClient, createVercelProvisionClient } from "../src/provision.ts"
+import { createCloudflareApiClient, createCloudflareProvisionClient, createNetlifyApiClient, createVercelProvisionClient } from "../src/provision.ts"
 
 describe("classifyProviderFailure", () => {
   it.each([
@@ -19,6 +19,7 @@ describe("classifyProviderFailure", () => {
   ] as const)("maps HTTP status %i to %s", (status, kind) => {
     expect(classifyProviderFailure({ host: "cloudflare" }, { status })).toBe(kind)
     expect(classifyProviderFailure({ host: "vercel" }, { status })).toBe(kind)
+    expect(classifyProviderFailure({ host: "netlify" }, { status })).toBe(kind)
   })
 
   it("reads a Cloudflare code in the table of its product", () => {
@@ -79,6 +80,22 @@ describe("cloudflareProductOfPath", () => {
 })
 
 describe("provision request failure kind", () => {
+  it("classifies Cloudflare account lookup failures", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ errors: [] }, { status: 403 }))
+    const request = createCloudflareApiClient("token", fetch)
+
+    await expect(request("/accounts")).rejects.toMatchObject({ kind: "unauthorized", status: 403 })
+    expect(String(fetch.mock.calls[0]?.[0])).toBe("https://api.cloudflare.com/client/v4/accounts")
+  })
+
+  it("classifies Netlify lookup failures by HTTP status", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({ message: "Not Found" }, { status: 404 }))
+    const request = createNetlifyApiClient("token", fetch)
+
+    await expect(request("/sites/missing")).rejects.toMatchObject({ kind: "not-found", status: 404 })
+    expect(String(fetch.mock.calls[0]?.[0])).toBe("https://api.netlify.com/api/v1/sites/missing")
+  })
+
   it("classifies a Cloudflare KV duplicate title as a conflict", async () => {
     // Shape seen in https://github.com/cloudflare/workers-sdk/issues/14284
     const fetch = vi.fn<typeof globalThis.fetch>(async () => Response.json({

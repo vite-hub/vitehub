@@ -70,15 +70,15 @@ describe("storage capabilities", () => {
     const { blob, kv } = await import("../src/capabilities.ts")
     const failure = new Error("storage failed")
     const kvStore = {
-      del: vi.fn(async () => [null, undefined] as const),
-      get: vi.fn(async () => [null, ["tuple", "value"]] as const),
+      del: vi.fn(async () => [undefined, undefined] as const),
+      get: vi.fn(async () => [undefined, ["tuple", "value"]] as const),
       keys: vi.fn(async () => [failure, undefined] as const),
-      set: vi.fn(async () => [null, undefined] as const),
+      set: vi.fn(async () => [undefined, undefined] as const),
     }
     const blobStore = {
-      get: vi.fn(async () => [null, new Blob(["body"])] as const),
+      get: vi.fn(async () => [undefined, new Blob(["body"])] as const),
       head: vi.fn(async () => [failure, undefined] as const),
-      list: vi.fn(async () => [null, { blobs: [] }] as const),
+      list: vi.fn(async () => [undefined, { blobs: [] }] as const),
     }
 
     const kvTools = await resolveTools([kv({ mode: "write" })], { kv: kvStore })

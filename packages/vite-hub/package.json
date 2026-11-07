@@ -1148,6 +1148,11 @@
       "import": "./dist/workspace/files.js",
       "default": "./dist/workspace/files.js"
     },
+    "./workspace/lineage": {
+      "types": "./dist/workspace/lineage.d.ts",
+      "import": "./dist/workspace/lineage.js",
+      "default": "./dist/workspace/lineage.js"
+    },
     "./workspace/loader": {
       "types": "./dist/workspace/loader.d.ts",
       "import": "./dist/workspace/loader.js",
