@@ -17,7 +17,7 @@ vi.mock("@vite-hub/connections/server", () => ({
 
 type ToolCallResult = Record<string, unknown>
 
-async function startMcpServer(response: "json" | "sse", result: ToolCallResult, options: { parameterHeader?: boolean, stall?: "tools/list" | "tools/call" } = {}) {
+async function startMcpServer(response: "json" | "sse", result: ToolCallResult, options: { paginated?: boolean, parameterHeader?: boolean, stall?: "tools/list" | "tools/call" } = {}) {
   const calls: Array<{ arguments?: unknown, authorization?: string, name?: unknown, parameterHeader?: string | string[] }> = []
   const server = createServer(async (request, reply) => {
     if (request.method !== "POST") {
@@ -50,6 +50,7 @@ async function startMcpServer(response: "json" | "sse", result: ToolCallResult, 
           id: { type: "string", ...(options.parameterHeader ? { "x-mcp-header": "Thread-Id" } : {}) },
         } },
       }] }
+      if (options.paginated && !message.params?.cursor) payload = { nextCursor: "next", tools: [] }
     }
     else if (message.method === "tools/call") {
       calls.push({ arguments: message.params?.arguments, authorization: request.headers.authorization, name: message.params?.name })
@@ -275,6 +276,32 @@ describe("callMcpTool", () => {
     expect(calls).toEqual([{ arguments: { id: "thread-1" }, authorization: "Bearer crm-key", name: "threads_get" }])
     const activity = await runtime.activity({ name: "crm" })
     expect(activity.filter(entry => entry.action === "use").map(entry => entry.actor)).toContainEqual({ id: "server", kind: "service" })
+  })
+
+  it.each([false, true])("rejects a missing remote tool with protocol discovery %s", async (protocolVersionDiscovery) => {
+    const { calls, url } = await startMcpServer("json", { content: [{ text: "ok", type: "text" }] }, { paginated: true })
+    const [error, value] = await callMcpTool({ protocolVersionDiscovery, transport: { type: "http", url } }, "missing")
+
+    expect(error?.code).toBe("MCP_TOOL_NOT_FOUND")
+    expect(value).toBeUndefined()
+    expect(calls).toEqual([])
+  })
+
+  it.each([false, true])("calls a tool on a later discovery page with protocol discovery %s", async (protocolVersionDiscovery) => {
+    const { calls, url } = await startMcpServer("json", { content: [{ text: "ok", type: "text" }] }, { paginated: true, parameterHeader: protocolVersionDiscovery })
+
+    await expect(callMcpTool({ protocolVersionDiscovery, transport: { type: "http", url } }, "threads_get", { id: "thread-1" })).resolves.toEqual([undefined, "ok"])
+    expect(calls).toHaveLength(1)
+  })
+
+  it("checks discovery for clients with callTool but no listTools", async () => {
+    const client = { callTool: vi.fn(async () => ({ content: [] })), close: vi.fn(), tools: async () => ({}) }
+    const [error, value] = await callMcpTool(client, "missing")
+
+    expect(error?.code).toBe("MCP_TOOL_NOT_FOUND")
+    expect(value).toBeUndefined()
+    expect(client.callTool).not.toHaveBeenCalled()
+    expect(client.close).not.toHaveBeenCalled()
   })
 
   it("rejects a tool outside the server tools allowlist", async () => {

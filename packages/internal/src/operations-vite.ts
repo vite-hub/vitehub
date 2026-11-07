@@ -9,7 +9,7 @@ const owners = new Set(["@vite-hub/kv/operations", "@vite-hub/blob/operations", 
 const discoveryInstalled = Symbol.for("vitehub.operations.dev.discovery")
 
 interface OperationDevServer {
-  config: { root: string, base: string, server: { https?: unknown } }
+  config: { root: string, base: string, server: { https?: unknown, middlewareMode?: unknown } }
   httpServer: {
     address(): string | { address: string, family: string, port: number } | null
     listening: boolean
@@ -21,7 +21,8 @@ interface OperationDevServer {
 /** Publish only the elected standalone transport; other Console policies retain their own discovery hook. */
 export function publishStandaloneOperationServer(server: OperationDevServer): void {
   const http = server.httpServer
-  if (!http || Reflect.get(server, discoveryInstalled)) return
+  // In middleware mode another server owns the listener and publishes it.
+  if (!http || server.config.server.middlewareMode || Reflect.get(server, discoveryInstalled)) return
   const root = resolve(server.config.root)
   const handlers: unknown = Reflect.get(Object(Reflect.get(server.config, "nitro")), "handlers")
   if (!Array.isArray(handlers) || !handlers.some(handler => handler?.handler === resolve(root, ".vitehub/nitro/operations/rpc.mjs"))) return

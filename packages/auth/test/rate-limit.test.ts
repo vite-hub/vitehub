@@ -5,6 +5,7 @@ import type { SecondaryStorage } from "better-auth"
 import { authDatabase } from "../src/database.ts"
 import { defineAuth } from "../src/definition.ts"
 import { createAuthForRequest, createAuthHandler, createBetterAuthOptions, handleAuthRequest, resetAuth } from "../src/server.ts"
+import { requestEvent } from "./request-event.ts"
 
 const secret = "abcdefghijklmnopqrstuvwxyz0123456789"
 const definition = defineAuth(() => ({ emailAndPassword: { enabled: true }, secret }))
@@ -39,7 +40,7 @@ function cloudflareRequest(address: string, headers: Record<string, string> = {}
 
 /** An event with Standard Context, as ViteHub installs it for each Nitro request. */
 function standardEvent(request: Request, clientAddress?: string) {
-  return { "req": request, "~standard": { runtime: clientAddress ? { clientAddress } : {} } }
+  return requestEvent(Object.assign(request, { context: { clientAddress } }))
 }
 
 async function statuses(requests: Array<() => Promise<Response>>): Promise<number[]> {
@@ -91,7 +92,7 @@ describe("Auth rate limiting", () => {
     const second = nextAddress()
     const send = (address: string) => () => {
       const request = signIn()
-      return handleAuthRequest(definition, standardEvent(request, address), undefined, standardEvent(request, address))
+      return handleAuthRequest(definition, standardEvent(request, address))
     }
 
     expect(await statuses([send(first), send(first), send(first), send(first)])).toEqual([401, 401, 401, 429])
