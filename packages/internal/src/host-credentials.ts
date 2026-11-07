@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process"
-import { mkdtemp, rm } from "node:fs/promises"
-import { tmpdir } from "node:os"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
 export type CredentialHost = "cloudflare" | "vercel" | "netlify" | "deno"
@@ -24,6 +23,7 @@ export interface HostCliRunResult {
 export type HostCliRun = (command: string, args: readonly string[], options: { cwd?: string, env: NodeJS.ProcessEnv }) => Promise<HostCliRunResult>
 
 export interface HostCredentialsContext {
+  /** Directory whose activated Wrangler profile is used. Defaults to the process cwd. */
   cwd?: string
   /** Only this object is read. A project `.env` file is never read. */
   env: NodeJS.ProcessEnv
@@ -117,26 +117,23 @@ async function readWranglerAccountId(context: HostCredentialsContext): Promise<s
 // A CLI that is not installed, exits non-zero, or prints something else means "not logged in".
 async function runJson(context: HostCredentialsContext, command: string, args: readonly string[]): Promise<unknown> {
   const run = context.run ?? runHostCli
-  let result: HostCliRunResult
   let cwd: string | undefined
   try {
-    // Wrangler loads dotenv files from its working directory even for auth commands.
-    // Keep the supplied environment (including the login's HOME), but isolate project files.
-    cwd = await mkdtemp(join(tmpdir(), "vitehub-host-login-"))
-    result = await run(command, args, { cwd, env: context.env })
+    // Wrangler loads project .env files before dispatch and searches ancestors for config.
+    // Keep the empty config under the caller's directory so its activated profile is inherited.
+    // Explicit empty files still prevent project env and config discovery.
+    cwd = await mkdtemp(join(context.cwd ?? process.cwd(), ".vitehub-wrangler-auth-"))
+    await writeFile(join(cwd, ".env"), "")
+    await writeFile(join(cwd, "wrangler.json"), "{}")
+    const result = await run(command, [...args, "--env-file", ".env", "--config", "wrangler.json"], { cwd, env: context.env })
+    if (result.exitCode !== 0) return
+    return JSON.parse(result.stdout)
   }
   catch {
     return
   }
   finally {
     if (cwd) await rm(cwd, { force: true, recursive: true })
-  }
-  if (result.exitCode !== 0) return
-  try {
-    return JSON.parse(result.stdout)
-  }
-  catch {
-    return
   }
 }
 

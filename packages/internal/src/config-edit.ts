@@ -398,14 +398,30 @@ function applyEdit(code: string, located: Located, edit: ConfigEdit): string | F
   const matches = members.filter((member): member is ObjectProperty | ObjectMethod => member.type !== "SpreadElement" && keyName(member.key, member.computed) === edit.key)
 
   if (edit.op === "delete") {
-    const lastMatch = matches.at(-1)
-    if (lastMatch && members.slice(members.indexOf(lastMatch) + 1).some(member => member.type === "SpreadElement")) return fail("spread", object)
-    if (!matches.length) {
-      if (site.spread) return fail("spread", object)
-      return code
-    }
+    if (site.spread) return fail("spread", object)
+    if (!matches.length) return code
     if (!object) return code
     if (matches.length === members.length) {
+      const hasComments = located.program.comments?.some((comment) => {
+        const from = comment.start ?? -1
+        const to = comment.end ?? -1
+        return from > start(object) && to < end(object)
+          && !matches.some(member => from >= start(member) && to <= end(member))
+      })
+      if (hasComments) {
+        for (const member of matches) {
+          let from = start(member)
+          let to = end(member)
+          const comma = skipBlanks(code, to)
+          if (code[comma] === ",") {
+            to = comma + 1
+            // appendMember inserts this prefix before an empty object's existing comments.
+            if (code.slice(start(object) + 1, from) === " ") from = start(object) + 1
+          }
+          output.remove(from, to)
+        }
+        return output.toString()
+      }
       if (container.kind === "call") {
         const argument = container.node.arguments[0]
         const next = container.node.arguments[1]
