@@ -676,7 +676,7 @@ function withTitleReadableStreamParallel<T>(
   getText: (value: T) => string = () => "",
   isTerminal: (value: T) => boolean = () => false,
   fallback?: StreamFallback<T>,
-  options: { clearInitialTitle?: () => T, initialTitle?: MaybePromise<string | undefined>, isFailureTerminal?: (value: T) => boolean, waitForStart?: boolean } = {},
+  options: { clearInitialTitle?: () => T, initialTitle?: string, isFailureTerminal?: (value: T) => boolean, waitForStart?: boolean } = {},
 ): AsyncIterable<T> & ReadableStream<T> {
   let reader: ReadableStreamDefaultReader<T> | undefined
   let fallbackIterator: AsyncIterator<T> | undefined
@@ -728,13 +728,9 @@ function withTitleReadableStreamParallel<T>(
       if (cancelled || closed) return
       if (initialTitlePending) {
         initialTitlePending = false
-        const initialTitle = await options.initialTitle
-        if (cancelled) return
-        if (initialTitle) {
-          initialTitleEmitted = true
-          controller.enqueue(renderTitle(initialTitle))
-          return
-        }
+        initialTitleEmitted = true
+        controller.enqueue(renderTitle(options.initialTitle!))
+        return
       }
       reader ??= result.getReader()
       streamNext ??= reader.read()
@@ -796,12 +792,8 @@ function withTitleReadableStreamParallel<T>(
             if (failureTerminal) titlePending = false
             if (initialTitlePending && isTerminal(next.value.value)) {
               initialTitlePending = false
-              const initialTitle = await options.initialTitle
-              if (cancelled) return
-              if (initialTitle) {
-                initialTitleEmitted = true
-                controller.enqueue(renderTitle(initialTitle))
-              }
+              initialTitleEmitted = true
+              controller.enqueue(renderTitle(options.initialTitle!))
             }
             if (!deferredTitle && titlePending && titleNext && isTerminal(next.value.value) && !failureTerminal) {
               const resolvedTitle = await titleNext
@@ -940,7 +932,7 @@ function withTitleTextStream(result: AsyncIterable<string>, title: TitleResoluti
 function withTitleUiMessageStream(
   result: ReadableStream<unknown>,
   title: TitleResolution,
-  provisionalTitle?: MaybePromise<string | undefined>,
+  provisionalTitle?: string,
 ): ReadableStream<unknown> {
   return withTitleReadableStreamParallel(
     result,
@@ -1024,7 +1016,7 @@ function cloneStreamTextResult<T extends { fullStream?: AsyncIterable<unknown>, 
 function titleUiMessageStreamOverride(
   toUIMessageStream: ToUIMessageStream | undefined,
   title: TitleResolution,
-  provisionalTitle?: MaybePromise<string | undefined>,
+  provisionalTitle?: string,
 ) {
   return toUIMessageStream
     ? {
@@ -1308,16 +1300,17 @@ export function title<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeCo
           : getTitle
         const preparedInput = preparedTitleInput()
         const establishedTitle = createAgentChatData(messages.flatMap(message => message.parts)).get("title")
+        // State may be remote; omit provisional output rather than waiting on or bypassing its claim.
+        const requiresDeliveryClaim = options.channelDelivery !== "always"
+          && supportsTitleDelivery(context)
+          && context.context.get(messageChannelStateContextKey)
+          && context.run?.threadId
         const provisionalTitle = preparedInput
           && establishedTitle === undefined
+          && !requiresDeliveryClaim
           && !options.when
           && shouldRunForTrigger(options.trigger, agentTriggerId(context))
-          // History may omit the established title; the delivery claim still governs provisional output.
-          ? Promise.resolve(getChannelDeliveryAttempt())
-              .then(attempt => attempt.deliver
-                ? heuristicTitle(stripChatEntityMarkup(preparedInput.text), options.maxLength ?? 39, options.fallback ?? "Untitled")
-                : undefined)
-              .catch(() => undefined)
+          ? heuristicTitle(stripChatEntityMarkup(preparedInput.text), options.maxLength ?? 39, options.fallback ?? "Untitled")
           : undefined
         if (isStreamTextResult(result)) {
           const toUIMessageStream = result.toUIMessageStream?.bind(result)
