@@ -18,6 +18,7 @@ import {
   consoleHintText,
   consoleLeaseHolder,
   consoleListQueryFor,
+  consoleLocaleName,
   consolePublishedConflicts,
   consolePublishMismatches,
   consoleRevisionLabel,
@@ -25,6 +26,7 @@ import {
   consoleSeoField,
   consoleDocumentFolders,
   consoleSingularLabel,
+  consoleTranslationLabel,
   isConsoleConflict,
   isConsoleDocumentId,
   consoleLocalScheduleTime,
@@ -59,7 +61,7 @@ import ConsoleStatus from "./console-status.vue";
 import type { CalendarDate } from "@internationalized/date";
 import type { RouteLocationRaw } from "vue-router";
 
-import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevision, ConsoleDocumentSchedule, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleRawDocument } from "../client/documents";
+import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevision, ConsoleDocumentSchedule, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleDocumentTranslationState, ConsoleRawDocument } from "../client/documents";
 import type { ConsoleDocumentSetup } from "../definitions";
 import type { ConsoleLivePerson, ConsoleLiveReset } from "../client/live";
 import type { ConsoleLocalVersion, ConsolePreviewView, ConsolePreviewViewport } from "../client/preview";
@@ -77,6 +79,11 @@ const props = defineProps<{
   collection: ConsoleDocumentCollection;
   /** Undefined for a new document. */
   documentId?: string;
+  /**
+   * The translation to edit, in a collection with locales. Undefined for the source locale. `client` reads and writes
+   * this locale. A translation has no live room, edit lease, Local only mode, preview, or schedule yet.
+   */
+  locale?: string;
   /** Where Back leads instead of the collection list, such as the Settings page for a singleton. */
   parent?: { label: string, to: RouteLocationRaw };
   /** What the project lacks, such as a runner for scheduled publishes. */
@@ -170,6 +177,42 @@ let saveQueued = false;
 const canWrite = computed(() => props.collection.access.write);
 const canPublish = computed(() => props.collection.access.publish);
 
+/** The source locale, the first one, in a collection with locales. */
+const sourceLocale = computed(() => props.collection.locales?.[0]);
+/**
+ * The source locale version that a locale without a translation opens with. The editor shows it, and the first edit
+ * saves the translation.
+ */
+const untranslated = ref<Version>();
+/** The state of each translation, by locale, from the last read or save. */
+const translations = ref<Record<string, ConsoleDocumentTranslationState>>();
+/** The locales to switch between, source locale first, each with the state of its translation. A new document starts in the source locale. */
+const localeOptions = computed(() => (creating.value ? [] : props.collection.locales ?? []).map((locale) => {
+  const source = locale === sourceLocale.value;
+  const state = source ? undefined : translations.value?.[locale];
+  const label = source ? "Source" : state ? consoleTranslationLabel(state) : undefined;
+  return { active: locale === (props.locale ?? sourceLocale.value), locale, state, hint: label ? `${consoleLocaleName(locale)} · ${label}` : consoleLocaleName(locale) };
+}));
+/** Not translated yet, or the source changed after the translation: one line above the page, with a way to the source. */
+const translationNote = computed(() => {
+  if (!props.locale || !sourceLocale.value || loading.value) return undefined;
+  const source = consoleLocaleName(sourceLocale.value);
+  if (untranslated.value) {
+    return canWrite.value
+      ? `Not translated yet · This is the ${source} version. Your first edit saves the ${consoleLocaleName(props.locale)} translation.`
+      : `Not translated yet · This is the ${source} version.`;
+  }
+  if (base.value && translations.value?.[props.locale] === "stale") return `Out of date · The ${source} version changed after this translation was made.`;
+  return undefined;
+});
+
+function localeRoute(locale: string) {
+  const query = { ...route.query };
+  if (locale === sourceLocale.value) delete query.locale;
+  else query.locale = locale;
+  return { query };
+}
+
 /**
  * Collaborative or Local only. Collaborative edits save to the shared draft, in the live room where Content installs
  * it. Local-only edits stay in this tab: they never save, never reach the room, and survive a reload. Apply saves
@@ -193,7 +236,8 @@ const readingConflict = ref(false);
 const sharedPublishOpen = ref(false);
 const sharedPublish = ref<{ draft: ConsoleDocument | null, site: ConsoleDocument | null }>();
 const sharedPublishLoading = ref(false);
-if (!creating.value && props.documentId !== undefined && canWrite.value) {
+// Local only stores the source locale version of a document, so a translation does not read it.
+if (!creating.value && props.documentId !== undefined && canWrite.value && !props.locale) {
   const stored = readConsoleLocalDraft(window.sessionStorage, props.collection.name, props.documentId);
   if (stored) {
     editing.value = "local";
@@ -228,7 +272,8 @@ const { dialogOpen: leaseDialogOpen, holder: leaseHolder, others: sessionOthers,
 const liveDefinition = consoleLiveDefinition(props.setup);
 const liveFallback = ref<"document" | "unreachable">();
 const liveRoom = computed(() => {
-  if (!liveDefinition || !hasBody.value || creating.value || liveFallback.value || local.value || props.documentId === undefined) return undefined;
+  // The room of a document holds its source locale version.
+  if (!liveDefinition || !hasBody.value || creating.value || liveFallback.value || local.value || props.documentId === undefined || props.locale) return undefined;
   return single.value ? props.collection.name : `${props.collection.name}/${props.documentId}`;
 });
 const live = liveDefinition
@@ -359,7 +404,8 @@ const fieldPeople = computed(() => {
 });
 provide("vitehubFieldPeople", fieldPeople);
 /** Sessions are on, but this tab cannot check them: a failed request, or an owner without the sessions table. */
-const sessionsUnchecked = computed(() => !creating.value && (sessionUnreachable.value || sessionPresence.value?.available === false));
+// A translation takes no edit lease, so it has nothing to check.
+const sessionsUnchecked = computed(() => !creating.value && !props.locale && (sessionUnreachable.value || sessionPresence.value?.available === false));
 /** The one line under the header that says who holds the lease and what this tab can do about it. */
 const leaseBanner = computed<{ icon: string, text: string } | undefined>(() => {
   if (!canWrite.value || creating.value || local.value) return;
@@ -399,11 +445,13 @@ const folders = computed(() => consoleDocumentFolders(props.collection));
 const folderIndex = ref(0);
 const folderPrefix = computed(() => folders.value[folderIndex.value]?.prefix ?? "");
 const id = computed(() => (creating.value ? (newId.value.trim() ? `${folderPrefix.value}${newId.value.trim()}` : "") : props.documentId!));
-const savedVersion = computed<Version>(() => (base.value ? { body: base.value.body, data: base.value.data } : { body: "", data: consoleSchemaDefaults(props.collection.schema) }));
+const savedVersion = computed<Version>(() => (base.value ? { body: base.value.body, data: base.value.data } : untranslated.value ?? { body: "", data: consoleSchemaDefaults(props.collection.schema) }));
 const dirty = computed(() => {
   // The live room saves on its own, and local-only edits never save: nothing waits on this tab.
   if (liveActive.value || local.value) return false;
   if (creating.value) return Boolean(newId.value.trim()) || stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(savedVersion.value.data)) || Boolean(draft.value.body.trim());
+  // A translation that does not exist yet is dirty once it differs from the source version it opened with.
+  if (!base.value && untranslated.value) return draft.value.body.trimEnd() !== untranslated.value.body.trimEnd() || stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(untranslated.value.data));
   // A singleton that does not exist yet is dirty once it differs from its defaults.
   if (!base.value) return single.value && state.value !== "deleted" && stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(savedVersion.value.data));
   // The editor writes canonical Markdown, which can drop a trailing newline that the stored file has.
@@ -426,7 +474,7 @@ const dataDirty = computed(() => Boolean(base.value) && stableConsoleJSON(compac
 // Local-only edits keep the editor open when the shared draft is gone, so they are never hidden behind these states.
 const deleted = computed(() => !creating.value && !loading.value && !base.value && !local.value && state.value === "deleted");
 // A singleton that was never saved opens with its defaults instead.
-const missing = computed(() => !single.value && !creating.value && !loading.value && !base.value && !local.value && !loadError.value && state.value !== "deleted");
+const missing = computed(() => !single.value && !creating.value && !loading.value && !base.value && !untranslated.value && !local.value && !loadError.value && state.value !== "deleted");
 // Local-only edits do not need a shared save, but removing the iframe still needs the page tools' exit guard.
 watch(() => dirty.value || localChanged.value || sharedGone.value, value => {
   if (window.parent !== window) window.parent.postMessage({ type: "vitehub:dirty", dirty: value }, location.origin);
@@ -451,7 +499,7 @@ const idError = computed(() => (creating.value && newId.value && !isConsoleDocum
  * Drafts save on their own once they exist. A new document waits for Create, since its id names the file. A singleton
  * has a fixed file, so its first edit creates it.
  */
-const autosaves = computed(() => !liveActive.value && !local.value && canWrite.value && !creating.value && (Boolean(base.value) || (single.value && state.value !== "deleted")) && !conflict.value && !publishing.value && !restoring.value && session.mayWrite.value);
+const autosaves = computed(() => !liveActive.value && !local.value && canWrite.value && !creating.value && (Boolean(base.value) || Boolean(untranslated.value) || (single.value && state.value !== "deleted")) && !conflict.value && !publishing.value && !restoring.value && session.mayWrite.value);
 const sourceParts = computed(() => (storedFile.value === undefined ? undefined : splitConsoleFrontmatter(storedFile.value)));
 
 // "Saving…" shows only when a save takes longer than 200ms, then stays at least 400ms, so fast saves do not flicker.
@@ -494,6 +542,7 @@ const headerStatus = computed<{ action?: HeaderAction, label: string, pending?: 
   if (saveError.value && dirty.value) return { action: "retry", label: "Not saved · retry", tone: "error" };
   if (base.value?.conflict) return { action: "site", label: "Changed on the site too", tone: "warning" };
   if (creating.value) return dirty.value ? { label: "Not created yet", tone: "neutral" } : undefined;
+  if (untranslated.value) return { label: "Not translated yet", tone: "neutral" };
   if (!state.value) return single.value && !base.value && !loading.value ? { label: "Not saved yet", tone: "neutral" } : undefined;
   const label = dirty.value && !autosaves.value ? "Unsaved" : consoleDocumentStateLabel(state.value);
   return { label, savedAt: savedAt.value ?? base.value?.updatedAt ?? undefined, tone: dirty.value && !autosaves.value ? "warning" : consoleDocumentStateColor(state.value) };
@@ -536,6 +585,8 @@ const seenDigests = new Set<string>();
 
 function accept(document: ConsoleDocument): void {
   seenDigests.add(document.digest);
+  untranslated.value = undefined;
+  translations.value = document.translations;
   base.value = document;
   state.value = document.state;
   schedule.value = document.schedule;
@@ -563,6 +614,10 @@ async function load(): Promise<void> {
   loadError.value = undefined;
   try {
     const document = await props.client.get(props.collection.name, props.documentId!);
+    if (document?.fallback) {
+      openUntranslated(document);
+      return;
+    }
     // In a live room the fields and body come from the room, and local-only edits stay on screen. Only the stored
     // version and its state come from here.
     if (document && (liveActive.value || local.value)) {
@@ -591,9 +646,31 @@ async function load(): Promise<void> {
   }
 }
 
+/**
+ * A locale without a translation: the editor opens the source version that the read fell back to, and the first save
+ * creates the translation. A translation deleted on the draft but still published shows as deleted instead.
+ */
+function openUntranslated(document: ConsoleDocument): void {
+  base.value = null;
+  state.value = document.state;
+  schedule.value = undefined;
+  translations.value = document.translations;
+  if (document.state === "deleted") {
+    untranslated.value = undefined;
+    return;
+  }
+  // Someone typed while the page loaded: keep their edits.
+  if (untranslated.value && dirty.value) return;
+  untranslated.value = { body: document.body, data: clone(document.data) };
+  draft.value = { body: document.body, data: clone(document.data) };
+}
+
 /** The stored version, its state, and its schedule, without the fields and body on screen. */
 function takeState(document: ConsoleDocument): void {
+  // Without a translation, the read is the source version, which is not this locale's stored version.
+  if (document.fallback) return;
   seenDigests.add(document.digest);
+  translations.value = document.translations;
   base.value = document;
   state.value = document.state;
   schedule.value = document.schedule;
@@ -722,6 +799,8 @@ async function save(options: { auto?: boolean, ifDigest?: string | null } = {}):
     seenDigests.add(saved.digest);
     base.value = saved;
     state.value = saved.state;
+    untranslated.value = undefined;
+    translations.value = saved.translations;
     if (!editedDuringSave) draft.value = { body: saved.body === sent.body ? draft.value.body : saved.body, data: clone(saved.data) };
     showSavedIssues(saved);
     savedAt.value = new Date().toISOString();
@@ -1673,7 +1752,8 @@ function onTitleKeydown(event: KeyboardEvent): void {
 }
 
 // Side browser: the page of the document, kept open in the URL as `?preview`. Its width is kept per browser.
-const previewUrl = computed(() => consolePreviewUrl(base.value?.url, window.location.origin));
+// A preview frame renders the source locale draft, so a translation has no preview yet.
+const previewUrl = computed(() => (props.locale ? undefined : consolePreviewUrl(base.value?.url, window.location.origin)));
 const previewOpen = computed(() => route.query.preview !== undefined && !creating.value && Boolean(previewUrl.value));
 const previewView = ref<ConsolePreviewView>("draft");
 const previewViewport = ref<ConsolePreviewViewport>("desktop");
@@ -1875,6 +1955,8 @@ onBeforeRouteLeave(beforeLeaveDocument);
 onBeforeRouteUpdate((to, from) => {
   // The document, collection list and other documents share a route record.
   if (local.value && to.path !== from.path) return beforeLeaveDocument();
+  // Another locale opens a new editor, so pending edits save first.
+  if (to.query.locale !== from.query.locale) return beforeLeaveDocument();
 });
 onMounted(() => {
   window.addEventListener("keydown", onKeydown);
@@ -1911,8 +1993,27 @@ const menuItems = computed(() => [[
   <div class="flex min-w-0 flex-1 flex-col">
   <!-- A singleton named like its page, such as Settings, shows the name once. -->
   <ConsolePageHeader :title="title" :back="back" :trail="back && back.label !== title ? [back] : []">
-    <template v-if="schedule" #title-trailing>
-      <UTooltip :text="scheduleHint" :content="{ side: 'bottom' }">
+    <template v-if="schedule || localeOptions.length" #title-trailing>
+      <nav v-if="localeOptions.length" class="flex shrink-0 items-center rounded-md p-0.5 ring-1 ring-default ring-inset" aria-label="Locales">
+        <UTooltip v-for="option in localeOptions" :key="option.locale" :text="option.hint" :content="{ side: 'bottom' }">
+          <RouterLink
+            :to="localeRoute(option.locale)"
+            class="flex h-6 items-center gap-1.5 rounded-[4px] px-2 text-xs font-normal uppercase focus-visible:outline-2"
+            :class="option.active ? 'bg-elevated text-highlighted' : 'text-muted hover:text-highlighted'"
+            :aria-current="option.active ? 'page' : undefined"
+            :aria-label="option.hint"
+          >
+            {{ option.locale }}
+            <span
+              v-if="option.state"
+              class="size-1.5 shrink-0 rounded-full"
+              :class="option.state === 'current' ? 'bg-success' : option.state === 'stale' ? 'bg-warning' : 'ring-1 ring-(--ui-text-dimmed) ring-inset'"
+              aria-hidden="true"
+            />
+          </RouterLink>
+        </UTooltip>
+      </nav>
+      <UTooltip v-if="schedule" :text="scheduleHint" :content="{ side: 'bottom' }">
         <ConsoleStatus class="shrink-0" :tone="consoleDocumentScheduleTone(schedule)" :label="consoleDocumentScheduleLabel(schedule)" />
       </UTooltip>
     </template>
@@ -1951,7 +2052,7 @@ const menuItems = computed(() => [[
         </UTooltip>
       </span>
       <UDropdownMenu
-        v-if="canWrite && (base || local) && !creating && !missing && !deleted && !loadError"
+        v-if="canWrite && (base || local) && !creating && !missing && !deleted && !loadError && !locale"
         :items="editingItems"
         :content="{ align: 'end' }"
         :ui="{ content: 'w-72', itemDescription: 'whitespace-normal!' }"
@@ -1968,7 +2069,7 @@ const menuItems = computed(() => [[
           <span class="hidden sm:inline">{{ local ? "Local only" : "Collaborative" }}</span>
         </UButton>
       </UDropdownMenu>
-      <UTooltip v-if="base && !creating && !missing" :text="previewUrl ? 'Preview the page' : 'Set url on the collection to preview its pages'" :content="{ side: 'bottom' }">
+      <UTooltip v-if="base && !creating && !missing && !locale" :text="previewUrl ? 'Preview the page' : 'Set url on the collection to preview its pages'" :content="{ side: 'bottom' }">
         <UButton
           variant="ghost"
           size="sm"
@@ -2016,7 +2117,7 @@ const menuItems = computed(() => [[
           />
         </UTooltip>
         <UDropdownMenu
-          v-if="state !== 'deleted' && !local"
+          v-if="state !== 'deleted' && !local && !locale"
           :items="publishMenu"
           :content="{ align: 'end' }"
           :ui="{ content: 'max-w-72', itemDescription: 'whitespace-normal!' }"
@@ -2105,6 +2206,11 @@ const menuItems = computed(() => [[
             <span class="flex-1">{{ refusedEdits === 1 ? "1 edit wasn't saved" : `${refusedEdits} edits weren't saved` }}</span>
             <UButton size="xs" color="neutral" variant="ghost" icon="i-lucide-copy" label="Copy" @click="copyUnsaved" />
           </div>
+        </div>
+        <div v-if="translationNote" class="mb-6 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md px-3 py-2 text-[13px] ring-1 ring-default ring-inset" role="status">
+          <UIcon name="i-lucide-languages" class="size-4 shrink-0 text-muted" aria-hidden="true" />
+          <span class="min-w-0 flex-1 text-default">{{ translationNote }}</span>
+          <UButton v-if="sourceLocale" size="xs" color="neutral" variant="outline" :label="`Open ${consoleLocaleName(sourceLocale)}`" :to="localeRoute(sourceLocale)" />
         </div>
         <p v-if="!canWrite" class="mb-6 flex items-center gap-2 text-[13px] text-muted">
           <UIcon name="i-lucide-lock" class="size-4 shrink-0" aria-hidden="true" />

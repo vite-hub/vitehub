@@ -98,6 +98,15 @@ For a collection with a `url`, the window button in the editor header opens the 
 
 The page must allow a frame from its own origin. A page that sends `X-Frame-Options: DENY` or `frame-ancestors 'none'` cannot show in the side browser.
 
+## Translations
+
+A collection with [`locales`](/docs/content/configure#locales) shows the locales next to the title, source locale first, such as `EN ES`. A dot gives the state of each translation: green when it is up to date, yellow when the source changed after it, and empty when it is not translated yet. Hover a locale for its name and state. List rows name the translations that need work, such as `ES out of date` or `ES missing`.
+
+- **Not translated yet.** The locale opens with the source version and says so. Your first edit saves the translation in its own file, such as `docs/es/guide.md`, and records the source version it came from.
+- **Out of date.** A line above the title says the source changed after the translation, with a button that opens the source.
+- **Save and publish.** A save marks the translation up to date. **Publish** publishes the translation on screen. **Schedule…** stays on the source locale.
+- **Not yet for translations.** Live editing, the edit lease, Local only, and the side browser work on the source locale. Saves of a translation still refuse to overwrite a newer version.
+
 ## Edit locally first
 
 The editing menu in the header switches between **Collaborative** and **Local only**. It is separate from the Draft and Published views of the preview.
