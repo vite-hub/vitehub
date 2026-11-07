@@ -77,6 +77,10 @@ const failed = ref<unknown>();
 // Status is loaded on request because inspection can call providers.
 const statuses = ref<ReadonlyMap<ServerEnvDescriptionEntry, EnvStatus>>();
 const statusFailed = ref(false);
+// A status check can call providers, so the button shows progress and the toolbar shows when it finished.
+const checking = ref(false);
+const checkedAt = ref<Date>();
+const statusUnavailable = ref(false);
 let request: AbortController | undefined;
 const detailOpen = computed({
   get: () => Boolean(selected.value),
@@ -136,8 +140,10 @@ async function refresh(includeStatus = false) {
   const current = new AbortController();
   request = current;
   loading.value = true;
+  checking.value = includeStatus;
   failed.value = undefined;
   statusFailed.value = false;
+  statusUnavailable.value = false;
   try {
     const result = v.parse(
       descriptionSchema,
@@ -151,6 +157,10 @@ async function refresh(includeStatus = false) {
     statuses.value = result.status
       ? indexEnvStatuses(result.entries, result.status)
       : undefined;
+    if (includeStatus) {
+      checkedAt.value = new Date();
+      statusUnavailable.value = !result.status;
+    }
     if (!blockingCount.value) attentionOnly.value = false;
     if (!sourceItems.value.some((item) => item.value === source.value)) source.value = "all";
     if (undisclosed.value && !entries.value.includes(undisclosed.value)) undisclosed.value = undefined;
@@ -163,9 +173,13 @@ async function refresh(includeStatus = false) {
     }
     else failed.value = cause;
   } finally {
-    if (!current.signal.aborted) loading.value = false;
+    if (!current.signal.aborted) {
+      loading.value = false;
+      checking.value = false;
+    }
   }
 }
+const checkedTime = computed(() => checkedAt.value?.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" }));
 onMounted(() => {
   rememberConsoleSection("env");
   void refresh(false);
@@ -190,6 +204,7 @@ onBeforeUnmount(() => request?.abort());
             label="Check status"
             size="sm"
             variant="ghost"
+            :loading="checking"
             :disabled="loading"
             @click="refresh(true)"
           />
@@ -224,7 +239,8 @@ onBeforeUnmount(() => request?.abort());
           aria-label="Filter by source"
         />
         <div class="ms-auto flex items-center gap-3 text-xs text-muted tabular-nums" aria-live="polite">
-          <span v-if="statusFailed" role="alert" class="text-error">Could not check status.</span>
+          <span v-if="statusFailed" role="alert" class="text-error">Could not check status. Try again.</span>
+          <span v-else-if="statusUnavailable">This host cannot check status.</span>
           <button
             v-else-if="statuses && blockingCount"
             type="button"
@@ -233,9 +249,10 @@ onBeforeUnmount(() => request?.abort());
             :aria-pressed="attentionOnly"
             @click="attentionOnly = !attentionOnly"
           >
-            <ConsoleStatus :label="`${plural(blockingCount, 'value')} need attention`" tone="error" />
+            <ConsoleStatus :label="`${plural(blockingCount, 'value')} ${blockingCount === 1 ? 'needs' : 'need'} attention`" tone="error" />
           </button>
           <ConsoleStatus v-else-if="statuses" label="All values resolve" tone="success" />
+          <span v-if="checkedTime && !checking && !statusFailed" class="text-dimmed">Checked at {{ checkedTime }}</span>
           <span>{{ summary }}</span>
         </div>
       </ConsolePageToolbar>
