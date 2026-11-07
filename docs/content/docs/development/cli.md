@@ -406,10 +406,11 @@ The Database commands refresh the discovered Database Definitions before running
 pnpm vitehub db generate
 pnpm vitehub db generate --name add-audit-log
 pnpm vitehub db generate --custom --name backfill-state
+pnpm vitehub db generate --custom --schema-snapshot --name move-tables
 pnpm vitehub db migrate
 ```
 
-`db generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. `db migrate` accepts forwarded Drizzle Kit migration arguments.
+`db generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. Drizzle Kit copies the previous snapshot into a custom migration, for SQL that changes only data. When the SQL changes the tables to the current Database Definitions, add `--schema-snapshot`: the migration then gets the snapshot of those Definitions, so the next `db generate` has nothing to add. `db migrate` accepts forwarded Drizzle Kit migration arguments.
 
 ## Export a Database
 

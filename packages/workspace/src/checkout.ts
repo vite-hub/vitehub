@@ -3,9 +3,8 @@ import { constants } from "node:fs"
 import { lstat, mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import { basename, dirname, join, relative, resolve, sep } from "node:path"
 
-import { workspaceCommitRequestBytes } from "./results.ts"
-
 import { staleDerivedFiles } from "./lineage.ts"
+import { workspaceCommitRequestBytes } from "./results.ts"
 
 import type { WorkspaceStaleFile } from "./lineage.ts"
 import type { WorkspaceChangedFile, WorkspaceChanges, WorkspaceCommitResult, WorkspaceHistoryContent, WorkspaceHistoryDetails } from "./results.ts"
@@ -55,8 +54,12 @@ const conflictEnd = /^>{7}(?: |$)/m
 /** The suffix of the temporary file of an atomic write. A command that stopped before the rename leaves one behind. */
 const temporarySuffix = ".vitehub-tmp"
 
+function portableKey(name: string): string {
+  return name.normalize("NFC").toUpperCase().toLowerCase().normalize("NFC")
+}
+
 function ignoredName(name: string): boolean {
-  const normalized = name.toLowerCase().replace(/[. ]+$/, "")
+  const normalized = portableKey(name).replace(/[. ]+$/, "")
   return ignored.has(normalized) || normalized.endsWith(temporarySuffix)
 }
 
@@ -66,7 +69,48 @@ function ignoredPath(path: string): boolean {
 
 /** A folder path to compare. Windows and macOS file systems ignore case, so `content` and `CONTENT` are one folder. */
 function folderKey(folder: string): string {
-  return process.platform === "win32" || process.platform === "darwin" ? folder.toLowerCase() : folder
+  return process.platform === "win32" || process.platform === "darwin" ? portableKey(folder) : folder
+}
+
+/** Lock keys are Workspace names and file paths, including names such as `__proto__`. */
+function ownRecord<T>(record: Record<string, T>): Record<string, T> {
+  Object.setPrototypeOf(record, null)
+  return record
+}
+
+/**
+ * Use one portable spelling for every file and directory component, on every platform. Check the whole tree before
+ * writing: checking only changed files misses aliases of unchanged files, local files, and shared parent folders.
+ */
+function validateCheckoutPaths(paths: Iterable<string>, directories: Iterable<string> = []): void {
+  const nodes = new Map<string, { path: string, directory: boolean }>()
+  const add = (path: string, directory: boolean) => {
+    // Valibot record schemas omit these exact keys from workspace.commit's put map. Refuse instead of losing a put.
+    if (!directory && ["__proto__", "constructor", "prototype"].includes(path)) {
+      throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_PATH", `The top-level file name "${path}" is reserved by the operation input map.`, "Rename the file before pulling or pushing it.")
+    }
+    let key = ""
+    let spelling = ""
+    const parts = path.split("/")
+    parts.forEach((part, index) => {
+      const component = portableKey(part)
+      if (!part || part === "." || part === ".."
+        || /[. ]$|[<>:"|?*\\]/.test(part) || [...part].some(character => character.charCodeAt(0) < 32)
+        || /^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9¹²³]|lpt[1-9¹²³])(?:[ .]|$)/.test(component)) {
+        throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_PATH", `The path "${path}" has a component that is not portable between file systems.`, "Rename the path to a portable name before pulling or pushing it.")
+      }
+      key += `/${component}`
+      spelling += `${spelling ? "/" : ""}${part}`
+      const isDirectory = directory || index < parts.length - 1
+      const existing = nodes.get(key)
+      if (existing && (existing.path !== spelling || existing.directory !== isDirectory)) {
+        throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_PATH", `The checkout paths "${existing.path}" and "${spelling}" use different spellings for one file-system path, or replace a file with a directory.`, "Rename conflicting paths. For a file/directory replacement, keep local edits elsewhere, remove the lock entry, and pull into a new empty folder.")
+      }
+      nodes.set(key, { path: spelling, directory: isDirectory })
+    })
+  }
+  for (const path of paths) add(path, false)
+  for (const path of directories) add(path, true)
 }
 
 function digestOf(bytes: Bytes): string {
@@ -262,7 +306,7 @@ async function readWorkspaceLock(rootDir: string): Promise<WorkspaceLock> {
     }
   }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, workspaces: {} }
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, workspaces: ownRecord({}) }
     if ((error as NodeJS.ErrnoException).code === "ELOOP") throw lockSymlinkError()
     throw error
   }
@@ -278,10 +322,13 @@ async function readWorkspaceLock(rootDir: string): Promise<WorkspaceLock> {
     throw new WorkspaceCheckoutError("WORKSPACE_LOCK_INVALID", `${workspaceLockFile} has no \`version: 1\` and \`workspaces\` object.`)
   }
   const lock = parsed as WorkspaceLock
+  ownRecord(lock.workspaces)
   validateCheckoutFolders(rootDir, lock)
   for (const entry of Object.values(lock.workspaces)) {
+    ownRecord(entry.files)
     // Older locks can track paths that scan excludes. Forget them without deleting remote files.
     for (const path of Object.keys(entry.files)) if (ignoredPath(path)) delete entry.files[path]
+    validateCheckoutPaths(Object.keys(entry.files))
     const conflicts = entry.conflicts?.filter(path => !ignoredPath(path))
     if (conflicts?.length) entry.conflicts = conflicts
     else delete entry.conflicts
@@ -290,7 +337,7 @@ async function readWorkspaceLock(rootDir: string): Promise<WorkspaceLock> {
 }
 
 async function writeWorkspaceLock(rootDir: string, lock: WorkspaceLock): Promise<void> {
-  const sorted: WorkspaceLock = { version: 1, workspaces: {} }
+  const sorted: WorkspaceLock = { version: 1, workspaces: ownRecord({}) }
   for (const name of Object.keys(lock.workspaces).sort()) {
     const entry = lock.workspaces[name]!
     sorted.workspaces[name] = {
@@ -305,27 +352,21 @@ async function writeWorkspaceLock(rootDir: string, lock: WorkspaceLock): Promise
   await writeAtomic(join(rootDir, workspaceLockFile), `${JSON.stringify(sorted, null, 2)}\n`)
 }
 
-// A command holds this file only while it reads, merges, and writes the lock file, for milliseconds. A file older than
-// `lockStaleMs` is left by a command that stopped, and the next command removes it.
+// Age cannot prove that an owner stopped. An interrupted command leaves a lock for manual cleanup.
 const lockMutexFile = `${workspaceLockFile}.lock`
 const lockWaitMs = 10_000
-const lockStaleMs = 30_000
 
 async function withLockMutex<T>(rootDir: string, work: () => Promise<T>): Promise<T> {
   const path = join(rootDir, lockMutexFile)
+  const token = `${process.pid}:${randomBytes(16).toString("hex")}\n`
   const started = Date.now()
   for (;;) {
     try {
-      await writeFile(path, `${process.pid}\n`, { flag: "wx" })
+      await writeFile(path, token, { flag: "wx" })
       break
     }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-      const stat = await lstat(path).catch(() => undefined)
-      if (stat && Date.now() - stat.mtimeMs > lockStaleMs) {
-        await rm(path, { force: true })
-        continue
-      }
       if (Date.now() - started > lockWaitMs) {
         throw new WorkspaceCheckoutError("WORKSPACE_LOCK_BUSY", `Another vitehub command is writing ${workspaceLockFile}: ${lockMutexFile} exists.`, `Wait for that command to finish and try again. If no vitehub command runs, delete ${lockMutexFile}.`)
       }
@@ -336,7 +377,7 @@ async function withLockMutex<T>(rootDir: string, work: () => Promise<T>): Promis
     return await work()
   }
   finally {
-    await rm(path, { force: true })
+    if (await readFile(path, "utf8").catch(() => undefined) === token) await rm(path, { force: true })
   }
 }
 
@@ -364,6 +405,7 @@ function folderOf(rootDir: string, dir: string): string {
   if (!inside || inside.startsWith("..") || inside.split(sep).includes("..")) {
     throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_DIR", `The checkout folder "${dir}" must be a folder inside the project, not the project root.`, "Pass --dir with a folder such as `content`.")
   }
+  validateCheckoutPaths([], [inside.split(sep).join("/")])
   return folder
 }
 
@@ -381,7 +423,7 @@ function validateCheckoutFolders(rootDir: string, lock: WorkspaceLock): void {
 }
 
 /** Every file of the checkout folder by Workspace path, with its bytes. Fails on a link in it or its ancestors. */
-async function scan(rootDir: string, folder: string): Promise<Map<string, Bytes>> {
+async function scan(rootDir: string, folder: string, directories: string[] = []): Promise<Map<string, Bytes>> {
   await assertNoSymlinks(rootDir, folder)
   const files = new Map<string, Bytes>()
   const walk = async (dir: string) => {
@@ -398,11 +440,15 @@ async function scan(rootDir: string, folder: string): Promise<Map<string, Bytes>
       const path = join(dir, entry.name)
       // A skipped link would look like a deleted file, and the next push would delete it on the remote.
       if (entry.isSymbolicLink()) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_SYMLINK", `${relative(folder, path)} in the checkout folder is a symbolic link.`, "Replace the link with a real folder or file.")
-      if (entry.isDirectory()) await walk(path)
+      if (entry.isDirectory()) {
+        directories.push(relative(folder, path).split(sep).join("/"))
+        await walk(path)
+      }
       else if (entry.isFile()) files.set(relative(folder, path).split(sep).join("/"), new Uint8Array(await readFile(path)))
     }
   }
   await walk(folder)
+  validateCheckoutPaths(files.keys(), directories)
   return files
 }
 
@@ -427,6 +473,7 @@ async function assertNoSymlinks(rootDir: string, target: string): Promise<void> 
 
 /** The local file of a relative Workspace path, checked for existing symbolic links. */
 async function localPath(rootDir: string, folder: string, path: string): Promise<string> {
+  validateCheckoutPaths([path])
   const segments = path.split("/")
   if (segments.some(segment => !segment || segment === "." || segment === ".." || segment.includes("\\"))) {
     throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_PATH", `The remote path "${path}" is not a relative Workspace path.`)
@@ -524,15 +571,16 @@ async function callOrThrow<T>(context: WorkspaceCheckoutContext, remote: string 
 function checkoutEntry(rootDir: string, lock: WorkspaceLock, workspace: string, options: { dir?: string, ref?: string, remote?: string }): WorkspaceCheckout {
   const existing = lock.workspaces[workspace]
   if (existing) {
-    for (const key of ["dir", "ref"] as const) {
+    for (const key of ["dir", "ref", "remote"] as const) {
       if (options[key] !== undefined && options[key] !== existing[key]) {
-        throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_OPTIONS", `Workspace "${workspace}" is checked out with ${key} "${existing[key]}", not "${options[key]}".`, `Edit ${workspaceLockFile} to change it, or remove the entry and pull again.`)
+        const fix = key === "remote" ? `Remove its ${workspaceLockFile} entry and pull into a new folder to change the remote.` : `Edit ${workspaceLockFile} to change it, or remove the entry and pull again.`
+        throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_OPTIONS", `Workspace "${workspace}" is checked out with ${key} "${existing[key]}", not "${options[key]}".`, fix)
       }
     }
     return existing
   }
   if (!options.dir) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_DIR", `Workspace "${workspace}" is not checked out yet.`, `Pass --dir <folder> on the first pull, such as \`vitehub pull ${workspace} --dir content\`.`)
-  const entry: WorkspaceCheckout = { dir: options.dir, ref: options.ref ?? "main", ...(options.remote ? { remote: options.remote } : {}), head: null, files: {} }
+  const entry: WorkspaceCheckout = { dir: options.dir, ref: options.ref ?? "main", ...(options.remote ? { remote: options.remote } : {}), head: null, files: ownRecord({}) }
   lock.workspaces[workspace] = entry
   validateCheckoutFolders(rootDir, lock)
   return entry
@@ -544,12 +592,13 @@ async function pullEntry(context: WorkspaceCheckoutContext, workspace: string, e
   const changes = await callOrThrow<WorkspaceChanges>(context, entry.remote, "workspace.changes", { workspace, ref: entry.ref, since: entry.head })
   const result: WorkspacePullResult = { workspace, ref: entry.ref, from: entry.head, head: changes.head?.id ?? null, files: [] }
   if (result.head === entry.head) return result
-  const local = await scan(context.rootDir, folder)
+  const directories: string[] = []
+  const local = await scan(context.rootDir, folder, directories)
+  const incoming = changes.files.filter(file => !ignoredPath(file.path))
+  validateCheckoutPaths([...Object.keys(entry.files), ...local.keys(), ...incoming.map(file => file.path)], directories)
   const conflicts = new Set(entry.conflicts ?? [])
   const labels = { local: "local", remote: `${entry.ref} ${result.head ?? ""}`.trim() }
-  for (const file of changes.files) {
-    if (!ignoredPath(file.path)) result.files.push(await applyRemote(context.rootDir, folder, entry, file, local.get(file.path), conflicts, labels))
-  }
+  for (const file of incoming) result.files.push(await applyRemote(context.rootDir, folder, entry, file, local.get(file.path), conflicts, labels))
   entry.head = result.head
   if (conflicts.size) entry.conflicts = [...conflicts]
   else delete entry.conflicts
@@ -643,6 +692,9 @@ export async function pullWorkspaces(context: WorkspaceCheckoutContext, options:
 
 async function takeTheirs(context: WorkspaceCheckoutContext, workspace: string, entry: WorkspaceCheckout, paths: readonly string[], result: WorkspacePullResult): Promise<void> {
   const folder = folderOf(context.rootDir, entry.dir)
+  const directories: string[] = []
+  const local = await scan(context.rootDir, folder, directories)
+  validateCheckoutPaths([...Object.keys(entry.files), ...local.keys(), ...paths], directories)
   for (const path of paths) {
     if (ignoredPath(path)) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_PATH", `The path "${path}" is excluded from the checkout.`)
     const shown = entry.head === null ? undefined : await context.call("workspace.show", { workspace, target: entry.head, path }, entry.remote)
@@ -712,8 +764,20 @@ async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, e
       if (called.code === "WORKSPACE_CONFLICT" && attempt < 3) continue
       throw new WorkspaceCheckoutError(called.code ?? "WORKSPACE_CHECKOUT_FAILED", called.message, called.fix)
     }
-    const { revision } = called.value as WorkspaceCommitResult
-    for (const path of [...local.added, ...local.modified]) entry.files[path] = digestOf(files.get(path)!)
+    const { revision, normalized } = called.value as WorkspaceCommitResult
+    for (const path of [...local.added, ...local.modified]) {
+      const submitted = files.get(path)!
+      const committed = normalized && Object.hasOwn(normalized, path) ? decode(normalized[path]!) : submitted
+      entry.files[path] = digestOf(committed)
+      if (entry.files[path] !== digestOf(submitted)) {
+        const current = await readFile(await localPath(context.rootDir, folder, path)).catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== "ENOENT") throw error
+          return undefined
+        })
+        // Keep edits made while the commit was in flight as local changes against the committed bytes.
+        if (current && digestOf(current) === digestOf(submitted)) await put(context.rootDir, folder, path, committed)
+      }
+    }
     for (const path of local.deleted) delete entry.files[path]
     const result: WorkspacePushResult = { workspace, ref: entry.ref, revision: revision.id, pushed, pull }
     // A new ref with a parent started from another ref, as the GitHub Store starts one from the default branch.
