@@ -83,6 +83,17 @@ const enabledValues: Partial<Record<FeatureId, JsonValue>> = { env: {} }
 /** Options without a default that the feature key needs. */
 const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { console: ["auth"], observability: ["service"] }
 
+/** Match the Auth package's file locations without loading application code. */
+function hasAuthDefinition(project: SetupProject): boolean {
+  const directories = project.serverDirs ?? (project.framework === "nuxt" ? undefined : [join(project.root, "server")])
+  if (!directories) return false
+  const candidates = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"].flatMap(extension => [
+    join(project.root, `server.auth${extension}`),
+    ...directories.map(directory => join(directory, `auth${extension}`)),
+  ])
+  return candidates.filter(file => existsSync(file)).length === 1
+}
+
 /** Keep owner packages on the running CLI's pkg.pr.new preview. */
 function installSpecifiers(packages: readonly string[]): string[] {
   const manifest: JsonValue = JSON.parse(readFileSync(new URL(import.meta.resolve("@vite-hub/cli/package.json")), "utf8"))
@@ -289,12 +300,31 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     const options = args.options[id]
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
     const value = valueFor(id)
+    if (id === "agent" && host === "deno" && isRecord(value) && value.runtime === "deno") {
+      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The Deno preset cannot deploy the Agent Deno runtime outside its Nitro entrypoint. Use the preset's Nitro runtime instead.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+    }
+    if (id === "realtime" && isRecord(value) && value.authority !== undefined) {
+      const choices = host === "cloudflare" ? ["cloudflare", "auto"] : ["memory"]
+      if (typeof value.authority !== "string" || !choices.includes(value.authority)) {
+        throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `realtime.authority must be ${choices.join(" or ")} on this preset. ${support.detail}`, feature: id, host }), { exitCode: setupExitCodes.conflict })
+      }
+    }
+    if (id === "cache" && isRecord(value) && value.driver !== undefined) {
+      const nativeDriver = { cloudflare: "cloudflare-kv-binding", deno: "deno-kv", netlify: undefined, node: "fs-lite", vercel: "vercel-runtime-cache" }[host]
+      if (value.driver !== "kv" && value.driver !== nativeDriver) {
+        throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: `cache.driver must be ${nativeDriver ? `${nativeDriver} or ` : ""}kv on this preset. ${support.detail}`, feature: id, host }), { exitCode: setupExitCodes.conflict })
+      }
+    }
     const invocations = id === "agent" && isRecord(value) ? value.invocations : undefined
     if (host === "netlify" && invocations !== undefined && invocations !== false) {
       throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "agent.invocations requires Nitro-hosted Agents. Set invocations on each Agent Definition instead, or use agent.invocations=false.", feature: id, host }), { exitCode: setupExitCodes.conflict })
     }
     if (id === "console" && host !== "node" && isRecord(value) && isRecord(value.auth) && "provider" in value.auth && value.auth.provider !== "cloudflare-access") {
       throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Inline Console Auth requires the Node deployment preset. Use a file-based Console Auth Definition on this host.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+    }
+    if (id === "console" && isRecord(value) && value.auth === "app"
+      && ((!args.features.includes("auth") && status.features.find(item => item.id === "auth")?.enabled !== "on") || !hasAuthDefinition(project))) {
+      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "console.auth=app requires enabled app Auth and a discovered Auth Definition. Set auth: true and add an Auth Definition in the application server directory, or choose console.auth=false or a Console Auth Definition.", feature: id, host }), { exitCode: setupExitCodes.conflict })
     }
     if (invocations === "database" || (isRecord(invocations) && invocations.store === "database")) {
       if (!inputFeatures.includes("database")) inputFeatures.push("database")

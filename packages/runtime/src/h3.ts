@@ -2,27 +2,13 @@ import { getCloudflareEnv, getCloudflareExecutionContext, resolveWaitUntil } fro
 import { createH3V1ResponseHeaders, isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { createRuntimeContext } from "./index.ts"
-import type { CloudflareWorkerExecutionContext } from "@vite-hub/internal/runtime/cloudflare-env"
 import type { H3V1Event, H3V1NodeResponse } from "@vite-hub/internal/runtime/h3-v1-request"
 import type { EventHandlerRequest } from "h3"
 import type { StandardContext } from "standard-context"
 import type { CreatedRuntimeContext, RuntimeContextInput, RuntimeHostContext } from "./index.ts"
+import type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
 
-/** The host data that ViteHub puts in `runtime` of a Standard Context. */
-export interface ViteHubRuntime {
-  cloudflare?: {
-    context?: CloudflareWorkerExecutionContext
-    env: Record<string, unknown>
-  }
-  /** The client IP address that the host reports. ViteHub does not read it from forwarding headers. */
-  clientAddress?: string
-}
-
-/** The `~standard` properties of a request event in a ViteHub app. */
-export type ViteHubStandardProps = StandardContext.Props<ViteHubRuntime, void>
-
-/** A request event in a ViteHub app: any server context with Standard Context properties. */
-export type ViteHubContext<C = {}> = StandardContext<C, ViteHubRuntime, void>
+export type { ViteHubContext, ViteHubRuntime, ViteHubStandardProps } from "./standard-context.ts"
 
 declare module "h3" {
   // The type parameters must match the H3Event class of H3 1 and H3 2.
@@ -111,11 +97,29 @@ function preparedResponse(target: PreparedResponseTarget): StandardContext.Prepa
   }
 }
 
-function h3V2ClientAddress(request: Request): string | undefined {
-  // srvx adds the client address to the Request it passes to H3 2.
-  const ip: unknown = Reflect.get(request, "ip")
-  return typeof ip === "string" && ip ? ip : undefined
+function readPath(value: unknown, path: readonly string[]): unknown {
+  let current = value
+  for (const key of path) current = isObjectLike(current) ? Reflect.get(current, key) : undefined
+  return current
 }
+
+/** The first non-empty string at one of `paths`. ViteHub never reads forwarding headers here. */
+function firstAddress(value: object, paths: readonly (readonly string[])[]): string | undefined {
+  for (const path of paths) {
+    const address = readPath(value, path)
+    if (typeof address === "string" && address) return address
+  }
+  return undefined
+}
+
+/**
+ * The places where hosts put the peer address of an H3 2 request, in the order of H3's `getRequestIP()`: a host
+ * adapter sets `context.clientAddress`, and srvx sets `ip` and keeps the Node request in `runtime.node`.
+ */
+const h3V2AddressPaths = [["context", "clientAddress"], ["ip"], ["runtime", "node", "req", "socket", "remoteAddress"]] as const
+
+/** The places where hosts put the peer address of an H3 1 event, in the order of H3 1's `getRequestIP()`. */
+const h3V1AddressPaths = [["context", "clientAddress"], ["node", "req", "socket", "remoteAddress"], ["node", "req", "connection", "remoteAddress"]] as const
 
 /**
  * The `~standard` properties of one H3 event. Each property reads the event on first access and keeps the value,
@@ -143,8 +147,9 @@ abstract class H3StandardProps implements ViteHubStandardProps {
     const env = getCloudflareEnv(this.#event, { fallback: false })
     const context = getCloudflareExecutionContext(this.#event)
     const clientAddress = this.clientAddress()
+    // A host can pass the execution context without bindings on the event, so keep each one that it passes.
     return this.#runtime = {
-      ...(env ? { cloudflare: { env, ...(context ? { context } : {}) } } : {}),
+      ...(env || context ? { cloudflare: { ...(env ? { env } : {}), ...(context ? { context } : {}) } } : {}),
       ...(clientAddress ? { clientAddress } : {}),
     }
   }
@@ -178,7 +183,7 @@ class H3V2StandardProps extends H3StandardProps {
   }
 
   protected clientAddress(): string | undefined {
-    return h3V2ClientAddress(this.#request)
+    return firstAddress(this.#request, h3V2AddressPaths)
   }
 }
 
@@ -211,8 +216,7 @@ class H3V1StandardProps extends H3StandardProps {
   }
 
   protected clientAddress(): string | undefined {
-    const request = this.#event.node.req
-    return request.socket?.remoteAddress || request.connection?.remoteAddress || undefined
+    return firstAddress(this.#event, h3V1AddressPaths)
   }
 }
 
@@ -238,6 +242,16 @@ export function installStandardContext<T extends object>(event: T): asserts even
     throw runtimeErrorDiagnostics.RUNTIME_R0015({ message: "[vitehub] The event has no request, so ViteHub cannot set `~standard`. Pass the event of an H3 or Nitro route." })
   }
   Object.defineProperty(event, "~standard", { configurable: true, enumerable: false, value: props })
+}
+
+/**
+ * Return `event["~standard"]`. ViteHub primitives read request events through this function. It sets Standard
+ * Context first when Nitro did not, such as for an H3 app without the ViteHub Vite plugin or an event in a test.
+ * Throws `RUNTIME_R0015` when the event has no request.
+ */
+export function getStandardContext(event: ViteHubContext): ViteHubStandardProps {
+  installStandardContext(event)
+  return event["~standard"]
 }
 
 /** Adapt one request. Await flushWaitUntil when the host has no lifetime API. */
