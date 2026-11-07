@@ -92,6 +92,7 @@
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
+    "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
