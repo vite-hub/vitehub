@@ -299,12 +299,16 @@ async function resolveSpecifiers(appDir: string, specifiers: readonly string[]) 
 
 async function importSpecifiers(appDir: string, specifiers: readonly string[], withCloudflareHost = false) {
   await settled(specifiers.map(async (specifier) => {
+    // Vite provides this side-effect module when it compiles the Vue entry. The
+    // package's Vue app test exercises the generated config and catalog loaders.
+    const withI18nClient = specifier === "@vite-hub/i18n/vue" || specifier === "vite-hub/i18n/vue"
     const script = [
-      ...(withCloudflareHost
+      ...(withCloudflareHost || withI18nClient
         ? [
             'const { registerHooks } = await import("node:module")',
             "registerHooks({ resolve(specifier, context, nextResolve) {",
-            '  if (specifier === "cloudflare:workers") return { shortCircuit: true, url: "data:text/javascript,export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env } }" }',
+            ...(withCloudflareHost ? ['  if (specifier === "cloudflare:workers") return { shortCircuit: true, url: "data:text/javascript,export class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env } }" }'] : []),
+            ...(withI18nClient ? ['  if (specifier === "virtual:vite-hub/i18n/client") return { shortCircuit: true, url: "data:text/javascript,export {}" }'] : []),
             "  return nextResolve(specifier, context)",
             "} })",
           ]
@@ -975,6 +979,10 @@ describe("published declaration diagnostics", () => {
 
   it("forwards non-Cloudflare imports through the host shim", async () => {
     await importSpecifiers(tmpdir(), ["node:path"], true)
+  })
+
+  it("imports Vue i18n entries with their Vite client module", async () => {
+    await importSpecifiers(join(repoRoot, "packages/vite-hub"), ["@vite-hub/i18n/vue", "vite-hub/i18n/vue"])
   })
 
   it("reports diagnostics reached through dependency declarations", async () => {

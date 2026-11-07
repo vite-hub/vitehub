@@ -1,4 +1,5 @@
 import { compileMessage } from "@lingui/message-utils/compileMessage"
+import { generateMessageId } from "@lingui/message-utils/generateMessageId"
 
 import { idFromFileName, isRecord, recordPath } from "./record-format.ts"
 
@@ -48,8 +49,16 @@ export async function readRevisionRecords(view: RevisionView, locales: readonly 
       const name = entry.path.slice(entry.path.lastIndexOf("/") + 1)
       const id = entry.type === "file" ? idFromFileName(name) : undefined
       if (!id) return
-      const value: unknown = JSON.parse(await view.readFile(recordPath(locale, id), { encoding: "utf8" }))
-      if (isRecord(value)) records[id] = value
+      // Store failures reject the revision; malformed record contents only skip this entry.
+      const contents = await view.readFile(recordPath(locale, id), { encoding: "utf8" })
+      let value: unknown
+      try {
+        value = JSON.parse(contents)
+      }
+      catch {
+        return
+      }
+      if (isRecord(value) && generateMessageId(value.source, value.context) === id) records[id] = value
     }))
     result[locale] = records
   }))
@@ -85,7 +94,8 @@ export interface LiveTranslations {
   clientMessages(locale: string): Messages
   /**
    * Read the `published` head when the last read is older than `interval`. A new revision replaces the catalogs.
-   * Calls at the same time share one read. A failed read keeps the catalogs that the server has.
+   * Calls at the same time share one read. A forced refresh waits for any pending read, then reads again.
+   * A failed read keeps the catalogs that the server has.
    */
   refresh(options?: { force?: boolean }): Promise<void>
 }
@@ -135,7 +145,9 @@ export function createLiveTranslations(options: LiveTranslationsOptions): LiveTr
       }
       return client[locale] ?? {}
     },
-    refresh(refreshOptions) {
+    async refresh(refreshOptions) {
+      if (pending && refreshOptions?.force) await pending
+      // Forced calls waiting on the same read can share the next read.
       if (pending) return pending
       const now = Date.now()
       if (!refreshOptions?.force && now - checkedAt < interval) return Promise.resolve()

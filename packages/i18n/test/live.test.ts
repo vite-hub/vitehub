@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { compileMessage } from "@lingui/message-utils/compileMessage"
 import { describe, expect, it, vi } from "vitest"
 
-import { createLiveTranslations } from "../src/live.ts"
+import { createLiveTranslations, readRevisionRecords } from "../src/live.ts"
 import { resolveI18nLocaleConfig } from "../src/locales.ts"
 import { recordPath } from "../src/record-format.ts"
 import { messageId } from "../src/records.ts"
@@ -49,6 +49,98 @@ function memoryWorkspace() {
 const config = { ...resolveI18nLocaleConfig({ locales: ["en", "es"] }), catalogs: {} }
 const deploy = { id: messageId("Deploy your agent"), message: "Deploy your agent" }
 const note = { id: messageId("Server only note"), message: "Server only note" }
+
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>(done => resolve = done)
+  return { promise, resolve }
+}
+
+describe("Workspace records", () => {
+  it.each([undefined, "checkout"])("skips records whose source and context %s do not match their filename", async (context) => {
+    const store = memoryWorkspace()
+    const valid = { source: deploy.message, ...(context === undefined ? {} : { context }), translation: "Publica tu agente" }
+    const id = messageId(valid.source, valid.context)
+    const revision = await store.workspace.history.commit({
+      ref: "published",
+      ifHead: null,
+      changes: { put: {
+        [recordPath("es", id)]: JSON.stringify(valid),
+        [recordPath("es", note.id)]: JSON.stringify({ source: deploy.message, context, translation: "Wrong message" }),
+      } },
+    })
+    expect(await readRevisionRecords(await store.workspace.history.open(revision.id), ["es"])).toEqual({ es: { [id]: valid } })
+  })
+
+  it("skips malformed JSON without blocking valid records in later revisions", async () => {
+    const store = memoryWorkspace()
+    const first = await store.workspace.history.commit({
+      ref: "published",
+      ifHead: null,
+      changes: { put: {
+        [recordPath("es", note.id)]: "{",
+        [recordPath("es", deploy.id)]: JSON.stringify({ source: deploy.message, translation: "Primera" }),
+      } },
+    })
+    const onError = vi.fn()
+    const live = createLiveTranslations({
+      workspace: () => store.workspace,
+      locales: ["en", "es"],
+      sourceLocale: "en",
+      snapshot: {},
+      clientIds: [deploy.id, note.id],
+      interval: 0,
+      onError,
+    })
+    await live.refresh()
+    expect(live.revision).toBe(first.id)
+    expect(live.messages("es")).toEqual({ [deploy.id]: compileMessage("Primera") })
+    const second = await store.workspace.history.commit({
+      ref: "published",
+      ifHead: first.id,
+      changes: { put: { [recordPath("es", deploy.id)]: JSON.stringify({ source: deploy.message, translation: "Segunda" }) } },
+    })
+    await live.refresh()
+    expect(live.revision).toBe(second.id)
+    expect(live.clientMessages("es")).toEqual({ [deploy.id]: compileMessage("Segunda") })
+    expect(onError).not.toHaveBeenCalled()
+  })
+})
+
+describe("forced Workspace refreshes", () => {
+  it("reads the newly published head after an in-flight refresh captured the old head", async () => {
+    const store = memoryWorkspace()
+    const put = (translation: string) => ({ [recordPath("es", deploy.id)]: JSON.stringify({ source: deploy.message, translation }) })
+    const first = await store.workspace.history.commit({ ref: "published", ifHead: null, changes: { put: put("Primera") } })
+    const entered = deferred()
+    const release = deferred()
+    const head = store.workspace.history.head.bind(store.workspace.history)
+    const reads = vi.spyOn(store.workspace.history, "head").mockImplementationOnce(async (options) => {
+      const revision = await head(options)
+      entered.resolve()
+      await release.promise
+      return revision
+    })
+    const live = createLiveTranslations({
+      workspace: () => store.workspace,
+      locales: ["en", "es"],
+      sourceLocale: "en",
+      snapshot: {},
+      clientIds: [deploy.id],
+    })
+    const pending = live.refresh()
+    await entered.promise
+    const second = await store.workspace.history.commit({ ref: "published", ifHead: first.id, changes: { put: put("Segunda") } })
+    const forced = live.refresh({ force: true })
+    const alsoForced = live.refresh({ force: true })
+    release.resolve()
+    await Promise.all([pending, forced, alsoForced])
+    expect(live.revision).toBe(second.id)
+    await live.refresh()
+    expect(live.messages("es")).toEqual({ [deploy.id]: compileMessage("Segunda") })
+    expect(reads).toHaveBeenCalledTimes(2)
+  })
+})
 
 function setup(store = memoryWorkspace()) {
   const context = new AsyncLocalStorage<object>()

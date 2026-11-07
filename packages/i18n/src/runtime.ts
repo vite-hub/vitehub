@@ -23,6 +23,8 @@ interface I18nState {
   config?: I18nRuntimeConfig
   app?: I18n
   scope?: () => I18n | undefined
+  /** Keep overlapping selections ordered per page or server request, including across linked package copies. */
+  selections?: WeakMap<I18n, symbol>
   /** Set by the Vue plugin. A message read inside `computed` or a render then re-runs after a locale change. */
   track?: () => void
 }
@@ -106,15 +108,19 @@ async function liveMessages(live: string, locale: string): Promise<Messages> {
   }
 }
 
-/** Load the compiled messages of a locale and activate it on an i18n instance. */
-export async function activateLocale(target: I18n, locale: string): Promise<void> {
-  const config = state().config
+async function loadMessages(config: I18nRuntimeConfig | undefined, locale: string): Promise<Messages> {
   const loader = config?.catalogs[locale]
   const [{ messages }, live] = await Promise.all([
     loader ? loader() : { messages: {} },
     config?.live && browserDocument() ? liveMessages(config.live, locale) : {},
   ])
-  target.loadAndActivate({ locale, messages: { ...messages, ...live } })
+  return { ...messages, ...live }
+}
+
+/** Load the compiled messages of a locale and activate it on an i18n instance. */
+export async function activateLocale(target: I18n, locale: string): Promise<void> {
+  const messages = await loadMessages(state().config, locale)
+  target.loadAndActivate({ locale, messages })
 }
 
 /** The parts of `document` that the runtime uses. Server code has no `document`. */
@@ -150,11 +156,18 @@ export function resolveRequestLocale(headers: { get(name: string): string | null
  * cookie, so the next server render uses it too.
  */
 export async function setLocale(locale: string): Promise<Result<string, "I18N_UNKNOWN_LOCALE">> {
-  const config = state().config
+  const current = state()
+  const config = current.config
   const locales = config?.locales ?? []
   const match = locales.find(entry => entry.toLowerCase() === locale.toLowerCase())
   if (!config || !match) return [i18nErrorDiagnostics.I18N_UNKNOWN_LOCALE({ locale, locales }), undefined]
-  await activateLocale(getI18n(), match)
+  const target = getI18n()
+  const selections = current.selections ||= new WeakMap<I18n, symbol>()
+  const selection = Symbol()
+  selections.set(target, selection)
+  const messages = await loadMessages(config, match)
+  if (selections.get(target) !== selection) return [undefined, match]
+  target.loadAndActivate({ locale: match, messages })
   const page = browserDocument()
   if (page) {
     page.cookie = `${config.cookie}=${encodeURIComponent(match)}; Path=/; Max-Age=31536000; SameSite=Lax`
