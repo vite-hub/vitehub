@@ -128,7 +128,7 @@ Definitions that share a SQLite file share one transaction. Their pending migrat
 
 It refuses pending migrations that lose data, with the rules of `vitehub db migrate`: the server does not start, and it throws `DATABASE_MIGRATION_DATA_LOSS` without changing the database. Back up the data and set `migrateOnStart: { allowDataLoss: true }` to apply them.
 
-`migrateOnStart` works only for local SQLite files (`file:` URLs) in a production build with the Node preset. A build for another host, a Postgres database, or D1 over HTTP fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`, and so does a server whose connection URL turns out to be remote libSQL. Migrate those from the deployment with `vitehub db migrate`. Development does not use it either: run `vitehub db migrate`.
+`migrateOnStart` works only for local SQLite files (`file:` URLs) in a production build with the Node host. A build for another host, a Postgres database, or D1 over HTTP fails with `DATABASE_MIGRATE_ON_START_UNSUPPORTED`, and so does a server whose connection URL turns out to be remote libSQL. Migrate those from the deployment with `vitehub db migrate`. Development does not use it either: run `vitehub db migrate`.
 
 Run one server process for each database file. Two processes that start together on the same file can both find a migration pending, and the second then fails to start. With several processes, such as the `node-cluster` preset, migrate before you start them.
 

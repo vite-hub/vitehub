@@ -21,7 +21,7 @@ ViteHub checks these host limits before the provider sees the request:
 
 A `cloudflare-r2` store checks the key in `put()`, `get()`, `head()`, `del()`, `serve()`, `sign()`, and multipart uploads, in production and in `vite dev`. Other drivers keep their own limits.
 
-On Vercel, the platform answers a request body above 4.5 MB with `413 FUNCTION_PAYLOAD_TOO_LARGE`, before your function runs. `vite dev` has no such limit. When the build targets Vercel, with `vitehub({ preset: 'vercel' })` or the Vercel Nitro preset, `blob.handleUpload()` and the `upload` action of `blob.handleMultipartUpload()` in the dev server throw an H3 `413` error for a request above 4,500,000 bytes. A route that lets the error through answers `413`, as Vercel does. Read the [Vercel Blob guide](/docs/guides/vercel-blob#vercel-blob-limits) for uploads larger than this limit.
+On Vercel, the platform answers a request body above 4.5 MB with `413 FUNCTION_PAYLOAD_TOO_LARGE`, before your function runs. `vite dev` has no such limit. When the build targets Vercel, with `vitehub({ host: 'vercel' })` or the Vercel Nitro preset, `blob.handleUpload()` and the `upload` action of `blob.handleMultipartUpload()` in the dev server throw an H3 `413` error for a request above 4,500,000 bytes. A route that lets the error through answers `413`, as Vercel does. Read the [Vercel Blob guide](/docs/guides/vercel-blob#vercel-blob-limits) for uploads larger than this limit.
 
 ## Codes
 

@@ -267,7 +267,7 @@ describe("framework package contract", () => {
   });
 
   it("keeps the root export intentionally small", () => {
-    expect(Object.keys(framework)).toEqual(["vitehub"]);
+    expect(Object.keys(framework)).toEqual(["detectHost", "vitehub"]);
   });
 
   it("forwards feature APIs from their owner packages", () => {
@@ -361,7 +361,6 @@ describe("framework package contract", () => {
       "./console/sections",
       "./console/server",
       "./console/ui",
-      "./deployment",
       "./doctor",
       "./logs",
       "./logs/host",
@@ -878,7 +877,7 @@ describe("framework package contract", () => {
           agent: true,
           console: { auth: false, authorize: hostManagedAuthorize },
           kv: true,
-          preset: "node",
+          host: "node",
           queue: true,
           schedule: true,
           workflow: true,

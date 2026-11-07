@@ -30,7 +30,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-	plugins: [vitehub({ preset: 'node', kv: { driver: 'upstash' } })],
+	plugins: [vitehub({ host: 'node', kv: { driver: 'upstash' } })],
 })
 ```
 
@@ -46,8 +46,8 @@ ViteHub also accepts `KV_REST_API_URL` and `KV_REST_API_TOKEN`. That pair takes
 precedence. Remove stale values if the app connects to the wrong database.
 Use the host's secret store in production. Keep the token out of browser code.
 
-For Vercel, use `preset: 'vercel'` and configure the same credentials in the
-project environment. The Vercel preset uses Upstash for KV by default.
+For Vercel, use `host: 'vercel'` and configure the same credentials in the
+project environment. The Vercel host uses Upstash for KV by default.
 
 ## Verify remote persistence
 

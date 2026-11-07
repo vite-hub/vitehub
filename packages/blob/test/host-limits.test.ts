@@ -112,9 +112,9 @@ describe("generated Nitro plugin", () => {
   }
 
   it("sets the Vercel request body limit only in a dev server for Vercel", async () => {
-    expect(await nitroPlugin({ command: "serve", vitehub: { preset: "vercel" } })).toContain("setBlobRequestBodyLimit(4500000)")
+    expect(await nitroPlugin({ command: "serve", vitehub: { host: "vercel" } })).toContain("setBlobRequestBodyLimit(4500000)")
     expect(await nitroPlugin({ command: "serve", nitro: { preset: "vercel" } })).toContain("setBlobRequestBodyLimit(4500000)")
-    expect(await nitroPlugin({ command: "serve", vitehub: { preset: "node" } })).not.toContain("setBlobRequestBodyLimit")
-    expect(await nitroPlugin({ command: "build", vitehub: { preset: "vercel" } })).not.toContain("setBlobRequestBodyLimit")
+    expect(await nitroPlugin({ command: "serve", vitehub: { host: "node" } })).not.toContain("setBlobRequestBodyLimit")
+    expect(await nitroPlugin({ command: "build", vitehub: { host: "vercel" } })).not.toContain("setBlobRequestBodyLimit")
   })
 })

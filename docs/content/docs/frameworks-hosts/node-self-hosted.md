@@ -1,19 +1,19 @@
 ---
 title: Node and self-hosted
-description: Build a Node.js server with the node preset and choose storage that survives restarts.
+description: Build a Node.js server with the node host and choose storage that survives restarts.
 navigation.order: 47
 navigation.group: Deployment hosts
 icon: i-lucide-server-cog
 ---
 
-Use the `node` preset to run a ViteHub application as a Node.js server on your
+Use the `node` host to run a ViteHub application as a Node.js server on your
 own machine, a container, or a virtual machine. Nitro builds one server entry at
 `.output/server/index.mjs`. Server code uses the same Runtime Helpers as on
-hosted presets.
+the hosted platforms.
 
-## Configure the preset
+## Configure the host
 
-Select the `node` preset and enable the features the application uses. This
+Select the `node` host and enable the features the application uses. This
 example stores KV values in local files.
 
 ```ts [vite.config.ts]
@@ -23,7 +23,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       kv: {
         driver: 'fs-lite',
         base: '.vitehub/data/kv',
@@ -59,7 +59,7 @@ operating system and CPU type as the deployment host when the application uses
 a built-in coding provider, because the build packages only the build host's
 native binaries.
 
-## Defaults on the node preset
+## Defaults on the node host
 
 | Feature | Default provider | Durability |
 | --- | --- | --- |
@@ -72,7 +72,7 @@ native binaries.
 Set `dataDir` in `vitehub()` to put local state in one persistent directory, for
 example `dataDir: '/var/lib/app'`. ViteHub then stores KV `fs-lite` data, Blob
 `fs` data, the Agent State database, the Console journal, and Workspace files
-under that directory. `dataDir` works only with the `node` preset.
+under that directory. `dataDir` works only with the `node` host.
 
 ## Mount a server handler
 

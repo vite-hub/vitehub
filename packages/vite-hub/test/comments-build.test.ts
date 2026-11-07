@@ -43,7 +43,7 @@ describe("Comments in a built Nitro 3 app", () => {
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
     // Production output must never invent a local identity, even with NODE_ENV=development.
-    const app = () => vitehub({ console: { auth: false }, preset: "node" })
+    const app = () => vitehub({ console: { auth: false }, host: "node" })
 
     const generate = await runCli(root, app(), ["db", "generate"])
     expect(generate.stderr).toBe("")
@@ -125,13 +125,13 @@ describe("Comments in a built Nitro 3 app", () => {
       "package.json": JSON.stringify({ name: "comments-no-database", private: true, type: "module" }),
       "server/comments.ts": "import { defineComments } from 'vite-hub/comments'\nexport default defineComments()\n",
     })
-    await expect(resolveConfig(serverBuild(root, vitehub({ database: false, preset: "node" })), "build")).rejects.toMatchObject({
+    await expect(resolveConfig(serverBuild(root, vitehub({ database: false, host: "node" })), "build")).rejects.toMatchObject({
       code: "COMMENTS_B0001",
       fix: expect.stringContaining("database: false"),
     })
-    await expect(resolveConfig(serverBuild(root, vitehub({ preset: "node" })), "build")).resolves.toBeDefined()
+    await expect(resolveConfig(serverBuild(root, vitehub({ host: "node" })), "build")).resolves.toBeDefined()
 
     const plain = await createProject({ "package.json": JSON.stringify({ name: "no-comments", private: true, type: "module" }) })
-    await expect(resolveConfig(serverBuild(plain, vitehub({ database: false, preset: "node" })), "build")).resolves.toBeDefined()
+    await expect(resolveConfig(serverBuild(plain, vitehub({ database: false, host: "node" })), "build")).resolves.toBeDefined()
   }, 60_000)
 })

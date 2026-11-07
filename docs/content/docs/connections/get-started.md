@@ -30,7 +30,7 @@ import { env } from 'vite-hub/env'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', console: { auth: false }, connections: true })],
+  plugins: [vitehub({ host: 'node', console: { auth: false }, connections: true })],
   env: {
     server: {
       google: {

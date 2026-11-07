@@ -115,11 +115,11 @@ function resolveCloudflareAccessConsoleAuth(root: string, config: CloudflareAcce
   return { provider: "cloudflare-access", settings }
 }
 
-export function resolveConsoleAuthConfig(root: string, config: ConsoleAuthConfig, preset = "node"): ResolvedConsoleAuthConfig {
+export function resolveConsoleAuthConfig(root: string, config: ConsoleAuthConfig, host = "node"): ResolvedConsoleAuthConfig {
   if ("provider" in config && config.provider === "cloudflare-access") return resolveCloudflareAccessConsoleAuth(root, config)
   if ("provider" in config) {
-    if (preset !== "node") {
-      throw new TypeError("[vitehub] Inline Console Auth uses node:sqlite and requires the Node deployment preset. Use a file-based Console Auth Definition for other presets.")
+    if (host !== "node") {
+      throw new TypeError("[vitehub] Inline Console Auth uses node:sqlite and requires the Node host. Use a file-based Console Auth Definition for other hosts.")
     }
     if (discoverFile(root, "server")) {
       throw new TypeError("[vitehub] Inline Console Auth conflicts with vitehub/console/auth/server.")

@@ -44,7 +44,7 @@ icon: i-lucide-mail
 
   export default defineConfig({
     plugins: [vitehub({
-      preset: 'node',
+      host: 'node',
       email: {
         driver: 'resend',
         // The server reads the key when it sends

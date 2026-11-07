@@ -43,7 +43,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
       agent: true,
       workflow: false,
     }),

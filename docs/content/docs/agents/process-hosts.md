@@ -174,7 +174,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: { shutdown: { drainMs: 45_000 } },
     }),
   ],

@@ -13,7 +13,7 @@ Comments needs somewhere to keep threads on every host. The [`comments()` plugin
 | Host | Works | Where threads go |
 | --- | --- | --- |
 | `vite dev` | Yes | `.vitehub/data/comments.sqlite`, with no option |
-| `vite dev` with a Cloudflare preset | Yes | A local D1 binding `COMMENTS` in `.wrangler/state`, with no option |
+| `vite dev` with a Cloudflare host | Yes | A local D1 binding `COMMENTS` in `.wrangler/state`, with no option |
 | Node, Docker (one process) | Yes | `comments({ database: 'file:./data/comments.sqlite' })`, on a disk or volume that survives deploys |
 | Several processes or machines | Yes | A Turso database: `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` on each server. |
 | Cloudflare Workers | Yes | `comments({ database: 'd1:COMMENTS' })`, or a D1 binding named `DB`. See [Cloudflare D1](/docs/comments/configure#cloudflare-d1). |
@@ -46,7 +46,7 @@ Use a SQLite file or libSQL Database, and the memory room authority:
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       database: true,
       realtime: { authority: 'memory' },
     }),
@@ -58,13 +58,13 @@ The memory authority keeps the presence rooms in one process. With several proce
 
 ### Cloudflare
 
-Use a D1 Database. `realtime: true` selects Durable Objects on the Cloudflare preset, and each page gets its own room.
+Use a D1 Database. `realtime: true` selects Durable Objects on the Cloudflare host, and each page gets its own room.
 
 ```ts [vite.config.ts]
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'cloudflare',
+      host: 'cloudflare',
       database: { driver: 'd1', databaseName: 'site' },
       realtime: true,
     }),

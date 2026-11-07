@@ -288,7 +288,7 @@ describe("Console session user", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-dev-"))
     try {
       // SAFETY: vitehub() returns a flat list of concrete plugins in these integration tests.
-      const plugins = vitehub({ connections: true, console, database: true, preset: "node" }) as Plugin[]
+      const plugins = vitehub({ connections: true, console, database: true, host: "node" }) as Plugin[]
       const connections = plugins.find(plugin => plugin.name === "@vite-hub/connections/vite")
       const hook = connections?.config
       if (!hook) throw new TypeError("Expected the Connections config hook.")

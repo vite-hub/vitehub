@@ -7,7 +7,7 @@ navigation.group: Server work
 icon: i-simple-icons-vercel
 ---
 
-To run a Vercel Cron Job from a Vite app, set `preset: 'vercel'` and `schedule: true` in `vitehub()`, then add a file in `server/schedules/` that exports `defineSchedule({ cron, handler })`. The build writes one `crons` entry and one Vercel Function for each file. Vercel calls that function at the cron time, and the function runs your handler. You do not edit `vercel.json`.
+To run a Vercel Cron Job from a Vite app, set `host: 'vercel'` and `schedule: true` in `vitehub()`, then add a file in `server/schedules/` that exports `defineSchedule({ cron, handler })`. The build writes one `crons` entry and one Vercel Function for each file. Vercel calls that function at the cron time, and the function runs your handler. You do not edit `vercel.json`.
 
 ## What Vercel Cron Jobs is
 
@@ -17,18 +17,18 @@ ViteHub writes the cron path, the cron entry, and the function that runs your ha
 
 ## Set up Vercel Cron Jobs
 
-### Enable Schedule with the Vercel preset
+### Enable Schedule with the Vercel host
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', schedule: true })],
+  plugins: [vitehub({ host: 'vercel', schedule: true })],
 })
 ```
 
-The `vercel` preset writes Vercel Build Output to `.vercel/output`. `vitehub()` includes the Nitro Vite plugin. See [Schedule configuration](/docs/schedule/configure) for every option.
+The `vercel` host writes Vercel Build Output to `.vercel/output`. `vitehub()` includes the Nitro Vite plugin. See [Schedule configuration](/docs/schedule/configure) for every option.
 
 ### Define a schedule
 
@@ -128,9 +128,9 @@ On Hobby, a cron that runs more than once per day fails the deployment.
 
 ## Move the same schedule to another host
 
-The schedule file stays the same. Change the preset, and the build writes the cron config of the new host:
+The schedule file stays the same. Change the host, and the build writes the cron config of the new host:
 
-| Preset | What runs the schedule |
+| Host | What runs the schedule |
 | --- | --- |
 | `cloudflare` | A Cloudflare Cron Trigger in the generated `wrangler.json`. |
 | `node` | The Process Runtime, with `schedule: { runtime: { driver: 'process' } }`. Use one long-lived process, and enable `kv` to keep Schedule Runs across restarts. |

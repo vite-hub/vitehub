@@ -25,9 +25,9 @@ changes.
 | Concern | Mastra | ViteHub |
 | --- | --- | --- |
 | What it is | A framework for agents, workflows, memory, retrieval, and evals | A Vite plugin and Nuxt module for Server Primitives and Agents |
-| Where it runs | A Hono server that `mastra build` compiles, or inside a web framework | Inside your Vite or Nuxt app, in the output of the selected preset |
+| Where it runs | A Hono server that `mastra build` compiles, or inside a web framework | Inside your Vite or Nuxt app, in the output of the selected host |
 | Frameworks | Angular, Astro, Electron, Express, Hono, NestJS, Next.js, Nuxt, React with Vite, SvelteKit, and TanStack Start | Vite with Nitro, and Nuxt 4.5.2 or newer |
-| Deploy | Built-in deployers for Vercel, Netlify, and Cloudflare, or your own server | `cloudflare`, `vercel`, `netlify`, `deno`, and `node` presets |
+| Deploy | Built-in deployers for Vercel, Netlify, and Cloudflare, or your own server | `cloudflare`, `vercel`, `netlify`, `deno`, and `node` hosts |
 | Hosted option | The Mastra platform: Observability, Studio, and Server | None. ViteHub runs on your host account. |
 | Release | `@mastra/core` 1.80.0 | `vite-hub` 0.0.x |
 | License | Apache-2.0. Code in `ee/` folders needs an enterprise license for production. | Apache-2.0 |
@@ -91,7 +91,7 @@ Sources: [workflows](https://mastra.ai/docs/workflows/overview),
   Read [Agent Drivers](/docs/agents/agent-drivers).
 - **Channels.** [Channels](/docs/agents/channels) connect an Agent to web chat,
   HTTP, Slack, Discord, Telegram, Teams, GitHub, GitLab, Forgejo, and Gmail.
-- **Host output.** The preset writes the files and bindings for the host. On
+- **Host output.** ViteHub writes the files and bindings for the host. On
   Cloudflare and Vercel, Agent runs use the host's Workflow product. Read
   [Frameworks and hosts](/docs/frameworks-hosts).
 

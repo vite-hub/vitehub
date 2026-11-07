@@ -899,7 +899,7 @@ describe("hubWorkspace", () => {
   })
 
   it.each([
-    ["VITEHUB_HOSTING", undefined],
+    ["VITEHUB_HOST", undefined],
     ["NITRO_PRESET", undefined],
     ["SERVER_PRESET", undefined],
     ["nitro.preset", { preset: "cloudflare-module" }],

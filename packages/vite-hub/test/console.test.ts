@@ -494,7 +494,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         blobStores: ["default", "archive"],
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "node",
+        host: "node",
         sections: ["agents", "usage", "blob", "kv"],
       })
       const configHook = plugin.config
@@ -558,7 +558,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "node",
+        host: "node",
         sections: [],
       })
       const configHook = plugin.config
@@ -589,7 +589,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(inheritedRoot, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "node",
+        host: "node",
         sections: ["databases"],
       })
       const configHook = plugin.config
@@ -622,7 +622,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "support.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
         console: { auth: false },
-        preset: "node",
+        host: "node",
         runtimeCapabilityImports: {
           blob: "vite-hub/_internal/blob",
           console: "vite-hub/console/server",
@@ -656,7 +656,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-base-host-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, host: "node", sections: ["agents", "usage"] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -692,7 +692,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-base-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize, signInPage: "/sign-in" }, preset: "node", sections: ["agents", "usage"] })
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize, signInPage: "/sign-in" }, host: "node", sections: ["agents", "usage"] })
       const configHook = plugin.config
       const configResolvedHook = plugin.configResolved
       if (!configHook || !configResolvedHook) throw new TypeError("Expected Console Vite hooks.")
@@ -744,7 +744,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: mode === "rpc-only" ? undefined : { auth: mode === "open" ? false : { provider: "cloudflare-access" } },
         rpcOnly: mode === "rpc-only",
-        preset: "node",
+        host: "node",
       })
       const config = { base: "/early/", root, nitro: { handlers: [...applicationHandlers] }, vitehubCliDiscovery: true }
       await callPluginHook(plugin.config, {}, [config, { command: mode === "rpc-only" ? "serve" : "build", mode: "production" }])
@@ -794,7 +794,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         blobStores: ["default", "archive"],
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["blob"],
       })
@@ -838,7 +838,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         blobStores: ["default"],
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["blob"],
       })
@@ -867,7 +867,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "hidden.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         sections: ["kv"],
       })
       const configHook = plugin.config
@@ -900,7 +900,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: kv => Boolean(kv),
       })
       const config: {
@@ -929,20 +929,20 @@ describe("Agent invocation console", () => {
     ["cloudflare", "before", true],
     ["cloudflare", "after", true],
     ["cloudflare", "after", false],
-  ] as const)("uses standalone KV for sealed MCP storage on %s, ordered %s, enabled %s", async (preset, order, enabled) => {
+  ] as const)("uses standalone KV for sealed MCP storage on %s, ordered %s, enabled %s", async (host, order, enabled) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-standalone-kv-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugins = vitehub({
         console: { auth: false, authorize: hostManagedAuthorize, mcpClient: true },
         env: false,
-        preset,
+        host,
       })
       // SAFETY: Vite plugin options form a recursive array; narrow the flattened candidates by name.
       const candidates = (plugins as unknown[]).flat(Infinity)
       const plugin = candidates.find((candidate): candidate is Plugin => Boolean(candidate && typeof candidate === "object" && "name" in candidate && candidate.name === "vite-hub/console"))
       if (!plugin) throw new TypeError("Expected the ViteHub Console plugin.")
-      const kvPlugin = hubKv({ driver: preset === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" })
+      const kvPlugin = hubKv({ driver: host === "cloudflare" ? "cloudflare-kv-binding" : "fs-lite" })
       const configuredPlugins: unknown[] = [kvPlugin]
       if (order === "before") configuredPlugins.push(plugin)
       else configuredPlugins.unshift(plugin)
@@ -973,7 +973,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         sections: ["workflows"],
       })
       const config: {
@@ -1003,7 +1003,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["queues"],
       })
@@ -1039,7 +1039,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(customServerDir, "workflows", "custom.ts"), "export default null\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         sections: ["workflows"],
       })
       const config = {
@@ -1071,7 +1071,7 @@ describe("Agent invocation console", () => {
       )
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["workspaces"],
       })
@@ -1108,7 +1108,7 @@ describe("Agent invocation console", () => {
       )
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["databases"],
       })
@@ -1161,7 +1161,7 @@ describe("Agent invocation console", () => {
       )
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["queues"],
       })
@@ -1212,7 +1212,7 @@ describe("Agent invocation console", () => {
       )
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["rate-limits"],
       })
@@ -1258,7 +1258,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(hostServerDir, "upload.ts"), 'requireRateLimit(event, "uploads", { limit: 25, window: "10s" })\n')
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["rate-limits"],
       })
@@ -1298,7 +1298,7 @@ describe("Agent invocation console", () => {
       )
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["schedules"],
       })
@@ -1357,7 +1357,7 @@ describe("Agent invocation console", () => {
       const plugins = vitehub({
         console: { auth: false, authorize: hostManagedAuthorize },
         database: { projectRoot: "packages/database" },
-        preset: "cloudflare",
+        host: "cloudflare",
         rateLimit: { projectRoot: "packages/rate-limit", scanDirs: ["policies"] },
         schedule: { projectRoot: "packages/schedule" },
         workspace: { projectRoot: "packages/workspace" },
@@ -1396,7 +1396,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         databaseDiscoveryRoot: "packages/api",
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["databases"],
       })
@@ -1424,7 +1424,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         databaseDiscoveryRoot: "packages/database",
-        preset: "cloudflare",
+        host: "cloudflare",
         rateLimitDiscoveryRoot: "packages/rate-limit",
         rateLimitScanDirs: ["policies"],
         resolveKV: () => false,
@@ -1460,7 +1460,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["sandbox-tasks", "workspaces"],
       })
@@ -1493,7 +1493,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["databases", "sandbox-tasks", "workspaces"],
       })
@@ -1531,7 +1531,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(projectRoot, "server/schedules/adhoc.ts"), "export default defineSchedule({ cron: \"0 9 * * *\", handler() {} })\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["rate-limits", "sandbox-tasks", "schedules"],
       })
@@ -1563,7 +1563,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "src/preview.sandbox-task.ts"), `export default defineSandboxTask({ run: async () => { throw new Error("must not run") } })\n`)
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "cloudflare",
+        host: "cloudflare",
         resolveKV: () => false,
         sections: ["sandbox-tasks"],
       })
@@ -1588,7 +1588,7 @@ describe("Agent invocation console", () => {
   })
 
   it("allows host-managed production Console builds on non-Node hosts", async () => {
-    const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "cloudflare", sections: ["agents"] })
+    const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, host: "cloudflare", sections: ["agents"] })
     const configHook = plugin.config
     if (!configHook) throw new TypeError("Expected a console config hook.")
     const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -1604,7 +1604,7 @@ describe("Agent invocation console", () => {
     try {
       const warn = vi.fn()
       for (const consoleOptions of [{ auth: false }, { auth: false, authorize: hostManagedAuthorize }] as const) {
-        const plugin = consoleVitePlugin({ console: consoleOptions, preset: "node" })
+        const plugin = consoleVitePlugin({ console: consoleOptions, host: "node" })
         const config = { root }
         await callPluginHook(plugin.config, {}, [config, { command: "build", mode: "production" }])
         await callPluginHook(plugin.configResolved, {}, [Object.assign(config, { base: "/", command: "build", logger: { info: () => undefined, warn } })])
@@ -1628,7 +1628,7 @@ describe("Agent invocation console", () => {
     try {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize, invoke },
-        preset: "node",
+        host: "node",
         sections: ["agents"],
       })
       const configHook = plugin.config
@@ -1649,7 +1649,7 @@ describe("Agent invocation console", () => {
     try {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize, observations },
-        preset: "node",
+        host: "node",
         sections: ["agents"],
       })
       const configHook = plugin.config
@@ -1679,7 +1679,7 @@ describe("Agent invocation console", () => {
     try {
       const missingConsole = consoleVitePlugin({
         console: { auth: "app" },
-        preset: "node",
+        host: "node",
         resolveAuthConfig: () => auth([]),
       })
       const missingHook = missingConsole.config
@@ -1690,7 +1690,7 @@ describe("Agent invocation console", () => {
 
       const getOnlyConsole = consoleVitePlugin({
         console: { auth: "app" },
-        preset: "node",
+        host: "node",
         resolveAuthConfig: () => auth([
           { authorize: true, method: "GET", route: "/_vitehub/**" },
         ]),
@@ -1703,7 +1703,7 @@ describe("Agent invocation console", () => {
 
       const protectedConsole = consoleVitePlugin({
         console: { auth: "app", invoke: true },
-        preset: "node",
+        host: "node",
         resolveAuthConfig: () => auth([
           { authorize: true, route: "/_vitehub/**" },
           { authorize: true, method: "GET", route: "/api/_vitehub/console/**" },
@@ -1729,7 +1729,7 @@ describe("Agent invocation console", () => {
 
       const changingBaseConsole = consoleVitePlugin({
         console: { auth: "app" },
-        preset: "node",
+        host: "node",
         resolveAuthConfig: () => auth([
           { authorize: true, route: "/early/_vitehub/**" },
           { authorize: true, method: "GET", route: "/early/api/_vitehub/console/**" },
@@ -1755,7 +1755,7 @@ describe("Agent invocation console", () => {
     try {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "node",
+        host: "node",
         sections: ["agents"],
       })
       const configHook = plugin.config
@@ -1774,7 +1774,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-dev-host-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false }, preset: "cloudflare" })
+      const plugin = consoleVitePlugin({ console: { auth: false }, host: "cloudflare" })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -1814,7 +1814,7 @@ describe("Agent invocation console", () => {
       }`)
       await writeFile(fixture, JSON.stringify(fixtureWithPrototypeData))
       vi.stubEnv(consoleFixtureEnvironmentVariable, fixture)
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents"] })
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, host: "node", sections: ["agents"] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -1854,7 +1854,7 @@ describe("Agent invocation console", () => {
       expect(add).toHaveBeenCalledWith(fixture)
       await writeFile(fixture, JSON.stringify(fixtureDocument("replacement")))
 
-      const concurrentPlugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents"] })
+      const concurrentPlugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, host: "node", sections: ["agents"] })
       const concurrentConfig: { nitro?: { plugins?: string[] }, root: string } = { root }
       await callPluginHook(concurrentPlugin.config, {}, [concurrentConfig, { command: "serve", mode: "development" }])
       await callPluginHook(concurrentPlugin.configResolved, {}, [{ root }])
@@ -1933,7 +1933,7 @@ describe("Agent invocation console", () => {
       await mkdir(resolve(generatedPlugin, ".."), { recursive: true })
       await writeFile(generatedPlugin, "// active fixture plugin\n")
       vi.stubEnv(consoleFixtureEnvironmentVariable, join(root, "missing.fixture.json"))
-      const plugin = consoleVitePlugin({ console: { auth: false }, preset: "node" })
+      const plugin = consoleVitePlugin({ console: { auth: false }, host: "node" })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -2783,7 +2783,7 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "server", "agents", "review.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        preset: "node",
+        host: "node",
         sections: ["agents"],
       })
       const configHook = plugin.config
@@ -5087,7 +5087,7 @@ describe("Agent invocation console", () => {
     try {
       const development = command === "serve"
       const mode = development ? "production" : "development"
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: [] })
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, host: "node", sections: [] })
       const config: { nitro?: { plugins?: string[] }, root: string } = { root }
       await callPluginHook(plugin.config, {}, [config, { command, mode }])
       const initial = await readFile(config.nitro!.plugins![0]!, "utf8")

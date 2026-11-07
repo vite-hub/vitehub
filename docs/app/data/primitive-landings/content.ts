@@ -65,7 +65,7 @@ import { nitro } from "nitro/vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "node" }), nitro()],
+  plugins: [vitehub({ host: "node" }), nitro()],
 })`,
         },
         ...contentFiles,
@@ -107,7 +107,7 @@ export default defineContentHandler(content)`,
           content: `import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
-  modules: [[viteHubNuxt, { preset: "node" }]],
+  modules: [[viteHubNuxt, { host: "node" }]],
 })`,
         },
         ...contentFiles,

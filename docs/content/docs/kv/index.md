@@ -17,7 +17,7 @@ icon: i-lucide-database-zap
   export default defineConfig({
     plugins: [
       // On Node, values are saved in .vitehub/data/kv
-      vitehub({ preset: 'node', kv: true }),
+      vitehub({ host: 'node', kv: true }),
       nitro(),
     ],
   })

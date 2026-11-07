@@ -1,4 +1,4 @@
-import type { DeploymentPreset, DeploymentService } from "./deployment.ts"
+import type { DeploymentService, ViteHubHost } from "./deployment.ts"
 
 /**
  * The feature keys of `vitehub({...})`. `vitehub add <feature>` and `vitehub status` read this list before the owner
@@ -30,7 +30,7 @@ export const featureIds = [
 ] as const
 export type FeatureId = (typeof featureIds)[number]
 
-/** `dev` stores default Node development support. Use `featureSupport()` with the configured preset for development lookups. */
+/** `dev` stores default Node development support. Use `featureSupport()` with the configured host for development lookups. */
 export const featureHosts = ["dev", "cloudflare", "vercel", "netlify", "deno", "node"] as const
 export type FeatureHost = (typeof featureHosts)[number]
 
@@ -66,8 +66,8 @@ export type HostSupport
 /** A feature that this feature turns on, unless the app sets the other feature to `false`. */
 export interface FeatureImplication {
   feature: FeatureId
-  /** Presets where the implication does not apply. */
-  except?: readonly DeploymentPreset[]
+  /** Hosts where the implication does not apply. */
+  except?: readonly ViteHubHost[]
 }
 
 export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
@@ -88,8 +88,8 @@ export interface FeatureDefinition<TId extends FeatureId = FeatureId> {
   /** The Deployment Plan service that this feature reads, when it has one. */
   service?: DeploymentService
   hosts: Readonly<Record<FeatureHost, HostSupport>>
-  /** Presets that use `hosts.dev` during development instead of their deployment entry. Node always uses `hosts.dev`. */
-  developmentOverrides?: readonly DeploymentPreset[]
+  /** Hosts that use `hosts.dev` during development instead of their deployment entry. Node always uses `hosts.dev`. */
+  developmentOverrides?: readonly ViteHubHost[]
 }
 
 const noHostLimit = "No host limit in ViteHub."
@@ -120,7 +120,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     docs: "/docs/agents",
     hosts: {
       ...everywhere("nitro", "Nitro"),
-      deno: native("nitro", "Nitro", "Agent routes run in the Nitro output. The Agent Deno runtime is not supported on this preset."),
+      deno: native("nitro", "Nitro", "Agent routes run in the Nitro output. The Agent Deno runtime is not supported on this host."),
       netlify: native("nitro", "Nitro", "Agent HTTP routes run in generated functions. `agent.invocations` is not supported."),
     },
     id: "agent",
@@ -157,9 +157,9 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     hosts: {
       cloudflare: native("cloudflare", "Browser Run", "Cloudflare Browser Run binding and provider output."),
       deno: unsupported("Browser Definitions do not have a Deno provider."),
-      dev: unsupported("Browser Definitions need the Cloudflare preset. Use createBrowser({ provider: localBrowser({ executablePath }) }) from code for a trusted local process."),
+      dev: unsupported("Browser Definitions need the Cloudflare host. Use createBrowser({ provider: localBrowser({ executablePath }) }) from code for a trusted local process."),
       netlify: unsupported("Browser Definitions do not have a Netlify provider."),
-      node: unsupported("The Node preset has no built-in Browser Provider. Use localBrowser() from code for a trusted process."),
+      node: unsupported("The Node host has no built-in Browser Provider. Use localBrowser() from code for a trusted process."),
       vercel: unsupported("Browser Definitions do not have a Vercel provider."),
     },
     id: "browser",
@@ -321,11 +321,11 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     docs: "/docs/realtime",
     hosts: {
       cloudflare: native("cloudflare", "Durable Objects", "Cloudflare Durable Objects provide the production room authority."),
-      deno: unsupported("Realtime has no distributed Deno authority, and process memory is rejected for the Deno preset."),
+      deno: unsupported("Realtime has no distributed Deno authority, and process memory is rejected for the Deno host."),
       dev: native("memory", "memory", "Process-memory authority for local development.", "process-local"),
-      netlify: unsupported("Realtime has no distributed Netlify authority, and process memory is rejected for the Netlify preset."),
+      netlify: unsupported("Realtime has no distributed Netlify authority, and process memory is rejected for the Netlify host."),
       node: explicit("realtime.authority", "memory", "Set `realtime: { authority: \"memory\" }` for a single-process server. A build without it has no room authority."),
-      vercel: unsupported("Realtime has no distributed Vercel authority, and process memory is rejected for the Vercel preset."),
+      vercel: unsupported("Realtime has no distributed Vercel authority, and process memory is rejected for the Vercel host."),
     },
     id: "realtime",
     packages: ["@vite-hub/realtime"],
@@ -338,9 +338,9 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     hosts: {
       cloudflare: native("cloudflare", "CF Sandbox", "Cloudflare Sandbox execution provider."),
       deno: unsupported("No Deno Sandbox provider is provided."),
-      dev: unsupported("The default Node preset has no Sandbox Provider. Development with the Cloudflare or Vercel preset uses that preset's Sandbox."),
-      netlify: unsupported("`vitehub({ sandboxTask: true })` fails on the Netlify preset. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
-      node: unsupported("`vitehub({ sandboxTask: true })` fails on the Node preset. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
+      dev: unsupported("The default Node host has no Sandbox Provider. Development with the Cloudflare or Vercel host uses that host's Sandbox."),
+      netlify: unsupported("`vitehub({ sandboxTask: true })` fails on the Netlify host. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
+      node: unsupported("`vitehub({ sandboxTask: true })` fails on the Node host. Compose `hubSandboxTask({ provider: 'vercel' })` to use Vercel Sandbox with Vercel credentials."),
       vercel: native("vercel", "Vercel Sandbox", "Vercel Sandbox execution provider."),
     },
     id: "sandboxTask",
@@ -353,7 +353,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     docs: "/docs/schedule",
     hosts: {
       cloudflare: native("cloudflare", "Cron triggers", "Cloudflare scheduled events and Nitro Provider Wake."),
-      deno: unsupported("`vitehub({ preset: \"deno\", schedule: true })` is not supported because the generated cron output is not part of the deployed Nitro entrypoint. Compose `hubSchedule({ providerOutput: \"standalone\" })` for Deno.cron wake output."),
+      deno: unsupported("`vitehub({ host: \"deno\", schedule: true })` is not supported because the generated cron output is not part of the deployed Nitro entrypoint. Compose `hubSchedule({ providerOutput: \"standalone\" })` for Deno.cron wake output."),
       dev: native("local", "Local / process", "Local development runner and the explicit process runtime.", "single-host"),
       netlify: native("netlify", "Scheduled fn", "One generated Netlify scheduled function per static Schedule."),
       node: native("process", "process", "Process runtime for one long-lived process or replica. A build needs `schedule: { runtime: { driver: \"process\" } }`, or `providerOutput: false` to wake Schedules yourself.", "single-host"),
@@ -369,7 +369,7 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
     hosts: {
       cloudflare: native("cloudflare", "CF Workflows", "Cloudflare Workflows provider."),
       deno: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Set workflow.provider explicitly to select OpenWorkflow."),
-      dev: native("vercel", "Vercel Workflow", "The default Node preset selects Vercel Workflow. Node hosting selects OpenWorkflow when workflow.sqlite.path or workflow.postgres.url is configured."),
+      dev: native("vercel", "Vercel Workflow", "The default Node host selects Vercel Workflow. Node hosting selects OpenWorkflow when workflow.sqlite.path or workflow.postgres.url is configured."),
       netlify: explicit("workflow.provider", "OpenWorkflow", "Use OpenWorkflow explicitly. No Netlify-native Workflow provider is provided."),
       node: native("vercel", "Vercel Workflow", "Vercel Workflow is the default. Setting workflow.sqlite.path or workflow.postgres.url selects OpenWorkflow unless workflow.provider is explicit."),
       vercel: native("vercel", "Vercel Workflow", "Vercel Workflow provider and Workflow DevKit output."),
@@ -402,29 +402,29 @@ export const features: { readonly [K in FeatureId]: FeatureDefinition<K> } = {
   }),
 }
 
-/** How `host` supports `id`. Development requires the app's configured (or detected) deployment preset. */
-export function featureSupport(id: FeatureId, host: DeploymentPreset): HostSupport
-export function featureSupport(id: FeatureId, host: FeatureHost, preset: DeploymentPreset): HostSupport
-export function featureSupport(id: FeatureId, host: FeatureHost, preset?: DeploymentPreset): HostSupport {
+/** How `host` supports `id`. Development requires the app's configured (or detected) ViteHub host. */
+export function featureSupport(id: FeatureId, host: ViteHubHost): HostSupport
+export function featureSupport(id: FeatureId, host: FeatureHost, appHost: ViteHubHost): HostSupport
+export function featureSupport(id: FeatureId, host: FeatureHost, appHost?: ViteHubHost): HostSupport {
   const definition = features[id]
   if (host !== "dev") return definition.hosts[host]
-  if (!preset) throw new Error("Development feature support requires the configured deployment preset.")
-  return definition.hosts[preset === "node" || definition.developmentOverrides?.includes(preset) ? "dev" : preset]
+  if (!appHost) throw new Error("Development feature support requires the configured ViteHub host.")
+  return definition.hosts[appHost === "node" || definition.developmentOverrides?.includes(appHost) ? "dev" : appHost]
 }
 
 /**
- * The features that `enabled` turn on through implications on `preset`, without the ones already in `enabled`.
+ * The features that `enabled` turn on through implications on `host`, without the ones already in `enabled`.
  * Implications chain, so Console turns on Comments, which turns on Database.
  * `disabled` lists features that the app sets to `false`; an implication never turns them on.
  */
-export function impliedFeatures(enabled: readonly FeatureId[], preset: DeploymentPreset, disabled: readonly FeatureId[] = []): FeatureId[] {
+export function impliedFeatures(enabled: readonly FeatureId[], host: ViteHubHost, disabled: readonly FeatureId[] = []): FeatureId[] {
   const on = new Set(enabled)
   const implied: FeatureId[] = []
   const pending = [...enabled]
   while (pending.length) {
     const id = pending.shift()!
     for (const implication of features[id].implies) {
-      if (implication.except?.includes(preset) || on.has(implication.feature) || disabled.includes(implication.feature)) continue
+      if (implication.except?.includes(host) || on.has(implication.feature) || disabled.includes(implication.feature)) continue
       on.add(implication.feature)
       implied.push(implication.feature)
       pending.push(implication.feature)

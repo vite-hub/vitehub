@@ -130,7 +130,7 @@ Where Realtime runs, several people edit one Markdown document at the same time.
 
 ```ts [vite.config.ts]
 vitehub({
-  preset: 'node',
+  host: 'node',
   console: { auth: 'app' },
   realtime: { authority: 'memory' },
 })

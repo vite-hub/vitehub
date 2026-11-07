@@ -106,7 +106,7 @@ describe("the Console Nitro configuration", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-page-tools-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false }, preset: "node", sections: [] })
+      const plugin = consoleVitePlugin({ console: { auth: false }, host: "node", sections: [] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -127,7 +127,7 @@ describe("the Console Nitro configuration", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-rpc-only-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ rpcOnly: true, preset: "node", sections: [] })
+      const plugin = consoleVitePlugin({ rpcOnly: true, host: "node", sections: [] })
       const hook = plugin.config!
       const handler = "handler" in hook ? hook.handler : hook
       const config: { root: string, nitro?: { handlers: Array<{ route: string }>, publicAssets: Array<{ baseURL: string }> } } = { root }
@@ -153,7 +153,7 @@ describe("the Console Nitro configuration", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-page-tools-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false }, preset: "node", sections: [] })
+      const plugin = consoleVitePlugin({ console: { auth: false }, host: "node", sections: [] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -200,7 +200,7 @@ describe("the Console below a Nitro baseURL", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "console-auth.ts"), "export default {}")
-      const plugin = consoleVitePlugin({ console: { auth }, preset: "node", sections: [] })
+      const plugin = consoleVitePlugin({ console: { auth }, host: "node", sections: [] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook

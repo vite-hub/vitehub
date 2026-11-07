@@ -92,7 +92,7 @@ it.each([true, false])("runs a discovered Workflow from only the deployed Node o
       workflow: initialWorkflow ? { provider: "vercel" } : false,
       plugins: [
         nitro() as never,
-        vitehub({ preset: "node", workflow: true }),
+        vitehub({ host: "node", workflow: true }),
         { name: "final-workflow-config", config: () => ({ workflow: { provider: "vercel" } }) },
       ],
       root,

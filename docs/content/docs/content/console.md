@@ -178,7 +178,7 @@ Two policies decide what an editor can do:
 
 ```ts [vite.config.ts]
 vitehub({
-  preset: 'node',
+  host: 'node',
   auth: true,
   database: true,
   workspace: true,

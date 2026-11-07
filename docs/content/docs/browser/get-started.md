@@ -22,14 +22,14 @@ pnpm add vite-hub nitro h3
 pnpm add -D vite wrangler
 ```
 
-Enable Browser on the Cloudflare deployment preset.
+Enable Browser on the Cloudflare host.
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 
 export default {
   plugins: [vitehub({
-    preset: 'cloudflare',
+    host: 'cloudflare',
     browser: { remote: true },
   })],
 }

@@ -1,7 +1,6 @@
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
-export type DeploymentPreset = "cloudflare" | "deno" | "netlify" | "node" | "vercel"
-
-export type DeploymentHost = "cloudflare" | "deno-deploy" | "netlify" | "self-hosted" | "vercel"
+/** The host that ViteHub builds for: the `host` option of `vitehub()` and the value of `VITEHUB_HOST`. */
+export type ViteHubHost = "cloudflare" | "deno" | "netlify" | "node" | "vercel"
 export type DeploymentRuntime = "deno" | "node" | "workerd"
 export type DeploymentService = "blob" | "browser" | "queue" | "rateLimit" | "realtime" | "sandbox"
 
@@ -34,10 +33,9 @@ export interface DeploymentOutputPlan {
 }
 
 export interface DeploymentPlan {
-  host: DeploymentHost
+  host: ViteHubHost
   nitroPreset: "cloudflare-module" | "deno-deploy" | "netlify" | "node-server" | "vercel"
   output: DeploymentOutputPlan
-  preset: DeploymentPreset
   runtime: DeploymentRuntime
   services: DeploymentServices
 }
@@ -49,7 +47,6 @@ const plans = {
     host: "cloudflare",
     nitroPreset: "cloudflare-module",
     output: { directory: ".output", entry: "server/index.mjs", packaging: "none" },
-    preset: "cloudflare",
     runtime: "workerd",
     services: {
       blob: { adapter: "cloudflare-r2", guarantee: "native", supported: true },
@@ -61,10 +58,9 @@ const plans = {
     },
   },
   deno: {
-    host: "deno-deploy",
+    host: "deno",
     nitroPreset: "deno-deploy",
     output: { directory: ".output", entry: "server/index.mjs", packaging: "deno-node-modules" },
-    preset: "deno",
     runtime: "deno",
     services: {
       blob: unsupported(
@@ -83,7 +79,6 @@ const plans = {
     host: "netlify",
     nitroPreset: "netlify",
     output: { directory: ".netlify", entry: "functions-internal/server/server.mjs", packaging: "none" },
-    preset: "netlify",
     runtime: "node",
     services: {
       blob: { adapter: "netlify-blobs", guarantee: "native", supported: true },
@@ -97,18 +92,17 @@ const plans = {
     },
   },
   node: {
-    host: "self-hosted",
+    host: "node",
     nitroPreset: "node-server",
     output: { directory: ".output", entry: "server/index.mjs", packaging: "none" },
-    preset: "node",
     runtime: "node",
     services: {
       blob: { adapter: "fs", guarantee: "single-host", supported: true },
-      browser: unsupported("The Node preset has no built-in Browser Provider."),
+      browser: unsupported("The Node host has no built-in Browser Provider."),
       queue: { adapter: "local", guarantee: "single-host", supported: true },
       rateLimit: { adapter: "memory", guarantee: "process-local", supported: true },
       realtime: { adapter: "memory", guarantee: "process-local", supported: true },
-      sandbox: unsupported("The Node preset has no built-in isolated Sandbox Provider."),
+      sandbox: unsupported("The Node host has no built-in isolated Sandbox Provider."),
     },
   },
   vercel: {
@@ -119,7 +113,6 @@ const plans = {
       entry: "functions/__server.func/index.mjs",
       packaging: "none",
     },
-    preset: "vercel",
     runtime: "node",
     services: {
       blob: { adapter: "vercel-blob", guarantee: "native", supported: true },
@@ -130,12 +123,12 @@ const plans = {
       sandbox: { adapter: "vercel", guarantee: "native", supported: true },
     },
   },
-} as const satisfies Record<DeploymentPreset, DeploymentPlan>
+} as const satisfies Record<ViteHubHost, DeploymentPlan>
 
-export function resolveDeploymentPlan(preset: DeploymentPreset): DeploymentPlan {
-  const plan = plans[preset]
+export function resolveDeploymentPlan(host: ViteHubHost): DeploymentPlan {
+  const plan = plans[host]
   if (!plan) {
-    throw internalErrorDiagnostics.INTERNAL_R0001({ message: `Unknown ViteHub deployment preset: ${JSON.stringify(preset)}.` })
+    throw internalErrorDiagnostics.INTERNAL_R0001({ message: `Unknown ViteHub host: ${JSON.stringify(host)}.` })
   }
   return plan
 }
@@ -147,10 +140,11 @@ export function normalizeNitroPreset(value: string): string {
 export function assertDeploymentService(plan: DeploymentPlan, service: DeploymentService): void {
   const policy = plan.services[service]
   if (policy.supported) return
-  throw internalErrorDiagnostics.INTERNAL_R0002({ message: `[vitehub] The ${JSON.stringify(plan.preset)} preset cannot provide ${service}. ${policy.reason} Configure an explicit portable implementation through the owner package or disable this capability.` })
+  throw internalErrorDiagnostics.INTERNAL_R0002({ message: `[vitehub] The ${JSON.stringify(plan.host)} host cannot provide ${service}. ${policy.reason} Configure an explicit portable implementation through the owner package or disable this capability.` })
 }
 
-export function deploymentPresetFromNitro(value?: string | null): DeploymentPreset | undefined {
+/** Maps a host name or a Nitro preset name, such as `cloudflare-module` or `node-server`, to its ViteHub host. */
+export function hostFromNitroPreset(value?: string | null): ViteHubHost | undefined {
   const normalized = value?.trim().toLowerCase().replaceAll("_", "-")
   if (!normalized) return
   if (normalized.startsWith("cloudflare")) return "cloudflare"

@@ -12,12 +12,12 @@ Provider selection belongs to application or host configuration, not to a Defini
 
 | Provider | Configure with | Host support |
 | --- | --- | --- |
-| Vercel Sandbox | `hubSandboxTask({ provider: 'vercel' })` or the `vercel` preset | Vercel. Other hosts, such as Netlify, when Vercel credentials are set. |
-| Cloudflare Sandbox | `hubSandboxTask({ provider: 'cloudflare' })` or the `cloudflare` preset | Cloudflare Workers with the generated Container and Durable Object binding. |
+| Vercel Sandbox | `hubSandboxTask({ provider: 'vercel' })` or the `vercel` host | Vercel. Other hosts, such as Netlify, when Vercel credentials are set. |
+| Cloudflare Sandbox | `hubSandboxTask({ provider: 'cloudflare' })` or the `cloudflare` host | Cloudflare Workers with the generated Container and Durable Object binding. |
 
-The `deno`, `netlify`, and `node` presets have no built-in Sandbox provider, so `vitehub({ preset, sandboxTask: true })` fails during configuration for them. Without an explicit `provider`, the runtime detects Cloudflare or Vercel from the environment. Both providers run remote, potentially billed infrastructure. Sandbox has no local in-process provider.
+The `deno`, `netlify`, and `node` hosts have no built-in Sandbox provider, so `vitehub({ host, sandboxTask: true })` fails during configuration for them. Without an explicit `provider`, the runtime detects Cloudflare or Vercel from the environment. Both providers run remote, potentially billed infrastructure. Sandbox has no local in-process provider.
 
-On the Vite or Nuxt dev server, the Vercel provider works when Vercel credentials are set. The Cloudflare provider does not: the `cloudflare` preset writes the Sandbox Durable Object and Container only to `.output/server/wrangler.json`, and the dev server cannot host a Container. Build, then run `npx wrangler dev --config .output/server/wrangler.json`. Wrangler needs Docker to run the Container.
+On the Vite or Nuxt dev server, the Vercel provider works when Vercel credentials are set. The Cloudflare provider does not: the `cloudflare` host writes the Sandbox Durable Object and Container only to `.output/server/wrangler.json`, and the dev server cannot host a Container. Build, then run `npx wrangler dev --config .output/server/wrangler.json`. Wrangler needs Docker to run the Container.
 
 ### Vercel options
 
@@ -38,7 +38,7 @@ On the Vite or Nuxt dev server, the Vercel provider works when Vercel credential
 | `binding` | `'SANDBOX'` | Durable Object binding name. |
 | `className` | `'Sandbox'` | Exported Durable Object class name. |
 | `migrationTag` | `'v1'` | Wrangler migration tag for the class. Must be unique. |
-| `name` | - | Container name. The `cloudflare` preset derives one from the app name. |
+| `name` | - | Container name. The `cloudflare` host derives one from the app name. |
 | `sandboxId` | - | Shared Sandbox identity for every run. |
 | `sleepAfter` | `'10m'` | Idle time before Cloudflare stops the Container: seconds, or a value such as `'30s'`, `'5m'`, or `'1h'`. |
 | `keepAlive` | `false` | Keep the Container running for up to 6 idle hours between requests (Cloudflare’s maximum). ViteHub then closes the session after each run. |

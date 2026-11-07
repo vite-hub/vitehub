@@ -344,7 +344,7 @@ For client search, pass `searchClient()` from `comark-content/plugins/sqlite-ful
 | Node SQLite | `comark-content/database/sqlite-node` | Node runtimes with built-in SQLite. |
 | SQLite WASM | `comark-content/database/sqlite-wasm` | Runtimes where Node SQLite is unavailable. |
 
-The `vitehub()` Vite plugin generates the Content route for every preset. The Nuxt module installs the same behavior. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. `glob()` with literal options works everywhere, because the build bundles its files; see [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system).
+The `vitehub()` Vite plugin generates the Content route for every host. The Nuxt module installs the same behavior. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. `glob()` with literal options works everywhere, because the build bundles its files; see [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system).
 
 See [Limits and errors](/docs/content/limits-and-errors) before running Content in production.
 

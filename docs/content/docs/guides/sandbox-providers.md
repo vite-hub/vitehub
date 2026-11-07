@@ -36,7 +36,7 @@ A sandbox does not decide what the agent may do. Approvals, tool policy, and Cap
 | Startup | Vercel states that sandboxes start in milliseconds. | Cloudflare states that cold starts are often 1 to 3 seconds. | A local process. | Depends on your host. |
 | Limits | Sessions up to 45 minutes on Hobby and 24 hours on Pro. Up to 8 vCPUs and 16 GB of memory on Pro. | Instance types from 1/16 vCPU and 256 MiB to 4 vCPUs and 12 GiB. The container stops after 10 idle minutes by default. | The limits of your machine. An optional memory cap on Linux. | The limits of your host. |
 | Pricing model | Usage based. Active CPU, provisioned memory, creations, and data transfer. Hobby includes a monthly allowance. | Workers Paid plan. Billed for each 10 ms of active vCPU, memory, and disk, plus Workers and Durable Objects usage. | The cost of your server. | Crabbox is free. You pay for the host. |
-| Select it | `runtime: 'vercel'`, or the `vercel` preset for Sandbox Tasks | `runtime: { kind: 'cloudflare', namespace }`, or the `cloudflare` preset for Sandbox Tasks | `runtime: 'trusted-host'` | `runtime: { kind: 'crabbox', profile }` |
+| Select it | `runtime: 'vercel'`, or the `vercel` host for Sandbox Tasks | `runtime: { kind: 'cloudflare', namespace }`, or the `cloudflare` host for Sandbox Tasks | `runtime: 'trusted-host'` | `runtime: { kind: 'crabbox', profile }` |
 
 The startup and limit values are vendor statements, not ViteHub measurements. Sources: [Vercel Sandbox](https://vercel.com/docs/sandbox), [Vercel Sandbox pricing and quotas](https://vercel.com/docs/sandbox/pricing), [Cloudflare Sandbox SDK](https://developers.cloudflare.com/sandbox/), [Cloudflare Containers limits](https://developers.cloudflare.com/containers/platform/limits/), [Cloudflare Containers pricing](https://developers.cloudflare.com/containers/platform/pricing/), [Cloudflare container lifecycle](https://developers.cloudflare.com/containers/platform-details/architecture/), and [Crabbox](https://crabbox.sh/).
 
@@ -54,7 +54,7 @@ An Agent Sandbox starts the Codex or Claude Code process and sends it input whil
 
 [Vercel Sandbox](https://vercel.com/docs/sandbox) runs each sandbox in a Firecracker microVM. ViteHub uses the `@vercel/sandbox` SDK. On Vercel, it uses the project environment. It also works outside Vercel, for example on Netlify or the Vite dev server, when you set `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, and `VERCEL_PROJECT_ID`. A session ends after 5 minutes unless you set `timeout`. A Sandbox Task uses its Definition timeout instead.
 
-Select it for Sandbox Tasks with the `vercel` preset:
+Select it for Sandbox Tasks with the `vercel` host:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -62,7 +62,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'vercel', sandboxTask: true }),
+    vitehub({ host: 'vercel', sandboxTask: true }),
   ],
 })
 ```
@@ -96,7 +96,7 @@ Vercel does more than ViteHub exposes. Vercel offers persistent sandboxes, snaps
 
 [Cloudflare Sandbox](https://developers.cloudflare.com/sandbox/) runs a container on Cloudflare Containers. Your Worker reaches it through a Durable Object. ViteHub generates that Durable Object: it starts the Container through the Workers Container API and uses the `Files` class of `@cloudflare/sandbox` 1.x for file operations. You need the Workers Paid plan.
 
-Select it for Sandbox Tasks with the `cloudflare` preset:
+Select it for Sandbox Tasks with the `cloudflare` host:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -104,12 +104,12 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'cloudflare', sandboxTask: true }),
+    vitehub({ host: 'cloudflare', sandboxTask: true }),
   ],
 })
 ```
 
-The preset writes the Container, the Durable Object binding, the migration, and the Worker exports. It generates a Dockerfile when the container has no image. That Dockerfile builds on `node:24-bookworm-slim` with git, curl, jq, and zip, and copies the `sandbox-shim` helper from the `docker.io/cloudflare/sandbox` image whose tag matches the installed `@cloudflare/sandbox` version. A custom image must include bash and GNU coreutils (`timeout` must be on `PATH`), copy `/usr/local/bin/sandbox-shim` from that image and keep running, for example with `CMD ["sleep", "infinity"]`. The generated container uses the `lite` instance type, which has 1/16 vCPU and 256 MiB of memory, and allows 12 instances. An application-owned container entry with the same class name keeps its own instance type.
+The Cloudflare host writes the Container, the Durable Object binding, the migration, and the Worker exports. It generates a Dockerfile when the container has no image. That Dockerfile builds on `node:24-bookworm-slim` with git, curl, jq, and zip, and copies the `sandbox-shim` helper from the `docker.io/cloudflare/sandbox` image whose tag matches the installed `@cloudflare/sandbox` version. A custom image must include bash and GNU coreutils (`timeout` must be on `PATH`), copy `/usr/local/bin/sandbox-shim` from that image and keep running, for example with `CMD ["sleep", "infinity"]`. The generated container uses the `lite` instance type, which has 1/16 vCPU and 256 MiB of memory, and allows 12 instances. An application-owned container entry with the same class name keeps its own instance type.
 
 ViteHub creates and closes a new Sandbox for each Sandbox Task run, unless you set `sandboxId` to share one. Cloudflare stops an idle container after 10 minutes by default. The next request starts a fresh container, and the earlier state is gone. Charges stop while the container sleeps. Set `sleepAfter` or `keepAlive` in the [Cloudflare options](/docs/sandbox/hosts#cloudflare-options) to change this.
 
@@ -145,7 +145,7 @@ Neither runtime protects the host from the Agent. Run the Agent only on a host t
 ## Choose a sandbox for AI agents
 
 - For code that you do not trust, use Vercel Sandbox or Cloudflare Sandbox. Never use `trusted-host` for it.
-- For an app that runs on Cloudflare Workers, use Cloudflare Sandbox. The preset generates the bindings, and an idle container stops billing.
+- For an app that runs on Cloudflare Workers, use Cloudflare Sandbox. The Cloudflare host generates the bindings, and an idle container stops billing.
 - For long jobs or more CPU, use Vercel Sandbox. A Pro session runs up to 24 hours with up to 8 vCPUs. The largest Cloudflare instance type has 4 vCPUs.
 - To limit network access, use Vercel Sandbox. ViteHub passes `networkPolicy` and reports the result.
 - To run Codex or Claude Code as the Agent Driver in a Sandbox, use `trusted-host` or Crabbox.

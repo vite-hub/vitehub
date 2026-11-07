@@ -19,7 +19,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ preset: 'node', agent: true, kv: true }),
+    vitehub({ host: 'node', agent: true, kv: true }),
   ],
 })
 ```
@@ -45,7 +45,7 @@ Set `dataDir` in `vitehub()` to select a shared local storage directory on a Nod
 
 ```ts
 vitehub({
-  preset: "node",
+  host: "node",
   dataDir: "/var/lib/app",
   agent: true,
   console: { auth: false, authorize: "./server/console-authorize.ts" },
@@ -57,7 +57,7 @@ vitehub({
 
 Enabled integrations use `agent-state.sqlite`, `console.sqlite`, `kv/`, `blob/`, and `workspaces/` under this directory. Inline Console Auth uses `console-auth.sqlite`. Named local KV and Blob stores get separate subdirectories. Explicit paths and remote providers take precedence; disabled services stay disabled. Relative paths resolve from the configuration process's working directory.
 
-The host must provide a persistent, writable filesystem at this path. The option does not create a volume or make an ephemeral filesystem durable, and it is rejected for other presets. Keep the existing provider configuration for hosted storage.
+The host must provide a persistent, writable filesystem at this path. The option does not create a volume or make an ephemeral filesystem durable, and it is rejected for other hosts. Keep the existing provider configuration for hosted storage.
 
 ## Public URL
 
@@ -65,7 +65,7 @@ Set `publicUrl` in `vitehub()` to the public origin of the deployed application.
 
 ```ts
 vitehub({
-  preset: "node",
+  host: "node",
   publicUrl: "https://agents.example.com",
 })
 ```
@@ -74,7 +74,7 @@ Use a function when one build serves Agents from different origins. ViteHub call
 
 ```ts
 vitehub({
-  preset: "node",
+  host: "node",
   publicUrl: agent => agent === "bot" ? "https://agent.example.com" : "https://agent-dev.example.com",
 })
 ```
@@ -101,11 +101,11 @@ When `publicUrl` is one string, `vitehub channels sync` and `vitehub channels hi
 
 ### Serve a Cloudflare Worker on its custom domain
 
-On the `cloudflare` preset, a string `publicUrl` with an HTTPS DNS hostname outside `workers.dev` and without a port also writes the custom domain into the generated `wrangler.json`. IP addresses, `localhost`, and invalid DNS hostnames leave routing unchanged:
+On the `cloudflare` host, a string `publicUrl` with an HTTPS DNS hostname outside `workers.dev` and without a port also writes the custom domain into the generated `wrangler.json`. IP addresses, `localhost`, and invalid DNS hostnames leave routing unchanged:
 
 ```ts
 vitehub({
-  preset: "cloudflare",
+  host: "cloudflare",
   publicUrl: process.env.APP_URL, // https://calories.example.com
 })
 ```

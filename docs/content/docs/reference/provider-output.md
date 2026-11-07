@@ -13,7 +13,7 @@ It belongs to the package that owns the primitive. Application code does not edi
 
 | Output | Provider | Owner | Purpose |
 | --- | --- | --- | --- |
-| `deployment.json` | All built-in presets | `vite-hub` | Records the resolved deployment identity and source with the host, runtime, output, and service contract. |
+| `deployment.json` | All built-in hosts | `vite-hub` | Records the resolved deployment identity and source with the host, runtime, output, and service contract. |
 | Worker bundle | Cloudflare | Package integration using Cloudflare output | Runs server or primitive runtime code in Workers. |
 | `wrangler.json` entries | Cloudflare | Blob, Database, Queue, Rate Limit, Schedule, Workflow, Sandbox, Agent state as applicable | Declares bindings, crons, durable objects, queues, Rate Limiting bindings, and other worker config. |
 | Vercel Build Output | Vercel | Package integration using Vercel output | Writes functions, static files, routes, and function config under `.vercel/output`. |
@@ -29,7 +29,7 @@ It belongs to the package that owns the primitive. Application code does not edi
 
 Provider Output is normally written during production-shaped builds. Vite dev proves discovery and local generated files; Netlify local development also materialises package functions for Netlify CLI.
 
-`vitehub inspect provider-output` lists the files that the active packages and the deployment preset own, and shows which exist. Add `--json` to include parsed JSON content with credentials and Worker `vars` redacted. See the [CLI guide](/docs/development/cli#inspect-definitions-and-provider-output).
+`vitehub inspect provider-output` lists the files that the active packages and the host own, and shows which exist. Add `--json` to include parsed JSON content with credentials and Worker `vars` redacted. See the [CLI guide](/docs/development/cli#inspect-definitions-and-provider-output).
 
 ```bash [Terminal]
 pnpm build

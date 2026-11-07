@@ -17,7 +17,7 @@ export const SourceLanding = {
         {
           path: "vite.config.ts",
           language: "typescript",
-          content: 'import { nitro } from "nitro/vite"\nimport { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: "node" }), nitro({ serverDir: "./server" })],\n})',
+          content: 'import { nitro } from "nitro/vite"\nimport { defineConfig } from "vite"\nimport { vitehub } from "vite-hub"\n\nexport default defineConfig({\n  plugins: [vitehub({ host: "node" }), nitro({ serverDir: "./server" })],\n})',
         },
         {
           path: "server/api/docs.get.ts",
@@ -55,7 +55,7 @@ export const SourceLanding = {
         {
           path: "nuxt.config.ts",
           language: "typescript",
-          content: 'export default defineNuxtConfig({\n  modules: ["vite-hub/nuxt"],\n  vitehub: { preset: "node" }\n})',
+          content: 'export default defineNuxtConfig({\n  modules: ["vite-hub/nuxt"],\n  vitehub: { host: "node" }\n})',
         },
         {
           path: "server/api/docs.get.ts",

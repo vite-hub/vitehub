@@ -93,7 +93,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       agent: true,
       workflow: false,
     }),
@@ -188,7 +188,7 @@ A quick tunnel gets a new URL each time it starts. Update the Request URL after 
 
 ## Deploy the bot
 
-This example deploys the `node` preset to a server that you control. Put an HTTPS reverse proxy in front of it. Read [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
+This example deploys the `node` host to a server that you control. Put an HTTPS reverse proxy in front of it. Read [Node and self-hosted](/docs/frameworks-hosts/node-self-hosted) for the build output.
 
 ```bash [Terminal]
 pnpm build
@@ -203,7 +203,7 @@ A production build needs durable Agent State for thread subscriptions and queued
 
 Then set the production Request URL, such as `https://bot.example.com/api/_vitehub/agents/assistant/webhooks/slack`, on **Event Subscriptions**. ViteHub does not register Slack URLs for you; `vitehub channels sync` supports only Telegram.
 
-The webhook route is not specific to Node. On Cloudflare, ViteHub keeps Agent State in a Durable Object, and the Agent must answer in about 28 seconds because Cloudflare stops background work after 30 seconds. On Vercel and Netlify, set `VITEHUB_AGENT_STATE_URL` to a hosted libSQL database, because those hosts reject `file:` URLs. Read [Deploy the same Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel) for those presets.
+The webhook route is not specific to Node. On Cloudflare, ViteHub keeps Agent State in a Durable Object, and the Agent must answer in about 28 seconds because Cloudflare stops background work after 30 seconds. On Vercel and Netlify, set `VITEHUB_AGENT_STATE_URL` to a hosted libSQL database, because those hosts reject `file:` URLs. Read [Deploy the same Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel) for those hosts.
 
 ## Limits
 

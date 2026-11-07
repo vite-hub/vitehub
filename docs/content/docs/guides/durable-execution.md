@@ -73,7 +73,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       workflow: {
         provider: 'openworkflow',
         sqlite: { path: '.data/workflows.sqlite' },
@@ -83,7 +83,7 @@ export default defineConfig({
 })
 ```
 
-On Cloudflare, set `preset: 'cloudflare'` and `workflow: true`. The Workflow files stay the same.
+On Cloudflare, set `host: 'cloudflare'` and `workflow: true`. The Workflow files stay the same.
 
 A Workflow folder with numbered files gives one durable step for each file. `01.charge-card.ts` becomes `steps.chargeCard`, and its step name on the provider is `checkout/01.charge-card.ts`. Do not rename a step file while runs are in progress, because the new name is not in their step log.
 

@@ -7,7 +7,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: "node",
+      host: "node",
       auth: true,
       // `serve` exposes stored images at /api/_vitehub/blob, so SEO previews and social cards can show them.
       blob: { driver: "fs", base: ".vitehub/data/blob", serve: true },

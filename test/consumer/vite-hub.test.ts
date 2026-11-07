@@ -642,7 +642,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const config = (features: string) => `
         import { defineConfig } from "vite"
         import { vitehub } from "vite-hub"
-        export default defineConfig({ env: { public: {} }, plugins: [vitehub({ preset: "cloudflare", blob: true, queue: true${features} })] })
+        export default defineConfig({ env: { public: {} }, plugins: [vitehub({ host: "cloudflare", blob: true, queue: true${features} })] })
       `
       await Promise.all([
         writeFile(join(appDir, "vite.config.ts"), config(""), "utf8"),
@@ -726,7 +726,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           import { vitehub } from "vite-hub"
 
           export default defineConfig({
-            plugins: [vitehub({ preset: "deno" }), nitro()],
+            plugins: [vitehub({ host: "deno" }), nitro()],
           })
         `, "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
@@ -765,7 +765,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           export default {
             modules: ["vite-hub/nuxt"],
             nitro: { preset: "node-server" },
-            vitehub: { agent: false, preset: "node" },
+            vitehub: { agent: false, host: "node" },
           }
         `),
         writeFile(join(appDir, "server/api/markdown.get.ts"), `
@@ -835,7 +835,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           export default {
             modules: ["vite-hub/nuxt"],
             nitro: { preset: "node-server" },
-            vitehub: { agent: false, cache: ${JSON.stringify(cache)}, kv: true, preset: "node" },
+            vitehub: { agent: false, cache: ${JSON.stringify(cache)}, kv: true, host: "node" },
           }
         `),
         // No \`kv\` import: the module auto-imports \`kv\` in server code. Nuxt 5 does not auto-import
@@ -924,7 +924,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           export default {
             modules: ["vite-hub/nuxt"],
             nitro: { preset: "node-server" },
-            vitehub: { agent: true, preset: "node" },
+            vitehub: { agent: true, host: "node" },
           }
         `, "utf8"),
         writeFile(join(appDir, "server/agents/disabled.ts"), `
@@ -1092,7 +1092,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
           export default defineNuxtConfig({
             compatibilityDate: "2026-10-01",
             modules: ["vite-hub/nuxt"],
-            vitehub: { console: { auth: false }, comments: false, kv: true, preset: "node" },
+            vitehub: { console: { auth: false }, comments: false, kv: true, host: "node" },
           })
         `, "utf8"),
         writeFile(join(appDir, "package.json"), JSON.stringify({
@@ -1167,7 +1167,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
                 databaseId: "00000000-0000-0000-0000-000000000000",
                 databaseName: "portable-db",
               },
-              preset: "cloudflare",
+              host: "cloudflare",
             },
           })
         `, "utf8"),
@@ -1487,7 +1487,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         await run("pnpm", ["exec", "vite", "build"], appDir, {
         ...process.env,
         VITEHUB_PROVIDER_SANDBOX_CLOSURE: "1",
-        VITEHUB_PRESET: "vercel",
+        VITEHUB_HOST: "vercel",
       })
       expect(existsSync(join(appDir, ".vercel", "output", "functions", "__queue.func"))).toBe(false)
       const queueCallback = join(
@@ -1564,7 +1564,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await run("pnpm", ["exec", "vite", "build"], appDir, {
         ...process.env,
         VITEHUB_PROVIDER_SANDBOX_CLOSURE: "1",
-        VITEHUB_PRESET: "cloudflare",
+        VITEHUB_HOST: "cloudflare",
       })
       expect(existsSync(join(appDir, "dist", "app", "index.js"))).toBe(true)
 
@@ -1620,7 +1620,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       ])
       await run("pnpm", ["exec", "vite", "build"], appDir, {
         ...process.env,
-        VITEHUB_PRESET: "vercel",
+        VITEHUB_HOST: "vercel",
       })
       const [nativeWorkflowFile] = await readdir(join(appDir, ".vitehub/workflow/vercel-native"))
       const [agentRoute, authTypes, authServerTypes, blobPlugin, emailTemplate, envServer, workflowRegistry, workspacePlugin, nativeWorkflow, scheduleFunction, flowBundle, vercelConfig] = await Promise.all([
@@ -1694,7 +1694,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         )
       expect(workspaceDisabledVercelImports, "canonical Workflow output must bundle Workspace when its Vite plugin is disabled").toEqual([])
 
-      await run("pnpm", ["exec", "vite", "build"], appDir, { ...process.env, VITEHUB_HOSTING: "netlify", VITEHUB_PRESET: "netlify" })
+      await run("pnpm", ["exec", "vite", "build"], appDir, { ...process.env, VITEHUB_HOST: "netlify" })
       const netlifyFunctionPath = join(appDir, ".netlify/v1/functions/vitehub-agent.mjs")
       const netlifyFunctionSource = await readFile(netlifyFunctionPath, "utf8")
       const netlifyProviderImports = importSpecifierOccurrences(netlifyFunctionSource)

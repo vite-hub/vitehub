@@ -36,7 +36,7 @@ import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     email: {
       driver: 'resend',
       options: {

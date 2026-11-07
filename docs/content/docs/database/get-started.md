@@ -30,7 +30,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'node', database: true })],
+  plugins: [vitehub({ host: 'node', database: true })],
 })
 ```
 

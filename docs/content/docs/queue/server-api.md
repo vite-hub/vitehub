@@ -6,7 +6,7 @@ navigation.order: 4
 icon: i-lucide-code-2
 ---
 
-Queue runs on Cloudflare, on Vercel, or with the local provider of `preset: 'node'`, which runs jobs in the server process. Complete [Get started](/docs/queue/get-started) to configure the host and discover the `welcome-email` Definition used below.
+Queue runs on Cloudflare, on Vercel, or with the local provider of `host: 'node'`, which runs jobs in the server process. Complete [Get started](/docs/queue/get-started) to configure the host and discover the `welcome-email` Definition used below.
 
 ## Public imports
 
@@ -134,7 +134,7 @@ Cloudflare accepts the shared options and `contentType`. Protect non-repeatable 
 
 ### Vercel options
 
-Use these options only with the Vercel provider. The app needs `preset: 'vercel'`, Queue enabled, the `@vercel/queue` package, and a deployed Queue callback. See [Vercel](/docs/frameworks-hosts/vercel) and [Queue hosts](/docs/queue/hosts).
+Use these options only with the Vercel provider. The app needs `host: 'vercel'`, Queue enabled, the `@vercel/queue` package, and a deployed Queue callback. See [Vercel](/docs/frameworks-hosts/vercel) and [Queue hosts](/docs/queue/hosts).
 
 | Option | Type | Description |
 | --- | --- | --- |

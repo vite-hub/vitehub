@@ -18,7 +18,7 @@ import { vitehub } from 'vite-hub'
 import { doctor } from 'vite-doctor'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node' }), doctor()],
+  plugins: [vitehub({ host: 'node' }), doctor()],
 })
 ```
 
@@ -841,13 +841,13 @@ The rule skips options from a variable or a spread.
 // Invalid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vite: { plugins: [vitehub({ preset: 'node' })] },
+  vite: { plugins: [vitehub({ host: 'node' })] },
 })
 
 // Valid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node' },
+  vitehub: { host: 'node' },
 })
 ```
 
@@ -859,22 +859,23 @@ Plugins that add Database tables, such as `hubDb()`, can stay in `vite.plugins`.
 
 The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vite-hub/nuxt` options in `nuxt.config.ts`, have a value that ViteHub ignores or rejects later:
 
+- `preset` was renamed to `host`.
 - `sandbox` was renamed to `sandboxTask`.
 - `devtools` was removed with the browser DevTools.
 - `sandboxTask: { ... }` turns Sandbox Tasks off. ViteHub turns them on only for `true`.
-- `queue: { ... }` ignores its fields. The preset selects the Queue provider.
+- `queue: { ... }` ignores its fields. The host selects the Queue provider.
 - In Vite, `vitehub({ env: { server, public, define } })` ignores these sections. They belong to the top-level `env` key of the Vite config.
 
 ```ts [vite.config.ts]
 // Invalid
 export default defineConfig({
-  plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],
+  plugins: [vitehub({ host: 'vercel', env: { server: { token: env({ secret: true }) } } })],
 })
 
 // Valid
 export default defineConfig({
   env: { server: { token: env({ secret: true }) } },
-  plugins: [vitehub({ preset: 'vercel' })],
+  plugins: [vitehub({ host: 'vercel' })],
 })
 ```
 
@@ -900,7 +901,7 @@ export default defineNuxtConfig({
 // Valid
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
-  vitehub: { preset: 'node', kv: true },
+  vitehub: { host: 'node', kv: true },
 })
 ```
 

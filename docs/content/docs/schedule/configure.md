@@ -50,7 +50,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'vercel',
+      host: 'vercel',
       // server/schedules/cleanup.ts declares cron: '0 * * * *'
       schedule: { cron: { cleanup: '0 0 * * *' } },
     }),

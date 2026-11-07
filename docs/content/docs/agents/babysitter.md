@@ -17,7 +17,7 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'node', agent: true })],
+  plugins: [vitehub({ host: 'node', agent: true })],
 })
 ```
 
@@ -152,7 +152,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     console: {
       auth: false,
       authorize: './server/console-authorize.ts',

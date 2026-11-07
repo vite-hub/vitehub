@@ -58,7 +58,7 @@ icon: i-lucide-shield-check
 
   export default defineConfig({
     plugins: [
-      vitehub({ preset: 'node', auth: true }),
+      vitehub({ host: 'node', auth: true }),
     ],
   })
   ```

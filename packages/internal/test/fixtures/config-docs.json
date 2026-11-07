@@ -2,22 +2,22 @@
   {
     "key": "docs/content/docs/agents/babysitter.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'node', agent: true })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'node', agent: true })],\n})\n"
   },
   {
     "key": "docs/content/docs/agents/babysitter.md#2",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    preset: 'node',\n    console: {\n      auth: false,\n      authorize: './server/console-authorize.ts',\n      databaseUrl: 'file:/var/lib/babysitter/console.sqlite',\n    },\n  })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    host: 'node',\n    console: {\n      auth: false,\n      authorize: './server/console-authorize.ts',\n      databaseUrl: 'file:/var/lib/babysitter/console.sqlite',\n    },\n  })],\n})\n"
   },
   {
     "key": "docs/content/docs/agents/build-a-chat-app.md#1",
     "file": "nuxt.config.ts",
-    "code": "import viteHub from \"vite-hub/nuxt\";\n\nexport default defineNuxtConfig({\n  buildDir: \".nuxt\",\n  modules: [\"@nuxt/ui\", \"@vite-hub/ui/nuxt\", [viteHub, {\n    preset: \"node\",\n    agent: true,\n    workflow: false,\n    console: false,\n  }]],\n  css: [\"~/assets/main.css\"],\n  ui: { fonts: false },\n  devtools: { enabled: false },\n});\n"
+    "code": "import viteHub from \"vite-hub/nuxt\";\n\nexport default defineNuxtConfig({\n  buildDir: \".nuxt\",\n  modules: [\"@nuxt/ui\", \"@vite-hub/ui/nuxt\", [viteHub, {\n    host: \"node\",\n    agent: true,\n    workflow: false,\n    console: false,\n  }]],\n  css: [\"~/assets/main.css\"],\n  ui: { fonts: false },\n  devtools: { enabled: false },\n});\n"
   },
   {
     "key": "docs/content/docs/agents/channels.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ preset: 'node', agent: true }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ host: 'node', agent: true }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/agents/evals.md#1",
@@ -32,12 +32,12 @@
   {
     "key": "docs/content/docs/agents/invocation-storage.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    preset: 'cloudflare',\n    database: { driver: 'd1' },\n    agent: { invocations: 'database' },\n  })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    host: 'cloudflare',\n    database: { driver: 'd1' },\n    agent: { invocations: 'database' },\n  })],\n})\n"
   },
   {
     "key": "docs/content/docs/agents/observability.md#1",
     "file": "vite.config.ts",
-    "code": "import { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'node',\n      agent: true,\n      console: { auth: false },\n      publicUrl: 'https://agents.example.com',\n      observability: {\n        service: 'support-agent',\n        posthog: {\n          apiKey: env({ optional: true, secret: true, source: env.source('POSTHOG_API_KEY') }),\n          host: 'https://eu.i.posthog.com',\n        },\n        evlog: { sampling: { rates: { info: 0, warn: 100, error: 100 } } },\n        papercuts: true,\n      },\n    }),\n  ],\n})\n"
+    "code": "import { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'node',\n      agent: true,\n      console: { auth: false },\n      publicUrl: 'https://agents.example.com',\n      observability: {\n        service: 'support-agent',\n        posthog: {\n          apiKey: env({ optional: true, secret: true, source: env.source('POSTHOG_API_KEY') }),\n          host: 'https://eu.i.posthog.com',\n        },\n        evlog: { sampling: { rates: { info: 0, warn: 100, error: 100 } } },\n        papercuts: true,\n      },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/agents/process-hosts.md#1",
@@ -47,7 +47,7 @@
   {
     "key": "docs/content/docs/agents/process-hosts.md#2",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'node',\n      agent: { shutdown: { drainMs: 45_000 } },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'node',\n      agent: { shutdown: { drainMs: 45_000 } },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/agents/process-hosts.md#3",
@@ -62,7 +62,7 @@
   {
     "key": "docs/content/docs/agents/workspace-context.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ preset: 'node', agent: true, workspace: true }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ host: 'node', agent: true, workspace: true }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/auth/configure.md#1",
@@ -82,7 +82,7 @@
   {
     "key": "docs/content/docs/auth/index.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ preset: 'node', auth: true }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ host: 'node', auth: true }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/blob/configure.md#1",
@@ -117,7 +117,7 @@
   {
     "key": "docs/content/docs/blob/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  server: { port: 3000, strictPort: true },\n  plugins: [vitehub({ preset: 'node', blob: true })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  server: { port: 3000, strictPort: true },\n  plugins: [vitehub({ host: 'node', blob: true })],\n})\n"
   },
   {
     "key": "docs/content/docs/blob/hosts.md#1",
@@ -142,7 +142,7 @@
   {
     "key": "docs/content/docs/blob/index.md#1",
     "file": "vite.config.ts",
-    "code": "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    // On Node, files are saved in .vitehub/data/blob\n    vitehub({ preset: 'node', blob: true }),\n    nitro(),\n  ],\n})\n"
+    "code": "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    // On Node, files are saved in .vitehub/data/blob\n    vitehub({ host: 'node', blob: true }),\n    nitro(),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/blob/media.md#1",
@@ -157,32 +157,32 @@
   {
     "key": "docs/content/docs/browser/configure.md#1",
     "file": "vite.config.ts",
-    "code": "import { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'cloudflare',\n      browser: {\n        binding: 'RENDER_BROWSER',\n        remote: true,\n      },\n    }),\n  ],\n})\n"
+    "code": "import { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'cloudflare',\n      browser: {\n        binding: 'RENDER_BROWSER',\n        remote: true,\n      },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/browser/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { vitehub } from 'vite-hub'\n\nexport default {\n  plugins: [vitehub({\n    preset: 'cloudflare',\n    browser: { remote: true },\n  })],\n}\n"
+    "code": "import { vitehub } from 'vite-hub'\n\nexport default {\n  plugins: [vitehub({\n    host: 'cloudflare',\n    browser: { remote: true },\n  })],\n}\n"
   },
   {
     "key": "docs/content/docs/browser/index.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\n// Adds the Cloudflare browser setting for you\nexport default defineConfig({\n  plugins: [\n    vitehub({ preset: 'cloudflare', browser: true }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\n// Adds the Cloudflare browser setting for you\nexport default defineConfig({\n  plugins: [\n    vitehub({ host: 'cloudflare', browser: true }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/channels/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'node', channels: true })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'node', channels: true })],\n})\n"
   },
   {
     "key": "docs/content/docs/cms/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'node', console: { auth: false } })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'node', console: { auth: false } })],\n})\n"
   },
   {
     "key": "docs/content/docs/comments/configure.md#1",
     "file": "vite.config.ts",
-    "code": "vitehub({\n  preset: 'node',\n  console: { auth: 'app' },\n  comments: { database: 'team' },\n})\n"
+    "code": "vitehub({\n  host: 'node',\n  console: { auth: 'app' },\n  comments: { database: 'team' },\n})\n"
   },
   {
     "key": "docs/content/docs/comments/configure.md#2",
@@ -207,12 +207,12 @@
   {
     "key": "docs/content/docs/comments/hosts.md#1",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'node',\n      database: true,\n      realtime: { authority: 'memory' },\n    }),\n  ],\n})\n"
+    "code": "export default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'node',\n      database: true,\n      realtime: { authority: 'memory' },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/comments/hosts.md#2",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'cloudflare',\n      database: { driver: 'd1', databaseName: 'site' },\n      realtime: true,\n    }),\n  ],\n})\n"
+    "code": "export default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'cloudflare',\n      database: { driver: 'd1', databaseName: 'site' },\n      realtime: true,\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/comments/index.md#1",
@@ -232,12 +232,12 @@
   {
     "key": "docs/content/docs/comments/with-vite-hub.md#1",
     "file": "vite.config.ts",
-    "code": "import vue from '@vitejs/plugin-vue'\nimport { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    vitehub({\n      preset: 'node',\n      database: true,\n      realtime: { authority: 'memory' },\n    }),\n  ],\n})\n"
+    "code": "import vue from '@vitejs/plugin-vue'\nimport { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    vitehub({\n      host: 'node',\n      database: true,\n      realtime: { authority: 'memory' },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/compare/cloudflare-agents.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'cloudflare',\n      agent: true,\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'cloudflare',\n      agent: true,\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/connections/configure.md#1",
@@ -247,27 +247,27 @@
   {
     "key": "docs/content/docs/connections/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'node', console: { auth: false }, connections: true })],\n  env: {\n    server: {\n      google: {\n        clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),\n        clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),\n      },\n    },\n  },\n})\n"
+    "code": "import { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'node', console: { auth: false }, connections: true })],\n  env: {\n    server: {\n      google: {\n        clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),\n        clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),\n      },\n    },\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/content/console.md#1",
     "file": "vite.config.ts",
-    "code": "vitehub({\n  preset: 'node',\n  auth: true,\n  database: true,\n  workspace: true,\n  console: { auth: 'app', authorize: './server/console-authorize.ts' },\n})\n"
+    "code": "vitehub({\n  host: 'node',\n  auth: true,\n  database: true,\n  workspace: true,\n  console: { auth: 'app', authorize: './server/console-authorize.ts' },\n})\n"
   },
   {
     "key": "docs/content/docs/content/editing-together.md#1",
     "file": "vite.config.ts",
-    "code": "vitehub({\n  preset: 'node',\n  console: { auth: 'app' },\n  realtime: { authority: 'memory' },\n})\n"
+    "code": "vitehub({\n  host: 'node',\n  console: { auth: 'app' },\n  realtime: { authority: 'memory' },\n})\n"
   },
   {
     "key": "docs/content/docs/content/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { nitro } from 'nitro/vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'node' }), nitro()],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { nitro } from 'nitro/vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'node' }), nitro()],\n})\n"
   },
   {
     "key": "docs/content/docs/content/scheduling.md#1",
     "file": "vite.config.ts",
-    "code": "vitehub({ preset: 'cloudflare', schedule: true })\n"
+    "code": "vitehub({ host: 'cloudflare', schedule: true })\n"
   },
   {
     "key": "docs/content/docs/database/configure.md#1",
@@ -282,7 +282,7 @@
   {
     "key": "docs/content/docs/database/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  server: { port: 3000, strictPort: true },\n  plugins: [vitehub({ preset: 'node', database: true })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  server: { port: 3000, strictPort: true },\n  plugins: [vitehub({ host: 'node', database: true })],\n})\n"
   },
   {
     "key": "docs/content/docs/database/hosts.md#1",
@@ -297,32 +297,32 @@
   {
     "key": "docs/content/docs/database/index.md#1",
     "file": "vite.config.ts",
-    "code": "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    // Local SQLite while you develop\n    vitehub({ preset: 'node', database: true }),\n    nitro(),\n  ],\n})\n"
+    "code": "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    // Local SQLite while you develop\n    vitehub({ host: 'node', database: true }),\n    nitro(),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/decisions/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import vue from \"@vitejs/plugin-vue\"\nimport { defineConfig } from \"vite\"\nimport { vitehub } from \"vite-hub\"\n\nexport default defineConfig({\n  plugins: [vue(), vitehub({ preset: \"node\" })],\n})\n"
+    "code": "import vue from \"@vitejs/plugin-vue\"\nimport { defineConfig } from \"vite\"\nimport { vitehub } from \"vite-hub\"\n\nexport default defineConfig({\n  plugins: [vue(), vitehub({ host: \"node\" })],\n})\n"
   },
   {
     "key": "docs/content/docs/development/console.md#1",
     "file": "vite.config.ts",
-    "code": "import { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    agent: true,\n    blob: true,\n    console: { auth: false },\n    preset: 'cloudflare',\n    kv: true,\n    schedule: true,\n    workflow: true,\n  })],\n})\n"
+    "code": "import { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    agent: true,\n    blob: true,\n    console: { auth: false },\n    host: 'cloudflare',\n    kv: true,\n    schedule: true,\n    workflow: true,\n  })],\n})\n"
   },
   {
     "key": "docs/content/docs/development/console.md#2",
     "file": "vite.config.ts",
-    "code": "import { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      agent: true,\n      console: { auth: false },\n      preset: 'node',\n    }),\n  ],\n})\n"
+    "code": "import { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      agent: true,\n      console: { auth: false },\n      host: 'node',\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/development/console.md#3",
     "file": "nuxt.config.ts",
-    "code": "import viteHubNuxt from 'vite-hub/nuxt'\n\nexport default defineNuxtConfig({\n  modules: [\n    [viteHubNuxt, {\n      agent: true,\n      console: { auth: false },\n      preset: 'node',\n    }],\n  ],\n})\n"
+    "code": "import viteHubNuxt from 'vite-hub/nuxt'\n\nexport default defineNuxtConfig({\n  modules: [\n    [viteHubNuxt, {\n      agent: true,\n      console: { auth: false },\n      host: 'node',\n    }],\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/development/console.md#4",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  plugins: [vitehub({\n    auth: true,\n    console: true,\n    preset: 'node',\n  })],\n})\n"
+    "code": "export default defineConfig({\n  plugins: [vitehub({\n    auth: true,\n    console: true,\n    host: 'node',\n  })],\n})\n"
   },
   {
     "key": "docs/content/docs/development/console.md#5",
@@ -337,12 +337,12 @@
   {
     "key": "docs/content/docs/development/console.md#7",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  plugins: [vitehub({\n    agent: true,\n    console: {\n      auth: {\n        provider: 'github',\n        allowedEmails: ['maintainer@example.com'],\n        databasePath: '/var/lib/app/console-auth.sqlite',\n        baseURL: 'https://agent.example.com',\n      },\n    },\n    preset: 'node',\n  })],\n})\n"
+    "code": "export default defineConfig({\n  plugins: [vitehub({\n    agent: true,\n    console: {\n      auth: {\n        provider: 'github',\n        allowedEmails: ['maintainer@example.com'],\n        databasePath: '/var/lib/app/console-auth.sqlite',\n        baseURL: 'https://agent.example.com',\n      },\n    },\n    host: 'node',\n  })],\n})\n"
   },
   {
     "key": "docs/content/docs/development/console.md#8",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  plugins: [vitehub({\n    agent: true,\n    console: { auth: false, authorize: './server/console-authorize.ts' },\n    preset: 'node',\n  })],\n})\n"
+    "code": "export default defineConfig({\n  plugins: [vitehub({\n    agent: true,\n    console: { auth: false, authorize: './server/console-authorize.ts' },\n    host: 'node',\n  })],\n})\n"
   },
   {
     "key": "docs/content/docs/development/console.md#9",
@@ -357,7 +357,7 @@
   {
     "key": "docs/content/docs/development/integrations-and-output.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ preset: 'node', agent: true, kv: true }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ host: 'node', agent: true, kv: true }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/development/mcp.md#1",
@@ -372,7 +372,7 @@
   {
     "key": "docs/content/docs/docs-site/assistant.md#1",
     "file": "nuxt.config.ts",
-    "code": "export default defineNuxtConfig({\n  modules: [\n    ['vite-hub/nuxt', { preset: 'node', agent: true, connections: true, database: true }],\n    '@vite-hub/docs/nuxt',\n  ],\n  docs: { assistant: true },\n})\n"
+    "code": "export default defineNuxtConfig({\n  modules: [\n    ['vite-hub/nuxt', { host: 'node', agent: true, connections: true, database: true }],\n    '@vite-hub/docs/nuxt',\n  ],\n  docs: { assistant: true },\n})\n"
   },
   {
     "key": "docs/content/docs/docs-site/configure.md#1",
@@ -407,7 +407,7 @@
   {
     "key": "docs/content/docs/docs-site/configure.md#7",
     "file": "nuxt.config.ts",
-    "code": "export default defineNuxtConfig({\n  modules: [\n    ['vite-hub/nuxt', { preset: 'node', console: { auth: false } }],\n    '@vite-hub/docs/nuxt',\n  ],\n})\n"
+    "code": "export default defineNuxtConfig({\n  modules: [\n    ['vite-hub/nuxt', { host: 'node', console: { auth: false } }],\n    '@vite-hub/docs/nuxt',\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/docs-site/configure.md#8",
@@ -427,17 +427,17 @@
   {
     "key": "docs/content/docs/email/agent-capability.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'node',\n      email: {\n        driver: 'resend',\n        options: {\n          apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),\n        },\n      },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'node',\n      email: {\n        driver: 'resend',\n        options: {\n          apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),\n        },\n      },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/email/configure.md#1",
     "file": "vite.config.ts",
-    "code": "import { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    preset: 'node',\n    email: {\n      driver: 'resend',\n      options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },\n    },\n  })],\n})\n"
+    "code": "import { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    host: 'node',\n    email: {\n      driver: 'resend',\n      options: { apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }) },\n    },\n  })],\n})\n"
   },
   {
     "key": "docs/content/docs/email/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    preset: 'node',\n    email: {\n      driver: 'resend',\n      options: {\n        apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),\n      },\n      remote: true,\n    },\n  })],\n})\n"
+    "code": "import { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    host: 'node',\n    email: {\n      driver: 'resend',\n      options: {\n        apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),\n      },\n      remote: true,\n    },\n  })],\n})\n"
   },
   {
     "key": "docs/content/docs/email/hosts.md#1",
@@ -447,12 +447,12 @@
   {
     "key": "docs/content/docs/email/index.md#1",
     "file": "vite.config.ts",
-    "code": "import { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    preset: 'node',\n    email: {\n      driver: 'resend',\n      // The server reads the key when it sends\n      options: {\n        apiKey: env({\n          secret: true,\n          source: env.source('RESEND_API_KEY'),\n        }),\n      },\n    },\n  })],\n})\n"
+    "code": "import { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    host: 'node',\n    email: {\n      driver: 'resend',\n      // The server reads the key when it sends\n      options: {\n        apiKey: env({\n          secret: true,\n          source: env.source('RESEND_API_KEY'),\n        }),\n      },\n    },\n  })],\n})\n"
   },
   {
     "key": "docs/content/docs/env/bridge.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    preset: 'node',\n    console: { auth: false },\n    env: { providers: { credentials: './server/env/credentials.ts' } },\n  })],\n  env: {\n    server: {\n      githubToken: env({\n        secret: true,\n        source: env.provider('credentials', 'github/token'),\n      }),\n    },\n  },\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    host: 'node',\n    console: { auth: false },\n    env: { providers: { credentials: './server/env/credentials.ts' } },\n  })],\n  env: {\n    server: {\n      githubToken: env({\n        secret: true,\n        source: env.provider('credentials', 'github/token'),\n      }),\n    },\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/env/configure.md#1",
@@ -492,12 +492,12 @@
   {
     "key": "docs/content/docs/frameworks-hosts/cloudflare.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'cloudflare',\n      database: true,\n      queue: true,\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'cloudflare',\n      database: true,\n      queue: true,\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/frameworks-hosts/cloudflare.md#2",
     "file": "vite.config.ts",
-    "code": "import { vitehub } from 'vite-hub'\n\nexport default {\n  plugins: vitehub({\n    preset: 'cloudflare',\n    cloudflare: { secretsFile: '.env' },\n  }),\n}\n"
+    "code": "import { vitehub } from 'vite-hub'\n\nexport default {\n  plugins: vitehub({\n    host: 'cloudflare',\n    cloudflare: { secretsFile: '.env' },\n  }),\n}\n"
   },
   {
     "key": "docs/content/docs/frameworks-hosts/cloudflare.md#3",
@@ -512,167 +512,167 @@
   {
     "key": "docs/content/docs/frameworks-hosts/cloudflare.md#5",
     "file": "vite.config.ts",
-    "code": "import { vitehub } from 'vite-hub'\n\nexport default {\n  plugins: vitehub({\n    preset: 'cloudflare',\n    browser: true,\n  }),\n}\n"
+    "code": "import { vitehub } from 'vite-hub'\n\nexport default {\n  plugins: vitehub({\n    host: 'cloudflare',\n    browser: true,\n  }),\n}\n"
   },
   {
     "key": "docs/content/docs/frameworks-hosts/deno.md#1",
     "file": "vite.config.ts",
-    "code": "import { hubSchedule } from '@vite-hub/schedule/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'deno',\n      agent: true,\n      console: false,\n      workflow: false,\n      kv: {\n        driver: 'deno-kv',\n      },\n    }),\n    hubSchedule({ providerOutput: 'standalone' }),\n  ],\n})\n"
+    "code": "import { hubSchedule } from '@vite-hub/schedule/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'deno',\n      agent: true,\n      console: false,\n      workflow: false,\n      kv: {\n        driver: 'deno-kv',\n      },\n    }),\n    hubSchedule({ providerOutput: 'standalone' }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/frameworks-hosts/netlify.md#1",
     "file": "vite.config.ts",
-    "code": "import { hubSchedule } from '@vite-hub/schedule/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'netlify',\n      agent: true,\n      blob: true,\n    }),\n    hubSchedule({ providerOutput: 'standalone' }),\n  ],\n})\n"
+    "code": "import { hubSchedule } from '@vite-hub/schedule/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'netlify',\n      agent: true,\n      blob: true,\n    }),\n    hubSchedule({ providerOutput: 'standalone' }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/frameworks-hosts/node-self-hosted.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'node',\n      kv: {\n        driver: 'fs-lite',\n        base: '.vitehub/data/kv',\n      },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'node',\n      kv: {\n        driver: 'fs-lite',\n        base: '.vitehub/data/kv',\n      },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/frameworks-hosts/nuxt.md#1",
     "file": "nuxt.config.ts",
-    "code": "import viteHubNuxt from \"vite-hub/nuxt\"\n\nexport default defineNuxtConfig({\n  modules: [\n    [viteHubNuxt, { preset: \"node\" }],\n  ],\n})\n"
+    "code": "import viteHubNuxt from \"vite-hub/nuxt\"\n\nexport default defineNuxtConfig({\n  modules: [\n    [viteHubNuxt, { host: \"node\" }],\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/frameworks-hosts/vercel.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'vercel',\n      blob: true,\n      queue: true,\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'vercel',\n      blob: true,\n      queue: true,\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/frameworks-hosts/vercel.md#2",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'vercel',\n      database: {\n        connection: {\n          url: env({ source: env.source('TURSO_DATABASE_URL') }),\n          authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),\n        },\n      },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'vercel',\n      database: {\n        connection: {\n          url: env({ source: env.source('TURSO_DATABASE_URL') }),\n          authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),\n        },\n      },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/getting-started/first-agent.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from \"vite\"\nimport { vitehub } from \"vite-hub\"\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: \"node\",\n      agent: true,\n      workflow: false,\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from \"vite\"\nimport { vitehub } from \"vite-hub\"\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: \"node\",\n      agent: true,\n      workflow: false,\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/getting-started/first-server-primitive.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from \"vite\"\nimport { vitehub } from \"vite-hub\"\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: \"node\",\n      kv: { driver: \"fs-lite\", base: \".vitehub/data/kv\" },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from \"vite\"\nimport { vitehub } from \"vite-hub\"\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: \"node\",\n      kv: { driver: \"fs-lite\", base: \".vitehub/data/kv\" },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/getting-started/installation.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from \"vite\"\nimport { vitehub } from \"vite-hub\"\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: \"node\" })],\n})\n"
+    "code": "import { defineConfig } from \"vite\"\nimport { vitehub } from \"vite-hub\"\n\nexport default defineConfig({\n  plugins: [vitehub({ host: \"node\" })],\n})\n"
   },
   {
     "key": "docs/content/docs/getting-started/installation.md#2",
     "file": "nuxt.config.ts",
-    "code": "import viteHubNuxt from \"vite-hub/nuxt\"\n\nexport default defineNuxtConfig({\n  buildDir: \".nuxt\",\n  modules: [\n    [viteHubNuxt, { preset: \"node\" }],\n  ],\n})\n"
+    "code": "import viteHubNuxt from \"vite-hub/nuxt\"\n\nexport default defineNuxtConfig({\n  buildDir: \".nuxt\",\n  modules: [\n    [viteHubNuxt, { host: \"node\" }],\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/getting-started/migrate-from-nuxthub.md#1",
     "file": "nuxt.config.ts",
-    "code": "export default defineNuxtConfig({\n  vitehub: {\n    preset: \"cloudflare\",\n    cache: {\n      driver: \"cloudflare-kv-binding\",\n      binding: \"CACHE\",\n      namespaceId: process.env.CLOUDFLARE_CACHE_NAMESPACE_ID,\n    },\n  },\n})\n"
+    "code": "export default defineNuxtConfig({\n  vitehub: {\n    host: \"cloudflare\",\n    cache: {\n      driver: \"cloudflare-kv-binding\",\n      binding: \"CACHE\",\n      namespaceId: process.env.CLOUDFLARE_CACHE_NAMESPACE_ID,\n    },\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/getting-started/migrate-from-nuxthub.md#2",
     "file": "nuxt.config.ts",
-    "code": "export default defineNuxtConfig({\n  modules: [\"vite-hub/nuxt\"],\n  vitehub: {\n    preset: \"cloudflare\",\n    database: true,\n    kv: {\n      driver: \"cloudflare-kv-binding\",\n      binding: \"KV\",\n      namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID,\n    },\n    blob: {\n      driver: \"cloudflare-r2\",\n      binding: \"BLOB\",\n      bucketName: process.env.CLOUDFLARE_R2_BUCKET_NAME,\n    },\n  },\n})\n"
+    "code": "export default defineNuxtConfig({\n  modules: [\"vite-hub/nuxt\"],\n  vitehub: {\n    host: \"cloudflare\",\n    database: true,\n    kv: {\n      driver: \"cloudflare-kv-binding\",\n      binding: \"KV\",\n      namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID,\n    },\n    blob: {\n      driver: \"cloudflare-r2\",\n      binding: \"BLOB\",\n      bucketName: process.env.CLOUDFLARE_R2_BUCKET_NAME,\n    },\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/guides/better-auth-cloudflare.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'cloudflare', auth: true, database: true })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'cloudflare', auth: true, database: true })],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/better-auth-cloudflare.md#2",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'cloudflare', auth: true })],\n  env: {\n    server: {\n      auth: {\n        github: {\n          clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),\n          clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),\n        },\n      },\n    },\n  },\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'cloudflare', auth: true })],\n  env: {\n    server: {\n      auth: {\n        github: {\n          clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),\n          clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),\n        },\n      },\n    },\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/guides/claude-agent-sdk.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    preset: 'node',\n    agent: true,\n    workflow: false,\n  })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    host: 'node',\n    agent: true,\n    workflow: false,\n  })],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/cloudflare-browser.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n\tplugins: [vitehub({\n\t\tpreset: 'cloudflare',\n\t\tbrowser: { remote: true },\n\t})],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n\tplugins: [vitehub({\n\t\thost: 'cloudflare',\n\t\tbrowser: { remote: true },\n\t})],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/cloudflare-queues.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'cloudflare', queue: true })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'cloudflare', queue: true })],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/cloudflare-r2.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n\tplugins: [vitehub({\n\t\tpreset: 'cloudflare',\n\t\tblob: {\n\t\t\tdriver: 'cloudflare-r2',\n\t\t\tbinding: 'BLOB',\n\t\t\tbucketName: 'your-existing-bucket',\n\t\t},\n\t})],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n\tplugins: [vitehub({\n\t\thost: 'cloudflare',\n\t\tblob: {\n\t\t\tdriver: 'cloudflare-r2',\n\t\t\tbinding: 'BLOB',\n\t\t\tbucketName: 'your-existing-bucket',\n\t\t},\n\t})],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/codex-sdk.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    preset: 'node',\n    agent: true,\n    workflow: false,\n  })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    host: 'node',\n    agent: true,\n    workflow: false,\n  })],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/deploy-agent-cloudflare-vercel.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n\tplugins: [vitehub({\n\t\tname: 'vitehub-greeting',\n\t\tpreset: 'cloudflare',\n\t\tagent: true,\n\t\tworkflow: false,\n\t\tconsole: false,\n\t})],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n\tplugins: [vitehub({\n\t\tname: 'vitehub-greeting',\n\t\thost: 'cloudflare',\n\t\tagent: true,\n\t\tworkflow: false,\n\t\tconsole: false,\n\t})],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/durable-execution.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'node',\n      workflow: {\n        provider: 'openworkflow',\n        sqlite: { path: '.data/workflows.sqlite' },\n      },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'node',\n      workflow: {\n        provider: 'openworkflow',\n        sqlite: { path: '.data/workflows.sqlite' },\n      },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/rate-limiting-algorithms.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'node', rateLimit: true })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'node', rateLimit: true })],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/resend.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n\tplugins: [vitehub({\n\t\tpreset: 'vercel',\n\t\temail: {\n\t\t\tdriver: 'resend',\n\t\t\toptions: {\n\t\t\t\tapiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),\n\t\t\t},\n\t\t},\n\t})],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n\tplugins: [vitehub({\n\t\thost: 'vercel',\n\t\temail: {\n\t\t\tdriver: 'resend',\n\t\t\toptions: {\n\t\t\t\tapiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),\n\t\t\t},\n\t\t},\n\t})],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/sandbox-providers.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ preset: 'vercel', sandboxTask: true }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ host: 'vercel', sandboxTask: true }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/sandbox-providers.md#2",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ preset: 'cloudflare', sandboxTask: true }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ host: 'cloudflare', sandboxTask: true }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/turso.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n\tplugins: [vitehub({\n\t\tpreset: 'node',\n\t\tdatabase: {\n\t\t\tconnection: {\n\t\t\t\turl: env({ source: env.source('TURSO_DATABASE_URL') }),\n\t\t\t\tauthToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),\n\t\t\t},\n\t\t},\n\t})],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n\tplugins: [vitehub({\n\t\thost: 'node',\n\t\tdatabase: {\n\t\t\tconnection: {\n\t\t\t\turl: env({ source: env.source('TURSO_DATABASE_URL') }),\n\t\t\t\tauthToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),\n\t\t\t},\n\t\t},\n\t})],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/upstash-redis.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n\tplugins: [vitehub({ preset: 'node', kv: { driver: 'upstash' } })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n\tplugins: [vitehub({ host: 'node', kv: { driver: 'upstash' } })],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/vercel-blob.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'vercel', blob: true })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'vercel', blob: true })],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/vercel-blob.md#2",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'vercel',\n      blob: { driver: 'vercel-blob', access: 'private' },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'vercel',\n      blob: { driver: 'vercel-blob', access: 'private' },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/vercel-blob.md#3",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'vercel',\n      blob: {\n        driver: 'vercel-blob',\n        access: 'private',\n        serve: { route: '/files' },\n      },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'vercel',\n      blob: {\n        driver: 'vercel-blob',\n        access: 'private',\n        serve: { route: '/files' },\n      },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/vercel-cron-jobs.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'vercel', schedule: true })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'vercel', schedule: true })],\n})\n"
   },
   {
     "key": "docs/content/docs/guides/vercel-queues.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'vercel', queue: true })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'vercel', queue: true })],\n})\n"
   },
   {
     "key": "docs/content/docs/kv/configure.md#1",
@@ -682,27 +682,27 @@
   {
     "key": "docs/content/docs/kv/configure.md#2",
     "file": "vite.config.ts",
-    "code": "export default defineConfig({\n  plugins: [vitehub({ preset: 'cloudflare', kv: true, cache: { driver: 'kv' } })],\n})\n"
+    "code": "export default defineConfig({\n  plugins: [vitehub({ host: 'cloudflare', kv: true, cache: { driver: 'kv' } })],\n})\n"
   },
   {
     "key": "docs/content/docs/kv/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  server: { port: 3000, strictPort: true },\n  plugins: [vitehub({ preset: 'node', kv: true })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  server: { port: 3000, strictPort: true },\n  plugins: [vitehub({ host: 'node', kv: true })],\n})\n"
   },
   {
     "key": "docs/content/docs/kv/index.md#1",
     "file": "vite.config.ts",
-    "code": "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    // On Node, values are saved in .vitehub/data/kv\n    vitehub({ preset: 'node', kv: true }),\n    nitro(),\n  ],\n})\n"
+    "code": "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    // On Node, values are saved in .vitehub/data/kv\n    vitehub({ host: 'node', kv: true }),\n    nitro(),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/logs/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ preset: 'node', logs: true, console: { auth: false, local: true } }),\n    nitro(),\n  ],\n})\n"
+    "code": "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({ host: 'node', logs: true, console: { auth: false, local: true } }),\n    nitro(),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/logs/index.md#1",
     "file": "vite.config.ts",
-    "code": "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'node', logs: true }), nitro()],\n})\n"
+    "code": "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'node', logs: true }), nitro()],\n})\n"
   },
   {
     "key": "docs/content/docs/queue/configure.md#1",
@@ -717,17 +717,17 @@
   {
     "key": "docs/content/docs/queue/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  server: { port: 3000, strictPort: true },\n  plugins: [vitehub({ preset: 'cloudflare', queue: true })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  server: { port: 3000, strictPort: true },\n  plugins: [vitehub({ host: 'cloudflare', queue: true })],\n})\n"
   },
   {
     "key": "docs/content/docs/queue/index.md#1",
     "file": "vite.config.ts",
-    "code": "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    // Jobs go to Cloudflare Queues\n    vitehub({ preset: 'cloudflare', queue: true }),\n    nitro(),\n  ],\n})\n"
+    "code": "import { nitro } from 'nitro/vite'\nimport { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    // Jobs go to Cloudflare Queues\n    vitehub({ host: 'cloudflare', queue: true }),\n    nitro(),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/rate-limit/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'node', rateLimit: true })],\n})\n"
+    "code": "import { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'node', rateLimit: true })],\n})\n"
   },
   {
     "key": "docs/content/docs/rate-limit/hosts.md#1",
@@ -737,32 +737,32 @@
   {
     "key": "docs/content/docs/rate-limit/index.md#1",
     "file": "vite.config.ts",
-    "code": "import { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\nimport { nitro } from 'nitro/vite'\n\nexport default defineConfig({\n  plugins: [\n    // On Node, counts stay in memory\n    vitehub({ preset: 'node', rateLimit: true }),\n    nitro(),\n  ],\n})\n"
+    "code": "import { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\nimport { nitro } from 'nitro/vite'\n\nexport default defineConfig({\n  plugins: [\n    // On Node, counts stay in memory\n    vitehub({ host: 'node', rateLimit: true }),\n    nitro(),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/realtime/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import vue from '@vitejs/plugin-vue'\nimport { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    vitehub({\n      preset: 'node',\n      realtime: { authority: 'memory' },\n      workspace: true,\n    }),\n  ],\n})\n"
+    "code": "import vue from '@vitejs/plugin-vue'\nimport { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    vitehub({\n      host: 'node',\n      realtime: { authority: 'memory' },\n      workspace: true,\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/realtime/index.md#1",
     "file": "vite.config.ts",
-    "code": "import vue from '@vitejs/plugin-vue'\nimport { nitro } from 'nitro/vite'\nimport { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    nitro(),\n    vitehub({\n      preset: 'node',\n      // Keep rooms in this server process\n      realtime: { authority: 'memory' },\n      workspace: true,\n    }),\n  ],\n})\n"
+    "code": "import vue from '@vitejs/plugin-vue'\nimport { nitro } from 'nitro/vite'\nimport { vitehub } from 'vite-hub'\nimport { defineConfig } from 'vite'\n\nexport default defineConfig({\n  plugins: [\n    vue(),\n    nitro(),\n    vitehub({\n      host: 'node',\n      // Keep rooms in this server process\n      realtime: { authority: 'memory' },\n      workspace: true,\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/reference/config-options.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: \"node\",\n      agent: {\n        eval: {\n          cache: true,\n          maxConcurrency: 2,\n          scoreThreshold: 85,\n          testTimeout: 60_000,\n        },\n      },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: \"node\",\n      agent: {\n        eval: {\n          cache: true,\n          maxConcurrency: 2,\n          scoreThreshold: 85,\n          testTimeout: 60_000,\n        },\n      },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/reference/config-options.md#2",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    preset: \"node\",\n    env: {\n      diagnostics: 'summary',\n      providers: { credentials: './server/env/credentials.ts' },\n    },\n  })],\n  env: {\n    public: {\n      appName: env({ default: 'Acme', mode: 'build' }),\n    },\n    server: {\n      apiToken: env({ secret: true, source: env.source('API_TOKEN') }),\n      githubToken: env({ secret: true, source: env.provider('credentials', 'github/token') }),\n    },\n  },\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { env } from 'vite-hub/env'\n\nexport default defineConfig({\n  plugins: [vitehub({\n    host: \"node\",\n    env: {\n      diagnostics: 'summary',\n      providers: { credentials: './server/env/credentials.ts' },\n    },\n  })],\n  env: {\n    public: {\n      appName: env({ default: 'Acme', mode: 'build' }),\n    },\n    server: {\n      apiToken: env({ secret: true, source: env.source('API_TOKEN') }),\n      githubToken: env({ secret: true, source: env.provider('credentials', 'github/token') }),\n    },\n  },\n})\n"
   },
   {
     "key": "docs/content/docs/reference/doctor-rules.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { doctor } from 'vite-doctor'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'node' }), doctor()],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\nimport { doctor } from 'vite-doctor'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'node' }), doctor()],\n})\n"
   },
   {
     "key": "docs/content/docs/reference/doctor-rules.md#2",
@@ -782,17 +782,17 @@
   {
     "key": "docs/content/docs/reference/doctor-rules.md#5",
     "file": "nuxt.config.ts",
-    "code": "// Invalid\nexport default defineNuxtConfig({\n  modules: ['vite-hub/nuxt'],\n  vite: { plugins: [vitehub({ preset: 'node' })] },\n})\n\n// Valid\nexport default defineNuxtConfig({\n  modules: ['vite-hub/nuxt'],\n  vitehub: { preset: 'node' },\n})\n"
+    "code": "// Invalid\nexport default defineNuxtConfig({\n  modules: ['vite-hub/nuxt'],\n  vite: { plugins: [vitehub({ host: 'node' })] },\n})\n\n// Valid\nexport default defineNuxtConfig({\n  modules: ['vite-hub/nuxt'],\n  vitehub: { host: 'node' },\n})\n"
   },
   {
     "key": "docs/content/docs/reference/doctor-rules.md#6",
     "file": "vite.config.ts",
-    "code": "// Invalid\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } })],\n})\n\n// Valid\nexport default defineConfig({\n  env: { server: { token: env({ secret: true }) } },\n  plugins: [vitehub({ preset: 'vercel' })],\n})\n"
+    "code": "// Invalid\nexport default defineConfig({\n  plugins: [vitehub({ host: 'vercel', env: { server: { token: env({ secret: true }) } } })],\n})\n\n// Valid\nexport default defineConfig({\n  env: { server: { token: env({ secret: true }) } },\n  plugins: [vitehub({ host: 'vercel' })],\n})\n"
   },
   {
     "key": "docs/content/docs/reference/doctor-rules.md#7",
     "file": "nuxt.config.ts",
-    "code": "// Invalid\nexport default defineNuxtConfig({\n  modules: ['vite-hub/nuxt'],\n  hub: { kv: true },\n})\n\n// Valid\nexport default defineNuxtConfig({\n  modules: ['vite-hub/nuxt'],\n  vitehub: { preset: 'node', kv: true },\n})\n"
+    "code": "// Invalid\nexport default defineNuxtConfig({\n  modules: ['vite-hub/nuxt'],\n  hub: { kv: true },\n})\n\n// Valid\nexport default defineNuxtConfig({\n  modules: ['vite-hub/nuxt'],\n  vitehub: { host: 'node', kv: true },\n})\n"
   },
   {
     "key": "docs/content/docs/sandbox/get-started.md#1",
@@ -802,7 +802,7 @@
   {
     "key": "docs/content/docs/sandbox/index.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\n// The Vercel preset uses Vercel Sandbox.\n// Use preset 'cloudflare' for Cloudflare Sandbox.\nexport default defineConfig({\n  plugins: [\n    vitehub({ preset: 'vercel', sandboxTask: true }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\n// The Vercel host uses Vercel Sandbox.\n// Use host 'cloudflare' for Cloudflare Sandbox.\nexport default defineConfig({\n  plugins: [\n    vitehub({ host: 'vercel', sandboxTask: true }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/schedule/configure.md#1",
@@ -812,12 +812,12 @@
   {
     "key": "docs/content/docs/schedule/configure.md#2",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'vercel',\n      // server/schedules/cleanup.ts declares cron: '0 * * * *'\n      schedule: { cron: { cleanup: '0 0 * * *' } },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'vercel',\n      // server/schedules/cleanup.ts declares cron: '0 * * * *'\n      schedule: { cron: { cleanup: '0 0 * * *' } },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/schedule/index.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      preset: 'node',\n      // Keeps Schedule Run history across restarts\n      kv: true,\n      // Checks for due schedules every minute\n      schedule: { runtime: { driver: 'process' } },\n    }),\n  ],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [\n    vitehub({\n      host: 'node',\n      // Keeps Schedule Run history across restarts\n      kv: true,\n      // Checks for due schedules every minute\n      schedule: { runtime: { driver: 'process' } },\n    }),\n  ],\n})\n"
   },
   {
     "key": "docs/content/docs/shell/get-started.md#1",
@@ -827,7 +827,7 @@
   {
     "key": "docs/content/docs/source/get-started.md#1",
     "file": "vite.config.ts",
-    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ preset: 'node' })],\n})\n"
+    "code": "import { defineConfig } from 'vite'\nimport { vitehub } from 'vite-hub'\n\nexport default defineConfig({\n  plugins: [vitehub({ host: 'node' })],\n})\n"
   },
   {
     "key": "docs/content/docs/ui/get-started.md#1",

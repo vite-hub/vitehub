@@ -8,5 +8,5 @@ export type ScheduleMarker = {
 }
 
 export function resolveScheduleMarkerProvider() {
-  return process.env.VITEHUB_HOSTING || (process.env.VERCEL ? "vercel" : "cloudflare")
+  return process.env.VITEHUB_HOST || (process.env.VERCEL ? "vercel" : "cloudflare")
 }

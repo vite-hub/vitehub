@@ -77,12 +77,12 @@ import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [vitehub({ preset: "node" })],
+  plugins: [vitehub({ host: "node" })],
 })
 ```
 
-`preset` is required. Start with `node` for this local server. The other presets
-are `cloudflare`, `vercel`, `netlify`, and `deno`. A preset selects the host
+`host` selects where the app runs. Start with `node` for this local server. The other hosts
+are `cloudflare`, `vercel`, `netlify`, and `deno`. A host selects the
 output and default providers for enabled features.
 
 ## Prepare Vite types
@@ -136,7 +136,7 @@ import viteHubNuxt from "vite-hub/nuxt"
 export default defineNuxtConfig({
   buildDir: ".nuxt",
   modules: [
-    [viteHubNuxt, { preset: "node" }],
+    [viteHubNuxt, { host: "node" }],
   ],
 })
 ```
@@ -232,7 +232,7 @@ to run an offline greeting. Both use this app and its development command.
 
 Features are off until you enable them in the ViteHub options, for example
 `kv: true`. Env is on by default. Enabling Agent also enables Workflow unless
-you set `workflow: false`. A preset that cannot provide an enabled feature
+you set `workflow: false`. A host that cannot provide an enabled feature
 fails the build. See [Frameworks and hosts](/docs/frameworks-hosts).
 
 For the Vite app, stop the dev server before testing the production build:
@@ -269,7 +269,7 @@ Nitro, H3, and Vite, measured with pnpm 12 on Linux:
 | `vite-hub` | 186 | 171 MB |
 | `@vite-hub/blob @vite-hub/queue @vite-hub/env` | 87 | 80 MB |
 
-`vite-hub` adds the CLI, the Console, `vitehub()` with its presets, and the
+`vite-hub` adds the CLI, the Console, `vitehub()` with its hosts, and the
 features that it includes.
 
 The application tutorials use `vite-hub` and imports such as `vite-hub/kv`.

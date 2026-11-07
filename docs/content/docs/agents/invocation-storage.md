@@ -53,7 +53,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'cloudflare',
+    host: 'cloudflare',
     database: { driver: 'd1' },
     agent: { invocations: 'database' },
   })],
@@ -435,7 +435,7 @@ D1 batches make creation and retention atomic. Conditional updates retry when an
 
 This direct adapter accepts a D1 binding. Use the [Database adapter](#store-invocations-in-a-vitehub-database) for ViteHub-managed SQLite or libSQL. The database binding stays owned by the host; the store does not open or close it. Use [`redact`](#redact-stored-evidence) to remove sensitive values before they reach D1. Route authorization remains application policy.
 
-On the Cloudflare preset, the Console journal uses this store with the D1 Database binding when no Agent Definition configures `invocations`. See [Cloudflare journal](/docs/development/console#know-what-the-console-stores). Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
+On the Cloudflare host, the Console journal uses this store with the D1 Database binding when no Agent Definition configures `invocations`. See [Cloudflare journal](/docs/development/console#know-what-the-console-stores). Local D1 tests cover the SQL and concurrency contract; they do not measure production D1 limits or latency.
 
 ## Append delivery evidence
 

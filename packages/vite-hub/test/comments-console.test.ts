@@ -29,7 +29,7 @@ describe("Comments activation from the Console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "server/comments.ts"), source)
       const config: UserConfig = { root, base: "/portal/" }
-      for (const plugin of [hubComments(), consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["comments"] })]) {
+      for (const plugin of [hubComments(), consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, host: "node", sections: ["comments"] })]) {
         const hook = plugin.config
         if (!hook) throw new Error("Expected a config hook")
         await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
@@ -50,7 +50,7 @@ describe("Comments activation from the Console", () => {
     try {
       await writeFile(join(root, "package.json"), "{}\n")
       const config: UserConfig = { root }
-      for (const plugin of [hubComments({ enabled: true }), consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["comments"] })]) {
+      for (const plugin of [hubComments({ enabled: true }), consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, host: "node", sections: ["comments"] })]) {
         const hook = plugin.config
         if (!hook) throw new Error("Expected a config hook")
         await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
@@ -76,7 +76,7 @@ describe("Comments activation from the Console", () => {
       await writeFile(join(root, "package.json"), "{}\n")
       await writeFile(join(root, "server/comments.ts"), "export const comments = defineComments()\n")
       const config: UserConfig & { nitro?: { handlers: Array<{ route: string }>, plugins: string[] } } = { root, ...bases }
-      for (const plugin of [hubComments(), consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["comments"] })]) {
+      for (const plugin of [hubComments(), consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, host: "node", sections: ["comments"] })]) {
         const hook = plugin.config
         if (!hook) throw new Error("Expected a config hook")
         await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])

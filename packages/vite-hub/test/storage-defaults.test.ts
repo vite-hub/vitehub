@@ -36,7 +36,7 @@ async function generatedConsolePlugin(options: ViteHubOptions, command: "build" 
 describe("Node storage defaults", () => {
   it("puts enabled local stores under the explicit directory", () => {
     const dataDir = "/var/lib/app data"
-    expect(withDataDir({ preset: "node", dataDir, agent: true, console: { auth: false }, kv: true, blob: true, workspace: true })).toMatchObject({
+    expect(withDataDir({ host: "node", dataDir, agent: true, console: { auth: false }, kv: true, blob: true, workspace: true })).toMatchObject({
       agent: { providers: { state: { provider: "libsql", url: pathToFileURL(join(dataDir, "agent-state.sqlite")).href } } },
       console: { auth: false },
       kv: { driver: "fs-lite", base: join(dataDir, "kv") },
@@ -48,21 +48,21 @@ describe("Node storage defaults", () => {
   it("puts the inline Console Auth database under the explicit directory", () => {
     const dataDir = "/var/lib/app data"
     const auth = { provider: "github" as const, org: "acme" }
-    expect(withDataDir({ preset: "node", dataDir, console: { auth } }).console).toMatchObject({
+    expect(withDataDir({ host: "node", dataDir, console: { auth } }).console).toMatchObject({
       auth: { ...auth, databasePath: join(dataDir, "console-auth.sqlite") },
     })
-    expect(withDataDir({ preset: "node", dataDir, console: { auth: { ...auth, databasePath: "/data/auth.sqlite" } } }).console)
+    expect(withDataDir({ host: "node", dataDir, console: { auth: { ...auth, databasePath: "/data/auth.sqlite" } } }).console)
       .toMatchObject({ auth: { databasePath: "/data/auth.sqlite" } })
-    expect(withDataDir({ preset: "node", dataDir, console: { auth: {} } }).console).toMatchObject({ auth: {} })
+    expect(withDataDir({ host: "node", dataDir, console: { auth: {} } }).console).toMatchObject({ auth: {} })
     const accessAuth = { provider: "cloudflare-access" as const, audience: "aud", teamDomain: "acme.cloudflareaccess.com" }
-    expect(withDataDir({ preset: "node", dataDir, console: { auth: accessAuth } }).console).toHaveProperty("auth", accessAuth)
+    expect(withDataDir({ host: "node", dataDir, console: { auth: accessAuth } }).console).toHaveProperty("auth", accessAuth)
   })
 
   it.each(["serve", "build"] as const)("keeps the Vite Console journal under dataDir during %s", async (command) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-storage-console-"))
     try {
       const dataDir = join(root, "persistent data")
-      const plugin = vitehub({ preset: "node", dataDir, agent: true, console: { auth: false } })
+      const plugin = vitehub({ host: "node", dataDir, agent: true, console: { auth: false } })
         .find((plugin): plugin is Plugin => !!plugin && typeof plugin === "object" && "name" in plugin && plugin.name === "vite-hub/console")
       const hook = plugin?.config
       if (!hook) throw new TypeError("Expected a Console config hook.")
@@ -80,7 +80,7 @@ describe("Node storage defaults", () => {
 
   it("preserves explicit storage and disabled Agents", () => {
     const options = {
-      preset: "node" as const,
+      host: "node" as const,
       dataDir: "/var/lib/app",
       agent: false as const,
       console: { auth: false as const, authorize: hostManagedAuthorize, databaseUrl: "libsql://journal.example.com" },
@@ -92,12 +92,12 @@ describe("Node storage defaults", () => {
   })
 
   it("keeps remote agent state and does not enable disabled services", () => {
-    const options = { preset: "node" as const, dataDir: "/var/lib/app", agent: { providers: { state: { provider: "libsql" as const, url: "libsql://state.example.com" } } }, kv: false as const, blob: false as const }
+    const options = { host: "node" as const, dataDir: "/var/lib/app", agent: { providers: { state: { provider: "libsql" as const, url: "libsql://state.example.com" } } }, kv: false as const, blob: false as const }
     expect(withDataDir(options)).toEqual(options)
   })
 
   it("gives named local stores separate directories and preserves remote stores", () => {
-    const result = withDataDir({ preset: "node", dataDir: "/var/lib/app", kv: { stores: { first: { driver: "fs-lite" }, second: { driver: "fs-lite" } } }, blob: { stores: { uploads: { driver: "fs" }, external: { driver: "vercel-blob", token: "fixture" } } } })
+    const result = withDataDir({ host: "node", dataDir: "/var/lib/app", kv: { stores: { first: { driver: "fs-lite" }, second: { driver: "fs-lite" } } }, blob: { stores: { uploads: { driver: "fs" }, external: { driver: "vercel-blob", token: "fixture" } } } })
     expect(result.kv).toEqual({ stores: { first: { driver: "fs-lite", base: "/var/lib/app/kv/first" }, second: { driver: "fs-lite", base: "/var/lib/app/kv/second" } } })
     expect(result.blob).toEqual({ stores: { uploads: { driver: "fs", base: "/var/lib/app/blob/uploads" }, external: { driver: "vercel-blob", token: "fixture" } } })
   })
@@ -112,34 +112,34 @@ describe("Node storage defaults", () => {
       driver: "vercel-blob" as const,
       token: "token",
     })
-    const result = withDataDir({ preset: "node", dataDir: "/tmp/app", kv, blob } as ViteHubOptions)
+    const result = withDataDir({ host: "node", dataDir: "/tmp/app", kv, blob } as ViteHubOptions)
     expect(result.kv).toEqual({ driver: "upstash", url: "https://kv.example.com", token: "token" })
     expect(result.blob).toEqual({ driver: "vercel-blob", token: "token" })
   })
 
-  it("rejects local storage on hosted ephemeral presets through the public API", () => {
-    for (const preset of ["cloudflare", "vercel", "netlify", "deno"] as const) {
-      expect(() => vitehub({ preset, dataDir: "/data" })).toThrow("dataDir requires the node preset")
+  it("rejects local storage on hosted ephemeral hosts through the public API", () => {
+    for (const host of ["cloudflare", "vercel", "netlify", "deno"] as const) {
+      expect(() => vitehub({ host, dataDir: "/data" })).toThrow("dataDir requires the node host")
     }
-    expect(() => vitehub({ preset: "node", dataDir: "  " })).toThrow("non-empty")
+    expect(() => vitehub({ host: "node", dataDir: "  " })).toThrow("non-empty")
   })
 
   it("rejects malformed dataDir values with the configuration diagnostic", () => {
-    for (const preset of ["node", "cloudflare", "vercel", "netlify", "deno"] as const) {
+    for (const host of ["node", "cloudflare", "vercel", "netlify", "deno"] as const) {
       for (const dataDir of [null, 1, {}, [], "", "  "]) {
-        expect(() => vitehub({ preset, dataDir } as unknown as ViteHubOptions)).toThrow("non-empty directory path")
+        expect(() => vitehub({ host, dataDir } as unknown as ViteHubOptions)).toThrow("non-empty directory path")
       }
     }
   })
 
   it("keeps existing defaults when no directory is supplied", () => {
-    const options = { preset: "node" as const, agent: true }
+    const options = { host: "node" as const, agent: true }
     expect(withDataDir(options)).toBe(options)
   })
 })
 
 describe("Console journal host defaults", () => {
-  const cloudflare = { preset: "cloudflare", agent: true, console: { auth: false, authorize: hostManagedAuthorize }, database: { driver: "d1", binding: "DB" } } satisfies ViteHubOptions
+  const cloudflare = { host: "cloudflare", agent: true, console: { auth: false, authorize: hostManagedAuthorize }, database: { driver: "d1", binding: "DB" } } satisfies ViteHubOptions
 
   it("does not select an unprovisioned explicit D1 binding", async () => {
     const { info, plugin } = await generatedConsolePlugin(cloudflare, "build")
@@ -194,7 +194,7 @@ describe("Console journal host defaults", () => {
   })
 
   it("keeps libSQL on Node and when the Console database URL is explicit", async () => {
-    const node = await generatedConsolePlugin({ ...cloudflare, preset: "node" }, "build")
+    const node = await generatedConsolePlugin({ ...cloudflare, host: "node" }, "build")
     expect(node.plugin).not.toContain("cloudflare:workers")
     const explicit = await generatedConsolePlugin({ ...cloudflare, console: { auth: false, authorize: hostManagedAuthorize, databaseUrl: "libsql://journal.example.com" } }, "build")
     expect(explicit.plugin).toContain(`databaseUrl: "libsql://journal.example.com"`)
@@ -218,38 +218,38 @@ describe("Connections database default", () => {
   const pluginNames = (options: ViteHubOptions) => (vitehub(options) as Plugin[]).map(plugin => plugin.name)
 
   it("enables database when connections is set and database is unset", () => {
-    expect(withConnectionsDatabase({ connections: true, preset: "node" }).database).toBe(true)
-    expect(pluginNames({ connections: true, preset: "node" })).toEqual(expect.arrayContaining(["@vite-hub/connections/vite", "@vite-hub/database/vite"]))
+    expect(withConnectionsDatabase({ connections: true, host: "node" }).database).toBe(true)
+    expect(pluginNames({ connections: true, host: "node" })).toEqual(expect.arrayContaining(["@vite-hub/connections/vite", "@vite-hub/database/vite"]))
   })
 
   it.each(["users", "billing/archive", "audit.logs", "1users"])("passes the %s Database that connections.database names to Connections", (database) => {
-    const connections = (vitehub({ connections: { database }, preset: "node" }) as Array<Plugin & { vitehub?: { databases?: () => unknown } }>)
+    const connections = (vitehub({ connections: { database }, host: "node" }) as Array<Plugin & { vitehub?: { databases?: () => unknown } }>)
       .find(plugin => plugin.name === "@vite-hub/connections/vite")
     expect(connections?.vitehub?.databases?.()).toEqual([expect.objectContaining({ database, name: "connections" })])
   })
 
   it("rejects an explicitly empty connections.database instead of selecting default", () => {
-    expect(() => vitehub({ connections: { database: "" }, preset: "node" })).toThrow("connections.database must be a Database name")
+    expect(() => vitehub({ connections: { database: "" }, host: "node" })).toThrow("connections.database must be a Database name")
   })
 
   it("keeps configured database options", () => {
     const database = { connection: { url: "file:/data/database/sqlite.db" } }
-    expect(withConnectionsDatabase({ connections: true, database, preset: "node" }).database).toBe(database)
-    expect(withConnectionsDatabase({ preset: "node" }).database).toBeUndefined()
+    expect(withConnectionsDatabase({ connections: true, database, host: "node" }).database).toBe(database)
+    expect(withConnectionsDatabase({ host: "node" }).database).toBeUndefined()
   })
 
   it("turns Comments and the Database on only with the comments option", () => {
-    expect(withComments({ preset: "node", console: { auth: false } })).toEqual({ preset: "node", console: { auth: false } })
-    expect(withComments({ preset: "node", comments: true })).toEqual({ preset: "node", comments: true, database: true })
-    expect(withComments({ preset: "node", console: { auth: false }, comments: { overlay: false } })).toMatchObject({ comments: { overlay: false }, database: true })
-    expect(withComments({ preset: "node", console: { auth: false }, comments: false })).toEqual({ preset: "node", console: { auth: false }, comments: false })
-    expect(withComments({ preset: "node", console: { auth: false }, comments: false, database: false })).toMatchObject({ comments: false, database: false })
-    expect(withComments({ preset: "node" })).toEqual({ preset: "node" })
+    expect(withComments({ host: "node", console: { auth: false } })).toEqual({ host: "node", console: { auth: false } })
+    expect(withComments({ host: "node", comments: true })).toEqual({ host: "node", comments: true, database: true })
+    expect(withComments({ host: "node", console: { auth: false }, comments: { overlay: false } })).toMatchObject({ comments: { overlay: false }, database: true })
+    expect(withComments({ host: "node", console: { auth: false }, comments: false })).toEqual({ host: "node", console: { auth: false }, comments: false })
+    expect(withComments({ host: "node", console: { auth: false }, comments: false, database: false })).toMatchObject({ comments: false, database: false })
+    expect(withComments({ host: "node" })).toEqual({ host: "node" })
   })
 
   it("keeps Comments off with the Console alone, and on with server/comments.ts", async () => {
     const operations = async (root: string) => {
-      const plugins = vitehub({ preset: "node", console: { auth: false, authorize: hostManagedAuthorize } }).flat(3)
+      const plugins = vitehub({ host: "node", console: { auth: false, authorize: hostManagedAuthorize } }).flat(3)
       const comments = plugins.find((option): option is Plugin & { vitehub: { operations: () => Promise<unknown[]> } } => option !== null && typeof option === "object" && "name" in option && option.name === "@vite-hub/comments/vite")
       if (!comments) throw new TypeError("Expected the Comments plugin.")
       const config = comments.config
@@ -272,8 +272,8 @@ describe("Connections database default", () => {
   it("leaves the Comments plugin out with comments: false", () => {
     const names = (options: ViteHubOptions) => vitehub(options).flat(3).flatMap(plugin => plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [])
     const console = { auth: false, authorize: hostManagedAuthorize } as const
-    expect(names({ preset: "node", console })).toContain("@vite-hub/comments/vite")
-    const off = names({ preset: "node", console, comments: false })
+    expect(names({ host: "node", console })).toContain("@vite-hub/comments/vite")
+    const off = names({ host: "node", console, comments: false })
     expect(off).not.toContain("@vite-hub/comments/vite")
     expect(off).toContain("vite-hub/comments-off")
   })
@@ -283,7 +283,7 @@ describe("Connections database default", () => {
     try {
       await mkdir(join(root, "server"))
       await writeFile(join(root, "server/comments.ts"), "export default defineComments()\n")
-      const plugin = vitehub({ preset: "node", comments: false }).flat(3).find((option): option is Plugin => option !== null && typeof option === "object" && "name" in option && option.name === "vite-hub/comments-off")
+      const plugin = vitehub({ host: "node", comments: false }).flat(3).find((option): option is Plugin => option !== null && typeof option === "object" && "name" in option && option.name === "vite-hub/comments-off")
       const hook = plugin?.configResolved
       if (!hook) throw new TypeError("Expected the comments-off plugin.")
       expect(() => Reflect.apply("handler" in hook ? hook.handler : hook, {}, [{ root }])).toThrow(expect.objectContaining({ code: "VITE_HUB_B0019" }))
@@ -294,12 +294,13 @@ describe("Connections database default", () => {
   })
 
   it("fails when Comments is on and database is false", () => {
-    expect(() => vitehub({ comments: true, database: false, preset: "node" })).toThrow(expect.objectContaining({ code: "VITE_HUB_B0018" }))
-    expect(() => vitehub({ console: { auth: false, authorize: hostManagedAuthorize }, database: false, preset: "node" })).not.toThrow()
+    expect(() => vitehub({ comments: true, database: false, host: "node" })).toThrow(expect.objectContaining({ code: "VITE_HUB_B0018" }))
+    expect(() => vitehub({ console: { auth: false, authorize: hostManagedAuthorize }, database: false, host: "node" })).not.toThrow()
+    expect(() => vitehub({ console: { auth: false, authorize: hostManagedAuthorize }, comments: false, database: false, host: "node" })).not.toThrow()
   })
 
   it("fails when connections is set and database is false", () => {
-    expect(() => vitehub({ connections: true, database: false, preset: "node" })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0124" }))
+    expect(() => vitehub({ connections: true, database: false, host: "node" })).toThrow(expect.objectContaining({ code: "VITE_HUB_R0124" }))
   })
 
   it("reads the D1 binding of the implicit default Database on Cloudflare", async () => {

@@ -15,7 +15,7 @@ features you select.
 Use the [Nuxt module](/docs/frameworks-hosts/nuxt) in a Nuxt application.
 Use [Nitro and Vite](/docs/frameworks-hosts/nitro-unjs) when you configure the
 server build yourself. The [framework and host overview](/docs/frameworks-hosts)
-explains presets and the default providers for each feature.
+explains hosts and the default providers for each feature.
 
 When you are ready to deploy, open the guide for
 [Cloudflare](/docs/frameworks-hosts/cloudflare),

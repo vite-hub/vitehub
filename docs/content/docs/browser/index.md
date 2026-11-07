@@ -69,7 +69,7 @@ icon: i-lucide-monitor
   // Adds the Cloudflare browser setting for you
   export default defineConfig({
     plugins: [
-      vitehub({ preset: 'cloudflare', browser: true }),
+      vitehub({ host: 'cloudflare', browser: true }),
     ],
   })
   ```

@@ -17,7 +17,7 @@ icon: i-lucide-files
   export default defineConfig({
     plugins: [
       // On Node, files are saved in .vitehub/data/blob
-      vitehub({ preset: 'node', blob: true }),
+      vitehub({ host: 'node', blob: true }),
       nitro(),
     ],
   })

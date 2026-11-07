@@ -42,7 +42,7 @@ export default defineConfig({
   plugins: [
     vue(),
     vitehub({
-      preset: 'node',
+      host: 'node',
       database: true,
       realtime: { authority: 'memory' },
     }),

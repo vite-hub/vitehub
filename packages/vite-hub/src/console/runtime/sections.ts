@@ -321,9 +321,9 @@ export function resolveConsoleSectionIds(options: {
   comments?: unknown;
   database?: unknown;
   email?: unknown;
+  host?: unknown;
   kv?: unknown;
   logs?: unknown;
-  preset?: unknown;
   queue?: unknown;
   rateLimit?: unknown;
   sandboxTask?: unknown;
@@ -332,7 +332,7 @@ export function resolveConsoleSectionIds(options: {
   workspace?: unknown
 }): ConsoleSectionId[] {
   const workflowEnabled = options.workflow !== false
-    && Boolean(options.workflow || (options.agent && options.preset !== "netlify"))
+    && Boolean(options.workflow || (options.agent && options.host !== "netlify"))
   return [
     ...(options.auth ? ["auth"] : []),
     ...(options.logs ? ["logs"] : []),

@@ -18,7 +18,7 @@ database with its own migration history.
 
 ## Select Cloudflare and identify the database
 
-Set `preset: 'cloudflare'` and `database: true` in the existing ViteHub config.
+Set `host: 'cloudflare'` and `database: true` in the existing ViteHub config.
 Add this literal `cloudflare` block to the tutorial's Database Definition:
 
 ```ts [server/databases/config.ts]

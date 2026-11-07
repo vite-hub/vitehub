@@ -7,13 +7,13 @@ navigation.group: Auth
 icon: i-simple-icons-betterauth
 ---
 
-To run Better Auth on Cloudflare Workers, set `preset: 'cloudflare'` and `auth: true` in `vitehub()`, and add `server/auth.ts` with `defineAuth()`. ViteHub mounts Better Auth at `/api/auth/**` in the Worker. To keep users and sessions in Cloudflare D1, add `database: true` and set `database: authDatabase()` in `defineAuth()`. ViteHub adds the Better Auth tables to the D1 database and writes their migration. For social sign-in without a database, use the `stateless()` preset.
+To run Better Auth on Cloudflare Workers, set `host: 'cloudflare'` and `auth: true` in `vitehub()`, and add `server/auth.ts` with `defineAuth()`. ViteHub mounts Better Auth at `/api/auth/**` in the Worker. To keep users and sessions in Cloudflare D1, add `database: true` and set `database: authDatabase()` in `defineAuth()`. ViteHub adds the Better Auth tables to the D1 database and writes their migration. For social sign-in without a database, use the `stateless()` preset.
 
 ## What Better Auth, Workers, and D1 are
 
 [Better Auth](https://better-auth.com) is an authentication framework for TypeScript. It owns sign-in methods, OAuth providers, sessions, and plugins. ViteHub Auth wraps it. One `server/auth.ts` file holds the Better Auth options. ViteHub mounts the routes, guards pages, and supplies the signing secret. See [Auth hosts](/docs/auth/hosts) for what each side owns.
 
-[Cloudflare Workers](https://developers.cloudflare.com/workers/) runs your server code on Cloudflare. [Cloudflare D1](https://developers.cloudflare.com/d1/) is a SQL database with SQLite semantics that a Worker reads through a binding. ViteHub writes the Worker, its `wrangler.json`, and the D1 binding when you build with the `cloudflare` preset.
+[Cloudflare Workers](https://developers.cloudflare.com/workers/) runs your server code on Cloudflare. [Cloudflare D1](https://developers.cloudflare.com/d1/) is a SQL database with SQLite semantics that a Worker reads through a binding. ViteHub writes the Worker, its `wrangler.json`, and the D1 binding when you build with the `cloudflare` host.
 
 ## Choose where sessions live
 
@@ -40,11 +40,11 @@ import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', auth: true, database: true })],
+  plugins: [vitehub({ host: 'cloudflare', auth: true, database: true })],
 })
 ```
 
-On the `cloudflare` preset, `database: true` selects the D1 driver. `vitehub()` includes the Nitro Vite plugin.
+On the `cloudflare` host, `database: true` selects the D1 driver. `vitehub()` includes the Nitro Vite plugin.
 
 ### Connect Better Auth to the database
 
@@ -85,7 +85,7 @@ pnpm vitehub db migrate
 
 ## How to run Better Auth locally
 
-On the `cloudflare` preset, the dev server uses a local SQLite file, `.vitehub/data/database/sqlite.db`, in place of the D1 database. It connects to the real D1 database only when the Definition sets `cloudflare.http`. When `VITEHUB_SECRET` is not set, the dev server generates one in `.vitehub/env/secret`, so sessions survive a restart.
+On the `cloudflare` host, the dev server uses a local SQLite file, `.vitehub/data/database/sqlite.db`, in place of the D1 database. It connects to the real D1 database only when the Definition sets `cloudflare.http`. When `VITEHUB_SECRET` is not set, the dev server generates one in `.vitehub/env/secret`, so sessions survive a restart.
 
 ```bash [Terminal]
 pnpm dev
@@ -148,7 +148,7 @@ import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
 
 export default defineConfig({
-  plugins: [vitehub({ preset: 'cloudflare', auth: true })],
+  plugins: [vitehub({ host: 'cloudflare', auth: true })],
   env: {
     server: {
       auth: {
@@ -192,9 +192,9 @@ Read [Auth limits and errors](/docs/auth/limits-and-errors) for every error code
 
 ## Move the same Auth to another host
 
-`server/auth.ts` stays the same. Change the preset, and the Database uses the storage of the new host:
+`server/auth.ts` stays the same. Change the host, and the Database uses the storage of the new host:
 
-| Preset | Database for Better Auth |
+| Host | Database for Better Auth |
 | --- | --- |
 | `node` | A local SQLite file on the server disk. |
 | `vercel` | Hosted libSQL from `database.connection`, or D1 over HTTP with `cloudflare.http`. |

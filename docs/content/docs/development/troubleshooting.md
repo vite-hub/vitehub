@@ -51,8 +51,8 @@ pnpm build
 pnpm vitehub inspect provider-output
 ```
 
-A build also fails when the preset cannot provide an enabled feature. For
-example, `queue: true` fails on the `node`, `netlify`, and `deno` presets, and
+A build also fails when the host cannot provide an enabled feature. For
+example, `queue: true` fails on the `node`, `netlify`, and `deno` hosts, and
 `rateLimit: true` fails on `vercel`, `netlify`, and `deno`. Disable the feature
 or configure an explicit provider through the owner package. The
 [support matrix](/docs/frameworks-hosts/support-matrix) lists the providers for

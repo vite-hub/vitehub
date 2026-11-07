@@ -84,7 +84,7 @@ const cell = (status: SupportLevel, detail: string, display?: string): SupportMa
   status,
 });
 
-/** The catalog host of each column. Nitro is not a ViteHub preset, so its cells are written by hand. */
+/** The catalog host of each column. Nitro is not a ViteHub host, so its cells are written by hand. */
 export const supportMatrixCatalogHosts: Record<Exclude<SupportHost, "nitro">, FeatureHost> = {
   local: "dev",
   cloudflare: "cloudflare",
@@ -151,7 +151,7 @@ const serverPrimitives: SupportMatrixGroup = {
   rows: [
     featureRow("browser", "Provider-backed browser operations", cell(
       "none",
-      "Browser Definitions require ViteHub's Cloudflare preset, not a generic Nitro preset.",
+      "Browser Definitions require ViteHub's Cloudflare host, not a generic Nitro preset.",
       "—",
     )),
     featureRow("blob", "Object storage", cell(
@@ -248,12 +248,12 @@ const applicationFeatures: SupportMatrixGroup = {
     )),
     featureRow("console", "Inspection and operations UI", cell(
       "package",
-      "The Console routes run in the Nitro output of the selected preset.",
+      "The Console routes run in the Nitro output of the selected host.",
       "Nitro routes",
     )),
     featureRow("env", "Typed variables and secrets", cell(
       "package",
-      "Variables are validated at build and in the Nitro output of the selected preset.",
+      "Variables are validated at build and in the Nitro output of the selected host.",
       "Nitro runtime",
     )),
     featureRow("logs", "Log sources and the development buffer", cell(
@@ -263,7 +263,7 @@ const applicationFeatures: SupportMatrixGroup = {
     )),
     featureRow("observability", "Agent telemetry and request logs", cell(
       "package",
-      "Evlog runs in the Nitro output of the selected preset.",
+      "Evlog runs in the Nitro output of the selected host.",
       "Evlog",
     )),
   ],

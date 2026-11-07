@@ -110,7 +110,7 @@ Do not pass unrestricted model output into a trusted HTML fragment.
 - The configured provider must authorize the `from` address.
 - Generated Agent routes receive the Email runtime handle (`email` from `@vite-hub/email/server`) only while the Email Vite integration is active.
 
-Configure one built-in Email provider in the preset. Runtime Env resolves the credential on the server for every send.
+Configure one built-in Email provider in `vitehub()`. Runtime Env resolves the credential on the server for every send.
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -120,7 +120,7 @@ import { env } from 'vite-hub/env'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'node',
+      host: 'node',
       email: {
         driver: 'resend',
         options: {

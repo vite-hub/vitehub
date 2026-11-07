@@ -1,6 +1,6 @@
 ---
 title: Deploy an Agent on Cloudflare and Vercel
-description: Keep one TypeScript Agent and HTTP route while changing the ViteHub deployment preset for Cloudflare Workers or Vercel.
+description: Keep one TypeScript Agent and HTTP route while changing the ViteHub host for Cloudflare Workers or Vercel.
 navigation.title: Deploy an Agent
 navigation.order: 2
 navigation.group: Agents
@@ -8,7 +8,7 @@ icon: i-lucide-cloud-upload
 ---
 
 Deploy the same greeting Agent on Cloudflare Workers and Vercel. The Agent and
-route stay the same. The preset selects the deployment output.
+route stay the same. The host selects the deployment output.
 
 Start with the Vite app from [Installation](/docs/getting-started/installation).
 Use its pinned Nitro and H3 versions, Node.js 22.22 or newer, and pnpm.
@@ -51,7 +51,7 @@ export default defineEventHandler(async (event) => {
 
 ## Build for Cloudflare Workers
 
-Select the Cloudflare preset. Disable Workflow because this Agent finishes
+Select the Cloudflare host. Disable Workflow because this Agent finishes
 inside the request. Disable Console so this check needs no invocation journal.
 
 ```ts [vite.config.ts]
@@ -61,7 +61,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
 	plugins: [vitehub({
 		name: 'vitehub-greeting',
-		preset: 'cloudflare',
+		host: 'cloudflare',
 		agent: true,
 		workflow: false,
 		console: false,
@@ -89,7 +89,7 @@ or provisioning to this app.
 
 ## Build for Vercel
 
-Change only `preset: 'cloudflare'` to `preset: 'vercel'` in the config above.
+Change only `host: 'cloudflare'` to `host: 'vercel'` in the config above.
 Keep the same Agent, route, and other options.
 
 Use the Vercel CLI to link the project and pull its preview configuration:

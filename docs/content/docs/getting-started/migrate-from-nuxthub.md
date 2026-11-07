@@ -23,9 +23,9 @@ After the move, the same KV, Blob, and Database APIs are also available to
 | `db` and `schema` from `@nuxthub/db` | `useDatabase()` from `vite-hub/database/drizzle` | Drizzle in both. ViteHub supports SQLite, libSQL, and Cloudflare D1. |
 | `hub.db: 'postgresql'` | `dialect: "postgresql"` | See [Postgres configuration](/docs/database/configure#define-a-postgres-database). The baseline steps below cover SQLite and D1. |
 | `hub.db: 'mysql'` | Not supported | Keep NuxtHub or Drizzle for MySQL. |
-| `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the preset's store. `cachedEventHandler` and `defineCachedFunction` keep working. |
+| `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the host's store. `cachedEventHandler` and `defineCachedFunction` keep working. |
 | `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare-r2` (binding), and `vercel-blob`. |
-| `hosting` auto-detection | `preset` | You must select the host. |
+| `hosting` auto-detection | `host` | Set the host, or let ViteHub detect it from the build variables. |
 | `.data/` | `.vitehub/data/` | Local development data does not move automatically. |
 | Auto-imported `kv`, `blob`, `db`, `schema` | Auto-imported in Nuxt server code | The module adds them for each enabled feature when Nitro auto-imports are on. Explicit imports also work. |
 
@@ -55,7 +55,7 @@ Early NuxtHub v0.10 releases use `hub:db`, `hub:kv`, and `hub:blob` imports.
 Replace those imports in the same way as the newer `@nuxthub/*` imports below.
 
 Replace the NuxtHub module with `vite-hub/nuxt`, and rename the `hub` key to
-`vitehub`. Add a [deployment preset](/docs/frameworks-hosts#choose-a-preset).
+`vitehub`. Add a [host](/docs/frameworks-hosts#choose-a-host).
 Each feature is off until you enable it.
 
 ```diff [nuxt.config.ts]
@@ -68,7 +68,7 @@ Each feature is off until you enable it.
 -  },
 +  modules: ["vite-hub/nuxt"],
 +  vitehub: {
-+    preset: "cloudflare",
++    host: "cloudflare",
 +    database: true,
 +    kv: true,
 +    blob: true,
@@ -296,7 +296,7 @@ for a new empty database. Read [Database](/docs/database).
 NuxtHub, so they keep working. NuxtHub `hub.cache` selected the storage driver
 for Nitro's `cache` mount. In ViteHub, set `cache: true`.
 
-| Preset | Production store |
+| Host | Production store |
 | --- | --- |
 | `cloudflare` | Workers KV binding `CACHE` with an existing namespace ID |
 | `vercel` | Vercel Runtime Cache |
@@ -306,11 +306,11 @@ for Nitro's `cache` mount. In ViteHub, set `cache: true`.
 Development uses `.vitehub/data/cache`, or `<dataDir>/cache` when `dataDir` is
 set. Cloudflare requires `cache.namespaceId`, or an existing `CACHE` namespace
 with an ID in `nitro.cloudflare.wrangler.kv_namespaces`, so the generated
-deployment always names a real namespace. The `netlify` preset has no
+deployment always names a real namespace. The `netlify` host has no
 default cache store, so `cache: true` fails the build there. A `cache` mount
 that you set in `nitro.kv` (`nitro.storage` in Nuxt) takes precedence.
 
-To share the app's KV store instead, on any preset, set
+To share the app's KV store instead, on any host, set
 `cache: { driver: "kv" }` with `kv` enabled. Cache keys get the `nitro-cache:`
 prefix.
 
@@ -319,7 +319,7 @@ To keep the cache namespace that NuxtHub created on Cloudflare, pass its ID:
 ```ts [nuxt.config.ts]
 export default defineNuxtConfig({
   vitehub: {
-    preset: "cloudflare",
+    host: "cloudflare",
     cache: {
       driver: "cloudflare-kv-binding",
       binding: "CACHE",
@@ -344,7 +344,7 @@ Set these options in `nuxt.config.ts`. Nuxt does not load a separate
 export default defineNuxtConfig({
   modules: ["vite-hub/nuxt"],
   vitehub: {
-    preset: "cloudflare",
+    host: "cloudflare",
     database: true,
     kv: {
       driver: "cloudflare-kv-binding",
@@ -362,11 +362,11 @@ export default defineNuxtConfig({
 
 | Host | What changes |
 | --- | --- |
-| Cloudflare | Set `preset: "cloudflare"`. Run `pnpm vitehub provision run --provider cloudflare` to resolve the D1 database ID. |
-| Vercel | Set `preset: "vercel"`. KV reads `KV_REST_API_URL` and `KV_REST_API_TOKEN`, then `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Blob uses OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN`. |
-| Node | Set `preset: "node"`. KV and Blob use the file system under `.vitehub/data/`. |
+| Cloudflare | Set `host: "cloudflare"`. Run `pnpm vitehub provision run --provider cloudflare` to resolve the D1 database ID. |
+| Vercel | Set `host: "vercel"`. KV reads `KV_REST_API_URL` and `KV_REST_API_TOKEN`, then `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`. Blob uses OIDC with `BLOB_STORE_ID`, then `BLOB_READ_WRITE_TOKEN`. |
+| Node | Set `host: "node"`. KV and Blob use the file system under `.vitehub/data/`. |
 
-Netlify and Deno have their own presets. Read
+Netlify and Deno are also hosts. Read
 [Frameworks and hosts](/docs/frameworks-hosts) for the default provider of each
 feature.
 
@@ -380,7 +380,7 @@ feature.
    through NuxtHub, then write them through ViteHub's `blob.put()`. Re-uploading
    changes upload timestamps and may change URLs or ETags. Keep application
    records of those values if your application needs them.
-3. Run `pnpm nuxt build`. A feature that the preset cannot provide fails the build.
+3. Run `pnpm nuxt build`. A feature that the host cannot provide fails the build.
 4. Run `pnpm vitehub inspect provider-output --json` and confirm resource IDs and
    names, as well as bindings and environment variables.
 5. Apply one schema change after the baseline. Confirm that it preserves the

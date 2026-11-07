@@ -27,7 +27,7 @@ pnpm add @vite-hub/agent @openai/codex@0.149.1
 
 `@openai/codex` installs one native Codex package for your OS and CPU. If `@openai/codex` is not installed, ViteHub uses `codex` from the host `PATH`. It does not download provider packages during the build or at startup.
 
-### Enable Agents on the Node preset
+### Enable Agents on the Node host
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -35,7 +35,7 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({
-    preset: 'node',
+    host: 'node',
     agent: true,
     workflow: false,
   })],
@@ -199,7 +199,7 @@ Every run is an Agent Invocation. Read it from code, the CLI, or the Console:
 
 | Host | Support |
 | --- | --- |
-| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. Use `preset: 'node'`. |
+| Self-hosted Node.js on Linux or macOS, arm64 or x64 | Supported. Use `host: 'node'`. |
 | `vite dev` on Linux or macOS | Supported. |
 | Cloudflare Workers | Not supported. A Worker build that contains a provider Driver fails with `AGENT_B0019`. In development, the Invocation fails with `AGENT_R0928`. |
 | Deno | Not supported. |

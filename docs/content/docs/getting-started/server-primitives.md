@@ -91,6 +91,6 @@ which constraints it supports.
 ## Choose a host
 
 Your host determines the resources and limits behind an API. Open
-[Build and deploy](/docs/getting-started/build-and-deploy) to select a preset,
+[Build and deploy](/docs/getting-started/build-and-deploy) to select a host,
 then check the feature's Hosts page. Verify the generated bindings and
 resource identities before you connect production data.

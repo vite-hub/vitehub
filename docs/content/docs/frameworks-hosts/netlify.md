@@ -6,10 +6,10 @@ navigation.group: Deployment hosts
 icon: i-simple-icons-netlify
 ---
 
-Use the `netlify` preset to deploy a ViteHub application to Netlify. Support is
+Use the `netlify` host to deploy a ViteHub application to Netlify. Support is
 package-specific: ViteHub provides Netlify behavior for Blob, generated Agent
 HTTP routes, and static Schedule wake functions. Other primitives need an
-explicit remote provider or are not available on this preset.
+explicit remote provider or are not available on this host.
 
 ## Available boundaries
 
@@ -23,7 +23,7 @@ explicit remote provider or are not available on this preset.
 Agent function output lives under `.netlify/v1/functions`, with its generated source wrapper under `.vitehub/agent/netlify-function.mjs`. The wrapper and deployed function are Provider Output, not public application imports.
 In a Nuxt app, the source wrapper follows Nuxt's build directory and is normally `.nuxt/vitehub/agent/netlify-function.mjs`; the deployed function path is unchanged.
 
-## Configure the preset
+## Configure the host
 
 Each active package integration contributes only its owned Netlify output.
 This example adds the Schedule integration directly with
@@ -42,7 +42,7 @@ import { vitehub } from 'vite-hub'
 export default defineConfig({
   plugins: [
     vitehub({
-      preset: 'netlify',
+      host: 'netlify',
       agent: true,
       blob: true,
     }),
@@ -51,7 +51,7 @@ export default defineConfig({
 })
 ```
 
-The `netlify` preset selects the Netlify Blobs driver and the Agent function output. Each static Schedule Definition generates a function such as `.netlify/v1/functions/vitehub-schedule-heartbeat.mjs`.
+The `netlify` host selects the Netlify Blobs driver and the Agent function output. Each static Schedule Definition generates a function such as `.netlify/v1/functions/vitehub-schedule-heartbeat.mjs`.
 
 ## Generated functions
 
@@ -69,7 +69,7 @@ For Nuxt, replace the wrapper inspection command with `find .nuxt/vitehub/agent 
 
 ## Features without a Netlify provider
 
-ViteHub does not infer Netlify providers for Queue, Rate Limit, Sandbox, or Workflow. On the `netlify` preset, `queue: true`, `rateLimit: true`, and `sandboxTask: true` fail the build. Workflow stays off when only `agent` enables it; an explicit `workflow` option needs `workflow.provider`. Select an external provider only when it is valid from the Netlify runtime.
+ViteHub does not infer Netlify providers for Queue, Rate Limit, Sandbox, or Workflow. On the `netlify` host, `queue: true`, `rateLimit: true`, and `sandboxTask: true` fail the build. Workflow stays off when only `agent` enables it; an explicit `workflow` option needs `workflow.provider`. Select an external provider only when it is valid from the Netlify runtime.
 
 The ViteHub Provision CLI does not create Netlify resources. It currently accepts Cloudflare and Vercel plans only. Netlify Blobs stores need no provisioning; see [Resources without provisioning](/docs/development/provisioning#resources-without-provisioning).
 

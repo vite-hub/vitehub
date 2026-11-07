@@ -125,7 +125,7 @@ it("keeps installed framework declarations independent of optional evlog", async
       const source: LogSource | undefined = getLogSource()
       if (source) installLogSource("/consumer", source)
       parseLogQuery({ level: "error" })
-      vitehub({ preset: "cloudflare", observability: { service: "consumer", evlog: { pretty: true, sampling: { rates: { info: 25 } } } } })
+      vitehub({ host: "cloudflare", observability: { service: "consumer", evlog: { pretty: true, sampling: { rates: { info: 25 } } } } })
       const valid: ObservabilityEvlogOptions = { dev: { prettyError: { detail: "full" } }, redact: { builtins: ["email"], patterns: [/secret/], replacement: (matched: unknown, context: { path: string, key: string, groups?: Array<string | undefined> }) => context.path }, sampling: { keep: [{ status: 400 }] } }
       void valid
       // @ts-expect-error Unsupported terminal preset.

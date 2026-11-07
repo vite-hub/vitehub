@@ -39,7 +39,7 @@ async function configure(
 describe("Logs host integration", () => {
   it("has one owner for request error logging", () => {
     const names = (logs: NonNullable<Parameters<typeof vitehub>[0]>["logs"]) =>
-      vitehub({ preset: "node", logs }).flatMap((plugin) =>
+      vitehub({ host: "node", logs }).flatMap((plugin) =>
         plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [],
       );
     expect(names(true)).not.toContain("vite-hub/error-log");
@@ -85,7 +85,7 @@ describe("Logs host integration", () => {
     const root = await mkdtemp(resolve(".logs-vite-test-"));
     try {
       const plugins = vitehub({
-        preset: "node",
+        host: "node",
         logs: true,
         observability: { service: "api", evlog: { enabled: false, redact: true } },
       }).flatMap((plugin) => plugin && typeof plugin === "object" && "name" in plugin ? [plugin] : []);

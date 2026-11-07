@@ -51,7 +51,7 @@ export const contract = {
         apiKey: env({ secret: true, source: env.source("RESEND_API_KEY") }),
       },
     },
-    preset: "node",
+    host: "node",
   }),
   rateLimit: requireRateLimit,
   workflow: defineWorkflow(async ({ payload }: { payload: { marker: string } }) => payload.marker),

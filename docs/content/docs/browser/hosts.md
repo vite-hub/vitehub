@@ -10,11 +10,11 @@ icon: i-lucide-cloud-cog
 
 | Path | Provider | Host support |
 | --- | --- | --- |
-| Browser Definitions and actions | Cloudflare Browser Run | Cloudflare preset only. `browser: true` with another preset fails the build. |
+| Browser Definitions and actions | Cloudflare Browser Run | Cloudflare host only. `browser: true` with another host fails the build. |
 | `createBrowser()` with `cloudflareBrowser()` | Cloudflare Browser Run | Cloudflare Workers with a Browser binding. |
 | `createBrowser()` with `localBrowser()` | Local Chromium process | Trusted Node hosts. `browser: true` never selects it. |
 
-The Cloudflare preset writes the Browser Run binding, a default `compatibility_date`, and the `nodejs_compat` flag to the generated `wrangler.json`. Both the root integration and `hubBrowser()` preserve unrelated Wrangler fields.
+The Cloudflare host writes the Browser Run binding, a default `compatibility_date`, and the `nodejs_compat` flag to the generated `wrangler.json`. Both the root integration and `hubBrowser()` preserve unrelated Wrangler fields.
 
 Cloudflare's Worker `quickAction()` requires remote mode during local development. Set `remote: true` when local Wrangler development must call Browser Run. This uses a Cloudflare account and network access.
 
@@ -22,7 +22,7 @@ Install `@cloudflare/playwright` and `playwright-core` when you set `engine: 'ch
 
 ## Builds without Browser
 
-An application that deploys to more than one host can import Browser on every host. A build that does not enable Browser still builds. Calls fail with `BROWSER_UNAVAILABLE`, and the message names the preset, the reason, and the fix. Call `isBrowserAvailable()` to branch before you call Browser:
+An application that deploys to more than one host can import Browser on every host. A build that does not enable Browser still builds. Calls fail with `BROWSER_UNAVAILABLE`, and the message names the host, the reason, and the fix. Call `isBrowserAvailable()` to branch before you call Browser:
 
 ```ts [server/api/example-html.get.ts]
 import { defineEventHandler } from 'h3'

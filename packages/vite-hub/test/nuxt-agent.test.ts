@@ -45,7 +45,7 @@ it.each([false, true].flatMap(dev => [undefined, false, true].map(noExternals =>
     },
   }
 
-  await viteHubNuxtModule({ agent: true, preset: "node" }, nuxt)
+  await viteHubNuxtModule({ agent: true, host: "node" }, nuxt)
   expect(nuxt.options.vite.define).toMatchObject({
     __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/"),
   })
@@ -132,7 +132,7 @@ it("installs the app-wide Agent Invocation journal first in the Nuxt Nitro confi
       serverDir,
       srcDir: join(rootDir, "app"),
       vite: { define: {} },
-      vitehub: { agent: { invocations: "memory" as const }, preset: "node" as const },
+      vitehub: { agent: { invocations: "memory" as const }, host: "node" as const },
     },
   }
 
@@ -167,7 +167,7 @@ it.each([false, true])("compiles generated Agent TypeScript when Nuxt moves buil
     options: { buildDir, dev: false, rootDir, serverDir, srcDir: join(rootDir, "app"), vite: { define: {} } },
   }
 
-  await viteHubNuxtModule({ agent: true, preset: "node" }, nuxt)
+  await viteHubNuxtModule({ agent: true, host: "node" }, nuxt)
   if (!nitroConfigHook) throw new TypeError("Expected a Nitro config hook.")
   const userPlugin = { name: "user-plugin" }
   const nitroConfig: Record<string, unknown> = { rollupConfig: { plugins: [userPlugin] } }
@@ -223,7 +223,7 @@ it("leaves the serve-only Console out of the workflow registry of a Nuxt build",
   }
 
   // Without Console options, `vite dev` serves the operation RPC through a Console plugin that applies only to `serve`.
-  await viteHubNuxtModule({ agent: true, console: false, preset: "cloudflare" }, nuxt)
+  await viteHubNuxtModule({ agent: true, console: false, host: "cloudflare" }, nuxt)
   if (!nitroConfigHook) throw new TypeError("Expected a Nitro config hook.")
   await nitroConfigHook({})
 

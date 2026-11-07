@@ -2,7 +2,7 @@ import { vitehub } from 'vite-hub'
 
 export default {
   plugins: vitehub({
-    preset: 'cloudflare',
+    host: 'cloudflare',
     cloudflare: { secretsFile: '.env' },
   }),
 }

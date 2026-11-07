@@ -18,7 +18,7 @@ Nitro owns the server build and runtime. It provides routing, deployment
 presets, storage, caching, database utilities, tasks, and WebSockets.
 It is inaccurate to describe Nitro as only an HTTP router.
 
-ViteHub composes service integrations with that server. A ViteHub preset
+ViteHub composes service integrations with that server. The ViteHub host
 selects host output and default providers for enabled services. Feature
 packages own Definitions, runtime APIs, and their provider contributions.
 
@@ -35,7 +35,7 @@ Evaluate ViteHub when the app needs discovered Agents, explicit Capabilities,
 shared server APIs, or service-specific generated host resources. Compare
 those requirements with the Nitro utilities you already use.
 
-Do not configure conflicting Nitro and ViteHub deployment presets. Follow
+Do not configure conflicting Nitro and ViteHub hosts. Follow
 [Nitro and UnJS](/docs/frameworks-hosts/nitro-unjs) for integration ownership.
 
 ## Check the Nitro generation

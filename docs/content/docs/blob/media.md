@@ -207,7 +207,7 @@ The generated Nitro plugin registers `import('@cf-wasm/photon')`, so the WebAsse
 
 - On Cloudflare, Nitro's Worker presets emit `photon_rs_bg.wasm` as a separate module and import it, so Workers compile it at upload. It adds about 1.5 MB to the Worker before compression.
 - On Node, the package's `node` entry embeds the WebAssembly module in JavaScript and compiles it on the first variant.
-- In `vite dev` with Cloudflare emulation, workerd does not let code compile WebAssembly at runtime, so variants fail with `BLOB_R0034`. Use a Node preset in development, or run the built Worker with `wrangler dev`.
+- In `vite dev` with Cloudflare emulation, workerd does not let code compile WebAssembly at runtime, so variants fail with `BLOB_R0034`. Use a Node host in development, or run the built Worker with `wrangler dev`.
 
 `auto` never selects Photon, even when it is installed. Choose it explicitly, because it adds 1.5 MB to the Worker, it rejects large photos where passthrough serves them, and it changes the engine in every variant cache key. An explicit `photon` fails the build with `BLOB_B0007` when the project cannot resolve `@cf-wasm/photon`.
 

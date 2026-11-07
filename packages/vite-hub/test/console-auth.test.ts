@@ -389,7 +389,7 @@ describe("independent Console Auth", () => {
         configFile: false,
         base: "/early/",
         plugins: [
-          consoleVitePlugin({ console: { auth: { server }, mcp: { resource: "https://app.example.com/portal/_vitehub/mcp/" } }, preset: "node" }),
+          consoleVitePlugin({ console: { auth: { server }, mcp: { resource: "https://app.example.com/portal/_vitehub/mcp/" } }, host: "node" }),
           { name: "change-console-base", config: () => bases },
         ],
       }, "build", "production")
@@ -425,7 +425,7 @@ describe("independent Console Auth", () => {
               provider: "github",
               allowedEmails: ["maintainer@example.com"],
               databasePath: join(root, "console.sqlite"),
-            } }, preset: "node" }),
+            } }, host: "node" }),
           ],
         }, "serve")
         secrets.push(await readFile(join(root, ".vitehub/env/secret"), "utf8"))
@@ -477,7 +477,7 @@ describe("independent Console Auth", () => {
       await writeFile(server, "export default {}")
       await writeFile(helper, 'export const marker = "vite_auth_helper_original"')
       await writeFile(client, 'import { marker } from "./helper"; export default { setup() { globalThis.consoleAuthMarker = marker } }')
-      const plugin = consoleVitePlugin({ console: { auth: { server, client } }, preset: "node" })
+      const plugin = consoleVitePlugin({ console: { auth: { server, client } }, host: "node" })
       const listeners = new Map<string, (path: string) => Promise<void>>()
       const add = vi.fn()
       const config = { root }
@@ -612,7 +612,7 @@ describe("independent Console Auth", () => {
             databasePath: "/data/console-auth.sqlite",
           },
         },
-        preset: "node",
+        host: "node",
       })
       const hook = plugin.config
       if (!hook) throw new TypeError("Expected Console config hook.")
@@ -922,7 +922,7 @@ describe("independent Console Auth", () => {
         provider: "github",
         allowedEmails: ["maintainer@example.com"],
         databasePath: "/data/console-auth.sqlite",
-      }, "cloudflare")).toThrow("requires the Node deployment preset")
+      }, "cloudflare")).toThrow("requires the Node host")
 
       const plugin = consoleVitePlugin({
         console: {
@@ -932,13 +932,13 @@ describe("independent Console Auth", () => {
             databasePath: "/data/console-auth.sqlite",
           },
         },
-        preset: "cloudflare",
+        host: "cloudflare",
       })
       const hook = plugin.config
       if (!hook) throw new TypeError("Expected Console config hook.")
       const handler = "handler" in hook ? hook.handler : hook
       await expect(Reflect.apply(handler, {}, [{ root }, { command: "build", mode: "production" }]))
-        .rejects.toThrow("requires the Node deployment preset")
+        .rejects.toThrow("requires the Node host")
 
       const server = resolve(root, "server.ts")
       await writeFile(server, "export default {}")

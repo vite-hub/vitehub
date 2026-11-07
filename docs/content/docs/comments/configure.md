@@ -25,7 +25,7 @@ In a ViteHub app, Comments is on when the app has `server/comments.ts`. `vitehub
 
 ```ts [vite.config.ts]
 vitehub({
-  preset: 'node',
+  host: 'node',
   console: { auth: 'app' },
   comments: { database: 'team' },
 })

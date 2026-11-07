@@ -36,7 +36,7 @@ icon: i-lucide-database
   export default defineConfig({
     plugins: [
       // Local SQLite while you develop
-      vitehub({ preset: 'node', database: true }),
+      vitehub({ host: 'node', database: true }),
       nitro(),
     ],
   })
