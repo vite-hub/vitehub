@@ -31,6 +31,7 @@ describe("public ViteHub skill", () => {
       "SKILL.md",
       "agents/openai.yaml",
       "references/agent-definitions.md",
+      "references/bundle.md",
       "references/capabilities-authority.md",
       "references/channels-triggers.md",
       "references/framework-composition.md",
