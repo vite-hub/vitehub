@@ -92,12 +92,14 @@ export default defineEventHandler(async (event) => {
     // `_headers` already sets it for some pages.
     const vary = new Set((headers.get("Vary") ?? "").split(",").map(value => value.trim()).filter(Boolean));
     headers.set("Vary", [...vary.add("Accept").add("User-Agent")].join(", "));
-    // The asset response replaces the one that Nitro started, so it must carry the route rule headers too, such as
+    // The asset response must carry the route rule headers too, such as
     // the cross-origin isolation of `/learn/**`.
     for (const [name, value] of Object.entries(getRouteRules(event).headers ?? {})) headers.set(name, value);
     if (isTutorial) {
       headers.set("Cache-Control", "private, no-store");
       headers.append("Vary", "Cookie");
+      // H3 applies staged headers to returned Responses. Keep the asset's full Vary value.
+      setResponseHeader(event, "Vary", headers.get("Vary")!);
     }
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
   }

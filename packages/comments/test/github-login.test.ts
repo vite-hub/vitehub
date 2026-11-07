@@ -1,6 +1,6 @@
 
-import { H3 } from "h3"
 import { installStandardContext } from "@vite-hub/runtime/h3"
+import { H3, H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defaultPolicy, defineComments } from "../src/index.ts"
@@ -9,7 +9,6 @@ import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { anchor, createDatabase } from "./harness.ts"
 
-import type { H3Event } from "h3"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 import type { CommentsHandlerOptions } from "../src/runtime/handler.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
@@ -157,10 +156,9 @@ describe("createCommentsGitHubLogin", () => {
   })
 
   function event(path: string): H3Event {
-    const event = { req: new Request(`${origin}${path}`), res: { headers: new Headers() } }
+    const event = new H3Event(new Request(`${origin}${path}`))
     installStandardContext(event)
-    // SAFETY: This fixture includes the H3 request and Standard Context read by sign-in.
-    return event as H3Event
+    return event
   }
 
   it("is off without an OAuth client, and says which variables turn it on", async () => {

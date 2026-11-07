@@ -65,7 +65,7 @@ async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false) {
     // A Nuxt 5 nightly installs as `nuxt-nightly`.
     srcDir: "/app", appDir: "/node_modules/nuxt-nightly/dist/app", dev, build: { transpile: [] }, appConfig: {}, _layers: [],
     app: { baseURL: appBase, head: {} }, runtimeConfig: { public: {} }, alias: {}, css: [],
-    imports: { dirs: [] }, docs,
+    imports: { dirs: [] }, experimental: {}, docs,
   }
   const nuxt = {
     options,
