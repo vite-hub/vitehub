@@ -1,0 +1,44 @@
+nuxthub: moved database, blob from hub to vitehub with preset "node", rewrote 16 imports and 2 KV and Blob calls, and moved the schema to server/databases/.
+Dry run: no files were written.
+
+Files to change (19):
+  nuxt.config.ts
+  package.json
+  server/db/schema.ts (deleted)
+  server/databases/schema.ts (new)
+  server/databases/config.ts (new)
+  server/api/chats.get.ts
+  server/api/chats.post.ts
+  server/api/chats/[id].delete.ts
+  server/api/chats/[id].get.ts
+  server/api/chats/[id].post.ts
+  server/api/chats/[id]/messages.delete.ts
+  server/api/chats/[id]/title.patch.ts
+  server/api/chats/[id]/visibility.patch.ts
+  server/api/chats/[id]/votes.get.ts
+  server/api/chats/[id]/votes.post.ts
+  server/api/upload/[...pathname].delete.ts
+  server/api/upload/[chatId].put.ts
+  server/routes/auth/github.get.ts
+  shared/types/db.d.ts
+
+Manual follow-ups (9):
+  1. nuxt.config.ts:31 ViteHub needs a deployment preset, so the codemod set vitehub.preset to "node". Change it to "cloudflare", "deno", "netlify", or "vercel" for other hosts.
+  2. app/composables/useFileUpload.ts:30 ViteHub's useUpload() returns an array by default. Set { multiple: false } when this code expects one uploaded object.
+  3. server/api/chats/[id].delete.ts:32 blob.del().catch() no longer runs on failure, because the promise resolves to an [error, value] tuple. Check the error in the tuple instead.
+  4. server/api/upload/[chatId].put.ts:26 blob.handleUpload() returns its result to the caller. In ViteHub it resolves to an [error, value] tuple instead of throwing. Check the error, then return the value.
+  5. Back up the existing database and stop the app. For local SQLite, copy NuxtHub's .data/db/sqlite.db to ViteHub's default location with `mkdir -p .vitehub/data/database && cp .data/db/sqlite.db .vitehub/data/database/sqlite.db`, together with its -wal and -shm files if they exist.
+  6. Create the migration baseline with `pnpm vitehub db generate --name baseline`. It writes server/databases/migrations/. Do not copy NuxtHub's server/db/migrations/ there.
+  7. Compare the baseline SQL with the existing tables, columns, indexes, and constraints. When they match, replace the whole baseline .sql file with `SELECT 1;`. Keep its file name and the meta/ files.
+  8. Record the baseline with `pnpm vitehub db migrate`. Run it a second time to check that it applies nothing.
+  9. ViteHub stores Blob metadata in another format, so copy each local blob through the API. With the dev server running, run `pnpm vitehub blob put <pathname> .data/blob/<pathname> --content-type <type>` for each file. Custom metadata is not copied.
+
+Notes:
+  - vite-hub/nuxt auto-imports kv, blob, db, and schema in server code for each enabled feature, as NuxtHub did.
+  - Local data stays in .data/. ViteHub reads .vitehub/data/. The follow-ups list the commands that copy it.
+  - NuxtHub's server/db/migrations/ stays in place for reference. ViteHub writes new migrations to server/databases/migrations/ and does not apply them during dev or build. Delete the old folder after the baseline.
+
+Next steps:
+  - Run `pnpm install` to install vite-hub and @vite-hub/database and remove @nuxthub/core.
+  - Run `npx nuxi prepare`, then type-check the app.
+  - Run `pnpm nuxt build` and `pnpm vitehub inspect provider-output --json` to check the resources and bindings.

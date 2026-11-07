@@ -30,7 +30,21 @@ The command runs only the named codemod. Run it with `--help` to list the codemo
 
 | Codemod | Moves |
 | --- | --- |
+| `nuxthub` | A Nuxt app from NuxtHub 0.10 (`@nuxthub/core`) to ViteHub KV, Blob, Database, and cache through `vite-hub/nuxt` |
 | `nuxt-safe-runtime-config` | A Nuxt app from the `nuxt-safe-runtime-config` module to ViteHub Env through `vite-hub/nuxt` |
+
+## `nuxthub`
+
+The codemod runs when `package.json` or `modules` lists `@nuxthub/core`, or when `nuxt.config` sets `hub`. It follows [Migrate from NuxtHub](https://vitehub.dev/docs/getting-started/migrate-from-nuxthub) and makes only the edits that keep the same behavior:
+
+- `nuxt.config`: `'@nuxthub/core'` becomes `'vite-hub/nuxt'`, and `hub` becomes `vitehub` in place. `db: 'sqlite'` becomes `database: true`, and `kv`, `blob`, and `cache` stay `true`. The preset comes from `nitro.preset`, then `cloudflare` when the app has a Wrangler config, then `node`. Driver options and other `hub` keys become follow-ups. MySQL stops the codemod, because ViteHub does not support it.
+- `package.json`: removes `@nuxthub/core` and adds `vite-hub`. With a database, it adds `@vite-hub/database` and raises `drizzle-orm` to `^0.45.3`, the lowest version that `@vite-hub/database` accepts.
+- Schema: moves `server/db/schema.ts`, `server/db/schema.<dialect>.ts`, or the `server/db/schema/` folder to `server/databases/`, and writes `server/databases/config.ts` with `defineDatabase({ schema })`. Imports of the old schema path follow it.
+- Imports: `hub:db` and `@nuxthub/db` become `vite-hub/database/drizzle`, which exports `db` and `schema`. `hub:kv` and `hub:blob` become `vite-hub/kv` and `vite-hub/blob`. `hub:db:schema` becomes a relative import of the moved schema.
+- KV and Blob calls: each method returns an `[error, value]` tuple now. `const x = await kv.get(k)` and `await blob.del(p)` become a tuple and `if (error) throw error`. `blob.delete()` becomes `blob.del()`. Every other use of the result becomes a follow-up with `file:line`.
+- Wrangler config: the D1 `migrations_table: "_hub_migrations"` goes, because ViteHub must not reuse it. ViteHub writes the D1, KV, and R2 bindings itself, so each binding becomes a follow-up with the ID to keep.
+
+The codemod does not move local data or baseline the database. The follow-ups list the commands: copy `.data/db/sqlite.db` and `.data/kv`, `vitehub db generate --name baseline`, the baseline review, `vitehub db migrate`, and `vitehub blob put` for each blob. Calls to the removed `hubBlob()`, `hubKV()`, `hubDatabase()`, and `hubAI()` helpers also become follow-ups.
 
 ## `nuxt-safe-runtime-config`
 

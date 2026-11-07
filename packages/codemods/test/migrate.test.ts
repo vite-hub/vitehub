@@ -69,7 +69,7 @@ describe("migrate", () => {
     const directory = await app("none", { "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxt/ui'] })\n" })
     const migration = await runMigration({ cwd: directory })
     expect(migration.steps).toEqual([])
-    expect(formatMigrationReport(migration)).toContain(`No supported module found in ${directory}.\nSupported: nuxt-safe-runtime-config.`)
+    expect(formatMigrationReport(migration)).toContain(`No supported module found in ${directory}.\nSupported: nuxthub, nuxt-safe-runtime-config.`)
   })
 
   it("explains a codemod that cannot migrate, writes nothing for it, and exits with 1", async () => {
