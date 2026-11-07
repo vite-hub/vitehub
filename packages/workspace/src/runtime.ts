@@ -18,6 +18,7 @@ export {
   resolveRegisteredWorkspaceDefinition,
   setWorkspaceRuntimeAssetsRegistry,
   setWorkspaceRuntimeRegistry,
+  setWorkspaceRuntimeDefinitions,
   useWorkspace,
   useWorkspaceFiles,
 } from "./runtime/state.ts"
