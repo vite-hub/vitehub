@@ -3,10 +3,10 @@ import { resolve } from "node:path"
 import { H3 } from "h3"
 import { beforeEach, expect, it, onTestFinished, vi } from "vitest"
 
-const { getItem, parsed } = vi.hoisted(() => ({ getItem: vi.fn(), parsed: vi.fn() }))
+const { getItem, parsed, useStorage } = vi.hoisted(() => ({ getItem: vi.fn(), parsed: vi.fn(), useStorage: vi.fn() }))
 vi.mock("#imports", async () => ({
   ...(await import("h3")),
-  useStorage: () => ({ getItem }),
+  useStorage,
 }))
 vi.mock("#docs/content", () => ({ content: undefined }))
 vi.mock("#docs/parser", () => ({ default: { plugins: [{ name: "count-parses", post: parsed }] } }))
@@ -23,6 +23,7 @@ vi.mock("#docs/manifest", async () => {
 beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
+  useStorage.mockImplementation(() => ({ getItem }))
   getItem.mockImplementation((key: string) =>
     readFile(resolve(import.meta.dirname, "fixtures/content", key), "utf8"),
   )
@@ -114,4 +115,37 @@ it("keeps page keywords in the cached search index", async () => {
       id: "/docs/kv", keywords: ["key value", "TTL"],
     }))
   }
+})
+
+it("caches identical file names separately for each mapped source", async () => {
+  const reads = vi.fn(async (base: string) => `# ${base}`)
+  useStorage.mockImplementation((base: string) => ({ getItem: () => reads(base) }))
+  const { loadDocsDocument } = await import("../src/runtime/documents.ts")
+  const load = (source: string) => loadDocsDocument("index.md", source)
+  const [first, second] = await Promise.all([load("docs"), load("docs-1")])
+  expect(JSON.stringify(first)).toContain("assets:docs")
+  expect(JSON.stringify(second)).toContain("assets:docs-1")
+  expect(first).not.toEqual(second)
+  expect(await load("docs")).toBe(first)
+  expect(await load("docs-1")).toBe(second)
+  expect(reads.mock.calls).toEqual([["assets:docs"], ["assets:docs-1"]])
+})
+
+it("reads mapped page and search content from the configured storage mount", async () => {
+  const { default: manifest } = await import("#docs/manifest")
+  const { findDocsPage } = await import("../src/navigation.ts")
+  const page = findDocsPage(manifest, "/docs/kv")!.page
+  const source = page.source
+  onTestFinished(() => { page.source = source })
+  page.source = "docs-1"
+  const mapped = vi.fn(async () => "# Mapped page\n\nOnly in mapped content.")
+  useStorage.mockImplementation((base: string) => ({ getItem: base === "assets:docs-1" ? mapped : getItem }))
+  const server = await app()
+  const response = await server.fetch(new Request("https://docs.example.com/api/_docs/page/docs/kv.json"))
+  expect(response.status).toBe(200)
+  expect(JSON.stringify(await response.json())).toContain("Only in mapped content.")
+  const search = await server.fetch(new Request("https://docs.example.com/api/_docs/search.json"))
+  expect(search.status).toBe(200)
+  expect(JSON.stringify(await search.json())).toContain("Only in mapped content.")
+  expect(mapped).toHaveBeenCalledExactlyOnceWith(page.file)
 })
