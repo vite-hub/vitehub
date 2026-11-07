@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto"
+import { createHash, randomBytes } from "node:crypto"
 import { constants } from "node:fs"
-import { lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { lstat, mkdir, open, readdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import { basename, dirname, join, relative, resolve, sep } from "node:path"
 
 import type { WorkspaceChangedFile, WorkspaceChanges, WorkspaceCommitResult, WorkspaceHistoryContent, WorkspaceHistoryDetails } from "./results.ts"
 
@@ -216,13 +216,45 @@ export function mergeText(base: string, local: string, remote: string, labels: {
   return { conflicts, text: out.join("") }
 }
 
+/**
+ * Writes a file as a new file in the same folder, then renames it over `target`. A hard link to the old file keeps
+ * its content, a link at `target` is replaced and not followed, and a failed write leaves the old file.
+ */
+async function writeAtomic(target: string, bytes: Bytes | string): Promise<void> {
+  // A replaced file keeps its permission bits, such as an executable script.
+  const mode = await lstat(target).then(stat => stat.isFile() ? stat.mode & 0o777 : 0o666, () => 0o666)
+  const temporary = join(dirname(target), `.${basename(target)}.${randomBytes(6).toString("hex")}.vitehub-tmp`)
+  // O_EXCL and O_NOFOLLOW fail on any path that exists at the temporary name, including a link created after the check.
+  await writeFile(temporary, bytes, { flag: constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode })
+  try {
+    await rename(temporary, target)
+  }
+  catch (error) {
+    await rm(temporary, { force: true })
+    throw error
+  }
+}
+
+function lockSymlinkError(): WorkspaceCheckoutError {
+  return new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_SYMLINK", `${workspaceLockFile} is a symbolic link. A checkout reads and writes only a real lock file.`, `Replace ${workspaceLockFile} with a real file, then try again.`)
+}
+
 async function readWorkspaceLock(rootDir: string): Promise<WorkspaceLock> {
   let source: string
   try {
-    source = await readFile(join(rootDir, workspaceLockFile), "utf8")
+    if ((await lstat(join(rootDir, workspaceLockFile))).isSymbolicLink()) throw lockSymlinkError()
+    // O_NOFOLLOW also rejects a link created after the check.
+    const handle = await open(join(rootDir, workspaceLockFile), constants.O_RDONLY | constants.O_NOFOLLOW)
+    try {
+      source = await handle.readFile("utf8")
+    }
+    finally {
+      await handle.close()
+    }
   }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { version: 1, workspaces: {} }
+    if ((error as NodeJS.ErrnoException).code === "ELOOP") throw lockSymlinkError()
     throw error
   }
   let parsed: unknown
@@ -261,7 +293,7 @@ async function writeWorkspaceLock(rootDir: string, lock: WorkspaceLock): Promise
       ...(entry.conflicts?.length ? { conflicts: [...entry.conflicts].sort() } : {}),
     }
   }
-  await writeFile(join(rootDir, workspaceLockFile), `${JSON.stringify(sorted, null, 2)}\n`)
+  await writeAtomic(join(rootDir, workspaceLockFile), `${JSON.stringify(sorted, null, 2)}\n`)
 }
 
 function folderOf(rootDir: string, dir: string): string {
@@ -345,8 +377,7 @@ async function localPath(rootDir: string, folder: string, path: string): Promise
 async function put(rootDir: string, folder: string, path: string, bytes: Bytes): Promise<void> {
   const target = await localPath(rootDir, folder, path)
   await mkdir(dirname(target), { recursive: true })
-  // O_NOFOLLOW rejects a link at the final component, including one created after the check.
-  await writeFile(target, bytes, { flag: constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW })
+  await writeAtomic(target, bytes)
 }
 
 async function remove(rootDir: string, folder: string, path: string): Promise<void> {

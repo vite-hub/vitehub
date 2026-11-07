@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
+import { link, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -612,6 +612,49 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     deny = true
     expect((await local.run("pull")).code).toBe(1)
     expect(await local.lock()).toEqual(before)
+  })
+
+  it("replaces a pulled file instead of writing into a file that it shares through a hard link", async (context) => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const local = await project(remoteApp.fetch, "hard-link")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    const outside = join(await tempDir("hard-link-outside"), "hello.md")
+    await writeFile(outside, post("Hello", "One."))
+    await rm(join(local.rootDir, "content/posts/hello.md"))
+    try {
+      await link(outside, join(local.rootDir, "content/posts/hello.md"))
+    }
+    catch {
+      context.skip()
+    }
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "Two.") } })
+
+    expect((await local.run("pull")).code).toBe(0)
+
+    expect(await local.read("posts/hello.md")).toBe(post("Hello", "Two."))
+    expect(await readFile(outside, "utf8")).toBe(post("Hello", "One."))
+    expect((await stat(outside)).nlink).toBe(1)
+  })
+
+  it("refuses a vitehub.lock that is a symbolic link, and writes the lock without a temporary file left", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const local = await project(remoteApp.fetch, "lock-link")
+    const outside = join(await tempDir("lock-outside"), "lock.json")
+    const empty = `${JSON.stringify({ version: 1, workspaces: {} })}\n`
+    await writeFile(outside, empty)
+    await symlink(outside, join(local.rootDir, "vitehub.lock"))
+
+    const pulled = await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+
+    expect(pulled).toMatchObject({ code: 1, stderr: expect.stringContaining("WORKSPACE_CHECKOUT_SYMLINK") })
+    expect(await readFile(outside, "utf8")).toBe(empty)
+    expect(remoteApp.calls).toEqual([])
+
+    await rm(join(local.rootDir, "vitehub.lock"))
+    expect((await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).code).toBe(0)
+    expect((await readdir(local.rootDir)).sort()).toEqual(["content", "vitehub.lock"])
   })
 
   it("excludes names that Windows reads as an excluded folder, with trailing dots or spaces", async () => {
