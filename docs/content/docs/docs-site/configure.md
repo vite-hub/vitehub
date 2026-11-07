@@ -420,7 +420,7 @@ export default defineNuxtConfig({
 })
 ```
 
-The docs module turns on the `comments` option of `vite-hub/nuxt`, which turns on the Database. Apply the tables once with `vitehub db generate` and `vitehub db migrate`. You need no `server/comments.ts`. Add one to set `authorize`, `people`, or `onMention`. See [Configure Comments](/docs/comments/configure).
+The docs module turns on the `comments` option of `vite-hub/nuxt`, which turns on the Database. Apply the tables once with `vitehub database generate` and `vitehub database migrate`. You need no `server/comments.ts`. Add one to set `authorize`, `people`, or `onMention`. See [Configure Comments](/docs/comments/configure).
 
 - **Each page has its own threads.** A thread belongs to the page path, such as `/docs/kv`. A new deploy keeps the threads on their page. A renamed page starts with none.
 - **Readers see nothing.** The page loads the overlay only with `?vitehub` or the `vitehub-tools` cookie, and only for people that `authorize` lets read. Without `authorize`, a production build lets in the people that the Console admits to Comments, and people signed in with GitHub who can push to the repository. A reader who is not signed in gets no toolbar. When the app has no Console and no Auth, and GitHub sign-in is set up, `?vitehub` shows **Sign in with GitHub**. The development server lets everyone comment.
@@ -465,7 +465,7 @@ Open `/_vitehub/content` and select **Docs**. The build reads this file without 
 - `fields` are the page frontmatter. The Console validates them like the build does, and writes dotted keys such as `navigation.order` back as dotted keys.
 - Each document URL is its page URL: `content/docs/kv/index.md` is `/docs/kv`, and `content/about.md` is `/about`.
 
-With `repo`, the CMS uses the GitHub store and needs `VITEHUB_GITHUB_TOKEN`. A save commits to the `vitehub/content` branch, and `publish: 'pr'` opens a pull request into `main`. The site shows the change after the pull request merges and the site builds again. Without `repo`, the CMS uses the Blob + Database store. Its Workspace starts empty, and a publish does not change the files that the site renders, so use it only to try the editor. Run `vitehub db generate` and `vitehub db migrate` once, then import a page with `vitehub content edit docs docs/kv/index --file content/docs/kv/index.md`.
+With `repo`, the CMS uses the GitHub store and needs `VITEHUB_GITHUB_TOKEN`. A save commits to the `vitehub/content` branch, and `publish: 'pr'` opens a pull request into `main`. The site shows the change after the pull request merges and the site builds again. Without `repo`, the CMS uses the Blob + Database store. Its Workspace starts empty, and a publish does not change the files that the site renders, so use it only to try the editor. Run `vitehub database generate` and `vitehub database migrate` once, then import a page with `vitehub content edit docs docs/kv/index --file content/docs/kv/index.md`.
 
 `access: 'roles'` uses the CMS roles of the Better Auth `admin` plugin. Your own `authorize` replaces it, for example `authorize: () => import.meta.dev` lets everyone edit on a development server and nobody in production.
 

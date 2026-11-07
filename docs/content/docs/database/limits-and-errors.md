@@ -39,8 +39,8 @@ export default defineEventHandler(async () => {
 | `DATABASE_D1_INVALID_RESPONSE`, `DATABASE_D1_REQUEST_FAILED` | When a D1 HTTP query fails |
 | `DATABASE_D1_STATEMENT_TOO_LONG`, `DATABASE_D1_TOO_MANY_PARAMETERS`, `DATABASE_D1_VALUE_TOO_LARGE` | When a query to D1 is above a [D1 limit](#d1-limits), before D1 runs it |
 | `DATABASE_DISABLED`, `DATABASE_INVALID_D1_HTTP_URL`, `DATABASE_MISSING_CONNECTION`, `DATABASE_MISSING_D1_HTTP_CONFIG`, `DATABASE_NOT_FOUND` | When code first uses the database |
-| `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS` | Printed by `vitehub db migrate`, which then exits with code 1 |
-| `DATABASE_EXPORT_FAILED` | Printed by `vitehub db export`, which then exits with code 1 |
+| `DATABASE_MIGRATION_CHECK_FAILED`, `DATABASE_MIGRATION_DATA_LOSS` | Printed by `vitehub database migrate`, which then exits with code 1 |
+| `DATABASE_EXPORT_FAILED` | Printed by `vitehub database export`, which then exits with code 1 |
 | `DATABASE_MIGRATION_DATA_LOSS`, `DATABASE_MIGRATE_ON_START_UNSUPPORTED` | With `migrateOnStart`, when the Node server starts. `DATABASE_MIGRATE_ON_START_UNSUPPORTED` also fails the build |
 | `DATABASE_INVALID_CASING`, `DATABASE_INVALID_DIALECT`, `DATABASE_INVALID_NAME`, `DATABASE_INVALID_OPTIONS`, `DATABASE_UNKNOWN_OPTION` | By `defineDatabase()`, or by the build when it reads the Definition |
 | Every other code | During discovery, the build, or `vitehub provision run` |
@@ -57,7 +57,7 @@ A query to Cloudflare D1, through the binding or through D1 HTTP, checks these [
 
 `vite dev` for Cloudflare uses local SQLite when no D1 binding exists, and SQLite accepts more than D1. When the build targets Cloudflare, with `vitehub({ preset: 'cloudflare' })` or the Cloudflare Nitro preset, the dev server runs the same checks on local SQLite for each Database with D1 options. A query that D1 rejects then rejects in development with the same code. Other dev servers, and local SQLite in production, keep the SQLite limits.
 
-D1 also limits the size of a row to 2,000,000 bytes. ViteHub does not check it, because a row can be larger than its bound values. Migrations that `vitehub db migrate` runs are not checked.
+D1 also limits the size of a row to 2,000,000 bytes. ViteHub does not check it, because a row can be larger than its bound values. Migrations that `vitehub database migrate` runs are not checked.
 
 ## Runtime errors
 
@@ -117,27 +117,27 @@ Run `vitehub inspect definitions --kind database` to see the discovered database
 
 ## Migration errors
 
-`vitehub db migrate` reads the Drizzle migrations table of each database before it applies anything. It prints these errors, changes no database, and exits with code 1.
+`vitehub database migrate` reads the Drizzle migrations table of each database before it applies anything. It prints these errors, changes no database, and exits with code 1.
 
 ### DATABASE_MIGRATION_CHECK_FAILED
 
-ViteHub cannot read which migrations the database has applied. `error.why` has the reason, for example missing `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, a connection error, a missing `postgres` package, or an invalid `meta/_journal.json`. Make the database reachable with the same connection that `vitehub db migrate` uses. To apply the migrations without the check, run `vitehub db migrate --allow-data-loss`.
+ViteHub cannot read which migrations the database has applied. `error.why` has the reason, for example missing `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` for D1 HTTP, a connection error, a missing `postgres` package, or an invalid `meta/_journal.json`. Make the database reachable with the same connection that `vitehub database migrate` uses. To apply the migrations without the check, run `vitehub database migrate --allow-data-loss`.
 
 ### DATABASE_MIGRATION_DATA_LOSS
 
-A pending migration drops a table, a column, or a schema, deletes every row of a table, or rebuilds a SQLite table without one of its columns. A table that an earlier pending migration created or dropped does not count, because it has no rows from before the run. For PostgreSQL, this exception requires schema-qualified table names and, for `TRUNCATE`, `ONLY` on every target without `CASCADE`. After a SQLite temporary table is created, subsequent losses stay in the check because unqualified names can switch between temporary and permanent tables. `error.why` names each migration and statement. Run `vitehub db migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub db migrate --allow-data-loss`.
+A pending migration drops a table, a column, or a schema, deletes every row of a table, or rebuilds a SQLite table without one of its columns. A table that an earlier pending migration created or dropped does not count, because it has no rows from before the run. For PostgreSQL, this exception requires schema-qualified table names and, for `TRUNCATE`, `ONLY` on every target without `CASCADE`. After a SQLite temporary table is created, subsequent losses stay in the check because unqualified names can switch between temporary and permanent tables. `error.why` names each migration and statement. Run `vitehub database migrate --dry-run` to read the SQL. To keep the data, change the schema or edit the migration. To accept the loss, back up the data and run `vitehub database migrate --allow-data-loss`.
 
 With `migrateOnStart`, the server throws this error when it starts and does not handle requests. To accept the loss, back up the data and set `migrateOnStart: { allowDataLoss: true }`.
 
 ### DATABASE_MIGRATE_ON_START_UNSUPPORTED
 
-`migrateOnStart` applies migrations only to local SQLite files in a production Node server. The build fails with this error for another host, a Postgres database, or D1 over HTTP. The server fails to start with it when a database connects to remote libSQL, or Definitions sharing a SQLite file have an unrecorded migration at or below the latest applied timestamp. Use compatible migration histories or separate files for shared-file conflicts. For unsupported connections, build with the Node preset and a `file:` URL, or remove `migrateOnStart` and run `vitehub db migrate` from the deployment.
+`migrateOnStart` applies migrations only to local SQLite files in a production Node server. The build fails with this error for another host, a Postgres database, or D1 over HTTP. The server fails to start with it when a database connects to remote libSQL, or Definitions sharing a SQLite file have an unrecorded migration at or below the latest applied timestamp. Use compatible migration histories or separate files for shared-file conflicts. For unsupported connections, build with the Node preset and a `file:` URL, or remove `migrateOnStart` and run `vitehub database migrate` from the deployment.
 
 ## Export errors
 
 ### DATABASE_EXPORT_FAILED
 
-`vitehub db export` cannot write the SQL dump. `error.why` has the reason, for example a missing local SQLite file, a remote database without `--remote`, missing `CLOUDFLARE_ACCOUNT_ID` or `CLOUDFLARE_API_TOKEN`, a Cloudflare API error, a missing `pg_dump`, or an output file that exists. The command writes no output file when it fails. See [Export a database](/docs/database/configure#export-a-database).
+`vitehub database export` cannot write the SQL dump. `error.why` has the reason, for example a missing local SQLite file, a remote database without `--remote`, missing `CLOUDFLARE_ACCOUNT_ID` or `CLOUDFLARE_API_TOKEN`, a Cloudflare API error, a missing `pg_dump`, or an output file that exists. The command writes no output file when it fails. See [Export a database](/docs/database/configure#export-a-database).
 
 ## Definition errors
 
@@ -229,7 +229,7 @@ A schema uses a key that the generated schema module uses for its own exports. R
 
 ### DATABASE_SCHEMA_LOAD_FAILED
 
-A Database Definition or a contributed schema module threw when it loaded. `error.why` has the import error, and `error.cause` keeps it. During config resolution ViteHub can warn and read the literal `schema` keys instead, but `vitehub db generate` needs every schema module to load.
+A Database Definition or a contributed schema module threw when it loaded. `error.why` has the import error, and `error.cause` keeps it. During config resolution ViteHub can warn and read the literal `schema` keys instead, but `vitehub database generate` needs every schema module to load.
 
 ### DATABASE_WRANGLER_BINDING_CONFLICT
 

@@ -62,8 +62,8 @@ If your app already has a default Definition, add `notes` to its schema instead 
 Generate and apply the migration from the app root:
 
 ```bash [commands/generate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
 `generate` writes SQL and migration metadata to `server/databases/migrations/`. `migrate` applies pending SQL to the local SQLite file. Neither command needs a running server or a previous build. Check that both commands finish successfully before querying the table.
@@ -152,7 +152,7 @@ After that first insert, the response is:
 
 Every POST adds a row with a new ID. GET returns all rows, so an existing database can return more notes. Before the first insert, GET returns `[]`. The rows remain after an app restart.
 
-If the route reports a missing table, run `pnpm vitehub db migrate` from the same app root. After schema changes, run both `generate` and `migrate` again. Keep the schema and generated migrations in version control.
+If the route reports a missing table, run `pnpm vitehub database migrate` from the same app root. After schema changes, run both `generate` and `migrate` again. Keep the schema and generated migrations in version control.
 
 Continue with [Server API](/docs/database/server-api) for queries and [Hosts](/docs/database/hosts) for hosted databases.
 ::

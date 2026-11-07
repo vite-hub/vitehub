@@ -106,7 +106,7 @@ the CLI.
 
 ```bash [Terminal]
 pnpm build
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 ## Next steps

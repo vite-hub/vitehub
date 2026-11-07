@@ -24,12 +24,7 @@
     "package.json"
   ],
   "type": "module",
-  "sideEffects": [
-    "./dist/drain.js"
-  ],
-  "bin": {
-    "vitehub-drain": "./dist/drain.js"
-  },
+  "sideEffects": false,
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
@@ -41,6 +36,11 @@
       "types": "./dist/h3.d.ts",
       "import": "./dist/h3.js",
       "default": "./dist/h3.js"
+    },
+    "./internal/drain": {
+      "types": "./dist/internal/drain.d.ts",
+      "import": "./dist/internal/drain.js",
+      "default": "./dist/internal/drain.js"
     },
     "./internal/execution-budget": {
       "types": "./dist/internal/execution-budget.d.ts",

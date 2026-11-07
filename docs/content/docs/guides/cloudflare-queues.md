@@ -128,7 +128,7 @@ To check the Cloudflare output, build the app and inspect discovery and the gene
 ```bash [Terminal]
 pnpm build
 pnpm vitehub inspect definitions --kind queue
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 The definitions list must include `welcome-email`. `.output/server/wrangler.json` must contain the `queues.producers` and `queues.consumers` entries. To run the built Worker and its Cloudflare batches on your machine, start it with Wrangler:

@@ -62,7 +62,7 @@ function writeGenerateUsage(context: ViteHubCliContext): void {
 
 function writeMigrateUsage(context: ViteHubCliContext): void {
   context.stdout.write([
-    "Usage: vitehub db migrate [--dry-run] [--allow-data-loss]",
+    "Usage: vitehub database migrate [--dry-run] [--allow-data-loss]",
     "",
     "Refreshes ViteHub database artifacts and applies pending Drizzle migrations.",
     "It first reads the applied migrations from the database. It refuses pending",
@@ -82,7 +82,7 @@ function writeExportUsage(context: ViteHubCliContext): void {
     `Usage: ${exportUsage}`,
     "",
     "Writes a SQL dump of each database, or of the one that `--database` names.",
-    "Without `--remote`, it reads the local SQLite file that `vitehub db migrate` uses.",
+    "Without `--remote`, it reads the local SQLite file that `vitehub database migrate` uses.",
     "SQLite, libSQL, and D1 dumps use the format of `wrangler d1 export`.",
     "",
     "Options:",
@@ -98,9 +98,9 @@ function writeExportUsage(context: ViteHubCliContext): void {
   ].join("\n"))
 }
 
-const generateUsage = "vitehub db generate [--name <name>] [--custom [--schema-snapshot]]"
+const generateUsage = "vitehub database generate [--name <name>] [--custom [--schema-snapshot]]"
 
-const exportUsage = "vitehub db export [--remote] [--stage <name>] [--database <name>] [--output <file>]"
+const exportUsage = "vitehub database export [--remote] [--stage <name>] [--database <name>] [--output <file>]"
 
 interface ExportArgs {
   database?: string
@@ -371,7 +371,7 @@ async function checkPendingMigrations(
     : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDb()`." }), undefined]
   if (error) {
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)
-    if (!dryRun) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub db migrate --allow-data-loss`.\n")
+    if (!dryRun) context.stderr.write("[vitehub] To apply the migrations without the check, run `vitehub database migrate --allow-data-loss`.\n")
     return 1
   }
   if (dryRun) writeMigrationPlan(plan, context)
@@ -398,7 +398,7 @@ async function migrateD1Database(database: ResolvedDrizzleDatabaseConfig, projec
   return 0
 }
 
-/** libSQL does not create parent directories, so the first `db migrate` needs the local data directory to exist. */
+/** libSQL does not create parent directories, so the first `database migrate` needs the local data directory to exist. */
 async function ensureLocalSqliteDirectory(database: ResolvedDrizzleDatabaseConfig, projectRoot: string, context: ViteHubCliContext) {
   if (database.cloudflare?.http && database.cloudflare.databaseId) return
   const url = resolveConfigValue(database.connection?.url, context.env ?? process.env)
@@ -409,7 +409,7 @@ async function ensureLocalSqliteDirectory(database: ResolvedDrizzleDatabaseConfi
 }
 
 // drizzle-kit generate catches schema load and diff errors, logs them with console.error, and exits 0.
-// This preload turns a logged Error into a non-zero exit code so `vitehub db generate` cannot report success.
+// This preload turns a logged Error into a non-zero exit code so `vitehub database generate` cannot report success.
 const drizzleKitFailOnLoggedError = [
   "const logError = console.error",
   "console.error = function (...args) {",
@@ -482,7 +482,7 @@ export function createDbCliContributor(
         }
         return await runDrizzleKit("migrate", args, context, getConfig)
       },
-      usage: "vitehub db migrate [--dry-run] [--allow-data-loss]",
+      usage: "vitehub database migrate [--dry-run] [--allow-data-loss]",
     })
   }
 
@@ -505,7 +505,7 @@ export function createDbCliContributor(
     namespaces: [{
       description: "Database development workflows.",
       features,
-      name: "db",
+      name: "database",
     }],
   } satisfies SharedViteHubCliContributor
 }

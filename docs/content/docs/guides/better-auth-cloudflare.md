@@ -77,8 +77,8 @@ Read [Keep users in the app Database](/docs/auth/configure#keep-users-in-the-app
 ### Generate the migration
 
 ```bash [Terminal]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
 `generate` writes the SQL of the Better Auth tables to `server/databases/migrations/`. `migrate` applies it to the local SQLite file that development uses. `pnpm vitehub inspect definitions --kind database` lists the tables with `@vite-hub/auth/vite` as their plugin.
@@ -183,7 +183,7 @@ Store `GITHUB_CLIENT_SECRET` and `VITEHUB_SECRET` as Worker secrets with `wrangl
 ## Limits worth knowing
 
 - D1 allows 50 queries for each Worker invocation on Workers Free, and 1,000 on Workers Paid. A database can hold 500 MB on Workers Free and 10 GB on Workers Paid. Read [D1 limits](https://developers.cloudflare.com/d1/platform/limits/).
-- Wrangler applies D1 migrations, not `vitehub db migrate`. Run `wrangler d1 migrations apply` after each schema change, before the new Worker serves traffic.
+- Wrangler applies D1 migrations, not `vitehub database migrate`. Run `wrangler d1 migrations apply` after each schema change, before the new Worker serves traffic.
 - `session.onRefresh` needs a Better Auth `database` or `secondaryStorage` adapter. With `stateless()`, Auth fails with `AUTH_C0042`.
 - A `stateless()` session cookie holds the user and the provider tokens. Large provider tokens can exceed browser or proxy header limits.
 - Rotating `VITEHUB_SECRET` signs out every session.

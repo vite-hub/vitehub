@@ -121,7 +121,7 @@ Use the build script from Installation, then inspect the discovered Definition a
 ```bash [commands/inspect]
 pnpm build
 pnpm vitehub inspect definitions --kind queue
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 The definitions list must include `welcome-email`. Nitro writes the Worker configuration to `.output/server/wrangler.json`; check its `queues.producers` and `queues.consumers` entries. ViteHub derives the physical queue name from the app name and Definition name.

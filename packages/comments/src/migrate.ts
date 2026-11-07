@@ -85,7 +85,7 @@ function postgresCurrent(): string[] {
 }
 
 /**
- * The SQL of a migration, to put in a custom migration file: `vitehub db generate --custom`, or
+ * The SQL of a migration, to put in a custom migration file: `vitehub database generate --custom`, or
  * `wrangler d1 execute --file`. `from: "live"` moves the live-site tables of SQLite, libSQL, or D1 to one model;
  * `from: "outdated"` adds the columns of this version, on SQLite or Postgres. Run each SQL once. `migrateComments()`
  * reads the Database first, so it can run on every deploy.

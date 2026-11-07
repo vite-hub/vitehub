@@ -139,7 +139,7 @@ export default defineAuth(({ requestOrigin }) => ({
 }))
 ```
 
-The plugins store keys, clients, and tokens in the `jwks` and `oauth*` tables. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) adds them to the app Database with the other Better Auth tables, so `vitehub db generate` writes their migration.
+The plugins store keys, clients, and tokens in the `jwks` and `oauth*` tables. [`authDatabase()`](/docs/auth/configure#keep-users-in-the-app-database) adds them to the app Database with the other Better Auth tables, so `vitehub database generate` writes their migration.
 
 Better Auth sends a signed-out person to `loginPage`, and a signed-in person to `consentPage`, which defaults to `loginPage`. By default, `loginPage` is the built-in `/_vitehub/sign-in` page next to the resource. It signs the person in with email and password, when `emailAndPassword` is on, or with the social providers of the Auth. Then it shows the client name and asks the person to allow or deny it.
 

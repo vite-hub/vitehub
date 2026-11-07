@@ -531,20 +531,20 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     const saved = await posts.save("hello", hello)
     await content.publish({ expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
 
-    const unconfirmed = await cli(content).run("rm", "posts", "hello", "--json")
+    const unconfirmed = await cli(content).run("delete", "posts", "hello", "--json")
     expect(JSON.parse(unconfirmed.stdout)).toMatchObject({ error: { code: "CONTENT_DELETE_UNCONFIRMED" } })
-    const declined = await cli(content, { confirm: async () => false }).run("rm", "posts", "hello")
+    const declined = await cli(content, { confirm: async () => false }).run("delete", "posts", "hello")
     expect(declined).toMatchObject({ code: 1, stderr: "Delete posts/hello from the draft. The next publish deletes it from the site.\nDelete cancelled.\n" })
     expect(await posts.get("hello", { ref: "draft" })).not.toBeNull()
 
     const confirm = vi.fn(async () => true)
-    const deleted = await cli(content, { confirm }).run("rm", "posts", "hello")
+    const deleted = await cli(content, { confirm }).run("delete", "posts", "hello")
     expect(confirm).toHaveBeenCalledWith("Delete? [y/N] ")
     expect(deleted).toMatchObject({ code: 0, stdout: "Deleted posts/hello from the draft. Publish to delete it from the site.\n" })
     expect(await posts.get("hello", { ref: "draft" })).toBeNull()
     expect(await posts.get("hello", { ref: "published" })).toMatchObject({ data: { title: "Hello" } })
     expect(await posts.status("hello")).toMatchObject({ state: "deleted" })
-    expect((await cli(content).run("rm", "posts", "hello", "--yes")).stderr).toContain("exists on neither draft")
+    expect((await cli(content).run("delete", "posts", "hello", "--yes")).stderr).toContain("exists on neither draft")
   })
 
   it("restores a document from an earlier revision as a draft", async () => {
@@ -757,10 +757,10 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     expect(help.code).toBe(0)
     expect(help.stdout).toContain("Usage: vitehub content publish [--collection <name>] [--id <id>...] [--message <text>] [--dry-run] [--yes] [--json] [--url <url>]")
     expect(help.stdout).toContain("With --url it calls a deployed app")
-    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, rm, restore, publish, schedule, scheduled, unschedule, sitemap\n")
+    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, delete, restore, publish, schedule, scheduled, unschedule, sitemap\n")
     const [namespace] = createContentCliContributor().namespaces
     expect(namespace?.name).toBe("content")
-    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "list", "show", "status", "diff", "revisions", "edit", "rm", "restore", "publish", "schedule", "scheduled", "unschedule", "sitemap"])
+    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "list", "show", "status", "diff", "revisions", "edit", "delete", "restore", "publish", "schedule", "scheduled", "unschedule", "sitemap"])
   })
 })
 

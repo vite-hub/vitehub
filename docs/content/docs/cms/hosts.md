@@ -32,6 +32,6 @@ Provision creates the same Database and Blob resources that it creates without t
 - **Cloudflare.** An R2 bucket, plus a D1 database once you name one, for example with `vitehub({ database: { driver: 'd1', databaseName: 'content' } })`.
 - **Vercel.** A Blob store. See [Select a hosted database for Vercel](/docs/database/hosts#select-a-hosted-database-for-vercel).
 
-The hosted Database needs the preset's tables before the first save. Apply the migrations from `vitehub db generate` in your deployment workflow, as [Database hosts](/docs/database/hosts) describes for each provider.
+The hosted Database needs the preset's tables before the first save. Apply the migrations from `vitehub database generate` in your deployment workflow, as [Database hosts](/docs/database/hosts) describes for each provider.
 
 To set the connection URL or Cloudflare D1 options of the Database yourself, [take over the Database](/docs/cms/configure#take-over-the-database).

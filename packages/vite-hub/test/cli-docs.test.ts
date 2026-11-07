@@ -95,8 +95,8 @@ describe("CLI documentation contract", () => {
       viteHubTaskPlugin(),
       // The task plugin contributes these only for an app that has tasks.
       { vitehub: { operations: [{ export: "taskOperations", load: async () => taskOperations, module: "vite-hub/_internal/task/operations" }] } },
-      // The Console plugin contributes every Console operation; the reference documents the Database ones.
-      { vitehub: { operations: [{ export: "consoleOperations", load: async () => consoleOperations.filter((operation) => operation.name.startsWith("databases.")), module: "vite-hub/console/server" }] } },
+      // The Console plugin contributes every Console operation; the reference documents the Database ones and `agent usage`.
+      { vitehub: { operations: [{ export: "consoleOperations", load: async () => consoleOperations.filter((operation) => operation.name.startsWith("databases.") || operation.name === "usage.get"), module: "vite-hub/console/server" }] } },
       typesPlugin,
     ];
     const loadConfig = async () => ({ plugins, root: repoRoot });
@@ -125,7 +125,7 @@ describe("CLI documentation contract", () => {
     }
 
     const projectCommands = helpNames(rootHelp.output().split("Available namespaces:\n", 1)[0]!, "Project:");
-    expect(projectCommands).toEqual(["catalog", "status"]);
+    expect(projectCommands).toEqual(["catalog", "status", "drain"]);
     expect(documentedProjectCommands()).toEqual([...projectCommands].sort());
     expect(documentedNamespaces()).toEqual([...namespaces].sort());
     expect(documentedCommands()).toEqual(commands.sort());

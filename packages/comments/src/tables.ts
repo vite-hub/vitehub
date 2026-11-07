@@ -1,6 +1,6 @@
 /**
  * The tables of `commentsSchema` as SQLite statements that are safe to run on every start. A database that Comments
- * opens itself gets them on first use; a ViteHub Database gets the same tables from `vitehub db generate` instead.
+ * opens itself gets them on first use; a ViteHub Database gets the same tables from `vitehub database generate` instead.
  * A database that still has the tables of the live-site model needs `migrateComments()` first; `installComments()`
  * runs it with `schema: "comments"`.
  */

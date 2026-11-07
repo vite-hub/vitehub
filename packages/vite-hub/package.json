@@ -28,7 +28,6 @@
     "directory": "packages/vite-hub"
   },
   "bin": {
-    "vite-hub": "./dist/bin.js",
     "vitehub": "./dist/bin.js"
   },
   "files": [

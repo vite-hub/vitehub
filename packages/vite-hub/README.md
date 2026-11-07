@@ -103,7 +103,7 @@ vitehub({
 
 See [Runtime and host support](https://vitehub.dev/docs/frameworks-hosts/support-matrix) for the providers, limitations, and proof available on each host.
 
-Discovered Database Definitions do not enable Database. Without `database`, importing `vite-hub/database/drizzle` or `@vite-hub/database/drizzle` fails the build, and `vitehub db` reports that Database is disabled. A directly composed `hubDb()` still provides Database.
+Discovered Database Definitions do not enable Database. Without `database`, importing `vite-hub/database/drizzle` or `@vite-hub/database/drizzle` fails the build, and `vitehub database` reports that Database is disabled. A directly composed `hubDb()` still provides Database.
 
 If an enabled capability is not supported by the preset, the build fails. You can instead configure an explicit Blob driver through `blob` or compose an owner package directly when the application provides its own portable implementation.
 
@@ -154,7 +154,7 @@ Start `vite dev`, then run the task from another terminal. The task runs in the 
 
 ```sh
 pnpm vitehub task list
-pnpm vitehub task run db:seed --payload '{"title":"First note"}' --yes
+pnpm vitehub task run db:seed '{"title":"First note"}' --yes
 ```
 
 `vitehub inspect definitions --kind task` lists the task files without a running server. Read the [CLI guide](https://vitehub.dev/docs/development/cli#run-app-tasks) for payload options and limits.

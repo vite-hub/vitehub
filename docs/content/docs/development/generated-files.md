@@ -54,7 +54,7 @@ Run a production build first.
 
 ```bash [Terminal]
 pnpm build
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 List the files under `.vitehub` after Vite startup or a build. The exact set

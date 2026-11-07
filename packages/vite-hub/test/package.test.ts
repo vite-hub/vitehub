@@ -415,10 +415,9 @@ describe("framework package contract", () => {
     expect(unclassified.sort()).toEqual([]);
   });
 
-  it("ships every declared export and both CLI names", () => {
+  it("ships every declared export and the one vitehub bin", () => {
     expect(manifest.exports).not.toHaveProperty("./bin");
     expect(manifest.bin).toEqual({
-      "vite-hub": "./dist/bin.js",
       vitehub: "./dist/bin.js",
     });
 
@@ -942,7 +941,7 @@ describe("framework package contract", () => {
     }
   });
 
-  it("runs both distributed CLI entrypoints with clean help streams", async () => {
+  it("runs the distributed CLI entrypoint with clean help streams", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-bin-"));
     try {
       const keepAlive = join(root, "keep-alive.mjs");
@@ -960,11 +959,7 @@ export default { plugins: [{ name: "large-cli-help", vitehub: { cli: { namespace
         ),
         writeFile(keepAlive, "setInterval(() => {}, 60_000)\n"),
       ]);
-      const entrypoints = [
-        `${packageRoot}/${manifest.bin.vitehub}`,
-        `${repoRoot}/packages/cli/dist/index.js`,
-      ];
-      for (const entrypoint of entrypoints) {
+      for (const entrypoint of [`${packageRoot}/${manifest.bin.vitehub}`]) {
         const { stderr, stdout } = await execFileAsync(process.execPath, [entrypoint, "--help"], {
           cwd: root,
           env: {
@@ -995,7 +990,7 @@ export default { plugins: [{ name: "large-cli-help", vitehub: { cli: { namespace
       ]);
 
       await expect(
-        execFileAsync(process.execPath, [`${repoRoot}/packages/cli/dist/index.js`], {
+        execFileAsync(process.execPath, [`${packageRoot}/${manifest.bin.vitehub}`], {
           cwd: root,
           env: {
             ...process.env,
@@ -1012,7 +1007,6 @@ export default { plugins: [{ name: "large-cli-help", vitehub: { cli: { namespace
 
   it("derives deduplicated binary entries from the package manifest", () => {
     expect(distributionBinEntries).toEqual({
-      "vite-hub": "src/bin.ts",
       vitehub: "src/bin.ts",
     });
     expect(distributionEntriesFromManifest(manifest.bin)).toEqual(["src/bin.ts"]);

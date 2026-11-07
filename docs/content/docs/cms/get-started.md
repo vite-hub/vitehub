@@ -62,11 +62,11 @@ When `server/content.ts` selects the preset, `vitehub()` turns on `workspace`, `
 ## Create the tables
 
 ```bash [commands/migrate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
-`db generate` writes a migration with the five `workspace_history_*` tables and the editor sessions table to `server/databases/migrations/`. `db migrate` applies it to the local Database, `.vitehub/data/database/sqlite.db` by default.
+`database generate` writes a migration with the five `workspace_history_*` tables and the editor sessions table to `server/databases/migrations/`. `database migrate` applies it to the local Database, `.vitehub/data/database/sqlite.db` by default.
 
 The app has no Database Definition, so the tables go to the implicit `default` Database. To configure it yourself, see [Take over the Database](/docs/cms/configure#take-over-the-database).
 

@@ -9,7 +9,7 @@ icon: i-lucide-terminal-square
 The ViteHub CLI loads the local Vite config and collects package-contributed command namespaces.
 Each invocation resolves each active plugin's CLI contributor once and uses its command namespaces and Provision Steps together. A later invocation resolves fresh contributions.
 Commands stay owned by the package that understands the workflow, while `vitehub` gives agents and developers one predictable entry point.
-The official [`vite-hub` package on npm](https://www.npmjs.com/package/vite-hub) publishes both `vitehub` and `vite-hub` binaries.
+The official [`vite-hub` package on npm](https://www.npmjs.com/package/vite-hub) publishes one binary, `vitehub`.
 
 CLI discovery and middleware stages load the application's Vite configuration without installing the development invocation route. Console routes remain configured, and `vite dev` keeps its development invocation endpoint inside the reserved `/_vitehub/agent` namespace. The Console catch-all and an application fallback may enclose this endpoint; exact, parameterized, and wildcard routes still conflict. User-configured routes keep strict conflict checks. The first SSR import can load the generated Agent registry before server internals finish initializing; registry refreshes still reset discovered public URL names.
 
@@ -24,12 +24,11 @@ pnpm add vite-hub
 pnpm vitehub --help
 ```
 
-Libraries and advanced integrations that do not use the framework distribution
-can install `@vite-hub/cli` directly.
+`@vite-hub/cli` is the command runner that the `vitehub` binary uses. It has no binary of its own.
 
 Expected help lists available namespaces.
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
-The Agent Package contributes `agent`, `channels`, and `conversations` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Rate Limit contributes `rate-limit` when `hubRateLimit()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, `decisions`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `decisions` and `sandbox` do not load the project config. `sandbox` also runs in a deployed container without Vite.
+The Agent Package contributes `agent`, `channels`, and `conversations` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `database` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Rate Limit contributes `rate-limit` when `hubRateLimit()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, `decisions`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `decisions` and `sandbox` do not load the project config. `sandbox` also runs in a deployed container without Vite.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -38,6 +37,7 @@ Usage: vitehub <namespace> <feature> [args...]
 Project:
   catalog     List every ViteHub feature and how each host supports it. Needs no project.
   status      Show the host, the enabled features, and what each one still needs. Reads the config without running it.
+  drain       Drain a running Node server before it stops, for systemd ExecStop. Needs no project.
 
 Available namespaces:
   workspace   Workspace development workflows and retained history.
@@ -48,7 +48,7 @@ Available namespaces:
   conversations  Export Channel conversations.
   content     Inspect, edit, delete, restore, publish, and schedule Content documents in the running dev server or a deployed app.
   cms         Inspect the CMS roles and their permissions.
-  db          Database development workflows.
+  database    Database development workflows.
   kv          Read and write keys of the KV stores of the app, on the dev server or on a deployed app.
   queue       List Queue Definitions and send a job to one.
   rate-limit  Read and reset Rate Limit counters of the app, on the dev server or on a deployed app.
@@ -71,6 +71,7 @@ Available namespaces:
 | --- | --- | --- | --- |
 | `vitehub catalog` | Available | ViteHub CLI | List every feature and how each host supports it. Does not load the project config. |
 | `vitehub status` | Available | ViteHub CLI | Show the host, the enabled features, and what each one still needs. Does not load the project config. |
+| `vitehub drain` | Available | ViteHub CLI | Drain a running Node server before it stops, for systemd `ExecStop`. Does not load the project config. |
 | `vitehub agent eval` | Opt-in tooling | Agent Package | Run discovered Agent Evals through ViteHub defaults. |
 | `vitehub agent codex-home` | Available | Agent Package | Inspect or manage the Agent Codex home. |
 | `vitehub agent info` | Available | Agent Package | Inspect resolved Agent metadata through a running Vite Development Server. |
@@ -81,11 +82,10 @@ Available namespaces:
 | `vitehub blob head` | Available | Blob Package | Show the metadata of one blob. |
 | `vitehub blob get` | Available | Blob Package | Download one blob (up to 8 MiB) to a file or to stdout, byte for byte. |
 | `vitehub blob put` | Available | Blob Package | Upload one file as a blob and print what changed. |
-| `vitehub blob del` | Available | Blob Package | Delete one blob and print what changed. |
+| `vitehub blob delete` | Available | Blob Package | Delete one blob and print what changed. |
 | `vitehub blob media` | Available | Blob Package | Show the media record of one blob: dimensions, hash, alt text, focal point, and crops. |
 | `vitehub blob variants` | Available | Blob Package | List the cached image variants of one blob. |
-| `vitehub channels export` | Available | Agent Package | Alias for `conversations export`: export one conversation as Markdown or JSON, with optional attachments. |
-| `vitehub conversations export` | Available | Agent Package | Export one conversation as Markdown or JSON, to stdout or to a directory with its attachments. `channels export` is the same command. |
+| `vitehub conversations export` | Available | Agent Package | Export one conversation as Markdown or JSON, to stdout or to a directory with its attachments. |
 | `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments with the webhook secret. It writes the same archive as `conversations export --format json --output`. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
 | `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent from a development server or authenticated Console. |
@@ -96,7 +96,7 @@ Available namespaces:
 | `vitehub content diff` | Available | Content Package | Print a unified diff of one document from published to draft. |
 | `vitehub content revisions` | Available | Content Package | List the revisions of one document, newest first. |
 | `vitehub content edit` | Available | Content Package | Edit one draft in `$EDITOR` or save it from a file. Honours edit leases unless `--override-lease`. |
-| `vitehub content rm` | Available | Content Package | Delete one draft after confirmation, pinned to its digest. The next publish deletes it from the site. |
+| `vitehub content delete` | Available | Content Package | Delete one draft after confirmation, pinned to its digest. The next publish deletes it from the site. |
 | `vitehub content restore` | Available | Content Package | Save the version of a document from `--revision` as its draft, pinned to the draft digest that it read. Publishes nothing. |
 | `vitehub content publish` | Available | Content Package | Publish the listed draft documents in one revision after confirmation, pinned to their digests. |
 | `vitehub content schedule` | Available | Content Package | Publish the listed draft documents at a later time, pinned to their digests. |
@@ -111,20 +111,17 @@ Available namespaces:
 | `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
 | `vitehub secret derive` | Available | Env Package | Print the secret derived from `VITEHUB_SECRET` for one purpose. |
 | `vitehub email outbox` | Available | Email Package | List, show, or clear the messages that the development outbox captured, on the dev server or with `--url`. |
-| `vitehub email outbox-list` | Available | Email Package | Run `email.outbox-list` and print JSON. `vitehub email outbox list` prints a table. |
-| `vitehub email outbox-show` | Available | Email Package | Run `email.outbox-show <id>` and print JSON. |
-| `vitehub email outbox-clear` | Available | Email Package | Run `email.outbox-clear`, which removes every captured message, and print JSON. Asks for `--yes`. |
 | `vitehub email preview` | Available | Email Package | Render a `server/emails` template without sending it. Needs no server. |
-| `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
-| `vitehub db migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
-| `vitehub db export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
-| `vitehub db tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
-| `vitehub db rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
+| `vitehub database generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
+| `vitehub database migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
+| `vitehub database export` | Available | Database Package | Write a SQL dump of the local SQLite file, or of the deployed database with `--remote`. |
+| `vitehub database tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
+| `vitehub database rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
 | `vitehub kv list` | Available | KV Package | List the keys of one KV store, one page at a time. |
 | `vitehub kv get` | Available | KV Package | Print the value of one key. |
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
 | `vitehub kv set` | Available | KV Package | Write the value of one key and print what changed. |
-| `vitehub kv del` | Available | KV Package | Delete one key and print what changed. |
+| `vitehub kv delete` | Available | KV Package | Delete one key and print what changed. |
 | `vitehub rate-limit peek` | Available | Rate Limit Package | Show the counter of one key without consuming a token. |
 | `vitehub rate-limit reset` | Available | Rate Limit Package | Delete the counter of one key, where the provider supports it. |
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
@@ -137,7 +134,7 @@ Available namespaces:
 | `vitehub queue jobs` | Available | Queue Package | List, show, retry, or clear stored jobs in development or on a Node server with the local provider. Supports `--json` and `--url`. Clearing jobs asks for confirmation, or needs `--yes` without a terminal. |
 | `vitehub task list` | Available | ViteHub Framework | List the Nitro tasks that the app registers. |
 | `vitehub task run` | Available | ViteHub Framework | Run one Nitro task, such as a seed or a backfill, with the app's bindings. |
-| `vitehub usage` | Available | ViteHub Framework | Read token use and cost of Agent Invocations over a time window. |
+| `vitehub agent usage` | Available | ViteHub Framework | Read token use and cost of Agent Invocations over a time window. |
 | `vitehub sandbox check` | Available | Sandbox Package | Start the provider Driver through the SSH runner and report readiness. |
 | `vitehub sandbox serve` | Available | Sandbox Package | Serve authenticated SSH commands from this machine. With `--drain-timeout <ms>` or `VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS`, SIGTERM and SIGINT stop new connections and wait up to that time for open ones to close. |
 | `vitehub workflow start` | Available | Workflow Package | Start a discovered Workflow in the local development runtime. |
@@ -150,7 +147,7 @@ Available namespaces:
 | `vitehub workspace show` | Available | Workspace Package | Show one revision and its files, or print one file as it was in that revision. |
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub inspect definitions` | Available | ViteHub CLI plus package inspection contributors | List the Definitions that each active package discovered. |
-| `vitehub inspect provider-output` | Available | ViteHub CLI plus package inspection contributors | List generated Provider Output files with secrets redacted. |
+| `vitehub inspect output` | Available | ViteHub CLI plus package inspection contributors | List generated Provider Output files with secrets redacted. |
 | `vitehub provision run` | Available | ViteHub CLI plus package Provision Steps | Create missing provider resources idempotently. |
 | `vitehub provision status` | Available | ViteHub CLI plus package Provision Steps | Inspect the latest provider provisioning result. |
 
@@ -192,7 +189,7 @@ pnpm vitehub blob head avatars/ada.png
 pnpm vitehub blob get avatars/ada.png --output ./ada.png
 pnpm vitehub blob get reports/2026.csv > report.csv
 pnpm vitehub blob put avatars/ada.png ./ada.png --content-type image/png
-pnpm vitehub blob del avatars/ada.png
+pnpm vitehub blob delete avatars/ada.png
 pnpm vitehub blob media avatars/ada.png
 pnpm vitehub blob variants avatars/ada.png --json
 ```
@@ -219,7 +216,7 @@ The operations carry a file as base64 in a JSON call, so `put` accepts files up 
 
 Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with `--json`. The commands do not print object URLs, because a signed URL can carry credentials. `media` prints the record's served route URL, which carries none. Metadata values under secret names, such as `token`, are redacted, as the Console Blob page does.
 
-The operations are `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, and `blob.variants`, in the `blob` Console section. They run in the Nitro runtime, which owns the Blob storage, and answer through the Console RPC, so a person or an agent needs access to the `blob` section. `blob.put` writes and `blob.del` is destructive. `vitehub blob del` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). The Console Blob page uploads and deletes objects with the same operations.
+The operations are `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, and `blob.variants`, in the `blob` Console section. They run in the Nitro runtime, which owns the Blob storage, and answer through the Console RPC, so a person or an agent needs access to the `blob` section. `blob.put` writes and `blob.del` is destructive. `vitehub blob delete` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). The Console Blob page uploads and deletes objects with the same operations.
 
 ## Inspect the Email development outbox
 
@@ -233,7 +230,7 @@ pnpm vitehub email outbox clear
 
 Use `--json` for machine-readable output. The outbox is available only in `vite dev` and is cleared when the server restarts. Use `vitehub email preview <template>` to render a `server/emails` template without sending it.
 
-The commands run the `email.outbox-list`, `email.outbox-show`, and `email.outbox-clear` operations in the `email` Console section, so a person or an agent needs access to that section. `email.outbox-clear` is destructive. `vitehub email outbox clear` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). `email.preview` renders a template through the same RPC, and the written `vitehub email preview` command renders it in your terminal instead, so it works without a server. The operations also appear as the generated commands `vitehub email outbox-list`, `outbox-show`, and `outbox-clear`, which print JSON.
+The commands run the `email.outbox-list`, `email.outbox-show`, and `email.outbox-clear` operations in the `email` Console section, so a person or an agent needs access to that section. `email.outbox-clear` is destructive. `vitehub email outbox clear` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). `email.preview` renders a template through the same RPC, and the written `vitehub email preview` command renders it in your terminal instead, so it works without a server. The operations also appear as the generated commands `vitehub email outbox list`, `outbox-show`, and `outbox-clear`, which print JSON.
 
 ## Read and reset Rate Limit counters
 
@@ -290,12 +287,12 @@ Rate Limits (rate-limit): 1
 
 `--json` prints `{ "definitions": [{ "kind", "label", "definitions": [...] }] }`. Each Definition has `name`, `file` relative to the project root, `source`, and `fields`. An unknown `--kind` exits with status 1 and lists the available kinds.
 
-`inspect provider-output` lists the Provider Output files that active packages and the deployment preset write, and shows which ones exist. Deployment paths use the preset's default output directory, for example `.output` or `.vercel/output`. Run a production build first to generate deployment output.
+`inspect output` lists the Provider Output files that active packages and the deployment preset write, and shows which ones exist. Deployment paths use the preset's default output directory, for example `.output` or `.vercel/output`. Run a production build first to generate deployment output.
 
 ```bash [Terminal]
 pnpm build
-pnpm vitehub inspect provider-output
-pnpm vitehub inspect provider-output --json
+pnpm vitehub inspect output
+pnpm vitehub inspect output --json
 ```
 
 `--json` includes the parsed content of each JSON file. The CLI redacts values under keys that name secrets, such as `token`, `secret`, `password`, or `apiKey`, every Worker `vars` value, and URLs with embedded credentials. Read [Provider output](/docs/reference/provider-output) for each file's owner and purpose.
@@ -392,22 +389,22 @@ Replay requires the development project token or deployed Console authentication
 The Database commands refresh the discovered Database Definitions before running Drizzle Kit. When every Database is named, ViteHub runs the command once for each generated Drizzle config and stops at the first failure.
 
 ```bash [Terminal]
-pnpm vitehub db generate
-pnpm vitehub db generate --name add-audit-log
-pnpm vitehub db generate --custom --name backfill-state
-pnpm vitehub db generate --custom --schema-snapshot --name move-tables
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database generate --name add-audit-log
+pnpm vitehub database generate --custom --name backfill-state
+pnpm vitehub database generate --custom --schema-snapshot --name move-tables
+pnpm vitehub database migrate
 ```
 
-`db generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. Drizzle Kit copies the previous snapshot into a custom migration, for SQL that changes only data. When the SQL changes the tables to the current Database Definitions, add `--schema-snapshot`: the migration then gets the snapshot of those Definitions, so the next `db generate` has nothing to add. `db migrate` accepts forwarded Drizzle Kit migration arguments.
+`database generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. Drizzle Kit copies the previous snapshot into a custom migration, for SQL that changes only data. When the SQL changes the tables to the current Database Definitions, add `--schema-snapshot`: the migration then gets the snapshot of those Definitions, so the next `database generate` has nothing to add. `database migrate` accepts forwarded Drizzle Kit migration arguments.
 
 ## Export a Database
 
-`db export` writes a SQL dump of each database without a build. It reads the local SQLite file by default. `--remote` reads Cloudflare D1 through the Cloudflare API, D1 HTTP, remote libSQL, or Postgres through `pg_dump`.
+`database export` writes a SQL dump of each database without a build. It reads the local SQLite file by default. `--remote` reads Cloudflare D1 through the Cloudflare API, D1 HTTP, remote libSQL, or Postgres through `pg_dump`.
 
 ```bash [Terminal]
-pnpm vitehub db export
-pnpm vitehub db export --remote --stage production --output backups/database.sql
+pnpm vitehub database export
+pnpm vitehub database export --remote --stage production --output backups/database.sql
 ```
 
 | Option | Description |
@@ -421,16 +418,16 @@ See [Export a database](/docs/database/configure#export-a-database) for each dri
 
 ## Browse Database tables
 
-`db tables` and `db rows` run the `databases.tables` and `databases.browse` [operations](/docs/development/operations) that the Databases section of the Console uses. They read the Database Definitions of the running app, so they work on any driver without a Drizzle Kit config, and they never write.
+`database tables` and `database rows` run the `databases.tables` and `databases.browse` [operations](/docs/development/operations) that the Databases section of the Console uses. They read the Database Definitions of the running app, so they work on any driver without a Drizzle Kit config, and they never write.
 
 ```bash [Terminal]
-pnpm vitehub db tables
-pnpm vitehub db rows users --limit 20 --sort email --direction desc
-pnpm vitehub db rows users --search ada --json
-pnpm vitehub db rows users --database analytics --offset 20 --url https://app.example.com
+pnpm vitehub database tables
+pnpm vitehub database rows users --limit 20 --sort email --direction desc
+pnpm vitehub database rows users --search ada --json
+pnpm vitehub database rows users --database analytics --offset 20 --url https://app.example.com
 ```
 
-`db rows` reads at most 100 rows at a time and cuts a long cell at 32 KiB. `--offset` pages, `--sort <column>` and `--direction asc|desc` order, and `--search <text>` matches any column. Without a table, `db rows` reads the tables only. A table that does not exist fails with `CONSOLE_NOT_FOUND`. `--database` picks a named database. Access needs the `databases` section, and `databases:read` is enough.
+`database rows` reads at most 100 rows at a time and cuts a long cell at 32 KiB. `--offset` pages, `--sort <column>` and `--direction asc|desc` order, and `--search <text>` matches any column. Without a table, `database rows` reads the tables only. A table that does not exist fails with `CONSOLE_NOT_FOUND`. `--database` picks a named database. Access needs the `databases` section, and `databases:read` is enough.
 
 ## Read and write KV keys
 
@@ -443,7 +440,7 @@ pnpm vitehub kv has settings
 pnpm vitehub kv set settings '{"theme":"dark"}' --json-value
 pnpm vitehub kv set session:42 active --ttl 3600
 pnpm vitehub kv set template @./fixtures/template.txt
-pnpm vitehub kv del settings
+pnpm vitehub kv delete settings
 ```
 
 Each write command prints what it changed:
@@ -466,7 +463,7 @@ The KV storage deserializes stored strings that look like JSON, so a string such
 
 Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with `--json`. The commands print values as they are stored and do not redact them, as the Console KV page does. Do not store credentials in keys that you inspect in shared logs.
 
-The operations are `kv.list`, `kv.get`, `kv.has`, `kv.set`, and `kv.del`, in the `kv` Console section. They run in the Nitro runtime, which owns the KV storage, and answer through the Console RPC, so a person or an agent needs access to the `kv` section. `kv.del` is destructive. `vitehub kv del` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). The Console KV page uses the same operations to list keys, show a value, edit it, and delete a key.
+The operations are `kv.list`, `kv.get`, `kv.has`, `kv.set`, and `kv.del`, in the `kv` Console section. They run in the Nitro runtime, which owns the KV storage, and answer through the Console RPC, so a person or an agent needs access to the `kv` section. `kv.del` is destructive. `vitehub kv delete` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). The Console KV page uses the same operations to list keys, show a value, edit it, and delete a key.
 
 
 ## Run a Decision
@@ -532,8 +529,8 @@ Start the app's Vite Development Server, then run the task from another terminal
 
 ```bash [Terminal]
 pnpm vitehub task list
-pnpm vitehub task run db:seed --payload '{"title":"First note"}' --yes
-pnpm vitehub task run db:seed --payload '{"title":"First note","count":3}' --json --yes
+pnpm vitehub task run db:seed '{"title":"First note"}' --yes
+pnpm vitehub task run db:seed '{"title":"First note","count":3}' --json --yes
 pnpm vitehub task run db:seed --url https://app.example.com --yes
 ```
 
@@ -550,7 +547,7 @@ pnpm vitehub task run db:seed --url https://app.example.com --yes
 }
 ```
 
-- `--payload <json>` sets the payload from a JSON object. Without it the payload is `{}`.
+- The argument after the task name is the payload, a JSON object. Without it the payload is `{}`. `--input '{"name":"db:seed","payload":{...}}'` or `--input @file.json` passes the whole input.
 - The command prints the name, the time it took in `durationMs`, and the `result` field that `run()` returns. A task that throws makes the command exit with status 1 and the code `TASK_FAILED`. The message goes to stderr, or into `{ "error": { "code", "message", "fix" } }` with `--json`, and the server log shows the stack.
 - A name that no task has fails with `TASK_NOT_FOUND`. A task file without `run()` fails with `TASK_NOT_IMPLEMENTED`.
 - Nitro runs at most one instance of a task name at a time in one server. A second run of the same task while the first is active gets the result of the first run.
@@ -593,7 +590,7 @@ The generated commands need the Console RPC. `vitehub()` installs it, and standa
 
 An operation that runs code of the app, `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, and `schedule.run`, is registered only when `console.invoke` is on. That is the default in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
 
-The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|del`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub project info`, `vitehub search query`, `vitehub sections list`, `vitehub usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
+The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|delete`, `vitehub database tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub project info`, `vitehub search query`, `vitehub sections list`, `vitehub agent usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
 
 | Option | Use it for |
 | --- | --- |
@@ -762,10 +759,10 @@ pnpm vitehub agent dev --agent support --prompt "/summary"
 pnpm vitehub agent dev --agent support -p "/summary"
 ```
 
-Use `--payload` when the invocation needs event input that would normally come from a Channel, route, webhook, or app transport.
-The file can live anywhere in the app, but colocating it as `server/agents/<agent>/dev.payload.json` keeps local fixtures next to the Agent Definition without making them part of production behavior.
+Use `--input` when the invocation needs event input that would normally come from a Channel, route, webhook, or app transport.
+Pass the JSON object inline, or `@<file>` to read it from a file. The file can live anywhere in the app, but colocating it as `server/agents/<agent>/dev.payload.json` keeps local fixtures next to the Agent Definition without making them part of production behavior.
 It must contain one JSON object shaped for the selected Agent Trigger.
-For non-chat triggers, pass `--trigger` and shape the file for that trigger instead of Agent Invocation Context Values.
+For non-chat triggers, pass `--trigger` and shape the object for that trigger instead of Agent Invocation Context Values.
 
 ```json [server/agents/support/dev.payload.json]
 {
@@ -783,8 +780,9 @@ For non-chat triggers, pass `--trigger` and shape the file for that trigger inst
 ```
 
 ```bash [Terminal]
-pnpm vitehub agent dev --agent support --payload server/agents/support/dev.payload.json
-pnpm vitehub agent dev --agent support --payload server/agents/support/dev.payload.json -p "/summary"
+pnpm vitehub agent dev --agent support --input @server/agents/support/dev.payload.json
+pnpm vitehub agent dev --agent support --input @server/agents/support/dev.payload.json -p "/summary"
+pnpm vitehub agent dev --agent support --input '{"user":{"id":"user_123"}}'
 pnpm vitehub agent dev --agent support --timeout 180000 -p "/summary"
 ```
 
@@ -910,7 +908,7 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 | `Unknown Workspace Dev target` | The named Workspace is not discovered by the running Vite dev server. | Check the Workspace Definition name and make sure `hubWorkspace()` is active. |
 | `Agent Dev Loop command requires workspace.mode: "write"` | A `!` command targeted an Agent without writable Workspace access. | Configure the selected Agent with `workspace: { mode: 'write' }`, or send a normal Agent message instead. |
 | Agent Dev Loop request times out | A streamed invocation emitted no events before the inactivity timeout, or a Capability CLI/Workspace command exceeded its wall-clock deadline. | Pass `--timeout <ms>` for the dev-loop operation or inspect the stalled work. |
-| `Agent Dev Loop payload file must contain a JSON object` | The `--payload` file is not a JSON object. | Replace the file contents with one object shaped for the selected Agent Trigger. |
+| `Agent Dev Loop --input must be a JSON object` | The `--input` value or file is not a JSON object. | Pass one object shaped for the selected Agent Trigger. |
 
 ## Next steps
 
@@ -924,12 +922,12 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 Activate `hubWorkflow()` and start the app's Vite Development Server.
 
 ```bash [Terminal]
-pnpm vitehub workflow start welcome --payload '{"name":"Ada"}'
+pnpm vitehub workflow start welcome '{"name":"Ada"}'
 pnpm vitehub workflow get <runId>
 pnpm vitehub workflow cancel <runId> --yes
-pnpm vitehub workflow resume <token> --payload '{"approved":true}'
+pnpm vitehub workflow resume <token> '{"approved":true}'
 ```
 
-The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/development/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The payload is a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` asks for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `get` and `cancel`. A `console.authorize` grant of `workflows` allows all four; `workflows:read` allows only `get`.
+The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/development/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The argument after the Workflow name or token is the payload, a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` asks for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `get` and `cancel`. A `console.authorize` grant of `workflows` allows all four; `workflows:read` allows only `get`.
 
 Inline runs can be read for five minutes. Inline cancellation, Cloudflare cancellation and resume, and OpenWorkflow resume return unsupported-operation errors. OpenWorkflow starts enqueue work and require a worker to execute it. Resume uses an opaque hook token, not a run ID or signal name. Workflow inspection lists Definitions; this CLI adds no run list, replay, or Console run view.

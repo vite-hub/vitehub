@@ -23,7 +23,7 @@ pnpm vitehub blob list --prefix avatars/
 pnpm vitehub blob head avatars/ada.png --json
 pnpm vitehub blob put avatars/ada.png ./ada.png
 pnpm vitehub blob get avatars/ada.png --output ./copy.png
-pnpm vitehub blob del avatars/ada.png
+pnpm vitehub blob delete avatars/ada.png
 pnpm vitehub blob media avatars/ada.png
 pnpm vitehub blob variants avatars/ada.png
 ```

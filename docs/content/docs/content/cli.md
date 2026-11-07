@@ -32,7 +32,7 @@ The namespace appears when the app has a Content file. Without `--url`, the comm
 | `vitehub content diff <collection> [id]` | Print a unified diff of one document from `published` to `draft`, frontmatter included. |
 | `vitehub content revisions <collection> [id]` | List the revisions that saved, removed, restored, or published one document, newest first. |
 | `vitehub content edit <collection> [id]` | Edit the draft of one document in your editor, or save it from a file. |
-| `vitehub content rm <collection> [id]` | Delete one document from the draft. The next publish deletes it from the site. |
+| `vitehub content delete <collection> [id]` | Delete one document from the draft. The next publish deletes it from the site. |
 | `vitehub content restore <collection> [id] --revision <id>` | Save the version of one document from an earlier revision as its draft. |
 | `vitehub content publish` | Publish the listed draft documents in one revision, exactly as listed. |
 | `vitehub content schedule --at <time>` | Publish the listed draft documents at a later time, exactly as listed. |
@@ -104,7 +104,7 @@ With `--json`, the error is `CONTENT_LEASE_HELD` with `details.holder`. `--overr
 ## Delete and restore
 
 ```bash [Terminal]
-pnpm vitehub content rm posts hello
+pnpm vitehub content delete posts hello
 pnpm vitehub content revisions posts hello
 pnpm vitehub content restore posts hello --revision 01JB8Z7Q4M3T5V2X9K6N8P1R0S
 ```

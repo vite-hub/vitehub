@@ -583,7 +583,7 @@ function saveResult(document: { collection: string, digest: string, id: string, 
 }
 
 const remove = defineOperation({
-  cli: { command: "rm", positional: ["collection", "id"] },
+  cli: { command: "delete", positional: ["collection", "id"] },
   description: "Delete one document from the draft, pinned to the draft digest that you read. The next publish deletes it from the site. Fails while someone else holds the edit lease.",
   input: v.strictObject({
     collection: text,

@@ -213,7 +213,7 @@ export function createContentSessions(options: {
     }
     catch (error) {
       if (!isMissingTable(error)) throw error
-      throw setupError(`Content sessions need the vitehub_content_sessions table in the Database of Workspace ${JSON.stringify(options.workspace)}. Add contentSessionsSchema from 'vite-hub/content/database' to that Database next to workspaceHistorySchema, then run \`vitehub db generate\` and \`vitehub db migrate\`.`)
+      throw setupError(`Content sessions need the vitehub_content_sessions table in the Database of Workspace ${JSON.stringify(options.workspace)}. Add contentSessionsSchema from 'vite-hub/content/database' to that Database next to workspaceHistorySchema, then run \`vitehub database generate\` and \`vitehub database migrate\`.`)
     }
   }
 

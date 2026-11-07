@@ -59,9 +59,9 @@ Generate the migration if your schema has changed. Review the SQL before
 applying it to the new hosted database:
 
 ```bash [Terminal]
-pnpm vitehub db generate
-pnpm vitehub db migrate --dry-run
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate --dry-run
+pnpm vitehub database migrate
 pnpm dev
 ```
 

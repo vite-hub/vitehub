@@ -37,7 +37,7 @@ export default defineDatabase({
 Writes from `vite dev` then change real data. The development server prints `Database "default" is remote` on the first query, and `vitehub inspect definitions --kind database` shows `Development: Remote`.
 ::
 
-The database id comes from `cloudflare.databaseId` or from `vitehub provision run`. ViteHub development never creates a cloud resource. `remote` changes only `vite dev`: builds ignore it, so Cloudflare output keeps its D1 binding and Node output keeps local SQLite. `vitehub db migrate` follows `cloudflare.http`, not `remote`, so it still migrates the local SQLite file.
+The database id comes from `cloudflare.databaseId` or from `vitehub provision run`. ViteHub development never creates a cloud resource. `remote` changes only `vite dev`: builds ignore it, so Cloudflare output keeps its D1 binding and Node output keeps local SQLite. `vitehub database migrate` follows `cloudflare.http`, not `remote`, so it still migrates the local SQLite file.
 
 `cloudflare.http` already makes `vite dev` remote, so `remote: true` is not needed with it. To send queries through a D1 proxy in development, set `cloudflare.http: { url, authToken }`. `remote: false` with `cloudflare.http` fails with [`DATABASE_REMOTE_CONFLICT`](/docs/database/limits-and-errors#database_remote_conflict).
 
@@ -81,7 +81,7 @@ export default defineDatabase({
 
 Production Nuxt builds that use only D1 HTTP do not bundle libSQL or native SQLite libraries. Local SQLite development keeps its local driver.
 
-D1 HTTP also generates Drizzle Kit `d1-http` credentials. `vitehub db migrate` applies D1 HTTP migrations without Drizzle Kit and records them in Wrangler's `d1_migrations` table, so `wrangler d1 migrations apply` sees them too. With `http: true`, migrations call Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID`, the database id, and `CLOUDFLARE_API_TOKEN`; an object-form `http` uses its resolved proxy `url` and `authToken`. Drizzle Kit inspection commands use the Cloudflare API credentials. ViteHub never embeds these credentials in generated output.
+D1 HTTP also generates Drizzle Kit `d1-http` credentials. `vitehub database migrate` applies D1 HTTP migrations without Drizzle Kit and records them in Wrangler's `d1_migrations` table, so `wrangler d1 migrations apply` sees them too. With `http: true`, migrations call Cloudflare's API with `CLOUDFLARE_ACCOUNT_ID`, the database id, and `CLOUDFLARE_API_TOKEN`; an object-form `http` uses its resolved proxy `url` and `authToken`. Drizzle Kit inspection commands use the Cloudflare API credentials. ViteHub never embeds these credentials in generated output.
 
 ::warning
 Cloudflare describes its built-in D1 REST API as best suited to administrative use because the global Cloudflare API rate limit applies. For sustained application traffic, use a narrowly authenticated proxy Worker and validate which queries or tables it may access. See Cloudflare's [D1 proxy Worker guide](https://developers.cloudflare.com/d1/tutorials/build-an-api-to-access-d1/).
@@ -154,7 +154,7 @@ export default defineDatabase({
 
 Create the Hyperdrive configuration for your Neon or other Postgres database with `wrangler hyperdrive create`. Set `cloudflare.hyperdriveId` to its id. Cloudflare output then contains a `hyperdrive` binding named `HYPERDRIVE`, or `HYPERDRIVE_<NAME>` for a Named Database. A generated binding replaces a Nitro Wrangler binding with the same name. Without `cloudflare.hyperdriveId`, add the binding to your Wrangler config yourself, or the Worker connects directly with `connection.url`.
 
-`vitehub db generate` writes Drizzle Kit migrations with `dialect: 'postgresql'` next to the Definition. It does not need a database connection. `vitehub db migrate` applies them with `connection.url`, or with the PG* variables when the URL is empty. Drizzle Kit then needs `PGHOST` and `PGDATABASE`. Run migrations from a deployment workflow, not from the Worker.
+`vitehub database generate` writes Drizzle Kit migrations with `dialect: 'postgresql'` next to the Definition. It does not need a database connection. `vitehub database migrate` applies them with `connection.url`, or with the PG* variables when the URL is empty. Drizzle Kit then needs `PGHOST` and `PGDATABASE`. Run migrations from a deployment workflow, not from the Worker.
 
 For `wrangler dev`, set `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_<BINDING>` to a local Postgres URL. See Cloudflare's [Hyperdrive local development guide](https://developers.cloudflare.com/hyperdrive/configuration/local-development/).
 

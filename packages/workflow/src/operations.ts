@@ -19,7 +19,7 @@ function defineWorkflowOperation<Input, Output>(definition: Omit<OperationDefini
 }
 
 const start = defineWorkflowOperation<{ payload?: unknown, workflow: string }, WorkflowRunResult>({
-  cli: { positional: ["workflow"] },
+  cli: { positional: ["workflow", "payload"] },
   description: "Start a Workflow run by name. The payload is any JSON value.",
   input: v.object({ payload: v.optional(v.unknown()), workflow: name }),
   invoke: true,
@@ -48,7 +48,7 @@ const cancel = defineWorkflowOperation<{ runId: string, workflow?: string }, Wor
 })
 
 const resume = defineWorkflowOperation<{ payload?: unknown, token: string }, WorkflowSignalResult>({
-  cli: { positional: ["token"] },
+  cli: { positional: ["token", "payload"] },
   description: "Resume a Workflow signal with its opaque token. The payload is any JSON value.",
   input: v.object({ payload: v.optional(v.unknown()), token: v.pipe(v.string(), v.check(value => value.trim() !== "", "Pass the signal token.")) }),
   invoke: true,

@@ -230,7 +230,7 @@ A docs site on `vite-hub/nuxt` has ViteHub Comments on every page. The team pins
 pnpm add @vite-hub/comments
 ```
 
-The module sets the `comments` option of `vite-hub/nuxt`, which turns on the Database. Run `vitehub db generate` and `vitehub db migrate` once. No `server/comments.ts` is needed; add one to set `authorize` or `people`.
+The module sets the `comments` option of `vite-hub/nuxt`, which turns on the Database. Run `vitehub database generate` and `vitehub database migrate` once. No `server/comments.ts` is needed; add one to set `authorize` or `people`.
 
 - A thread belongs to the page path, such as `/docs/kv`, so it stays on its page across deploys.
 - Readers see nothing. The overlay loads only with `?vitehub` or the `vitehub-tools` cookie, for people that `authorize` lets read. Without `authorize`, a production build admits the people of the Console's Comments section and people signed in with GitHub who can push to the repository.

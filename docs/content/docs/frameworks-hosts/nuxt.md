@@ -95,7 +95,7 @@ and the preset's production output use the same paths as a Vite application.
 
 ```bash [Terminal]
 find .nuxt/vitehub -maxdepth 4 -type f | sort
-pnpm vitehub inspect provider-output
+pnpm vitehub inspect output
 ```
 
 ## Next steps

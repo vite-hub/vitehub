@@ -40,7 +40,7 @@ console.log(error.toJSON())
 | `AUTH_C0054` | `authDatabase()` needs one statically invariant Database target. Use one unconditional inline call and keep the Database out of runtime overrides. |
 | `AUTH_C0055` | `authDatabase()` has fixed core columns. For `additionalFields` on `user`, `session`, `account`, or `verification`, use another Better Auth adapter and a schema that includes the fields. |
 | `AUTH_C0056` | A plugin adds unsupported columns to an owned Auth table, or a model or field mapping changes its fixed names. Use another Better Auth adapter and a matching schema. |
-| `AUTH_R0019` | `authDatabase()` finds no Better Auth tables in its Database. Write the call inline in `defineAuth()`, enable the Database integration, and run `vitehub db generate`. |
+| `AUTH_R0019` | `authDatabase()` finds no Better Auth tables in its Database. Write the call inline in `defineAuth()`, enable the Database integration, and run `vitehub database generate`. |
 | `AUTH_C####`, `AUTH_B####`, `AUTH_R####` | Missing APIs, malformed responses, invalid Auth Definitions, invalid `authenticated()` configuration, and invalid custom callback results. |
 
 Existing ViteHub errors and structural `AbortError` objects keep their identity.

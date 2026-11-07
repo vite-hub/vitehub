@@ -300,7 +300,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     }
   }
 
-  // `vitehub db generate` passes `strict` so a Definition that cannot load fails instead of dropping tables.
+  // `vitehub database generate` passes `strict` so a Definition that cannot load fails instead of dropping tables.
   async function refreshRuntimeConfig(options: { strict?: boolean } = {}) {
     if (!resolved) return
     runtimeConfig = resolveDBViteConfig(resolvedOptions(), databaseRoot(), {

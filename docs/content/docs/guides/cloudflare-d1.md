@@ -50,7 +50,7 @@ Install Wrangler in the app if it is absent:
 
 ```bash [Terminal]
 pnpm add -D wrangler
-pnpm vitehub db generate
+pnpm vitehub database generate
 pnpm build
 ```
 
@@ -64,7 +64,7 @@ pnpm wrangler d1 migrations apply "$CLOUDFLARE_D1_DATABASE_NAME" \
   --remote --config .output/server/wrangler.json
 ```
 
-Wrangler applies migrations for native bindings. `vitehub db migrate` is not
+Wrangler applies migrations for native bindings. `vitehub database migrate` is not
 the native-binding migration runner. Review each pending migration first.
 
 Deploy with `pnpm exec nitro deploy --prebuilt`. Call the notes POST and GET

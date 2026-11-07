@@ -18,7 +18,7 @@ interface ParsedInspectArgs {
 }
 
 const definitionsUsage = "vitehub inspect definitions [--kind <kind>] [--json]"
-const providerOutputUsage = "vitehub inspect provider-output [--json]"
+const providerOutputUsage = "vitehub inspect output [--json]"
 
 function parseArgs(args: string[], options: { kind: boolean }): ParsedInspectArgs {
   const parsed: ParsedInspectArgs = { help: false, json: false }
@@ -239,7 +239,7 @@ export function createInspectNamespace(plugins: readonly unknown[], operations: 
       },
       {
         description: "List generated Provider Output files with secrets redacted.",
-        name: "provider-output",
+        name: "output",
         run: (args, context) => runProviderOutput(args, context, plugins),
         usage: providerOutputUsage,
       },

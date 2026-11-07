@@ -43,8 +43,8 @@ export default defineComments({
 ## Create the tables
 
 ```bash [commands/migrate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
+pnpm vitehub database generate
+pnpm vitehub database migrate
 ```
 
 ## Read a thread

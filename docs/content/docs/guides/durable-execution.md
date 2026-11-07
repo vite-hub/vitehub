@@ -161,7 +161,7 @@ ViteHub gives the id to the provider. Cloudflare uses it as the instance id, and
 The response of `runWorkflow()` has the run `id` and a `status`. Read the run later with [`getWorkflowRun()`](/docs/workflows/server-api#inspect-a-run), or from the CLI while the dev server runs:
 
 ```bash [Terminal]
-pnpm vitehub workflow start checkout --payload '{"orderId":"order_1042","amountCents":4200,"email":"ada@example.com"}'
+pnpm vitehub workflow start checkout '{"orderId":"order_1042","amountCents":4200,"email":"ada@example.com"}'
 pnpm vitehub workflow get <runId>
 pnpm vitehub inspect definitions --kind workflow
 ```
