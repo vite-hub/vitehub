@@ -16,7 +16,7 @@ The Console sections are Auth, Env, Connections, Agents, Channels, Usage, MCP cl
 
 Console data can contain user prompts, model output, tool activity, Blob metadata, provider metadata, and stored KV values. Protect the Console before making it reachable on a production URL.
 
-### Section pages and URLs
+## Section pages and URLs
 
 A section can have pages next to its main view. Content has a dashboard, a Settings page when it defines a singleton, and, when Blob is enabled, a Media page. Each page has its own URL, so links, reloads, and Back work:
 
@@ -35,7 +35,7 @@ Pages share the access of their section. `{ sections: ['content'] }` in `console
 
 The section sidebar collapses to icons with the button in its header. The Console stores the collapsed state and the sidebar width in the browser.
 
-### Page state in the URL
+## Page state in the URL
 
 Each page keeps its view in the query string, so a reload, a shared link, Back and Forward, and **Open in new tab** in the floating window open the same view. A selection, a tab, or another page of results adds a history entry. Typing a search, choosing a filter, or changing the sort replaces the current entry. A value equal to the default leaves the URL, and the Console ignores a value that it does not know.
 
@@ -57,7 +57,7 @@ Each page keeps its view in the query string, so a reload, a shared link, Back a
 | Skills | `agent`, `path`. |
 | Usage | `window`, `section`, `metric`, `breakdown`, `agent`, `status`, `search`. |
 
-### Search
+## Search
 
 <kbd>⌘</kbd> <kbd>K</kbd> or <kbd>/</kbd> opens search from any Console page.
 
@@ -69,7 +69,7 @@ Each page keeps its view in the query string, so a reload, a shared link, Back a
 
 Items also match aliases, such as `images` for Media and `deploy` for **Publish all changes**. <kbd>Enter</kbd> opens the highlighted item and <kbd>⌘</kbd> <kbd>Enter</kbd> opens it in a new tab. **Publish all changes** opens a list of the changes it will publish; choose **Publish N changes** to publish exactly those drafts, or press <kbd>Backspace</kbd> on an empty query to go back.
 
-### Update ready
+## Update ready
 
 Each build of the Console has an id. The id changes only when the Console catalog or the Console client changes, so a deploy that changes neither keeps it. An open Console compares its id with the deployed one when the tab becomes visible and once a minute. When they differ, **Update ready** shows at the bottom of the rail. Choose it to reload the Console. The sections response returns the deployed id as `build`.
 

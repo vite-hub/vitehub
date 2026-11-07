@@ -1,7 +1,7 @@
 ---
 title: Agent harness
 description: An agent harness runs an AI model as an agent, with tools, files, approvals, and sessions. ViteHub is an open source agent harness for TypeScript.
-seo.title: What is an agent harness? Open source TypeScript harness
+seo.title: What is an agent harness? A TypeScript harness
 navigation.title: Agent harness
 navigation.order: 3
 navigation.group: Start

@@ -1,6 +1,7 @@
 ---
 title: What is durable execution? Steps, retries, replay, and idempotency
-description: Durable execution saves the result of each step, so a failed job continues from the failed step. See a worked example and what ViteHub Workflows store on each host.
+seo.title: "What is durable execution? Steps, retries, replay"
+description: "Durable execution saves the result of each step, so a failed job continues from that step. See an example and what ViteHub Workflows store on each host."
 navigation.title: Durable execution
 navigation.order: 41
 navigation.group: Concepts

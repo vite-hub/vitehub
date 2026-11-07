@@ -5,8 +5,6 @@ import { capabilityReferences, expandCapabilityTools } from "./modules/vitehub-d
 
 export default defineNuxtConfig({
   modules: ["@vite-hub/docs/nuxt", "./modules/vitehub-docs", "./modules/tutorials", "nuxt-schema-org"],
-  // Motion components must use the same Vue runtime as Nuxt's server renderer.
-  build: { transpile: ["motion-v"] },
   docs: {
     site: {
       name: "ViteHub",
@@ -28,11 +26,19 @@ export default defineNuxtConfig({
       ],
     },
     socials: [{ label: "ViteHub on Discord", icon: "i-ph-discord-logo-light", to: "https://chat.vitehub.dev" }],
+    footer: [
+      { label: "About", to: "/about" },
+      { label: "Examples", to: "/examples" },
+      { label: "Contact", to: "/contact" },
+      { label: "Privacy", to: "/privacy" },
+    ],
     banner: "ViteHub is still experimental. Expect bugs and breaking changes.",
     github: { repo: "vite-hub/vitehub", dir: "docs/content" },
     icons: docsIcons,
     mcp: { name: "vitehub", guide: "/docs/getting-started/ai-resources/mcp-server" },
     sitemap: ["/learn", "/playground", "/examples", "/projects", "/templates"],
+    // Fail the build on pages that a site audit would flag: see DocsSeoError.
+    seoAudit: true,
     // Agents read the tool contract of each `::agent-capability-tools` block that the site renders as a component.
     rawMarkdown: async (markdown: string) => expandCapabilityTools(markdown, await capabilityReferences()),
   },
@@ -184,8 +190,9 @@ export default defineNuxtConfig({
     serverBundle: {
       collections: ["lucide", "ph", "simple-icons", "vscode-icons"],
     },
+    // Server-rendered icons come with their CSS. Icons that appear only in the browser and are not listed here load from
+    // the server bundle on first use, so the client bundle stays small instead of holding every icon in the source.
     clientBundle: {
-      scan: true,
       icons: [
         "lucide:brain",
         "lucide:calendar-plus",

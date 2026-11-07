@@ -1,6 +1,6 @@
 ---
 title: Roles and access
-description: Give each user a CMS role with the Better Auth admin plugin. The roles decide who reads drafts, edits, publishes, and comments, and which Console sections each user sees.
+description: "Give each user a CMS role with the Better Auth admin plugin. Roles decide who reads drafts, edits, publishes, and comments, and which Console sections they see."
 navigation.title: Roles and access
 navigation.order: 8
 icon: i-lucide-shield-check

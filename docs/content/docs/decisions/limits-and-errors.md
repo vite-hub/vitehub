@@ -1,6 +1,6 @@
 ---
 title: Decisions limits and errors
-description: The limits of Choices and the error code of each failure.
+description: "Default limits of a Choices definition, the thresholds that decide each answer, and the DECISIONS error codes with their fixes."
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert

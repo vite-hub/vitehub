@@ -1,6 +1,6 @@
 ---
 title: Comments configuration
-description: Decide who can comment, sign people in with GitHub, let guests in, keep comments on your own records, choose where threads go, upgrade the tables, mention and notify people, attach files, turn comment mode on and off, and mark Content fields for edits in place.
+description: "Decide who can comment, sign people in with GitHub, choose where threads go, notify mentions, attach files, and mark Content fields for edits in place."
 navigation.title: Configure
 navigation.order: 4
 icon: i-lucide-sliders-horizontal

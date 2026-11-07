@@ -1,8 +1,8 @@
 ---
-title: Limits and errors
+title: Logs limits and errors
 navigation.title: Limits and errors
 navigation.order: 6
-description: Limits and errors for ViteHub Logs, powered by Evlog.
+description: "Local buffer size, Console and query limits, the HTTP errors of the logs API, and how to attach a Nostics diagnostic to an event."
 icon: i-lucide-logs
 ---
 

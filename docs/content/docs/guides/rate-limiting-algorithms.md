@@ -1,6 +1,7 @@
 ---
 title: Rate limiting vs throttling, and the four rate limiting algorithms
-description: Rate limiting rejects extra requests and throttling delays them. Compare fixed window, sliding window, token bucket, and leaky bucket, then add one with ViteHub.
+seo.title: "Rate limiting vs throttling, and four algorithms"
+description: "Rate limiting rejects extra requests and throttling delays them. Compare fixed window, sliding window, token bucket, and leaky bucket, and add one with ViteHub."
 navigation.title: Rate limiting algorithms
 navigation.order: 40
 navigation.group: Concepts
