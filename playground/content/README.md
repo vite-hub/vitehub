@@ -28,6 +28,10 @@ from `vite-hub/cms/access` then decide in `server/content.ts`, `server/comments.
 
 An admin changes a role in the Console Auth section.
 
+`GET /api/users` lists the users for an admin. `server/routes/api/users.get.ts` checks the role with
+`requireAuthorization(event, ...)` and calls the `admin()` plugin's `listUsers` on `useAuth(event).api`. Another user
+gets `403`, and a signed-out caller gets `401`.
+
 `realtime: true` turns on live co-editing: open a post as two users (for example the editor and the writer in two
 browser profiles) and both edit it at once, with carets and field avatars. The room saves the draft a few seconds after
 typing stops, and History names everyone who edited. A post that uses Markdown the editor cannot keep, such as an

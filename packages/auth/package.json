@@ -129,6 +129,7 @@
     "better-auth": "catalog:auth",
     "bun-types": "^1.4.3",
     "drizzle-orm": "catalog:database",
+    "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
   },

@@ -493,7 +493,7 @@ export async function readConsoleSessionUser(auth: ConsoleSessionReader, request
 
 /** The app Auth access routes that protect the Console, and the Auth functions that check them. */
 export interface ConsoleAppAuthAccessOptions {
-  getAuthForRequest: (request: Request, runtimeOptions: undefined, event: object) => ConsoleSessionReader | Promise<ConsoleSessionReader>
+  authForRequest: (request: Request, runtimeOptions: undefined, event: object) => ConsoleSessionReader | Promise<ConsoleSessionReader>
   /** `console.impersonation`. An impersonation session then never opens the Console. */
   impersonation?: boolean
   requireAuthAccessRoutes: (event: object, routeIndexes: number[], definition: undefined, requiredAuthorizeRouteIndexes: number[], options: { redirectToSignIn: false, reuse: true }) => Promise<Response | undefined>
@@ -516,7 +516,7 @@ export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions)
     let session = sessions.get(event)
     if (!session) {
       const request = toEventRequest(event)
-      session = Promise.resolve(options.getAuthForRequest(request, undefined, event)).then(auth => auth.api.getSession({ headers: request.headers })).catch((error: unknown) => {
+      session = Promise.resolve(options.authForRequest(request, undefined, event)).then(auth => auth.api.getSession({ headers: request.headers })).catch((error: unknown) => {
         // Better Auth answers 401 when a refresh ends the session, for example from `session.onRefresh`. The access
         // routes then send the browser to sign in.
         if (v.is(endedSessionSchema, error)) return null

@@ -39,7 +39,7 @@ function appAccess() {
   const requireSession = vi.fn(async () => undefined)
   const getSession = vi.fn(async ({ headers }: { headers: Headers }) => headers.get("cookie") === "session=1" ? { user: { id: "ada" } } : null)
   const access = createConsoleAppAuthAccess({
-    getAuthForRequest: () => ({ api: { getSession } }),
+    authForRequest: () => ({ api: { getSession } }),
     requireAuthAccessRoutes,
     requireSession,
     routes,

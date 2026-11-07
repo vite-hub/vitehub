@@ -1,7 +1,8 @@
 import { DatabaseSync } from "node:sqlite"
 import { defineAuth } from "@vite-hub/auth"
 import { createAuthForRequest, createAuthAccessHandler, requireAuthAccessRoutes, withAuthorization } from "@vite-hub/auth/server"
-import { getAuthForRequest, resetAuth } from "../../auth/src/server.ts"
+import { authForRequest as appAuthForRequest } from "../../auth/src/runtime/console.ts"
+import { resetAuth } from "../../auth/src/server.ts"
 import { H3, H3Event } from "h3"
 import { installStandardContext } from "@vite-hub/runtime/h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -50,7 +51,7 @@ async function setup(mount = "", providers = true, access: { authorize?: () => b
     signInPage: "/_vitehub/sign-in",
     ...createConsoleAppAuthPages(authForRequest),
     ...createConsoleAppAuthAccess({
-      getAuthForRequest: authForRequest,
+      authForRequest,
       requireAuthAccessRoutes: (event, indexes, _definition, required, options) => {
         if (!(event instanceof H3Event)) throw new TypeError("Expected the Console's H3 request event.")
         return requireAuthAccessRoutes(event, indexes, definition, required, options)
@@ -120,7 +121,7 @@ describe("Console reuses app Auth sign-in", () => {
   })
 
   it("opens static app Auth before its first HTTP request initializes a base URL", async () => {
-    const pages = createConsoleAppAuthPages(getAuthForRequest)
+    const pages = createConsoleAppAuthPages(appAuthForRequest)
     const event = new H3Event(new Request(`${origin}/portal/_vitehub/sign-in`))
     await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
     const response = await pages.signIn(event)
@@ -132,7 +133,7 @@ describe("Console reuses app Auth sign-in", () => {
   })
 
   it.each(["fetch", "h3"] as const)("uses the public proxy origin for static Auth with %s requests", async (host) => {
-    const pages = createConsoleAppAuthPages(getAuthForRequest)
+    const pages = createConsoleAppAuthPages(appAuthForRequest)
     const event = proxySignInEvent(host)
     await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
     const response = await pages.signIn(event)

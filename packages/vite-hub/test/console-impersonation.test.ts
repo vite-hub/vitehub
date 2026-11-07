@@ -164,7 +164,7 @@ describe("App Auth Console during impersonation", () => {
     const auth = authForRequest(new Request(origin))
     await (await auth.$context).runMigrations()
     const access = createConsoleAppAuthAccess({
-      getAuthForRequest: authForRequest,
+      authForRequest: authForRequest,
       impersonation: true,
       requireAuthAccessRoutes: (event, indexes, _definition, required, options) => {
         if (!(event instanceof H3Event)) throw new TypeError("Expected the Console's H3 request event.")
