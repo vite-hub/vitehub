@@ -1,3 +1,4 @@
+import { hostedConsoleUrl } from "./hosted-console.ts"
 import { encodeRouteSegment } from "./route-segment.ts"
 
 /** Public origins resolved from `vitehub({ publicUrl })` at build time. */
@@ -72,8 +73,28 @@ export function resolvePublicUrl(options: { agentName?: string, request?: Pick<R
   return request.origin
 }
 
-/** Build the Console URL of one Agent invocation. `origin` must not include the application base path. */
+/**
+ * The generated Console plugin of a production build without `console.embed` sets this global to `true`: the app then
+ * serves no Console pages, so Console links open the hosted Console.
+ */
+const consoleHostedKey = Symbol.for("vitehub.console.hosted")
+
+/**
+ * Build the Console URL of one Agent invocation. `origin` must not include the application base path.
+ *
+ * The URL opens `/_vitehub` on the app in `vite dev` and with `console.embed: true`. A production build without the
+ * embed links the hosted Console, `https://console.vitehub.dev/open?project=...&path=...`. An `http:` origin that is not
+ * loopback cannot be a hosted Console project, so it keeps the `/_vitehub` URL.
+ */
 export function consoleInvocationUrl(origin: string, agentName: string, invocationId: string): string {
-  const path = `${applicationBasePath()}/_vitehub/agents/${encodeRouteSegment(agentName)}/invocations/${encodeURIComponent(invocationId)}`
-  return new URL(path, origin).href
+  const path = `/agents/${encodeRouteSegment(agentName)}/invocations/${encodeURIComponent(invocationId)}`
+  if (Reflect.get(globalThis, consoleHostedKey) === true) {
+    try {
+      return hostedConsoleUrl(`${new URL(origin).origin}${applicationBasePath()}`, path)
+    }
+    catch (error) {
+      if (!(error instanceof TypeError)) throw error
+    }
+  }
+  return new URL(`${applicationBasePath()}/_vitehub${path}`, origin).href
 }

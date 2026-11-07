@@ -676,7 +676,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       await run("pnpm", ["exec", "vite", "build"], appDir)
       expect(existsSync(join(appDir, ".output/server/index.mjs"))).toBe(true)
 
-      await writeFile(join(appDir, "vite.config.ts"), config(", console: { auth: false }, comments: false"), "utf8")
+      await writeFile(join(appDir, "vite.config.ts"), config(", console: { auth: { provider: \"cloudflare-access\", teamDomain: \"acme.cloudflareaccess.com\", audience: \"lean-app\" } }, comments: false"), "utf8")
       await run("pnpm", ["exec", "vite", "build"], appDir)
 
       await writeFile(join(appDir, "vite.config.ts"), config(", agent: true"), "utf8")
