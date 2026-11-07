@@ -328,7 +328,7 @@ export function createConsolePendingLink(): Promise<ConsolePendingLinkTicket> {
 /** Why a pending link cannot link a project. */
 const pendingLinkProblems: Record<"expired" | "unknown", ConsoleProjectProblem> = {
   expired: { title: "This link expired", message: "A link works for 24 hours. Make a new link in this Console, and run the new command." },
-  unknown: { title: "This link cannot be used here", message: "This link was made in another browser or already used. Open the Console where you started the project, or relink." },
+  unknown: { title: "This link cannot be used here", message: "This link was made in another browser or already used. If you used it in this browser, the project is already in this Console. Otherwise, open the Console in the browser where you started the project." },
 }
 
 const pendingLinkStorageProblem: ConsoleProjectProblem = {
@@ -399,7 +399,7 @@ async function confirmLockedConsoleLink(projects: ConsoleProjectsState, pendingI
       final: false,
       problem: {
         title: "The host secret does not match",
-        message: `${consoleProjectHost(target)} refused the key of this link. Its VITEHUB_CONSOLE_TOKEN_SHA256 is not the hash from this link. Run the command again or relink.`,
+        message: `${consoleProjectHost(target)} refused the key of this link. Its \`VITEHUB_CONSOLE_TOKEN_SHA256\` is not the hash from this link. Run the command again or relink.`,
       },
     }
   }
