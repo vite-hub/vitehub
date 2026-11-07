@@ -9,7 +9,7 @@ Files to change (5):
   server/api/pages/[slug].put.ts
 
 Manual follow-ups (4):
-  1. wrangler.jsonc:9 ViteHub writes the KV binding itself, and a binding name alone can point at a new empty resource. To keep this namespace, set vitehub.kv to { driver: "cloudflare-kv-binding", binding: "KV", namespaceId: "2d0205a5567844e2bdc0db9ea926f7e9" } in nuxt.config. Then remove this entry from wrangler.jsonc.
+  1. wrangler.jsonc:9 The codemod set vitehub.kv to keep this namespace, and ViteHub writes the KV binding itself. Remove this entry from wrangler.jsonc.
   2. server/api/pages.ts:4 kv.keys() returns its result to the caller. In ViteHub it resolves to an [error, value] tuple instead of throwing. Check the error, then return the value.
   3. server/routes/assets/[...pathname].get.ts:10 hubBlob() was removed in NuxtHub 0.10. Import blob from "vite-hub/blob" and call its methods; each returns an [error, value] tuple. Set blob: true under vitehub too.
   4. Copy the local KV data. Both use the fs-lite driver: `mkdir -p .vitehub/data && cp -R .data/kv .vitehub/data/kv`.

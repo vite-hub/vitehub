@@ -5,7 +5,7 @@ import { editPackageJson } from "../shared/package-json.ts"
 import { editConfig, moduleName, readHub } from "./config.ts"
 import { moveSchema } from "./database.ts"
 import { rewriteSources } from "./sources.ts"
-import { findWranglerFile, planWrangler } from "./wrangler.ts"
+import { findWranglerFile, planWrangler, readCloudflareResourceOptions } from "./wrangler.ts"
 
 import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from "../types.ts"
 import type { SchemaMove } from "./database.ts"
@@ -47,9 +47,9 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const plan = readHub(config)
   const { features } = plan
   const wranglerFile = findWranglerFile(cwd)
-  const configResult = editConfig(config, plan, wranglerFile)
+  const configResult = editConfig(config, plan, wranglerFile, await readCloudflareResourceOptions(cwd, wranglerFile))
   const cloudflare = configResult.preset === "cloudflare"
-  const wrangler = await planWrangler(cwd, wranglerFile, features, cloudflare)
+  const wrangler = await planWrangler(cwd, wranglerFile, features, cloudflare, configResult.written)
 
   let schema: SchemaMove | undefined
   if (features.database) schema = await moveSchema(cwd, features.database)

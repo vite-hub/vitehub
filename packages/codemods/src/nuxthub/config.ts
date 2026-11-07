@@ -9,6 +9,7 @@ import type { Node } from "@vite-hub/internal/ast"
 import type { DefaultPreset } from "../shared/config-editor.ts"
 import type { NuxtConfigFile } from "../shared/nuxt-config.ts"
 import type { FollowUp } from "../types.ts"
+import type { CloudflareResourceOptions } from "./wrangler.ts"
 
 export const moduleName = "@nuxthub/core"
 
@@ -126,10 +127,12 @@ export interface ConfigEditResult {
   code: string
   preset?: string
   followUps: FollowUp[]
+  /** The Cloudflare resources that the new options keep. */
+  written: CloudflareResourceOptions
 }
 
 /** Replaces `@nuxthub/core` with `vite-hub/nuxt` and `hub` with `vitehub`. */
-export function editConfig(config: NuxtConfigFile, plan: HubPlan, wranglerFile: string | undefined): ConfigEditResult {
+export function editConfig(config: NuxtConfigFile, plan: HubPlan, wranglerFile: string | undefined, resources: CloudflareResourceOptions = {}): ConfigEditResult {
   const entry = findModuleEntry(config, moduleName)
   if (entry?.inlineOptions) {
     throw new CodemodError(`${config.fileName} passes options to ${moduleName} in modules. Move them to the hub key, then run the codemod again.`)
@@ -139,10 +142,17 @@ export function editConfig(config: NuxtConfigFile, plan: HubPlan, wranglerFile: 
   const rootEntries = useViteHubModule(editor, config, moduleName)
   const hubProperty = findProperty(config.root, "hub")
   const { features } = plan
+  const presetChoice = choosePreset(config, wranglerFile)
+  // On Cloudflare, keep the namespaces and the bucket that the Wrangler config names. The IDs are not secrets.
+  const written: CloudflareResourceOptions = {}
   const options: Array<[string, string]> = []
   if (features.database) options.push(["database", "true"])
-  for (const feature of featureKeys) if (features[feature]) options.push([feature, "true"])
-  const presetChoice = choosePreset(config, wranglerFile)
+  for (const feature of featureKeys) {
+    if (!features[feature]) continue
+    const resource = presetChoice.preset === "cloudflare" ? resources[feature] : undefined
+    if (resource) written[feature] = resource
+    options.push([feature, resource ? `{ ${Object.entries(resource).map(([key, value]) => `${key}: ${quoteString(value, style)}`).join(", ")} }` : "true"])
+  }
   const followUps: Array<{ path: string[], message: string }> = [...plan.notes]
   const existingViteHub = findProperty(config.root, "vitehub")
 
@@ -179,6 +189,7 @@ export function editConfig(config: NuxtConfigFile, plan: HubPlan, wranglerFile: 
   return {
     code,
     preset: presetChoice.preset,
+    written,
     followUps: followUps.map(note => ({ file: config.fileName, line: lineOf(["vitehub", ...note.path]) ?? (hubProperty ? line(hubProperty) : undefined), message: note.message })),
   }
 }
