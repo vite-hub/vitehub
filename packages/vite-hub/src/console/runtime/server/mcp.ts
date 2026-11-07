@@ -1,6 +1,5 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { defaultRequestBytes, operationAccessAllows, operationAccessDenial, operationCall, operationInputJsonSchema, operationToolName, parseOperationInput, operationSection, toOperationFailure } from "@vite-hub/internal/operations"
-import { toEventRequest } from "@vite-hub/internal/runtime/event-request"
 import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 
 import { consoleAccessAllows, consoleAccessWrites, consoleOperationGranted, consoleOperationScope, consoleRequest, installedConsoleOAuth, readConsoleAccessUser, readConsoleOperationUser, withConsoleAccess } from "./access.ts"
@@ -167,7 +166,7 @@ export async function mcpUnauthorized(event: ConsoleRequestEvent): Promise<Respo
 }
 
 const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) => {
-  const request = toEventRequest(event)
+  const request = event.req
   try {
     assertLoopbackWithoutSignIn(request, new URL(request.url), { access, remoteAddress: eventRemoteAddress(event) })
   }

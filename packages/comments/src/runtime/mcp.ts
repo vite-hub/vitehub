@@ -1,4 +1,3 @@
-import { toEventRequest } from "@vite-hub/internal/runtime/event-request"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { describeCommentContext } from "../context.ts"
@@ -20,7 +19,8 @@ function commentsUser(user: Record<string, unknown> | null): CommentsUser | null
 }
 
 function guestFor(context: ViteHubMcpToolContext) {
-  return context.event instanceof Object ? guestFromHeaders(toEventRequest(context.event).headers) : undefined
+  const request: unknown = context.event instanceof Object ? Reflect.get(context.event, "req") : undefined
+  return request instanceof Request ? guestFromHeaders(request.headers) : undefined
 }
 
 function failure(why: string): ViteHubMcpToolResult {
