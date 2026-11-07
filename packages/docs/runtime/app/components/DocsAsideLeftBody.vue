@@ -6,6 +6,7 @@ import { docsCatalog, docsHasRail, docsRelatedSections, docsSectionHome, docsSid
 const route = useRoute()
 const manifest = useDocsManifest()
 const { categories, groups, icons: iconOptions, railExclude, start } = useDocsConfig()
+const icons = useDocsIcons()
 const currentPath = computed(() => normalizeDocsPath(route.path))
 const section = useDocsSection()
 // The start section is the home of the docs, so it also lists the site pages that the header shows on the landing page.
@@ -47,6 +48,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         :class="['vh-docs-sidebar-link', { 'is-active': isActive(link.to) }]"
         :aria-current="isActive(link.to) ? 'page' : undefined"
       >
+        <UIcon :name="link.icon ?? icons.page({ path: link.to, icon: null })" class="size-4 shrink-0" />
         <span class="min-w-0">{{ link.label }}</span>
       </NuxtLink>
     </section>
@@ -65,9 +67,11 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           :class="['vh-docs-sidebar-link', { 'is-active': isActive(entry.home.path) }]"
           :aria-current="isActive(entry.home.path) ? 'page' : undefined"
         >
+          <UIcon :name="icons.section(entry.section)" class="size-4 shrink-0" />
           <span class="min-w-0">{{ entry.section.title }}</span>
         </NuxtLink>
         <h3 v-else class="vh-docs-sidebar-section-title">
+          <UIcon :name="icons.section(entry.section)" class="size-4 shrink-0" />
           <span class="min-w-0">{{ entry.section.title }}</span>
         </h3>
         <template v-for="pageGroup in entry.groups" :key="pageGroup.label || 'pages'">
@@ -88,6 +92,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
               :class="['vh-docs-sidebar-link is-nested', { 'is-active': isActive(page.path) }]"
               :aria-current="isActive(page.path) ? 'page' : undefined"
             >
+              <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
               <span class="min-w-0">{{ page.title }}</span>
             </NuxtLink>
           </details>
@@ -100,6 +105,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
               :class="['vh-docs-sidebar-link is-nested', { 'is-active': isActive(page.path) }]"
               :aria-current="isActive(page.path) ? 'page' : undefined"
             >
+              <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
               <span class="min-w-0">{{ page.title }}</span>
             </NuxtLink>
           </template>
@@ -115,6 +121,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         :to="docsSectionHome(relatedSection)"
         class="vh-docs-sidebar-link"
       >
+        <UIcon :name="icons.section(relatedSection)" class="size-4 shrink-0" />
         <span class="min-w-0">{{ relatedSection.title }}</span>
       </NuxtLink>
     </section>
@@ -129,6 +136,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         :class="['vh-docs-sidebar-link', { 'is-active': isActive(link.to) }]"
         :aria-current="isActive(link.to) ? 'page' : undefined"
       >
+        <UIcon :name="link.icon ?? icons.page({ path: link.to, icon: null })" class="size-4 shrink-0" />
         <span class="min-w-0">{{ link.label }}</span>
       </NuxtLink>
     </section>
@@ -151,6 +159,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
+          <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
           <span class="min-w-0">{{ page.title }}</span>
         </NuxtLink>
       </details>
@@ -164,6 +173,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
+          <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
           <span class="min-w-0">{{ page.title }}</span>
         </NuxtLink>
       </section>
@@ -176,6 +186,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
+          <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
           <span class="min-w-0">{{ page.title }}</span>
         </NuxtLink>
       </template>
@@ -189,6 +200,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         :to="docsSectionHome(relatedSection)"
         class="vh-docs-sidebar-link"
       >
+        <UIcon :name="icons.section(relatedSection)" class="size-4 shrink-0" />
         <span class="min-w-0">{{ relatedSection.title }}</span>
       </NuxtLink>
     </section>
@@ -204,6 +216,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
         :to="docsSectionHome(catalogSection)"
         class="vh-docs-sidebar-link"
       >
+        <UIcon :name="icons.section(catalogSection)" class="size-4 shrink-0" />
         <span class="min-w-0">{{ catalogSection.title }}</span>
       </NuxtLink>
     </section>
@@ -211,7 +224,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
 </template>
 
 <style scoped>
-/* The page list of the old comark-ui site: text rows, small category headings, and a hairline that ties pages to their section. */
+/* The page list of the old comark-ui site: compact rows, small category headings, and a hairline that ties pages to their section. */
 .vh-docs-sidebar-nav {
   display: flex;
   flex-direction: column;
@@ -250,10 +263,11 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
   margin-top: 0.25rem;
 }
 
-/* A long title wraps instead of being cut off. */
+/* A long title wraps instead of being cut off. The icon stays on its first line. */
 .vh-docs-sidebar-link {
   display: flex;
   align-items: flex-start;
+  gap: 0.5rem;
   margin: 0 -0.5rem;
   border-radius: 0.375rem;
   padding: 0.3rem 0.5rem;
@@ -265,12 +279,21 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
     color 150ms ease;
 }
 
+.vh-docs-sidebar-link > .iconify,
+.vh-docs-sidebar-section-title > .iconify {
+  margin-top: 0.125rem;
+}
+
 /* Touch devices keep 44px tap targets at every viewport width. */
 @media (pointer: coarse) {
   .vh-docs-sidebar-link,
   .vh-docs-sidebar-fold > summary {
     min-height: 2.75rem;
     align-items: center;
+  }
+
+  .vh-docs-sidebar-link > .iconify {
+    margin-top: 0;
   }
 }
 
@@ -326,6 +349,9 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
 
 /* A section without a listed home page has a title row that opens nothing. */
 .vh-docs-sidebar-section-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
   margin: 0;
   padding: 0.3rem 0;
   color: var(--ui-text-highlighted);

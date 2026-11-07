@@ -82,7 +82,7 @@ export interface DocsModuleOptions {
    */
   groups?: DocsGroup[]
   start?: DocsStartOptions
-  /** Community links at the foot of the sidebar, such as a chat server. GitHub comes from `github`. */
+  /** Community links in the header on every page, such as a chat server. GitHub comes from `github`. */
   socials?: DocsLink[]
   /** One line above every docs page, such as a release status. */
   banner?: string

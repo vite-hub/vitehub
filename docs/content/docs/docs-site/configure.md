@@ -234,7 +234,7 @@ export default defineNuxtConfig({
 })
 ```
 
-`github` adds a GitHub link to the header and the sidebar footer. `socials` adds more links to the sidebar footer. `banner` shows one line above every docs page.
+`github` adds a GitHub link to the header, with the star count when available. `socials` adds community links beside it. The header appears on every page with search and a color mode button. `banner` shows one line above every docs page.
 
 ## Design
 
@@ -292,7 +292,7 @@ const { github } = useDocsConfig()
 
 | Component | Part of the shell |
 | --- | --- |
-| `AppHeader` | The site header. On wide screens, docs pages show the rail instead. |
+| `AppHeader` | The site header on every page, with search, GitHub, social links, and the color mode button. |
 | `AppSearch` | The search dialog. |
 | `DocsRail` | The section rail. |
 | `DocsSidebars`, `DocsAsideLeftTop`, `DocsAsideLeftBody` | The page sidebar and its parts. |
