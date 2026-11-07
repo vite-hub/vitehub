@@ -13,9 +13,10 @@ import { resolve } from "pathe"
 import { createInspectNamespace } from "./inspect.ts"
 import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces } from "./operations.ts"
 import { createProvisionNamespace } from "./provision.ts"
+import { setupCommands } from "./setup/commands.ts"
 
 import type { ConfigEnv, InlineConfig } from "vite"
-import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
+import type { ViteHubCliCommand, ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 
 interface ViteHubCliSpawnResult {
@@ -60,6 +61,8 @@ const BUILTIN_NAMESPACE_NAMES = new Set(reservedOperationNamespaces)
 
 export interface RunViteHubCliOptions {
   args?: string[]
+  /** Top-level commands that run before the project config loads, such as `vitehub status`. Defaults to the setup commands. */
+  commands?: readonly ViteHubCliCommand[]
   cwd?: string
   env?: NodeJS.ProcessEnv
   /** Namespaces that run without loading the project config, for example inside a deployed container. */
@@ -73,8 +76,8 @@ export interface RunViteHubCliOptions {
   runtimeFeatureGuard?: (namespace: string, feature: string, cwd: string) => boolean | Promise<boolean>
   /** Replaces `fetch` in commands that call a running app. */
   fetch?: typeof fetch
-  loadConfig?: (rootDir: string, command: ConfigEnv["command"], mode?: string) => Promise<ViteHubCliLoadedConfig>
-  loadNuxtViteConfig?: (rootDir: string, command: ConfigEnv["command"], mode?: string) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
+  loadConfig?: (rootDir: string, command: "build" | "serve", mode?: string) => Promise<ViteHubCliLoadedConfig>
+  loadNuxtViteConfig?: (rootDir: string, command: "build" | "serve", mode?: string) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
   spawn?: ViteHubCliSpawn
   stderr?: ViteHubCliStreams["stderr"]
   stdout?: ViteHubCliStreams["stdout"]
@@ -179,11 +182,13 @@ function helpNameWidth(names: readonly string[]): number {
   return Math.max(12, ...names.map(name => name.length + 1))
 }
 
-function writeRootHelp(namespaces: ViteHubCliCommandNamespace[], stdout: ViteHubCliContext["stdout"]): void {
-  const width = helpNameWidth(namespaces.map(namespace => namespace.name))
+function writeRootHelp(namespaces: ViteHubCliCommandNamespace[], commands: readonly ViteHubCliCommand[], stdout: ViteHubCliContext["stdout"]): void {
+  const width = helpNameWidth([...commands, ...namespaces].map(item => item.name))
   stdout.write([
     "Usage: vitehub <namespace> <feature> [args...]",
+    "       vitehub <command> [args...]",
     "",
+    ...(commands.length ? ["Project:", ...commands.map(command => `  ${command.name.padEnd(width)} ${command.description}`.trimEnd()), ""] : []),
     "Available namespaces:",
     ...namespaces.map(namespace => `  ${namespace.name.padEnd(width)} ${namespace.description || ""}`.trimEnd()),
     "",
@@ -239,6 +244,12 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
       : process.stderr.write(chunk, encoding, callback),
   } as ViteHubCliStreams["stderr"])
   const spawn = options.spawn || defaultSpawn
+  const commands = options.commands ?? setupCommands
+  // Setup commands never load the project config, so they work in an empty folder and on a config that throws.
+  const setupCommand = commands.find(item => item.name === args[0])
+  if (setupCommand) {
+    return await setupCommand.run(args.slice(1), { cwd, env, ...(options.fetch ? { fetch: options.fetch } : {}), rootDir: cwd, spawn, stderr, stdout })
+  }
   const runtimeNamespace = options.runtimeNamespaces?.find(namespace => namespace.name === args[0] && !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
   if (runtimeNamespace) return await runNamespace(runtimeNamespace, args, { cwd, env, rootDir: cwd, spawn, stderr, stdout })
   const runtimeFeatures = options.runtimeFeatures?.find(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && namespace.name === args[0] && namespace.features.some(feature => feature.name === args[1]))
@@ -267,11 +278,14 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     }
   }, stderr)
   const { contribution, operations, plugins, rootDir } = await (stage ? withViteStageEnvironment(env, loadProject) : loadProject())
+  const runtimeNamespaces = (options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
+  // A runtime namespace runs before the project loads, so it replaces a project namespace of the same name.
+  const runtimeNames = new Set(runtimeNamespaces.map(namespace => namespace.name))
   const namespaces = [
-    ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
+    ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && !runtimeNames.has(namespace.name)),
     createInspectNamespace(plugins, operations),
     createProvisionNamespace(contribution.provision),
-    ...(options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
+    ...runtimeNamespaces,
   ]
 
   const context: ViteHubCliContext = {
@@ -286,7 +300,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   }
 
   if (!args.length || isRootHelp(args)) {
-    writeRootHelp(namespaces, stdout)
+    writeRootHelp(namespaces, commands, stdout)
     return 0
   }
 
@@ -297,7 +311,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     if (namespaces.length === 2 && namespaces.every(item => BUILTIN_NAMESPACE_NAMES.has(item.name))) {
       stderr.write(`No ViteHub integration contributed the "${namespaceName}" commands. Run this from a configured project and enable the matching integration in vite.config.ts or nuxt.config.ts.\n`)
     }
-    writeRootHelp(namespaces, stderr)
+    writeRootHelp(namespaces, commands, stderr)
     return 1
   }
 
