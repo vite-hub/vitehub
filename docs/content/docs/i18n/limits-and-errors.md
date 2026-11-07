@@ -41,3 +41,7 @@ The app builds the server with Nitro 2. i18n needs Nitro 3, which runs each requ
 const [error] = await setLocale("fr")
 if (error?.code === "I18N_UNKNOWN_LOCALE") console.warn(error.fix)
 ```
+
+### I18N_LOCALE_SUPERSEDED
+
+A newer `setLocale()` call superseded this selection before its catalog loaded. The older call returns `[error, undefined]` without applying its locale. Use the result of the latest call.
