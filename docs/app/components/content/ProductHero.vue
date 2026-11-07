@@ -224,6 +224,11 @@ const channelPath = computed(() =>
   transform: translateX(0.25rem);
 }
 
+/* A host picker in the example lists the same hosts, so the copy drops its own list. Copy page keeps it. */
+.vh-hero:has(.vh-files-hosts) .vh-hero-hosts {
+  display: none;
+}
+
 .vh-hero-hosts {
   margin-top: 2.25rem;
 }
