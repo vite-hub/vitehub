@@ -4,6 +4,7 @@ import { ref, shallowRef, watch } from "vue";
 import type { ConsoleProjectProblem } from "../client/project-link";
 import { consoleTokenRefused } from "../client/project-link";
 import type { ConsoleProjectTarget } from "../client/projects";
+import { cancelConsoleOpen, finishConsoleOpen, useConsoleOpenRequest } from "../client/open-link";
 import { consoleProjectsVolatileNote, linkConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
 import ConsoleProjectToken from "./console-project-token.vue";
@@ -11,7 +12,9 @@ import ConsoleProjectToken from "./console-project-token.vue";
 const open = defineModel<boolean>("open", { required: true });
 const persistent = useConsoleProjects().persistent;
 
-const url = ref("");
+// An `/open` link of a project that this browser did not link fills in its URL.
+const openRequest = useConsoleOpenRequest();
+const url = ref(openRequest.value?.target.url ?? "");
 const busy = ref(false);
 const problem = shallowRef<ConsoleProjectProblem>();
 // After the project asks for a token, the dialog shows the token step for that project.
@@ -19,7 +22,11 @@ const tokenStep = shallowRef<{ target: ConsoleProjectTarget, rejected: boolean }
 const autofocus = !("ontouchstart" in window);
 
 watch(open, (value) => {
-  if (value) return;
+  if (value) {
+    if (openRequest.value) url.value = openRequest.value.target.url;
+    return;
+  }
+  cancelConsoleOpen();
   url.value = "";
   problem.value = undefined;
   tokenStep.value = undefined;
@@ -39,7 +46,7 @@ async function link(token?: string): Promise<void> {
     if (result.kind === "linked") {
       // The first project opens in place, so the dialog closes first.
       open.value = false;
-      switchConsoleProject(result.project.id);
+      if (!finishConsoleOpen(result.project)) switchConsoleProject(result.project.id);
       return;
     }
     if (result.kind === "token") tokenStep.value = { target: result.target, rejected: result.rejected };

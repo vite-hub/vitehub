@@ -32,6 +32,7 @@ import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSection
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
+import { continueConsoleOpen, startConsoleOpen } from "./open-link";
 import { consoleProjectReady, noteConsoleProjectsVolatile, startConsoleLink, startConsoleProjects } from "./project-session";
 import { takeConsoleLinkHash } from "./pending-links";
 import { browserProjectStorage } from "./projects";
@@ -46,6 +47,11 @@ const consoleBase = hosted ? import.meta.env.BASE_URL : consoleMountPath(hostBas
 
 // A one-time link of a new project: /link#p=<pendingId>&url=<appOrigin>. Only the hosted Console links new projects.
 const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
+// A browser that blocks or fills storage keeps the projects in memory until the page reloads.
+const storage = browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile);
+// A link to one page of a project: /open?project=<app URL>&path=<Console path>. It runs before the router starts, so
+// a linked project opens at the path.
+const openRequest = hosted ? startConsoleOpen(window, consoleBase, storage) : undefined;
 
 startConsoleProjects({
   base: hostBase,
@@ -53,11 +59,11 @@ startConsoleProjects({
   mode: hosted ? "hosted" : "embedded",
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
-  // A browser that blocks or fills storage keeps the projects in memory until the page reloads.
-  storage: browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile),
+  storage,
   pendingLinkLocks: navigator.locks,
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);
+if (openRequest) continueConsoleOpen(openRequest);
 const sectionsBase = "/api/_vitehub/console/sections";
 const capabilitiesBase = "/api/_vitehub/console/invocation-capabilities";
 
