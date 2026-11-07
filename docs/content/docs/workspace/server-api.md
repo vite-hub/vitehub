@@ -216,7 +216,7 @@ When the source changes, the derived file is stale. `vitehub status` lists the s
 pnpm vitehub workspace stale site --ref draft
 ```
 
-Each changed entry has `sourceDigest`, the digest of the source now. Update the file, then write that value as `derivedFrom.digest`. An entry with `reason: "missing"` names a source that is gone. `lineageDigest(bytes)`, `readDerivedFrom(path, bytes)`, and `staleDerivedFiles(files)` from `@vite-hub/workspace/lineage` do the same checks in your code.
+Each changed entry has `sourceDigest`, the digest of the source now. Update the file, then write that value as `derivedFrom.digest`. An entry with `reason: "missing"` names a source that is gone. `lineageDigest(bytes)`, `readDerivedFrom(path, bytes)`, and `staleDerivedFiles(files)` from `vite-hub/workspace/lineage` do the same checks in your code.
 
 To translate when the source changes, start your translator from a `write:after` hook. The hook runs after each commit, also for `vitehub push`:
 
