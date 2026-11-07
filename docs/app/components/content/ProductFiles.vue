@@ -64,7 +64,7 @@ function folderOf(path: string) {
 }
 
 const hostOptions: { color: string; host: PickerHost; icon: string; label: string }[] = [
-  { color: "#5fa04e", host: "node", icon: "i-simple-icons-nodedotjs", label: "Node" },
+  { color: "#5fa04e", host: "node", icon: "i-simple-icons-nodedotjs", label: "Node / Docker" },
   { color: "#f48120", host: "cloudflare", icon: "i-simple-icons-cloudflare", label: "Cloudflare" },
   { color: "#52525b", host: "vercel", icon: "i-simple-icons-vercel", label: "Vercel" },
   { color: "#00c7b7", host: "netlify", icon: "i-simple-icons-netlify", label: "Netlify" },
@@ -155,11 +155,14 @@ function pathNote(index: number) {
   return shownRewrite.value ? `Changed for ${hostLabel.value}` : "";
 }
 
-// The file rows are tabs. Arrow keys move through them in tree order. The tree is a column or a row,
-// depending on the panel width, so both arrow pairs work.
+// The file rows are tabs. Arrow keys move through them in tree order. A column of tabs takes Up and Down, and a row
+// takes Left and Right, so the other pair still scrolls the page.
+const treeKeys = { horizontal: { ArrowRight: 1, ArrowLeft: -1 }, vertical: { ArrowDown: 1, ArrowUp: -1 } };
+
 function onTreeKeydown(event: KeyboardEvent) {
   const order = rows.value.flatMap((row) => (row.kind === "file" ? [row.index] : []));
-  const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
+  const keys: Record<string, number> = orientation.value ? treeKeys[orientation.value] : { ...treeKeys.horizontal, ...treeKeys.vertical };
+  const step = keys[event.key];
   const target = event.key === "Home" ? order[0] : event.key === "End" ? order.at(-1)
     : step ? order[(order.indexOf(selected.value) + step + order.length) % order.length] : undefined;
   if (target === undefined) return;
