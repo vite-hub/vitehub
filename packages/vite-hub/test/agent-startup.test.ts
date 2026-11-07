@@ -38,8 +38,16 @@ interface CloudflareAgentApp {
   }
 }
 
-/** Build an app with one Agent for Cloudflare. `runtime` is the Agent's `runtime` option source, if any. */
-async function buildCloudflareAgentApp(runtime?: string): Promise<CloudflareAgentApp> {
+/** The part of a Cloudflare Workflow binding that this test reads. */
+interface WorkflowBinding {
+  create(options: { id: string, params: unknown }): Promise<{ status(): Promise<{ error?: unknown, output?: unknown, status: string }> }>
+}
+
+/**
+ * Build an app with one Agent for Cloudflare. `runtime` is the source of the Agent's `runtime` option, if any.
+ * `driver` is the source of its `run` Driver.
+ */
+async function buildCloudflareAgentApp({ driver, runtime }: { driver: string[], runtime?: string }): Promise<CloudflareAgentApp> {
   const root = await mkdtemp(join(tmpdir(), "vitehub-agent-startup-"))
   await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
   await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
@@ -52,15 +60,11 @@ async function buildCloudflareAgentApp(runtime?: string): Promise<CloudflareAgen
     "  channels: { web: webChat() },",
     ...(runtime ? [`  runtime: ${runtime},`] : []),
     "  driver: {",
-    "    async *run() {",
-    "      yield { type: \"text-delta\" as const, text: \"Hello from the Agent\" }",
-    "      yield { type: \"finish\" as const }",
-    "    },",
+    ...driver.map(line => `    ${line}`),
     "  },",
     "})",
     "",
   ].join("\n"))
-
   const builder = await createBuilder({ logLevel: "silent", plugins: [vitehub({ preset: "cloudflare", agent: true })], root })
   await builder.buildApp()
 
@@ -103,7 +107,15 @@ const workspace = /workspace\/dist\//
 
 it("loads the Agent routes and Agent Definitions on the first request, not at Worker startup", async () => {
   // An Agent that runs as a Workflow also loads through the Cloudflare Workflow classes. The next test covers them.
-  const app = await buildCloudflareAgentApp("false")
+  const app = await buildCloudflareAgentApp({
+    driver: [
+      "async *run() {",
+      "  yield { type: \"text-delta\" as const, text: \"Hello from the Agent\" }",
+      "  yield { type: \"finish\" as const }",
+      "},",
+    ],
+    runtime: "false",
+  })
   let worker: Miniflare | undefined
   try {
     expect(app.output).toContainEqual(expect.stringMatching(definition))
@@ -126,22 +138,32 @@ it("loads the Agent routes and Agent Definitions on the first request, not at Wo
 }, 300_000)
 
 it("loads the Agent runtime of a Workflow Agent on its first run, not when the Worker exports the Workflow classes", async () => {
-  const app = await buildCloudflareAgentApp()
+  // A Workflow Run returns JSON, so this Driver returns its reply instead of streaming it.
+  const app = await buildCloudflareAgentApp({ driver: ["run: () => \"Hello from the Agent\","] })
   let worker: Miniflare | undefined
   try {
     expect(app.wrangler.workflows?.length).toBeGreaterThan(0)
-    expect(app.startup).toContainEqual("\0virtual:vitehub-workflow-cloudflare-exports")
+    expect(app.startup).toContainEqual(expect.stringMatching(/virtual:vitehub-workflow-cloudflare-exports$/))
     // The Workflow registry runtime holds the Agent setup and the Definition loaders.
     const registryRuntime = /\/\.vitehub\/workflow\/registry-runtime\.mjs$/
     const agentWorkflowRuntime = /agent\/dist\/runtime\/workflow\.js$/
     const lazy = [definition, routes, registryRuntime, agentWorkflowRuntime, workspace]
-    for (const pattern of lazy) expect(app.output).toContainEqual(expect.stringMatching(pattern))
     expect(app.startup.filter(module => lazy.some(pattern => pattern.test(module)))).toEqual([])
+    for (const pattern of lazy) expect(app.output).toContainEqual(expect.stringMatching(pattern))
 
+    // Run the Agent's Workflow as Cloudflare runs it: the Worker's exported class loads the registry runtime and the Agent.
     worker = startWorker(app)
-    const response = await chat(worker)
-    expect(response.status).toBe(200)
-    expect(await response.text()).toContain("Hello from the Agent")
+    const binding = app.wrangler.workflows?.find(workflow => !workflow.class_name.includes("InvocationRecovery"))?.binding
+    if (!binding) throw new Error("Expected the Agent's Workflow binding.")
+    const workflows = await worker.getBindings<Record<string, WorkflowBinding>>()
+    const instance = await workflows[binding]!.create({ id: "startup", params: { input: { prompt: "ping" } } })
+    await expect.poll(async () => (await instance.status()).status, { interval: 100, timeout: 60_000 }).toMatch(/^(?:complete|errored|terminated)$/)
+    const status = await instance.status()
+    expect({ error: status.error, status: status.status }).toEqual({ error: undefined, status: "complete" })
+    // The Workflow stores the Agent's text reply as a portable Response.
+    const output = status.output as { body?: { data?: string }, status?: number }
+    expect(output.status).toBe(200)
+    expect(Buffer.from(output.body?.data ?? "", "base64").toString()).toBe("Hello from the Agent")
   }
   finally {
     await worker?.dispose()
