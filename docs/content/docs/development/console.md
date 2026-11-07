@@ -270,8 +270,14 @@ vitehub({
 To open a deployed app there:
 
 1. Set `console: { auth: "token" }`. `console.origins` defaults to `["https://console.vitehub.dev"]`, so the hosted Console needs no other option. When you set `console.origins` yourself, keep `https://console.vitehub.dev` in the list.
-2. Set `VITEHUB_CONSOLE_TOKEN` to a long random value on the server, for example the output of `openssl rand -base64 32`, then deploy.
+2. Create a token, and set its SHA-256 hash as `VITEHUB_CONSOLE_TOKEN_SHA256` on the server, then deploy. The server keeps only the hash, so keep the token itself in a password manager.
 3. Open [console.vitehub.dev](https://console.vitehub.dev), select **Link project**, enter the app URL, and paste the token. See [Link a project](#link-a-project).
+
+```sh
+TOKEN=$(openssl rand -hex 32)
+echo "$TOKEN"                          # paste this into the Console
+printf %s "$TOKEN" | sha256sum | cut -d' ' -f1  # set this as VITEHUB_CONSOLE_TOKEN_SHA256
+```
 
 ```ts [vite.config.ts]
 vitehub({
@@ -289,14 +295,14 @@ Some features need the app origin, so they work only in the Console that the app
 
 1. Select **Link project**.
 2. Enter the app URL: its origin, with its base path if it has one, such as `https://app.example.com` or `https://app.example.com/portal`. A pasted Console URL such as `https://app.example.com/_vitehub/kv` also works.
-3. The Console reads [`project.get`](#read-the-project). When the project asks for a token, paste the value of `VITEHUB_CONSOLE_TOKEN` and select **Sign in**.
+3. The Console reads [`project.get`](#read-the-project). When the project asks for a token, paste the token that you created for it and select **Sign in**. The server keeps only its SHA-256 hash, in `VITEHUB_CONSOLE_TOKEN_SHA256`.
 
 The Console then opens the project and shows only the sections that the project lists for this token. When linking fails, the Console says why:
 
 | Message | Fix |
 | --- | --- |
 | `<console> is not in console.origins for <host>` | Add the Console origin to `console.origins`, then build and deploy again. The browser hides why a cross-origin request failed, so the project can also be offline. |
-| `<host> refused this token` | Copy the current value of `VITEHUB_CONSOLE_TOKEN` from the server. |
+| `<host> refused this token` | Paste the token whose hash is in `VITEHUB_CONSOLE_TOKEN_SHA256`. If you lost it, create a new token and set its hash. |
 | `This project runs vite-hub <version>. This Console needs protocol 1.` | Update `vite-hub` in the app. |
 | `This project signs in with OAuth` | OAuth sign-in for a Console on another origin is not ready. Use `auth: "token"`. |
 
@@ -326,7 +332,8 @@ The project list and the tokens stay in this browser, in `localStorage` of the C
 
 - Each token gives Console access to its project, as far as [`authorize`](#limit-a-user-to-some-sections) allows. Anyone who uses this browser profile can read it, and so can any script that runs on the Console origin. Use a browser profile that only you use, and serve the Console from an origin that serves nothing else.
 - Another browser or another Console origin has its own list. Link the projects again there.
-- To revoke access, set a new `VITEHUB_CONSOLE_TOKEN` on the server and restart or deploy it. Each Console then asks for the new token.
+- When the browser does not let the Console store data, such as when storage is full or blocked, the list stays in memory until the page reloads. The Console says so.
+- To revoke access, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or deploy the server. Each Console then asks for the new token.
 
 To remove a project, open the project list, select the **×** next to the project, and confirm **Forget project**. The browser removes the URL and the token. The project does not change.
 
@@ -334,7 +341,7 @@ The Console that an app serves also uses this storage. With `auth: "token"`, `/_
 
 ### What needs the Console that the app serves
 
-Some features act on the app's own pages or set cookies of the app, so they work only in the Console at `/_vitehub` of the app. A Console on another origin hides or turns them off, and links to the app's Console where that helps:
+Some features act on the app's own pages or set cookies of the app, so they work only in the Console at `/_vitehub` of the app. In production, an app serves that Console only with `console.embed: true`. A Console on another origin hides or turns them off, and links to the app's Console where that helps:
 
 - Live editing of Content documents. The editor saves alone, and saves still refuse to overwrite a newer version.
 - The Content page preview.
@@ -648,7 +655,7 @@ The ViteHub tools pill shows at the bottom of the app's pages for people that th
 
 With `auth: 'app'`, sign in to the app and open any page: the pill is there. You do not have to open `/_vitehub` first. It also shows when you open the Console, or a page with the `?vitehub` query.
 
-The button uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the pill. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows it. With the development default, the Console and its button exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, removes the pill until you open the Console, use `?vitehub`, or sign in again. The ViteHub mark at the start of the pill collapses it to a small hexagon 2px from the edge of the screen, and the browser keeps it collapsed on the next pages until you select the mark again. Open windows and comment mode stay as they are. Drag the mark to dock the pill to another edge of the screen: top, right, bottom, or left, at the place where you release it. On the left and right edges the buttons stack, and windows open from the edge where the pill docks. The browser remembers the place on the next pages.
+The button uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the pill. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows it. With the development default, the Console and its button exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, removes the pill until you open the Console, use `?vitehub`, or sign in again. The ViteHub mark at the start of the pill collapses it to a small hexagon 2px from the edge of the screen, and the browser keeps it collapsed on the next pages until you select the mark again. Open windows and comment mode stay as they are. Drag the mark to dock the pill to another edge of the screen: top, right, bottom, or left, at the place where you release it. On the left and right edges the mark and the **×** share the first row and the tools stack under them, and windows open from the edge where the pill docks. The browser remembers the place on the next pages. You can also drag the small mark that stays after **Turn off ViteHub tools**: the pill opens where you drop it.
 
 #### Keep the pill off your own toolbar
 
