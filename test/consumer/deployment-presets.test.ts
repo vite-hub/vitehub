@@ -21,15 +21,12 @@ function flattenPlugins(options: PluginOption[]): Plugin[] {
   return options.flat(Number.POSITIVE_INFINITY).filter((plugin): plugin is Plugin => Boolean(plugin) && typeof plugin === "object")
 }
 
-it("keeps implicit Workflow inert when Agent targets Netlify", async () => {
-  const workflow = flattenPlugins(vitehub({ agent: true, preset: "netlify" }))
-    .find(plugin => plugin.name === "@vite-hub/workflow/vite") as Plugin & {
-      vitehub?: { workflow?: { prepareScheduleRuntime?: () => Promise<unknown> } }
-    }
+it("keeps implicit Workflow inert when Agent targets Netlify", () => {
+  const names = flattenPlugins(vitehub({ agent: true, preset: "netlify" }))
+    .map(plugin => plugin.name)
 
-  expect(workflow).toBeDefined()
-  ;(workflow.configResolved as (config: unknown) => void)({ plugins: [workflow], resolve: { alias: [] }, root: "/unused" })
-  await expect(workflow.vitehub?.workflow?.prepareScheduleRuntime?.()).resolves.toBeUndefined()
+  expect(names).toContain("@vite-hub/agent/vite")
+  expect(names).not.toContain("@vite-hub/workflow/vite")
 })
 
 it("disables Workflow in the Netlify consumer fixture", async () => {
