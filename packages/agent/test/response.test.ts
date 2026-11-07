@@ -8,7 +8,7 @@ describe("host Response detection", () => {
     const native = globalThis.Response
     class ServerResponse {
       #init: ResponseInit | undefined
-      constructor(_body?: BodyInit | null, init?: ResponseInit) {
+      constructor(_body?: unknown, init?: ResponseInit) {
         this.#init = init
       }
 

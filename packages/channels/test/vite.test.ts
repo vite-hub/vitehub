@@ -78,7 +78,7 @@ describe("hubChannels", () => {
     const root = await createTempProject()
     await mkdir(join(root, "server/channels"), { recursive: true })
     await writeFile(join(root, "server/channels/payments.ts"), "import { defineChannel, stripe } from 'vite-hub/channels'\nexport default defineChannel({ adapter: stripe() })\n")
-    const configure = (plugins: Array<{ name: string }>) => (hubChannels().configResolved as (config: { plugins: Array<{ name: string }>, root: string }) => Promise<void>)({ plugins, root })
+    const configure = (plugins: Array<{ name: string }>) => (hubChannels().configResolved as unknown as (config: { plugins: Array<{ name: string }>, root: string }) => Promise<void>)({ plugins, root })
 
     await expect(configure([])).rejects.toMatchObject({ code: "CHANNELS_B0001", message: expect.stringContaining('The Channel "payments" receives webhooks') })
     await expect(configure([{ name: "@vite-hub/agent/vite" }])).resolves.toBeUndefined()
