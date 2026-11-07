@@ -17,7 +17,7 @@ import type { T3Field } from "./plan.ts"
 const serverImport = "#vitehub/env/server"
 const publicImport = "#vitehub/env/public"
 
-/** Where a file runs: `server` code, `app` code in the browser, `shared` code on both, or `outside` Nuxt. */
+/** Where a file runs: `server` code, `app` code in the browser, `shared` code on both, or `outside` the Nuxt runtime. */
 export type FileContext = "app" | "outside" | "server" | "shared"
 
 const appFolders = new Set(["app", "pages", "components", "composables", "plugins", "layouts", "middleware"])
@@ -25,9 +25,9 @@ const outsideFolders = new Set(["scripts", "script", "test", "tests", "e2e", "bi
 
 export function classify(file: string): FileContext {
   const segments = file.split("/")
+  if (outsideFolders.has(segments[0] ?? "") || segments.includes("modules") || /^nuxt\.config\.[cm]?[jt]s$/.test(segments.at(-1) ?? "")) return "outside"
   if (segments.includes("server") || /\.server\.[cm]?[jt]sx?$/.test(file)) return "server"
   if (segments.length === 1) return /^(?:app|error)\.vue$/.test(file) ? "app" : "outside"
-  if (outsideFolders.has(segments[0] ?? "")) return "outside"
   if (file.endsWith(".vue") || /\.client\.[cm]?[jt]sx?$/.test(file) || appFolders.has(segments[0] ?? "")) return "app"
   return "shared"
 }
@@ -60,7 +60,7 @@ export function importsFile(cwd: string, fromFile: string, specifier: string, fi
 /** Local import specifiers in `code` whose last segment names the same file as `file`. */
 export function localSpecifiersNaming(code: string, file: string): string[] {
   const name = posix.basename(normalize(file))
-  return [...code.matchAll(/(?:\bfrom|\bimport)\s*\(?\s*["']([^"']+)["']/g)]
+  return [...code.matchAll(/(?:\bfrom|\bimport|\brequire)\s*\(?\s*["']([^"']+)["']/g)]
     .map(match => match[1] ?? "")
     .filter(specifier => /^(?:\.|~|#|@\/|@@\/)/.test(specifier) && posix.basename(normalize(specifier)) === name)
 }
@@ -130,7 +130,7 @@ export async function rewriteT3CallSites(cwd: string, module: EnvModule, fields:
       if (!imports.length) continue
       const follow = (node: Node, message: string) => result.followUps.push({ file, line: line(node) + block.lineOffset, message })
       if (context === "outside") {
-        follow(imports[0]!, `This file runs outside Nuxt, so it cannot read Env through #vitehub/env. The codemod kept ${module.file} for it. Read process.env here, then delete ${module.file}.`)
+        follow(imports[0]!, `This file runs outside the Nuxt app or server runtime, so it cannot read Env through #vitehub/env. The codemod kept ${module.file} for it. Read process.env here, then delete ${module.file}.`)
         keepsImport = true
         continue
       }

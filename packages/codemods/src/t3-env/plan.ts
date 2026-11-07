@@ -88,9 +88,10 @@ export async function planT3Env(options: T3EnvOptions, cwd: string): Promise<T3P
         envPath: [name],
         variable: key,
         kind: "string",
-        required: !missing.passes && !leaf.nullable,
+        required: !missing.passes,
         secret: false,
       }
+      if (leaf.nullable) follow(`${key} accepts null. Env has no null value. Check code that expects null after migrating.`)
       if (leaf.kind === "enum") {
         field.kind = "enum"
         field.values = leaf.values
