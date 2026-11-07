@@ -9,7 +9,9 @@ import {
   takeConsoleLinkHash,
 } from "../src/console/runtime/client/pending-links.ts"
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
-import { createConsoleProjectStore, memoryProjectStorage } from "../src/console/runtime/client/projects.ts"
+import { browserProjectStorage, createConsoleProjectStore, memoryProjectStorage } from "../src/console/runtime/client/projects.ts"
+
+import type { ConsoleProjectStorage } from "../src/console/runtime/client/projects.ts"
 
 const pageProject = consoleProject()
 afterEach(() => {
@@ -21,6 +23,16 @@ afterEach(() => {
 const projectGet = { ok: true, value: { protocol: 1, name: "Shop", vitehub: "0.1.0", sections: ["kv"], operations: ["kv.list"] } }
 const tokenRejection = { code: "CONSOLE_TOKEN_INVALID", message: "The Console token is not correct.", ok: false, status: 401 }
 const app = { origin: "https://app.example.com", base: "", url: "https://app.example.com" }
+
+// Shared by page sessions, like localStorage across reloads and tabs.
+function browserStorage() {
+  const values = new Map<string, string>()
+  return {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => { values.set(key, value) },
+    removeItem: (key: string) => { values.delete(key) },
+  }
+}
 
 // Shared by independent sessions, like the browser's origin-wide Web Locks manager.
 function linkLocks() {
@@ -44,7 +56,7 @@ describe("pending link verifier", () => {
 
 describe("pending link store", () => {
   it("keeps a 32-byte base64url secret and gives out only the id and the verifier", async () => {
-    const storage = memoryProjectStorage()
+    const storage = browserStorage()
     const store = createConsolePendingLinkStore(storage, { now: () => 1_000 })
     const ticket = await store.create()
 
@@ -66,7 +78,7 @@ describe("pending link store", () => {
 
   it("expires a link after 24 hours and sweeps it on read", async () => {
     let now = 0
-    const storage = memoryProjectStorage()
+    const storage = browserStorage()
     const store = createConsolePendingLinkStore(storage, { now: () => now })
     const old = await store.create()
     now = consolePendingLinkLifetime - 1
@@ -82,7 +94,7 @@ describe("pending link store", () => {
   })
 
   it("drops stored entries that are not pending links", () => {
-    const storage = memoryProjectStorage()
+    const storage = browserStorage()
     storage.setItem(consolePendingLinksStorageKey, JSON.stringify([
       { pendingId: "abcdefgh", secret: "s", createdAt: 5 },
       { pendingId: "abcdefgh", secret: "other", createdAt: 5 },
@@ -160,17 +172,86 @@ describe("creating a pending link", () => {
 })
 
 describe("linking from a pending link", () => {
-  async function session(fetch: (url: string, init: RequestInit) => Promise<Response>) {
+  async function session(fetch: (url: string, init: RequestInit) => Promise<Response>, storage: ConsoleProjectStorage = browserStorage()) {
     const fetchMock = vi.fn(fetch)
     vi.stubGlobal("fetch", fetchMock)
     const module = await import("../src/console/runtime/client/project-session.ts")
     const navigate = vi.fn()
-    const storage = memoryProjectStorage()
     const pendingLinkLocks = linkLocks()
     const state = module.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate, pageOrigin: "https://console.example.com", storage, storagePersistent: true, pendingLinkLocks })
     const ticket = await module.createConsolePendingLink()
     return { fetch: fetchMock, module, navigate, state, storage, ticket, pendingLinkLocks }
   }
+
+  it("sends nothing if a durable bind fails after the storage probe succeeded", async () => {
+    const primary = browserStorage()
+    const storage = browserProjectStorage(() => primary)
+    const { fetch, module, state, ticket } = await session(async () => Response.json(projectGet), storage)
+    expect(storage.persistent).toBe(true)
+    vi.spyOn(primary, "setItem").mockImplementation(() => { throw new Error("Storage is full") })
+
+    expect(await module.confirmConsoleLink(ticket.pendingId, app))
+      .toMatchObject({ kind: "problem", final: false, problem: { title: "Allow browser storage" } })
+    expect(fetch).not.toHaveBeenCalled()
+    expect(state.store.list()).toEqual([])
+    expect(createConsoleProjectStore(primary).list()).toEqual([])
+    const reloaded = createConsolePendingLinkStore(primary).lookup(ticket.pendingId)
+    expect(reloaded).toMatchObject({ kind: "pending" })
+    if (reloaded.kind !== "pending") throw new Error("Expected a pending link")
+    expect(reloaded.link.targetUrl).toBeUndefined()
+    // A retry in the same page must not use the attempted bind kept only in memory.
+    expect(await module.confirmConsoleLink(ticket.pendingId, app)).toMatchObject({ kind: "problem", final: false })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("does not report consumption or save a project if durable removal fails", async () => {
+    const primary = browserStorage()
+    const storage = browserProjectStorage(() => primary)
+    const { fetch, module, state, ticket, pendingLinkLocks } = await session(async () => Response.json(projectGet), storage)
+    expect(storage.persistent).toBe(true)
+    const setItem = primary.setItem
+    const write = vi.spyOn(primary, "setItem").mockImplementation((key, value) => {
+      if (key === consolePendingLinksStorageKey && value === "[]") throw new Error("Storage write failed")
+      setItem(key, value)
+    })
+
+    expect(await module.confirmConsoleLink(ticket.pendingId, app))
+      .toMatchObject({ kind: "problem", final: false, problem: { title: "Allow browser storage" } })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(state.store.list()).toEqual([])
+    expect(createConsoleProjectStore(primary).list()).toEqual([])
+    expect(createConsolePendingLinkStore(primary).lookup(ticket.pendingId))
+      .toMatchObject({ kind: "pending", link: { targetUrl: app.url } })
+
+    write.mockRestore()
+    vi.resetModules()
+    const reloaded = await import("../src/console/runtime/client/project-session.ts")
+    reloaded.startConsoleProjects({ base: "", home: "/", mode: "hosted", navigate: vi.fn(), pageOrigin: "https://console.example.com", storage: browserProjectStorage(() => primary), pendingLinkLocks })
+    expect(await reloaded.confirmConsoleLink(ticket.pendingId, { ...app, url: "https://other.example.com", origin: "https://other.example.com" }))
+      .toMatchObject({ kind: "problem", final: true, problem: { title: "This link belongs to another project" } })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(await reloaded.confirmConsoleLink(ticket.pendingId, app)).toMatchObject({ kind: "linked" })
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(createConsoleProjectStore(primary).list()).toHaveLength(1)
+    expect(createConsolePendingLinkStore(primary).lookup(ticket.pendingId)).toEqual({ kind: "unknown" })
+  })
+
+  it("shows how to recover when the link page cannot read durable storage", async () => {
+    const primary = browserStorage()
+    const storage = browserProjectStorage(() => primary)
+    const { fetch, module, ticket } = await session(async () => Response.json(projectGet), storage)
+    vi.spyOn(primary, "getItem").mockImplementation(() => { throw new Error("Storage is blocked") })
+
+    expect(module.startConsoleLink(`#p=${ticket.pendingId}&url=${app.url}`))
+      .toMatchObject({ kind: "problem", problem: { title: "Allow browser storage", message: expect.stringContaining("reopen the original link") } })
+    expect(await module.confirmConsoleLink(ticket.pendingId, app)).toMatchObject({ kind: "problem", final: false })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("cannot make a pending link in storage that ends with the page", async () => {
+    const store = createConsolePendingLinkStore(memoryProjectStorage())
+    await expect(store.create()).rejects.toThrow()
+  })
 
   it("does not disclose one secret to two projects during concurrent confirmations in separate tabs", async () => {
     let finish!: (response: Response) => void
