@@ -2,7 +2,7 @@ import { randomId } from "@vite-hub/internal/runtime/random"
 import { serializeResponse, toResponse } from "@vite-hub/runtime"
 
 import { createScheduleError } from "../errors.ts"
-import { validateScheduledAt } from "./date.ts"
+import { parseScheduledAt, validateScheduledAt } from "./date.ts"
 import { getScheduleRunStore, loadScheduleDefinition } from "./state.ts"
 import { runWithScheduleWaitUntil } from "./wait-until.ts"
 
@@ -32,6 +32,11 @@ interface ExecuteStaticScheduleOptions {
 export interface RunScheduleOptions {
   /** Loads the definition from this registry instead of the one installed with `setScheduleRuntimeRegistry()`. */
   registry?: ScheduleDefinitionRegistry
+  /**
+   * The time the handler receives as `scheduledAt`, as if the cron fired then. A string is an ISO 8601 date-time with a
+   * time zone, such as `"2026-01-31T23:59:00Z"`. Defaults to now. The run records this time.
+   */
+  scheduledAt?: Date | string
 }
 
 function normalizeRunSource(source: ExecuteScheduleOptions["source"]): NonNullable<ExecuteScheduleOptions["source"]> {
@@ -254,8 +259,8 @@ export async function runSchedule(name: string, options: RunScheduleOptions = {}
   if (definition.options?.manual !== true) {
     throw createScheduleError("SCHEDULE_MANUAL_RUN_DISABLED")
   }
+  const scheduledAt = parseScheduledAt(options.scheduledAt)
   const runStore = getScheduleRunStore()
-  const scheduledAt = new Date()
   const runIdSuffix = randomId("manual")
   try {
     return await executeSchedule({ definition, runIdSuffix, runStore, scheduleId: name, source: "manual", scheduledAt, target: name })
