@@ -82,7 +82,7 @@ export interface PublicUsageTotals {
   totalTokens: number;
 }
 
-export type ConsoleUsageWindow = "24h" | "7d" | "30d" | "90d";
+export type ConsoleUsageWindow = "24h" | "7d" | "14d" | "30d" | "90d";
 
 export type ConsoleUsageStatus = "completed" | "failed" | "cancelled";
 
@@ -140,12 +140,13 @@ export function usageSession(
 const usageWindows: Record<ConsoleUsageWindow, UsageWindow> = {
   "24h": { bucket: "hour", durationMs: 24 * 60 * 60 * 1_000 },
   "7d": { bucket: "day", durationMs: 7 * 24 * 60 * 60 * 1_000 },
+  "14d": { bucket: "day", durationMs: 14 * 24 * 60 * 60 * 1_000 },
   "30d": { bucket: "day", durationMs: 30 * 24 * 60 * 60 * 1_000 },
   "90d": { bucket: "day", durationMs: 90 * 24 * 60 * 60 * 1_000 },
 };
 
 export function parseConsoleUsageWindow(value: string): ConsoleUsageWindow | undefined {
-  if (value === "24h" || value === "7d" || value === "30d" || value === "90d") return value;
+  if (value === "24h" || value === "7d" || value === "14d" || value === "30d" || value === "90d") return value;
 }
 
 const historyCursorSchema = v.strictObject({
