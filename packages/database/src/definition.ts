@@ -5,7 +5,7 @@ import { createDefinitionRuntime } from "#vitehub/database/definition-runtime"
 import type { Database, DatabaseDefinition, DatabaseDefinitionOptions, PostgresDatabaseDefinition, PostgresDatabaseDefinitionOptions } from "./types.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
-const allowedDefinitionKeys = new Set(["cloudflare", "connection", "drizzle", "name", "schema"])
+const allowedDefinitionKeys = new Set(["cloudflare", "connection", "drizzle", "name", "remote", "schema"])
 const allowedOptionKeys = new Set([...allowedDefinitionKeys, "dialect"])
 const allowedPostgresKeys = {
   cloudflare: new Set(["binding", "hyperdriveId"]),
@@ -71,8 +71,17 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
     throw databaseErrorDiagnostics.DATABASE_INVALID_NAME()
   }
 
+  if (options.remote !== undefined && options.remote !== true && options.remote !== false) {
+    throw databaseErrorDiagnostics.DATABASE_INVALID_REMOTE()
+  }
+  // `cloudflare.http` already sends `vite dev` to the remote database, so `remote: false` cannot keep it local.
+  if (options.remote === false && options.cloudflare && "http" in options.cloudflare && options.cloudflare.http) {
+    throw databaseErrorDiagnostics.DATABASE_REMOTE_CONFLICT({ database: name })
+  }
+
   if (options.dialect === "postgresql") {
     const unsupported = [
+      ...options.remote === undefined ? [] : ["remote"],
       ...Object.keys(options.cloudflare ?? {}).filter(key => !allowedPostgresKeys.cloudflare.has(key)).map(key => `cloudflare.${key}`),
       ...Object.keys(options.connection ?? {}).filter(key => !allowedPostgresKeys.connection.has(key)).map(key => `connection.${key}`),
     ][0]
@@ -95,6 +104,7 @@ export function defineDatabase<TSchema extends Record<string, unknown>>(
     ...(options.connection ? { connection: options.connection } : {}),
     drizzle: casing ? { casing } : {},
     name,
+    ...(options.remote === undefined ? {} : { remote: options.remote }),
     schema: options.schema,
   }
   const runtime = createDefinitionRuntime(definition)

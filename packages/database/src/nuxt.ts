@@ -20,11 +20,11 @@ import { renderPostgresDatabaseExpression, usesPostgres } from "./internal/runti
 import { generatedDatabaseTypesFile, removeGeneratedDatabaseTypes, renderContributionImport, writeGeneratedDatabaseArtifacts } from "./internal/generated.ts"
 import { resolveSourceImport } from "./internal/source-dependencies.ts"
 import { assertDistinctLoadedSchemas, loadContributedDatabaseSchema, loadDefinitionSchemas, mergeLoadedSchemas } from "./internal/schema-tables.ts"
-import { collectDatabaseContributions, describeDatabaseContribution } from "./contributions.ts"
+import { collectDatabaseContributions, describeDatabaseContribution, implicitDefaultDatabaseContributions } from "./contributions.ts"
 import { usesD1HttpOnly, writeHostedDatabaseRuntimeModules } from "./internal/vite-build.ts"
 import { assertMigrateOnStartSupported, migrateOnStartPluginFile, renderMigrateOnStartPlugin, resolveMigrateOnStart, type MigrateOnStartSettings } from "./internal/migrate-on-start.ts"
 import { resolveConfigValue, withConfigValueFallback } from "./config-value.ts"
-import { resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
+import { isImplicitDefaultDatabase, resolveDBViteConfig, serializeGeneratedRegistry } from "./config.ts"
 import { hubDb as hubDbVite } from "./vite.ts"
 import { isAbsolute } from "pathe"
 
@@ -187,7 +187,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
       const refreshLocalRuntime = () => {
         const refresh = async () => {
           if (!localNitroConfig || closed) return
-          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions)
+          const runtime = await installNitroLocalDatabaseRuntime(localNitroConfig, root, provisionRoot, generatedRoot, runtimeOptions, serverDirs, d1, contributions, undefined, true)
           for (const source of runtime?.definitions.flatMap(definition => definition.schemaSources) ?? []) {
             definitionFiles.add(source.handler)
             definitionDirectories.add(dirname(source.handler))
@@ -284,7 +284,10 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             provisionRoot,
             serverDirs,
           })
-          if (provider === "cloudflare") assertDistinctNuxtD1Bindings(runtime, d1, config)
+          if (provider === "cloudflare") {
+            assertDistinctNuxtD1Bindings(runtime, d1, config)
+            assertDefinitionD1Resources(runtime, contributions, config)
+          }
           const d1Only = runtime && usesD1HttpOnly(runtime)
           // A separate Nuxt Content D1 resource does not make Node's local Databases hosted.
           const runtimeProvider = provider === "vercel" ? "vercel" : provider === "cloudflare" || d1Only || (provider && d1) ? "cloudflare" : provider
@@ -435,25 +438,41 @@ async function installNitroLocalDatabaseRuntime(
   d1?: ResolvedDatabaseNuxtD1Options,
   contributions: CollectedDatabaseContributions = { definitions: [], tables: [], uses: [] },
   resolvedRuntime?: ResolvedDBViteConfig,
+  /** True for `nuxt dev`, where a Definition's `remote` switch applies. */
+  dev = false,
 ) {
   const file = resolve(generatedRoot, generatedNitroLocalDatabaseRuntime)
+  const defaultsFile = resolve(generatedRoot, "database/definition-defaults.mjs")
   const alias = isRecord(config.alias) ? config.alias : undefined
   const existingAlias = alias?.[databaseDrizzleImport]
-  if (existingAlias && existingAlias !== file) {
+  const customRegistry = !!existingAlias && existingAlias !== file
+  if (customRegistry) {
     await rm(file, { force: true })
-    return
+    if (!dev) return
   }
 
   const runtime = resolvedRuntime ?? resolveDBViteConfig(options, root, { contributions, provisionRoot, serverDirs })
   assertDistinctNuxtD1Bindings(runtime, d1, config)
   if (!runtime?.definitions.length) {
     await rm(file, { force: true })
+    if (dev) {
+      await rm(defaultsFile, { force: true })
+      if (alias?.[databaseDefinitionDefaultsImport] === defaultsFile) delete alias[databaseDefinitionDefaultsImport]
+    }
     if (alias && existingAlias === file) {
       delete alias[databaseDrizzleImport]
       if (!Object.keys(alias).length) delete config.alias
     }
     return
   }
+
+  const definitionDefaults = serializeGeneratedRegistry(dev ? { ...runtime.definitionDefaults, dev: true } : runtime.definitionDefaults)
+  if (dev) {
+    // Direct Definition imports need these defaults even when the app supplies its own registry.
+    await writeFileIfChanged(defaultsFile, `export default ${definitionDefaults}\n`)
+    ensureRecord(config, "alias")[databaseDefinitionDefaultsImport] ??= defaultsFile
+  }
+  if (customRegistry) return runtime
 
   // Nitro dev keeps running when a Definition needs Nuxt auto-imports to load; collisions are then checked on literal keys.
   const tableNameOptions = {
@@ -519,12 +538,11 @@ async function installNitroLocalDatabaseRuntime(
       ...(usesPostgres(runtime) ? [`import { createPostgresDatabase } from ${JSON.stringify(pathToFileURL(resolve(databaseRuntimeDir, "postgres.js")).href)}`] : []),
       ...imports,
       "",
-      `const definitionDefaults = ${serializeGeneratedRegistry(runtime.definitionDefaults)}`,
+      `const definitionDefaults = ${definitionDefaults}`,
       ...schemas,
     ],
   }))
-  if (alias) alias[databaseDrizzleImport] = file
-  else config.alias = { [databaseDrizzleImport]: file }
+  ensureRecord(config, "alias")[databaseDrizzleImport] = file
   return runtime
 }
 
@@ -825,6 +843,23 @@ function assertDistinctNuxtD1Bindings(runtime: ReturnType<typeof resolveDBViteCo
     if (host && definition?.databaseId === host.database_id && definition?.databaseName === host.database_name) continue
     throw databaseErrorDiagnostics.DATABASE_BINDING_CONFLICT({ binding: d1.bindingName, first: `The Database Definition "${name}"`, kind: "D1", second: "the Nuxt host resource" })
   }
+}
+
+// A SQLite Definition without `cloudflare` options names no D1 database, so no D1 binding is written for it. The Vite
+// build then removes the hosted runtime, and Nitro cannot load the `@vite-hub/database/drizzle` alias. An alias that the
+// app sets does not load that runtime. The implicit default Database is checked only when a contributed table or use
+// needs it: an app can enable `database` and never query it.
+function assertDefinitionD1Resources(runtime: ReturnType<typeof resolveDBViteConfig>, contributions: CollectedDatabaseContributions, config: Record<string, unknown>) {
+  if (!runtime || (isRecord(config.alias) && databaseDrizzleImport in config.alias)) return
+  const implicitDefaultUsed = implicitDefaultDatabaseContributions(contributions).length > 0
+  const databases = runtime.definitions.filter((definition) => {
+    const database = runtime.databases[definition.name]!
+    return (implicitDefaultUsed || !isImplicitDefaultDatabase(definition)) && database.dialect === "sqlite" && !database.cloudflare && !hasRemoteDefinitionRuntime(database)
+  }).map(definition => definition.name)
+  if (!databases.length) return
+  // The implicit default Database has no Definition file, so it takes its D1 resource from the module options.
+  const options = runtime.definitions.some(isImplicitDefaultDatabase) ? "database" : "cloudflare"
+  throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases, missing: `\`${options}.databaseName\`, and \`${options}.databaseId\` or provision state,` })
 }
 
 function findCompleteNitroConfigD1Binding(config: Record<string, unknown>, bindingName: string, databaseName?: string) {

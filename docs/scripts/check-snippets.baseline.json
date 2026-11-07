@@ -40,11 +40,6 @@
     "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/agents/capabilities/input-commands.md#748af2836fda",
-    "label": "server/agents/support.ts",
-    "error": "TS2554 Expected 0 arguments, but got 1."
-  },
-  {
     "id": "docs/content/docs/agents/capabilities/mcp.md#4a5c462e1230",
     "label": "server/agents/support.ts",
     "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer.\nTS2339 Property 'unseal' does not exist on type '{}'."
@@ -238,11 +233,6 @@
     "id": "docs/content/docs/connections/get-started.md#470146cec573",
     "label": "server/api/labels.get.ts",
     "error": "TS2769 No overload matches this call.\n  Overload 1 of 2, '(name: \"google\", options?: (Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }) | undefined): ConnectionClient<GoogleApis, { ...; }, false>', gave the following error.\n    Object literal may only specify known properties, and 'event' does not exist in type 'Omit<UseConnectionOptions, \"dryRun\"> & { dryRun?: false | undefined; }'.\n  Overload 2 of 2, '(name: never, options?: UseConnectionOptions | undefined): ConnectionClient', gave the following error.\n    Argument of type '\"google\"' is not assignable to parameter of type 'never'."
-  },
-  {
-    "id": "docs/content/docs/connections/index.md#b5254d8a047e",
-    "label": "server/connections/google.ts",
-    "error": "TS2322 Type 'false' is not assignable to type 'true | \"approve\" | readonly ConnectionActionPattern<GoogleApis>[] | undefined'.\nTS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
     "id": "docs/content/docs/content/configure.md#23a4c159d075",

@@ -2159,7 +2159,7 @@
     font-weight: 500;
   }
 
-  :is([data-slot="comment-reply-time"], [data-slot="comment-reply-edited"], [data-slot="comment-reply-actor"]) {
+  :is([data-slot="comment-reply-time"], [data-slot="comment-reply-edited"]) {
     color: var(--vh-muted);
     font-size: 0.75rem;
   }
@@ -3218,5 +3218,17 @@
   .vh-ws-popover {
     background: var(--vh-bg); border: 1px solid var(--vh-border); border-radius: calc(var(--vh-radius) * 0.75); font-size: 0.8125rem;
     inset-block-start: calc(100% + 0.375rem); inset-inline-start: 0; margin: 0; padding: 0.625rem 0.75rem; position: absolute; width: min(18rem, 80vw); z-index: 3;
+  }
+}
+
+/* MarkdownEditor: the text takes the comark typeset, and the page's focus shows on the editor's own frame. */
+@layer components {
+  .vh-markdown-editor:focus-within {
+    outline: 2px solid var(--vh-highlighted);
+    outline-offset: 2px;
+  }
+  .vh-markdown-editor-content .ProseMirror {
+    min-height: 100%;
+    outline: none;
   }
 }
