@@ -400,6 +400,41 @@ export default ({ mode }) => ({
     expect(stderr.output()).toBe("")
   })
 
+  it("passes positional arguments to the default feature when they name no other feature", async () => {
+    const run = vi.fn(() => 0)
+    const other = vi.fn(() => 0)
+    const config = async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [{ defaultFeature: "pull", features: [{ name: "pull", run }, { name: "other", run: other }], name: "pull" }] } } }],
+      root: "/repo",
+    })
+
+    expect(await runViteHubCli({ args: ["pull", "site", "--dir", "content"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+    expect(await runViteHubCli({ args: ["pull", "other"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+
+    expect(run).toHaveBeenCalledWith(["site", "--dir", "content"], expect.objectContaining({ rootDir: "/repo" }))
+    expect(other).toHaveBeenCalledWith([], expect.anything())
+  })
+
+  it("sends --help to the command of a namespace that is one command", async () => {
+    const run = vi.fn(() => 0)
+    const config = async () => ({ plugins: [{ vitehub: { cli: { namespaces: [{ defaultFeature: "pull", features: [{ name: "pull", run }], name: "pull" }] } } }], root: "/repo" })
+
+    expect(await runViteHubCli({ args: ["pull", "--help"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+
+    expect(run).toHaveBeenCalledWith(["--help"], expect.anything())
+  })
+
+  it("passes a Workspace named like the command to a namespace that is one command", async () => {
+    const run = vi.fn(() => 0)
+    const config = async () => ({ plugins: [{ vitehub: { cli: { namespaces: [{ defaultFeature: "push", features: [{ name: "push", run }], name: "push" }] } } }], root: "/repo" })
+
+    expect(await runViteHubCli({ args: ["push", "push"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+    expect(await runViteHubCli({ args: ["push"], cwd: "/repo", loadConfig: config, stderr: stream(), stdout: stream() })).toBe(0)
+
+    expect(run).toHaveBeenNthCalledWith(1, ["push"], expect.anything())
+    expect(run).toHaveBeenNthCalledWith(2, [], expect.anything())
+  })
+
   it("reserves the inspect namespace for built-in commands", async () => {
     const stdout = stream()
     const stderr = stream()
