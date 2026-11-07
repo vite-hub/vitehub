@@ -71,10 +71,14 @@ async function workspaceNote(rootDir: string, folder: string, workspace: string 
   catch {
     entry = undefined
   }
+  const remote: unknown = Object(entry) === entry ? Reflect.get(Object(entry), "remote") : undefined
+  const pull = `vitehub pull ${workspace} --dir ${dir} --ref published --url ${typeof remote === "string" && remote ? remote : "<origin>"}`
   if (Object(entry) === entry && Reflect.get(Object(entry), "dir") === dir) {
-    return ["", `${dir}/ is a checkout of Workspace "${workspace}" (${String(Reflect.get(Object(entry), "ref"))}). Run \`vitehub pull\` for translations saved since then.`]
+    const ref = String(Reflect.get(Object(entry), "ref"))
+    if (ref === "published") return ["", `${dir}/ is a checkout of Workspace "${workspace}" (published). Run \`vitehub pull\` for translations saved since then.`]
+    return ["", `Warning: ${dir}/ is a checkout of Workspace "${workspace}" on ref "${ref}", not "published". \`vitehub pull\` copies its unpublished translations into ${dir}/, and the next build embeds them. To switch, remove "${workspace}" from vitehub.lock, then run \`${pull}\`.`]
   }
-  return ["", `Translations saved in Workspace "${workspace}" reach ${dir}/ only through a pull: \`vitehub pull ${workspace} --dir ${dir} --ref published --url <origin>\`.`]
+  return ["", `Translations saved in Workspace "${workspace}" reach ${dir}/ only through a pull: \`${pull}\`.`]
 }
 
 function translationLocale(config: LinguiConfigNormalized, locale: string | undefined): string | undefined {

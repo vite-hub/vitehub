@@ -254,7 +254,7 @@ pnpm vitehub i18n status
 pnpm vitehub push --message "Fix the Spanish checkout labels"
 ```
 
-Check out `published`, not `draft`. The build embeds `locales/`, so a draft in `locales/` would reach the site with the next deploy before anyone published it. Commit `vitehub.lock` with the records. After the first pull, `vitehub pull` with no arguments brings the translations published since then, and `vitehub i18n status` reminds you of it. See [Work on a ref in a local folder](/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
+Check out `published`, not `draft`. The build embeds `locales/`, so a draft in `locales/` would reach the site with the next deploy before anyone published it. Commit `vitehub.lock` with the records. After the first pull, `vitehub pull` with no arguments brings the translations published since then, and `vitehub i18n status` reminds you of it. When `vitehub.lock` checks out another ref, such as `draft`, `vitehub i18n status` warns you and prints the command that checks out `published`. See [Work on a ref in a local folder](/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
 
 ## What the build does
 

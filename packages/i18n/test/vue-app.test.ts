@@ -171,6 +171,12 @@ describe("a Vue app with messages in templates and scripts", () => {
       const status = await cliWith("translations", "status")
       expect(status.stdout).toContain("locales/ is a checkout of Workspace \"translations\" (published). Run `vitehub pull` for translations saved since then.")
       expect(JSON.parse((await cliWith("translations", "status", "--json")).stdout)).toBeInstanceOf(Array)
+
+      await writeFile(join(root, "vitehub.lock"), JSON.stringify({ version: 1, workspaces: { translations: { dir: "locales", files: {}, head: "r1", ref: "draft", remote: "https://example.com" } } }))
+      const draft = (await cliWith("translations", "status")).stdout
+      expect(draft).toContain("Warning: locales/ is a checkout of Workspace \"translations\" on ref \"draft\", not \"published\".")
+      expect(draft).toContain("To switch, remove \"translations\" from vitehub.lock, then run `vitehub pull translations --dir locales --ref published --url https://example.com`.")
+      expect(draft).not.toContain("Run `vitehub pull` for translations saved since then.")
     }
     finally {
       await rm(join(root, "vitehub.lock"))
