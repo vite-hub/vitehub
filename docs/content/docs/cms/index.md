@@ -74,4 +74,4 @@ The CMS stores the collections. [Content](/docs/content) owns everything you do 
 
 ## Deploy and operate
 
-[Roles and access](/docs/cms/access) gives each user a role with the Better Auth `admin` plugin. [Hosts](/docs/cms/hosts) lists where each store runs and what to provision before a hosted deploy. [Limits and errors](/docs/cms/limits-and-errors) lists the limits of the GitHub store and the fix for each error code. The [Server API](/docs/cms/server-api) lists the imports and every host option.
+[Roles and access](/docs/cms/access) gives each user a role with the Better Auth `admin` plugin. [Hosts](/docs/cms/hosts) lists where each store runs and what to provision before a hosted deploy. [Limits and errors](/docs/cms/limits-and-errors) lists the limits of the GitHub store and the fix for each error code. The [Server API](/docs/cms/server-api) lists the imports and every preset option.

@@ -366,7 +366,7 @@ const { data: page } = await useFetch("/api/content/get/docs/introduction")
 
 Use `@vite-hub/ui/markdown` with the owner packages. The Nuxt UI module auto-imports `Markdown`. No Comark UI install, component map, or document stylesheet is required. Optional `components` override individual renderers. The same primitive accepts a Markdown string and supports streaming.
 
-`markdown.plugins` extends that host. A plugin with the same name replaces a preset plugin, so an app can configure file readers, icon collections, or a private diagram service. The include plugin stays off; badges and chips load their images by URL.
+`markdown.plugins` extends that preset. A plugin with the same name replaces a preset plugin, so an app can configure file readers, icon collections, or a private diagram service. The include plugin stays off; badges and chips load their images by URL.
 
 Content's collaborative editor and the Console use `createContentEditorCodec()` from `vite-hub/content/editor` for their schema, Markdown conversion, and loss check. Content installs its Comark and Tiptap runtimes; apps do not configure them. Components do not need a separate editor node definition. A document that cannot round-trip opens read-only and remains editable in Source.
 
