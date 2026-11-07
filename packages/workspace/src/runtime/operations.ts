@@ -1,11 +1,13 @@
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
+import { normalizeHistoryPath } from "../core/history.ts"
 import { useWorkspaceFiles } from "../core/use.ts"
 import { readDerivedFrom, staleDerivedFiles } from "../lineage.ts"
 import { workspaceHistoryDefaultLimit } from "../results.ts"
 
-import type { WorkspaceEntry, WorkspaceHistoryReader, WorkspaceRevision, WorkspaceRevisionView } from "../core/types.ts"
+import type { OperationContext } from "@vite-hub/internal/operations"
+import type { WorkspaceEntry, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceRevision, WorkspaceRevisionView } from "../core/types.ts"
 import type {
   WorkspaceChangedFile,
   WorkspaceChanges,
@@ -41,13 +43,23 @@ function isoTime(value: string): string {
   return Number.isNaN(time) ? value : new Date(time).toISOString()
 }
 
+/** The author of a revision: a string, or a person `{ id, name, email }` as Content and `vitehub push` record it. */
+function authorName(author: unknown): string | undefined {
+  if (hasRuntimeType(author, "string")) return author || undefined
+  if (Object(author) !== author) return undefined
+  for (const key of ["name", "email", "id"]) {
+    const value: unknown = Reflect.get(Object(author), key)
+    if (hasRuntimeType(value, "string") && value) return value
+  }
+}
+
 function describeRevision(revision: WorkspaceRevision): WorkspaceHistoryRevision {
-  const author = revision.metadata?.author
+  const author = authorName(revision.metadata?.author)
   const result: WorkspaceHistoryRevision = {
     ...revision,
     createdAt: isoTime(revision.createdAt),
   }
-  if (hasRuntimeType(author, "string") && author) result.author = author
+  if (author) result.author = author
   return result
 }
 
@@ -213,17 +225,42 @@ async function listChanges(workspace: string, history: WorkspaceHistoryReader, r
   return result
 }
 
-async function commitChanges(workspace: string, request: WorkspaceCommitInput): Promise<WorkspaceCommitResult> {
-  const put = Object.fromEntries(Object.entries(request.put ?? {}).map(([path, file]) => [path, decodeContent(file)]))
+/** The new content of a file. A file that exists at the base revision keeps its media type and metadata. */
+function replacement(content: string | Uint8Array, before: WorkspaceEntry | undefined): WorkspaceHistoryFileInput {
+  const file: WorkspaceHistoryFileInput = { content }
+  if (before?.mediaType) file.mediaType = before.mediaType
+  // `source` marks a file that a Source wrote. An edited file is no longer the Source's file.
+  if (before?.metadata) file.metadata = Object.fromEntries(Object.entries(before.metadata).filter(([key]) => key !== "source"))
+  return file
+}
+
+/** The caller of a commit in the shape that Content records: the surface, the person, and the Agent Actor. */
+function callerMetadata(context: OperationContext): Record<string, unknown> {
+  const author = Object.fromEntries(["id", "name", "email"].flatMap((key) => {
+    const value = context.user?.[key]
+    return hasRuntimeType(value, "string") && value ? [[key, value]] : []
+  }))
+  return {
+    source: context.surface,
+    ...(Object.keys(author).length ? { author } : {}),
+    ...(context.actor?.id ? { agent: { actor: context.actor.id } } : {}),
+  }
+}
+
+async function commitChanges(workspace: string, request: WorkspaceCommitInput, context: OperationContext): Promise<WorkspaceCommitResult> {
   const remove = request.delete ?? []
-  if (!Object.keys(put).length && !remove.length) throw new WorkspaceOperationError("WORKSPACE_HISTORY_INVALID", 400, "The commit has no changes. Pass `put` or `delete`.")
+  if (!Object.keys(request.put ?? {}).length && !remove.length) throw new WorkspaceOperationError("WORKSPACE_HISTORY_INVALID", 400, "The commit has no changes. Pass `put` or `delete`.")
   const { history } = useWorkspaceFiles(workspace, { mode: "write" })
+  // The head check of the commit fails when the ref moved, so the files of `ifHead` are the files that the commit replaces.
+  const base = request.ifHead === null ? new Map<string, WorkspaceEntry>() : await filesOf(await openOrMissing(history, request.ifHead))
+  const put = Object.fromEntries(Object.entries(request.put ?? {}).map(([path, file]) => [path, replacement(decodeContent(file), base.get(normalizeHistoryPath(path)))]))
   try {
     const revision = await history.commit({
       ref: request.ref ?? "main",
       ifHead: request.ifHead,
       changes: { put, delete: remove },
       message: request.message ?? `Push ${Object.keys(put).length + remove.length} files`,
+      metadata: callerMetadata(context),
     })
     return { workspace, revision: describeRevision(revision) }
   }
@@ -272,9 +309,9 @@ export async function runWorkspaceChanges(input: WorkspaceChangesInput): Promise
 }
 
 /** Commits files to a ref when its head is still `ifHead`, for `vitehub push`. Write rules and validators run. */
-export async function runWorkspaceCommit(input: WorkspaceCommitInput): Promise<WorkspaceCommitResult> {
+export async function runWorkspaceCommit(input: WorkspaceCommitInput, context: OperationContext): Promise<WorkspaceCommitResult> {
   try {
-    return await commitChanges(input.workspace, input)
+    return await commitChanges(input.workspace, input, context)
   }
   catch (error) {
     throw describeFailure(input.workspace, error)
