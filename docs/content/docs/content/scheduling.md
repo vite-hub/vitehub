@@ -6,7 +6,7 @@ navigation.order: 11
 icon: i-lucide-calendar-clock
 ---
 
-`content.schedule()` publishes exactly the drafts that were reviewed, at a later time. A Schedule Definition that calls `content.publishDue()` runs due schedules, so publishing works on every host that runs [Schedule](/docs/schedule).
+`content.schedule()` publishes reviewed drafts later. A Schedule Definition (a cron file) runs them with `content.publishDue()` on every host that runs [Schedule](/docs/schedule).
 
 ```ts
 const posts = content.collection('posts')
@@ -22,7 +22,7 @@ const schedule = await content.schedule({
 
 ## Run due schedules
 
-Add one Schedule Definition that calls `content.publishDue()`, and enable Schedule:
+Add a Schedule Definition that calls `content.publishDue()`, and turn on Schedule:
 
 ```ts [server/schedules/content-publish.ts]
 import { defineSchedule } from 'vite-hub/schedule'
@@ -69,29 +69,33 @@ export default defineConfig({
 :::
 ::
 
-Each run publishes every pending or overdue schedule whose time has come, earliest first, and returns `{ published, failed }`. `published` lists `{ schedule, revision, documents }` for each schedule that ran. Content does not wake on its own: without a runner, schedules stay pending and turn [overdue](#statuses).
+Each run publishes every due schedule, earliest first, and returns `{ published, failed }`. `published` lists `{ schedule, revision, documents }` per schedule. Without a runner, schedules stay pending and turn [overdue](#statuses).
 
-The Console reads the Schedule Definitions at build time, without running them. When Schedule is off, or no Schedule Definition file calls `publishDue()`, the editor turns off **Schedule…** and names this fix. Call `content.publishDue()` in the Schedule Definition file itself: discovery does not follow a helper in another file.
+If Schedule is off, or no definition calls `publishDue()`, the Console turns off **Schedule…** and shows this fix. It reads the definitions at build time, so call `publishDue()` in the definition file itself, not in a helper.
 
 | Host | What runs `publishDue()` | When a schedule publishes |
 | --- | --- | --- |
 | Cloudflare | A Cron Trigger from the Schedule Definition. | Within a minute of `at`. |
-| Vercel | A Vercel Cron Job. Hobby projects run cron jobs once a day, so use a daily cron there. | Within a minute on Pro, or at the next daily run on Hobby. |
+| Vercel | A Vercel Cron Job. Hobby projects run cron jobs once a day, so use a daily cron there. | Within a minute on Pro. At the next daily run on Hobby. |
 | Netlify | A Scheduled Function. | Within a minute of `at`. |
 | Node or Docker | The Schedule [Process Runtime](/docs/schedule/hosts) in one long-lived replica. | Within its scan interval, at most a minute. |
 | Development | `pnpm vitehub schedule run content-publish` on Vite + Nitro, because the definition sets `manual: true`, or the Process Runtime. | When you run it. |
 
-Runs may overlap, for example from two replicas: each publish checks the reviewed digests, and each schedule settles once. A run that hits another error, such as an unavailable store, leaves the schedule pending, and the Schedule Run records the error.
+Runs can overlap, for example from two replicas. Each publish checks the digests, so each schedule settles once. On another error, such as a store that is down, the schedule stays pending and the Schedule Run records the error.
 
 ## Publish only what was reviewed
 
-`schedule()` takes the same `expect` entries as [`publish({ expect })`](/docs/content/server-api#publish-what-was-reviewed): every document to publish, with the draft digest that was reviewed. Omit `id` for a singleton. `digest: null` publishes a deletion.
+`schedule()` takes the same `expect` entries as [`publish({ expect })`](/docs/content/server-api#publish-what-was-reviewed): each document with the draft digest (content hash) you reviewed. Omit `id` for a singleton. `digest: null` publishes a deletion.
 
-- The digests must match the draft when you schedule. Otherwise `schedule()` throws `WORKSPACE_CONFLICT` with the same `details` as `publish()`.
-- At its time, the run calls `publish({ expect })`. A draft saved after scheduling makes the run publish nothing. The schedule turns `failed` and keeps the error in `failure`: `{ at, code: 'WORKSPACE_CONFLICT', message, details: { ref: 'draft', documents } }`. A draft that no longer validates fails the same way with `CONTENT_INVALID`.
-- A failed schedule is not moved to the new draft. That draft was not reviewed, so someone has to review it and schedule again. `unschedule()` dismisses the failed one.
+- The digests must match the draft when you schedule. If not, `schedule()` throws `WORKSPACE_CONFLICT` with the same `details` as `publish()`.
+- The run calls `publish({ expect })`. If someone saved the draft after scheduling, it publishes nothing. The schedule turns `failed` with `failure`: `{ at, code: 'WORKSPACE_CONFLICT', message, details: { ref: 'draft', documents } }`. A draft that no longer validates fails with `CONTENT_INVALID`.
+- A failed schedule does not move to the new, unreviewed draft. Review it and schedule again. `unschedule()` dismisses the failed one.
 
-`schedule()` throws `CONTENT_INVALID` when a draft still has field issues, naming each one in `details.documents`. It also throws `CONTENT_R0011` when `at` is not in the future, when `at` is a string without a time zone, when every document is already published as reviewed, or when a document already has a pending schedule. Call `unschedule()` before you schedule that document again.
+`schedule()` throws `CONTENT_INVALID` when a draft has field issues, and names each one in `details.documents`. It throws `CONTENT_R0011` when:
+
+- `at` is not in the future, or is a string without a time zone.
+- Every document is already published as reviewed.
+- A document already has a pending schedule. Call `unschedule()` first.
 
 ## Statuses
 
@@ -101,7 +105,7 @@ Runs may overlap, for example from two replicas: each publish checks the reviewe
 | `overdue` | More than five minutes past `at` without a run. No runner fired, or it runs less often, such as daily. The next run still publishes it. |
 | `failed` | A run published nothing because a draft changed or no longer validates. It stays until `unschedule()`. |
 
-`status()` of a collection reports each document's schedule as `schedule: { id, at, status, digest, failure? }`: its pending or overdue schedule, or else a failed one. `state` stays `draft`, `changed`, or `deleted` until the schedule publishes. When `schedule.digest` differs from `draft`, the run will fail.
+`status()` shows each document's pending, overdue, or else failed schedule as `schedule: { id, at, status, digest, failure? }`. `state` stays `draft`, `changed`, or `deleted` until it publishes. If `schedule.digest` differs from `draft`, the run will fail.
 
 ```ts
 await content.collection('posts').status('launch')
@@ -117,9 +121,9 @@ await content.collection('posts').status('launch')
 | `content.unschedule(id, { message?, metadata? })` | Cancels a pending schedule or dismisses a failed one. Throws `CONTENT_NOT_FOUND` when it already ran or is gone. |
 | `content.publishDue({ now? })` | Runs due schedules. `now` defaults to the current time. |
 
-A schedule that ran is removed. Its publish revision on `published` carries `metadata.content.schedule` with the schedule id, plus the schedule's `message` and `metadata`.
+A schedule that ran is removed. Its publish revision on `published` has the schedule id in `metadata.content.schedule`, plus the schedule's `message` and `metadata`.
 
-Schedules are files on the `schedules` ref of the Content Workspace, one JSON file per schedule, named by its id. Every schedule, cancel, run, and failure is a revision on that ref, with `metadata.content.action` set to `schedule`, `unschedule`, `schedule-published`, or `schedule-failed`. Read the full history with the Workspace history API:
+Each schedule is one JSON file, named by its id, on the `schedules` ref of the Content Workspace. Every schedule, cancel, run, and failure is a revision on that ref. Its `metadata.content.action` is `schedule`, `unschedule`, `schedule-published`, or `schedule-failed`. Read the history with the Workspace history API:
 
 ```ts
 import { useWorkspace } from 'vite-hub/workspace'
@@ -127,21 +131,27 @@ import { useWorkspace } from 'vite-hub/workspace'
 const { revisions } = await useWorkspace('site').history.list({ ref: 'schedules' })
 ```
 
-Schedules need no other storage: they live, and are durable, wherever the Workspace history is. Every change is a compare-and-swap on the `schedules` head, so concurrent writers retry instead of overwriting each other.
+Schedules need no other storage and are as durable as the Workspace history. Each change is a compare-and-swap on the `schedules` head, so concurrent writers retry instead of overwriting.
 
 ## Access
 
-The runtime methods are trusted server API and do not call `authorize`. The [Console](/docs/content/console) and other surfaces require `publish` access to every document of a schedule, both to schedule and to cancel it. A schedule runs later without a user, so the access check happens when someone schedules it.
+Runtime methods are trusted server API and skip `authorize`. To schedule or cancel in the [Console](/docs/content/console) or other surfaces, a user needs `publish` access to every document in it. The run has no user, so the check happens at scheduling time.
 
 ## Console
 
-The arrow next to the editor's **Publish** button opens **Schedule…**. It saves pending edits first, then asks for a date and time in your browser's time zone, shown next to the inputs. A scheduled document shows **Scheduled · Oct 20, 09:00** in the header, **Overdue** when no run published it on time, or **Schedule failed** with the reason in its tooltip. The reason names no documents, because a schedule can hold documents that the user may not read. The **Overdue** tooltip names the fix: add a [runner](#run-due-schedules) when the app has none, or check that it runs on this host. Saving the document again after scheduling shows a reminder: that run will publish nothing. The **…** menu cancels a schedule or dismisses a failed one.
+The arrow next to **Publish** opens **Schedule…**. It saves pending edits, then asks for a date and time in your browser's time zone, shown next to the inputs. A scheduled document's header shows:
 
-The document list has a **Scheduled** tab while any document of the collection has a schedule, and the Content dashboard lists every scheduled publish, soonest first, under **Scheduled**. The Console owner action `overview` returns them as `collections[].scheduled`.
+- **Scheduled · Oct 20, 09:00**.
+- **Overdue** when no run published it on time. The tooltip says to add a [runner](#run-due-schedules) or check that it runs on this host.
+- **Schedule failed**, with the reason in its tooltip. It names no documents, because the user may not be able to read all of them.
+
+Saving after scheduling shows a reminder that the run will publish nothing. The **…** menu cancels or dismisses a schedule.
+
+The document list has a **Scheduled** tab while a document has a schedule. The Content dashboard lists all of them, soonest first, under **Scheduled**. The owner action `overview` returns them as `collections[].scheduled`.
 
 ## Limits
 
-- One pending schedule per document. A schedule may span collections from server code. The Console schedules documents of one collection at a time.
-- Precision is the runner interval: within a minute with a per-minute cron, later with a less frequent one.
-- `publishDue()` reads every schedule file on each run. Keep a few thousand schedules at most.
-- There is no CLI command for Content schedules yet. Use `content.schedules()` from server code, the Console, or the Workspace history.
+- One pending schedule per document. From server code, a schedule can span collections. The Console schedules one collection at a time.
+- Precision is the runner interval: within a minute with a per-minute cron, later with a slower one.
+- `publishDue()` reads every schedule file on each run. Keep at most a few thousand schedules.
+- The [CLI](/docs/content/cli) has `schedule`, `scheduled`, and `unschedule`. You can also use `content.schedules()` in server code, the Console, or the Workspace history.
