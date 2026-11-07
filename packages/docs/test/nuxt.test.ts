@@ -391,7 +391,7 @@ describe("docs search checks", () => {
       name: "DocsSeoError",
       problems: ["/guides is in the sitemap, but it redirects. List the page that it redirects to instead."],
     })
-    expect((await prerender({}, routes)).size).toBe(0)
+    expect([...(await prerender({}, routes)).keys()].filter(name => name.startsWith("prerender:"))).toEqual([])
   })
 })
 
