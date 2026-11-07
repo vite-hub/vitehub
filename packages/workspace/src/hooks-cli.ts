@@ -3,7 +3,7 @@ import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { join, relative, resolve, sep } from "node:path"
 import { promisify } from "node:util"
 
-import { workspaceLockFile } from "./checkout.ts"
+import { formatWorkspaceStatus, localCheckoutStatus, workspaceLockFile } from "./checkout.ts"
 import { workspaceCheckoutFeatures } from "./checkout-cli.ts"
 
 import type { WorkspaceCheckoutCliContext } from "./checkout-cli.ts"
@@ -161,9 +161,10 @@ async function prePush(context: WorkspaceCheckoutCliContext, options: WorkspaceH
 
 async function preCommit(context: WorkspaceCheckoutCliContext): Promise<number> {
   if (!await hasCheckouts(context.rootDir)) return 0
-  const code = await feature("status").run(["--check"], context)
-  if (code !== 0) context.stderr.write("vitehub: a checkout folder has conflicts, so Git stops this commit. Resolve them, then commit again.\n")
-  return code
+  const conflicted = (await localCheckoutStatus(context.rootDir) ?? []).filter(status => status.local.conflicted.length)
+  if (!conflicted.length) return 0
+  context.stderr.write(`${conflicted.map(formatWorkspaceStatus).join("")}vitehub: a checkout folder has conflicts, so Git stops this commit. Resolve them, then commit again.\n`)
+  return 1
 }
 
 const help = `Usage: vitehub hooks <install|uninstall|pre-commit|pre-push>

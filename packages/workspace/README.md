@@ -209,7 +209,7 @@ Work on one ref in a local folder, as with `git pull` and `git push`:
 
 ```bash
 vitehub pull content --dir content --ref draft --url https://docs.example.com
-vitehub status --remote   # local changes, and remote changes since the last pull
+vitehub pull --dry-run    # local changes, and remote changes since the last pull
 vitehub push              # pull, then commit the local changes to `draft`
 ```
 
