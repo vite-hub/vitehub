@@ -1,3 +1,5 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { describe, expect, it } from "vitest"
@@ -38,6 +40,29 @@ describe("documentation snippet check", () => {
       { code: "// server/queues/jobs.cts\nexport default 1", fragment: false, label: "server/queues/jobs.cts" },
     ])
   })
+
+  it("preserves CTS paths and resolves relative imports from README labels", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vitehub-snippets-"))
+    try {
+      const file = join(directory, "README.md")
+      writeFileSync(file, [
+        "```ts",
+        "// server/queues/jobs.cts",
+        "export const name = 'jobs'",
+        "```",
+        "```ts [server/consumer.ts]",
+        "import { name } from './queues/jobs.cts'",
+        "export const queue: string = name",
+        "```",
+      ].join("\n"))
+      const snippets = collectSnippets([{ file, root: join(repoRoot, "docs") }])
+      expect(snippets[0].file).toBe(join(snippets[0].pageRoot, "server/queues/jobs.cts"))
+      expect(checkSnippets(snippets).failures).toEqual([])
+    }
+    finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }, 60_000)
 
   const knownFailure = {
     snippet: { page: "test-page.md", code: "export const value: number = dependency.value", label: "server/value.ts" },
@@ -119,6 +144,18 @@ describe("documentation snippet check", () => {
     ])
   }, 60_000)
 
+  it("includes the app's Standard Context types for H3 handlers", () => {
+    const pageRoot = join(repoRoot, "docs/.snippets/standard-context-page")
+    const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "standard-context-page.md", pageRoot })
+    const { failures } = checkSnippets([
+      snippet("valid.ts", "import { defineEventHandler } from 'h3'\nimport { requireRateLimit } from 'vite-hub/rate-limit'\nexport default defineEventHandler(event => requireRateLimit(event, 'upload', { limit: 10, window: '1m' }))"),
+      snippet("invalid.ts", "import { requireRateLimit } from 'vite-hub/rate-limit'\nrequireRateLimit({}, 'upload', { limit: 10, window: '1m' })"),
+    ])
+    expect(failures.map(failure => [failure.snippet.label, failure.diagnostics.map(diagnostic => diagnostic.code)])).toEqual([
+      ["invalid.ts", [2345]],
+    ])
+  }, 60_000)
+
   it.each(["ts", "mts", "cts", "tsx"])("types the Definition names of a page from %s files", async (extension) => {
     const pageRoot = join(repoRoot, "docs/.snippets/registry-page")
     const snippet = (label: string, code: string) => ({ code, file: join(pageRoot, label), fragment: false, label, line: 1, page: "registry-page.md", pageRoot })
@@ -152,7 +189,18 @@ describe("documentation snippet check", () => {
     ].map(label => ({ code: "export default { connectors: { log: { send: () => ({ id: 'sent' }) } } }", file: join(pageRoot, label), fragment: false, label, line: 1, page: "definition-paths.md", pageRoot }))
     const declarations = await generatedDeclarations(snippets)
     expect(declarations).toHaveLength(1)
-    expect([...declarations[0].code.matchAll(/^    ("[^"]+"): /gm)].map(match => JSON.parse(match[1]))).toEqual([serverName, "typed", "module", "commonjs"])
+    const serverNames = kind === "queue" ? [serverName, "server/queues/email"] : [serverName]
+    expect([...declarations[0].code.matchAll(/^    ("[^"]+"): /gm)].map(match => JSON.parse(match[1]))).toEqual([...serverNames, "typed", "module", "commonjs"])
+  })
+
+  it.each(["ts", "mts", "cts"])("excludes %s declaration files from Definition registries", async (extension) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/declaration-files")
+    const snippets = ["queues", "browsers", "channels", "connections", "collections"].map(directory => `server/${directory}/email.d.${extension}`)
+    snippets.push(`src/email.queue.d.${extension}`, `src/email.database.d.${extension}`)
+    const declarations = await generatedDeclarations(snippets.map(label => ({
+      code: "export default {}", file: join(pageRoot, label), fragment: false, label, line: 1, page: "declaration-files.md", pageRoot,
+    })))
+    expect(declarations).toEqual([])
   })
 
   it.each(["ts", "mts", "cts"])("uses %s Collection file paths and only registers the matching route-enabled export", async (extension) => {
@@ -244,7 +292,7 @@ describe("documentation snippet check", () => {
   it.each([
     ["server/databases/config.cts", "default"],
     ["server/databases/analytics/config.cts", "analytics"],
-    ["src/database.cts", "default"],
+    ["src/database.ts", "default"],
     ["src/analytics.database.cts", "analytics"],
     ["analytics.database.cts", "analytics"],
   ])("types the Database name and schema from %s", async (label, name) => {
@@ -263,6 +311,14 @@ describe("documentation snippet check", () => {
       ["wrong-payload.ts", [2769]],
     ])
   }, 60_000)
+
+  it.each(["mts", "cts"])("does not register src/database.%s as a default Database", async (extension) => {
+    const pageRoot = join(repoRoot, "docs/.snippets/unsupported-default-database")
+    const label = `src/database.${extension}`
+    expect(await generatedDeclarations([{
+      code: "export default { schema: {} }", file: join(pageRoot, label), fragment: false, label, line: 1, page: "unsupported-default-database.md", pageRoot,
+    }])).toEqual([])
+  })
 
   it("checks the Workflow README steps against generated declarations", async () => {
     const root = join(repoRoot, "packages/workflow")

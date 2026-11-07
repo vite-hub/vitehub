@@ -90,8 +90,9 @@ A Workflow folder with numbered files gives one durable step for each file. `01.
 ```ts [server/workflows/checkout/index.ts]
 import { defineWorkflow } from '@vite-hub/workflow'
 
-export default defineWorkflow<{ orderId: string, amountCents: number, email: string }>(
-  async ({ payload, steps }) => {
+export default defineWorkflow(
+  'checkout',
+  async (payload: { orderId: string, amountCents: number, email: string }, { steps }) => {
     // This code runs again on each replay. Keep side effects in the step files.
     const charged = await steps.chargeCard(payload)
     const shipped = await steps.createShipment(charged)
