@@ -279,9 +279,18 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
     color 150ms ease;
 }
 
+/* Icons stay small and quiet, so the text leads, and take the row's color when it is hovered or current. */
 .vh-docs-sidebar-link > .iconify,
 .vh-docs-sidebar-section-title > .iconify {
-  margin-top: 0.125rem;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-top: 0.1875rem;
+  color: var(--ui-text-dimmed);
+  transition: color 150ms ease;
+}
+
+.vh-docs-sidebar-link:is(:hover, :focus-visible, .is-active) > .iconify {
+  color: currentcolor;
 }
 
 /* Touch devices keep 44px tap targets at every viewport width. */
