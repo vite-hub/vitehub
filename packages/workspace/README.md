@@ -218,6 +218,11 @@ Git conflict markers where both sides changed the same lines; push refuses until
 are gone. The commands call the `workspace.changes` and `workspace.commit` operations.
 See [Work on a ref in a local folder](https://vitehub.dev/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
 
+A derived file, such as a translation, can record its source as `derivedFrom: { path, digest }`
+in Markdown frontmatter, YAML, or JSON. `vitehub status` and `vitehub workspace stale <workspace>`
+list the derived files whose source changed. `@vite-hub/workspace/lineage` has the same checks.
+See [Derived files](https://vitehub.dev/docs/workspace/server-api#derived-files).
+
 ## JSON Collections
 
 Expose a JSON array stored in a Workspace file as a [Source Collection](https://vitehub.dev/docs/source/server-api#collections-over-an-array). `workspaceFile()` reads the file on every request and queries it in memory with `array()` from `@vite-hub/source`, so the browser gets bounded pages, `total`, and `facets` instead of the whole file.

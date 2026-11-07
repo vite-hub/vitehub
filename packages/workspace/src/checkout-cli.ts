@@ -86,6 +86,7 @@ function formatStatus(status: WorkspaceStatus): string {
     ...local.deleted.map(path => `  deleted   ${path}`),
   ]
   lines.push(rows.length ? "Local changes:" : "No local changes.", ...rows)
+  if (status.stale.length) lines.push("Stale derived files (their source changed):", ...status.stale.map(file => `  ${file.reason.padEnd(9)} ${file.path} <- ${file.derivedFrom.path}`))
   if (status.remoteChanges) {
     if (!status.remoteChanges.length) lines.push("No remote changes.")
     else lines.push(`Remote changes since ${status.head ?? "(empty)"} (run \`vitehub pull\`):`, ...status.remoteChanges.map(change => `  ${change.change.padEnd(9)} ${change.path}`))
@@ -125,7 +126,8 @@ no command: remove the markers from the file.
   status: `Usage: ${usage.status}
 
 Show the local changes of each checkout folder against the last pulled revision. --remote also lists the files that
-changed on the remote since then. --check exits with 1 when a conflict is open, for a pre-commit hook.
+changed on the remote since then. It also lists derived files, such as translations, whose \`derivedFrom\` source
+changed. --check exits with 1 when a conflict is open, for a pre-commit hook.
 `,
 }
 
