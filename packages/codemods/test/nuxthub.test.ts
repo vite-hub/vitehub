@@ -129,6 +129,19 @@ describe("nuxthub", () => {
     `)
   })
 
+  it("reports overrides that give every package h3 1", async () => {
+    const directory = await app("overrides", {
+      "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { kv: true } })\n",
+      "package.json": JSON.stringify({ dependencies: { "@nuxthub/core": "^0.10.0", "nuxt": "^4.0.0" }, pnpm: { overrides: { h3: "^1.15.0" } }, resolutions: { "nuxt-csurf>h3": "1.15.11" } }, null, 2),
+      "pnpm-workspace.yaml": "overrides:\n  'nuxt-csurf>h3': 1.15.11\n  h3: '1.15.11' # csurf\n",
+    })
+    const run = await runCodemod("nuxthub", { cwd: directory, dryRun: true })
+    expect(run.result.followUps.filter(followUp => followUp.message.includes("h3 2")).map(followUp => [followUp.file, followUp.line, followUp.message.slice(0, 60)])).toEqual([
+      ["pnpm-workspace.yaml", 3, "pnpm-workspace.yaml overrides h3 to 1.15.11 for every packag"],
+      ["package.json", 8, "package.json pnpm.overrides sets h3 to ^1.15.0 for every pac"],
+    ])
+  })
+
   it("stops for MySQL and leaves the app unchanged", async () => {
     const directory = await app("mysql", { "nuxt.config.ts": "export default defineNuxtConfig({ modules: ['@nuxthub/core'], hub: { db: 'mysql' } })\n" })
     await expect(runCodemod("nuxthub", { cwd: directory, dryRun: true })).rejects.toThrow("ViteHub does not support MySQL")
