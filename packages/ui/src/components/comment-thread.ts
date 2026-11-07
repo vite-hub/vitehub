@@ -499,6 +499,7 @@ export const CommentThread = defineComponent({
             error: failure.value ?? props.error,
             files: files.value,
             guard: false,
+            layout: "row",
             mentions: mentions.value,
             modelValue: reply.value,
             onCancel: close,

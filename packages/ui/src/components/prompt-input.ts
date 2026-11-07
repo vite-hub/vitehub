@@ -203,7 +203,8 @@ export const PromptInput = defineComponent({
                 size: "sm",
                 square: true,
                 type: "button",
-                variant: "solid",
+                // Solid once there is something to send, so an empty box doesn't end in a dark button.
+                variant: props.status === "ready" && !canSubmit.value ? "soft" : "solid",
               }),
           ]),
         ]),
