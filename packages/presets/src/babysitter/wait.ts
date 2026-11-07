@@ -15,6 +15,14 @@ const failed = new Set(["failure", "error", "timed_out", "action_required", "sta
 export const failedConclusions: ReadonlySet<string> = failed;
 /** A check that runs this long is treated as stuck. */
 const stuckCheckMs = 30 * 60_000;
+/**
+ * A check run that waits this long for a runner is treated as stuck. GitHub sets a queued run's
+ * `started_at` when it creates the run. On 2026-11-07 vite-hub/vitehub jobs waited up to 3 hours
+ * for a runner, and the 30-minute limit let passes push over 62 queued CI runs in 17 hours.
+ */
+const stuckQueuedCheckMs = 6 * 60 * 60_000;
+/** Check run statuses that have not reached a runner yet. */
+const notStarted = new Set(["queued", "waiting", "pending", "requested"]);
 
 export interface BabysitterWaitPolicy {
   /** Logins whose comments and reviews come from this host's repairs. They never wake a wait. */
@@ -130,7 +138,8 @@ export function reviewCheckRunning(s: Snapshot, policy: Pick<BabysitterWaitPolic
 
 /**
  * A current-head check is still queued or running. A required check that has not reported yet counts
- * only through the workflow jobs that run before it. A check that runs for half an hour is stuck.
+ * only through the workflow jobs that run before it. A check that runs for half an hour is stuck, and
+ * a check run that waits six hours for a runner is stuck.
  */
 export function checksStillRunning(s: Snapshot, now = Date.now()): boolean {
   return latestCheckSignals(s).some(signal => {
@@ -141,7 +150,8 @@ export function checksStillRunning(s: Snapshot, now = Date.now()): boolean {
     // Check runs are different: a queued run without timestamps is still an
     // active gate, while timestamp-less commit statuses are only snapshots.
     if (!Number.isFinite(timestamp)) return signal.app !== undefined;
-    return timestamp >= now - stuckCheckMs;
+    const limit = signal.app !== undefined && notStarted.has(String(signal.status)) ? stuckQueuedCheckMs : stuckCheckMs;
+    return timestamp >= now - limit;
   });
 }
 

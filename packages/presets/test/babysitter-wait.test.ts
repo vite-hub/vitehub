@@ -151,6 +151,21 @@ describe("Babysitter check waits", () => {
     expect(checksStillRunning(await parked(), now)).toBe(false);
   });
 
+  it("keeps waiting for a check run that waits hours for a runner", async () => {
+    const now = Date.parse("2026-11-07T10:00:00Z");
+    // GitHub sets a queued run's started_at when it creates the run. vitehub#3514 had this at 09:50.
+    const queued = (status: string, startedAt: string) => parked(s => {
+      s.checks = { "check_run:1": { id: 1, name: "package tests (agent 1/3)", head_sha: head, status, started_at: startedAt, app: { id: 5 } } };
+    });
+    expect(checksStillRunning(await queued("queued", "2026-11-07T08:41:29Z"), now)).toBe(true);
+    expect(checksStillRunning(await queued("waiting", "2026-11-07T07:00:00Z"), now)).toBe(true);
+    expect(checksStillRunning(await queued("queued", "2026-11-07T03:59:00Z"), now)).toBe(false);
+    // A run that reached a runner keeps the half-hour limit.
+    expect(checksStillRunning(await queued("in_progress", "2026-11-07T09:29:00Z"), now)).toBe(false);
+    // A pending commit status keeps the half-hour limit.
+    expect(checksStillRunning(await parked(s => { s.checks = {}; s.statuses = { preview: { id: 1, sha: head, context: "preview", state: "pending", created_at: "2026-11-07T09:29:00Z" } } }), now)).toBe(false);
+  });
+
   it("ignores an abandoned earlier run of a review check", async () => {
     const review = (id: number, status: string) => ({ id, name: "review-bot", head_sha: head, status, app: { id: 6 } });
     const snapshot = await parked(s => { s.checks["check_run:3"] = review(3, "in_progress"); s.checks["check_run:4"] = review(4, "completed") });
