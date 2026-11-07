@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, shallowRef, watch } from "vue";
+import { useRouter } from "vue-router";
 
 import type { ConsoleProjectProblem } from "../client/project-link";
 import { consoleTokenRefused } from "../client/project-link";
@@ -11,6 +12,7 @@ import ConsoleProjectToken from "./console-project-token.vue";
 
 const open = defineModel<boolean>("open", { required: true });
 const persistent = useConsoleProjects().persistent;
+const router = useRouter();
 
 // An `/open` link of a project that this browser did not link fills in its URL.
 const openRequest = useConsoleOpenRequest();
@@ -46,7 +48,7 @@ async function link(token?: string): Promise<void> {
     if (result.kind === "linked") {
       // The first project opens in place, so the dialog closes first.
       open.value = false;
-      if (!finishConsoleOpen(result.project)) switchConsoleProject(result.project.id);
+      if (!finishConsoleOpen(result.project, path => { void router.push(path); })) switchConsoleProject(result.project.id);
       return;
     }
     if (result.kind === "token") tokenStep.value = { target: result.target, rejected: result.rejected };

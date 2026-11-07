@@ -10,7 +10,7 @@ import { shallowRef } from "vue"
 
 import type { ShallowRef } from "vue"
 
-import { useConsoleProjects } from "./project-session"
+import { switchConsoleProject, useConsoleProjects } from "./project-session"
 import { consoleProjectTarget, createConsoleProjectStore } from "./projects"
 
 import type { ConsoleProjectProblem } from "./project-link"
@@ -95,14 +95,18 @@ export function cancelConsoleOpen(): void {
 }
 
 /**
- * After the Link project dialog linked `project`: when it is the project of the `/open` URL, load the Console at its
- * path and return true. `linkConsoleProject()` already made the project active.
+ * After the Link project dialog linked `project`: when it is the project of the `/open` URL, open its path and return
+ * true. Before a project opens, activate it in place and use router navigation, so projects and tokens in memory stay.
  */
-export function finishConsoleOpen(project: ConsoleLinkedProject): boolean {
+export function finishConsoleOpen(project: ConsoleLinkedProject, navigate: (path: string) => void): boolean {
   const request = pendingOpen.value
   if (!request || request.target.url !== project.url) return false
   pendingOpen.value = undefined
   const projects = useConsoleProjects()
-  projects.navigate(consoleOpenPage(projects.home, request.path))
+  if (projects.gate.value.kind === "ready") projects.navigate(consoleOpenPage(projects.home, request.path))
+  else {
+    switchConsoleProject(project.id)
+    navigate(request.path)
+  }
   return true
 }

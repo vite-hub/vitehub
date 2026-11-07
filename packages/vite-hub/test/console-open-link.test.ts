@@ -1,9 +1,10 @@
 import { hostedConsoleUrl } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { createMemoryHistory, createRouter } from "vue-router"
 
 import { consoleOpenPage, parseConsoleOpenQuery } from "../src/console/runtime/client/open-link.ts"
 import { consoleProject, setConsoleProject } from "../src/console/runtime/client/project.ts"
-import { createConsoleProjectStore, memoryProjectStorage } from "../src/console/runtime/client/projects.ts"
+import { browserProjectStorage, createConsoleProjectStore, memoryProjectStorage } from "../src/console/runtime/client/projects.ts"
 
 const pageProject = consoleProject()
 afterEach(() => {
@@ -100,10 +101,64 @@ describe("opening an /open link", () => {
 
     const result = await session.linkConsoleProject(shop.url)
     if (result.kind !== "linked") throw new Error(`Expected a linked project, got ${result.kind}`)
-    expect(open.finishConsoleOpen(result.project)).toBe(true)
-    expect(navigate).toHaveBeenCalledWith("/kv")
+    const navigatePage = vi.fn<(path: string) => void>()
+    expect(open.finishConsoleOpen(result.project, navigatePage)).toBe(true)
+    expect(navigatePage).toHaveBeenCalledWith("/kv")
+    expect(navigate).not.toHaveBeenCalled()
+    await session.consoleProjectReady()
+    expect(state.current.value?.url).toBe(shop.url)
     expect(state.store.active()?.url).toBe(shop.url)
     expect(open.useConsoleOpenRequest().value).toBeUndefined()
+  })
+
+  it.each(["blocked", "full"])("keeps the first project and token when storage is %s", async (failure) => {
+    const storage = browserProjectStorage(() => {
+      if (failure === "blocked") throw new Error("Storage is blocked")
+      return {
+        getItem: () => null,
+        setItem: (key) => {
+          if (!key.endsWith(":probe")) throw new Error("Storage is full")
+        },
+        removeItem: () => {},
+      }
+    })
+    const { navigate, open, session, start } = await boot(storage)
+    const { state } = start("/open", `?${new URLSearchParams({ project: shop.url, path: "/kv?key=a#value" })}`)
+    const router = createRouter({
+      history: createMemoryHistory("/console/"),
+      routes: [{ path: "/kv", component: { render: () => null } }],
+    })
+    router.beforeEach(() => session.consoleProjectReady())
+
+    const result = await session.linkConsoleProject(shop.url, "secret")
+    if (result.kind !== "linked") throw new Error(`Expected a linked project, got ${result.kind}`)
+    expect(storage.persistent).toBe(false)
+    expect(open.finishConsoleOpen(result.project, path => void router.push(path))).toBe(true)
+    expect(navigate).not.toHaveBeenCalled()
+    await router.isReady()
+
+    expect(router.currentRoute.value.fullPath).toBe("/kv?key=a#value")
+    expect(router.resolve(router.currentRoute.value).href).toBe("/console/kv?key=a#value")
+    expect(state.current.value).toMatchObject({ url: shop.url, token: "secret" })
+    expect(state.gate.value).toEqual({ kind: "ready" })
+    const project = await import("../src/console/runtime/client/project.ts")
+    expect(project.projectUrl("/_vitehub/rpc/__call")).toBe(`${shop.url}/_vitehub/rpc/__call`)
+    expect(project.projectHeaders()).toEqual({ authorization: "Bearer secret" })
+  })
+
+  it("reloads the requested page when another project is already open", async () => {
+    const storage = memoryProjectStorage()
+    createConsoleProjectStore(storage).save({ url: "https://blog.example.com" })
+    const { navigate, open, session, start } = await boot(storage)
+    start("/open", "?project=https://shop.example.com&path=/kv")
+    await session.openConsoleProject()
+
+    const result = await session.linkConsoleProject(shop.url)
+    if (result.kind !== "linked") throw new Error(`Expected a linked project, got ${result.kind}`)
+    const navigatePage = vi.fn<(path: string) => void>()
+    expect(open.finishConsoleOpen(result.project, navigatePage)).toBe(true)
+    expect(navigate).toHaveBeenCalledWith("/kv")
+    expect(navigatePage).not.toHaveBeenCalled()
   })
 
   it("opens the Overview when the person links another URL in the dialog", async () => {
@@ -112,7 +167,7 @@ describe("opening an /open link", () => {
 
     const result = await session.linkConsoleProject("https://blog.example.com")
     if (result.kind !== "linked") throw new Error(`Expected a linked project, got ${result.kind}`)
-    expect(open.finishConsoleOpen(result.project)).toBe(false)
+    expect(open.finishConsoleOpen(result.project, vi.fn())).toBe(false)
     open.cancelConsoleOpen()
     expect(open.useConsoleOpenRequest().value).toBeUndefined()
   })
