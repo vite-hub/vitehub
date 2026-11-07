@@ -259,6 +259,23 @@ function nitroHandlerRoutes(config: Record<string, unknown>): Array<string | und
 }
 
 describe("ViteHub Nuxt integration", () => {
+  it.each(["4.6.4", "3.17.0"])("stops on Nuxt %s with a diagnostic that names Nuxt 5", async (version) => {
+    const application = createNuxt(false)
+    Object.assign(application.nuxt, { _version: version })
+    await expect(viteHubNuxtModule({ preset: "node" }, application.nuxt)).rejects.toMatchObject({
+      code: "VITE_HUB_B0020",
+      message: expect.stringContaining(`needs Nuxt 5, which runs Nitro 3 and H3 2. This app runs Nuxt ${version}.`),
+    })
+    expect(mocks.vitehub).not.toHaveBeenCalled()
+  })
+
+  it("sets up on a Nuxt 5 nightly", async () => {
+    const application = createNuxt(false)
+    Object.assign(application.nuxt, { _version: "5.0.0-2611052317-a04317f" })
+    await expect(viteHubNuxtModule({ preset: "node" }, application.nuxt)).resolves.toBeUndefined()
+    await application.runCloseHook()
+  })
+
   beforeEach(async () => {
     vi.unstubAllEnvs()
     await mkdir("/tmp/vitehub-nuxt", { recursive: true })

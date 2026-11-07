@@ -158,6 +158,8 @@ function publishNuxtDevServer(nuxt: NuxtLike): void {
 }
 
 type NuxtLike = {
+  /** The installed Nuxt version, such as `5.0.0-2611052317-a04317f`. */
+  _version?: string
   callHook?: (name: "restart") => Promise<void>
   hook?: {
     (name: "app:templatesGenerated", callback: (app: { components: Parameters<CommentsVitePlugin["api"]["setComponents"]>[0] }) => Promise<void>): void
@@ -917,10 +919,23 @@ async function installViteHubUIRuntime(nuxt: NuxtLike): Promise<void> {
   })
 }
 
+/**
+ * Stop before any setup on Nuxt 4 or older. They run Nitro 2 and H3 1, which ViteHub does not support, and a build
+ * there would fail later with errors that do not name the cause.
+ */
+function assertSupportedNuxt(version: string | undefined): void {
+  const major = version === undefined ? Number.NaN : Number.parseInt(version, 10)
+  if (!(major < 5)) return
+  throw viteHubErrorDiagnostics.VITE_HUB_B0020({
+    message: `[vitehub] vite-hub/nuxt needs Nuxt 5, which runs Nitro 3 and H3 2. This app runs Nuxt ${version}. Until Nuxt 5 is stable, install the nightly release: pnpm add nuxt@npm:nuxt-nightly@5x`,
+  })
+}
+
 const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(inlineOptions, nuxtInstance): Promise<void> {
   if (!nuxtInstance) return
   // SAFETY: Nuxt supplies this module callback with its instance; NuxtLike describes only the members this integration uses.
   const nuxt = nuxtInstance as NuxtLike
+  assertSupportedNuxt(nuxt._version)
   // Nuxt does not run the Vite Doctor plugin, so `vite-doctor/nuxt` receives the extension through its hook.
   if (nuxt.hook) {
     Reflect.apply(nuxt.hook, nuxt, ["doctor:extendExtensions", (entries: string[]) => {
