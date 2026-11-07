@@ -1,4 +1,5 @@
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
+import { readHostCredentialsFromEnv } from "./host-credentials.ts"
 import { classifyProviderFailure, cloudflareProductOfPath, readProviderErrorCodes } from "./provider-failure.ts"
 import { Diagnostic } from "nostics"
 
@@ -35,6 +36,8 @@ export interface ProvisionAction {
   name: string
   exists: boolean
   pending?: boolean
+  /** Describes the change that `apply()` makes to an existing resource, for example `read replication: disabled -> auto`. */
+  update?: string
   apply: () => Promise<ProvisionResult>
 }
 
@@ -88,10 +91,9 @@ export interface CloudflareProvisionConfig {
 }
 
 export function resolveCloudflareProvisionConfig(env: Record<string, string | undefined>): CloudflareProvisionConfig | undefined {
-  const accountId = trimmedEnv(env.CLOUDFLARE_ACCOUNT_ID)
-  const token = trimmedEnv(env.CLOUDFLARE_API_TOKEN)
-  if (!accountId || !token) return
-  return { accountId, token }
+  const credentials = readHostCredentialsFromEnv("cloudflare", env)
+  if (!credentials?.accountId) return
+  return { accountId: credentials.accountId, token: credentials.token }
 }
 
 export interface VercelProvisionConfig {
@@ -100,9 +102,9 @@ export interface VercelProvisionConfig {
 }
 
 export function resolveVercelProvisionConfig(env: Record<string, string | undefined>): VercelProvisionConfig | undefined {
-  const token = trimmedEnv(env.VERCEL_TOKEN)
-  if (!token) return
-  return { token, teamId: trimmedEnv(env.VERCEL_TEAM_ID) ?? trimmedEnv(env.VERCEL_ORG_ID) }
+  const credentials = readHostCredentialsFromEnv("vercel", env)
+  if (!credentials) return
+  return { token: credentials.token, teamId: credentials.teamId }
 }
 
 export interface CloudflareEnvelope<T> {
@@ -213,6 +215,40 @@ export function createCloudflareProvisionClient(config: CloudflareProvisionConfi
   }
 }
 
+export interface CloudflarePagedListOptions<T> {
+  parse: (value: unknown) => T[]
+  /** Sent as `per_page`. Omit it when the endpoint does not accept a page size. */
+  perPage?: number
+  query?: Record<string, string>
+}
+
+/**
+ * Reads every page of a Cloudflare list that pages with `page` and `result_info`.
+ * R2 bucket lists page with a cursor instead and do not use this helper.
+ */
+export async function listCloudflarePages<T>(request: CloudflareProvisionRequest, path: string, options: CloudflarePagedListOptions<T>): Promise<T[]> {
+  const items: T[] = []
+  for (let page = 1; ; page++) {
+    const query: Record<string, string> = { ...options.query, page: String(page) }
+    if (options.perPage !== undefined) query.per_page = String(options.perPage)
+    const listed = await request(path, { parse: options.parse, query })
+    const pageItems = listed.result ?? []
+    items.push(...pageItems)
+    const info = listed.result_info
+    if (info?.page !== undefined && info.page !== page) {
+      throw internalErrorDiagnostics.INTERNAL_R0010({ message: `Cloudflare provisioning returned page ${info.page} of ${path} for page ${page}.` })
+    }
+    if (!pageItems.length) return items
+    if (info?.total_pages !== undefined) {
+      if (page >= info.total_pages) return items
+    }
+    else if (info?.total_count !== undefined) {
+      if (page * (info.per_page ?? options.perPage ?? pageItems.length) >= info.total_count) return items
+    }
+    else if (options.perPage === undefined || pageItems.length < options.perPage) return items
+  }
+}
+
 // Minimal Vercel REST client for provisioning. teamId is applied to every request as a query param.
 export function createVercelProvisionClient(config: VercelProvisionConfig, fetchImpl: typeof globalThis.fetch = globalThis.fetch): ProvisionRequest {
   return createJsonClient(
@@ -222,9 +258,4 @@ export function createVercelProvisionClient(config: VercelProvisionConfig, fetch
     fetchImpl,
     config.teamId ? { teamId: config.teamId } : undefined,
   )
-}
-
-function trimmedEnv(value: string | undefined): string | undefined {
-  const trimmed = value?.trim()
-  return trimmed ? trimmed : undefined
 }

@@ -99,9 +99,10 @@ export function listItemRemoval(code: string, node: Node): [number, number] {
   const ownLineBefore = /^[ \t]*$/.test(code.slice(lineStart, from))
   let lineEnd = to
   while (lineEnd < code.length && /[ \t]/.test(code[lineEnd] ?? "")) lineEnd++
-  const ownLineAfter = code[lineEnd] === "\n" || lineEnd === code.length
+  const lineBreak = code[lineEnd] === "\r" && code[lineEnd + 1] === "\n" ? 2 : code[lineEnd] === "\n" ? 1 : 0
+  const ownLineAfter = lineBreak > 0 || lineEnd === code.length
   if (ownLineBefore && ownLineAfter) {
-    return [lineStart, Math.min(lineEnd + 1, code.length)]
+    return [lineStart, Math.min(lineEnd + Math.max(lineBreak, 1), code.length)]
   }
   if (!trailingComma) {
     // The last inline item: remove the comma before it instead.

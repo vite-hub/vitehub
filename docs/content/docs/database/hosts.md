@@ -91,7 +91,7 @@ The bookmark cookie makes the next read of the same client see its own writes. O
 
 Every query of one request goes through the same session. Work outside a request, such as a Schedule or a Queue consumer, uses the primary database.
 
-`vitehub provision run --provider cloudflare` turns on replication for the D1 databases that set `readReplication`. For a database that ViteHub does not provision, turn it on in the Cloudflare dashboard, or call the D1 API: `PATCH /accounts/<account_id>/d1/database/<database_id>` with `{ "read_replication": { "mode": "auto" } }`. Without replication on the database, every session uses the primary database.
+`vitehub provision run --provider cloudflare` turns on replication for the D1 databases that set `readReplication`. The plan reads the replication mode of each existing database and shows `update  cloudflare-d1  <name>  read replication: disabled -> auto` when it is off. A database that already replicates shows `exists`, and `provision run` does not change it. Provision never turns replication off. For a database that ViteHub does not provision, turn it on in the Cloudflare dashboard, or call the D1 API: `PATCH /accounts/<account_id>/d1/database/<database_id>` with `{ "read_replication": { "mode": "auto" } }`. Without replication on the database, every session uses the primary database.
 
 `vitehub inspect definitions --kind database` shows `Read replication` for each Database that uses it. D1 over HTTP, libSQL, and local SQLite ignore the option.
 
@@ -185,6 +185,12 @@ Run `vitehub provision run --provider cloudflare` to resolve the D1 id into `.vi
 ::note
 `@vite-hub/database/nuxt` is a narrow Nuxt lifecycle bridge for one D1 Database Host Resource. Its main use is to keep Nuxt Content and Cloudflare `wrangler.d1_databases` in sync. Discovered Database Definitions still own the Drizzle Runtime Surface. For Cloudflare and Vercel builds, the module writes the hosted runtime, schema modules, and Definition defaults before Nitro resolves their imports. Explicit Nitro aliases take precedence.
 ::
+
+## Preview deployments
+
+A Cloudflare Version URL runs with the production resources of its Worker version, so it reads and writes production rows ([Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/)). A Cloudflare Preview uses only the bindings in the Wrangler `previews` block, and two Previews that bind the same `database_id` share rows ([Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/)). For a Cloudflare Preview, declare a preview database in `previews.d1_databases` of the project Wrangler config, because ViteHub does not write that block. Apply its migrations with a separate Wrangler migration config before deploying, as described in [Preview deployments share data](/docs/development/provisioning#preview-deployments-share-data).
+
+For a preview Worker of its own, read `cloudflare.databaseName` from an Env declaration and provision it in that build's CI job. Leave `cloudflare.databaseId` unset to use the provisioned id, or set it to the preview id directly or through an Env declaration. A configured `cloudflare.databaseId` takes precedence over provision state; changing only `cloudflare.databaseName` does not override it.
 
 ## Production checks
 

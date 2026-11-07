@@ -26,7 +26,7 @@ async function createTempDir() {
   return rootDir
 }
 
-function provisionPlugin(apply: () => Promise<{ ids?: unknown }>, overrides: { exists?: boolean, pending?: boolean } = {}) {
+function provisionPlugin(apply: () => Promise<{ ids?: unknown }>, overrides: { exists?: boolean, pending?: boolean, update?: string } = {}) {
   return {
     vitehub: {
       cli: {
@@ -1079,6 +1079,39 @@ export default function (_options, nuxt) {
         pending: 1,
       },
     })
+    expect(apply).not.toHaveBeenCalled()
+  })
+
+  it("shows a planned update of an existing resource in status, dry run, and JSON", async () => {
+    const rootDir = await createTempDir()
+    const apply = vi.fn(async () => ({}))
+    const env = { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" }
+    const loadConfig = async () => ({
+      plugins: [provisionPlugin(apply, { exists: true, pending: true, update: "read replication: disabled -> auto" })],
+      root: rootDir,
+    })
+
+    const status = stream()
+    await expect(runViteHubCli({ args: ["provision", "status", "--provider", "cloudflare"], cwd: rootDir, env, loadConfig, stdout: status }))
+      .resolves.toBe(0)
+    expect(status.output()).toBe([
+      "recorded cloudflare ids: none in .vitehub/provision.json",
+      "update\ttest-resource\tdemo\tread replication: disabled -> auto",
+      "plan: 1 pending action. Run `vitehub provision run --provider cloudflare` to apply.",
+      "",
+    ].join("\n"))
+
+    const dryRun = stream()
+    await expect(runViteHubCli({ args: ["provision", "run", "--provider", "cloudflare", "--dry-run"], cwd: rootDir, env, loadConfig, stdout: dryRun }))
+      .resolves.toBe(0)
+    expect(dryRun.output()).toBe("update\ttest-resource\tdemo\tread replication: disabled -> auto\n")
+
+    const json = stream()
+    await expect(runViteHubCli({ args: ["provision", "run", "--provider", "cloudflare", "--dry-run", "--json"], cwd: rootDir, env, loadConfig, stdout: json }))
+      .resolves.toBe(0)
+    expect(JSON.parse(json.output()).actions).toEqual([
+      { exists: true, kind: "test-resource", name: "demo", pending: true, step: "test:cloudflare", update: "read replication: disabled -> auto" },
+    ])
     expect(apply).not.toHaveBeenCalled()
   })
 

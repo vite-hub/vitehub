@@ -80,6 +80,8 @@ function readSection(dir: string, base: string, id: string, index: number): Docs
     description: overview?.description ?? null,
     icon: navigation.icon ?? overview?.icon ?? null,
     category: navigation.category ?? null,
+    group: navigation.group ?? null,
+    fold: navigation.fold ?? false,
     related: navigation.related ?? [],
     order: navigation.order ?? index,
     pages,
