@@ -40,13 +40,23 @@ export class WorkspaceCheckoutError extends Error {
 
 type Bytes = Uint8Array
 
-// Folders that never belong to a checkout. The Workspace reserves `.git` and `.vitehub`.
-const ignored = new Set([".git", ".vitehub", "node_modules", ".DS_Store"])
+// Folders that never belong to a checkout, in lower case. The Workspace reserves `.git` and `.vitehub`. The match
+// ignores case, because Windows and macOS file systems open `NODE_MODULES` and `.GIT` as the same folders.
+const ignored = new Set([".git", ".vitehub", "node_modules", ".ds_store"])
 const conflictStart = /^<{7}(?: |$)/m
 const conflictEnd = /^>{7}(?: |$)/m
 
+function ignoredName(name: string): boolean {
+  return ignored.has(name.toLowerCase())
+}
+
 function ignoredPath(path: string): boolean {
-  return path.split("/").some(segment => ignored.has(segment))
+  return path.split("/").some(ignoredName)
+}
+
+/** A folder path to compare. Windows and macOS file systems ignore case, so `content` and `CONTENT` are one folder. */
+function folderKey(folder: string): string {
+  return process.platform === "win32" || process.platform === "darwin" ? folder.toLowerCase() : folder
 }
 
 function digestOf(bytes: Bytes): string {
@@ -265,7 +275,7 @@ function folderOf(rootDir: string, dir: string): string {
 function validateCheckoutFolders(rootDir: string, lock: WorkspaceLock): void {
   const folders = new Map<string, string>()
   for (const [workspace, entry] of Object.entries(lock.workspaces)) {
-    const folder = folderOf(rootDir, entry.dir)
+    const folder = folderKey(folderOf(rootDir, entry.dir))
     for (const [other, existing] of folders) {
       if (folder === existing || folder.startsWith(`${existing}${sep}`) || existing.startsWith(`${folder}${sep}`)) {
         throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_OVERLAP", `Workspace "${workspace}" folder "${entry.dir}" overlaps Workspace "${other}" folder "${lock.workspaces[other]!.dir}".`, "Use separate checkout folders that do not contain one another.")
@@ -289,7 +299,7 @@ async function scan(rootDir: string, folder: string): Promise<Map<string, Bytes>
       throw error
     }
     for (const entry of entries) {
-      if (ignored.has(entry.name)) continue
+      if (ignoredName(entry.name)) continue
       const path = join(dir, entry.name)
       // A skipped link would look like a deleted file, and the next push would delete it on the remote.
       if (entry.isSymbolicLink()) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_SYMLINK", `${relative(folder, path)} in the checkout folder is a symbolic link.`, "Replace the link with a real folder or file.")

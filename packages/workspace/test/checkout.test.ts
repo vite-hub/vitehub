@@ -69,6 +69,18 @@ async function app(user: OperationUser | null = null) {
   return { calls, edit, fetch: fetch as typeof globalThis.fetch, history, read }
 }
 
+/** Runs `work` as if Node ran on `platform`. */
+async function onPlatform<T>(platform: NodeJS.Platform, work: () => Promise<T>): Promise<T> {
+  const original = Object.getOwnPropertyDescriptor(process, "platform")!
+  Object.defineProperty(process, "platform", { ...original, value: platform })
+  try {
+    return await work()
+  }
+  finally {
+    Object.defineProperty(process, "platform", original)
+  }
+}
+
 /** A project with the CLI commands, as `vitehub workspace <command>` runs them. */
 async function project(fetch: typeof globalThis.fetch, name: string) {
   const rootDir = await tempDir(name)
@@ -501,6 +513,48 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect(result.stderr).toMatch(new RegExp(`^Unknown flag ${flag}\\.\nUsage: vitehub ${command} `))
     expect(remoteApp.calls).toHaveLength(calls)
     expect((await remoteApp.history.head({ ref: "draft" }))?.id).toBe(head!.id)
+  })
+
+  it("excludes .git, .vitehub, node_modules, and .DS_Store in any case", async () => {
+    const remoteApp = await app()
+    const ignored = ["NODE_MODULES/pkg/index.js", "nested/Node_Modules/pkg/index.js", ".DS_STORE", "nested/.Vitehub/state.json"]
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One."), ...Object.fromEntries(ignored.map(path => [path, "remote\n"])) } })
+    const local = await project(remoteApp.fetch, "ignored-case")
+
+    const pulled = await local.json("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+
+    expect(pulled.value[0].files).toEqual([{ action: "added", path: "posts/hello.md" }])
+    for (const path of ignored) expect(await local.exists(path)).toBe(false)
+    await local.write("NODE_MODULES/pkg/index.js", "local dependency\n")
+    await local.write(".GIT/config", "[core]\n")
+    expect((await local.status())[0]!.local).toEqual({ added: [], conflicted: [], deleted: [], modified: [] })
+    expect((await local.run("push")).stdout).toBe("content: nothing to push.\n")
+    expect((await local.run("pull", "--theirs", ignored[0]!)).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
+  })
+
+  it.each(["darwin", "win32"] as const)("treats folders that differ only in case as one folder on %s", async (platform) => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "hello.md": "Hello\n" } })
+    const local = await project(remoteApp.fetch, "overlap-case")
+    expect((await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).code).toBe(0)
+    const calls = remoteApp.calls.length
+
+    await onPlatform(platform, async () => {
+      expect((await local.run("pull", "other", "--dir", "CONTENT", "--url", remote)).stderr).toContain("WORKSPACE_CHECKOUT_OVERLAP")
+      expect((await local.run("pull", "other", "--dir", "Content/nested", "--url", remote)).stderr).toContain("WORKSPACE_CHECKOUT_OVERLAP")
+    })
+    expect(remoteApp.calls).toHaveLength(calls)
+  })
+
+  it("keeps folders that differ only in case apart on Linux", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "hello.md": "Hello\n" } })
+    const local = await project(remoteApp.fetch, "case-linux")
+    expect((await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)).code).toBe(0)
+
+    const pulled = await onPlatform("linux", async () => await local.run("pull", "other", "--dir", "CONTENT", "--ref", "draft", "--url", remote))
+
+    expect(pulled.stderr).not.toContain("WORKSPACE_CHECKOUT_OVERLAP")
   })
 
   it("asks for --dir on the first pull and refuses a folder outside the project", async () => {
