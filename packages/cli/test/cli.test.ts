@@ -558,13 +558,27 @@ export default ({ mode }) => ({
     expect(stdout.output()).toContain("  provision")
   })
 
+  it("lists a namespace once when a runtime namespace replaces a project one", async () => {
+    const stdout = stream()
+    const loadConfig = vi.fn(async () => ({
+      plugins: [{ vitehub: { cli: { namespaces: [{ description: "Project secrets.", features: [], name: "secret" }] } } }],
+      root: "/repo",
+    }))
+    const runtimeNamespaces = [{ description: "Runtime secrets.", features: [], name: "secret" }]
+
+    expect(await runViteHubCli({ args: ["--help"], cwd: "/app", loadConfig, runtimeNamespaces, stdout })).toBe(0)
+    expect(stdout.output().match(/^  secret /gm)).toHaveLength(1)
+    expect(stdout.output()).toContain("  secret       Runtime secrets.")
+  })
+
   it("lists project commands in root help", async () => {
     const stdout = stream()
     const loadConfig = vi.fn(async () => ({ plugins: [], root: "/repo" }))
 
     expect(await runViteHubCli({ args: ["--help"], cwd: "/app", loadConfig, stdout })).toBe(0)
     const help = stdout.output()
-    expect(help).toContain("Project:\n  catalog      List every ViteHub feature")
+    expect(help).toContain("Project:\n  add          Turn on features")
+    expect(help).toContain("  catalog      List every ViteHub feature")
     expect(help).toContain("  status       Show the host")
     expect(help.indexOf("Project:")).toBeLessThan(help.indexOf("Available namespaces:"))
   })

@@ -15,7 +15,7 @@ import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces 
 import { createProvisionNamespace } from "./provision.ts"
 import { setupCommands } from "./setup/commands.ts"
 
-import type { ConfigEnv, InlineConfig } from "vite"
+import type { InlineConfig } from "vite"
 import type { ViteHubCliCommand, ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -28,7 +28,7 @@ interface ViteHubCliSpawnOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
   stderr?: "inherit" | "pipe"
-  stdout?: "inherit" | "pipe"
+  stdout?: "inherit" | "pipe" | "stderr"
 }
 
 type ViteHubCliSpawn = (
@@ -88,7 +88,7 @@ export interface RunViteHubCliEntrypointOptions extends Omit<RunViteHubCliOption
   stdout?: ViteHubCliEntrypointStream
 }
 
-async function loadNuxtViteConfig(rootDir: string, command: ConfigEnv["command"], mode?: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
+async function loadNuxtViteConfig(rootDir: string, command: "build" | "serve", mode?: string): Promise<{ plugins: readonly unknown[], root?: string } | undefined> {
   const hasNuxtConfig = ["nuxt.config.ts", "nuxt.config.mts", "nuxt.config.cts", "nuxt.config.js", "nuxt.config.mjs", "nuxt.config.cjs"]
     .some(file => existsSync(resolve(rootDir, file)))
   if (!hasNuxtConfig) return
@@ -152,7 +152,7 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
       shell: process.platform === "win32" && command !== process.execPath,
       stdio: [
         "inherit",
-        options.stdout || "inherit",
+        options.stdout === "stderr" ? process.stderr : options.stdout || "inherit",
         options.stderr || "inherit",
       ],
     })
@@ -161,7 +161,7 @@ function defaultSpawn(command: string, args: string[], options: ViteHubCliSpawnO
   })
 }
 
-async function loadViteConfig(rootDir: string, command: ConfigEnv["command"], mode?: string): Promise<ViteHubCliLoadedConfig> {
+async function loadViteConfig(rootDir: string, command: "build" | "serve", mode?: string): Promise<ViteHubCliLoadedConfig> {
   const { resolveConfig } = await import("vite")
   const inlineConfig: InlineConfig & { vitehubCliDiscovery: true } = {
     root: rootDir,
@@ -278,11 +278,14 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     }
   }, stderr)
   const { contribution, operations, plugins, rootDir } = await (stage ? withViteStageEnvironment(env, loadProject) : loadProject())
+  const runtimeNamespaces = (options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name))
+  // A runtime namespace runs before the project loads, so it replaces a project namespace of the same name.
+  const runtimeNames = new Set(runtimeNamespaces.map(namespace => namespace.name))
   const namespaces = [
-    ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
+    ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name) && !runtimeNames.has(namespace.name)),
     createInspectNamespace(plugins, operations),
     createProvisionNamespace(contribution.provision),
-    ...(options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
+    ...runtimeNamespaces,
   ]
 
   const context: ViteHubCliContext = {

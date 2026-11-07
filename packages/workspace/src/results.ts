@@ -89,4 +89,6 @@ export interface WorkspaceStaleList {
 export interface WorkspaceCommitResult {
   workspace: string
   revision: WorkspaceHistoryRevision
+  /** Committed bytes of puts whose content changed during write validation or hooks, keyed by request path. */
+  normalized?: Record<string, Pick<WorkspaceHistoryContent, "content" | "encoding">>
 }

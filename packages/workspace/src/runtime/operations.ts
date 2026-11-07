@@ -2,6 +2,7 @@ import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 import { normalizeHistoryPath } from "../core/history.ts"
+import { contentToBytes } from "../core/path.ts"
 import { useWorkspaceFiles } from "../core/use.ts"
 import { readDerivedFrom, staleDerivedFiles } from "../lineage.ts"
 import { workspaceHistoryDefaultLimit } from "../results.ts"
@@ -251,18 +252,31 @@ async function commitChanges(workspace: string, request: WorkspaceCommitInput, c
   const remove = request.delete ?? []
   if (!Object.keys(request.put ?? {}).length && !remove.length) throw new WorkspaceOperationError("WORKSPACE_HISTORY_INVALID", 400, "The commit has no changes. Pass `put` or `delete`.")
   const { history } = useWorkspaceFiles(workspace, { mode: "write" })
-  // The head check of the commit fails when the ref moved, so the files of `ifHead` are the files that the commit replaces.
-  const base = request.ifHead === null ? new Map<string, WorkspaceEntry>() : await filesOf(await openOrMissing(history, request.ifHead))
+  const ref = request.ref ?? "main"
+  const forkRef = request.ifHead === null ? await history.forksFrom?.(ref) : undefined
+  const startFrom = forkRef ? (await history.head({ ref: forkRef }))?.id : undefined
+  // Pin a first fork to the seed whose attributes we read, just as ifHead pins an existing ref.
+  const baseId = request.ifHead ?? startFrom
+  const base = baseId ? await filesOf(await openOrMissing(history, baseId)) : new Map<string, WorkspaceEntry>()
   const put = Object.fromEntries(Object.entries(request.put ?? {}).map(([path, file]) => [path, replacement(decodeContent(file), base.get(normalizeHistoryPath(path)))]))
   try {
     const revision = await history.commit({
-      ref: request.ref ?? "main",
+      ref,
       ifHead: request.ifHead,
+      ...(startFrom ? { startFrom } : {}),
+      ...(forkRef ? { ifHeads: { [forkRef]: startFrom ?? null } } : {}),
       changes: { put, delete: remove },
       message: request.message ?? `Push ${Object.keys(put).length + remove.length} files`,
       metadata: callerMetadata(context),
     })
-    return { workspace, revision: describeRevision(revision) }
+    const view = await history.open(revision.id)
+    const normalized: NonNullable<WorkspaceCommitResult["normalized"]> = {}
+    for (const [path, file] of Object.entries(put)) {
+      const submitted = encodeContent(contentToBytes(file.content))
+      const committed = await readContent(view, normalizeHistoryPath(path))
+      if (committed.content !== submitted.content || committed.encoding !== submitted.encoding) normalized[path] = committed
+    }
+    return { workspace, revision: describeRevision(revision), ...(Object.keys(normalized).length ? { normalized } : {}) }
   }
   catch (error) {
     if (errorCode(error) !== "WORKSPACE_CONFLICT") throw error
