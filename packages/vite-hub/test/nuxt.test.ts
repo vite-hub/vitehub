@@ -141,12 +141,14 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const devtoolsCustomTabsHooks: Array<(tabs: unknown[]) => void> = []
   const iconHooks: Array<(icons: Set<string>) => void> = []
   const modulesDoneHooks: Array<() => void> = []
+  const buildBeforeHooks: Array<() => void> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
-    hook(name: "nitro:init" | "components:extend" | "app:templatesGenerated" | "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "modules:done" | "nitro:config" | "vite:serverCreated", callback: (typeof nitroInitHooks)[number] | (() => void) | (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
+    hook(name: "nitro:init" | "components:extend" | "app:templatesGenerated" | "build:before" | "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "listen" | "modules:done" | "nitro:config" | "vite:serverCreated", callback: (typeof nitroInitHooks)[number] | (() => void) | (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void) | ((icons: Set<string>) => void)) {
       if (name === "nitro:init") nitroInitHooks.push(callback as (typeof nitroInitHooks)[number])
       else if (name === "icon:clientBundleIcons") iconHooks.push(callback as (icons: Set<string>) => void)
       else if (name === "modules:done") modulesDoneHooks.push(callback as () => void)
+      else if (name === "build:before") buildBeforeHooks.push(callback as () => void)
       else if (name === "components:extend") componentsExtendHooks.push(callback as (typeof componentsExtendHooks)[number])
       else if (name === "app:templatesGenerated") templatesGeneratedHooks.push(callback as (typeof templatesGeneratedHooks)[number])
       else if (name === "listen") listenHooks.push(callback as (typeof listenHooks)[number])
@@ -186,6 +188,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
     },
   }
   return {
+    buildBeforeHooks,
     closeHooks,
     componentsExtendHooks,
     listenHooks,
@@ -927,6 +930,27 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
 
     expect(nitroConfig.modules).toEqual([existingModule, nitroModule, injectSourcemapsModule])
+  })
+
+  it.each([false, true])("starts a bundle session before each Nuxt production build (retained plugin: %s)", async (retained) => {
+    const startBuild = vi.fn()
+    const nitroModule = { name: "@vite-hub/bundle/nitro", setup: vi.fn() }
+    const plugin = {
+      name: "@vite-hub/bundle/vite",
+      api: { startBuild },
+      nitro: nitroModule,
+    }
+    mocks.vitehub.mockReturnValue([{ ...plugin, api: { startBuild: retained ? vi.fn() : startBuild } }])
+    const { nuxt, buildBeforeHooks, runNitroConfigHook } = createNuxt(false, retained ? [plugin] : [])
+    await viteHubNuxtModule({ bundle: true, preset: "cloudflare" }, nuxt)
+    const config: Record<string, unknown> = {}
+    await runNitroConfigHook(config)
+    expect(config.modules).toContain(nitroModule)
+    expect(startBuild).not.toHaveBeenCalled()
+    expect(buildBeforeHooks).toHaveLength(1)
+    for (const hook of buildBeforeHooks) hook()
+    for (const hook of buildBeforeHooks) hook()
+    expect(startBuild).toHaveBeenCalledTimes(2)
   })
 
   it("finalizes Sandbox Wrangler config after every Nuxt replay contributor", async () => {

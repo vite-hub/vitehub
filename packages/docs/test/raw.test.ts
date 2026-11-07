@@ -17,6 +17,20 @@ describe("toRawMarkdown", () => {
     expect(raw.includes("You write each connector. Use Agent Channels for built-in chat integrations.")).toBe(mode === "custom")
   })
 
+  it("gives agents the hero screenshot as an image and drops the hero animation", () => {
+    const raw = convert([
+      '::product-hero{tagline="Connect an account."}',
+      '  :::product-screenshot{src="/images/console.webp" dark="/images/console-dark.webp" alt="The Console lists Connections." width="1520" height="840"}',
+      '  :::',
+      '  :::cms-console-demo',
+      '  :::',
+      '::',
+    ].join('\n'))
+    expect(raw).toContain("![The Console lists Connections.](https://vitehub.dev/images/console.webp)")
+    expect(raw).not.toContain(":::")
+    expect(raw).not.toContain("console-dark")
+  })
+
   it("renders product landings as text and preserves component syntax in code examples", () => {
     const example = ':::product-feature-item{title="Example" to="/docs/example"}\nExample description.\n:::'
     const raw = convert([
