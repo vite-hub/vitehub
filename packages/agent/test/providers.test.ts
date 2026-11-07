@@ -1611,7 +1611,7 @@ describe("agent Vite plugin", () => {
         return JSON.stringify(config)
       }
       const handler = join(root, ".vitehub", "agent", "invocations-dev-handler.ts")
-      expect(await configFor("serve")).toContain(JSON.stringify({ handler, route: "/_vitehub/agent/invocations/dev" }))
+      expect(await configFor("serve")).toContain(JSON.stringify({ handler, route: "/_vitehub/agent/invocations/dev", lazy: true }))
       expect(await configFor("build")).not.toContain("invocations-dev-handler")
 
       const configResolvedHook: unknown = hubAgent().configResolved
