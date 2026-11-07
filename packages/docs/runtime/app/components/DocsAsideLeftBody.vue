@@ -154,7 +154,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           v-for="page in pageGroup.pages"
           :key="page.path"
           :to="page.path"
-          :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
+          :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
           <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
@@ -168,7 +168,7 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
           v-for="page in pageGroup.pages"
           :key="page.path"
           :to="page.path"
-          :class="['vh-docs-sidebar-link is-grouped', { 'is-active': isActive(page.path) }]"
+          :class="['vh-docs-sidebar-link', { 'is-active': isActive(page.path) }]"
           :aria-current="isActive(page.path) ? 'page' : undefined"
         >
           <UIcon :name="icons.page(page)" class="size-4 shrink-0" />
@@ -272,13 +272,14 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
   text-transform: uppercase;
 }
 
-/* A long title wraps instead of being cut off. The icon stays on its first line. */
+/* A long title wraps instead of being cut off. The icon stays on its first line.
+   The padding takes out the 2px rule, so the icons line up with the group headings at 1.25rem. */
 .vh-docs-sidebar-link {
   display: flex;
   align-items: flex-start;
   gap: 0.625rem;
   border-left: 2px solid transparent;
-  padding: 0.25rem 1.25rem;
+  padding: 0.25rem 1.25rem 0.25rem calc(1.25rem - 2px);
   color: var(--ui-text-muted);
   font-size: 0.875rem;
   line-height: 1.25rem;
@@ -311,14 +312,13 @@ function holdsCurrent(pageGroup: DocsSidebarGroup) {
   }
 }
 
-.vh-docs-sidebar-link.is-grouped {
-  padding-left: 2rem;
-}
-
 /* In a list of sections, the pages of a section line up with its title: the row padding, the icon, and the gap. */
-.vh-docs-sidebar-link.is-nested,
 .vh-docs-sidebar-page-group-heading.is-nested {
   padding-left: 2.875rem;
+}
+
+.vh-docs-sidebar-link.is-nested {
+  padding-left: calc(2.875rem - 2px);
 }
 
 /* A folded group: the summary is its heading, and its chevron points right while the group is shut. */

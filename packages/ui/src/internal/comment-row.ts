@@ -1,7 +1,7 @@
 import type { CommentThread } from "@vite-hub/comments/client";
 import { h, type VNodeChild } from "vue";
 import { AvatarStack } from "../components/avatar-stack.ts";
-import { displayName, plainText, toPerson } from "./comment-person.ts";
+import { plainText, writerName, writerPerson } from "./comment-person.ts";
 import { timeAgo } from "./comment-time.ts";
 
 /** The start of a thread as plain text: its first message, else the text that it is about. */
@@ -27,11 +27,11 @@ export function threadRow(thread: CommentThread, options: ThreadRowOptions = {})
   const replies = thread.messages.length - 1;
   return [
     h("span", { "data-slot": "comment-list-number" }, String(thread.n)),
-    h(AvatarStack, { "aria-hidden": "true", people: [toPerson(thread.author)], size: "sm" }),
+    h(AvatarStack, { "aria-hidden": "true", people: [writerPerson(thread)], size: "sm" }),
     h("span", { "data-slot": "comment-list-body" }, [
       h("span", { "data-slot": "comment-list-text" }, options.preview ?? threadPreview(thread)),
       h("span", { "data-slot": "comment-list-meta" }, [
-        h("span", displayName(thread.author)),
+        h("span", writerName(thread)),
         h("span", timeAgo(thread.updatedAt)),
         replies > 0 ? h("span", `${replies} ${replies === 1 ? "reply" : "replies"}`) : null,
         thread.status === "resolved" ? h("span", "Resolved") : null,

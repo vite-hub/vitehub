@@ -1,5 +1,5 @@
 import { build } from "esbuild"
-import { defineHandler } from "h3"
+import { defineHandler, H3Event } from "h3"
 import { createApp, eventHandler, toNodeListener } from "h3-v1"
 import { createServer } from "node:http"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
@@ -74,8 +74,8 @@ it.each(["", "/portal"])("runs generated middleware before MCP at mount '%s' wit
       createConsoleAuth: ConsoleOAuthConfig["auth"]
     }
     // Delegation still prepares the real SQLite-backed Auth before the route checks a token.
-    await guard.default({ req: new Request(resource) })
-    const instance = await guard.createConsoleAuth(new Request(resource), { req: new Request(resource) })
+    await guard.default(new H3Event(new Request(resource)))
+    const instance = await guard.createConsoleAuth(new Request(resource), new H3Event(new Request(resource)))
     const context = await instance.$context
     // SAFETY: Better Auth's adapter and JWT plugin add these runtime methods.
     const adapter = context.internalAdapter as typeof context.internalAdapter & { createUser: (user: object) => Promise<{ id: string }> }
@@ -178,7 +178,7 @@ it.each([
   await writeFile(authorizeFile, 'export default globalThis[Symbol.for("test.console.mcp.section-policy")]')
   const generated = resolve(root, "plugin.ts")
   const modulePath = resolve(root, "plugin.mjs")
-  await writeConsoleNitroPlugin(generated, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, undefined, () => true, undefined, false, undefined, {
+  await writeConsoleNitroPlugin(generated, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, () => true, false, {
     authorize: authorizeFile,
     check: { appRoutes: routes.map((route, index) => ({ ...route, index })) },
     mode: "auth",
