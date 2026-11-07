@@ -227,7 +227,7 @@ pnpm vitehub add email --option email.driver=resend --yes --json
 - `--dry-run` prints the diff, or the plan with `--json`, and writes nothing.
 - `--yes` applies the plan. In a terminal without `--yes`, the command shows the diff and asks. Without a terminal, or with `--json`, it prints the plan and exits with `2` and a `rerun` command that includes `--yes`.
 - `--no-install` skips the install. The plan still lists the packages and the install command.
-- `--name <name>` creates a starter Definition, such as `server/queues/<name>.ts`, for each feature that has Definitions: Agent, Database, Queue, Realtime, Schedule, and Workflow. In Nuxt, it uses the application server directory when literal `rootDir` and `serverDir` options make that directory known. It never overwrites a file.
+- `--name <name>` creates a starter Definition, such as `server/queues/<name>.ts`, for each feature that has Definitions: Agent, Database, Queue, Realtime, Schedule, and Workflow. In Nuxt, it uses the application server directory when literal `rootDir` and `serverDir` options make that directory known; unresolved directories require creating the Definition by hand. It never overwrites a file.
 - `--option key=value` sets an option of the feature, such as `--option email.driver=resend`. With one feature, the feature name is optional. Dotted keys make nested objects.
 
 The command sets `<feature>: true`, or the object from `--option`. A feature that is already on gives no change, so a second run prints `"status": "unchanged"`. Features that an added feature turns on, such as Workflow for Agent, are listed in `implied`; the config names them when you supply their provider options. When an added feature requires Database, the command explicitly enables it if it was disabled. For example, on Netlify or Deno, `add comments` requires `--option database.connection.url=libsql://your-host` before writing the config.
@@ -235,6 +235,8 @@ The command sets `<feature>: true`, or the object from `--option`. A feature tha
 The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`. When ViteHub can choose the values, `rerun` is a command that succeeds as it is, including any provider prerequisites. Node Schedules require `--option schedule.runtime.driver=process`, or `--option schedule.providerOutput=false` when you will wake them yourself.
 
 Some host defaults build and run but keep state in one process. `nextSteps` names them, with the option that selects a durable provider. For example, Workflow on Node and Deno runs inline in the request process until you select OpenWorkflow, and Workspace on Vercel keeps files in memory until `BLOB_READ_WRITE_TOKEN` is set. A provider option that needs more packages, such as `workflow.provider=openworkflow` or `blob.driver=s3`, adds them to the install.
+
+Console requires an explicit access choice with `--option console.auth=false` for no sign-in, `--option console.auth=app` for an app with an Auth Definition and Console authorization, or nested `console.auth` options for Console Auth. ViteHub does not choose an access policy for you. When running a pkg.pr.new preview of the CLI, added ViteHub packages use the same preview reference.
 
 ### `SETUP_FEATURE_UNSUPPORTED`
 
@@ -251,6 +253,10 @@ The command needs more input, such as a feature name or the provider option that
 ### `SETUP_FILE_EXISTS`
 
 A starter Definition file exists and has other content, or another file already defines the same Definition, such as `src/database.ts` for the Default Database or `src/<name>.queue.ts` for a Queue. ViteHub never overwrites a file and never writes a second Definition. Choose another `--name`, or edit the file by hand.
+
+### `SETUP_SERVER_DIR_MANUAL`
+
+Nuxt's application server directory needs config evaluation, for example because `serverDir` is an expression or the app uses layers. Create the Definition in that directory and rerun without `--name`, or use literal directory options without layers.
 
 ### `SETUP_INSTALL_FAILED`
 
@@ -387,7 +393,7 @@ The command runs each host CLI with an argument array and no shell. It runs only
 | Netlify | `netlify deploy --no-build --dir dist --prod`, with `--message` for the commit | The environment variables API, with the value in the JSON request body |
 | Deno | `node .output/deploy.mjs` with `DENO_DEPLOY_ORG` and `DENO_DEPLOY_APP` | `deno deploy env load /dev/stdin`, then `deno deploy env list` |
 
-The credentials are the ones that `vitehub link` reads, and the host CLIs read them from the environment. Deno also needs `DENO_DEPLOY_ORG`, or a link with `--account <org>`.
+The credentials are the ones that `vitehub link` reads, and the host CLIs read them from the environment. Vercel deploys also accept a saved `vercel login` session, checked with `vercel whoami`, without requiring `VERCEL_TOKEN`. Deno also needs `DENO_DEPLOY_ORG`, or a link with `--account <org>`.
 
 When `vitehub init --console` left a pending Console link, `deploy` sets `VITEHUB_CONSOLE_TOKEN_SHA256` on the host before the deploy and checks that the host lists it. A host project that does not exist yet gets a first deploy, then the secret, then a second deploy. The value never goes into a command argument or the output. After the deploy, the command prints the Console link, and opens it in a terminal. `--json` returns it in `console.linkUrl`:
 
@@ -436,7 +442,7 @@ The build output has no `deployment.json` or no deploy command for the host. Bui
 
 ### `SETUP_DEPLOY_HOST_MISMATCH`
 
-The build output is for another host than the link or the config. The command exits with `3`.
+The configured host conflicts with the link, or the build output is for another host. A configured host conflict is rejected before building or uploading existing output. The command exits with `3`.
 
 ### `SETUP_DEPLOY_COMMAND_REJECTED`
 

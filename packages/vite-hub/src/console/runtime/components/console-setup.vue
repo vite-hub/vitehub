@@ -24,6 +24,7 @@ const props = defineProps<{
 type Step = "pick" | "plan" | "apply" | "restart" | "done";
 
 const route = ref<string>();
+const readOnly = ref(true);
 const client = ref<SetupClient>();
 const catalog = ref<readonly SetupCatalogFeature[]>([]);
 const status = ref<SetupStatusDocument>();
@@ -141,7 +142,9 @@ async function load(): Promise<void> {
   loading.value = true;
   loadError.value = undefined;
   try {
-    route.value ??= (await loadConsoleNavigation(props.sectionsBase))?.setup;
+    const navigation = await loadConsoleNavigation(props.sectionsBase);
+    route.value = navigation?.setup;
+    readOnly.value = navigation?.readOnly.includes("setup") ?? true;
     if (!route.value) throw new Error("This Console has no Setup endpoints. The Setup section runs only on a development server.");
     client.value = await connectSetup(route.value);
     const [catalogDocument, statusDocument] = await Promise.all([client.value.catalog(), client.value.status()]);
@@ -208,7 +211,7 @@ async function restart(): Promise<void> {
 }
 
 async function apply(): Promise<void> {
-  if (!client.value || !plan.value?.planId) return;
+  if (readOnly.value || !client.value || !plan.value?.planId) return;
   step.value = "apply";
   logs.value = "";
   openEvents();
@@ -318,6 +321,7 @@ onBeforeUnmount(() => events?.abort());
                 <ConsoleStatus :label="stateLabel(selected).label" :tone="stateLabel(selected).tone" />
               </div>
               <p class="text-sm text-muted">{{ selected.summary }}</p>
+              <p v-if="readOnly" class="text-xs text-muted">This access can only read Setup. You can preview changes but cannot apply them.</p>
               <p v-if="selectedSupport" class="text-xs text-muted">
                 <span class="font-medium text-toned">{{ selectedSupport.level === "native" ? `On ${hostName}: ${selectedSupport.display ?? "supported"}.` : selectedSupport.level === "explicit" ? `On ${hostName}: choose a provider.` : selectedSupport.level === "unsupported" ? `Not available on ${hostName}.` : "The host is not known." }}</span>
                 {{ selectedSupport.detail }}
@@ -378,7 +382,7 @@ onBeforeUnmount(() => events?.abort());
               <UAlert v-if="failure?.error" color="error" variant="subtle" :title="failure.error.message" :description="[failure.error.why === failure.error.message ? '' : failure.error.why, failure.error.fix].filter(Boolean).join(' ')" />
               <pre v-if="logs" class="max-h-56 overflow-auto rounded-md border border-default bg-elevated/50 p-3 font-mono text-xs leading-5 text-toned" aria-label="Install output" aria-live="polite">{{ logs }}</pre>
               <div class="flex gap-2">
-                <UButton v-if="plan?.planId" label="Apply" icon="i-lucide-check" :loading="step === 'apply'" @click="apply" />
+                <UButton v-if="plan?.planId && !readOnly" label="Apply" icon="i-lucide-check" :loading="step === 'apply'" @click="apply" />
                 <UButton v-else-if="failure?.error" label="Plan again" icon="i-lucide-refresh-cw" @click="makePlan" />
                 <UButton label="Back" variant="ghost" :disabled="step === 'apply'" @click="select(selected.id)" />
               </div>

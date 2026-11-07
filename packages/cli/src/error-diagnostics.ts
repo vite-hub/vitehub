@@ -46,6 +46,11 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
         ? `${String(file)} exists and is not the starter Definition. ViteHub never overwrites a file.`
         : `${String(file)} already defines a ${String(definition)} Definition that conflicts with ${String(starter)}, so the build would reject both.`,
     },
+    SETUP_SERVER_DIR_MANUAL: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_server_dir_manual",
+      fix: "Create the Definition in your evaluated Nuxt server directory and rerun without --name, or use literal rootDir and serverDir options without layers.",
+      why: "ViteHub cannot determine the Nuxt application server directory without running the config.",
+    },
     SETUP_INPUT_NEEDED: {
       docs: "https://vitehub.dev/docs/development/cli#setup_input_needed",
       fix: "Run the `rerun` command, or pass the missing values with --option.",
@@ -53,7 +58,9 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     },
     SETUP_INSTALL_FAILED: {
       docs: "https://vitehub.dev/docs/development/cli#setup_install_failed",
-      fix: "Run the install command by hand to see the error, then run the command again. ViteHub did not write starter or config files; the package manager may have changed package manifests or lockfiles.",
+      fix: ({ filesWritten }: { filesWritten?: unknown }) => `Run the install command by hand to see the error, then run the command again. ${filesWritten
+        ? "The new app files were written before installation failed; keep them when retrying."
+        : "ViteHub did not write starter or config files; the package manager may have changed package manifests or lockfiles."}`,
       why: ({ command, exitCode }: { command?: unknown, exitCode?: unknown }) => `\`${String(command)}\` exited with code ${String(exitCode)}.`,
     },
     SETUP_FEATURE_IMPLIED: {
