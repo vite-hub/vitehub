@@ -14,6 +14,20 @@ describe("lineage", () => {
     expect(readDerivedFrom("data/es.json", encode(JSON.stringify({ derivedFrom: { digest, path: "data/en.json" }, name: "Hola" })))).toEqual({ digest, path: "data/en.json" })
   })
 
+  it("reads YAML with comments and multiline flow mappings", () => {
+    const expected = { digest, path: "docs/en/guide.md" }
+    expect(readDerivedFrom("docs/es/guide.md", encode(`---\nderivedFrom:\n  path: docs/en/guide.md # source\n  digest: ${digest} # bytes then\n---\n`))).toEqual(expected)
+    expect(readDerivedFrom("docs/es/guide.md", encode(`---\nderivedFrom: { path: docs/en/guide.md, digest: ${digest} } # translated\n---\n`))).toEqual(expected)
+    expect(readDerivedFrom("docs/es/guide.md", encode(`---\nderivedFrom: {\n  path: docs/en/guide.md,\n  digest: ${digest}\n}\n---\n`))).toEqual(expected)
+    expect(readDerivedFrom("data/es.yml", encode(`# Spanish\nderivedFrom: { path: docs/en/guide.md, digest: ${digest} } # translated\n`))).toEqual(expected)
+  })
+
+  it("reads derivedFrom only from Markdown, YAML, and JSON files", () => {
+    const frontmatter = encode(`---\nderivedFrom: { path: docs/en/guide.md, digest: ${digest} }\n---\n`)
+    for (const path of ["docs/es/guide.md", "docs/es/guide.markdown", "docs/es/guide.mdx", "docs/es/GUIDE.MD"]) expect(readDerivedFrom(path, frontmatter)).toEqual({ digest, path: "docs/en/guide.md" })
+    for (const path of ["notes/es.txt", "notes/es", "styles/es.css"]) expect(readDerivedFrom(path, frontmatter)).toBeUndefined()
+  })
+
   it("ignores files without derivedFrom, an incomplete one, a body line, and binary files", () => {
     expect(readDerivedFrom("docs/en/guide.md", english)).toBeUndefined()
     expect(readDerivedFrom("docs/es/guide.md", encode("---\nderivedFrom:\n  path: docs/en/guide.md\n---\n"))).toBeUndefined()
@@ -24,13 +38,14 @@ describe("lineage", () => {
 
   it("lists derived files whose source changed or is gone, with the digest of the source now", () => {
     const changed = encode("---\ntitle: Guide\n---\n\nInstall it with pnpm.\n")
-    const derived = (source: string, sourceDigest: string) => encode(`---\nderivedFrom: { path: ${source}, digest: ${sourceDigest} }\n---\n`)
+    const derived = (source: string, sourceDigest: string) => encode(`---\nderivedFrom: { path: ${source}, digest: ${sourceDigest} } # translated\n---\n`)
     const files = new Map([
       ["docs/en/guide.md", changed],
       ["docs/en/intro.md", english],
       ["docs/es/guide.md", derived("docs/en/guide.md", digest)],
       ["docs/es/intro.md", derived("docs/en/intro.md", digest)],
       ["docs/es/old.md", derived("docs/en/old.md", digest)],
+      ["notes/es.txt", derived("docs/en/old.md", digest)],
     ])
 
     expect(staleDerivedFiles(files)).toEqual([

@@ -203,7 +203,7 @@ A push sends whole files and the operation call has a timeout of two minutes, so
 
 ### Derived files
 
-A derived file, such as a translation, records the file it was made from and the SHA-256 of that file's bytes then. Put `derivedFrom` in the YAML frontmatter of Markdown, at the top of a YAML file, or as a top-level key of a JSON file:
+A derived file, such as a translation, records the file it was made from and the SHA-256 of that file's bytes then. Put `derivedFrom` in the YAML frontmatter of Markdown (`.md`, `.markdown`, `.mdx`), at the top of a YAML file (`.yaml`, `.yml`), or as a top-level key of a JSON file (`.json`). Other files have no lineage:
 
 ```md [docs/es/guide.md]
 ---
@@ -220,7 +220,7 @@ When the source changes, the derived file is stale. `vitehub status` lists the s
 pnpm vitehub workspace stale site --ref draft
 ```
 
-Each changed entry has `sourceDigest`, the digest of the source now. Update the file, then write that value as `derivedFrom.digest`. An entry with `reason: "missing"` names a source that is gone. `lineageDigest(bytes)`, `readDerivedFrom(path, bytes)`, and `staleDerivedFiles(files)` from `vite-hub/workspace/lineage` do the same checks in your code.
+Each changed entry has `sourceDigest`, the digest of the source now. The command prints it in the `SOURCE DIGEST` column. Update the file, then write that value as `derivedFrom.digest`. An entry with `reason: "missing"` names a source that is gone. `lineageDigest(bytes)`, `readDerivedFrom(path, bytes)`, and `staleDerivedFiles(files)` from `vite-hub/workspace/lineage` do the same checks in your code.
 
 To translate when the source changes, start your translator from a `write:after` hook. The hook runs after each commit, also for `vitehub push`:
 
