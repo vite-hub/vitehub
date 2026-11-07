@@ -44,6 +44,15 @@ const adapters = {
 }
 
 describe("Console request bodies", () => {
+  it.each([undefined, null, { collection: "posts" }])("preserves an optional action body: %j", async (body) => {
+    const req = new Request("http://vitehub.local/api/_vitehub/console/documents", {
+      method: "POST",
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    })
+
+    await expect(consoleRequestJSON({ req })).resolves.toEqual(body)
+  })
+
   for (const [name, adapter] of Object.entries(adapters)) {
     it(`counts UTF-8 bytes at the exact limit through the ${name} adapter`, async () => {
       const body = JSON.stringify({ text: "café 🌍" })
