@@ -199,7 +199,9 @@ describe("project.get probe", () => {
 
   it("tells OAuth and app sign-in apart from the token", async () => {
     const oauth = json(401, { code: "CONSOLE_SIGN_IN_REQUIRED" }, { "www-authenticate": 'Bearer realm="vitehub-console", resource_metadata="https://app.example.com/.well-known/oauth-protected-resource"' })
-    expect(await probeConsoleProject(target, undefined, { fetch: oauth })).toEqual({ kind: "oauth" })
+    expect(await probeConsoleProject(target, undefined, { fetch: oauth })).toEqual({ kind: "oauth", resourceMetadata: "https://app.example.com/.well-known/oauth-protected-resource" })
+    const expired = json(401, { code: "CONSOLE_SIGN_IN_REQUIRED" }, { "www-authenticate": 'Bearer realm="vitehub-console", error="invalid_token", resource_metadata="https://app.example.com/.well-known/oauth-protected-resource/_vitehub"' })
+    expect(await probeConsoleProject(target, "old", { fetch: expired })).toEqual({ kind: "oauth", resourceMetadata: "https://app.example.com/.well-known/oauth-protected-resource/_vitehub" })
     const session = json(401, { code: "CONSOLE_SIGN_IN_REQUIRED" }, { "www-authenticate": 'Bearer realm="vitehub-console"' })
     expect(await probeConsoleProject(target, undefined, { fetch: session })).toEqual({ kind: "sign-in" })
   })
@@ -302,7 +304,7 @@ describe("linking a project", () => {
     expect(state.store.active()?.label).toBe("Shop")
     const { consoleProject: active, projectUrl } = await import("../src/console/runtime/client/project.ts")
     expect(projectUrl("/_vitehub/rpc/__call")).toBe("https://b.example.com/_vitehub/rpc/__call")
-    expect(active().authorization?.()).toBe("Bearer token-b")
+    expect(await active().authorization?.()).toBe("Bearer token-b")
   })
 
   it.each(["https:", "http:"])("signs in to an embedded token app over %s", async (protocol) => {

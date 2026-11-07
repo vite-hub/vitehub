@@ -33,9 +33,10 @@ import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
 import { continueConsoleOpen, startConsoleOpen } from "./open-link";
-import { consoleProjectReady, noteConsoleProjectsVolatile, startConsoleLink, startConsoleProjects } from "./project-session";
+import { takeConsoleOAuthCallback } from "./oauth";
+import { consoleProjectReady, finishConsoleOAuthSignIn, noteConsoleProjectsVolatile, startConsoleLink, startConsoleProjects } from "./project-session";
 import { takeConsoleLinkHash } from "./pending-links";
-import { browserProjectStorage } from "./projects";
+import { browserProjectStorage, openConsoleStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
 // The hosted build marks its static page. There the Console opens the projects that this browser linked. Otherwise the
@@ -52,6 +53,10 @@ const storage = browserProjectStorage(() => window.localStorage, noteConsoleProj
 // A link to one page of a project: /open?project=<app URL>&path=<Console path>. It runs before the router starts, so
 // a linked project opens at the path.
 const openRequest = hosted ? startConsoleOpen(window, consoleBase, storage) : undefined;
+// The PKCE verifier and the state of a sign-in stay with the tab that started it. They must survive the redirect.
+const session = openConsoleStorage(() => window.sessionStorage);
+// The authorization server of an `auth: "app"` project sends the browser back to /oauth/callback?code=…&state=….
+const oauthCallback = hosted && linkHash === undefined ? takeConsoleOAuthCallback(window, consoleBase) : undefined;
 
 startConsoleProjects({
   base: hostBase,
@@ -60,9 +65,12 @@ startConsoleProjects({
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
   storage,
+  sessionStorage: session.durable ? session.storage : undefined,
+  durableStorage: storage.persistent !== false,
   pendingLinkLocks: navigator.locks,
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);
+else if (oauthCallback !== undefined) void finishConsoleOAuthSignIn(oauthCallback);
 if (openRequest) continueConsoleOpen(openRequest);
 const sectionsBase = "/api/_vitehub/console/sections";
 const capabilitiesBase = "/api/_vitehub/console/invocation-capabilities";

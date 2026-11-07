@@ -2,12 +2,30 @@ import { ref, shallowRef } from "vue"
 
 import type { Ref, ShallowRef } from "vue"
 
+import {
+  browserOAuthLock,
+  storageOAuthLock,
+  consoleAuthorizationUrl,
+  consoleCodeChallenge,
+  consoleOAuthGrantLockName,
+  consoleOAuthStateLifetime,
+  createConsoleCodeVerifier,
+  createConsoleOAuthRefresher,
+  createConsoleOAuthState,
+  createConsoleOAuthStateStore,
+  discoverConsoleOAuth,
+  exchangeConsoleOAuthCode,
+  loadConsoleOAuthClient,
+  parseConsoleOAuthCallback,
+  revokeConsoleOAuthTokens,
+} from "./oauth"
 import { consolePendingLinksStorageKey, createConsolePendingLinkStore, parseConsoleLinkFragment } from "./pending-links"
 import { setConsoleProject } from "./project"
 import { consoleProjectProblem, probeConsoleProject } from "./project-link"
 import { useConsoleToast } from "./toast"
 import { consoleProjectHost, consoleProjectTarget, createConsoleProjectStore, isMixedContentProject, memoryProjectStorage, normalizeProjectUrl } from "./projects"
 
+import type { ConsoleOAuthFetch, ConsoleOAuthLock, ConsoleOAuthPendingSignIn, ConsoleOAuthRefresher, ConsoleOAuthStateStore, ConsoleOAuthTokens } from "./oauth"
 import type { ConsoleLinkRequest, ConsolePendingLinkLocks, ConsolePendingLinkStore, ConsolePendingLinkTicket } from "./pending-links"
 import type { ConsoleProjectInfo, ConsoleProjectProbe, ConsoleProjectProblem } from "./project-link"
 import type { ConsoleLinkedProject, ConsoleProjectStorage, ConsoleProjectStore, ConsoleProjectTarget } from "./projects"
@@ -27,7 +45,15 @@ export type ConsoleProjectGate =
   | { kind: "opening" }
   | { kind: "empty" }
   | { kind: "token", rejected: boolean }
-  | { kind: "problem", problem: ConsoleProjectProblem }
+  /** `home` offers a way back to the Console instead of a retry, such as after a sign-in that cannot finish. */
+  | { kind: "problem", problem: ConsoleProjectProblem, home?: boolean }
+  /**
+   * The project signs Consoles in with OAuth. `resourceMetadata` is the URL that its challenge named. `problem` says
+   * why the last sign-in did not open it, such as a denied consent or a session that ended.
+   */
+  | { kind: "oauth", target: ConsoleProjectTarget, resourceMetadata?: string, problem?: ConsoleProjectProblem }
+  /** The `/oauth/callback` page: the Console exchanges the code for tokens. */
+  | { kind: "callback" }
   /** The `/link` page of a hosted Console: confirm the app of a one-time link, or why the link cannot be used. */
   | { kind: "link", request: ConsoleLinkRequest }
   | { kind: "ready" }
@@ -36,6 +62,7 @@ export type ConsoleProjectGate =
 export type ConsoleProjectLinkResult =
   | { kind: "linked", project: ConsoleLinkedProject }
   | { kind: "token", rejected: boolean, target: ConsoleProjectTarget }
+  | { kind: "oauth", target: ConsoleProjectTarget, resourceMetadata: string }
   | { kind: "problem", problem: ConsoleProjectProblem }
 
 interface ConsoleProjectsState {
@@ -45,6 +72,17 @@ interface ConsoleProjectsState {
   store: ConsoleProjectStore
   /** The one-time links for new projects, in the same storage as the projects. */
   pendingLinks: ConsolePendingLinkStore
+  /** The OAuth sign-ins of this tab that wait for their callback, in `sessionStorage`. */
+  oauthStates: ConsoleOAuthStateStore
+  /** Whether a sign-in survives the redirect to the app: both storages keep their writes across page loads. */
+  oauthStorage: boolean
+  /** Refreshes the OAuth access tokens of the projects, one refresh at a time per project. */
+  refresher: ConsoleOAuthRefresher
+  /** Serializes short grant updates and removals across tabs. */
+  lock: ConsoleOAuthLock
+  /** The `fetch` of OAuth metadata, token, and revocation requests. */
+  fetch: ConsoleOAuthFetch
+  now: () => number
   /** `navigator.locks`, so one tab at a time confirms a link. Without it the Console confirms no link. */
   pendingLinkLocks?: ConsolePendingLinkLocks
   /** Load a Console page, such as the Overview after a switch. */
@@ -89,11 +127,47 @@ export function consoleProjectReady(): Promise<void> {
   return ready
 }
 
+const sessionEnded = (host: string): ConsoleProjectProblem => ({
+  title: `Your sign-in to ${host} ended`,
+  message: `The Console could not refresh its access to ${host}. Sign in again.`,
+})
+
+/** The project that this page opens, read again from the store, so it has the tokens of the latest refresh. */
+function stored(): ConsoleLinkedProject | undefined {
+  const projects = useState()
+  const current = projects.current.value
+  return current?.id ? projects.store.find(current.url) ?? current : current
+}
+
+/** After the tokens of the open project are gone, the Console asks the person to sign in again. */
+function askToSignInAgain(): void {
+  const projects = useState()
+  const current = projects.current.value
+  if (!current?.id || projects.store.find(current.url)?.oauth) return
+  const target = consoleProjectTarget(current)
+  projects.gate.value = { kind: "oauth", target, problem: sessionEnded(consoleProjectHost(target)) }
+}
+
 function applyTransport(target: Pick<ConsoleProjectTarget, "base" | "origin">): void {
-  const current = state?.current
   setConsoleProject({
     ...target,
-    authorization: () => current?.value?.token ? `Bearer ${current.value.token}` : undefined,
+    authorization: async () => {
+      const project = stored()
+      if (project?.token) return `Bearer ${project.token}`
+      if (!project?.oauth) return undefined
+      const token = await useState().refresher.accessToken(project.url)
+      if (!token) askToSignInAgain()
+      return token ? `Bearer ${token}` : undefined
+    },
+    // A project refuses an OAuth access token that expired early or was signed with a rotated key. One refresh may fix it.
+    renew: async (response, sent) => {
+      const project = stored()
+      const challenge = response.headers.get("www-authenticate")
+      if (!project?.oauth || (challenge && !/\berror="invalid_token"/i.test(challenge))) return undefined
+      const token = await useState().refresher.accessToken(project.url, { rejected: sent.replace(/^Bearer\s+/i, "") })
+      if (!token) askToSignInAgain()
+      return token ? `Bearer ${token}` : undefined
+    },
   })
 }
 
@@ -108,6 +182,13 @@ export function startConsoleProjects(options: {
   navigate: (url: string) => void
   pageOrigin: string
   storage: ConsoleProjectStorage
+  /** Keeps the OAuth sign-ins of the tab until their callback. Defaults to memory. */
+  sessionStorage?: ConsoleProjectStorage
+  /** Whether `storage` keeps its writes across page loads. Defaults to true. */
+  durableStorage?: boolean
+  fetch?: ConsoleOAuthFetch
+  lock?: ConsoleOAuthLock
+  now?: () => number
   /** `navigator.locks`, so one tab at a time confirms a link. Without it the Console confirms no link. */
   pendingLinkLocks?: ConsolePendingLinkLocks
 }): ConsoleProjectsState {
@@ -122,8 +203,25 @@ export function startConsoleProjects(options: {
     current = store.active() ?? projects[0]
     if (current && !store.active()) store.select(current.id)
   }
+  const request: ConsoleOAuthFetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init))
+  // Without Web Locks, tabs take turns through a lease in the project storage.
+  const lock = options.lock ?? browserOAuthLock() ?? storageOAuthLock(options.storage)
   const started: ConsoleProjectsState = {
     current: shallowRef(current),
+    fetch: request,
+    lock,
+    now: options.now ?? Date.now,
+    oauthStates: createConsoleOAuthStateStore(options.sessionStorage ?? memoryProjectStorage(), options.now ? { now: options.now } : {}),
+    oauthStorage: options.durableStorage !== false && options.sessionStorage !== undefined,
+    refresher: createConsoleOAuthRefresher({
+      fetch: request,
+      read: url => store.find(url)?.oauth,
+      write: (url, tokens) => {
+        if (store.find(url)) store.save({ url, oauth: tokens })
+      },
+      lock,
+      ...(options.now ? { now: options.now } : {}),
+    }),
     gate: shallowRef(options.mode === "hosted" && !current ? { kind: "empty" } : { kind: "opening" }),
     home: options.home,
     info: shallowRef(),
@@ -164,11 +262,31 @@ function open(info: ConsoleProjectInfo): void {
   announceVolatile()
 }
 
+/**
+ * Read `project.get` of a project with what this browser keeps for it: the Console token, or the OAuth access token,
+ * refreshed when it expires soon. A refused access token gets one refresh and one more try.
+ */
+async function probeProject(target: Pick<ConsoleProjectTarget, "base" | "origin">, project: ConsoleLinkedProject | undefined): Promise<ConsoleProjectProbe> {
+  const { refresher, store } = useState()
+  const oauth = project?.id && !project.token ? store.find(project.url)?.oauth : undefined
+  if (!project || !oauth) return probeConsoleProject(target, project?.token)
+  const token = await refresher.accessToken(project.url)
+  const probe = await probeConsoleProject(target, token)
+  if (probe.kind !== "oauth" || !token) return probe
+  const renewed = await refresher.accessToken(project.url, { rejected: token })
+  return renewed ? probeConsoleProject(target, renewed) : probe
+}
+
 /** Embedded mode opens the app unless it asks for a Console token. The app's own pages show the other sign-in states. */
-function gateOf(probe: ConsoleProjectProbe, target: ConsoleProjectTarget): ConsoleProjectGate | undefined {
+function gateOf(probe: ConsoleProjectProbe, target: ConsoleProjectTarget, signedIn = false): ConsoleProjectGate | undefined {
   if (probe.kind === "ready") return undefined
   if (probe.kind === "token") return { kind: "token", rejected: probe.rejected }
-  return useState().mode === "embedded" ? undefined : { kind: "problem", problem: consoleProjectProblem(probe, problemContext(target)) }
+  if (useState().mode === "embedded") return undefined
+  if (probe.kind === "oauth") {
+    // A project that had tokens before this probe lost them: the refresh token expired or was revoked.
+    return { kind: "oauth", target, resourceMetadata: probe.resourceMetadata, ...(signedIn ? { problem: sessionEnded(consoleProjectHost(target)) } : {}) }
+  }
+  return { kind: "problem", problem: consoleProjectProblem(probe, problemContext(target)) }
 }
 
 /** Read `project.get` of the current project and open it, or set the gate that says what it needs. */
@@ -182,10 +300,11 @@ export async function openConsoleProject(): Promise<void> {
   const version = ++probeVersion
   projects.gate.value = { kind: "opening" }
   const target = projects.mode === "embedded" ? { ...consoleProjectTarget(current), origin: "" } : consoleProjectTarget(current)
-  const probe = await probeConsoleProject(target, current.token)
+  const signedIn = Boolean(current.id && projects.store.find(current.url)?.oauth)
+  const probe = await probeProject(target, current)
   // A switch or a newer attempt can finish first. Only the current attempt may open the gate or update the project.
   if (projects !== state || version !== probeVersion || projects.current.value !== current) return
-  const gate = gateOf(probe, consoleProjectTarget(current))
+  const gate = gateOf(probe, consoleProjectTarget(current), signedIn)
   if (gate) {
     projects.gate.value = gate
     return
@@ -230,8 +349,9 @@ export async function linkConsoleProject(input: string, token?: string): Promise
     return { kind: "problem", problem: { title: "Use HTTPS", message: `This Console runs on HTTPS, so the browser blocks ${target.origin}. Use the https:// URL of the project.` } }
   }
   const existing = projects.store.find(target.url)
-  const probe = await probeConsoleProject(target, token ?? existing?.token)
+  const probe = token === undefined ? await probeProject(target, existing) : await probeConsoleProject(target, token)
   if (probe.kind === "token") return { kind: "token", rejected: probe.rejected && token !== undefined, target }
+  if (probe.kind === "oauth") return { kind: "oauth", target, resourceMetadata: probe.resourceMetadata }
   if (probe.kind !== "ready") return { kind: "problem", problem: consoleProjectProblem(probe, problemContext(target)) }
   const project = projects.store.save({ url: target.url, label: probe.info.name, token: token ?? existing?.token })
   projects.store.select(project.id)
@@ -277,22 +397,46 @@ export function switchConsoleProject(id: string): void {
   void openConsoleProject()
 }
 
+/** Ask the authorization server to revoke the refresh token. Best effort: the tokens are already gone from this browser. */
+async function revoke(tokens: ConsoleOAuthTokens | undefined): Promise<void> {
+  if (tokens) await revokeConsoleOAuthTokens(tokens, { fetch: useState().fetch })
+}
+
 /**
- * Remove a project and its token from this browser. The project itself does not change. When it was the current
- * project, the Console loads the next one, or the empty state.
+ * Remove a project and its tokens from this browser, and revoke its OAuth refresh token. The project itself does not
+ * change. When it was the current project, the Console loads the next one, or the empty state.
  */
-export function forgetConsoleProject(id: string): void {
+export async function forgetConsoleProject(id: string): Promise<void> {
   const projects = useState()
-  projects.store.forget(id)
+  const project = projects.store.get(id)
+  if (!project) return
+  const tokens = await projects.lock(consoleOAuthGrantLockName(project.url), async () => {
+    const latest = projects.store.get(id)
+    projects.store.forget(id)
+    return latest?.oauth
+  })
   projects.projects.value = projects.store.list()
+  if (tokens) void revokeConsoleOAuthTokens(tokens, { fetch: projects.fetch })
   if (projects.current.value?.id === id) projects.navigate(projects.home)
 }
 
-/** Remove the Console token of the embedded app from this browser, and load the sign-in form again. */
-export function signOutConsoleProject(): void {
+/**
+ * Sign the Console out of the open project. The embedded app forgets its Console token and shows the sign-in form
+ * again. A hosted Console revokes the OAuth refresh token, removes the tokens, and keeps the project in the list.
+ */
+export async function signOutConsoleProject(): Promise<void> {
   const projects = useState()
   const current = projects.current.value
-  if (current?.id) projects.store.forget(current.id)
+  if (current?.id) {
+    const tokens = await projects.lock(consoleOAuthGrantLockName(current.url), async () => {
+      const project = projects.store.get(current.id)
+      if (project?.oauth && projects.mode === "hosted") projects.store.save({ url: project.url, oauth: null, token: null })
+      else projects.store.forget(current.id)
+      return project?.oauth
+    })
+    projects.projects.value = projects.store.list()
+    if (tokens) void revokeConsoleOAuthTokens(tokens, { fetch: projects.fetch })
+  }
   projects.navigate(projects.home)
 }
 
@@ -306,7 +450,7 @@ export async function checkConsoleProjects(): Promise<void> {
   const pending = list.filter(project => project.id !== opened)
   projects.statuses.value = { ...projects.statuses.value, ...Object.fromEntries(pending.map(project => [project.id, "checking" as const])) }
   await Promise.all(pending.map(async (project) => {
-    const probe = await probeConsoleProject(consoleProjectTarget(project), project.token).catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
+    const probe = await probeProject(consoleProjectTarget(project), project).catch((): ConsoleProjectProbe => ({ kind: "unreachable" }))
     const status: ConsoleProjectStatus = probe.kind === "ready" ? "ready" : probe.kind === "token" || probe.kind === "oauth" || probe.kind === "sign-in" ? "sign-in" : "unreachable"
     projects.statuses.value = { ...projects.statuses.value, [project.id]: status }
   }))
@@ -388,4 +532,127 @@ async function confirmLockedConsoleLink(projects: ConsoleProjectsState, pendingI
   projects.store.select(project.id)
   projects.projects.value = projects.store.list()
   return { kind: "linked", project }
+}
+
+/**
+ * Start the OAuth sign-in of a project: read its sign-in settings, keep the PKCE verifier and a random `state` for this
+ * tab, and load the authorization page of the project, where the person signs in and allows the Console. Returns why
+ * it could not start. When it starts, the page leaves, and `/oauth/callback` finishes it with `finishConsoleOAuthSignIn()`.
+ */
+export async function startConsoleOAuthSignIn(target: ConsoleProjectTarget, resourceMetadata?: string): Promise<ConsoleProjectProblem | undefined> {
+  const projects = useState()
+  const host = consoleProjectHost(target)
+  if (projects.mode !== "hosted") return { title: "Sign in on the app", message: `Open the Console of ${host} at its own URL to sign in.` }
+  // The verifier and the tokens must survive the redirect to the app, so memory is not enough.
+  if (!projects.oauthStorage) {
+    return { title: "This browser blocks site data", message: `Allow site data for ${new URL(projects.pageOrigin).host} to sign in, or use auth: "token" in the project.` }
+  }
+  let metadata = resourceMetadata
+  if (!metadata) {
+    const probe = await probeConsoleProject(target)
+    if (probe.kind === "ready") return { title: `${host} is open`, message: "The project answered without a sign-in. Reload the Console." }
+    if (probe.kind !== "oauth") return consoleProjectProblem(probe, problemContext(target))
+    metadata = probe.resourceMetadata
+  }
+  const loaded = await loadConsoleOAuthClient(projects.pageOrigin, projects.fetch)
+  if ("problem" in loaded) return loaded.problem
+  const found = await discoverConsoleOAuth(target, metadata, { consoleOrigin: projects.pageOrigin, fetch: projects.fetch })
+  if ("problem" in found) return found.problem
+  const { discovery } = found
+  const verifier = createConsoleCodeVerifier()
+  const signIn: ConsoleOAuthPendingSignIn = {
+    clientId: loaded.client.clientId,
+    createdAt: projects.now(),
+    issuer: discovery.issuer,
+    issuerInResponse: discovery.issuerInResponse,
+    projectUrl: target.url,
+    redirectUri: loaded.client.redirectUri,
+    resource: discovery.resource,
+    state: createConsoleOAuthState(),
+    tokenEndpoint: discovery.tokenEndpoint,
+    verifier,
+    ...(discovery.revocationEndpoint ? { revocationEndpoint: discovery.revocationEndpoint } : {}),
+  }
+  projects.oauthStates.save(signIn)
+  projects.navigate(consoleAuthorizationUrl(signIn, discovery.authorizationEndpoint, await consoleCodeChallenge(verifier)))
+  return undefined
+}
+
+/** Why a sign-in callback cannot finish, and whether the person can sign in to its project again from here. */
+function callbackProblem(problem: ConsoleProjectProblem, signIn?: ConsoleOAuthPendingSignIn): ConsoleProjectGate {
+  const projects = useState()
+  if (!signIn) return { kind: "problem", problem, home: true }
+  const target = consoleProjectTarget({ url: signIn.projectUrl })
+  // The gate shows the project of the sign-in, so its button signs in to it again.
+  const existing = projects.store.find(signIn.projectUrl)
+  projects.current.value = existing ?? { id: "", url: signIn.projectUrl }
+  return { kind: "oauth", target, problem }
+}
+
+/**
+ * Finish an OAuth sign-in on `/oauth/callback`: check the `state` (one use, at most 10 minutes old), exchange the code
+ * with the PKCE verifier, save the tokens with the project, read `project.get`, and open the project. Each failure sets
+ * a gate that says how to fix it.
+ */
+export async function finishConsoleOAuthSignIn(search: string): Promise<void> {
+  const projects = useState()
+  projects.gate.value = { kind: "callback" }
+  const callback = parseConsoleOAuthCallback(search)
+  if (callback.kind === "invalid") {
+    projects.gate.value = callbackProblem({ title: "This sign-in link is not complete", message: "The page has no code and state. Sign in again from the Console." })
+    return
+  }
+  const lookup = callback.state ? projects.oauthStates.take(callback.state) : { kind: "unknown" as const }
+  if (lookup.kind === "unknown") {
+    projects.gate.value = callbackProblem({
+      title: "This sign-in cannot finish here",
+      message: "This tab did not start the sign-in, or the sign-in already finished. Open the Console and sign in again in one tab.",
+    })
+    return
+  }
+  const { signIn } = lookup
+  const target = consoleProjectTarget({ url: signIn.projectUrl })
+  const host = consoleProjectHost(target)
+  // RFC 9207 mix-up defense: the answer, a code or an error, must name the server of this sign-in. A server that does
+  // not send `iss` is trusted only through the state, which binds the issuer and the token endpoint discovered for it.
+  const issuerProblem = callback.issuer
+    ? callback.issuer !== signIn.issuer ? `The answer names ${callback.issuer}, but ${host} signs in with ${signIn.issuer}. Sign in again.` : undefined
+    : signIn.issuerInResponse ? `${host} signs in with ${signIn.issuer}, which names itself in each answer, but this answer names no server. Sign in again.` : undefined
+  if (issuerProblem) {
+    projects.gate.value = callbackProblem({ title: "The answer came from another server", message: issuerProblem }, signIn)
+    return
+  }
+  if (callback.kind === "error") {
+    projects.gate.value = callbackProblem(callback.error === "access_denied"
+      ? { title: "The Console was not allowed", message: `${host} did not allow this Console. Sign in again and choose Allow.` }
+      : { title: `${host} did not sign the Console in`, message: `${callback.description ?? callback.error}. Sign in again.` }, signIn)
+    return
+  }
+  if (lookup.kind === "expired") {
+    projects.gate.value = callbackProblem({ title: "The sign-in took too long", message: `A sign-in must finish within ${consoleOAuthStateLifetime / 60_000} minutes. Sign in again.` }, signIn)
+    return
+  }
+  const result = await exchangeConsoleOAuthCode(signIn, callback.code, { fetch: projects.fetch, now: projects.now })
+  if (result.kind === "unreachable") {
+    projects.gate.value = callbackProblem({ title: `Cannot reach ${host}`, message: `The token request failed. ${projects.pageOrigin} must be in console.origins for ${host}. Add it, redeploy, and sign in again.` }, signIn)
+    return
+  }
+  if (result.kind === "rejected") {
+    projects.gate.value = callbackProblem({ title: `${host} did not issue a token`, message: `${result.description ?? result.error ?? "The token request failed"}. Sign in again.` }, signIn)
+    return
+  }
+  const probe = await probeConsoleProject(target, result.tokens.accessToken)
+  if (probe.kind !== "ready") {
+    // The tokens did not open the project, so they are not kept.
+    await revoke(result.tokens)
+    projects.gate.value = callbackProblem(consoleProjectProblem(probe, problemContext(target)), signIn)
+    return
+  }
+  // A project that had a Console token before now signs in with OAuth only, so the transport sends the new tokens.
+  const project = projects.store.save({ url: signIn.projectUrl, label: probe.info.name, oauth: result.tokens, token: null })
+  projects.store.select(project.id)
+  projects.projects.value = projects.store.list()
+  projects.current.value = project
+  applyTransport(target)
+  open(probe.info)
 }

@@ -274,7 +274,7 @@ Without the key, use the MCP client in development or on one Node server. Hosts 
 
 One Console build can open many ViteHub apps. Each app is a **project**. The Console that an app serves at `/_vitehub` opens that app. A Console that runs on its own origin, such as a copy on a static host, keeps a list of projects and switches between them.
 
-Each project must use [`auth: "token"`](#use-a-console-token) and list the origin of the Console in [`console.origins`](#call-the-console-from-another-origin):
+Each project uses [`auth: "token"`](#use-a-console-token), or [`auth: "app"`](#use-the-app-auth) with [OAuth sign-in](#link-a-project-that-signs-in-with-the-app), and lists the origin of the Console in [`console.origins`](#call-the-console-from-another-origin):
 
 ```ts [vite.config.ts]
 vitehub({
@@ -326,7 +326,40 @@ The Console then opens the project and shows only the sections that the project 
 | `<console> is not in console.origins for <host>` | Add the Console origin to `console.origins`, then build and deploy again. The browser hides why a cross-origin request failed, so the project can also be offline. |
 | `<host> refused this token` | Paste the token whose hash is in `VITEHUB_CONSOLE_TOKEN_SHA256`. If you lost it, create a new token and set its hash. |
 | `This project runs vite-hub <version>. This Console needs protocol 1.` | Update `vite-hub` in the app. |
-| `This project signs in with OAuth` | OAuth sign-in for a Console on another origin is not ready. Use `auth: "token"`. |
+| `<host> cannot sign this Console in` | The project uses `auth: "app"`, but its Auth does not issue Console tokens. Add `consoleMcpOAuth()` to the app Auth. See [Link a project that signs in with the app](#link-a-project-that-signs-in-with-the-app). |
+
+### Link a project that signs in with the app
+
+A project with `console: { auth: "app" }` signs the Console in with its own Auth, so you do not copy a token. Each person signs in with their own account, and [`authorize`](#limit-a-user-to-some-sections) decides their sections. The project needs:
+
+- [`consoleMcpOAuth()`](#sign-a-console-in-with-oauth) in the app Auth, with `@better-auth/cimd` installed.
+- The Console origin in `console.origins`. The default, `["https://console.vitehub.dev"]`, allows the hosted Console. The app accepts the OAuth client of a Console only on an `https://` origin in this list.
+
+```ts [vite.config.ts]
+vitehub({
+  auth: true,
+  console: { auth: 'app', authorize: './server/console-authorize.ts', origins: ['https://console.vitehub.dev'] },
+})
+```
+
+To link it:
+
+1. Select **Link project** and enter the app URL. The project answers `401` with a challenge that names its OAuth metadata, and the Console shows **Sign in with `<host>`**.
+2. Select **Sign in with `<host>`**. The browser opens the sign-in page of the app. Sign in, and choose **Allow** for the ViteHub Console.
+3. The app sends the browser back to `/oauth/callback` of the Console. The Console gets the tokens, reads [`project.get`](#read-the-project), and opens the project.
+
+The Console is a public OAuth client with no secret. Its `client_id` is the URL of its client ID Metadata Document, `<console origin>/oauth-client.json`, and its redirect URI is `<console origin>/oauth/callback`. It uses the authorization code flow with PKCE `S256` and a random `state`, and asks for `vitehub:read vitehub:write offline_access` for the Console resource `<app origin><base>/_vitehub`. Before it opens the sign-in page, it checks that the protected resource metadata names that resource, and that the authorization server supports PKCE `S256` and client ID Metadata Documents.
+
+When the sign-in does not finish, the Console says why:
+
+| Message | Fix |
+| --- | --- |
+| `The Console was not allowed` | You chose **Deny**. Sign in again and choose **Allow**. |
+| `This sign-in cannot finish here` | The `state` is unknown, or the sign-in already finished. A sign-in must finish in the tab that started it. Sign in again. |
+| `The sign-in took too long` | A sign-in must finish within 10 minutes. Sign in again. |
+| `<host> did not issue a token` | The app refused the code, for example because it was already used. Sign in again. |
+| `Cannot reach <host>` | Add the Console origin to `console.origins`, then build and deploy again. |
+| `This Console was built for another origin` | The client document names another origin. Build the Console with `VITEHUB_CONSOLE_ORIGIN`, see [Self-host the Console](#self-host-the-console). |
 
 ### Link a new project
 
@@ -381,7 +414,11 @@ The project list and the tokens stay in this browser, in `localStorage` of the C
 - When the browser does not let the Console store data, such as when storage is full or blocked, the list stays in memory until the page reloads. The Console says so.
 - To revoke access, create a new token, set its hash in `VITEHUB_CONSOLE_TOKEN_SHA256`, and restart or deploy the server. Each Console then asks for the new token.
 
-To remove a project, open the project list, select the **×** next to the project, and confirm **Forget project**. The browser removes the URL and the token. The project does not change.
+A project that signs in with the app keeps OAuth tokens in the same entry: an access token that is valid for 15 minutes, and a refresh token that is valid for 7 days. Each refresh gives a new refresh token. The Console refreshes the access token before a request when it expires within a minute. Requests that start at the same time wait for one refresh, and tabs take turns with the Web Locks API so they do not use the same refresh token. In browsers without Web Locks, a short lease in `localStorage` coordinates active tabs. This fallback is best effort: a suspended tab can miss lease renewal and overlap another tab's refresh. When the app refuses a refresh token that another tab already rotated, the Console uses the tokens that the other tab saved. When the project refuses an access token with `error="invalid_token"`, the Console refreshes once and sends the request again. When the refresh fails, the Console removes the tokens and asks you to sign in again. While a sign-in runs, the PKCE verifier and the `state` stay in `sessionStorage` of the tab, under `vitehub-console:oauth-sign-ins`. Each `state` works once. A browser that blocks site data for the Console keeps nothing across the redirect to the app, so the Console does not start a sign-in there and says `This browser blocks site data`. Allow site data for the Console origin, or use `auth: "token"`.
+
+`localStorage` is the trade-off of a Console with no server: a script on the Console origin can read the tokens, the same as a Console token. The short access token and the refresh token that the app can revoke limit the damage. An access token that a script copied stays valid until it expires, at most 15 minutes.
+
+To remove a project, open the project list, select the **×** next to the project, and confirm **Forget project**. The browser removes the URL and the tokens. For a project that signs in with the app, the Console also revokes the refresh token at the revocation endpoint of the app. **Sign out** in the account menu revokes it and keeps the project in the list. The revocation is best effort: when the app does not answer, the refresh token stays valid until it expires. The project does not change.
 
 The Console that an app serves also uses this storage. With `auth: "token"`, `/_vitehub` asks for the token, keeps it in `localStorage` of the app origin, and **Sign out** in the account menu removes it.
 
@@ -407,12 +444,23 @@ corepack pnpm exec vp run -t vite-hub#build
 corepack pnpm --dir packages/vite-hub run build:console-hosted
 ```
 
-The last command writes `index.html`, `404.html`, `_headers`, and `assets/` to `packages/vite-hub/.vitehub/console-hosted`. When you serve that folder:
+The last command writes `index.html`, `404.html`, `_headers`, `oauth-client.json`, and `assets/` to `packages/vite-hub/.vitehub/console-hosted`.
+
+`oauth-client.json` is the client ID Metadata Document of the Console. It names absolute URLs, so the build needs the origin that serves the Console. It defaults to `https://console.vitehub.dev`. To sign in to projects with `auth: "app"` from your own origin, set `VITEHUB_CONSOLE_ORIGIN` when you build. It must be an `https://` origin with no path:
+
+```sh
+VITEHUB_CONSOLE_ORIGIN=https://console.example.com corepack pnpm --dir packages/vite-hub run build:console-hosted
+```
+
+A Console that runs on another origin than its document names cannot sign in with OAuth, and says so. Projects with `auth: "token"` still work.
+
+When you serve that folder:
 
 - Serve it from an origin that serves nothing else, because every script on that origin can read the tokens.
 - Answer unknown paths with `index.html`, so Console routes such as `/kv` load the app.
 - Send the headers in `_headers`. Cloudflare and Netlify read that file. On other hosts, set the same headers. When a project uses `http:` on a host other than `localhost` or `127.0.0.1`, add it to `connect-src`.
 - Add the Console origin to `console.origins` of each project.
+- Serve `oauth-client.json` at the root as JSON. Apps fetch it to know the Console.
 
 On Cloudflare, `packages/vite-hub/console.hosted.wrangler.jsonc` is the configuration of console.vitehub.dev: a Worker with static assets and no Worker script. Copy it into the same folder, because `assets.directory` is relative to the file. Change `name` and `routes`, build, and run `wrangler deploy --config <file>`.
 
