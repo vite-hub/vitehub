@@ -306,3 +306,23 @@ export function newProjectCommand(stack: NewProjectStack, ticket?: ConsolePendin
 export function newProjectHostFeatureCount(host: NewProjectHost): number {
   return featureIds.filter(id => featureSupport(id, host).level !== "unsupported").length
 }
+
+/**
+ * A prompt that starts the project from a coding agent: run the command, build what `idea` describes, and deploy. The
+ * person opens the link that the CLI prints, because the one-time link works only in this browser.
+ */
+export function newProjectPrompt(stack: NewProjectStack, ticket: ConsolePendingLinkTicket, idea: string, plan: NewProjectPlan = planNewProject(stack)): string | undefined {
+  const command = newProjectCommand(stack, ticket, plan)
+  if (!command) return undefined
+  const app = idea.trim()
+  return [
+    `Create a ViteHub app in the folder ${stack.dir}.${app ? ` The app: ${app}` : ""}`,
+    "",
+    "1. Run this command. It creates the app and links it to my ViteHub Console:",
+    "",
+    command,
+    "",
+    `2. ${app ? "Build the app" : "Check the app"} with ViteHub. The docs are at https://vitehub.dev/llms.txt.`,
+    "3. Deploy the app. Then give me the link that the command printed. I open it in my browser to link the app.",
+  ].join("\n")
+}
