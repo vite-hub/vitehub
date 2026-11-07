@@ -286,6 +286,17 @@ describe("vitehub hooks", () => {
     expect(opened.filter(path => path.startsWith(join(rootDir, "content/leak")))).toEqual([])
   })
 
+  it("fails both hooks when vitehub.lock exists but cannot be read", async () => {
+    const { rootDir } = await repository()
+    await mkdir(join(rootDir, "vitehub.lock"))
+
+    for (const hook of ["pre-commit", "pre-push"]) {
+      const failed = await run(hook, rootDir, pushMain)
+      expect(failed.code).toBe(1)
+      expect(failed.stderr).toContain("EISDIR")
+    }
+  })
+
   it("reads the remote branches from the pre-push input", () => {
     expect(pushedBranches("refs/heads/a 1 refs/heads/main 0\nrefs/tags/v1 2 refs/tags/v1 0\n")).toEqual(["main"])
     expect(pushedBranches("")).toEqual([])

@@ -125,10 +125,16 @@ async function uninstall(context: WorkspaceCheckoutCliContext): Promise<number> 
   return 0
 }
 
-/** True when the project has a lock file with at least one checked-out Workspace. */
+/** True when the project has a lock file with at least one checked-out Workspace. Fails when the lock cannot be read. */
 async function hasCheckouts(rootDir: string): Promise<boolean> {
-  const source = await readFile(join(rootDir, workspaceLockFile), "utf8").catch(() => undefined)
-  if (source === undefined) return false
+  let source: string
+  try {
+    source = await readFile(join(rootDir, workspaceLockFile), "utf8")
+  }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false
+    throw error
+  }
   try {
     const workspaces: unknown = Reflect.get(Object(JSON.parse(source)), "workspaces")
     return Object(workspaces) === workspaces && Object.keys(Object(workspaces)).length > 0
@@ -260,7 +266,12 @@ async function prePushChecked(context: WorkspaceCheckoutCliContext, options: Wor
 }
 
 async function preCommit(context: WorkspaceCheckoutCliContext): Promise<number> {
-  if (!await hasCheckouts(context.rootDir)) return 0
+  try {
+    if (!await hasCheckouts(context.rootDir)) return 0
+  }
+  catch (error) {
+    return fail(context, error)
+  }
   const conflicted = (await localCheckoutStatus(context.rootDir) ?? []).filter(status => status.local.conflicted.length)
   if (!conflicted.length) return 0
   context.stderr.write(`${conflicted.map(formatWorkspaceStatus).join("")}vitehub: a checkout folder has conflicts, so Git stops this commit. Resolve them, then commit again.\n`)
