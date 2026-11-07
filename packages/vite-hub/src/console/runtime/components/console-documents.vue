@@ -5,7 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import { consoleErrorMessage, consoleListQueryFor, createConsoleDocumentsClient } from "../client/documents";
 import { clearConsoleDocumentCaches } from "../client/document-cache";
 import { provideConsoleMediaPicker } from "../client/media";
-import { consoleMediaBase, consoleMediaTransformable, consoleMediaUrl, consoleMediaVariantUrl, createConsoleMediaClient, isConsoleMediaPathname } from "../client/media-library";
+import { consoleMediaBase, consoleMediaFileUrl, consoleMediaTransformable, consoleMediaUrl, consoleMediaVariantUrl, createConsoleMediaClient, isConsoleMediaPathname } from "../client/media-library";
 import { ConsoleRequestError, isConsoleSignInRequired, requestConsole } from "../client/request";
 import { resolveConsoleRouteName } from "../console-route";
 import { parseConsoleSectionContent } from "../definitions";
@@ -113,7 +113,7 @@ if (hasMedia) {
     async describe(reference) {
       const file = await mediaClient.value.get(reference.pathname).catch(() => undefined);
       if (!file) return undefined;
-      const url = file.url ?? consoleMediaUrl(mediaInfo.value?.served, file.pathname);
+      const url = consoleMediaFileUrl(file, mediaInfo.value?.served);
       const thumbnail = url && consoleMediaTransformable(file.contentType) ? consoleMediaVariantUrl(url, {
         fit: file.focal ? "inside" : "cover",
         height: 96,

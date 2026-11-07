@@ -764,7 +764,12 @@ describe("Agent Invocation UI", () => {
     expect(wrapper.findAll(".vh-invocation-event__notice").map(notice => notice.text())).toEqual(["Output shortened when recorded."]);
   });
 
-  it("discloses truncation beside a visible delivery body", () => {
+  it.each([
+    ["reply", false],
+    ["reply", true],
+    ["update", false],
+    ["update", true],
+  ] as const)("discloses %s truncation beside its visible body (named: %s)", async (kind, named) => {
     const timestamp = "2026-08-22T00:00:00.000Z";
     const invocation = {
       createdAt: timestamp,
@@ -772,8 +777,9 @@ describe("Agent Invocation UI", () => {
       observations: [{
         attributes: {
           "channel.effect.content": "Bounded reply.",
-          "channel.effect.kind": "reply",
+          "channel.effect.kind": kind,
           "vitehub.observation.truncated": true,
+          ...(named ? { "vitehub.observation.truncatedAttributes": ["channel.effect.content"] } : {}),
         },
         name: "agent.channel.delivery",
         sequence: 1,
@@ -786,9 +792,18 @@ describe("Agent Invocation UI", () => {
     } satisfies AgentInvocationView;
     const wrapper = mount(AgentInvocation, { props: { invocation } });
     const answer = wrapper.get('.vh-invocation-message[data-role="assistant"]');
+    const work = wrapper.get(".vh-invocation-work__details");
+    if (!(work.element instanceof HTMLDetailsElement)) throw new TypeError("Expected work details");
+    work.element.open = true;
+    await work.trigger("toggle");
+    const receipt = wrapper.get('.vh-invocation-work__activities [data-kind="delivery"]');
 
     expect(answer.get(".vh-invocation-message__body").text()).toBe("Bounded reply.");
-    expect(answer.text()).toContain("Part of this activity was shortened when it was recorded.");
+    expect(answer.get(".vh-invocation-event__notice").text()).toBe(named
+      ? "Delivered text shortened when recorded."
+      : "Part of this activity was shortened when it was recorded.");
+    expect(receipt.text()).not.toContain("Bounded reply.");
+    expect(receipt.find(".vh-invocation-event__notice").exists()).toBe(!named);
   });
 
   it("preserves Markdown-significant whitespace in captured delivery bodies", () => {
