@@ -526,6 +526,15 @@ describe("OAuth sign-in of a hosted Console", () => {
     const closed = new AbortController()
     closed.abort()
     await expect(context.session.startConsoleOAuthSignIn(app, resourceMetadata, closed.signal)).rejects.toThrow()
+    // Also when the dialog closes while the PKCE challenge is hashed, the last step before the redirect.
+    const hashing = new AbortController()
+    const digest = crypto.subtle.digest.bind(crypto.subtle)
+    const spy = vi.spyOn(crypto.subtle, "digest").mockImplementation(async (...args) => {
+      hashing.abort()
+      return digest(...args)
+    })
+    await expect(context.session.startConsoleOAuthSignIn(app, resourceMetadata, hashing.signal)).rejects.toThrow()
+    spy.mockRestore()
     expect(context.navigate).not.toHaveBeenCalled()
   })
 

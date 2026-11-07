@@ -633,10 +633,11 @@ export async function startConsoleOAuthSignIn(target: ConsoleProjectTarget, reso
     verifier,
     ...(discovery.revocationEndpoint ? { revocationEndpoint: discovery.revocationEndpoint } : {}),
   }
-  // A person who closed the dialog stays on this page.
+  const challenge = await consoleCodeChallenge(verifier)
+  // A person who closed the dialog stays on this page. Nothing awaits between this check and the redirect.
   signal?.throwIfAborted()
   projects.oauthStates.save(signIn)
-  projects.navigate(consoleAuthorizationUrl(signIn, discovery.authorizationEndpoint, await consoleCodeChallenge(verifier)))
+  projects.navigate(consoleAuthorizationUrl(signIn, discovery.authorizationEndpoint, challenge))
   return undefined
 }
 
