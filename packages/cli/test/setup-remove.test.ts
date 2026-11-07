@@ -227,6 +227,12 @@ describe("vitehub remove", () => {
     ["src/schedule.ts", 'const load = () => import(/* webpackChunkName: "schedule" */ "@vite-hub/schedule")\n', "@vite-hub/schedule"],
     ["src/schedule.cjs", 'const schedule = require(/* schedule */ "@vite-hub/schedule")\n', "@vite-hub/schedule"],
     ["src/schedule-line.ts", 'const load = () => import(// schedule\n "vite-hub/schedule")\n', "vite-hub/schedule"],
+    ["src/schedule-before.ts", 'const load = () => import /* retained target */ ("@vite-hub/schedule")\n', "@vite-hub/schedule"],
+    ["src/schedule-before.cjs", 'const schedule = require /* retained target */ ("@vite-hub/schedule")\n', "@vite-hub/schedule"],
+    ["src/schedule-before-line.ts", 'const load = () => import // retained target\n ("@vite-hub/schedule")\n', "@vite-hub/schedule"],
+    ["src/schedule-both.cjs", 'const schedule = require /* before */ (/* inside */ "vite-hub/schedule")\n', "vite-hub/schedule"],
+    ["src/schedule-template.ts", 'const load = () => import(`@vite-hub/schedule/vite`)\n', "@vite-hub/schedule/vite"],
+    ["src/schedule-template-facade.ts", 'const load = () => import(`vite-hub/schedule`)\n', "vite-hub/schedule"],
   ])("keeps packages used by a source file: %s", async (path, content, module) => {
     const root = await createProject({
       "package.json": JSON.stringify({ dependencies: { "@vite-hub/schedule": "1.0.0" }, name: "app", packageManager: "pnpm@10.0.0" }),

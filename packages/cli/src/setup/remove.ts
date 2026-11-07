@@ -116,8 +116,8 @@ function importsModule(specifier: string, module: string): boolean {
   return specifier === module || specifier.startsWith(`${module}/`)
 }
 
-/** Imports, re-exports, module augmentations, and triple-slash type references. Comments can match, which only makes `remove` stricter. */
-const specifierPattern = /(?:\b(?:from|import|require|declare\s+module)\s*\(?(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*)*|\/\/\/\s*<reference\s+types\s*=\s*)(["'])([^"'\r\n]+)\1/gu
+/** Imports (including static template literals), re-exports, module augmentations, and triple-slash type references. Comments can match, which only makes `remove` stricter. */
+const specifierPattern = /(?:\b(?:from|import|require|declare\s+module)(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*)*(?:\((?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*)*)?|\/\/\/\s*<reference\s+types\s*=\s*)(?:(["'])([^"'\r\n]+)\1|`((?:[^`$\r\n]|\$(?!\{))+)`)/gu
 const sourceFile = /\.(?:[cm]?[jt]sx?|vue)$/iu
 
 function lineAt(content: string, index: number): number {
@@ -239,7 +239,7 @@ export async function planSetupRemove(project: SetupProject, args: SetupRemoveAr
     if (starters.has(path) && !args.keepFiles) continue
     const content = await readFile(file, "utf8")
     for (const match of content.matchAll(specifierPattern)) {
-      const specifier = match[2]!
+      const specifier = (match[2] ?? match[3])!
       imported.add(packageName(specifier))
       // Facade imports also need the feature's owner packages.
       for (const id of turnedOff) {
