@@ -19,6 +19,8 @@ export interface ResendCallSites {
   followUps: FollowUp[]
   /** Variables that `new Resend()` calls read, such as `RESEND_API_KEY`. */
   apiKeyVariables: string[]
+  /** Top-level `runtimeConfig` keys that `new Resend()` calls read, such as `resendApiKey`. */
+  runtimeConfigKeys: string[]
   /** Files that still use the Resend SDK or `useResend()`. */
   remaining: string[]
   /** Files that still call `useResend()`, which needs the nuxt-resend module. */
@@ -51,6 +53,8 @@ class FileRewrite {
   keepsResend = false
   keepsUseResend = false
   readonly apiKeyVariables: string[] = []
+  /** Top-level `runtimeConfig` keys that `new Resend()` reads, such as `resendApiKey`. */
+  readonly runtimeConfigKeys: string[] = []
   private readonly program: File
   private readonly mailer: string
   private readonly removedStatements = new Set<Node>()
@@ -109,11 +113,28 @@ class FileRewrite {
     this.updateImports()
   }
 
+  /** The key of `useRuntimeConfig().key`, or of `config.key` where `const config = useRuntimeConfig()`. */
+  private runtimeConfigKey(node: Node): string | undefined {
+    if (node.type !== "MemberExpression") return undefined
+    const key = keyName(node.property, node.computed)
+    const object = node.object
+    const isRuntimeConfigCall = (value: Node | null | undefined) => value?.type === "CallExpression" && value.callee.type === "Identifier" && value.callee.name === "useRuntimeConfig"
+    if (isRuntimeConfigCall(object)) return key
+    if (object.type !== "Identifier") return undefined
+    let bound = false
+    walk(this.program, (child) => {
+      if (child.type === "VariableDeclarator" && child.id.type === "Identifier" && child.id.name === object.name && isRuntimeConfigCall(child.init)) bound = true
+    })
+    return bound ? key : undefined
+  }
+
   private planClient(client: Node, ancestors: Node[]): void {
     if (client.type === "NewExpression") {
       const [argument] = client.arguments
       const name = argument ? processEnvName(argument) : "RESEND_API_KEY"
+      const runtimeKey = argument ? this.runtimeConfigKey(argument) : undefined
       if (name) this.apiKeyVariables.push(name)
+      else if (runtimeKey) this.runtimeConfigKeys.push(runtimeKey)
       else if (argument) this.follow(client, "new Resend() reads its API key from an expression. Declare that value as vitehub.email.options.apiKey by hand.")
     }
     const parent = ancestors.at(-1)
@@ -314,7 +335,7 @@ class FileRewrite {
 /** Rewrites `emails.send()` calls of `useResend()` and `new Resend()` clients in server code. */
 export async function rewriteResendCallSites(cwd: string): Promise<ResendCallSites> {
   const files = await glob(["**/*.{ts,mts,cts,js,mjs,cjs}"], { cwd, ignore: ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/dist/**", "nuxt.config.*"] })
-  const result: ResendCallSites = { edits: [], followUps: [], apiKeyVariables: [], remaining: [], useResendRemaining: [], sends: 0 }
+  const result: ResendCallSites = { edits: [], followUps: [], apiKeyVariables: [], runtimeConfigKeys: [], remaining: [], useResendRemaining: [], sends: 0 }
   for (const file of files.sort()) {
     const code = await readFile(join(cwd, file), "utf8")
     if (!/useResend|from\s+["']resend["']/.test(code)) continue
@@ -331,6 +352,7 @@ export async function rewriteResendCallSites(cwd: string): Promise<ResendCallSit
     }
     result.followUps.push(...rewrite.followUps)
     result.apiKeyVariables.push(...rewrite.apiKeyVariables)
+    result.runtimeConfigKeys.push(...rewrite.runtimeConfigKeys)
     result.sends += rewrite.sends
     if (rewrite.keepsResend) result.remaining.push(file)
     if (rewrite.keepsUseResend) result.useResendRemaining.push(file)
