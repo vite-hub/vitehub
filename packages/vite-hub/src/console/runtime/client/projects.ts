@@ -1,7 +1,11 @@
 /**
- * The projects that one Console links: their URLs, labels, and Console tokens. They stay in the browser, in
- * `localStorage` of the Console origin. No server keeps a copy.
+ * The projects that one Console links: their URLs, labels, Console tokens, and OAuth tokens. They stay in the browser,
+ * in `localStorage` of the Console origin. No server keeps a copy.
  */
+
+import { parseConsoleOAuthTokens } from "./oauth"
+
+import type { ConsoleOAuthTokens } from "./oauth"
 
 /** The `localStorage` key of the project list. */
 export const consoleProjectsStorageKey = "vitehub-console:projects"
@@ -14,6 +18,8 @@ export interface ConsoleLinkedProject {
   label?: string
   /** The Console token that this browser sends as `Authorization: Bearer`. The server keeps only its SHA-256 hash. */
   token?: string
+  /** The OAuth tokens of a project with `auth: "app"`. The Console sends the access token as `Authorization: Bearer`. */
+  oauth?: ConsoleOAuthTokens
 }
 
 /** Where the Console sends the requests of a project. */
@@ -116,7 +122,8 @@ function parseStoredProjects(raw: string | null): StoredProjects {
     if (!id || !normalized || !("target" in normalized) || projects.some(project => project.id === id || project.url === normalized.target.url)) continue
     const label = text(Reflect.get(entry, "label"))
     const token = text(Reflect.get(entry, "token"))
-    projects.push({ id, url: normalized.target.url, ...(label ? { label } : {}), ...(token ? { token } : {}) })
+    const oauth = parseConsoleOAuthTokens(Reflect.get(entry, "oauth"))
+    projects.push({ id, url: normalized.target.url, ...(label ? { label } : {}), ...(token ? { token } : {}), ...(oauth ? { oauth } : {}) })
   }
   const active = record ? text(Reflect.get(record, "active")) : undefined
   return { projects, ...(active && projects.some(project => project.id === active) ? { active } : {}) }
@@ -136,10 +143,10 @@ export interface ConsoleProjectStore {
   /** The project that the Console opens. */
   active(): ConsoleLinkedProject | undefined
   /**
-   * Add a project, or update the one with the same URL. A `token` of `undefined` keeps the stored token; `null` removes
-   * it. Returns the saved project.
+   * Add a project, or update the one with the same URL. A `token` or `oauth` of `undefined` keeps the stored value;
+   * `null` removes it. Returns the saved project.
    */
-  save(input: { url: string, label?: string, token?: string | null }): ConsoleLinkedProject
+  save(input: { url: string, label?: string, token?: string | null, oauth?: ConsoleOAuthTokens | null }): ConsoleLinkedProject
   select(id: string | undefined): void
   /** Remove a project and its token. When it was active, the first other project becomes active. */
   forget(id: string): void
@@ -170,7 +177,8 @@ export function createConsoleProjectStore(storage: ConsoleProjectStorage): Conso
       const existing = stored.projects.find(project => project.url === input.url)
       const label = text(input.label) ?? existing?.label
       const token = input.token === null ? undefined : text(input.token) ?? existing?.token
-      const project: ConsoleLinkedProject = { id: existing?.id ?? newProjectId(), url: input.url, ...(label ? { label } : {}), ...(token ? { token } : {}) }
+      const oauth = input.oauth === null ? undefined : input.oauth ?? existing?.oauth
+      const project: ConsoleLinkedProject = { id: existing?.id ?? newProjectId(), url: input.url, ...(label ? { label } : {}), ...(token ? { token } : {}), ...(oauth ? { oauth } : {}) }
       write({ ...stored, projects: existing ? stored.projects.map(entry => entry.id === existing.id ? project : entry) : [...stored.projects, project] })
       return project
     },
@@ -185,6 +193,23 @@ export function createConsoleProjectStore(storage: ConsoleProjectStorage): Conso
       const active = stored.active === id ? projects[0]?.id : stored.active
       write({ projects, ...(active ? { active } : {}) })
     },
+  }
+}
+
+/**
+ * Open a browser storage, and check that it keeps a write. When the browser blocks it or refuses writes, the Console
+ * keeps the values in memory instead, and `durable` is false: they end when the page loads again.
+ */
+export function openConsoleStorage(open: () => ConsoleBrowserStorage): { storage: ConsoleProjectStorage, durable: boolean } {
+  try {
+    const storage = open()
+    const probe = "vitehub-console:storage-check"
+    storage.setItem(probe, "1")
+    storage.removeItem(probe)
+    return { storage, durable: true }
+  }
+  catch {
+    return { storage: memoryProjectStorage(), durable: false }
   }
 }
 

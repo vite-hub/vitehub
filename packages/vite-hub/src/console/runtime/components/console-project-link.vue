@@ -6,6 +6,7 @@ import { consoleTokenRefused } from "../client/project-link";
 import type { ConsoleProjectTarget } from "../client/projects";
 import { consoleProjectsVolatileNote, linkConsoleProject, switchConsoleProject, useConsoleProjects } from "../client/project-session";
 import { consoleProjectHost } from "../client/projects";
+import ConsoleProjectOAuth from "./console-project-oauth.vue";
 import ConsoleProjectToken from "./console-project-token.vue";
 
 const open = defineModel<boolean>("open", { required: true });
@@ -16,6 +17,8 @@ const busy = ref(false);
 const problem = shallowRef<ConsoleProjectProblem>();
 // After the project asks for a token, the dialog shows the token step for that project.
 const tokenStep = shallowRef<{ target: ConsoleProjectTarget, rejected: boolean }>();
+// A project with `auth: "app"` signs the Console in on its own sign-in page.
+const oauthStep = shallowRef<{ target: ConsoleProjectTarget, resourceMetadata: string }>();
 const autofocus = !("ontouchstart" in window);
 
 watch(open, (value) => {
@@ -23,6 +26,7 @@ watch(open, (value) => {
   url.value = "";
   problem.value = undefined;
   tokenStep.value = undefined;
+  oauthStep.value = undefined;
   busy.value = false;
 });
 
@@ -43,6 +47,7 @@ async function link(token?: string): Promise<void> {
       return;
     }
     if (result.kind === "token") tokenStep.value = { target: result.target, rejected: result.rejected };
+    else if (result.kind === "oauth") oauthStep.value = { target: result.target, resourceMetadata: result.resourceMetadata };
     else problem.value = result.problem;
     busy.value = false;
   }
@@ -54,6 +59,7 @@ async function link(token?: string): Promise<void> {
 
 function back(): void {
   tokenStep.value = undefined;
+  oauthStep.value = undefined;
   problem.value = undefined;
 }
 </script>
@@ -61,13 +67,17 @@ function back(): void {
 <template>
   <UModal
     v-model:open="open"
-    :title="tokenStep ? `Enter the Console token for ${consoleProjectHost(tokenStep.target)}` : 'Link project'"
-    :description="tokenStep ? 'The project uses auth: &quot;token&quot;.' : 'Open a ViteHub app in this Console. The app must list this Console in console.origins.'"
+    :title="oauthStep ? `Sign in to ${consoleProjectHost(oauthStep.target)}` : tokenStep ? `Enter the Console token for ${consoleProjectHost(tokenStep.target)}` : 'Link project'"
+    :description="oauthStep ? 'This project uses the sign-in of the app.' : tokenStep ? 'The project uses auth: &quot;token&quot;.' : 'Open a ViteHub app in this Console. The app must list this Console in console.origins.'"
     :dismissible="!busy"
     :ui="{ content: 'sm:max-w-[440px]' }"
   >
     <template #body>
-      <div v-if="tokenStep" class="grid gap-3">
+      <div v-if="oauthStep" class="grid gap-3">
+        <ConsoleProjectOAuth :target="oauthStep.target" :resource-metadata="oauthStep.resourceMetadata" />
+        <UButton color="neutral" variant="link" size="sm" class="justify-self-start px-0" icon="i-lucide-arrow-left" label="Use another URL" @click="back" />
+      </div>
+      <div v-else-if="tokenStep" class="grid gap-3">
         <ConsoleProjectToken
           :busy="busy"
           :error="problem?.message ?? (tokenStep.rejected ? consoleTokenRefused(consoleProjectHost(tokenStep.target)) : undefined)"

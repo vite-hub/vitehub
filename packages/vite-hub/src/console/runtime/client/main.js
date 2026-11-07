@@ -32,9 +32,10 @@ import { consoleSectionRouteName, describeConsoleSectionRoutes, isConsoleSection
 import App from "./app.vue";
 import { consoleAppearanceKey, consoleDarkSchemeQuery, startConsoleAppearance } from "./appearance";
 import { addViteHubIcons, deferLucideIcons } from "./icons";
-import { consoleProjectReady, noteConsoleProjectsVolatile, startConsoleLink, startConsoleProjects } from "./project-session";
+import { takeConsoleOAuthCallback } from "./oauth";
+import { consoleProjectReady, finishConsoleOAuthSignIn, noteConsoleProjectsVolatile, startConsoleLink, startConsoleProjects } from "./project-session";
 import { takeConsoleLinkHash } from "./pending-links";
-import { browserProjectStorage } from "./projects";
+import { browserProjectStorage, openConsoleStorage } from "./projects";
 import { createConsoleSectionLoader, loadConsoleNavigation, subscribeConsoleNavigation } from "./sections";
 
 // The hosted build marks its static page. There the Console opens the projects that this browser linked. Otherwise the
@@ -44,8 +45,15 @@ const hosted = document.querySelector('meta[name="vitehub-console-mode"]')?.getA
 const hostBase = hosted ? "" : consoleMountBase(window.location.pathname);
 const consoleBase = hosted ? import.meta.env.BASE_URL : consoleMountPath(hostBase, "/_vitehub/");
 
+// A browser that blocks or fills storage keeps the projects in memory until the page reloads.
+const storage = browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile);
+// The PKCE verifier and the state of a sign-in stay with the tab that started it. They must survive the redirect.
+const session = openConsoleStorage(() => window.sessionStorage);
+
 // A one-time link of a new project: /link#p=<pendingId>&url=<appOrigin>. Only the hosted Console links new projects.
 const linkHash = hosted ? takeConsoleLinkHash(window, consoleBase) : undefined;
+// The authorization server of an `auth: "app"` project sends the browser back to /oauth/callback?code=…&state=….
+const oauthCallback = hosted && linkHash === undefined ? takeConsoleOAuthCallback(window, consoleBase) : undefined;
 
 startConsoleProjects({
   base: hostBase,
@@ -53,11 +61,13 @@ startConsoleProjects({
   mode: hosted ? "hosted" : "embedded",
   navigate: (url) => window.location.assign(url),
   pageOrigin: window.location.origin,
-  // A browser that blocks or fills storage keeps the projects in memory until the page reloads.
-  storage: browserProjectStorage(() => window.localStorage, noteConsoleProjectsVolatile),
+  storage,
+  sessionStorage: session.durable ? session.storage : undefined,
+  durableStorage: storage.persistent !== false,
   pendingLinkLocks: navigator.locks,
 });
 if (linkHash !== undefined) startConsoleLink(linkHash);
+else if (oauthCallback !== undefined) void finishConsoleOAuthSignIn(oauthCallback);
 const sectionsBase = "/api/_vitehub/console/sections";
 const capabilitiesBase = "/api/_vitehub/console/invocation-capabilities";
 

@@ -8,11 +8,13 @@ import { consoleProjectHost, consoleProjectName } from "../client/projects";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleProjectLink from "./console-project-link.vue";
 import ConsoleProjectLinkConfirm from "./console-project-link-confirm.vue";
+import ConsoleProjectOAuth from "./console-project-oauth.vue";
 import ConsoleProjectToken from "./console-project-token.vue";
 
 /**
  * What the Console shows before it opens a project: the empty state of a hosted Console, the Console token form, the
- * `/link` page of a one-time link, or why the project did not open. While the project answers, it draws the same shapes as the server page.
+ * OAuth sign-in of an `auth: "app"` project and its callback, the `/link` page of a one-time link, or why the project
+ * did not open. While the project answers, it draws the same shapes as the server page.
  */
 const projects = useConsoleProjects();
 const gate = projects.gate;
@@ -26,7 +28,7 @@ const switchItems = computed<DropdownMenuItem[][]>(() => [
   others.value.map(project => ({ label: consoleProjectName(project), description: consoleProjectHost(project), onSelect: () => switchConsoleProject(project.id) })),
   [
     { icon: "i-lucide-plus", label: "Link project", onSelect: () => { projects.linkOpen.value = true; } },
-    ...(current.value?.id ? [{ color: "error" as const, icon: "i-lucide-trash-2", label: "Forget this project", onSelect: () => forgetConsoleProject(current.value!.id) }] : []),
+    ...(current.value?.id ? [{ color: "error" as const, icon: "i-lucide-trash-2", label: "Forget this project", onSelect: () => void forgetConsoleProject(current.value!.id) }] : []),
   ],
 ].filter(group => group.length));
 
@@ -41,6 +43,10 @@ async function signIn(token: string): Promise<void> {
 }
 
 async function retry(): Promise<void> {
+  if (gate.value.kind === "problem" && gate.value.home) {
+    projects.navigate(projects.home);
+    return;
+  }
   busy.value = true;
   await openConsoleProject().catch(() => undefined);
   busy.value = false;
@@ -52,7 +58,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div v-if="gate.kind === 'opening'" class="vitehub-console-boot">
+  <div v-if="gate.kind === 'opening' || gate.kind === 'callback'" class="vitehub-console-boot">
     <div class="vh-primitive-rail">
       <div class="vh-primitive-rail__surface">
         <div class="vh-primitive-rail__header">
@@ -64,7 +70,7 @@ onMounted(() => {
       <div class="vitehub-console-boot__header" />
       <p role="status" class="vitehub-console-opening">
         <UIcon name="i-lucide-loader-circle" class="size-4 motion-safe:animate-spin" aria-hidden="true" />
-        {{ host && projects.mode === "hosted" ? `Opening ${host}…` : "Opening Console…" }}
+        {{ gate.kind === "callback" ? "Finishing sign-in…" : host && projects.mode === "hosted" ? `Opening ${host}…` : "Opening Console…" }}
       </p>
     </div>
   </div>
@@ -91,6 +97,14 @@ onMounted(() => {
         <ConsoleProjectToken :busy="busy" :error="tokenError" @submit="signIn" />
       </template>
 
+      <template v-else-if="gate.kind === 'oauth'">
+        <div class="grid gap-1.5">
+          <h1 class="vitehub-project-gate__title">Sign in to {{ consoleProjectHost(gate.target) }}</h1>
+          <p class="vitehub-project-gate__text">This project uses the sign-in of the app.</p>
+        </div>
+        <ConsoleProjectOAuth :target="gate.target" :resource-metadata="gate.resourceMetadata" :problem="gate.problem" />
+      </template>
+
       <ConsoleProjectLinkConfirm v-else-if="gate.kind === 'link'" :request="gate.request" />
 
       <template v-else-if="gate.kind === 'problem'">
@@ -98,7 +112,13 @@ onMounted(() => {
           <h1 class="vitehub-project-gate__title">{{ gate.problem.title }}</h1>
           <p class="vitehub-project-gate__text">{{ gate.problem.message }}</p>
         </div>
-        <UButton icon="i-lucide-refresh-cw" label="Try again" class="justify-self-start" :loading="busy" @click="retry" />
+        <UButton
+          :icon="gate.home ? 'i-lucide-arrow-left' : 'i-lucide-refresh-cw'"
+          :label="gate.home ? 'Back to the Console' : 'Try again'"
+          class="justify-self-start"
+          :loading="busy"
+          @click="retry"
+        />
       </template>
 
       <p v-if="!projects.persistent.value" class="vitehub-project-gate__note">
