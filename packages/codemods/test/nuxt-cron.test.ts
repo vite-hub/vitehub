@@ -17,8 +17,9 @@ describe.each([
     const input = join(fixtures, name, "input")
     const run = await runCodemod("nuxt-cron", { cwd: input, dryRun: true })
     for (const edit of run.result.edits) {
-      expect(edit.before).toBe(edit.before === undefined ? undefined : await readFile(join(input, edit.path), "utf8"))
-      await expect(edit.after ?? "(deleted)\n").toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
+      if (edit.before !== undefined) expect(edit.before).toBe(await readFile(join(input, edit.path), "utf8"))
+      // The report lists deleted files. Only kept and new files have an output snapshot.
+      if (edit.after !== null) await expect(edit.after).toMatchFileSnapshot(join(fixtures, name, "output", edit.path))
     }
     await expect(formatReport(run)).toMatchFileSnapshot(join(fixtures, name, "output", "report.txt"))
   })
