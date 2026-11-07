@@ -73,7 +73,7 @@ vi.mock("../src/internal/provider-runtime-packages.ts", async (importOriginal) =
   return { ...original, resolveProviderRuntimePackages: vi.fn(original.resolveProviderRuntimePackages) }
 })
 
-vi.mock("#vitehub/agent/registry", () => ({ default: {} }))
+vi.mock("#vitehub/agent/registry", () => ({ default: {}, loadAgentHost: async () => {} }))
 
 const execFileAsync = promisify(execFile)
 
