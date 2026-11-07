@@ -558,13 +558,14 @@ jobs:
           ./.github/ci-tools/node_modules/.bin/wrangler deploy --config packages/vite-hub/console.hosted.wrangler.jsonc
 
       # The marker identifies this upload even when only HTML, headers, or unreferenced assets change.
-      # Include the run and attempt so a rerun of the same commit cannot accept an earlier deployment.
+      # Read it from the deployed artifact: a rerun of only this job reuses the build of an earlier attempt of the same
+      # run, so the marker carries that attempt. It must still name this commit and this run.
       # The first deploy also creates the custom domain and its certificate, so the check waits up to 3 minutes.
       - name: Check the live site
         run: |
-          marker="<meta name=\"vitehub-deploy\" content=\"${GITHUB_SHA}:${GITHUB_RUN_ID}:${GITHUB_RUN_ATTEMPT}\">"
-          if ! grep -qF "$marker" packages/vite-hub/.vitehub/console-hosted/index.html; then
-            echo "The hosted Console build has no deployment marker for this run." >&2
+          marker=$(grep -oE '<meta name="vitehub-deploy" content="[^"]+">' packages/vite-hub/.vitehub/console-hosted/index.html | grep -F "content=\"${GITHUB_SHA}:${GITHUB_RUN_ID}:" | head -n 1 || true)
+          if [ -z "$marker" ]; then
+            echo "The hosted Console build has no deployment marker for this commit and run." >&2
             exit 1
           fi
           for _ in $(seq 18); do

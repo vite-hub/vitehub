@@ -115,6 +115,11 @@
       "import": "./dist/invocations/d1.js",
       "default": "./dist/invocations/d1.js"
     },
+    "./invocations/default": {
+      "types": "./dist/invocations/default.d.ts",
+      "import": "./dist/invocations/default.js",
+      "default": "./dist/invocations/default.js"
+    },
     "./invocations/sqlite": {
       "types": "./dist/invocations/sqlite.d.ts",
       "import": "./dist/invocations/sqlite.js",

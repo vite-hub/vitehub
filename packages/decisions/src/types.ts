@@ -4,10 +4,12 @@ import type { Diagnostic } from "nostics"
 /** The value that you map back to your data. It must be unique within its group. */
 export type ChoiceValue = string | number
 
-/** One option of a group. `value` is yours, `label` and `aliases` are what the model reads. */
+/** One option of a group. `value` is yours, `label`, `aliases`, and `description` are what the model reads. */
 export interface ChoiceOption<TValue extends ChoiceValue = ChoiceValue> {
   /** Other names for the option, such as codes, abbreviations, or translations. */
   aliases?: readonly string[]
+  /** What the option is about. An `infer` group needs it to choose an option that the text does not name. */
+  description?: string
   /** What people call the option. */
   label: string
   /** Your id for the option. It comes back in the selection. */
@@ -20,6 +22,12 @@ type MaybePromise<T> = T | Promise<T>
 export interface ChoiceGroup<TValue extends ChoiceValue = ChoiceValue> {
   /** Tells the model how to read this group. Keep it short and specific to your data. */
   hints?: string
+  /**
+   * `false` (default): choose only an option that the text names. `true`: choose the option that fits the text best,
+   * also when the text does not name it, such as a project for a bug report. Needs `multiple: false`.
+   * An `infer` group has no "none" answer. Add an option for "anything else" if you need one.
+   */
+  infer?: boolean
   /** What people call the group, such as "Supplier". */
   label: string
   /** `true` (default): any number of options, each included or excluded. `false`: at most one option. */
@@ -44,7 +52,7 @@ export interface ChoicesLimits {
 export interface ChoicesThresholds {
   /** The lowest probability that decides one option. Default 0.5. */
   option?: number
-  /** The lowest probability that the options can express the text. Default 0.6. */
+  /** The lowest probability that the options can express the text. Default 0.6. Not asked when every group infers. */
   supported?: number
 }
 
@@ -105,10 +113,10 @@ export interface ChoicesRequest<TContext> {
 
 /** What `resolve()` would send, without sending it. */
 export interface ChoicesPlan {
-  /** The questions for `gateway.ask()`. One per option of a multiple group, one per single group, and `supported`. */
+  /** The questions for `gateway.ask()`. One per option of a multiple group, one per single group, and `supported` unless every group infers. */
   questions: Record<string, unknown>
   /** The state for `gateway.ask()`. */
-  state: { groups: { hints?: string, label: string, multiple: boolean, options: { aliases?: readonly string[], label: string, value: ChoiceValue }[] }[], query: string }
+  state: { groups: { hints?: string, infer?: true, label: string, multiple: boolean, options: { aliases?: readonly string[], label: string, value: ChoiceValue }[] }[], query: string }
 }
 
 type UnionToIntersection<TUnion> = (TUnion extends unknown ? (value: TUnion) => void : never) extends (value: infer TIntersection) => void ? TIntersection : never
