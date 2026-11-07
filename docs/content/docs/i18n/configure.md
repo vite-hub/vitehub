@@ -192,8 +192,8 @@ pnpm vitehub i18n status --json
 
 ```json
 [
-  { "locale": "en", "source": true, "folder": "", "messages": 4, "translated": 4, "missing": 0, "unused": 0, "problems": [] },
-  { "locale": "es", "source": false, "folder": "locales/es", "messages": 4, "translated": 3, "missing": 1, "unused": 0, "problems": [] }
+  { "locale": "en", "source": true, "folder": "", "messages": 4, "translated": 4, "missing": 0, "changed": 0, "unused": 0, "problems": [] },
+  { "locale": "es", "source": false, "folder": "locales/es", "messages": 4, "translated": 3, "missing": 1, "changed": 0, "unused": 0, "problems": [] }
 ]
 ```
 
@@ -206,7 +206,19 @@ pnpm vitehub i18n export es --output es.po
 pnpm vitehub i18n import es es.po
 ```
 
-When you change the source text of a message, it gets a new ID, and its old record becomes unused. `prune` lists the unused records, and deletes them with `--yes`:
+When you change the source text of a message, it gets a new ID, and its old record becomes unused. If the new text is close to the old one, with the same context and placeholders, `status` counts the message as `changed`, and `export` gives it the old translation. The entry is marked `fuzzy`, as in gettext, with the old source text in a note:
+
+```po [es.po]
+#. Previous source: Search agents
+#: src/App.vue:12
+#, fuzzy
+msgid "Search all agents"
+msgstr "Buscar agentes"
+```
+
+The translator fixes the translation and removes the `fuzzy` flag. Poedit does this when you confirm the entry. `import` skips entries that are still fuzzy, so a translation of the old text never goes to the site by mistake.
+
+`prune` lists the unused records, and deletes them with `--yes`. Export the changed messages before you prune, because `prune` deletes the old translations:
 
 ```bash [Terminal]
 pnpm vitehub i18n prune

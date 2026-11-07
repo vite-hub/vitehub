@@ -63,7 +63,7 @@ describe("i18n in a built Nitro 3 app", () => {
       "Deploy your agent": "Despliega tu agente",
     })
     const imported = await runCli(root, app(), ["i18n", "import", "es", "es.po", "--json"])
-    expect(JSON.parse(imported.stdout)).toEqual({ locale: "es", saved: 2, unchanged: 0 })
+    expect(JSON.parse(imported.stdout)).toEqual({ locale: "es", saved: 2, unchanged: 0, fuzzy: 0 })
     const status = await runCli(root, app(), ["i18n", "status", "--json"])
     expect(JSON.parse(status.stdout)[1]).toMatchObject({ locale: "es", translated: 2, missing: 1 })
 
