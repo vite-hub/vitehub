@@ -165,13 +165,13 @@ When a person signs in to the app with `auth: 'app'`, or opens the Console, the 
 Return the user from `identify` to use your own login. Return `null` for an anonymous request. When `identify` is configured, it names the user and `authorize` decides what they may do. Comments then reads neither the ViteHub Auth session nor the Console's access, so members, guests, and readers of a share link can comment in an app that also has the Console. The comment operations of the Console, the CLI, and MCP ask `identify` too, with the request of the call, so `authorize` always sees the user that `identify` builds. An agent's call has no request, so it has no user. Without `authorize`, a production build lets nobody in that `identify` names: write the policy.
 
 ```ts [server/comments.ts]
-import { getCookie } from 'h3'
 import { defineComments } from 'vite-hub/comments'
 import { findSession } from './utils/session'
 
 export const comments = defineComments({
+  // `event['~standard'].req` is the Web Request of the call, with its cookies.
   identify: async ({ event }) => {
-    const session = await findSession(getCookie(event, 'sid'))
+    const session = await findSession(event['~standard'].req)
     return session ? { id: session.userId, name: session.name, image: session.avatar } : null
   },
 })

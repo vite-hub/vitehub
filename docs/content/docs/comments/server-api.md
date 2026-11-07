@@ -68,8 +68,8 @@ export default defineEventHandler(async (event) => {
 | `get(id)` | One thread. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `getByNumber(scope, n)` | Thread `#n` of a scope, such as `site`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `getByMessage(messageId)` | The thread that holds a message. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
-| `create({ subject?, page?, anchor?, context?, metadata?, revision?, body, author, mentions?, attachments? })` | The new thread, with its first message and the next number of the scope of its subject. Give `subject`, or `page` for a page subject. `anchor` is `{ kind: 'page' }` by default. Runs `onComment` and `onMention`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
-| `reply(threadId, { body, author, mentions?, attachments? }, { allowResolved? })` | The new message. A resolved thread fails with `COMMENTS_RESOLVED`, unless `allowResolved` is `true`; then it stays resolved. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
+| `create({ subject?, page?, anchor?, context?, metadata?, revision?, body, author, actor?, mentions?, attachments? })` | The new thread, with its first message and the next number of the scope of its subject. Give `subject`, or `page` for a page subject. `anchor` is `{ kind: 'page' }` by default. Runs `onComment` and `onMention`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
+| `reply(threadId, { body, author, actor?, mentions?, attachments? }, { allowResolved? })` | The new message. A resolved thread fails with `COMMENTS_RESOLVED`, unless `allowResolved` is `true`; then it stays resolved, and the comment parts list it with the open threads until someone resolves it again. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
 | `resolve(threadId, { by })` | The thread, with `status: 'resolved'`, `resolvedBy`, and `resolvedAt`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `reopen(threadId)` | The thread, with `status: 'open'`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `remove(threadId)` | Nothing. Deletes the thread and all its messages. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
@@ -131,6 +131,12 @@ interface CommentUser {
   name?: string
   image?: string
   guest?: boolean                 // true for a guest that named itself in the browser
+}
+
+interface CommentActor {
+  id: string
+  name?: string                   // the comment parts show the Agent in place of `author`: "Claude (Ana Ruiz)"
+  image?: string                  // the Agent's logo, its avatar in the comment parts
 }
 
 interface CommentSubject {

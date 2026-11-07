@@ -5,8 +5,6 @@ import { createAuthUsers } from "../operations-core/server.ts"
 import { requestOf } from "./request.ts"
 
 import type { H3Event } from "h3"
-// Adds `~standard` to the H3Event type. The ViteHub Nitro plugin sets it at runtime.
-import type {} from "@vite-hub/runtime/h3"
 import type { CommentsPeople, CommentsUser } from "../types.ts"
 
 /** The ViteHub Auth user of a request, or null. Generated Comments files pass it as `session` when the app has Auth. */
