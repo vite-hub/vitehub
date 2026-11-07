@@ -335,8 +335,8 @@ export async function readWorkspaceFileResponse<Name extends WorkspaceName>(
 }
 
 /**
- * Serve Workspace files from a route. The file path is the part of the URL path after `base`. It keeps its
- * percent-encoding, as H3 router params do.
+ * Serve Workspace files from a route. The file path is the part of the URL path after `base`, percent-decoded, so
+ * `/files/my%20file.md` serves `my file.md`. A path that is not valid percent-encoding gets a 400 Response.
  */
 export function defineWorkspaceFileHandler<Name extends WorkspaceName>(
   options: WorkspaceFileHandlerOptions<Name>,
@@ -350,7 +350,14 @@ export function defineWorkspaceFileHandler<Name extends WorkspaceName>(
       // Nitro keeps its `baseURL` in the request URL, so `base` can start after it.
       const start = pathname.indexOf(prefix)
       if (start < 0) return workspaceFileNotFound()
-      return await readWorkspaceFileResponse({ ...fileOptions, path: pathname.slice(start + prefix.length) })
+      let path: string
+      try {
+        path = decodeURIComponent(pathname.slice(start + prefix.length))
+      }
+      catch {
+        return Response.json({ status: 400, message: "Workspace file path is not valid percent-encoding." }, { status: 400 })
+      }
+      return await readWorkspaceFileResponse({ ...fileOptions, path })
     },
   }
 }

@@ -390,7 +390,8 @@ describe("workspace public API", () => {
     const workspace = useWorkspace("fetchable-files", { mode: "write" })
     await workspace.fs.writeFile("data/a.json", "{\"a\":1}")
     await workspace.fs.writeFile("data/nested/b.md", "# B")
-    await workspace.fs.writeFile("data/my%20file.json", "{\"encoded\":true}")
+    await workspace.fs.writeFile("data/my file.json", "{\"encoded\":true}")
+    await workspace.fs.writeFile("data/nested/c d.md", "# C D")
     await workspace.fs.writeFile("secret.json", "{}")
 
     const { defineWorkspaceFileHandler } = await import("../src/server.ts")
@@ -409,9 +410,13 @@ describe("workspace public API", () => {
     await expect((await get("/api/data/nested/b.md")).text()).resolves.toBe("# B")
     // A Nitro baseURL stays in the request URL.
     await expect((await get("/app/api/data/nested/b.md")).text()).resolves.toBe("# B")
-    // The file path keeps its percent-encoding, as H3 router params do.
+    // The file path is percent-decoded, so a file name with a space is reachable.
     await expect((await get("/api/data/my%20file.json")).text()).resolves.toBe("{\"encoded\":true}")
-    for (const path of ["/api/data/missing.json", "/api/data/", "/api/data", "/api/other/a.json", "/api/data/..%2Fsecret.json", "/api/data/nested/..%2F..%2Fsecret.json"]) {
+    await expect((await get("/api/data/nested%2Fc%20d.md")).text()).resolves.toBe("# C D")
+    const malformed = await get("/api/data/%E0%A4%A.json")
+    expect(malformed.status).toBe(400)
+    await expect(malformed.json()).resolves.toEqual({ status: 400, message: "Workspace file path is not valid percent-encoding." })
+    for (const path of ["/api/data/missing.json", "/api/data/", "/api/data", "/api/other/a.json", "/api/data/..%2Fsecret.json", "/api/data/nested/..%2F..%2Fsecret.json", "/api/data/%2E%2E%2Fsecret.json", "/api/data/my%2520file.json"]) {
       const response = await get(path)
       expect(response.status, path).toBe(404)
       await expect(response.json()).resolves.toEqual({ status: 404, message: "Workspace file not found." })
