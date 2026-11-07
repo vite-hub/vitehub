@@ -130,7 +130,7 @@ class FileRewrite {
         for (const use of rewritten) this.planEmails(use.parent!, use.ancestors.slice(0, -1))
         const other = uses.filter(use => !rewritten.includes(use))
         for (const use of other) this.follow(use.node, `${parent.id.name} is used for more than emails.send(), such as batch, contacts, or audiences. Those stay on the Resend SDK.`)
-        if (!other.length && rewritten.length && statement) this.removeDeclarator(statement, parent)
+        if (!this.keepsResend && !other.length && rewritten.length && statement) this.removeDeclarator(statement, parent)
         else this.keepsResend = true
         return
       }
@@ -141,7 +141,7 @@ class FileRewrite {
           const uses = this.references(local.name, local)
           const sends = uses.filter(use => use.parent?.type === "MemberExpression" && use.parent.object === use.node && keyName(use.parent.property, use.parent.computed) === "send")
           for (const use of sends) this.planSend(use.parent!, use.ancestors.slice(0, -1))
-          if (sends.length === uses.length && sends.length && statement) this.removeDeclarator(statement, parent)
+          if (!this.keepsResend && sends.length === uses.length && sends.length && statement) this.removeDeclarator(statement, parent)
           else {
             for (const use of uses.filter(entry => !sends.includes(entry))) this.follow(use.node, `This code uses ${local.name} for more than send(). Those calls stay on the Resend SDK.`)
             this.keepsResend = true
