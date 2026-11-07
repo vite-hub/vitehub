@@ -121,8 +121,11 @@ describe("Console Logs", () => {
     const reading = transport === "HTTP" ? logsRoute({ req }) : handleConsoleRpcRequest(req);
     try {
       const signal = await started;
-      controller.abort();
-      expect(signal).toBe(req.signal);
+      expect(signal?.aborted).toBe(false);
+      const reason = new Error("Log request cancelled");
+      controller.abort(reason);
+      expect(signal?.aborted).toBe(true);
+      expect(signal?.reason).toBe(reason);
       expect(aborted).toBe(true);
     } finally {
       finish({ entries: [] });

@@ -2,13 +2,14 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { H3Event } from "h3"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { setBlobRequestBodyLimit } from "../src/internal/host-limits.ts"
 import { createBlobStorage } from "../src/storage.ts"
 import { hubBlob } from "../src/vite.ts"
 
-import type { BlobDriverAdapter, BlobMultipartEvent, BlobObject } from "../src/types.ts"
+import type { BlobDriverAdapter, BlobObject } from "../src/types.ts"
 
 function memoryDriver(name: string) {
   const objects = new Map<string, Blob>()
@@ -37,7 +38,7 @@ const mb = 1_000_000
 function formRequest(bytes: number) {
   const form = new FormData()
   form.append("files", new File([new Uint8Array(bytes)], "file.bin"))
-  return { req: new Request("http://localhost/api/files", { body: form, method: "POST" }) }
+  return new Request("http://localhost/api/files", { body: form, method: "POST" })
 }
 
 describe("Cloudflare R2 object keys", () => {
@@ -70,33 +71,42 @@ describe("Cloudflare R2 object keys", () => {
   })
 })
 
-describe("request body limit of a dev server for Vercel", () => {
+describe.each(["H3", "Standard Context"] as const)("request body limit of a dev server for Vercel (%s)", (host) => {
   afterEach(() => setBlobRequestBodyLimit(undefined))
+
+  function event(request: Request, params: Record<string, string> = {}) {
+    if (host === "H3") {
+      const h3 = new H3Event(request)
+      h3.context.params = params
+      return h3
+    }
+    return { "~standard": { vendor: "test", req: request, res: {} }, context: { params } }
+  }
 
   it("answers 413 for an upload above 4.5 MB, as Vercel does", async () => {
     const { driver, puts } = memoryDriver("vercel-blob")
     const storage = createBlobStorage(driver, "default")
     setBlobRequestBodyLimit(4_500_000)
 
-    await expect(storage.handleUpload(formRequest(5 * mb))).rejects.toMatchObject({
+    await expect(storage.handleUpload(event(formRequest(5 * mb)))).rejects.toMatchObject({
       message: expect.stringMatching(/^The request body is \d+ bytes\. A Vercel Function accepts at most 4500000 bytes/),
       statusCode: 413,
     })
-    const part: BlobMultipartEvent = {
-      context: { params: { action: "upload", pathname: "video.mp4" } },
-      req: new Request("http://localhost/api/files/multipart/upload/video.mp4?uploadId=1&partNumber=1", { body: new Uint8Array(5 * mb), method: "PUT" }),
-    }
+    const part = event(
+      new Request("http://localhost/api/files/multipart/upload/video.mp4?uploadId=1&partNumber=1", { body: new Uint8Array(5 * mb), method: "PUT" }),
+      { action: "upload", pathname: "video.mp4" },
+    )
     await expect(storage.handleMultipartUpload(part)).rejects.toMatchObject({ statusCode: 413 })
     expect(puts).toEqual([])
 
-    const [error, objects] = await storage.handleUpload(formRequest(4 * mb))
+    const [error, objects] = await storage.handleUpload(event(formRequest(4 * mb)))
     expect(error).toBeUndefined()
     expect(objects).toHaveLength(1)
   })
 
   it("reads any body size without a limit", async () => {
     const { driver } = memoryDriver("vercel-blob")
-    const [error] = await createBlobStorage(driver, "default").handleUpload(formRequest(5 * mb))
+    const [error] = await createBlobStorage(driver, "default").handleUpload(event(formRequest(5 * mb)))
     expect(error).toBeUndefined()
   })
 })
