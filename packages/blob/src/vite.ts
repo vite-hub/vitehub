@@ -266,8 +266,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
     ?? (serve.authorize ? "private, no-cache" : "public, max-age=0, s-maxage=0")
   return [
-    // Nuxt 4 runs H3 1 events and Nitro 3 runs H3 2 events, but an `h3` import from `.vitehub` can resolve the other
-    // major version. Only use what both event shapes have; `serve()` reads the request through Standard Context.
+    // `serve()` reads the request through Standard Context.
     `import { blob, parseImageVariant } from '${importBase}'`,
     `import type { BlobStorage } from '${importBase}'`,
     ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),

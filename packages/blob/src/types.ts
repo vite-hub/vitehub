@@ -151,7 +151,7 @@ export interface BlobDriverAdapter<TOptions> {
   sign?(pathname: string, options: BlobSignOptions): Promise<BlobSignedRequest>
 }
 
-/** A request event that `handleUpload()` reads through its Standard Context, such as an H3 1 or H3 2 event. */
+/** A request event that `handleUpload()` reads through its Standard Context, such as a Nuxt 5 or Nitro 3 event. */
 export type BlobUploadEvent = ViteHubContext
 
 /**
@@ -306,7 +306,7 @@ export interface BlobStorage {
   sign(pathname: string, options: BlobSignOptions): Promise<BlobResult<BlobSignedRequest>>
   /** Returns null for a conditional 304 response. */
   /**
-   * Serve an object for a request event with Standard Context properties, such as an H3 1 or H3 2 event in a ViteHub
+   * Serve an object for a request event with Standard Context properties, such as a Nuxt 5 or Nitro 3 event in a ViteHub
    * app. Reads the request from `event["~standard"].req` and writes the status and headers to `event["~standard"].res`.
    */
   serve(event: ViteHubContext, pathname: string, options?: BlobServeResponseOptions): Promise<BlobResult<ReadableStream | null>>
