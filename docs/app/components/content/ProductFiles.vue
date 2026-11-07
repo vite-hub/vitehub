@@ -4,6 +4,8 @@
 // editor, and the first code block opens first. Code blocks inside `::framework{name}` show only for the
 // framework that the reader picked, and the header then shows the framework switch.
 import type { VNode } from "vue";
+import { isFramework } from "~/utils/framework";
+import type { Framework } from "~/utils/framework";
 
 const slots = defineSlots<{ default?: () => VNode[] }>();
 const id = useId();
@@ -11,10 +13,11 @@ const selected = ref(0);
 const tree = useTemplateRef<HTMLElement>("tree");
 const framework = useFramework();
 
-function frameworkOf(node: VNode): string | undefined {
-  const type: unknown = node.type;
-  const isFramework = typeof type === "object" && type !== null && "name" in type && type.name === "Framework";
-  return isFramework ? String(node.props?.name ?? "") : undefined;
+// A `::framework{name}` block is the node whose `name` prop is a framework. Content components resolve lazily, so the
+// node type differs between the server and the browser and cannot tell. Code blocks have a `filename`, never a `name`.
+function frameworkOf(node: VNode): Framework | undefined {
+  const name: unknown = node.props?.name;
+  return isFramework(name) ? name : undefined;
 }
 
 function slotNodes(node: VNode): VNode[] {
