@@ -203,6 +203,7 @@ catalogs:
     tinyglobby: ^0.2.17
 
 overrides:
+  "@nuxt/nitro-server-nightly>nitro": "catalog:unjs"
   "mdast-util-from-markdown>micromark": 4.0.2
   mdast-util-to-markdown: 2.1.2
   "@vercel/blob>undici": ^6.28.0

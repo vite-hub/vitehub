@@ -24,7 +24,7 @@ This is a personal, text-only app for one owner on one Node process. It delibera
 ::tutorial-step{title="Set up the project"}
 ## Set up the project
 
-Use the repository checkout so the fixture and ViteHub packages come from the same revision. The root lockfile pins the full dependency graph. Do not replace `workspace:*` with the package version printed in the manifest; it may describe an older published contract.
+This tutorial uses Nuxt 5, Nitro 3, and H3 2. Use the repository checkout so the fixture and ViteHub packages come from the same revision. The root lockfile pins the full dependency graph. Do not replace `workspace:*` with the package version printed in the manifest; it may describe an older published contract.
 
 ```sh [commands/checkout]
 git clone https://github.com/vite-hub/vitehub.git
@@ -58,8 +58,9 @@ The checkout already contains the finished files. Read and edit them as you foll
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/ui": "workspace:*",
     "ai": "7.0.130",
-    "h3": "1.15.11",
-    "nuxt": "4.5.2",
+    "h3": "2.0.8",
+    "nitro": "3.0.261102-rc",
+    "nuxt": "npm:nuxt-nightly@5.0.0-2611031025-9496b7e",
     "tailwindcss": "4.3.3",
     "vite-hub": "workspace:*",
     "vue": "3.5.44",
@@ -76,7 +77,7 @@ The checkout already contains the finished files. Read and edit them as you foll
 
 The ViteHub Nuxt module discovers Agent Definitions in `server/agents`. Set the Node preset once. `workflow: false` keeps these short chat Invocations inline. Register Nuxt UI before the ViteHub UI module so Nuxt installs its Icon and color-mode dependencies. The ViteHub UI module registers the chat components. Disable font downloads so the offline app does not need a font service.
 
-Set `buildDir: ".nuxt"` to keep generated TypeScript inside the project. The pinned Nitro version skips TypeScript transforms under `node_modules`, where this Nuxt version puts its default build directory.
+Set `buildDir: ".nuxt"` to keep generated files at the path used by `tsconfig.json`.
 
 ```ts [nuxt.config.ts]
 import viteHub from "vite-hub/nuxt";
@@ -91,6 +92,8 @@ export default defineNuxtConfig({
   }]],
   css: ["~/assets/main.css"],
   ui: { fonts: false },
+  // Use Shiki's inline WebAssembly loader in the Nitro server bundle.
+  vite: { resolve: { alias: { "shiki/wasm": "shiki/dist/wasm.mjs" } } },
   devtools: { enabled: false },
 });
 ```
