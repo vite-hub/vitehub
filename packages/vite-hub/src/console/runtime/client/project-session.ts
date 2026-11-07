@@ -132,40 +132,40 @@ const sessionEnded = (host: string): ConsoleProjectProblem => ({
   message: `The Console could not refresh its access to ${host}. Sign in again.`,
 })
 
-/** The project that this page opens, read again from the store, so it has the tokens of the latest refresh. */
-function stored(): ConsoleLinkedProject | undefined {
-  const projects = useState()
+/** Read the transport's project again from its store, so it has the tokens of the latest refresh. */
+function stored(projects: ConsoleProjectsState, projectUrl: string | undefined): ConsoleLinkedProject | undefined {
   const current = projects.current.value
-  return current?.id ? projects.store.find(current.url) ?? current : current
+  return (projectUrl ? projects.store.find(projectUrl) : undefined) ?? (current?.url === projectUrl ? current : undefined)
 }
 
 /** After the tokens of the open project are gone, the Console asks the person to sign in again. */
-function askToSignInAgain(): void {
-  const projects = useState()
+function askToSignInAgain(projects: ConsoleProjectsState, projectUrl: string): void {
   const current = projects.current.value
-  if (!current?.id || projects.store.find(current.url)?.oauth) return
+  if (projects !== state || !current?.id || current.url !== projectUrl || projects.store.find(current.url)?.oauth) return
   const target = consoleProjectTarget(current)
   projects.gate.value = { kind: "oauth", target, problem: sessionEnded(consoleProjectHost(target)) }
 }
 
 function applyTransport(target: Pick<ConsoleProjectTarget, "base" | "origin">): void {
+  const projects = useState()
+  const projectUrl = projects.current.value?.url
   setConsoleProject({
     ...target,
     authorization: async () => {
-      const project = stored()
+      const project = stored(projects, projectUrl)
       if (project?.token) return `Bearer ${project.token}`
       if (!project?.oauth) return undefined
-      const token = await useState().refresher.accessToken(project.url)
-      if (!token) askToSignInAgain()
+      const token = await projects.refresher.accessToken(project.url)
+      if (!token) askToSignInAgain(projects, project.url)
       return token ? `Bearer ${token}` : undefined
     },
     // A project refuses an OAuth access token that expired early or was signed with a rotated key. One refresh may fix it.
     renew: async (response, sent) => {
-      const project = stored()
+      const project = stored(projects, projectUrl)
       const challenge = response.headers.get("www-authenticate")
       if (!project?.oauth || (challenge && !/\berror="invalid_token"/i.test(challenge))) return undefined
-      const token = await useState().refresher.accessToken(project.url, { rejected: sent.replace(/^Bearer\s+/i, "") })
-      if (!token) askToSignInAgain()
+      const token = await projects.refresher.accessToken(project.url, { rejected: sent.replace(/^Bearer\s+/i, "") })
+      if (!token) askToSignInAgain(projects, project.url)
       return token ? `Bearer ${token}` : undefined
     },
   })

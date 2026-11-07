@@ -520,6 +520,69 @@ describe("OAuth sign-in of a hosted Console", () => {
     return { ...context, authorizationUrl, code, state }
   }
 
+  it.each(["authorization", "request", "upload"] as const)("keeps %s bound to its project after the session selects another project", async (operation) => {
+    const server = fakeApp({ refreshTokens: ["refresh-a"] })
+    const storage = memoryProjectStorage()
+    const store = createConsoleProjectStore(storage)
+    const first = store.save({ url: app.url, oauth: tokens({ accessToken: "access-a", refreshToken: "refresh-a", expiresAt: Date.now() + 900_000 }) })
+    const otherUrl = "https://other.example.com"
+    const other = store.save({ url: otherUrl, oauth: tokens({ accessToken: "access-b", refreshToken: "refresh-b", expiresAt: Date.now() + 900_000, issuer: `${otherUrl}/api/auth`, resource: `${otherUrl}/_vitehub`, tokenEndpoint: `${otherUrl}/api/auth/oauth2/token` }) })
+    store.select(first.id)
+    const { projectFetch, session } = await hosted(server, storage)
+    const { consoleProject, projectRequest } = await import("../src/console/runtime/client/project.ts")
+    const transport = consoleProject()
+    let request: Promise<Response> | undefined
+    let release!: (response: Response) => void
+    if (operation === "request") {
+      let started!: () => void
+      const sent = new Promise<void>((resolve) => { started = resolve })
+      server.fetch.mockImplementationOnce(() => new Promise<Response>((resolve) => {
+        release = resolve
+        started()
+      }))
+      request = projectFetch("/_vitehub/rpc/__call", { method: "POST", body: "{}" })
+      await sent
+    }
+    const upload = operation === "upload" ? await projectRequest("/_vitehub/rpc/__upload") : undefined
+    // The session can select a new project while an earlier request still owns the old transport.
+    session.switchConsoleProject(other.id)
+    expect(session.useConsoleProjects().current.value?.url).toBe(other.url)
+    if (operation === "authorization") {
+      expect(await transport.authorization?.()).toBe("Bearer access-a")
+    }
+    else if (upload) {
+      expect(upload.url).toBe(`${app.url}/_vitehub/rpc/__upload`)
+      expect(await upload.renew('Bearer error="invalid_token"')).toEqual({ authorization: "Bearer access-1" })
+    }
+    else {
+      release(new Response(null, { status: 401, headers: { "www-authenticate": 'Bearer error="invalid_token"' } }))
+      const response = await request
+      const sent = server.fetch.mock.calls.filter(([url]) => String(url) === `${app.url}/_vitehub/rpc/__call`)
+      expect(sent.map(([, init]) => new Headers(init?.headers).get("authorization"))).toEqual(["Bearer access-a", "Bearer access-1"])
+      expect(response?.status).toBe(200)
+    }
+  })
+
+  it("keeps a failed refresh of an earlier project from changing the selected project's gate", async () => {
+    let release!: () => void
+    const server = fakeApp({ tokenDelay: new Promise<void>((resolve) => { release = resolve }) })
+    const storage = memoryProjectStorage()
+    const store = createConsoleProjectStore(storage)
+    const first = store.save({ url: app.url, oauth: tokens({ expiresAt: Date.now() + 900_000 }) })
+    const other = store.save({ url: "https://other.example.com", token: "console-b" })
+    store.select(first.id)
+    const { session, state } = await hosted(server, storage)
+    const { consoleProject } = await import("../src/console/runtime/client/project.ts")
+    const renewal = consoleProject().renew!(new Response(null, { status: 401 }), "Bearer access-1")
+    await vi.waitFor(() => expect(server.calls.some(call => call.url === `${issuer}/oauth2/token`)).toBe(true))
+    session.switchConsoleProject(other.id)
+    await vi.waitFor(() => expect(state.gate.value.kind).toBe("problem"))
+    const gate = state.gate.value
+    release()
+    expect(await renewal).toBeUndefined()
+    expect(state.gate.value).toBe(gate)
+  })
+
   it("stays on the page when the person closed the dialog before the sign-in started", async () => {
     const context = await hosted(fakeApp())
     await context.session.linkConsoleProject("app.example.com")
