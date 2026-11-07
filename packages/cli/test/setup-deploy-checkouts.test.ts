@@ -1,7 +1,9 @@
+import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join } from "node:path"
+import process from "node:process"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { builtProject, fakeHosts } from "./setup-deploy-helpers.ts"
 import { runSetup } from "./setup-helpers.ts"
@@ -10,6 +12,10 @@ import type { ViteHubCliSpawn } from "@vite-hub/internal/cli"
 import type { SetupDeployOutput, SetupError } from "../src/setup/index.ts"
 
 type DeployJson = SetupDeployOutput & { error?: SetupError, rerun?: string }
+
+/** The answer to the deploy question in a terminal. */
+const terminal = vi.hoisted(() => ({ answer: "n" }))
+vi.mock("node:readline/promises", () => ({ createInterface: () => ({ close: () => {}, question: async () => terminal.answer }) }))
 
 const cloudflareEnv = { CLOUDFLARE_ACCOUNT_ID: "acc-1", CLOUDFLARE_API_TOKEN: "cf-token-1" }
 const remote = "https://docs.example.com"
@@ -67,6 +73,27 @@ export async function pushWorkspaces({ call, rootDir }) {
 const checkoutPackage = {
   "node_modules/@vite-hub/workspace/checkout.js": fakeCheckoutModule,
   "node_modules/@vite-hub/workspace/package.json": JSON.stringify({ exports: { "./checkout": "./checkout.js" }, name: "@vite-hub/workspace", type: "module" }),
+}
+
+/** The fake checkout module, which also writes `imported` next to itself when it loads. */
+const markedCheckoutPackage = {
+  ...checkoutPackage,
+  "node_modules/@vite-hub/workspace/checkout.js": `import { writeFileSync as mark } from "node:fs"\nmark(new URL("./imported", import.meta.url), "")\n${fakeCheckoutModule}`,
+}
+const importMarker = (root: string) => join(root, "node_modules/@vite-hub/workspace/imported")
+
+/** Runs `fn` as if stdin and stderr were a terminal, so deploy asks its question. */
+async function inTerminal<T>(fn: () => Promise<T>): Promise<T> {
+  const before = { stderr: process.stderr.isTTY, stdin: process.stdin.isTTY }
+  process.stdin.isTTY = true
+  process.stderr.isTTY = true
+  try {
+    return await fn()
+  }
+  finally {
+    process.stdin.isTTY = before.stdin
+    process.stderr.isTTY = before.stderr
+  }
 }
 
 function lock(entry: Record<string, unknown> = {}): string {
@@ -257,6 +284,29 @@ describe("vitehub deploy with checkout folders in vitehub.lock", () => {
     expect(spawned).toEqual([])
     expect(await hosts.calls()).toEqual([])
     expect(app.requests).toEqual([])
+  })
+
+  it("does not load the checkout module when the deploy is not confirmed", async () => {
+    const root = await builtProject("cloudflare", { ...markedCheckoutPackage, "vitehub.lock": lock() })
+    const hosts = await fakeHosts(cloudflareEnv)
+
+    const noTerminal = await runSetup<DeployJson>(["deploy", "--no-build", "--json"], root, hosts.env)
+    expect(noTerminal.exitCode).toBe(2)
+    expect(existsSync(importMarker(root))).toBe(false)
+
+    terminal.answer = "n"
+    const declined = await inTerminal(async () => await runSetup(["deploy", "--no-build"], root, hosts.env))
+    expect(declined.exitCode, declined.stderr).toBe(1)
+    expect(declined.stderr).toContain("The deploy was not confirmed.")
+    expect(existsSync(importMarker(root))).toBe(false)
+    expect(await hosts.calls()).toEqual([])
+
+    terminal.answer = "y"
+    const app = workspaceApp(hosts)
+    const confirmed = await inTerminal(async () => await runSetup(["deploy", "--no-build"], root, hosts.env, { fetch: app.fetch }))
+    expect(confirmed.exitCode, confirmed.stderr).toBe(0)
+    expect(existsSync(importMarker(root))).toBe(true)
+    expect(app.requests.map(request => request.operation)).toEqual(["workspace.changes", "workspace.commit"])
   })
 
   it("keeps --no-push in the rerun and documents it in --help", async () => {

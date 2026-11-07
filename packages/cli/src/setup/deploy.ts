@@ -264,8 +264,6 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   if (args.temporary && vercelLogin) throw temporaryUnsupported("It is for a machine without a vercel login, and a saved CLI login was found.")
   if (args.temporary) assertTemporary(host, args, credentials, project, context.env)
   else if (!credentials.ok && !vercelLogin) throw credentialsMissing(host, credentials, args)
-  // A preview must not write the shared Workspace ref, so only a production deploy pushes.
-  const checkouts = args.push && !args.preview ? await readDeployCheckouts(project.root, context.stderr) : undefined
 
   const interactive = !args.json && !!process.stdin.isTTY && !!process.stderr.isTTY
   if (!args.yes) {
@@ -277,6 +275,9 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
     }
   }
 
+  // A preview must not write the shared Workspace ref, so only a production deploy pushes. This imports project code,
+  // so it runs only after the confirmation.
+  const checkouts = args.push && !args.preview ? await readDeployCheckouts(project.root, context.stderr) : undefined
   if (args.build) await build(project, context)
   const output = await readBuildOutput(project.root, host)
   const projectName = link?.project.name ?? output.identityName
