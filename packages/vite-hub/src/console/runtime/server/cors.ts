@@ -1,3 +1,5 @@
+import { getStandardContext } from "@vite-hub/runtime/h3"
+
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics.ts"
 
 import type { ConsoleAccess } from "./access.ts"
@@ -29,21 +31,6 @@ export function installedConsoleOrigins(): readonly string[] {
 /** The `WWW-Authenticate` value of a Console data route that needs a bearer token. */
 export function consoleBearerChallenge(parameters: { error?: "invalid_token" } = {}): string {
   return `Bearer realm="vitehub-console"${parameters.error ? `, error="${parameters.error}"` : ""}`
-}
-
-function header(event: ConsoleRequestEvent, name: string): string | undefined {
-  for (const source of [event.req?.headers, event.headers]) {
-    const value = source?.get(name)
-    if (value !== undefined && value !== null) return value
-  }
-}
-
-function method(event: ConsoleRequestEvent): string {
-  return (event.method ?? event.req?.method ?? "GET").toUpperCase()
-}
-
-function pathname(event: ConsoleRequestEvent): string {
-  return new URL(event.req?.url || "/", "http://vitehub.local").pathname
 }
 
 /** The `Origin` of the request when `console.origins` lists it. */
@@ -82,10 +69,11 @@ function addCorsHeaders(headers: Headers, origin: string): void {
  * Returns `undefined` for every other request.
  */
 export function answerConsolePreflight(event: ConsoleRequestEvent): Response | undefined {
-  if (method(event) !== "OPTIONS") return undefined
-  const origin = header(event, "origin")
-  if (!origin || !header(event, "access-control-request-method")) return undefined
-  const path = pathname(event)
+  const request = getStandardContext(event).req
+  if (request.method !== "OPTIONS") return undefined
+  const origin = request.headers.get("origin")
+  if (!origin || !request.headers.get("access-control-request-method")) return undefined
+  const path = new URL(request.url).pathname
   if (!dataRoutes.some(route => path.endsWith(route))) return undefined
   const allowed = listedOrigin(origin)
   if (!allowed) {
@@ -137,7 +125,7 @@ export function withConsoleCors<TEvent extends ConsoleRequestEvent>(
   handler: (event: TEvent) => Promise<Response>,
 ): (event: TEvent) => Promise<Response> {
   return async (event) => {
-    const origin = listedOrigin(header(event, "origin"))
+    const origin = listedOrigin(getStandardContext(event).req.headers.get("origin"))
     let result: Response
     try {
       result = await handler(event)

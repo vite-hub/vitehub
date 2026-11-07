@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest"
 import { createConsoleAppAuthAccess } from "../src/console/auth-pages.ts"
 import { consoleEventPath } from "../src/console/auth-path.ts"
 import { handleCloudflareAccessConsoleRequest } from "../src/console/auth-cloudflare-access.ts"
+import { installStandardContext } from "../src/runtime/h3.ts"
+import { requestEvent } from "./console-event.ts"
 
 const routes = [{ authorize: true, index: 0, route: "/_vitehub/**" }, { authorize: false, index: 1, method: "GET", route: "/api/_vitehub/console/**" }]
 
@@ -22,7 +24,8 @@ function appAccess() {
 describe("Console canonical authorization paths", () => {
   it.each(["H3 2", "Request"])("authorizes canonical paths for %s", async (kind) => {
     const request = new Request("https://app.example.com/_%76itehub/rpc/__call", { method: "POST" })
-    const event = kind === "H3 2" ? new H3Event(request) : request
+    const event = kind === "H3 2" ? new H3Event(request) : requestEvent(request)
+    installStandardContext(event)
     const { access, requireAuthAccessRoutes, requireSession } = appAccess()
     await access.check(event)
     expect(requireAuthAccessRoutes).toHaveBeenCalledWith(event, [0], undefined, [0], { redirectToSignIn: false, reuse: true })

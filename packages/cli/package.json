@@ -53,6 +53,7 @@
   "dependencies": {
     "@babel/parser": "^7.29.9",
     "@vite-hub/runtime": "workspace:*",
+    "diff": "catalog:runtime",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs"
   },

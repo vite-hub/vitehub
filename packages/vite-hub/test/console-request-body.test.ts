@@ -1,35 +1,48 @@
 import { describe, expect, it } from "vitest"
 
 import { consoleRequestJSON } from "../src/console/runtime/server/request.ts"
+import { requestEvent } from "./console-event.ts"
 
 import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.ts"
 
 const encoder = new TextEncoder()
 
+function standard(body: ReadableStream<Uint8Array>): ConsoleRequestEvent {
+  return { "~standard": { vendor: "test", req: new Request("http://localhost/", { body, duplex: "half", method: "POST" } as RequestInit), res: {} } }
+}
+
+/** An event whose request body is exactly `body`, so a test can check the stream that the reader used. */
+function streamEvent(body: ReadableStream<Uint8Array>): ConsoleRequestEvent {
+  // SAFETY: consoleRequestJSON() reads only `body` of the request.
+  return { "~standard": { vendor: "test", req: { body } as unknown as Request, res: {} } }
+}
+
 const adapters = {
   fetch(body: string) {
     const bytes = encoder.encode(body)
-    return { req: { body: new ReadableStream<Uint8Array>({
+    return standard(new ReadableStream<Uint8Array>({
       start(controller) {
         // One byte per chunk splits every multibyte character.
         for (const byte of bytes) controller.enqueue(new Uint8Array([byte]))
         controller.close()
       },
-    }) } } satisfies ConsoleRequestEvent
-  },
-  decoded(body: string): ConsoleRequestEvent {
-    return { req: { json: async () => JSON.parse(body) } }
+    }))
   },
 }
 
 describe("Console request bodies", () => {
-  it.each([undefined, null, { collection: "posts" }])("preserves an optional action body: %j", async (body) => {
+  it.each([null, { collection: "posts" }])("reads an action body from Standard Context: %j", async (body) => {
     const req = new Request("http://vitehub.local/api/_vitehub/console/documents", {
       method: "POST",
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      body: JSON.stringify(body),
     })
 
-    await expect(consoleRequestJSON({ req })).resolves.toEqual(body)
+    await expect(consoleRequestJSON(requestEvent(req))).resolves.toEqual(body)
+  })
+
+  it("rejects a request with no JSON body", async () => {
+    const req = new Request("http://vitehub.local/api/_vitehub/console/documents", { method: "POST" })
+    await expect(consoleRequestJSON(requestEvent(req))).rejects.toBeInstanceOf(SyntaxError)
   })
 
   for (const [name, adapter] of Object.entries(adapters)) {
@@ -45,11 +58,11 @@ describe("Console request bodies", () => {
   it("releases Fetch bodies after success or malformed JSON", async () => {
     const valid = adapters.fetch("{}")
     await expect(consoleRequestJSON(valid)).resolves.toEqual({})
-    expect(valid.req?.body?.locked).toBe(false)
+    expect(valid["~standard"].req.body?.locked).toBe(false)
 
     const invalid = adapters.fetch("{")
     await expect(consoleRequestJSON(invalid)).rejects.toBeInstanceOf(SyntaxError)
-    expect(invalid.req?.body?.locked).toBe(false)
+    expect(invalid["~standard"].req?.body?.locked).toBe(false)
   })
 
   it("stops an oversized Fetch stream and preserves 413 when cancellation fails", async () => {
@@ -66,7 +79,7 @@ describe("Console request bodies", () => {
       },
     }, { highWaterMark: 0 })
 
-    await expect(consoleRequestJSON({ req: { body } }, 4)).rejects.toMatchObject({ statusCode: 413 })
+    await expect(consoleRequestJSON(streamEvent(body), 4)).rejects.toMatchObject({ statusCode: 413 })
     expect(reads).toBe(1)
     expect(cancellations).toBe(1)
     expect(body.locked).toBe(false)
@@ -78,7 +91,8 @@ describe("Console request bodies", () => {
       pull(controller) { controller.error(failure) },
     })
 
-    await expect(consoleRequestJSON({ req: { body } })).rejects.toBe(failure)
+    await expect(consoleRequestJSON(streamEvent(body))).rejects.toBe(failure)
     expect(body.locked).toBe(false)
   })
+
 })

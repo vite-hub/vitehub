@@ -1,51 +1,31 @@
 import { consoleDiagnostic, consoleStatusDiagnosticCode, type ConsoleDiagnosticCode } from "../diagnostics.ts"
+import { getStandardContext } from "@vite-hub/runtime/h3"
+
 import { isConsoleDevelopmentBuild } from "./development.ts"
 
-interface ConsoleHeaders {
-  get(name: string): string | null
-}
+import type { ViteHubContext } from "@vite-hub/runtime"
 
-export interface ConsoleRequestEvent {
-  env?: Record<string, unknown>
+/**
+ * A Console request event: any event with Standard Context properties, such as an H3 2 event in a ViteHub
+ * app. Console code reads the request, the response, the host lifetime, and the Cloudflare bindings from
+ * `event["~standard"]`. `context.params` holds the route parameters of H3 routes.
+ */
+export type ConsoleRequestEvent = ViteHubContext<{
   context?: {
-    clientAddress?: string
     params?: Record<string, string | undefined>
   }
-  headers?: ConsoleHeaders
-  method?: string
-  req?: {
-    body?: ReadableStream<Uint8Array> | null
-    context?: { clientAddress?: string, [key: string]: unknown }
-    ip?: string
-    headers?: ConsoleHeaders
-    json?: () => Promise<unknown>
-    method?: string
-    signal?: AbortSignal
-    url?: string | URL
-  }
-  res?: {
-    headers?: {
-      set(name: string, value: string): void
-    }
-    status?: number
-  }
-  waitUntil?: (task: Promise<unknown>) => void
+}>
+
+/** A request event for a Console call that has only its Web Request, such as an operation run from MCP. */
+export function consoleRequestEvent(request: Request): ConsoleRequestEvent {
+  return { "~standard": { vendor: "vitehub-console", req: request, res: {} } }
 }
 
 export function setConsoleResponseStatus(event: ConsoleRequestEvent, status: number): void {
-  if (event.res) Object.assign(event.res, { status })
+  getStandardContext(event).res.status = status
 }
 
 const maximumConsoleRequestBodyBytes = 64 * 1_024
-
-function stringByteLength(value: string): number {
-  let bytes = 0
-  for (const character of value) {
-    const codePoint = character.codePointAt(0) ?? 0
-    bytes += codePoint <= 0x7f ? 1 : codePoint <= 0x7ff ? 2 : codePoint <= 0xffff ? 3 : 4
-  }
-  return bytes
-}
 
 /**
  * Reads a fetch request body as text and stops at `maximumBytes`, so an oversized body is not read in full.
@@ -76,15 +56,11 @@ export async function consoleRequestText(fetchBody: ReadableStream<Uint8Array>, 
   }
 }
 
-/** Read bounded JSON from a Fetch request body, or from a body that the host has already decoded. */
+/** Read bounded JSON from the body of the Standard Context request. */
 export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumBytes: number = maximumConsoleRequestBodyBytes): Promise<unknown> {
-  const fetchBody = event.req?.body
-  if (fetchBody === null) return undefined
-  if (fetchBody) return JSON.parse(await consoleRequestText(fetchBody, maximumBytes))
-  if (!event.req?.json) throw new SyntaxError("Request body is unavailable.")
-  const body = await event.req.json()
-  if (stringByteLength(JSON.stringify(body) ?? "") > maximumBytes) throw consoleRequestError(413, "Console request body exceeds the byte limit.")
-  return body
+  const body = getStandardContext(event).req.body
+  if (!body) throw new SyntaxError("Request body is unavailable.")
+  return JSON.parse(await consoleRequestText(body, maximumBytes))
 }
 
 /** A Console failure with an HTTP status. The code defaults to the Console code of the status. */
@@ -99,8 +75,7 @@ export function isConsoleDevelopmentRuntime(): boolean {
 
 export function assertConsoleRequest(event: ConsoleRequestEvent, allowedMethods: readonly string[] = ["GET"]): void {
   setConsoleResponseHeaders(event)
-  const method = event.method ?? event.req?.method
-  if (!method || !allowedMethods.includes(method)) throw consoleRequestError(405, "Method not allowed")
+  if (!allowedMethods.includes(getStandardContext(event).req.method)) throw consoleRequestError(405, "Method not allowed")
 }
 
 export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
@@ -109,21 +84,20 @@ export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
     "x-content-type-options": "nosniff",
     "x-robots-tag": "noindex, nofollow",
   }
-  for (const [name, value] of Object.entries(headers)) {
-    event.res?.headers?.set(name, value)
-  }
+  const response = getStandardContext(event).res
+  for (const [name, value] of Object.entries(headers)) response.headers?.set(name, value)
 }
 
+/** The public URL of a request event, from its Standard Context. */
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {
-  const value = event.req?.url || "/"
-  const header = (name: string) => {
-    for (const source of [event.req?.headers, event.headers]) {
-      const raw = source?.get(name)
-      if (raw !== undefined && raw !== null) return raw.split(",")[0]?.trim()
-    }
-  }
-  const url = value instanceof URL ? new URL(value) : new URL(value, "http://localhost")
-  const host = header("x-forwarded-host") ?? header("host")
+  return consolePublicURL(getStandardContext(event).req)
+}
+
+/** The URL of a request with the host and scheme that a proxy forwards. */
+export function consolePublicURL(request: Request): URL {
+  const header = (name: string) => request.headers.get(name)?.split(",")[0]?.trim()
+  const url = new URL(request.url)
+  const host = header("x-forwarded-host")
   const protocol = header("x-forwarded-proto")
   if (protocol === "http" || protocol === "https") url.protocol = `${protocol}:`
   if (host) {
