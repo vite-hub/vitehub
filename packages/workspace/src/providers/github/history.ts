@@ -119,6 +119,20 @@ function isUnrelatedHistoryError(error: unknown): boolean {
   return false
 }
 
+/**
+ * GitHub answers a lookup of a commit that the repository does not have with 422 "No commit found for SHA: <sha>." Any
+ * other failure, such as a 422 "Validation failed, or the endpoint has been spammed", proves nothing.
+ */
+function isMissingCommitError(error: unknown): boolean {
+  const status = githubRequestStatus(error)
+  if (status !== 404 && status !== 422) return false
+  for (let current = error; current instanceof Error; current = current.cause) {
+    const body = Reflect.get(current, "body")
+    if (/no commit found for/i.test(`${current.message}\n${typeof body === "string" ? body : ""}`)) return true
+  }
+  return false
+}
+
 function cursorFor(ref: string, id: string): string {
   return `${ref}:after:${id}`
 }
@@ -491,8 +505,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       commit = await readCommit(id)
     }
     catch (error) {
-      const status = githubRequestStatus(error)
-      if (status === 404 || status === 422) throw new ViteHubError("WORKSPACE_NOT_FOUND", `[vitehub] Workspace revision does not exist: ${id}.`, { cause: error })
+      if (isMissingCommitError(error)) throw new ViteHubError("WORKSPACE_NOT_FOUND", `[vitehub] Workspace revision does not exist: ${id}.`, { cause: error })
       throw error
     }
     const ref = await refForCommit(commit.sha)

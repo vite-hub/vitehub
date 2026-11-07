@@ -357,6 +357,22 @@ describe("workspace checkout on the GitHub Store", { timeout: 60_000 }, () => {
     expect((await server.history.open(draft.id)).revision).toMatchObject({ id: draft.id, ref: "draft" })
   })
 
+  it("reports a missing revision only when GitHub has no such commit, and lets other lookup failures through", async () => {
+    const head = fake.commit("main", { "content/posts/hello.md": post("Hello", "One.") })
+    const server = app()
+
+    await expect(server.history.open("0123456789abcdef0123456789abcdef01234567")).rejects.toMatchObject({ code: "WORKSPACE_NOT_FOUND" })
+
+    let failures = 1
+    // GitHub documents 422 as "Validation failed, or the endpoint has been spammed". It does not say that the commit is gone.
+    fake.respond(request => request.path.startsWith("/repos/onmax/repo/commits/") && failures-- > 0 ? Response.json({ message: "Validation Failed" }, { status: 422 }) : undefined)
+
+    const failed = await server.history.open(head).then(() => undefined, (error: unknown) => error)
+    expect(failed).toBeInstanceOf(Error)
+    expect(failed).not.toMatchObject({ code: "WORKSPACE_NOT_FOUND" })
+    expect((await server.history.open(head)).revision).toMatchObject({ id: head })
+  })
+
   it("reads one blob for each changed file on a pull, and none for a dry run", async () => {
     const files = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`content/posts/${index}.md`, post(`Cost ${index}`, `Unique ${index}.`)]))
     fake.commit("main", files)
