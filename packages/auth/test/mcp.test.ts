@@ -46,14 +46,14 @@ type Setup = Awaited<ReturnType<typeof setup>>
 const Url = v.object({ url: v.string() })
 
 /** The browser flow of an MCP client: register, authorize with PKCE, sign in, consent, and exchange the code. */
-async function signInAgent({ call, post }: Setup, email = "ada@example.com", tokenHeaders: Record<string, string> = {}) {
+async function signInAgent({ call, post }: Setup, email = "ada@example.com", tokenHeaders: Record<string, string> = {}, scope = "openid profile email offline_access") {
   expect((await post("/sign-up/email", { email, name: "Ada", password: "test-password-123" })).status).toBe(200)
   const registration = await post("/oauth2/register", { client_name: "Claude Code", redirect_uris: [redirect], token_endpoint_auth_method: "none" })
   expect(registration.status, await registration.clone().text()).toBe(201)
   const { client_id } = v.parse(v.object({ client_id: v.string() }), await registration.json())
   const verifier = randomBytes(32).toString("base64url")
   const challenge = createHash("sha256").update(verifier).digest("base64url")
-  const query = new URLSearchParams({ client_id, code_challenge: challenge, code_challenge_method: "S256", redirect_uri: redirect, resource, response_type: "code", scope: "openid profile email offline_access", state: "s" })
+  const query = new URLSearchParams({ client_id, code_challenge: challenge, code_challenge_method: "S256", redirect_uri: redirect, resource, response_type: "code", scope, state: "s" })
   const login = new URL((await call(`/oauth2/authorize?${query}`)).headers.get("location") ?? "", app)
   expect(login.pathname).toBe("/oauth")
   const signedIn = await post("/sign-in/email", { email, oauth_query: login.search.slice(1), password: "test-password-123" })
@@ -69,7 +69,8 @@ async function signInAgent({ call, post }: Setup, email = "ada@example.com", tok
     method: "POST",
   })
   expect(token.status, await token.clone().text()).toBe(200)
-  return { accessToken: v.parse(v.object({ access_token: v.string() }), await token.json()).access_token, clientId: client_id, cookie }
+  const tokens = v.parse(v.object({ access_token: v.string(), refresh_token: v.optional(v.string()) }), await token.json())
+  return { accessToken: tokens.access_token, clientId: client_id, cookie, refreshToken: tokens.refresh_token }
 }
 
 const mcpRequest = (token?: string, url = resource) => new Request(url, { headers: token ? { authorization: `Bearer ${token}` } : {}, method: "POST" })
@@ -137,7 +138,8 @@ describe("mcpOAuth", () => {
 
   it.each(["signed out", "expired session", "disabled client", "deleted client"])("rejects a token after %s", async (reason) => {
     const auth = await setup()
-    const { accessToken, clientId, cookie } = await signInAgent(auth)
+    // Without offline_access the grant lasts as long as the person's session.
+    const { accessToken, clientId, cookie } = await signInAgent(auth, "ada@example.com", {}, "openid profile email")
     expect((await verifyMcpRequest(mcpRequest(accessToken), { auth: auth.auth }))[0]).toBeUndefined()
     if (reason === "signed out") {
       expect((await auth.post("/sign-out", {}, { cookie })).status).toBe(200)
@@ -154,6 +156,28 @@ describe("mcpOAuth", () => {
       }
     }
     expect((await verifyMcpRequest(mcpRequest(accessToken), { auth: auth.auth }))[0]?.code).toBe("AUTH_MCP_TOKEN_INVALID")
+  })
+
+  it.each(["signed out", "expired session"])("keeps an offline_access grant after %s, refreshed tokens included", async (reason) => {
+    const auth = await setup()
+    const { accessToken, clientId, cookie, refreshToken } = await signInAgent(auth)
+    if (reason === "signed out") expect((await auth.post("/sign-out", {}, { cookie })).status).toBe(200)
+    else auth.database.prepare("update session set expiresAt = ?").run(new Date(Date.now() - 60_000).toISOString())
+    expect((await verifyMcpRequest(mcpRequest(accessToken), { auth: auth.auth }))[0]).toBeUndefined()
+    const refreshed = await auth.call("/oauth2/token", {
+      body: new URLSearchParams({ client_id: clientId, grant_type: "refresh_token", refresh_token: refreshToken ?? "" }),
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      method: "POST",
+    })
+    expect(refreshed.status, await refreshed.clone().text()).toBe(200)
+    const { access_token } = v.parse(v.object({ access_token: v.string() }), await refreshed.json())
+    // Sign-out deletes the session and unlinks the refresh token. An expired session stays, and Better Auth's refresh grant
+    // copies its id into every new token.
+    const { sid } = v.parse(v.object({ sid: v.nullish(v.string()) }), JSON.parse(Buffer.from(access_token.split(".")[1] ?? "", "base64url").toString()))
+    expect(typeof sid).toBe(reason === "expired session" ? "string" : "object")
+    const [error, caller] = await verifyMcpRequest(mcpRequest(access_token), { auth: auth.auth })
+    expect(error).toBeUndefined()
+    expect(caller).toMatchObject({ clientId, user: { email: "ada@example.com" } })
   })
 
   it("keeps the registration rate limit of Better Auth when its limiter is on", async () => {
