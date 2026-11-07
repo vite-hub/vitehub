@@ -1,5 +1,6 @@
 import { appendResponseHeader, defineEventHandler, getCookie, getRequestHeader, getRequestURL, setResponseHeader } from "h3";
 import { docsTutorialNavigationCookie, findDocsPage } from "@vite-hub/docs";
+import { getRouteRules, useRuntimeConfig } from "nuxt/server";
 import manifest from "#docs/manifest";
 
 type CloudflareAssets = {
@@ -19,7 +20,7 @@ function isCloudflareAssets(value: unknown): value is CloudflareAssets {
   return typeof value === "object" && value !== null && "fetch" in value && typeof value.fetch === "function";
 }
 
-// Nitro keeps the Worker request in `event.context.cloudflare`. h3 v1 events have no `request`.
+// Nitro keeps the Worker request in `event.context.cloudflare`.
 function getCloudflareAssetRequest(value: unknown) {
   if (!isRecord(value) || !isRecord(value.env) || !(value.request instanceof Request)) return;
   const assets = value.env.ASSETS;

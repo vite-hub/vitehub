@@ -201,12 +201,12 @@ function rawMarkdownPath(path: string) {
 
 /** Permanent redirects for each removed HTML page, its trailing-slash form, and its raw Markdown copy. */
 export function createDocsRedirectRouteRules(redirects: Record<string, string> = docsPageRedirects) {
-  const routeRules: Record<string, { redirect: { statusCode: 301, to: string } }> = {};
+  const routeRules: Record<string, { redirect: { status: 301, to: string } }> = {};
 
   for (const [from, to] of Object.entries(redirects)) {
-    routeRules[from] = { redirect: { statusCode: 301, to } };
-    routeRules[`${from}/`] = { redirect: { statusCode: 301, to } };
-    routeRules[rawMarkdownPath(from)] = { redirect: { statusCode: 301, to: rawMarkdownPath(to) } };
+    routeRules[from] = { redirect: { status: 301, to } };
+    routeRules[`${from}/`] = { redirect: { status: 301, to } };
+    routeRules[rawMarkdownPath(from)] = { redirect: { status: 301, to: rawMarkdownPath(to) } };
   }
 
   for (const [from, to] of Object.entries({
@@ -215,8 +215,8 @@ export function createDocsRedirectRouteRules(redirects: Record<string, string> =
     "/blog": "/learn",
     "/guides": "/learn",
   })) {
-    routeRules[from] = { redirect: { statusCode: 301, to } };
-    routeRules[`${from}/`] = { redirect: { statusCode: 301, to } };
+    routeRules[from] = { redirect: { status: 301, to } };
+    routeRules[`${from}/`] = { redirect: { status: 301, to } };
   }
 
   return routeRules;

@@ -90,8 +90,6 @@ export function addConsoleRpcHandler(
 ): void {
   const kit = createNitroServerKit(nitro)
   const preflight = join(consoleRuntimeRoot, "server/console-preflight.js")
-  // Nitro 2 resolves plugin names against srcDir, so this virtual plugin needs an absolute filename.
-  const nitro2McpDiscovery = join(consoleRuntimeRoot, "server/mcp-discovery-nitro2.js")
   // SAFETY: The Console adds Nitro handlers with a string handler and an optional route.
   const handlers = kit.config.handlers as NitroHandler[]
   const registrations: Array<{ absolute?: true, handler: string, method?: "get" | "post", middleware?: true, suffix: string }> = [
@@ -102,8 +100,7 @@ export function addConsoleRpcHandler(
     { suffix: "/_vitehub/schedules/run", handler: join(consoleRuntimeRoot, "server/schedule-run.js"), method: "post" },
     // The MCP endpoint answers every method itself. Its OAuth metadata lives at the origin root, where clients look.
     { suffix: "/_vitehub/mcp", handler: join(consoleRuntimeRoot, "server/mcp.js") },
-    // Nitro 2 reads middleware routes as prefixes, so `/**` matches no request. Its non-root app base is handled by
-    // the request hook below; Nitro 3 runs this route-less middleware for every request.
+    // Nitro runs this route-less middleware for every request.
     { absolute: true, suffix: "/**", handler: join(consoleRuntimeRoot, "server/mcp-discovery.js"), middleware: true },
     { absolute: true, suffix: "/.well-known/oauth-protected-resource", handler: join(consoleRuntimeRoot, "server/mcp-metadata.js"), method: "get" },
     { absolute: true, suffix: "/.well-known/oauth-protected-resource/**", handler: join(consoleRuntimeRoot, "server/mcp-metadata.js"), method: "get" },
@@ -128,36 +125,14 @@ export function addConsoleRpcHandler(
     .map(registration => registration.suffix)
   if (nitro.virtual) {
     delete nitro.virtual[configuredMcpDiscovery]
-    delete nitro.virtual[nitro2McpDiscovery]
   }
   // SAFETY: The kit preserves the caller's Nitro plugin registrations.
   const plugins = kit.config.plugins as string[]
-  const retainedPlugins = plugins.filter(plugin => plugin !== nitro2McpDiscovery && plugin !== preflight)
+  const retainedPlugins = plugins.filter(plugin => plugin !== preflight)
   plugins.splice(0, plugins.length, ...retainedPlugins)
   // CORS preflights carry no credentials, so the plugin answers them before every app middleware and app Auth. Only
   // `console.origins` with `auth: "token"` accepts cross-origin calls.
   if (crossOrigin) kit.addPlugin(preflight, "start")
-  if (oauth) {
-    // Nitro 2 mounts even route-less middleware below app.baseURL. Its request hook runs at the origin root,
-    // before app middleware, and H3 1's respondWith() completes the response without entering the mounted stack.
-    nitro.virtual = {
-      ...nitro.virtual,
-      [nitro2McpDiscovery]: [
-        `import { createConsoleMcpDiscoveryHandler } from ${JSON.stringify(join(consoleRuntimeRoot, "server/mcp-discovery.js"))}`,
-        `const discovery = createConsoleMcpDiscoveryHandler(${JSON.stringify(delegatedPaths)})`,
-        `export default function consoleMcpDiscoveryNitro2(nitroApp) {`,
-        `  if (!nitroApp.h3App) return`,
-        `  nitroApp.hooks.hook("request", async (event) => {`,
-        `    if (event.handled) return`,
-        `    const response = await discovery(event)`,
-        `    if (response) await event.respondWith(response)`,
-        `  })`,
-        `}`,
-        "",
-      ].join("\n"),
-    }
-    kit.addPlugin(nitro2McpDiscovery, "start")
-  }
   if (oauth && delegatedPaths.length) {
     nitro.virtual = {
       ...nitro.virtual,

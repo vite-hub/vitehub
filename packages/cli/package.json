@@ -59,6 +59,7 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "nuxt": "catalog:nuxt",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite",

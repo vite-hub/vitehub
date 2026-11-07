@@ -48,6 +48,7 @@ function jar(cookie: string, response: Response): string {
 
 function manage(body: unknown, cookie = "") {
   return authManage({
+    res: { headers: new Headers() },
     req: new Request("http://localhost:5173/_vitehub/auth/manage", {
       method: "POST",
       body: JSON.stringify(body),

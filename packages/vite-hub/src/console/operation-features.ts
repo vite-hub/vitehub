@@ -9,7 +9,7 @@ export function transformConsoleOperationFeatures(code: string, sections: readon
   return transformed === code ? undefined : transformed
 }
 
-/** Nitro 2 bundles the Console independently of the app's Vite plugins. */
+/** Nuxt's Nitro bundles the Console independently of the app's Vite plugins. */
 export function consoleOperationFeatures(sections: readonly string[]): Plugin {
   return {
     name: "vite-hub/console-operation-features",

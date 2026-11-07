@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs"
+import { findPackageJSON } from "node:module"
 import { dirname, join, resolve, sep } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import {
   addComponent,
@@ -172,7 +173,6 @@ interface NitroOptions {
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
   prerender?: { crawlLinks?: boolean, autoSubfolderIndex?: boolean, routes?: string[], ignore?: Array<string | RegExp | ((path: string) => boolean | null | undefined)> }
   experimental?: { asyncContext?: boolean }
-  externals?: { inline?: Array<string | RegExp> | boolean }
 }
 
 interface AgentDiscoveryOptions {
@@ -240,10 +240,23 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     }
   },
   async setup(options, nuxt) {
+    // @nuxtjs/mcp-toolkit points `h3` at nitropack's H3 1, and Nitro 3's runtime then cannot import `h3/rules`.
+    // Registered after every module's own hook, so the alias is gone before Nitro builds.
+    nuxt.hook("modules:done", () => {
+      nuxt.hook("nitro:config", (config) => {
+        const alias: unknown = Reflect.get(config, "alias")
+        const h3: unknown = alias instanceof Object ? Reflect.get(alias, "h3") : undefined
+        if (!(alias instanceof Object) || typeof h3 !== "string") return
+        const manifest = findPackageJSON(pathToFileURL(h3), import.meta.url)
+        const pkg: unknown = manifest ? JSON.parse(readFileSync(manifest, "utf8")) : undefined
+        const version: unknown = pkg instanceof Object ? Reflect.get(pkg, "version") : undefined
+        if (typeof version === "string" && version.startsWith("1.")) Reflect.deleteProperty(alias, "h3")
+      })
+    })
     const resolver = createResolver(import.meta.url)
     const runtime = resolver.resolve("./runtime")
-    // Nuxt transpiles the package of the module path it loaded. Through `vite-hub/docs/nuxt` that is `vite-hub`, so the
-    // runtime of this package, which imports `#imports`, must be listed itself.
+    // Nuxt transpiles the package of the module path it loaded. Through `vite-hub/docs/nuxt` that is `vite-hub`, so this
+    // package must be listed itself: its Vue app runtime ships as `.vue` and `.ts` source that imports `#imports`.
     const packageRoot = resolver.resolve("..")
     nuxt.options.build.transpile.push(packageRoot)
     // Nuxt auto-imports composables only outside node_modules. The shell components use them, so an app that installs
@@ -550,10 +563,6 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
         }
       }
       nitro.alias = { ...nitro.alias, "#docs/manifest": manifestFile, "#docs/content": contentFile, "#docs/parser": parserFile }
-      // Nitro 2 development leaves absolute modules outside the app to Node. Bundle the generated modules, so the page
-      // route reads the same Content runtime as ViteHub's Content routes instead of a second copy of `server/content.ts`.
-      const inline = nitro.externals?.inline
-      if (inline !== true) nitro.externals = { ...nitro.externals, inline: [...Array.isArray(inline) ? inline : [], dirname(manifestFile)] }
       // Pages are read at runtime, so a host without a file system serves them too.
       nitro.serverAssets = [...nitro.serverAssets ?? [], ...sources ? sources.map((source, index) => ({ baseName: `docs-${index}`, dir: source.dir, pattern: "**/*.md" })) : [{ baseName: "docs", dir: contentDir, pattern: "**/*.md" }], { baseName: "docs-raw", dir: rawDir }]
       // A removed page has no raw file. Fall through so a redirect route rule answers it.
