@@ -36,7 +36,7 @@ Presence and cursors also need a [Realtime room authority](/docs/realtime/config
 | Cloudflare Workers | Yes, with D1 | Yes, with Content | Yes, with Durable Objects |
 | Vercel, Netlify | Yes | Yes, with Content | No. Pages reload threads on focus and every 30 seconds. |
 
-The overlay works in Nitro 3 and Nuxt 4 apps on each of these hosts.
+The overlay works in Nitro 3 apps, including Nuxt 5, on each of these hosts.
 
 ### Node
 

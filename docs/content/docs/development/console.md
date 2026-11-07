@@ -522,7 +522,7 @@ import { defineConsoleAuthorize } from 'vite-hub/console/auth'
 export default defineConsoleAuthorize(({ user }) => user?.role === 'admin')
 ```
 
-A relative `authorize` path starts at the project root (the folder of `nuxt.config.ts` or `vite.config.ts`). In a Nuxt 4 app, `./server/console-authorize.ts` sits next to the `app/` folder, not inside it.
+A relative `authorize` path starts at the project root (the folder of `nuxt.config.ts` or `vite.config.ts`). In a Nuxt app, `./server/console-authorize.ts` sits next to the `app/` folder, not inside it.
 
 The built-in page cannot complete two-factor challenges. For two-factor, passkeys, or a custom sign-in UI, use your own page:
 

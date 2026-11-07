@@ -89,7 +89,7 @@ export const app = new H3()
 | `getAuthForRequest(request, runtimeOptions?, event?)` | Returns a request-aware Better Auth instance. |
 | `handleAuth(input, runtimeOptions?)` | Handles an Auth HTTP request. `input` is a Web `Request`, `{ req: Request }`, or an H3 1 event. |
 | `handleAuthRequest(definition, input, runtimeOptions?, event?)` | Handles an Auth request for an explicit Auth Definition. |
-| `toAuthRequest(input)` | Returns the Web `Request` of a request or server event. For an H3 1 event, such as a Nuxt 4 server event, it builds one from `node.req` and keeps the app base path. |
+| `toAuthRequest(input)` | Returns the Web `Request` of a request or server event. For an H3 1 event, it builds one from `node.req` and keeps the app base path. |
 | `createAuthHandler(definition, runtimeOptions?)` | Creates a handler called as `handler(request, { clientAddress }?)`. Manual hosts pass the peer address for rate limiting and session IPs. |
 | `createAuthAccessHandler(routes, definition?)` | Creates a handler that matches route metadata, checks the session, and runs every matching authorization rule. |
 | `withAuth(handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when a session exists, else an unauthorized or sign-in response. |
@@ -153,7 +153,7 @@ The callback receives the signed-in `user`, `session`, and request. ViteHub defi
 
 The same callback protects [Blob serve routes](/docs/blob/configure#protect-served-objects) and [Collections](/docs/source/server-api#protect-a-collection). Their generated routes wrap the read with `withAuthorization(authorize, handler)`. Unlike `withAuth()`, it never redirects to sign-in, so image and fetch requests get a status code.
 
-Generated access middleware loads `createAuthAccessHandler(routes, definition?)` on the first request an access route matches. Manual hosts can call it with a Web `Request`, `{ req: Request }`, or an H3 1 event such as a Nuxt 4 server event.
+Generated access middleware loads `createAuthAccessHandler(routes, definition?)` on the first request an access route matches. Manual hosts can call it with a Web `Request`, `{ req: Request }`, or an H3 1 event.
 
 - Pass `{ route, method?, authorize?: true }` entries in the order of the Definition's `access.routes`.
 - A route ending in `/**` matches its base path and everything below. Other routes match only that path.
