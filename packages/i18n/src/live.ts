@@ -1,7 +1,8 @@
-import { compileMessage } from "@lingui/message-utils/compileMessage"
+import { parseRecordFile, serialiseRecord } from "@diglot/store/runtime"
 import { generateMessageId } from "@lingui/message-utils/generateMessageId"
 
-import { idFromFileName, isRecord, recordPath } from "./record-format.ts"
+import { compileMessages } from "./catalogs.ts"
+import { parseRecordPath, recordPath, recordSegment } from "./record-format.ts"
 
 import type { Messages } from "@lingui/core"
 import type { TranslationRecords } from "./record-format.ts"
@@ -11,7 +12,7 @@ export const publishedRef = "published"
 export const draftRef = "draft"
 
 interface RevisionView {
-  list(path: string): Promise<ReadonlyArray<{ path: string, type: string }>>
+  list(path: string, options?: { recursive?: boolean }): Promise<ReadonlyArray<{ path: string, type: string }>>
   readFile(path: string, options: { encoding: "utf8" }): Promise<string>
 }
 
@@ -44,21 +45,14 @@ export async function readRevisionRecords(view: RevisionView, locales: readonly 
   const result: Record<string, TranslationRecords> = {}
   await Promise.all(locales.map(async (locale) => {
     const records: TranslationRecords = {}
-    const entries = await view.list(locale)
+    const entries = await view.list(`${locale}/segments`, { recursive: true })
     await Promise.all(entries.map(async (entry) => {
-      const name = entry.path.slice(entry.path.lastIndexOf("/") + 1)
-      const id = entry.type === "file" ? idFromFileName(name) : undefined
-      if (!id) return
+      const path = entry.type === "file" ? parseRecordPath(entry.path) : undefined
+      if (!path || path.locale !== locale) return
       // Store failures reject the revision; malformed record contents only skip this entry.
-      const contents = await view.readFile(recordPath(locale, id), { encoding: "utf8" })
-      let value: unknown
-      try {
-        value = JSON.parse(contents)
-      }
-      catch {
-        return
-      }
-      if (isRecord(value) && generateMessageId(value.source, value.context) === id) records[id] = value
+      const contents = await view.readFile(entry.path, { encoding: "utf8" })
+      const record = parseRecordFile(contents, path.hash)
+      if (record && recordSegment(record).hash === path.hash) records[generateMessageId(record.source, record.salt)] = record
     }))
     result[locale] = records
   }))
@@ -66,11 +60,8 @@ export async function readRevisionRecords(view: RevisionView, locales: readonly 
 }
 
 function compile(records: TranslationRecords, only?: ReadonlySet<string>): Messages {
-  const messages: Messages = {}
-  for (const [id, record] of Object.entries(records)) {
-    if (record.translation !== "" && (!only || only.has(id))) messages[id] = compileMessage(record.translation)
-  }
-  return messages
+  const selected = only ? Object.fromEntries(Object.entries(records).filter(([id]) => only.has(id))) : records
+  return compileMessages(selected)
 }
 
 export interface LiveTranslationsOptions {
@@ -166,7 +157,7 @@ export function recordChanges(draft: Record<string, TranslationRecords>, publish
     for (const [id, record] of Object.entries(records)) {
       const current = published[locale]?.[id]
       if (current && JSON.stringify(current) === JSON.stringify(record)) continue
-      put[recordPath(locale, id)] = `${JSON.stringify(record, null, 2)}\n`
+      put[recordPath(locale, record.hash)] = serialiseRecord(record)
     }
   }
   return put

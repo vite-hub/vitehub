@@ -169,7 +169,7 @@ pnpm vitehub i18n import es es.po
 Saved 3 translations to locales/es. 0 were already saved.
 ```
 
-`locales/es/` now has one JSON file for each translation. Commit this folder. You can delete `es.po`. Check the coverage again:
+`locales/es/segments/` now has one JSON record for each translation. Commit the `locales/` folder. You can delete `es.po`. Check the coverage again:
 
 ```bash [commands/status-after]
 pnpm vitehub i18n status

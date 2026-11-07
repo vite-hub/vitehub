@@ -1,7 +1,8 @@
+import { createRecord } from "@diglot/core"
 import { describe, expect, it } from "vitest"
 
 import { findPreviousTranslations, similarity } from "../src/lineage.ts"
-import { messageId } from "../src/records.ts"
+import { messageId, messageSegment } from "../src/records.ts"
 
 import type { SourceMessages } from "../src/manifest.ts"
 import type { TranslationRecords } from "../src/records.ts"
@@ -9,13 +10,13 @@ import type { TranslationRecords } from "../src/records.ts"
 function messages(...texts: Array<string | [string, string]>): SourceMessages {
   return Object.fromEntries(texts.map((text) => {
     const [message, context] = Array.isArray(text) ? text : [text, undefined]
-    return [messageId(message, context), { message, ...(context ? { context } : {}), origins: [] }]
+    return [messageId(message, context), { message, ...(context ? { context } : {}), hash: messageSegment(message, context).hash, origins: [] }]
   }))
 }
 
 function records(entries: Record<string, string>, context?: string): TranslationRecords {
   return Object.fromEntries(Object.entries(entries).map(([source, translation]) =>
-    [messageId(source, context), { source, translation, ...(context ? { context } : {}) }]))
+    [messageId(source, context), createRecord({ segment: messageSegment(source, context), text: translation, origin: "human" })]))
 }
 
 describe("previous translations of changed messages", () => {
@@ -28,14 +29,16 @@ describe("previous translations of changed messages", () => {
     const code = messages("Search all agents", "Deploy your agent now", "Delete your account")
     const stored = records({ "Search agents": "Buscar agentes", "Deploy your agent": "Despliega tu agente", "Save": "Guardar" })
     const previous = findPreviousTranslations(code, stored)
-    expect(previous.get(messageId("Search all agents"))).toMatchObject({ id: messageId("Search agents"), record: { translation: "Buscar agentes" } })
-    expect(previous.get(messageId("Deploy your agent now"))).toMatchObject({ record: { translation: "Despliega tu agente" } })
+    expect(previous.get(messageId("Search all agents"))).toMatchObject({ id: messageId("Search agents"), record: { text: "Buscar agentes" } })
+    expect(previous.get(messageId("Deploy your agent now"))).toMatchObject({ record: { text: "Despliega tu agente" } })
     expect(previous.has(messageId("Delete your account"))).toBe(false)
     expect(previous.size).toBe(2)
   })
 
   it("needs the same context and the same placeholders", () => {
     expect(findPreviousTranslations(messages(["Save draft", "button"]), records({ "Save drafts": "Guardar borradores" })).size).toBe(0)
+    expect(findPreviousTranslations(messages(["Save draft", "button"]), records({ "Save drafts": "Guardar borradores" }, "button")).size).toBe(1)
+    expect(findPreviousTranslations(messages(["Save draft", "button"]), records({ "Save drafts": "Guardar borradores" }, "menu")).size).toBe(0)
     expect(findPreviousTranslations(messages("Hello {name}, welcome"), records({ "Hello {user}, welcome": "Hola {user}" })).size).toBe(0)
     expect(findPreviousTranslations(messages("Read the <0>docs</0> first"), records({ "Read the <0>docs</0>": "Lee la <0>documentación</0>" })).size).toBe(1)
   })
@@ -46,7 +49,7 @@ describe("previous translations of changed messages", () => {
     ["{rank, selectordinal, one {First place} other {#th place}}", "{rank, selectordinal, one {Top place} other {#th place}}"],
     ["Hello '{name}' {user}", "Hello '{nickname}' {user}"],
   ])("matches edits to ICU literal text: %s", (source, next) => {
-    expect(findPreviousTranslations(messages(next), records({ [source]: "Previous translation" })).get(messageId(next)))
+    expect(findPreviousTranslations(messages(next), records({ [source]: source })).get(messageId(next)))
       .toMatchObject({ id: messageId(source) })
   })
 
@@ -56,7 +59,7 @@ describe("previous translations of changed messages", () => {
     ["{role, select, admin {<0>Admin</0>} other {Member}}", "{role, select, admin {<1>Admin</1>} other {Member}}"],
   ])("rejects changed ICU arguments or tags: %s", (source, next) => {
     expect(similarity(source, next)).toBeGreaterThan(0.6)
-    expect(findPreviousTranslations(messages(next), records({ [source]: "Previous translation" })).size).toBe(0)
+    expect(findPreviousTranslations(messages(next), records({ [source]: source })).size).toBe(0)
   })
 
   it.each([
@@ -64,7 +67,19 @@ describe("previous translations of changed messages", () => {
     ["Hello {name}, {count, plural, one {Hi}", "Hello {name}"],
     ["Hello {name}, {count, plural, one {Hi}", "Hello {name}, {count, plural, one {Welcome}"],
   ])("skips invalid ICU without interrupting matching: %s", (source, next) => {
-    const previous = findPreviousTranslations(messages(next, "Search all agents"), records({ [source]: "Previous translation", "Search agents": "Buscar agentes" }))
+    const previous = findPreviousTranslations(messages(next, "Search all agents"), records({ [source]: source, "Search agents": "Buscar agentes" }))
     expect([...previous.keys()]).toEqual([messageId("Search all agents")])
+  })
+
+  it("skips rejected or invalid translations", () => {
+    const stored = records({ "Search agents": "Buscar agentes", "Hello {name}": "Hola" })
+    stored[messageId("Search agents")] = createRecord({
+      segment: messageSegment("Search agents"),
+      text: "Buscar agentes",
+      origin: "mt",
+      review: "rejected",
+      rejectedBy: { by: "ana", at: "2026-11-07T10:00:00.000Z" },
+    })
+    expect(findPreviousTranslations(messages("Search all agents", "Hello {name}, welcome"), stored).size).toBe(0)
   })
 })

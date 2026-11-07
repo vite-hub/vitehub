@@ -31,6 +31,42 @@ Component entries use kebab-case and export the same component object as the pac
 
 The package currently declares `vue` and `ai` as required peers. Styled components also require `@nuxt/ui` and Tailwind CSS. The Vite integration requires `vite`; `@nuxt/ui` and `vite` are optional peers only so applications using another entry point do not have to install them.
 
+## Edit Markdown
+
+`MarkdownEditor` from `@vite-hub/ui/markdown-editor` edits Markdown with [comark-ui's editor](https://comark-ui.onmax.me/guide/editor/) and Nuxt UI's bubble toolbar, "/" menu, and drag handle. Bind the Markdown with `v-model`, or pass `editor` with a Tiptap editor the app made, such as a Realtime room's. A document that the editor can't save unchanged opens read-only.
+
+Pass `upload` to take pasted and dropped images, video, and audio, and to add Image to the "/" menu, which opens the file picker. Each file shows a placeholder with its percentage only on your screen, so a collaborative room never holds a half-uploaded file. A string is a route that returns `blob.handleUpload()`, and the store must be served (`blob.serve`) so the file has a URL:
+
+```vue
+<script setup lang="ts">
+import { MarkdownEditor } from "@vite-hub/ui/markdown-editor";
+import { ref } from "vue";
+
+const markdown = ref("# Release notes\n");
+</script>
+
+<template>
+  <MarkdownEditor v-model="markdown" upload="/api/uploads" @upload-error="(error, file) => console.error(file.name, error)" />
+</template>
+```
+
+```ts [server/api/uploads.post.ts]
+import { defineEventHandler } from "h3";
+import { blob } from "vite-hub/blob";
+
+// Check who may upload before this call
+export default defineEventHandler(async (event) => {
+  const [error, files] = await blob.handleUpload(event, {
+    ensure: { maxSize: "8MB", types: ["image", "video", "audio"] },
+    put: { prefix: "uploads", addRandomSuffix: true },
+  });
+  if (error) throw error;
+  return files;
+});
+```
+
+`upload` also takes a function, `(file, progress) => Promise<url>`, for any other storage; `blobUpload(route)` is the one a string uses. The default slot receives `{ editor }` for more menus. The entry isn't in the root barrel, so pages that only render Markdown don't load Tiptap. It needs the Tiptap packages that Nuxt UI's editor uses: `@tiptap/core`, `@tiptap/pm`, `@tiptap/vue-3`, `@tiptap/starter-kit`, `@tiptap/extension-image`, `@tiptap/extension-list`, and `@tiptap/extension-table`.
+
 ## Run an app in the browser
 
 The workspace entries render a live app next to a docs page: a tutorial with the lesson on the left and the workspace on the right, or a playground. They run the app in a WebContainer through [`@vite-hub/web-container`](../web-container/README.md). The page that boots it must be cross-origin isolated, as that README shows.

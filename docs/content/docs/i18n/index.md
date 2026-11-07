@@ -40,11 +40,15 @@ icon: i-ph-translate-light
   })
   ```
 
-  ```json [locales/es/a0413cbe9.json]
+  ```json [locales/es/segments/52/5220fa743183ff60.json]
   {
+    "hash": "5220fa743183ff60",
     "source": "Deploy your agent",
-    "translation": "Despliega tu agente",
-    "review": "edited"
+    "text": "Despliega tu agente",
+    "origin": "human",
+    "review": "edited",
+    "derived": "fresh",
+    "updatedAt": "2026-11-07T12:00:00.000Z"
   }
   ```
   :::
@@ -64,7 +68,7 @@ icon: i-ph-translate-light
   :::
 
   :::product-feature-item{title="One file for each translation" icon="i-lucide-file-text" to="/docs/i18n/configure#translate-the-messages"}
-  `locales/<locale>/` holds one JSON record for each message. `vitehub i18n status` shows what is missing, and PO files go in and out.
+  `locales/` is a [Diglot](https://github.com/danielroe/diglot) translations folder with one record for each message. `vitehub i18n status` shows what is missing, and PO files go in and out.
   :::
 
   :::product-feature-item{title="Translate an app in one tutorial" icon="i-lucide-rocket" to="/docs/i18n/get-started"}
@@ -81,5 +85,5 @@ Use i18n to translate the text of a Vue app and its server routes. Do not add me
 
 In Vue templates, use ``{{ t`Text` }}`` and `<Trans>` with no import. In scripts and server code, import `t`, `plural`, `select`, `selectOrdinal`, and `msg` from `vite-hub/i18n`. Do not call `t` at the top level of a module. Use `msg` there, and call `translate()` where the code runs.
 
-Check coverage with `pnpm vitehub i18n status --json`. Each translation is a JSON record in `locales/<locale>/`: edit its `translation` field only, or use `pnpm vitehub i18n import <locale> <file.po>`. i18n needs Nitro 3. Nuxt 4 fails with `I18N_UNSUPPORTED_HOST`.
+Check coverage with `pnpm vitehub i18n status --json`. Each translation is a Diglot record in `locales/<locale>/segments/<hh>/<hash>.json`: edit its `text` field only, or use `pnpm vitehub i18n import <locale> <file.po>`. A translation must keep each `{0}` of its message. i18n needs Nitro 3. Nuxt 4 fails with `I18N_UNSUPPORTED_HOST`.
 ::
