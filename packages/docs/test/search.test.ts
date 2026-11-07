@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from "vitest"
 
 import { createDocsManifest } from "../src/manifest.ts"
 import { createDocsParser, docsSearchSections } from "../src/markdown.ts"
-import { createDocsSearch, docsManifestPages } from "../src/navigation.ts"
+import { createDocsSearch, docsIndexedPages, docsUnindexedSearchSections } from "../src/navigation.ts"
 
 import type { DocsSearchSection } from "../src/types.ts"
 
@@ -17,10 +17,12 @@ beforeAll(async () => {
   const manifest = createDocsManifest({ dir: contentDir, base: "/docs" })
   const parse = createDocsParser()
   const records: DocsSearchSection[] = []
-  for (const page of docsManifestPages(manifest)) {
+  // As in the site search, a page that search engines skip, such as a generated diagnostic code page, has one record.
+  for (const page of docsIndexedPages(manifest)) {
     const { nodes } = await parse(await readFile(resolve(contentDir, page.file), "utf8"))
     records.push(...docsSearchSections(page.path, page.sourceTitle, nodes))
   }
+  records.push(...docsUnindexedSearchSections(manifest))
   search = createDocsSearch(records)
 }, 60_000)
 
