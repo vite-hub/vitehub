@@ -91,11 +91,12 @@ function back(): void {
 </script>
 
 <template>
+  <!-- The top stays in place and the dialog grows down, so an answer below the field moves nothing above it. -->
   <UModal
     v-model:open="open"
     :title="tokenStep ? 'Enter the Console token' : 'Link project'"
     :content="content"
-    :ui="{ content: 'vitehub-project-dialog sm:max-w-[440px]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere] pointer-coarse:mt-3' }"
+    :ui="{ content: 'vitehub-project-dialog top-[min(18dvh,10rem)] translate-y-0 max-h-[calc(100dvh-min(18dvh,10rem)-1rem)] sm:max-h-[calc(100dvh-min(18dvh,10rem)-2rem)] sm:max-w-[440px]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere] pointer-coarse:mt-3' }"
   >
     <template #description>
       <template v-if="tokenStep">{{ consoleProjectHost(tokenStep.target) }} uses <code class="rounded-sm bg-elevated px-1 py-px font-mono text-[0.9em] text-highlighted box-decoration-clone">auth: "token"</code>.</template>
