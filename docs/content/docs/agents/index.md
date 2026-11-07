@@ -15,13 +15,13 @@ icon: i-lucide-bot
 
 ## Start here
 
-- [First Agent](/docs/getting-started/first-agent) is the shortest proof. Run an Agent without an API key.
-- [Learning path](/docs/agents/get-started) connects the first run to models, tools, and a complete application.
-- [Build a chat app](/docs/agents/build-a-chat-app) connects a model, a streaming route, and a Vue chat UI in one project.
+- [First Agent](/docs/getting-started/first-agent): run an Agent without an API key.
+- [Learning path](/docs/agents/get-started): go from the first run to models, tools, and a full app.
+- [Build a chat app](/docs/agents/build-a-chat-app): add a model, a streaming route, and a Vue chat UI.
 
 ## Define and run
 
-An Agent Definition selects a Driver. An Invocation runs that definition with one input. This example works without a model or credentials:
+An Agent Definition picks a Driver, the thing that does the work. An Invocation runs the definition with one input. This example needs no model or credentials:
 
 ```ts
 import { defineAgent, runAgent } from 'vite-hub/agent'
@@ -41,7 +41,7 @@ if (error) throw error
 console.log(result) // { text: 'Hello, Ada!' }
 ```
 
-`runtime: false` selects inline execution. The two-argument `runAgent()` form returns an error/result tuple. For model output, provider Drivers, and streaming, follow [Invocations](/docs/agents/invocations).
+`runtime: false` runs the Agent inline. `runAgent()` with two arguments returns an error/result tuple. For models, provider Drivers, and streaming, read [Invocations](/docs/agents/invocations).
 
 ## Learn in order
 
@@ -49,10 +49,10 @@ console.log(result) // { text: 'Hello, Ada!' }
 2. [Run or stream an Invocation](/docs/agents/invocations).
 3. [Write instructions](/docs/agents/instructions) and [attach tools through Capabilities](/docs/agents/capabilities).
 4. [Select Chat History](/docs/agents/chat-history-sessions) and [add Workspace context](/docs/agents/workspace-context).
-5. [Connect a Channel](/docs/agents/channels) when messages arrive from another service or a web chat.
+5. [Connect a Channel](/docs/agents/channels) for messages from another service or a web chat.
 6. [Inspect events](/docs/agents/observability), [test contracts](/docs/agents/testing), and [evaluate model behavior](/docs/agents/evals).
 
-When the Agent works, use [presets and inheritance](/docs/agents/agent-presets) to share configuration and [Invocation storage](/docs/agents/invocation-storage) to retain run evidence. [Ready-made presets](/docs/agents/presets) provide complete workflows with their own setup requirements.
+Then share configuration with [presets and inheritance](/docs/agents/agent-presets) and keep run records with [Invocation storage](/docs/agents/invocation-storage). [Ready-made presets](/docs/agents/presets) give full workflows, each with its own setup.
 
 ::product-features
   :::product-feature-item{title="Choose what does the work" icon="i-lucide-cpu" to="/docs/agents/agent-drivers"}

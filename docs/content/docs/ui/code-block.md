@@ -6,22 +6,22 @@ navigation.group: Parts
 icon: i-ph-code-light
 ---
 
-`CodeBlock` shows code, terminal output, logs, and diffs. It has a header with a title and actions, optional line numbers and wrapping, and line variants for diffs and highlights. `useHighlightedCode()` colors the lines with [Shiki](https://shiki.style). The parts have the same names, props, and `data-slot` attributes as the [shadcn/ui Code Block](https://ui.shadcn.com/docs/components/code-block).
+`CodeBlock` shows code, terminal output, logs, and diffs. It has a header with a title and actions, optional line numbers and wrapping, and line variants for diffs and highlights. The parts match the names, props, and `data-slot` attributes of the [shadcn/ui Code Block](https://ui.shadcn.com/docs/components/code-block).
 
-Syntax highlighting is optional and lives in a separate composable, so a block that only shows plain output stays small.
+Syntax highlighting with [Shiki](https://shiki.style) is optional and lives in a separate composable, `useHighlightedCode()`, so a plain block stays small.
 
 ::component-preview{name="CodeBlockExample"}
 ::
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/code-block`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. The Nuxt module auto-imports the parts. In Vue with Vite, import them from `@vite-hub/ui` or `@vite-hub/ui/code-block`:
 
 ```ts
 import { CodeBlock, CodeBlockContent, useHighlightedCode } from "@vite-hub/ui";
 ```
 
-The `@vite-hub/ui/code-block` entry also exports `useHighlightedCode` for [syntax highlighting](#syntax-highlighting).
+`@vite-hub/ui/code-block` also exports `useHighlightedCode` for [syntax highlighting](#syntax-highlighting).
 
 ## Usage
 
@@ -66,17 +66,17 @@ CodeBlock
 └── CodeBlockFooter
 ```
 
-`CodeBlockContent` takes plain text or a list of `CodeBlockLine` parts. Use lines when you need line variants or highlighted tokens.
+`CodeBlockContent` takes plain text or `CodeBlockLine` parts. Use lines for line variants or highlighted tokens.
 
 ## Features
 
-- **Plain text stays plain.** Put text straight into `CodeBlockContent`. With `line-numbers`, the text is split into numbered lines.
-- **It copies cleanly.** Line numbers and diff markers are not selectable, and blank lines stay in a copied selection.
-- **It reads left to right.** The content always has `dir="ltr"`.
-- **It highlights without WASM.** `useHighlightedCode` uses the Shiki JavaScript regex engine, loads each language the first time it is used, and shows the colors of terminal output.
-- **It renders on the server.** The server and the first browser render show plain lines, so hydration matches. The colors follow after mount.
-- **It follows the color mode.** Tokens use the GitHub light and dark themes and follow the `dark` class of Nuxt UI.
-- **It scrolls by keyboard.** The content is focusable, and floating actions show on focus as well as on hover.
+- **Plain text stays plain.** With `line-numbers`, it splits into numbered lines.
+- **Clean copy.** Line numbers and diff markers are not selectable, and blank lines stay in a copied selection.
+- **Left to right.** The content always has `dir="ltr"`.
+- **No WASM.** `useHighlightedCode` uses the Shiki JavaScript regex engine, loads each language on first use, and shows terminal colors.
+- **Server render.** The server and first browser render show plain lines, so hydration matches. Colors follow after mount.
+- **Color mode.** Tokens use the GitHub light and dark themes and follow the Nuxt UI `dark` class.
+- **Keyboard scroll.** The content is focusable, and floating actions show on focus and hover.
 
 ## Basic
 
@@ -92,7 +92,7 @@ Put plain text in `CodeBlockContent`. It renders as one text node.
 ::component-preview{name="CodeBlockHeaderExample"}
 ::
 
-A long title truncates. To link the title to a file, wrap `CodeBlockTitle` in an anchor.
+A long title truncates. To link it to a file, wrap `CodeBlockTitle` in an anchor.
 
 ```vue
 <CodeBlockHeader>
@@ -104,7 +104,7 @@ A long title truncates. To link the title to a file, wrap `CodeBlockTitle` in an
 
 ## Actions
 
-`CodeBlockActions` holds any number of buttons. For a wrap toggle, keep the state yourself and pass it to `wrap`. A download button can make a Blob URL from the text, so it needs no request.
+`CodeBlockActions` holds any number of buttons. For a wrap toggle, keep the state yourself and pass it to `wrap`. A download button can make a Blob URL from the text, with no request.
 
 ::component-preview{name="CodeBlockActionsExample"}
 ::
@@ -135,28 +135,28 @@ const output = "pnpm test";
 
 ## Floating Actions
 
-Without a header, put `CodeBlockActions` directly in `CodeBlock`. The actions float at the top end and show when the reader hovers over the block or moves focus into it. They always show on touch screens.
+Without a header, put `CodeBlockActions` directly in `CodeBlock`. The actions float at the top end and show on hover or focus. They always show on touch screens.
 
 ::component-preview{name="CodeBlockFloatingActionsExample"}
 ::
 
 ## Line Numbers
 
-Add `line-numbers` to `CodeBlockContent`. Plain text is split into lines, and the numbers are not copied with a selection.
+Add `line-numbers` to `CodeBlockContent`. Plain text splits into lines, and the numbers are not copied.
 
 ::component-preview{name="CodeBlockLineNumbersExample"}
 ::
 
 ## Start Line
 
-Set `start-line` to number lines from a given line, for a snippet from the middle of a file. The gutter grows to fit the widest number.
+Set `start-line` for a snippet from the middle of a file. The gutter grows to fit the widest number.
 
 ::component-preview{name="CodeBlockStartLineExample"}
 ::
 
 ## Wrap
 
-Long lines scroll by default. Add `wrap` to wrap them. This suits tool output and error messages. To let the reader toggle it, see [Actions](#actions).
+Long lines scroll by default. Add `wrap` to wrap them, for example for tool output and errors. For a toggle, see [Actions](#actions).
 
 ::component-preview{name="CodeBlockWrapExample"}
 ::
@@ -170,21 +170,21 @@ Render each line as a `CodeBlockLine` and set `variant="highlighted"` on the lin
 
 ## Diff
 
-Set `variant="added"` or `variant="removed"` on a `CodeBlockLine`. Each one adds a plus or minus marker. To show a patch, split it into lines and read the variant from the first character.
+Set `variant="added"` or `variant="removed"` on a `CodeBlockLine` to add a plus or minus marker. For a patch, split it into lines and read the variant from the first character.
 
 ::component-preview{name="CodeBlockDiffExample"}
 ::
 
 ## Height
 
-Limit the height with a `max-h-*` class on `CodeBlockContent`. The content scrolls inside the block.
+Add a `max-h-*` class to `CodeBlockContent`. The content scrolls inside the block.
 
 ::component-preview{name="CodeBlockHeightExample"}
 ::
 
 ## Show More
 
-`CodeBlockFooter` is a row below the content. For Show More, limit the content height while it is collapsed and put a ghost `xs` `UButton` in the footer.
+`CodeBlockFooter` is a row below the content. For Show More, limit the height while collapsed and put a ghost `xs` `UButton` in the footer.
 
 ::component-preview{name="CodeBlockShowMoreExample"}
 ::
@@ -216,7 +216,7 @@ const id = useId();
 
 ## Size
 
-Use `size="sm"` for tool output and [Trace](#trace) output. It has tighter padding and smaller text.
+Use `size="sm"`, with tighter padding and smaller text, for tool and [Trace](#trace) output.
 
 ::component-preview{name="CodeBlockSizeExample"}
 ::
@@ -230,7 +230,7 @@ Use `variant="destructive"` for errors and failed output.
 
 ## Trace
 
-Put a `CodeBlock` with `size="sm"` in `TraceCollapsibleContent` for tool and terminal output. Add `wrap` and a `max-h-64` class to `CodeBlockContent`, so long output wraps and scrolls inside the [Trace](/docs/ui/trace).
+Put a `CodeBlock` with `size="sm"` in `TraceCollapsibleContent` for tool and terminal output. Add `wrap` and `max-h-64` to `CodeBlockContent`, so long output wraps and scrolls inside the [Trace](/docs/ui/trace).
 
 ::component-preview{name="CodeBlockTraceExample"}
 ::
@@ -267,20 +267,20 @@ const lines = useHighlightedCode(code, "json");
 </template>
 ```
 
-Both arguments can be refs or getters, so the lines update when the code changes. Shiki uses its JavaScript regex engine, so there is no WASM to load. The server and the first browser render show plain lines, so hydration matches, and the colors follow after mount. Plain ANSI text drops its escape codes. Tokens use the GitHub light and dark themes and follow the `dark` class of Nuxt UI.
+Both arguments can be refs or getters, so the lines update when the code changes. Plain ANSI text drops its escape codes. See [Features](#features) for the engine, server render, and themes.
 
 ### Languages
 
-Each language loads the first time it is used. A language that is not in the list renders as plain text. Call `useHighlightedCode` once for each block.
+Each language loads on first use. A language not in the list renders as plain text. Call `useHighlightedCode` once per block.
 
 ::component-preview{name="CodeBlockLanguagesExample"}
 ::
 
-The supported languages are `bash`, `css`, `diff`, `html`, `javascript`, `json`, `jsx`, `markdown`, `python`, `sql`, `tsx`, `typescript`, `vue`, and `yaml`, with the aliases `js`, `ts`, `sh`, `shell`, `md`, and `yml`.
+Supported languages: `bash`, `css`, `diff`, `html`, `javascript`, `json`, `jsx`, `markdown`, `python`, `sql`, `tsx`, `typescript`, `vue`, and `yaml`, with the aliases `js`, `ts`, `sh`, `shell`, `md`, and `yml`.
 
 ### Terminal Output
 
-Pass `"ansi"` as the language to show the colors of terminal output. Without it, the escape codes show as text. Remove the escape codes from the value that you copy.
+Pass `"ansi"` as the language to show terminal colors. Without it, escape codes show as text. Remove escape codes from the value you copy.
 
 ::component-preview{name="CodeBlockAnsiExample"}
 ::
@@ -288,19 +288,19 @@ Pass `"ansi"` as the language to show the colors of terminal output. Without it,
 ## Accessibility
 
 - `CodeBlockContent` is a `pre` with a `code` element and always sets `dir="ltr"`, so code reads left to right on a right-to-left page.
-- `CodeBlockContent` is focusable, so keyboard users can scroll long lines. The block shows a focus ring.
-- Floating actions show when focus is inside the block, not only on hover, so keyboard users can reach them.
-- Line numbers and diff markers are not selectable and are not read as text.
-- Diff lines have a plus or minus marker as well as a tint, so the change does not rely on color.
-- `CodeBlockCopyButton` is labeled "Copy" and changes to "Copied". A polite live region announces the copy.
-- Give a wrap toggle `aria-pressed`, so screen readers announce its state.
+- `CodeBlockContent` is focusable, with a focus ring, so keyboard users can scroll long lines.
+- Floating actions show on focus too, so keyboard users can reach them.
+- Line numbers and diff markers are not selectable or read as text.
+- Diff lines have a plus or minus marker besides the tint, so they do not rely on color.
+- `CodeBlockCopyButton` is labeled "Copy", then "Copied". A polite live region announces it.
+- Give a wrap toggle `aria-pressed` so screen readers announce its state.
 - Give a Show More button `aria-expanded`, and point `aria-controls` at the `id` of `CodeBlockContent`.
 
 ## API Reference
 
 ### CodeBlock
 
-The surface that holds the header, the content, and the footer. Renders a `div` with `data-slot="code-block"`.
+Holds the header, content, and footer. Renders a `div` with `data-slot="code-block"`.
 
 #### Props
 
@@ -311,19 +311,19 @@ The surface that holds the header, the content, and the footer. Renders a `div` 
 
 ### CodeBlockHeader
 
-A row above the content for a title and actions. Has no props. Renders a `div` with `data-slot="code-block-header"`.
+A row above the content for a title and actions. No props. Renders a `div` with `data-slot="code-block-header"`.
 
 ### CodeBlockTitle
 
-A file name or a label, with an optional icon. It truncates. Has no props. Renders a `div` with `data-slot="code-block-title"`.
+A file name or label, with an optional icon. It truncates. No props. Renders a `div` with `data-slot="code-block-title"`.
 
 ### CodeBlockActions
 
-Holds buttons at the end of the header. As a direct child of `CodeBlock`, it floats over the code. Has no props. Renders a `div` with `data-slot="code-block-actions"`.
+Buttons at the end of the header. As a direct child of `CodeBlock`, it floats over the code. No props. Renders a `div` with `data-slot="code-block-actions"`.
 
 ### CodeBlockCopyButton
 
-A Nuxt UI `UButton` with `variant="ghost"` and `size="xs"` that copies `value` to the clipboard. Other attributes go to the button.
+A ghost `xs` Nuxt UI `UButton` that copies `value` to the clipboard. Other attributes go to the button.
 
 #### Props
 
@@ -355,7 +355,7 @@ One line of code.
 
 ### CodeBlockFooter
 
-A row below the content, for example for a Show More button. Has no props. Renders a `div` with `data-slot="code-block-footer"`.
+A row below the content, such as for Show More. No props. Renders a `div` with `data-slot="code-block-footer"`.
 
 ### useHighlightedCode
 
@@ -366,7 +366,7 @@ function useHighlightedCode(
 ): ShallowRef<VNode[]>;
 ```
 
-Returns a shallow ref with one VNode per line. It holds plain lines on the server, until the first highlight pass after mount finishes, and for a language that is not in the list.
+Returns a shallow ref with one VNode per line. It holds plain lines on the server, until the first highlight after mount, and for unlisted languages.
 
 #### Parameters
 

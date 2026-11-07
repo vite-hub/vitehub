@@ -6,14 +6,14 @@ navigation.group: Chat
 icon: i-ph-chats-circle-light
 ---
 
-`ChatSession` is the small shell around a saved conversation. It gives the Console a title, a `Chat` that fills the available space, and an optional footer for the prompt or session actions. AI SDK does not define a session schema, so `ViteHubUISession` stays small: an ID, messages, an optional title and timestamps, and your own metadata.
+`ChatSession` wraps a saved conversation. It shows a title, a `Chat` that fills the space, and an optional footer for the prompt or session actions. AI SDK has no session schema, so `ViteHubUISession` stays small: an ID, messages, an optional title and timestamps, and your metadata.
 
 ::component-preview{name="SessionExample" flush}
 ::
 
 ## Installation
 
-Install `@vite-hub/ui` as described in [Installation](/docs/ui/installation). The Nuxt module auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or from the focused entry `@vite-hub/ui/chat-session`:
+Install `@vite-hub/ui` as [Installation](/docs/ui/installation) shows. The Nuxt module auto-imports the component. In Vue with Vite, import it from `@vite-hub/ui` or `@vite-hub/ui/chat-session`:
 
 ```ts
 import { ChatSession } from "@vite-hub/ui";
@@ -38,7 +38,7 @@ const session: ViteHubUISession = {
 
 ## Composition
 
-`ChatSession` wraps a [Chat](/docs/ui/chat). Slots other than `header` and `footer` go to that `Chat`.
+`ChatSession` wraps a [Chat](/docs/ui/chat). Slots other than `header` and `footer` go to it.
 
 ```text
 ChatSession (section)
@@ -51,28 +51,26 @@ ChatSession (section)
 
 ## Features
 
-- Renders a `ViteHubUISession` with a title and its messages.
-- Fills the available space with a `Chat`.
-- Adds an optional footer for the prompt or session actions.
-- Leaves loading, saving, and authorization to your application.
-- Accepts your own metadata on the session record.
+- Renders a `ViteHubUISession` with its title and messages.
+- Leaves loading, saving, and authorization to your app.
+- Takes your own metadata on the session.
 
 ## Session Ownership
 
-The component does not fetch, change, or save the session. Load the record in your application, extend its metadata when needed, and keep tenancy and authorization at that boundary.
+The component does not fetch, change, or save the session. Load it in your app, add metadata as needed, and check tenancy and authorization there.
 
 ## Header and Footer
 
-Use the `header` slot to replace the title and the `footer` slot to add content under the chat. Both receive `{ session }`.
+The `header` slot replaces the title. The `footer` slot adds content under the chat. Both receive `{ session }`.
 
 ::component-preview{name="SessionSlotsExample" flush}
 ::
 
 ## Accessibility
 
-- The section has the session title as its accessible name, or **Agent session** when there is no title. Pass `aria-label` to change it.
-- The default header renders the title as an `<h2>`. Keep the heading level correct when you replace it in the `header` slot.
-- The chat inside has the same keyboard and screen reader behavior as [Chat](/docs/ui/chat#accessibility).
+- The section is named by the session title, or **Agent session** without one. Pass `aria-label` to change it.
+- The default title is an `<h2>`. Keep the heading level correct in your `header` slot.
+- The chat inside behaves like [Chat](/docs/ui/chat#accessibility) for keyboard and screen readers.
 
 ## API Reference
 
@@ -94,8 +92,8 @@ Other attributes go to the root `<section>`. It has a `data-session-id` attribut
 | Slot        | Scope         | Description                                                    |
 | ----------- | ------------- | -------------------------------------------------------------- |
 | `header`    | `{ session }` | Replaces the default title header.                             |
-| `footer`    | `{ session }` | Content under the chat.                                        |
-| Other slots |               | Forwarded to `Chat`, for example `message` or `composer`.      |
+| `footer`    | `{ session }` | Content under the chat. |
+| Other slots |               | Passed to `Chat`, such as `message` or `composer`. |
 
 #### Types
 
@@ -110,7 +108,7 @@ interface ViteHubUISession<Message extends UIMessage = UIMessage> {
 }
 ```
 
-`ViteHubUIMessage<Metadata, DataParts, Tools>` is an alias of the AI SDK `UIMessage` with the same type parameters.
+`ViteHubUIMessage<Metadata, DataParts, Tools>` is an alias of AI SDK `UIMessage` with the same type parameters.
 
 ## Related
 
