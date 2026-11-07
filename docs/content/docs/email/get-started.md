@@ -8,16 +8,19 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Send a welcome email with Resend and check its delivery. You will configure the provider, supply its API key to the server, and call a route that sends the message. The development outbox also records it for inspection.
+Email sends email from your server code. You write the message once. A provider, such as Resend, delivers it.
 
-You need Node.js 22.22 or newer, Vite 8 or newer, pnpm, a Vite application, and a POSIX-compatible shell. You also need a Resend API key, a verified sender, and an inbox you can check. Run the commands from the app root. The final request sends a real email.
+In this tutorial, you send a real welcome email through Resend from an API route, and you check that it arrived.
+
+> [!NOTE] Before you start
+> You need Node.js 22.22 or newer, Vite 8 or newer, pnpm, a Vite app, and a POSIX shell such as bash or zsh. You also need a Resend account with an API key, a sender address that Resend verified, and an inbox that you can check. Run the commands from the root of the app. The last step sends a real email.
 
 ::tutorial-step{title="Install the email dependencies"}
 ## Install the email dependencies
 
-Install ViteHub and Nitro. The distribution includes the Resend driver; you do not need a separate driver package.
+Install ViteHub. Nitro is the server that runs your API routes. The Resend driver comes with ViteHub, so you install no other package.
 
-```bash [commands/install]
+```bash pm [commands/install]
 pnpm add vite-hub nitro h3
 pnpm add -D vite
 ```
@@ -27,7 +30,7 @@ pnpm add -D vite
 ::tutorial-step{title="Configure Resend"}
 ## Configure Resend
 
-Add Email to your existing ViteHub configuration. `env.source('RESEND_API_KEY')` names the server environment variable that supplies the credential.
+Add `email` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
@@ -48,31 +51,34 @@ export default defineConfig({
 })
 ```
 
-`remote: true` makes `vite dev` send real email through Resend. Without it, a dev send stays in the [development outbox](/docs/email/hosts#development-outbox) and Resend gets no request. Builds ignore `remote`. The server reads the API key when it sends a message. Keep the key in the environment rather than placing its value in this config. Literal options are part of the build output.
+- `driver: 'resend'` sends the email through Resend.
+- `apiKey` reads the key from the `RESEND_API_KEY` environment variable when the server sends an email. Do not write the key itself in this file. Values in the config go into the build output.
+- `remote: true` makes `vite dev` send real email. Without it, `vite dev` keeps each email in the [development outbox](/docs/email/hosts#development-outbox) and sends nothing to Resend. A build ignores `remote`.
 
 ::
 
 ::tutorial-step{title="Provide the Resend secret"}
 ## Provide the Resend secret
 
-Set `RESEND_API_KEY` in the server process:
-
-Replace `re_...` with your API key in the terminal where you will start Vite. An export in another terminal does not set the server's environment.
+Set `RESEND_API_KEY` in the terminal where you start Vite. Replace `re_...` with your API key. A variable that you set in another terminal does not get to the server.
 
 ```bash [commands/secret]
 export RESEND_API_KEY='re_...'
 ```
 
-Use your deployment platform's secret store in production. Do not use a `VITE_` prefix because Vite-prefixed values can be exposed to browser code.
+In production, put the key in the secret store of your host. Do not start the name with `VITE_`. Vite can send `VITE_` values to the browser.
 
 ::
 
 ::tutorial-step{title="Send from server code"}
 ## Send from server code
 
-Replace both addresses with values accepted by Resend. With `remote: true`, the request performs a real delivery. In `vite dev`, the [development outbox](/docs/email/hosts#development-outbox) also records the message.
+Create `server/api/welcome.post.ts`. Then change the two addresses:
 
-Replace the sender with a Resend-verified address and the recipient with an inbox you control. Each request to this route sends another message.
+- Set `from` to the sender address that Resend verified.
+- Set `to` to an inbox that you can check.
+
+Each request to this route sends one more real email.
 
 ```ts [server/api/welcome.post.ts]
 import { defineEventHandler } from 'h3'
@@ -90,24 +96,26 @@ export default defineEventHandler(async () => {
 })
 ```
 
+`email.send()` does not throw. It returns `[error, sent]`. Check `error` first. In `vite dev`, the [development outbox](/docs/email/hosts#development-outbox) also keeps a copy of each email.
+
 ::
 
 ::tutorial-step{title="Run and check the result"}
 ## Run and check the result
 
-Nitro serves the `server/api` route. Start the server and send the request:
+Start the dev server in the terminal where you set the key:
 
 ```bash [commands/start]
 pnpm vite dev
 ```
 
-Keep the server running. In another terminal, run:
+Keep the server running. Open a second terminal and call the route:
 
 ```bash [commands/request]
 curl -X POST http://localhost:5173/api/welcome
 ```
 
-A successful response has this shape:
+When Resend accepts the email, the response looks like this:
 
 ```json [output/response.json]
 {
@@ -116,6 +124,24 @@ A successful response has this shape:
 }
 ```
 
-Resend supplies `id`. The first send prints `[vitehub] Email is remote` in the server terminal. Confirm delivery in the recipient inbox or the provider's delivery log; an accepted message ID does not guarantee final inbox placement.
+`id` comes from Resend. The first send also prints `[vitehub] Email is remote` in the server terminal.
 
+Now open the inbox and find the email. You can also look in the Resend delivery log. An `id` tells you that Resend accepted the email. It does not tell you that the email got to the inbox.
+
+::
+
+## Next steps
+
+::card-group
+:::card{title="Development outbox" icon="i-lucide-inbox" to="/docs/email/hosts#development-outbox"}
+Test emails in `vite dev` without sending them.
+:::
+
+:::card{title="Server API" icon="i-lucide-code-2" to="/docs/email/server-api"}
+See the message fields and write emails in Markdown.
+:::
+
+:::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/email/configure#configure-another-provider"}
+Use a provider other than Resend.
+:::
 ::

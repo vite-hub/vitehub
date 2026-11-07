@@ -8,21 +8,24 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Fetch the rendered HTML of `https://example.com` with a browser running on Cloudflare. You will define one browser operation and expose it through an API route. The route returns the browser's native `Response`.
+Browser gives your server a real web browser. Your code can open a web page, read it after its scripts run, or take a screenshot. The browser runs on Cloudflare, not on your server.
 
-You need Node.js 22.22 or newer, pnpm, a Vite application, and a Cloudflare account with Browser Run enabled. Run the commands from the app root. This example uses a remote browser even when Wrangler runs locally, so provider usage can incur charges. For a local Chromium process, see [Hosts](/docs/browser/hosts).
+In this tutorial, you write a browser task that gets the HTML of `https://example.com`. Then you call it from an API route.
+
+> [!NOTE] Before you start
+> You need Node.js 22.22 or newer, pnpm, a Vite app, and a Cloudflare account with Browser Run turned on. The browser runs on Cloudflare even when you test on your computer, so each run can cost money. Run every command from the app root. To use a Chromium browser on your own machine, see [Hosts](/docs/browser/hosts).
 
 ::tutorial-step{title="Install and configure"}
 ## Install and configure
 
-Install the app dependencies and Wrangler, the Cloudflare development tool.
+Add ViteHub, Nitro, and Wrangler, the Cloudflare development tool, to your app:
 
-```bash [commands/install]
+```bash pm [commands/install]
 pnpm add vite-hub nitro h3
 pnpm add -D vite wrangler
 ```
 
-Enable Browser on the Cloudflare deployment preset.
+Then turn on Browser in `vite.config.ts`:
 
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
@@ -35,14 +38,15 @@ export default {
 }
 ```
 
+- `preset: 'cloudflare'` builds your app for Cloudflare. Browser works only with this preset.
+- `remote: true` lets your app call the browser on Cloudflare while you test on your computer.
+
 ::
 
 ::tutorial-step{title="Define a browser operation"}
 ## Define a browser operation
 
-Place Browser Definitions in `server/browsers/` or name them `*.browser.ts`.
-
-The file name registers the operation as `page-html`. `browser.content()` opens the supplied URL and reads its HTML in the browser session.
+Create `server/browsers/page-html.ts`. The file name is the name of the task: `page-html`. ViteHub finds browser tasks in `server/browsers/` and in files that end in `.browser.ts`.
 
 ```ts [server/browsers/page-html.ts]
 import { defineBrowser } from 'vite-hub/browser'
@@ -55,12 +59,15 @@ export default defineBrowser(async (
 })
 ```
 
+- `input` is what the caller sends. Here, it is a URL.
+- `browser.content(input.url)` opens the page and returns its HTML.
+
 ::
 
 ::tutorial-step{title="Run it by name"}
 ## Run it by name
 
-The route passes the request body to the named operation. For this local check, only send the fixed URL below. Add authentication and a URL allowlist before exposing a route that accepts arbitrary URLs.
+Create `server/api/page-html.post.ts`. This route sends the request body to the `page-html` task.
 
 ```ts [server/api/page-html.post.ts]
 import { defineEventHandler, readBody } from 'h3'
@@ -72,16 +79,17 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-::
+- `runBrowser('page-html', input)` runs the task by its name. ViteHub knows the input type of each task, so TypeScript checks `input`.
+- It returns a normal `Response`. If the task fails, the `Response` has an error status and a JSON body.
 
-The generated Browser registry infers each Definition's input type. `runBrowser()` returns a native `Response`. Discovery and provider failures return a non-2xx JSON `Response`.
+This route opens any URL that it gets. In this tutorial, send only the URL below. Before you deploy, add sign-in and a list of allowed URLs.
+
+::
 
 ::tutorial-step{title="Verify the response"}
 ## Verify the response
 
-Build the Cloudflare Worker, then start Wrangler with the generated binding.
-Remote mode calls Cloudflare Browser Run and requires account access. Sign in
-to the account that has Browser Run enabled:
+Sign in to the Cloudflare account that has Browser Run. Then build the app, and start it with Wrangler:
 
 ```bash [commands/request]
 pnpm wrangler login
@@ -89,7 +97,7 @@ pnpm vite build
 pnpm wrangler dev --config .output/server/wrangler.json
 ```
 
-Keep Wrangler running and send the request from another terminal:
+Open a second terminal, and send a URL to the route:
 
 ```bash [commands/request-browser]
 curl -X POST http://localhost:8787/api/page-html \
@@ -97,8 +105,22 @@ curl -X POST http://localhost:8787/api/page-html \
   -d '{"url":"https://example.com"}'
 ```
 
-The response is the HTML returned by the Browser provider. Read
-[Server API](/docs/browser/server-api) for page sessions, screenshots, and
-stateless actions.
+The response is the HTML of `https://example.com`.
 
+::
+
+## Next steps
+
+::card-group
+:::card{title="Server API" icon="i-lucide-code" to="/docs/browser/server-api"}
+Keep a page open, take screenshots, and run browser actions.
+:::
+
+:::card{title="Configure" icon="i-lucide-sliders-horizontal" to="/docs/browser/configure"}
+Change the binding, the session engine, and remote mode.
+:::
+
+:::card{title="Limits and errors" icon="i-lucide-triangle-alert" to="/docs/browser/limits-and-errors"}
+See the limits of Browser Run and check before production.
+:::
 ::
