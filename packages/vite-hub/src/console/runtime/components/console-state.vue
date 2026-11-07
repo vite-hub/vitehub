@@ -124,7 +124,7 @@ onBeforeUnmount(() => {
       <UTooltip v-if="problem" :text="copied ? 'Copied' : 'Copy error code'">
         <button
           type="button"
-          class="-mx-1 max-w-full justify-self-start rounded px-1 text-start font-mono text-[11px] text-dimmed outline-none [overflow-wrap:anywhere] hover:text-muted focus-visible:ring-1 focus-visible:ring-primary"
+          class="-mx-1 max-w-full justify-self-start rounded px-1 text-start font-mono text-[11px] text-dimmed outline-none [overflow-wrap:anywhere] hover:text-muted focus-visible:ring-1 focus-visible:ring-(--vitehub-console-focus)"
           :aria-label="`Copy error code ${problem.code}`"
           @click="copyCode"
         >
@@ -155,7 +155,7 @@ onBeforeUnmount(() => {
       <UTooltip v-if="problem" :text="copied ? 'Copied' : 'Copy error code'">
         <button
           type="button"
-          class="ms-1 whitespace-nowrap rounded px-1 font-mono text-[11px] text-dimmed outline-none hover:text-muted focus-visible:ring-1 focus-visible:ring-primary"
+          class="ms-1 whitespace-nowrap rounded px-1 font-mono text-[11px] text-dimmed outline-none hover:text-muted focus-visible:ring-1 focus-visible:ring-(--vitehub-console-focus)"
           :aria-label="`Copy error code ${problem.code}`"
           @click="copyCode"
         >
