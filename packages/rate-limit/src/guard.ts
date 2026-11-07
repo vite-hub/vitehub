@@ -11,7 +11,7 @@ import {
   getRateLimitRuntimeConfig,
 } from "./runtime/state.ts"
 
-import type { ViteHubContext, ViteHubStandardProps } from "@vite-hub/runtime"
+import type { ViteHubContext } from "@vite-hub/runtime"
 import type { CloudflareRateLimitBinding } from "./drivers/cloudflare.ts"
 import type { RateLimitDecision, RateLimiter, RateLimitPolicy, RateLimitRequest, RateLimitRequestEvent, RequireRateLimitOptions } from "./types.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
@@ -27,8 +27,6 @@ interface RateLimitRequestScope {
   clientAddress?: string
   cloudflareEnv?: Record<string, unknown>
   headers: RateLimitRequest["headers"]
-  /** Present for a request event. A `Request` has no response to carry headers. */
-  standard?: ViteHubStandardProps
 }
 
 function isObject(value: unknown): value is object {
@@ -54,7 +52,7 @@ function isRequestEvent(input: RateLimitRequestEvent): input is ViteHubContext {
       && isWebRequest(Reflect.get(standard, "req"))
       && isObject(Reflect.get(standard, "res"))
   }
-  // Match the H3 shapes that getStandardContext() can adapt when Nitro has not installed it yet.
+  // Match the H3 shape that getStandardContext() can adapt when Nitro has not installed it yet.
   return Object.hasOwn(input, "req") && isWebRequest(Reflect.get(input, "req")) && isObject(Reflect.get(input, "res"))
 }
 
@@ -66,7 +64,6 @@ function getRequestScope(input: RateLimitRequestEvent): RateLimitRequestScope {
     clientAddress: standard.runtime?.clientAddress,
     cloudflareEnv: standard.runtime?.cloudflare?.env,
     headers: standard.req.headers,
-    standard,
   }
 }
 
