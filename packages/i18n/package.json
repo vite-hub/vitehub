@@ -76,6 +76,8 @@
   },
   "dependencies": {
     "@babel/core": "catalog:i18n",
+    "@diglot/core": "catalog:i18n",
+    "@diglot/store": "catalog:i18n",
     "@lingui/babel-plugin-lingui-macro": "catalog:i18n",
     "@lingui/cli": "catalog:i18n",
     "@lingui/conf": "catalog:i18n",
@@ -89,6 +91,7 @@
     "magic-string": "^0.30.21"
   },
   "devDependencies": {
+    "@diglot/cli": "catalog:i18n",
     "@types/babel__core": "^7.20.5",
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
