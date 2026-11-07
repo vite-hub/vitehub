@@ -29,9 +29,11 @@ import { denoServerPackagesPlugin, finalizeDenoDeploymentOutput, type DenoServer
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { createNoExternalAddition, isServerEnvironment, loadsViteHubPackagesNatively, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_NITRO_MAJOR_VERSION, VITEHUB_SERVER_DIRS, workerdDependencyConfig, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
-import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
+import { deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
 import { viteHubTypesPlugin } from "./internal/types.ts"
+import { assertFeatureSupported, assertHostService } from "./internal/feature-support.ts"
+import type { HostSelectedService } from "./internal/feature-support.ts"
 import { assertFeaturePackages, isPackageInstalled, optionalFeaturePackages, requireOptionalOwner } from "./internal/optional-owners.ts"
 import { commentsOffPlugin, optionalOwnerEntriesPlugin, optionalOwnerImportsPlugin, ownerFacadeFeature, ownerModules } from "./internal/owner-modules.ts"
 import { withCmsPresetPlugins } from "./internal/cms-preset-features.ts"
@@ -47,7 +49,6 @@ import { unavailableServicesPlugin } from "./unavailable-services.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
-import { nitroStartupChunks } from "./internal/nitro-startup-chunks.ts"
 import { cloudflareExportConditions, detectPreset } from "./deployment.ts"
 import { cloudflareCustomDomainConfig, readProjectWranglerConfig } from "./cloudflare-custom-domain.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
@@ -655,7 +656,7 @@ function assertNodeScheduleWake(schedule: ViteHubOptions["schedule"]): void {
 
 function deploymentPlugins(
   plan: DeploymentPlan,
-  requestedServices: DeploymentService[],
+  requestedServices: HostSelectedService[],
   blobEnabled: boolean,
   services: DeploymentServicesManifest,
   options: ViteHubOptions,
@@ -739,7 +740,7 @@ function deploymentPlugins(
       },
       resolveId(source) {
         if (!blobEnabled && (source === "vite-hub/blob" || source === frameworkProviderImportAliases["vite-hub/blob"])) {
-          if (!plan.services.blob.supported) assertDeploymentService(plan, "blob")
+          assertHostService(plan, "blob")
           throw viteHubErrorDiagnostics.VITE_HUB_R0079({ message: "[vitehub] Blob is disabled but the application imports " + JSON.stringify(source) + "." })
         }
       },
@@ -753,7 +754,7 @@ function deploymentPlugins(
             ...cloneRecord((config as { vitehub?: unknown }).vitehub),
             preset: plan.preset,
           }
-          for (const service of requestedServices) assertDeploymentService(plan, service)
+          for (const service of requestedServices) assertHostService(plan, service)
           // The dev server keeps manual runs working without a wake owner.
           if (building && plan.preset === "node") assertNodeScheduleWake(options.schedule)
           const identity = resolveDeploymentIdentity(
@@ -1077,9 +1078,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   // the one enabled by Connections) are provisioned and bound like explicit
   // D1 configurations.
   if (plan.preset === "cloudflare" && options.database === true) options = { ...options, database: { driver: "d1" } }
-  if (options.schedule && plan.preset === "deno") {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0086({ message: "[vitehub] The \"deno\" preset cannot provide Schedule because its generated cron output is not part of the deployed Nitro entrypoint. Disable Schedule or compose an explicit Deno scheduling integration." })
-  }
+  assertFeatureSupported("schedule", plan.preset, options)
   if (options.agent && options.agent !== true && options.agent.runtime === "deno" && plan.preset === "deno") {
     throw viteHubErrorDiagnostics.VITE_HUB_R0087({ message: "[vitehub] The \"deno\" preset cannot deploy the Agent Deno runtime because its generated server is outside the deployed Nitro entrypoint. Use the preset's Nitro runtime or compose an explicit Deno Agent deployment." })
   }
@@ -1094,12 +1093,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       throw viteHubErrorDiagnostics.VITE_HUB_R0132({ message: "[vitehub] agent.invocations requires Nitro-hosted Agents. Netlify and Deno Agent output are not supported. Set invocations on each Agent Definition." })
     }
   }
-  if (options.browser && !plan.services.browser.supported) {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0088({ message: "[vitehub] Browser currently requires the Cloudflare deployment preset." })
-  }
-  if (options.email === true && plan.preset !== "cloudflare") {
-    throw viteHubErrorDiagnostics.VITE_HUB_R0089({ message: "[vitehub] email: true currently requires the Cloudflare deployment preset; configure an explicit Email driver for other presets." })
-  }
+  assertFeatureSupported("browser", plan.preset, options)
+  assertFeatureSupported("email", plan.preset, options)
   // The packages of these features are optional peers. One error lists every package that the app must add.
   const consoleAuth = consoleAuthConfig(configuredConsole)
   const consoleSignIn = consoleAuth
@@ -1130,7 +1125,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const workflowEnabled = options.workflow !== false && Boolean(options.agent || options.workflow)
   const consoleSections = resolveConsoleSectionIds({ ...options, env: options.env !== false, blob: blobEnabled, preset: plan.preset, sandboxTask: sandboxTaskEnabled })
   const plugins: unknown[] = [doctorPlugin(), hubMarkdownTemplate()]
-  const requestedServices: DeploymentService[] = []
+  const requestedServices: HostSelectedService[] = []
   if (options.blob !== undefined && options.blob !== false && !hasExplicitBlobStore(options.blob)) requestedServices.push("blob")
   if (options.queue) requestedServices.push("queue")
   if (options.rateLimit) requestedServices.push("rateLimit")
@@ -1464,8 +1459,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
   plugins.push(nitroCacheBypass())
-  // Keeps packages that load on demand, such as Chat adapters, out of the chunks that the server loads at startup.
-  plugins.push(nitroStartupChunks())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
     prepareSources: sourcePlugin.api.prepareSources,
