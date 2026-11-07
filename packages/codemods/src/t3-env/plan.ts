@@ -53,7 +53,12 @@ export function envPathOf(key: string, section: EnvField["section"]): string {
 
 /** Plans one Env declaration for each `createEnv()` key. */
 export async function planT3Env(options: T3EnvOptions, cwd: string): Promise<T3Plan> {
-  const plan: T3Plan = { fields: [], followUps: [] }
+  // JSON Schema describes value shapes. Parser compatibility needs manual review for every schema,
+  // including libraries and wrappers that schemaIssues() does not recognize.
+  const plan: T3Plan = {
+    fields: [],
+    followUps: [{ message: 'Check every migrated variable with missing and invalid values before using the app. Env uses its own parsers; the original coercion, catch() fallbacks, refinements, and transforms are not preserved. For example, z.coerce.boolean() reads "false" as true, while env.boolean() returns false. Keep equivalent parsing and invalid-value fallback handling where code reads a value.' }],
+  }
   const used = new Map<string, string>()
   const sections: Array<[T3Field["section"], Record<string, unknown>]> = [["server", options.server], ["shared", options.shared], ["client", options.client]]
   for (const [t3Section, entries] of sections) {

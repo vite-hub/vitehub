@@ -6,9 +6,10 @@ Files to change (3):
   server/auth.ts
   package.json
 
-Manual follow-ups (2):
-  1. env.ts:6 DATABASE_URL: Env does not keep the URL format. Check the value where code reads it, or use envSchema() with a .env.example for length, range, integer, and URL checks.
-  2. drizzle.config.ts:1 This file runs outside the Nuxt app or server runtime, so it cannot read Env through #vitehub/env. The codemod kept env.ts for it. Read process.env here, then delete env.ts.
+Manual follow-ups (3):
+  1. env.ts Check every migrated variable with missing and invalid values before using the app. Env uses its own parsers; the original coercion, catch() fallbacks, refinements, and transforms are not preserved. For example, z.coerce.boolean() reads "false" as true, while env.boolean() returns false. Keep equivalent parsing and invalid-value fallback handling where code reads a value.
+  2. env.ts:6 DATABASE_URL: Env does not keep the URL format. Check the value where code reads it, or use envSchema() with a .env.example for length, range, integer, and URL checks.
+  3. drizzle.config.ts:1 This file runs outside the Nuxt app or server runtime, so it cannot read Env through #vitehub/env. The codemod kept env.ts for it. Read process.env here, then delete env.ts.
 
 Notes:
   - Each declaration reads its original variable with env.source(). Env reads the canonical name VITEHUB_<NAME> first, for example VITEHUB_DATABASE_URL before DATABASE_URL.

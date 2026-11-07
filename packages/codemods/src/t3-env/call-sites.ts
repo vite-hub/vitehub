@@ -25,7 +25,10 @@ const outsideFolders = new Set(["scripts", "script", "test", "tests", "e2e", "bi
 
 export function classify(file: string): FileContext {
   const segments = file.split("/")
-  if (outsideFolders.has(segments[0] ?? "") || segments.includes("modules") || /^nuxt\.config\.[cm]?[jt]s$/.test(segments.at(-1) ?? "")) return "outside"
+  // Local modules belong to the app or layer root. Runtime folders may also be named `modules`.
+  let root = 0
+  while (segments[root] === "layers" && segments[root + 1] && segments[root + 2]) root += 2
+  if (outsideFolders.has(segments[root] ?? "") || segments[root] === "modules" || /^nuxt\.config\.[cm]?[jt]s$/.test(segments.at(-1) ?? "")) return "outside"
   if (segments.includes("server") || /\.server\.[cm]?[jt]sx?$/.test(file)) return "server"
   if (segments.length === 1) return /^(?:app|error)\.vue$/.test(file) ? "app" : "outside"
   if (file.endsWith(".vue") || /\.client\.[cm]?[jt]sx?$/.test(file) || appFolders.has(segments[0] ?? "")) return "app"
@@ -199,7 +202,8 @@ export async function rewriteT3CallSites(cwd: string, module: EnvModule, fields:
           return keep(`${key} is a server variable, and this file runs in the browser. Move the read to server code.`)
         }
         else {
-          replacement = `${serverName}().${field.envPath[0]}${field.secret ? ".unseal()" : ""}`
+          const unseal = field.secret ? `${field.required ? "." : "?."}unseal()` : ""
+          replacement = `${serverName}().${field.envPath[0]}${unseal}`
           needsServer = true
           if (context === "shared") follow(node, `${key} is Server Env, and this file is outside server/. Import this file only from server code: Server Env is not available in the browser.`)
         }
