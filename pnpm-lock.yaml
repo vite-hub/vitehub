@@ -1878,6 +1878,9 @@ importers:
       '@vite-hub/internal':
         specifier: workspace:*
         version: link:../internal
+      ai:
+        specifier: catalog:ai
+        version: 7.0.130(zod@4.6.7)
       publint:
         specifier: catalog:tooling
         version: 0.3.25
