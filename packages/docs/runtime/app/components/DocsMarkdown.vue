@@ -15,8 +15,9 @@ const props = defineProps<{
   components?: Record<string, Component>
 }>()
 
-// The same options as the parser, so every node it writes has its component.
-const { components: blocks } = comarkUi({ typeset: false, chips: false, badge: { download: false } })
+// Every block's component, not only those of the plugins this package parses with: a site that adds chips or another
+// comark-ui plugin to its parser gets its nodes drawn, and a component no node names costs nothing.
+const { components: blocks } = comarkUi()
 
 // `::note`, `::tip`, and the other callout components draw comark-ui's GitHub callout, the same as a `> [!NOTE]` quote.
 const callout = (type: string, title?: string): Component => defineComponent({

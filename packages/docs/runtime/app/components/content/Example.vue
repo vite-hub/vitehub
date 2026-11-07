@@ -150,18 +150,30 @@ onMounted(() => {
   padding: 1.25rem 1.5rem;
 }
 
-.vh-example-body > :deep(.docs-example-preview > :first-child) {
+/* Blocks add their own `style` and `script` elements, which aren't the first or last thing a reader sees. */
+.vh-example-body > :deep(.docs-example-preview > :nth-child(1 of :not(style, script))) {
   margin-top: 0;
 }
 
-.vh-example-body > :deep(.docs-example-preview > :last-child) {
+.vh-example-body > :deep(.docs-example-preview > :nth-last-child(1 of :not(style, script))) {
   margin-bottom: 0;
 }
 
-/* A block that draws its own frame, such as code, a table, or tabs, needs no second one around it. */
-.vh-example-body > :deep(.docs-example-preview:has(> :only-child:is(.ck, .ct, .cd, .ce, .cch, .cgc, .cc, .cca, .cdt, .cft, .ctr, .cmm, .cmv, .cqz, figure, pre, table))) {
+/* A block that draws its own frame (code, a chart, a diff, an embed, a callout, tabs, a carousel, a quiz) needs no
+   second one around it, so a preview that holds only such blocks drops its ring and padding and stacks them with a gap.
+   A block that only has an HTML renderer arrives in a `.comark-html` named after it. */
+.vh-example-body > :deep(.docs-example-preview:not(:has(> :not(style, script, .cch, .cd, .ce, .ce-card, .cgc, .ck, .cft, .ct, .cmv, .cc, .ccr, .ccr-group, .cdg, .cmm, .cca, .cdt, .cdt-accordion, .ctr, .cfm, .cmt-tiles, .cqz, .cm-video, video.cm, .cn-notes, figure, pre, table, .comark-html:is([data-block="screenshot"], [data-block="compare"], [data-block="diff"], [data-block="question"], [data-block="poll"], [data-block="recall"]))))),
+.vh-example-body > :deep(.docs-example-preview:has(> p > :is(.cm-video, .cm-audio))) {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
   box-shadow: none;
   padding: 0;
+}
+
+.vh-example-body > :deep(.docs-example-preview > :is(.ca, .cch, .cd, .ce, .ce-card, .cgc, .ck, .cft, .ct, .cmv, .cc, .ccr, .ccr-group, .cdg, .cmm, .cca, .cdt, .cdt-accordion, .ctr, .cfm, .cmt-tiles, .cqz, .cm-video, video.cm, .cn-notes)),
+.vh-example-body > :deep(.docs-example-preview > .comark-html > :is(.ca, .cd, .cqz)) {
+  margin-block: 0;
 }
 
 .vh-example-body > :deep(:not(.docs-example-preview)) {
