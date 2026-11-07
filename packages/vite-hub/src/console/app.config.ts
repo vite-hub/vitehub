@@ -180,6 +180,13 @@ export const consoleAppConfig = {
       base: "focus-visible:outline-none focus-visible:ring-2 pointer-coarse:text-base",
     },
   },
+  // A focused card shows one 2px ring too: a 1px inset ring inside its border, instead of Nuxt UI's soft outline.
+  checkbox: {
+    compoundVariants: [{ variant: "card", class: { root: "has-focus-visible:outline-none has-focus-visible:ring-1 has-focus-visible:ring-inset has-focus-visible:ring-inverted" } }],
+  },
+  radioGroup: {
+    compoundVariants: [{ variant: "card", class: { item: "has-focus-visible:outline-none has-focus-visible:ring-1 has-focus-visible:ring-inset has-focus-visible:ring-inverted" } }],
+  },
   pageCard: {
     slots: {
       container: "gap-0 p-4",
