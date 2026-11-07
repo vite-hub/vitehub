@@ -2,9 +2,9 @@
 import { useIntersectionObserver, usePreferredReducedMotion, useRafFn } from "@vueuse/core";
 import { cmsDemoCycle, cmsDemoEnd, cmsDemoFrame, cmsDemoSentence } from "~/utils/cms-console-demo";
 
-// `::cms-console-demo` is the CMS hero: the Console document editor beside a preview of the site. An editor types a
-// sentence into a live post, the draft saves and the preview turns into a draft preview, they publish, and the
-// preview is the live page again with the new sentence.
+// `::cms-console-demo` is the CMS hero: the Console document editor beside its page preview. An editor adds an
+// update to a published post, the draft saves and the preview shows the draft, they publish, and the preview shows
+// the published page with the update.
 // Every frame is a function of the loop time, so the server and readers who turn motion off see the last frame,
 // with the document published.
 
@@ -21,6 +21,13 @@ onMounted(() => {
   mounted.value = true;
 });
 const animated = computed(() => mounted.value && reducedMotion.value !== "reduce");
+
+// The rides of the post. The editor shows them as the Markdown list they are, and the site sets them as a schedule.
+const rides = [
+  { date: "Nov 7", route: "Burke-Gilman to Kenmore", distance: "38 km" },
+  { date: "Nov 14", route: "Mercer Island loop", distance: "52 km" },
+  { date: "Nov 21", route: "Discovery Park", distance: "24 km" },
+];
 
 let started: number | undefined;
 const { pause, resume } = useRafFn(({ timestamp }) => {
@@ -45,7 +52,7 @@ watchEffect(() => {
 
 <template>
   <figure ref="root" class="vh-cms-demo not-prose" :data-phase="frame.phase">
-    <div class="vh-cms-window" role="img" aria-label="An editor types a new sentence into a live post in the ViteHub Console. The draft saves, and the site preview shows it under a draft banner. They click Publish, and the live site shows the new sentence.">
+    <div class="vh-cms-window" role="img" aria-label="An editor adds an update to a published post in the ViteHub Console. The draft saves, and the preview beside the editor shows the draft with the new sentence. They click Publish, and the preview shows the published page with the update.">
       <div class="vh-cms-rail" aria-hidden="true">
         <span class="vh-cms-mark" />
         <span class="vh-cms-rail-item is-active"><UIcon name="i-lucide-newspaper" /></span>
@@ -53,16 +60,24 @@ watchEffect(() => {
         <span class="vh-cms-rail-item vh-cms-rail-end"><UIcon name="i-lucide-settings" /></span>
       </div>
 
+      <!--
+        The editor header follows the Console page header on a narrow pane: Back, the title, one status, and Publish.
+        As in the Console, Publish shows only while there is something to publish. The demo leaves out the arrow of the
+        Console split button, so the header keeps room for the full title and the longest status.
+      -->
       <div class="vh-cms-editor" aria-hidden="true">
-        <div class="vh-cms-header">
-          <span class="vh-cms-trail"><UIcon name="i-lucide-chevron-left" class="size-3.5" />Posts</span>
-          <span class="vh-cms-status" :data-tone="frame.status.tone">
+        <div class="vh-cms-bar">
+          <span class="vh-cms-icon-button"><UIcon name="i-lucide-arrow-left" /></span>
+          <span class="vh-cms-heading">Autumn rides</span>
+          <span class="vh-cms-status" :data-tone="frame.status.tone" :class="{ 'is-pending': frame.status.pending }">
             <span class="vh-cms-dot" />
-            <span class="vh-cms-status-label">{{ frame.status.label }}</span>
+            {{ frame.status.label }}
           </span>
-          <span class="vh-cms-publish" :class="{ 'is-pressed': frame.pressed, 'is-busy': frame.phase === 'publishing', 'is-done': !frame.changed }">
-            <span class="vh-cms-publish-label">Publish</span>
-            <span class="vh-cms-spinner" />
+          <span class="vh-cms-publish-slot">
+            <span class="vh-cms-publish" :class="{ 'is-shown': frame.changed, 'is-pressed': frame.pressed, 'is-busy': frame.phase === 'publishing' }">
+              <span class="vh-cms-publish-label">Publish</span>
+              <span class="vh-cms-spinner" />
+            </span>
             <svg class="vh-cms-pointer" :class="{ 'is-near': frame.pointer }" viewBox="0 0 16 20" aria-hidden="true">
               <path d="M1 1v15l4-3.5 2.6 6 2.6-1.1-2.6-5.9H13z" />
             </svg>
@@ -70,59 +85,56 @@ watchEffect(() => {
         </div>
 
         <div class="vh-cms-page">
-          <p class="vh-cms-title">Launch notes for October</p>
+          <p class="vh-cms-title">Autumn rides</p>
           <dl class="vh-cms-fields">
             <dt>Date</dt><dd>2026-10-31</dd>
-            <dt>Tags</dt><dd><span class="vh-cms-tag">release</span></dd>
+            <dt>Tags</dt><dd><span class="vh-cms-tag">rides</span></dd>
           </dl>
-          <p class="vh-cms-body">We moved the blog onto the ViteHub CMS. Editors write here, and the site updates when they publish.</p>
-          <p class="vh-cms-body vh-cms-typed" :class="{ 'is-fading': frame.fading, 'is-changed': frame.changed }">
+          <p class="vh-cms-body">We ride every Saturday in November. Meet at the north end of the Fremont Bridge, and bring lights.</p>
+          <p class="vh-cms-body vh-cms-typed" :class="{ 'is-fading': frame.fading }">
             {{ frame.typed }}<span class="vh-cms-caret" :class="{ 'is-on': frame.caret }" />
           </p>
+          <ul class="vh-cms-list">
+            <li v-for="ride in rides" :key="ride.date">{{ ride.date }}: {{ ride.route }}, {{ ride.distance }}</li>
+          </ul>
         </div>
       </div>
 
-      <div class="vh-cms-site" aria-hidden="true">
-        <div class="vh-cms-browser">
-          <div class="vh-cms-address">
-            <span class="vh-cms-lights"><i /><i /><i /></span>
-            <span class="vh-cms-url">
-              <UIcon name="i-lucide-lock" class="vh-cms-lock" />
-              <span>fieldnotes.dev/blog/launch-notes</span>
+      <!--
+        The preview pane follows the Console page preview: a toolbar with the page path and the view, then the site.
+      -->
+      <div class="vh-cms-preview" aria-hidden="true">
+        <div class="vh-cms-bar vh-cms-preview-bar">
+          <span class="vh-cms-icon-button" :class="{ 'is-reloading': frame.reloading }"><UIcon name="i-lucide-rotate-cw" /></span>
+          <span class="vh-cms-address" :data-view="frame.view">
+            <span class="vh-cms-address-icon">
+              <UIcon name="i-lucide-eye" class="is-draft" />
+              <UIcon name="i-lucide-globe" class="is-published" />
             </span>
-          </div>
+            <span class="vh-cms-url">/posts/autumn-rides</span>
+            <span class="vh-cms-view">
+              <span class="is-draft">Draft</span>
+              <span class="is-published">Published</span>
+            </span>
+          </span>
+        </div>
 
-          <div class="vh-cms-banner" :data-state="frame.banner">
-            <span class="vh-cms-banner-state is-draft">
-              <UIcon name="i-lucide-eye" class="vh-cms-banner-icon" />
-              <span><b>Draft preview</b>, only you can see this</span>
-            </span>
-            <span class="vh-cms-banner-state is-live">
-              <UIcon name="i-lucide-check" class="vh-cms-banner-icon" />
-              <span><b>Live</b>, everyone can see this</span>
-            </span>
+        <div class="vh-cms-site">
+          <div class="vh-cms-site-nav">
+            <span class="vh-cms-site-name">Eastside Cycling Club</span>
+            <span class="vh-cms-site-links"><span>Rides</span><span>About</span></span>
           </div>
-
-          <div class="vh-cms-site-page">
-            <div class="vh-cms-site-nav">
-              <span class="vh-cms-site-brand"><i />Field Notes</span>
-              <span class="vh-cms-site-links"><span class="is-current">Blog</span><span>About</span></span>
+          <p class="vh-cms-site-date">October 31, 2026</p>
+          <p class="vh-cms-site-title">Autumn rides</p>
+          <p class="vh-cms-site-body">We ride every Saturday in November. Meet at the north end of the Fremont Bridge, and bring lights.</p>
+          <p class="vh-cms-site-body vh-cms-site-new" :data-state="frame.sentence">{{ cmsDemoSentence }}</p>
+          <dl class="vh-cms-site-rides">
+            <div v-for="ride in rides" :key="ride.date">
+              <dt>{{ ride.date }}</dt>
+              <dd>{{ ride.route }}</dd>
+              <dd>{{ ride.distance }}</dd>
             </div>
-
-            <div class="vh-cms-cover">
-              <svg viewBox="0 0 240 72" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-                <circle cx="168" cy="50" r="22" class="vh-cms-cover-sun" />
-                <path d="M0 52 C40 44 70 58 110 50 S190 40 240 48 V72 H0Z" class="vh-cms-cover-far" />
-                <path d="M0 60 C50 54 90 66 140 59 S210 54 240 58 V72 H0Z" class="vh-cms-cover-near" />
-              </svg>
-            </div>
-
-            <p class="vh-cms-site-kicker">Release notes<span>Oct 31, 2026</span></p>
-            <p class="vh-cms-site-title">Launch notes for October</p>
-            <p class="vh-cms-site-byline"><span class="vh-cms-avatar">AR</span>Ana Ruiz<span class="vh-cms-site-read">2 min read</span></p>
-            <p class="vh-cms-site-body">We moved the blog onto the ViteHub CMS. Editors write here, and the site updates when they publish.</p>
-            <p class="vh-cms-site-body vh-cms-site-new" :data-state="frame.sentence" :class="{ 'is-fresh': frame.fresh }">{{ cmsDemoSentence }}</p>
-          </div>
+          </dl>
         </div>
       </div>
     </div>
@@ -150,17 +162,22 @@ watchEffect(() => {
  * The window keeps one ratio, and every part that changes keeps its space, so typing and publishing never move the
  * page. Motion uses two curves: a strong ease-out for things that appear, and an ease-in-out for the pointer, which
  * moves across the screen.
+ * The status colors are the Console ones: emerald, amber, and sky.
  */
 .vh-cms-window {
   --vh-cms-out: cubic-bezier(0.23, 1, 0.32, 1);
   --vh-cms-move: cubic-bezier(0.645, 0.045, 0.355, 1);
-  --vh-cms-accent: oklch(0.58 0.14 40);
-  --vh-cms-cover: oklch(0.95 0.025 70);
-  --vh-cms-draft: oklch(0.6 0.13 75);
-  --vh-cms-live: oklch(0.6 0.14 155);
+  --vh-cms-success: oklch(0.696 0.17 162.48);
+  --vh-cms-success-text: oklch(0.596 0.145 163.225);
+  --vh-cms-warning: oklch(0.769 0.188 70.08);
+  --vh-cms-info-text: oklch(0.588 0.158 241.966);
+  --vh-cms-paper: oklch(0.99 0.004 85);
+  --vh-cms-ink: oklch(0.25 0.01 60);
+  --vh-cms-ink-muted: oklch(0.52 0.012 60);
+  --vh-cms-rule: oklch(0.25 0.01 60 / 0.1);
 
   display: grid;
-  grid-template-columns: 2.75rem minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-columns: 2.75rem minmax(0, 1.1fr) minmax(0, 1fr);
   aspect-ratio: 16 / 10;
   overflow: hidden;
   border-radius: calc(var(--ui-radius) * 2);
@@ -176,10 +193,14 @@ watchEffect(() => {
 }
 
 :root.dark .vh-cms-window {
-  --vh-cms-accent: oklch(0.76 0.1 45);
-  --vh-cms-cover: oklch(0.27 0.02 60);
-  --vh-cms-draft: oklch(0.8 0.12 80);
-  --vh-cms-live: oklch(0.78 0.13 155);
+  --vh-cms-success: oklch(0.765 0.177 163.223);
+  --vh-cms-success-text: oklch(0.765 0.177 163.223);
+  --vh-cms-warning: oklch(0.828 0.189 84.429);
+  --vh-cms-info-text: oklch(0.746 0.16 232.661);
+  --vh-cms-paper: oklch(0.19 0.006 70);
+  --vh-cms-ink: oklch(0.92 0.008 80);
+  --vh-cms-ink-muted: oklch(0.68 0.01 70);
+  --vh-cms-rule: oklch(0.92 0.008 80 / 0.1);
 
   box-shadow: 0 0 0 1px rgb(255 255 255 / 0.09);
 }
@@ -191,14 +212,14 @@ watchEffect(() => {
   gap: 0.375rem;
   border-right: 1px solid var(--ui-border);
   background: var(--ui-bg-muted);
-  padding: 0.875rem 0 0.625rem;
+  padding: 0.8125rem 0 0.625rem;
   color: var(--ui-text-dimmed);
 }
 
 .vh-cms-mark {
   width: 0.875rem;
   height: 0.875rem;
-  margin-bottom: 0.625rem;
+  margin-bottom: 0.5rem;
   background: var(--ui-text-highlighted);
   clip-path: polygon(25% 5%, 75% 5%, 100% 50%, 75% 95%, 25% 95%, 0 50%);
 }
@@ -222,103 +243,126 @@ watchEffect(() => {
   margin-top: auto;
 }
 
-.vh-cms-editor {
+.vh-cms-editor,
+.vh-cms-preview {
   display: flex;
   min-width: 0;
   flex-direction: column;
 }
 
-.vh-cms-header {
+/* Both columns have a header of one height, so their bottom lines meet, as in the Console split view. */
+.vh-cms-bar {
   display: flex;
-  height: 2.75rem;
+  height: 2.5rem;
   flex: none;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.375rem;
   border-bottom: 1px solid var(--ui-border);
-  padding: 0 0.625rem 0 0.75rem;
+  padding: 0 0.625rem 0 0.4375rem;
   white-space: nowrap;
 }
 
-.vh-cms-trail {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.125rem;
-  color: var(--ui-text-muted);
+.vh-cms-icon-button {
+  display: inline-grid;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+  place-items: center;
+  border-radius: calc(var(--ui-radius) * 1.5);
+  color: var(--ui-text);
+  font-size: 0.875rem;
 }
 
-/* The pill keeps the width of its longest label, so a new label never pushes Publish. */
+.vh-cms-icon-button.is-reloading > * {
+  animation: vh-cms-spin 700ms linear infinite;
+}
+
+.vh-cms-heading {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ui-text-highlighted);
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+/* A dot and a muted label, as the Console status. Only the dot carries color. */
 .vh-cms-status {
   display: inline-flex;
-  min-width: 6.25rem;
-  height: 1.375rem;
+  min-width: 0;
+  flex: none;
   align-items: center;
-  justify-content: center;
-  gap: 0.375rem;
-  margin-left: auto;
-  border-radius: 999px;
-  background: var(--ui-bg-elevated);
-  padding: 0 0.5rem;
+  gap: 0.3125rem;
+  margin-left: 0.25rem;
   color: var(--ui-text-muted);
-  font-variant-numeric: tabular-nums;
-  transition: background-color 200ms ease, color 200ms ease;
-}
-
-.vh-cms-status[data-tone="warning"] {
-  background: color-mix(in oklch, var(--vh-cms-draft) 14%, transparent);
-  color: var(--ui-text);
-}
-
-.vh-cms-status[data-tone="success"] {
-  background: color-mix(in oklch, var(--vh-cms-live) 16%, transparent);
-  color: var(--ui-text-highlighted);
+  font-size: 0.6875rem;
 }
 
 .vh-cms-dot {
-  width: 0.375rem;
-  height: 0.375rem;
+  width: 0.4375rem;
+  height: 0.4375rem;
   flex: none;
   border-radius: 999px;
-  background: var(--ui-text-dimmed);
-  transition: background-color 200ms ease, transform 200ms var(--vh-cms-out);
-}
-
-.vh-cms-status[data-tone="warning"] .vh-cms-dot {
-  background: var(--vh-cms-draft);
+  box-shadow: inset 0 0 0 1px var(--ui-text-dimmed);
+  transition: background-color 200ms ease, box-shadow 200ms ease;
 }
 
 .vh-cms-status[data-tone="success"] .vh-cms-dot {
-  background: var(--vh-cms-live);
+  background: var(--vh-cms-success);
+  box-shadow: none;
 }
 
-.vh-cms-demo[data-phase="saving"] .vh-cms-dot {
-  transform: scale(1.35);
+.vh-cms-status[data-tone="warning"] .vh-cms-dot {
+  background: var(--vh-cms-warning);
+  box-shadow: none;
+}
+
+.vh-cms-status.is-pending .vh-cms-dot {
+  animation: vh-cms-pulse 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes vh-cms-pulse {
+  50% { opacity: 0.4; }
+}
+
+/*
+ * The Publish button of the Console, solid and small. Its slot keeps its space at the end of the header, so the button
+ * can come and go without moving the title or the status. The label and the spinner share one cell, so the button
+ * keeps its width while it publishes.
+ */
+.vh-cms-publish-slot {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  margin-left: auto;
 }
 
 .vh-cms-publish {
-  position: relative;
   display: inline-grid;
-  height: 1.75rem;
+  height: 1.5rem;
   place-items: center;
-  border-radius: var(--ui-radius);
+  padding: 0 0.5625rem;
+  border-radius: calc(var(--ui-radius) * 1.5);
   background: var(--ui-text-highlighted);
-  padding: 0 0.75rem;
   color: var(--ui-bg);
+  font-size: 0.6875rem;
   font-weight: 500;
-  transition: transform 150ms ease-out, background-color 200ms ease, color 200ms ease;
+  opacity: 0;
+  transform: scale(0.96);
+  transition: opacity 200ms var(--vh-cms-out), transform 200ms var(--vh-cms-out);
+}
+
+.vh-cms-publish.is-shown {
+  opacity: 1;
+  transform: none;
+}
+
+.vh-cms-publish.is-shown.is-pressed {
+  transform: scale(0.96);
+  transition-duration: 150ms;
 }
 
 .vh-cms-publish > * {
   grid-area: 1 / 1;
-}
-
-.vh-cms-publish.is-pressed {
-  transform: scale(0.96);
-}
-
-/* With nothing new to publish the button stays quiet. The first key wakes it. */
-.vh-cms-publish.is-done {
-  background: var(--ui-bg-accented);
-  color: var(--ui-text-muted);
 }
 
 .vh-cms-publish-label {
@@ -326,8 +370,8 @@ watchEffect(() => {
 }
 
 .vh-cms-spinner {
-  width: 0.75rem;
-  height: 0.75rem;
+  width: 0.6875rem;
+  height: 0.6875rem;
   border: 1.5px solid currentcolor;
   border-right-color: transparent;
   border-radius: 999px;
@@ -355,14 +399,14 @@ watchEffect(() => {
 .vh-cms-pointer {
   position: absolute;
   top: 55%;
-  left: 40%;
+  left: 1.25rem;
   width: 0.875rem;
   fill: var(--ui-text-highlighted);
   stroke: var(--ui-bg);
   stroke-width: 1.2;
   opacity: 0;
   pointer-events: none;
-  transform: translate(-11rem, 14rem);
+  transform: translate(-11rem, 13rem);
   transition: transform 750ms var(--vh-cms-move), opacity 200ms ease;
 }
 
@@ -380,10 +424,10 @@ watchEffect(() => {
 .vh-cms-title {
   margin: 0 0 0.75rem;
   color: var(--ui-text-highlighted);
-  font-size: 1.25rem;
+  font-size: 1.125rem;
   font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.15;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
   text-wrap: balance;
 }
 
@@ -402,12 +446,15 @@ watchEffect(() => {
 
 .vh-cms-fields dd {
   margin: 0;
+  color: var(--ui-text-highlighted);
 }
 
 .vh-cms-tag {
-  border-radius: 999px;
+  border-radius: var(--ui-radius);
   background: var(--ui-bg-elevated);
-  padding: 0.0625rem 0.4375rem;
+  padding: 0.0625rem 0.375rem;
+  box-shadow: inset 0 0 0 1px var(--ui-border);
+  font-size: 0.6875rem;
 }
 
 .vh-cms-body {
@@ -417,24 +464,19 @@ watchEffect(() => {
 }
 
 .vh-cms-typed {
-  position: relative;
   transition: opacity 300ms ease;
 }
 
-/* The same mark as on the draft preview: this sentence is not live yet. */
-.vh-cms-typed::before {
-  position: absolute;
-  inset: 0.125rem auto 0.125rem -0.625rem;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--vh-cms-draft);
-  content: "";
-  opacity: 0;
-  transition: opacity 250ms ease;
+.vh-cms-list {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding-left: 1rem;
+  list-style: disc;
 }
 
-.vh-cms-typed.is-changed::before {
-  opacity: 1;
+.vh-cms-list ::marker {
+  color: var(--ui-text-dimmed);
 }
 
 .vh-cms-typed.is-fading {
@@ -456,299 +498,148 @@ watchEffect(() => {
   opacity: 1;
 }
 
-.vh-cms-site {
-  display: flex;
-  min-width: 0;
+.vh-cms-preview {
   border-left: 1px solid var(--ui-border);
-  background: var(--ui-bg-muted);
-  padding: 0.75rem 0 0 0.75rem;
 }
 
-/* The browser runs off the right and bottom edges, so it reads as a page that goes on. */
-.vh-cms-browser {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-  overflow: hidden;
-  border-radius: var(--ui-radius) 0 0 0;
-  background: var(--ui-bg);
-  box-shadow:
-    0 0 0 1px rgb(0 0 0 / 0.06),
-    0 2px 8px -2px rgb(0 0 0 / 0.08);
-}
-
-:root.dark .vh-cms-browser {
-  box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08);
+.vh-cms-preview-bar {
+  padding: 0 0.5rem 0 0.4375rem;
 }
 
 .vh-cms-address {
   display: flex;
-  height: 1.75rem;
-  flex: none;
+  height: 1.5rem;
+  min-width: 0;
+  flex: 1;
   align-items: center;
-  gap: 0.625rem;
-  border-bottom: 1px solid var(--ui-border);
-  background: var(--ui-bg-elevated);
-  padding: 0 0.625rem;
-  color: var(--ui-text-muted);
-  font-size: 0.625rem;
+  gap: 0.375rem;
+  border-radius: calc(var(--ui-radius) * 1.5);
+  background: color-mix(in oklch, var(--ui-bg-elevated) 60%, transparent);
+  padding: 0 0.25rem 0 0.5rem;
+  box-shadow: inset 0 0 0 1px var(--ui-border);
 }
 
-.vh-cms-lights {
-  display: inline-flex;
-  gap: 0.1875rem;
+/* The icon and the tag show both views one over the other, so a change of view is a cross-fade in place. */
+.vh-cms-address-icon,
+.vh-cms-view {
+  display: grid;
+  flex: none;
 }
 
-.vh-cms-lights i {
-  width: 0.3125rem;
-  height: 0.3125rem;
-  border-radius: 999px;
-  background: var(--ui-border-accented);
+.vh-cms-address-icon > *,
+.vh-cms-view > * {
+  grid-area: 1 / 1;
+  transition: opacity 200ms ease;
+}
+
+.vh-cms-address-icon {
+  color: var(--ui-text-dimmed);
+  font-size: 0.75rem;
 }
 
 .vh-cms-url {
-  display: inline-flex;
   min-width: 0;
-  align-items: center;
-  gap: 0.25rem;
   overflow: hidden;
-  white-space: nowrap;
-}
-
-.vh-cms-url > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.vh-cms-lock {
-  width: 0.625rem;
-  height: 0.625rem;
-  flex: none;
-}
-
-/* Both banner states are always there, one over the other, so the swap is a cross-fade and the page never moves. */
-.vh-cms-banner {
-  display: grid;
-  height: 1.625rem;
-  flex: none;
-  align-items: center;
-  background: color-mix(in oklch, var(--vh-cms-draft) 13%, var(--ui-bg));
-  padding: 0 0.625rem;
+  color: var(--ui-text-muted);
+  font-family: var(--font-mono);
   font-size: 0.625rem;
-  transition: background-color 250ms ease;
-}
-
-.vh-cms-banner[data-state="live"] {
-  background: color-mix(in oklch, var(--vh-cms-live) 13%, var(--ui-bg));
-}
-
-.vh-cms-banner-state {
-  display: inline-flex;
-  min-width: 0;
-  align-items: center;
-  gap: 0.375rem;
-  grid-area: 1 / 1;
-  overflow: hidden;
-  white-space: nowrap;
-  color: var(--ui-text);
-  transition: opacity 250ms var(--vh-cms-out), transform 250ms var(--vh-cms-out), filter 250ms var(--vh-cms-out);
-}
-
-.vh-cms-banner-state b {
-  color: var(--ui-text-highlighted);
-  font-weight: 600;
-}
-
-.vh-cms-banner-state > span {
-  overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.vh-cms-banner-icon {
-  width: 0.75rem;
-  height: 0.75rem;
-  flex: none;
+.vh-cms-view {
+  justify-items: end;
+  margin-left: auto;
 }
 
-.is-draft .vh-cms-banner-icon {
-  color: var(--vh-cms-draft);
+.vh-cms-view > * {
+  border-radius: var(--ui-radius);
+  padding: 0.1875rem 0.3125rem;
+  font-size: 0.5625rem;
+  font-weight: 500;
+  line-height: 1;
 }
 
-.is-live .vh-cms-banner-icon {
-  color: var(--vh-cms-live);
+.vh-cms-view .is-draft {
+  background: color-mix(in oklch, var(--vh-cms-info-text) 10%, transparent);
+  color: var(--vh-cms-info-text);
 }
 
-.vh-cms-banner[data-state="draft"] .is-live,
-.vh-cms-banner[data-state="live"] .is-draft {
+.vh-cms-view .is-published {
+  background: color-mix(in oklch, var(--vh-cms-success-text) 10%, transparent);
+  color: var(--vh-cms-success-text);
+}
+
+.vh-cms-address[data-view="draft"] .is-published,
+.vh-cms-address[data-view="published"] .is-draft {
   opacity: 0;
-  filter: blur(2px);
 }
 
-.vh-cms-banner[data-state="draft"] .is-live {
-  transform: translateY(0.375rem);
-}
-
-.vh-cms-banner[data-state="live"] .is-draft {
-  transform: translateY(-0.375rem);
-}
-
-.vh-cms-site-page {
+/*
+ * The site is the club's own page, not the Console: its own paper, ink, and a text serif. It fills the pane like the
+ * Console preview frame, and it runs off the bottom edge, so it reads as a page that goes on.
+ */
+.vh-cms-site {
   min-height: 0;
   flex: 1;
   overflow: hidden;
-  padding: 0 0.875rem;
+  background: var(--vh-cms-paper);
+  padding: 0 1.125rem;
+  color: var(--vh-cms-ink);
 }
 
 .vh-cms-site-nav {
   display: flex;
-  height: 2rem;
+  height: 2.375rem;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--ui-border);
-  margin-bottom: 0.75rem;
-  font-size: 0.625rem;
+  margin-bottom: 1.375rem;
+  border-bottom: 1px solid var(--vh-cms-rule);
 }
 
-.vh-cms-site-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3125rem;
-  color: var(--ui-text-highlighted);
-  font-family: ui-serif, Georgia, serif;
+.vh-cms-site-name {
+  font-family: "Source Serif 4", Georgia, ui-serif, serif;
   font-size: 0.75rem;
-  font-weight: 700;
-}
-
-.vh-cms-site-brand i {
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 999px;
-  background: var(--vh-cms-accent);
+  font-weight: 600;
 }
 
 .vh-cms-site-links {
   display: inline-flex;
-  gap: 0.625rem;
-  color: var(--ui-text-muted);
+  gap: 0.75rem;
+  color: var(--vh-cms-ink-muted);
+  font-size: 0.625rem;
 }
 
-.vh-cms-site-links .is-current {
-  color: var(--ui-text-highlighted);
-}
-
-.vh-cms-cover {
-  height: 3.75rem;
-  overflow: hidden;
-  margin-bottom: 0.75rem;
-  border-radius: calc(var(--ui-radius) * 0.75);
-  background: var(--vh-cms-cover);
-}
-
-.vh-cms-cover svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
-.vh-cms-cover-sun {
-  fill: color-mix(in oklch, var(--vh-cms-accent) 70%, var(--vh-cms-cover));
-}
-
-.vh-cms-cover-far {
-  fill: color-mix(in oklch, var(--vh-cms-accent) 30%, var(--vh-cms-cover));
-}
-
-.vh-cms-cover-near {
-  fill: color-mix(in oklch, var(--vh-cms-accent) 55%, var(--vh-cms-cover));
-}
-
-.vh-cms-site-kicker {
-  display: flex;
-  gap: 0.5rem;
-  margin: 0 0 0.3125rem;
-  color: var(--vh-cms-accent);
-  font-size: 0.5625rem;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.vh-cms-site-kicker span {
-  color: var(--ui-text-dimmed);
-  font-weight: 500;
+.vh-cms-site-date {
+  margin: 0 0 0.375rem;
+  color: var(--vh-cms-ink-muted);
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
 }
 
 .vh-cms-site-title {
-  margin: 0;
-  color: var(--ui-text-highlighted);
-  font-family: ui-serif, Georgia, serif;
-  font-size: 1.0625rem;
-  font-weight: 700;
+  margin: 0 0 0.75rem;
+  font-family: "Source Serif 4", Georgia, ui-serif, serif;
+  font-size: 1.25rem;
+  font-weight: 600;
   letter-spacing: -0.01em;
   line-height: 1.15;
   text-wrap: balance;
 }
 
-.vh-cms-site-byline {
-  display: flex;
-  align-items: center;
-  gap: 0.375rem;
-  margin: 0.5rem 0 0.75rem;
-  color: var(--ui-text);
-  font-size: 0.625rem;
-  font-weight: 500;
-}
-
-.vh-cms-avatar {
-  display: inline-grid;
-  width: 1.125rem;
-  height: 1.125rem;
-  place-items: center;
-  border-radius: 999px;
-  background: var(--vh-cms-cover);
-  color: var(--vh-cms-accent);
-  font-size: 0.4375rem;
-  font-weight: 700;
-}
-
-.vh-cms-site-read {
-  color: var(--ui-text-dimmed);
-  font-weight: 400;
-}
-
-.vh-cms-site-read::before {
-  content: "·";
-  margin-right: 0.375rem;
-}
-
 .vh-cms-site-body {
-  margin: 0 0 0.5rem;
-  font-family: ui-serif, Georgia, serif;
-  font-size: 0.6875rem;
-  line-height: 1.55;
+  max-width: 34em;
+  margin: 0 0 0.625rem;
+  font-family: "Source Serif 4", Georgia, ui-serif, serif;
+  font-size: 0.75rem;
+  line-height: 1.6;
   text-wrap: pretty;
 }
 
-/*
- * The new sentence takes its space from the start, so the page below it never moves. A saved draft shows with a
- * draft mark in the margin. On publish the mark turns to the live color for a moment, then goes.
- */
+/* The new sentence takes its space from the start, so the page below it never moves. */
 .vh-cms-site-new {
-  position: relative;
   opacity: 0;
   transform: translateY(0.25rem);
-  transition: opacity 250ms var(--vh-cms-out), transform 250ms var(--vh-cms-out);
-}
-
-.vh-cms-site-new::before {
-  position: absolute;
-  inset: 0.125rem auto 0.125rem -0.5rem;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--vh-cms-draft);
-  content: "";
-  transition: background-color 250ms ease, opacity 400ms ease;
+  transition: opacity 300ms var(--vh-cms-out), transform 300ms var(--vh-cms-out);
 }
 
 .vh-cms-site-new[data-state="draft"],
@@ -757,13 +648,38 @@ watchEffect(() => {
   transform: none;
 }
 
-.vh-cms-site-new[data-state="live"]::before {
-  background: var(--vh-cms-live);
-  opacity: 0;
+/* The schedule is the one part of the site that is not prose: rows with a hairline, dates and distances in fixed figures. */
+.vh-cms-site-rides {
+  max-width: 34em;
+  margin: 0.25rem 0 0;
+  border-top: 1px solid var(--vh-cms-rule);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
 }
 
-.vh-cms-site-new[data-state="live"].is-fresh::before {
-  opacity: 1;
+.vh-cms-site-rides > div {
+  display: grid;
+  grid-template-columns: 3.25rem minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--vh-cms-rule);
+  padding: 0.3125rem 0;
+}
+
+.vh-cms-site-rides dt {
+  color: var(--vh-cms-ink-muted);
+}
+
+.vh-cms-site-rides dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vh-cms-site-rides dd:last-child {
+  color: var(--vh-cms-ink-muted);
+  text-align: right;
 }
 
 /* The button sits over the rail, away from the page. */
@@ -798,7 +714,10 @@ watchEffect(() => {
   }
 }
 
-/* On narrow panels the rail goes, and the site preview takes the lower part of the window. */
+/*
+ * On narrow panels the rail goes, as in the Console on a phone, and the preview takes the lower part. The editor keeps
+ * only the paragraphs, so the sentence that types in stays the last line it shows.
+ */
 @container (max-width: 34rem) {
   .vh-cms-window {
     grid-template-columns: minmax(0, 1fr);
@@ -808,7 +727,7 @@ watchEffect(() => {
 
   .vh-cms-rail,
   .vh-cms-fields,
-  .vh-cms-cover {
+  .vh-cms-list {
     display: none;
   }
 
@@ -816,7 +735,7 @@ watchEffect(() => {
     margin-bottom: 0.875rem;
   }
 
-  .vh-cms-site {
+  .vh-cms-preview {
     border-top: 1px solid var(--ui-border);
     border-left: 0;
   }
