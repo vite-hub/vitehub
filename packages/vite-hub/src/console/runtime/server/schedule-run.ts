@@ -126,17 +126,17 @@ export async function handleDispatchScheduleRunRequest(request: Request, env: Re
     : failure(outcome.message, outcome.status)
 }
 
-const unsignedRunMessage = "This route takes signed dispatches only, or the Console token as Authorization: Bearer with console: { auth: \"token\" }. Sign the request with VITEHUB_DISPATCH_KEY (`vitehub secret derive vitehub:dispatch` prints it), or run the Schedule through the Console RPC with Console credentials. `vitehub schedule run <name> --url <origin>` does either."
+const unsignedRunMessage = "This route takes signed dispatches only, or a bearer token as Authorization: Bearer: the Console token with console: { auth: \"token\" }, or an OAuth access token for the Console resource with app Auth. Sign the request with VITEHUB_DISPATCH_KEY (`vitehub secret derive vitehub:dispatch` prints it), or run the Schedule through the Console RPC with Console credentials. `vitehub schedule run <name> --url <origin>` does either."
 
 /**
- * A Schedule run with the Console token: `Authorization: Bearer` with `auth: "token"`. The Console access check decides,
- * with a full `schedules` grant. A cookie or a session never runs a Schedule here; it uses the `schedule.run` operation.
+ * A Schedule run with a bearer token: the Console token with `auth: "token"`, or an OAuth access token for the Console
+ * resource with app Auth and the `vitehub:write` scope. The Console access check decides, with a full `schedules` grant. A cookie or a session never runs a Schedule here; it uses the `schedule.run` operation.
  * A JSON content type and the origin check keep other sites out, as in Channel replay. A listed origin of
  * `console.origins` may call it with the verified token.
  */
 async function runScheduleWithConsoleAccess(event: H3Event, access: ConsoleAccess): Promise<Response> {
-  // Only the token mode verifies a bearer token on this route. Another mode would accept the session next to it.
-  if (access.mode !== "token") return failure(unsignedRunMessage, 401)
+  // Only a verified bearer runs a Schedule here. A session next to an unverified bearer value does not.
+  if (access.via === undefined) return failure(unsignedRunMessage, 401)
   const request = toEventRequest(event)
   const origin = request.headers.get("origin")
   if (origin && origin !== consoleRequestURL(event).origin && !isConsoleCrossOriginBearerCall(request, access)) {

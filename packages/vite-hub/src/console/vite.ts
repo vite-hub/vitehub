@@ -78,8 +78,10 @@ export interface ConsoleOptions {
   /**
    * Browser origins that may call the Console data routes from another origin, such as a hosted or self-hosted Console.
    * Defaults to `["https://console.vitehub.dev"]`. `[]` turns cross-origin calls off. An entry is an `https://` origin,
-   * or an `http://` origin on `localhost` or `127.0.0.1`, with no path. A cross-origin call needs `auth: "token"` and
-   * the token in `Authorization: Bearer`. Cookies never authorize a cross-origin call.
+   * or an `http://` origin on `localhost` or `127.0.0.1`, with no path. A cross-origin call needs a bearer token in
+   * `Authorization: Bearer`: the `auth: "token"` secret, or an OAuth access token for the Console resource from the app
+   * Auth. With `consoleMcpOAuth()`, it is also the allow list of OAuth clients: a client ID Metadata Document URL must be
+   * on a listed `https://` origin. Cookies never authorize a cross-origin call.
    */
   origins?: string[]
   /**
@@ -456,11 +458,13 @@ export function resolveConsoleAccessBuild(
   const withSignInPage = (access: ConsoleAccessBuild, signInPage = consoleSignInPageOption(configured)): ConsoleAccessBuild => signInPage ? { ...access, signInPage } : access
   if ("local" in configured && configured.local === true) return { mode: "local" }
   if (configured.auth === false || configured.auth === undefined) return withSignInPage(withAccessOptions({ mode: "open" }))
-  // Only the token mode verifies a bearer token on the data routes, so only it accepts cross-origin calls.
-  if (configured.auth === "token") return withAccessOptions({ mode: "token", origins: resolveConsoleOrigins(configured.origins) })
+  // Only the modes that verify a bearer token on the data routes accept cross-origin calls: the Console token, and app
+  // Auth, which can issue OAuth access tokens for the Console resource. Its OAuth client allow list reads the same origins.
+  const origins = resolveConsoleOrigins(configured.origins)
+  if (configured.auth === "token") return withAccessOptions({ mode: "token", origins })
   if (configured.auth === "app") {
     return withSignInPage(withAccessOptions(options.appAuth
-      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base, options.sections) }, oauth: resolveConsoleOAuthBuild(configured, options.base) }
+      ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base, options.sections) }, oauth: resolveConsoleOAuthBuild(configured, options.base), origins }
       : { mode: "auth" }))
   }
   if (!options.handlers) return withAccessOptions({ mode: "open" })

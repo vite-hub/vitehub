@@ -372,7 +372,7 @@ describe("Console data route responses", () => {
 })
 
 describe("Console origin and token options", () => {
-  it("defaults origins to the hosted Console and keeps them only for the token mode", () => {
+  it("defaults origins to the hosted Console and keeps them only for the bearer modes", () => {
     expect(resolveConsoleOrigins(undefined)).toEqual([consoleOrigin])
     expect(resolveConsoleAccessBuild({ auth: "token" }, { root: process.cwd() })).toEqual({ mode: "token", origins: [consoleOrigin] })
     expect(resolveConsoleAccessBuild({ auth: "token", origins: [] }, { root: process.cwd() })).toEqual({ mode: "token", origins: [] })
