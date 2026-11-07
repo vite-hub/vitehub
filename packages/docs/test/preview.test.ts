@@ -39,6 +39,7 @@ vi.mock("#docs/manifest", async () => {
   return { default: createDocsManifest({ dir: fixtures, base: "/docs" }) }
 })
 vi.mock("#docs/content", () => ({ content }))
+vi.mock("#docs/example-sources", () => ({ default: {} }))
 vi.mock("#docs/parser", () => ({ default: {} }))
 
 const { default: page } = await import("../src/runtime/server/page.ts")

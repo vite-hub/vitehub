@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -10,6 +10,7 @@ type Hook = (...args: never[]) => unknown
 const hooks = new Map<string, Hook[]>()
 const templates = new Map<string, () => string>()
 const handlers: Array<{ route: string, method?: string }> = []
+const updateTemplates = vi.hoisted(() => vi.fn<(options: { filter: (template: { filename: string }) => boolean }) => Promise<void>>())
 vi.mock("@nuxt/kit", () => ({
   defineNuxtModule: (definition: { setup: object, moduleDependencies: unknown }) => Object.assign(definition.setup, { moduleDependencies: definition.moduleDependencies }),
   createResolver: () => ({ resolve: (path: string) => resolve(import.meta.dirname, "../src", path) }),
@@ -25,6 +26,7 @@ vi.mock("@nuxt/kit", () => ({
   addRouteMiddleware: vi.fn(),
   extendPages: vi.fn(),
   useLogger: () => ({ error: vi.fn() }),
+  updateTemplates,
 }))
 const watchContent = vi.hoisted(() => vi.fn((_dir: string, _options: { recursive: boolean }, _listener: (event: string, file: string | null) => void) => ({ close: vi.fn() })))
 vi.mock("node:fs", async (importOriginal) => ({
@@ -51,6 +53,7 @@ afterEach(async () => {
   for (const hook of hooks.get("close") ?? []) await hook()
   vi.useRealTimers()
   watchContent.mockClear()
+  updateTemplates.mockReset()
   hooks.clear()
   templates.clear()
   handlers.length = 0
@@ -65,7 +68,7 @@ async function setupDocs(docs: DocsModuleOptions, appBase = "/", dev = false) {
     // A Nuxt 5 nightly installs as `nuxt-nightly`.
     srcDir: "/app", appDir: "/node_modules/nuxt-nightly/dist/app", dev, build: { transpile: [] }, appConfig: {}, _layers: [],
     app: { baseURL: appBase, head: {} }, runtimeConfig: { public: {} }, alias: {}, css: [],
-    imports: { dirs: [] }, docs,
+    imports: { dirs: [] }, watch: [] as string[], docs,
   }
   const nuxt = {
     options,
@@ -319,6 +322,51 @@ describe("docs Nuxt setup", () => {
     const nitro: { alias?: Record<string, string> } = {}
     for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
     expect(nitro.alias?.["#docs/parser"]).toBe("/build/docs/parser.mjs")
+  })
+
+  it("loads each Vue file of the examples folder in the page and gives its source to the parser", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "docs-examples-"))
+    writeFileSync(join(dir, "ButtonExample.vue"), "<template><UButton /></template>\n")
+    writeFileSync(join(dir, "notes.md"), "Not an example.\n")
+    const options = await setupDocs({ examples: dir })
+    expect(options.watch).not.toContain(dir)
+    const nitro: { alias?: Record<string, string> } = {}
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
+
+    expect(templates.get("docs/examples.mjs")?.()).toBe(`export default {\n  "ButtonExample": () => import(${JSON.stringify(join(dir, "ButtonExample.vue"))}),\n}\n`)
+    expect(templates.get("docs/example-sources.mjs")?.()).toBe(`export default {"ButtonExample":"<template><UButton /></template>\\n"}\n`)
+    expect(nitro.alias?.["#docs/example-sources"]).toBe("/build/docs/example-sources.mjs")
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it.each(["absolute", "relative"])("watches external examples and refreshes both maps on %s events", async (pathKind) => {
+    const dir = mkdtempSync(join(tmpdir(), "docs-examples-watch-"))
+    roots.push(dir)
+    const file = join(dir, "ButtonExample.vue")
+    const options = await setupDocs({ examples: dir }, "/", true)
+    expect(options.watch).toContain(dir)
+
+    const generated = new Map<string, string>()
+    updateTemplates.mockImplementation(async ({ filter }) => {
+      for (const [filename, contents] of templates) {
+        if (filter({ filename })) generated.set(filename, contents())
+      }
+    })
+    const notify = async (event: string) => {
+      const path = pathKind === "absolute" ? file : relative(options.srcDir, file)
+      for (const hook of hooks.get("builder:watch") ?? []) await hook(event as never, path as never)
+    }
+
+    for (const [event, source] of [["add", "<template>First</template>"], ["change", "<template>Edited</template>"]] as const) {
+      writeFileSync(file, source)
+      await notify(event)
+      expect(generated.get("docs/examples.mjs")).toContain(JSON.stringify(file))
+      expect(generated.get("docs/example-sources.mjs")).toBe(`export default ${JSON.stringify({ ButtonExample: source })}\n`)
+    }
+    rmSync(file)
+    await notify("unlink")
+    expect(generated.get("docs/examples.mjs")).toBe("export default {\n\n}\n")
+    expect(generated.get("docs/example-sources.mjs")).toBe("export default {}\n")
   })
 
   it("parses with the built-in plugins only without a parser module", async () => {

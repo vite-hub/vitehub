@@ -1,13 +1,28 @@
 <script setup lang="ts">
-// `:::example`: rendered Markdown with its source a switch away, and an optional link that opens it in a playground.
-// A site's parser puts the rendered copy in an `example-preview` node before the source, and writes `play`.
-defineProps<{
+import examples from "#docs/examples"
+
+// `:::example`: a preview with its source a switch away, and an optional link that opens it in a playground. Around a
+// Markdown code block, the parser put the rendered Markdown in an `example-preview` node before the source. With
+// `name`, the preview is the Vue file of that name in the examples folder, and the parser made its source the code.
+const props = defineProps<{
   label?: string
   /** A playground URL that opens this example. */
   play?: string
+  /** A Vue file in the examples folder, without `.vue`. */
+  name?: string
+  /** The height, in rem, that a Vue example keeps before its module loads. Markdown writes it as a string. */
+  height?: number | string
+  /** Show a Vue example edge to edge, at a fixed height, for chats and dashboards. */
+  flush?: boolean
+  /** Show a Reset control that mounts a Vue example again with its first state. */
+  reset?: boolean
 }>()
 
-const view = ref<"preview" | "code">("preview")
+// `::examples` passes its view in, so the next tab opens in the view the reader picked.
+const view = defineModel<"preview" | "code">("view", { default: "preview" })
+const loader = props.name ? examples[props.name] : undefined
+const live = loader ? defineAsyncComponent(loader) : undefined
+const mounts = ref(0)
 const seg = useTemplateRef<HTMLElement>("seg")
 const thumb = ref<{ left: number, width: number, slide: boolean } | null>(null)
 
@@ -35,6 +50,10 @@ onBeforeUnmount(() => resizes?.disconnect())
         <UIcon name="i-lucide-flask-conical" class="size-3.5" />
         Playground
       </a>
+      <button v-if="live && reset" type="button" class="vh-example-play" @click="mounts++">
+        <UIcon name="i-lucide-rotate-ccw" class="size-3.5" />
+        Reset
+      </button>
       <div ref="seg" class="vh-seg" role="group" aria-label="View">
         <span v-if="thumb" class="vh-seg-thumb" :class="{ 'is-still': !thumb.slide }" :style="{ transform: `translateX(${thumb.left - 3}px)`, width: `${thumb.width}px` }" aria-hidden="true" />
         <button type="button" data-view="preview" :aria-pressed="view === 'preview'" :class="{ 'is-unmeasured': !thumb }" @click="view = 'preview'">Preview</button>
@@ -42,6 +61,19 @@ onBeforeUnmount(() => resizes?.disconnect())
       </div>
     </div>
     <div class="vh-example-body">
+      <div
+        v-if="live"
+        class="docs-example-preview vh-example-live"
+        :class="{ 'is-flush': flush }"
+        :style="height ? { '--vh-example-height': `${height}rem` } : undefined"
+      >
+        <Suspense>
+          <component :is="live" :key="mounts" />
+          <template #fallback>
+            <div role="status" class="vh-example-loading">Loading preview…</div>
+          </template>
+        </Suspense>
+      </div>
       <slot />
     </div>
   </div>
@@ -191,5 +223,28 @@ onBeforeUnmount(() => resizes?.disconnect())
 
 .vh-example-body > :deep(:not(.docs-example-preview)) {
   margin-block: 0;
+}
+
+/* A Vue example keeps its height before its module loads. The height is a minimum, so text that wraps on a narrow
+   screen grows the frame. A flush example fills a fixed height edge to edge, as a chat fills its parent. */
+.vh-example-live {
+  min-width: 0;
+  min-height: calc(var(--vh-example-height, 0rem) + 2.5rem);
+  overflow-x: auto;
+}
+
+.vh-example-live.is-flush {
+  height: var(--vh-example-height, auto);
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.vh-example-loading {
+  display: grid;
+  min-height: var(--vh-example-height, 4rem);
+  place-items: center;
+  color: var(--ui-text-muted);
+  font-size: 0.875rem;
 }
 </style>
