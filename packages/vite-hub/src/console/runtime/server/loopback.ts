@@ -1,7 +1,6 @@
 import { consoleRequestError } from "./request.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
 
-import type { H3Event } from "h3"
 import type { ConsoleAccess } from "./access.ts"
 
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]", "::1"])
@@ -26,21 +25,4 @@ export function assertLoopbackWithoutSignIn(request: Request, url: URL, context:
   const forwarded = request.headers.get("x-forwarded-host")
   if (isLoopbackHost(hostHeader) && (!forwarded || isLoopbackHost(forwarded)) && (!context.remoteAddress || isLoopbackAddress(context.remoteAddress))) return
   throw consoleRequestError(403, "The development Console without sign-in accepts only requests from this machine. Set console.auth to open it to others.", "CONSOLE_LOOPBACK_ONLY")
-}
-
-function readPath(value: unknown, ...path: string[]): unknown {
-  let current = value
-  for (const key of path) current = current instanceof Object ? Reflect.get(current, key) : undefined
-  return current
-}
-
-/** The peer address, from whichever of the h3 request or the Node socket the host exposes. */
-export function eventRemoteAddress(event: H3Event): string | undefined {
-  const candidates = [
-    readPath(event, "req", "ip"),
-    readPath(event, "req", "context", "clientAddress"),
-    readPath(event, "req", "runtime", "node", "req", "socket", "remoteAddress"),
-    readPath(event, "node", "req", "socket", "remoteAddress"),
-  ]
-  return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate !== "")
 }

@@ -1,16 +1,16 @@
-import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { assertOperationConfirmation, assertOperationProject, operationAccessAllows, operationAccessDenial, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
 import { consoleAccessAllows, consoleAccessWrites, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
-import { assertLoopbackWithoutSignIn, eventRemoteAddress } from "./loopback.ts"
+import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
+import { assertLoopbackWithoutSignIn } from "./loopback.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
 import { uploadConsoleMedia } from "./media.ts"
-import { consoleRequestError, consoleRequestJSON } from "./request.ts"
+import { consoleRequestError } from "./request.ts"
 
 import type { H3Event } from "h3"
 import type { OperationContext } from "@vite-hub/internal/operations"
@@ -123,7 +123,7 @@ function largeEnvelopePrefix(body: string): { maximumBytes: number, operation: s
 }
 
 async function readConsoleEnvelope(request: Request): Promise<unknown> {
-  if (!request.body) return consoleRequestJSON({ req: { json: () => request.json() } }, maximumConsoleRpcRequestBytes)
+  if (!request.body) throw new SyntaxError("Request body is unavailable.")
   const reader = request.body.getReader()
   const decoder = new TextDecoder()
   let body = ""
@@ -170,7 +170,7 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
 
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
-  if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
+  if (!isSameOriginRequest(request, url) && !isConsoleCrossOriginBearerCall(request, context.access)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
   assertLoopbackWithoutSignIn(request, url, context)
   assertOperationProject(request, installedConsoleProjectRoot())
   if (isConsoleRpcPath(url.pathname, consoleRpcUploadPath)) {
@@ -236,10 +236,10 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
 }
 
 // A plain handler, because Nuxt 4 bundles every `h3` import as its own h3 1, which has no `defineHandler()`.
-const consoleRpcHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event, access) => {
-  const waitUntil = resolveWaitUntil(event, { preferHost: true })
-  return handleConsoleRpcRequest(toEventRequest(event), { access, env: getCloudflareEnv(event, { fallback: false }), event, remoteAddress: eventRemoteAddress(event), waitUntil })
+const consoleRpcHandler: (event: H3Event) => Promise<Response> = withConsoleCors(withConsoleAccess((event: H3Event, access) => {
+  const { req, runtime, waitUntil } = getStandardContext(event)
+  return handleConsoleRpcRequest(req, { access, env: runtime?.cloudflare?.env, event, remoteAddress: runtime?.clientAddress, waitUntil })
   // Each operation checks its own section.
-}, { anySection: true })
+}, { anySection: true }))
 
 export default consoleRpcHandler

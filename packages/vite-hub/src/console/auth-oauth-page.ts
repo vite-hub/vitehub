@@ -94,7 +94,7 @@ export function consoleAuthOAuthPage(methods: ConsoleSignInMethods, authBase: st
       }
       const clientId = params.get("client_id") || "";
       const [session, client] = await Promise.all([read("/get-session"), read("/oauth2/public-client?client_id=" + encodeURIComponent(clientId))]);
-      const name = client && client.client_name ? client.client_name : "An agent";
+      const name = client && client.client_name ? client.client_name : "an agent";
       if (!session || !session.user) {
         heading.textContent = "Sign in to connect " + name;
         text.textContent = "Then choose whether it may use " + location.host + " as you.";

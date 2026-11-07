@@ -1133,6 +1133,11 @@
       "import": "./dist/workspace/blob-database.js",
       "default": "./dist/workspace/blob-database.js"
     },
+    "./workspace/checkout": {
+      "types": "./dist/workspace/checkout.d.ts",
+      "import": "./dist/workspace/checkout.js",
+      "default": "./dist/workspace/checkout.js"
+    },
     "./workspace/cloudflare": {
       "types": "./dist/workspace/cloudflare.d.ts",
       "import": "./dist/workspace/cloudflare.js",
@@ -1142,6 +1147,11 @@
       "types": "./dist/workspace/files.d.ts",
       "import": "./dist/workspace/files.js",
       "default": "./dist/workspace/files.js"
+    },
+    "./workspace/lineage": {
+      "types": "./dist/workspace/lineage.d.ts",
+      "import": "./dist/workspace/lineage.js",
+      "default": "./dist/workspace/lineage.js"
     },
     "./workspace/loader": {
       "types": "./dist/workspace/loader.d.ts",
@@ -1297,6 +1307,7 @@
   },
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack",
+    "build:console-hosted": "vp build --config console.hosted.vite.config.ts",
     "dev": "vp build --config console.vite.config.ts && vp build --config page-tool.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack --watch",
     "typecheck": "vp run --cache -t vite-hub#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
