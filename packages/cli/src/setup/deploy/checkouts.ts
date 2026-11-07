@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { createRequire } from "node:module"
 import { pathToFileURL } from "node:url"
@@ -101,16 +100,28 @@ function moduleFailure(specifier: string, file: string, error: unknown): SetupFa
   return new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_CHECKOUT_MODULE_FAILED({ file, message, specifier }), setupExitCodes.error)
 }
 
-/** True when `vitehub.lock` lists at least one checkout folder. */
+/**
+ * True when `vitehub.lock` lists at least one checkout folder. False without a lock. A lock that is not JSON, such as
+ * one with a Git conflict, counts, so the checkout module reports it.
+ */
 async function lockHasCheckouts(root: string): Promise<boolean> {
+  let source: string
   try {
-    const lock: unknown = JSON.parse(await readLock(root) ?? "")
-    const workspaces = Object(lock) === lock ? Reflect.get(Object(lock), "workspaces") : undefined
-    return Object(workspaces) === workspaces && Object.keys(Object(workspaces)).length > 0
+    source = await readFile(join(root, lockFile), "utf8")
+  }
+  catch (error: unknown) {
+    if (error instanceof Error && Reflect.get(error, "code") === "ENOENT") return false
+    throw error
+  }
+  let lock: unknown
+  try {
+    lock = JSON.parse(source)
   }
   catch {
-    return false
+    return true
   }
+  const workspaces = Object(lock) === lock ? Reflect.get(Object(lock), "workspaces") : undefined
+  return Object(workspaces) === workspaces && Object.keys(Object(workspaces)).length > 0
 }
 
 /** The checkout folders that `vitehub deploy` pushes after a deploy. */
@@ -122,15 +133,15 @@ export interface DeployCheckouts {
 
 /**
  * Reads the checkout folders of `vitehub.lock` without asking the remote. Undefined when the project has no lock file,
- * no checkout, or no Workspace package to read them: then deploy does not push. Without the package, a lock with
- * checkouts gets one warning on `stderr`. Throws when the package does not load, or when a checkout has an open
- * conflict, because the push would refuse it after the deploy.
+ * no checkout, or no Workspace package to read them: then deploy does not push. Without a checkout, deploy does not
+ * load the Workspace package. Without the package, a lock with checkouts gets one warning on `stderr`. Throws when the
+ * package does not load, or when a checkout has an open conflict, because the push would refuse it after the deploy.
  */
 export async function readDeployCheckouts(root: string, stderr: Pick<ViteHubCliContext["stderr"], "write">): Promise<DeployCheckouts | undefined> {
-  if (!existsSync(join(root, lockFile))) return undefined
+  if (!await lockHasCheckouts(root)) return undefined
   const module = await importCheckoutModule(root)
   if (!module) {
-    if (await lockHasCheckouts(root)) stderr.write("[vitehub] vitehub.lock has checkout folders, but the deploy does not push them because the Workspace package is not installed. Install @vite-hub/workspace or vite-hub.\n")
+    stderr.write("[vitehub] vitehub.lock has checkout folders, but the deploy does not push them because the Workspace package is not installed. Install @vite-hub/workspace or vite-hub.\n")
     return undefined
   }
   const statuses = await module.localCheckoutStatus(root)

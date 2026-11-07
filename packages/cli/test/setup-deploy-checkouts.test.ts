@@ -286,6 +286,22 @@ describe("vitehub deploy with checkout folders in vitehub.lock", () => {
     expect(app.requests).toEqual([])
   })
 
+  it("does not load the checkout module when vitehub.lock has no checkout folder", async () => {
+    const broken = { ...checkoutPackage, "node_modules/@vite-hub/workspace/checkout.js": "throw new Error(\"checkout init failed\")\n" }
+    const locks = {
+      "an empty lock": JSON.stringify({ version: 1, workspaces: {} }),
+      "a lock without workspaces": JSON.stringify({ version: 1 }),
+      "no lock": undefined,
+    }
+    for (const [name, source] of Object.entries(locks)) {
+      const root = await builtProject("cloudflare", { ...broken, ...(source === undefined ? {} : { "vitehub.lock": source }) })
+      const hosts = await fakeHosts(cloudflareEnv)
+      const result = await runSetup<DeployJson>(["deploy", "--no-build", "--yes", "--json"], root, hosts.env)
+      expect(result.exitCode, `${name}: ${result.stdout}${result.stderr}`).toBe(0)
+      expect(result.json.url, name).toBe("https://my-app.example.workers.dev")
+    }
+  })
+
   it("does not load the checkout module when the deploy is not confirmed", async () => {
     const root = await builtProject("cloudflare", { ...markedCheckoutPackage, "vitehub.lock": lock() })
     const hosts = await fakeHosts(cloudflareEnv)
