@@ -36,6 +36,10 @@ Usage: vitehub <namespace> <feature> [args...]
 
 Available namespaces:
   workspace   Workspace development workflows and retained history.
+  pull        Merge the remote changes of a Workspace ref into a local folder.
+  push        Pull, then commit the local changes of a checkout folder to its ref.
+  status      Show local and remote changes of each checkout folder.
+  resolve     Keep the local version of binary files that both sides changed.
   console     Console development workflows.
   agent       Agent development workflows.
   blob        Read and write blobs of the Blob stores of the app, on the dev server or on a deployed app.
@@ -141,6 +145,12 @@ Available namespaces:
 | `vitehub workspace history` | Available | Workspace Package | List the retained revisions of a Workspace with ref, author, message, and time. |
 | `vitehub workspace refs` | Available | Workspace Package | List the history refs of a Workspace and their head revisions. |
 | `vitehub workspace show` | Available | Workspace Package | Show one revision and its files, or print one file as it was in that revision. |
+| `vitehub workspace changes` | Available | Workspace Package | List the files of a ref that changed since a revision, with their content. `vitehub pull` reads it. |
+| `vitehub workspace commit` | Available | Workspace Package | Commit files to a ref when its head is still `ifHead`. `vitehub push` calls it. |
+| `vitehub pull` | Available | Workspace Package | Merge the remote changes of each checked-out Workspace ref into its local folder, and update `vitehub.lock`. |
+| `vitehub push` | Available | Workspace Package | Pull, then commit the local changes of each checkout folder to its ref. It never publishes or deploys. |
+| `vitehub status` | Available | Workspace Package | Show local changes, conflicts, and with `--remote` the remote changes of each checkout folder. |
+| `vitehub resolve` | Available | Workspace Package | Keep the local version of binary files that both sides changed. |
 | `vitehub types prepare` | Available | ViteHub Framework | Prepare generated TypeScript declarations for editors and type checking. |
 | `vitehub inspect definitions` | Available | ViteHub CLI plus package inspection contributors | List the Definitions that each active package discovered. |
 | `vitehub inspect provider-output` | Available | ViteHub CLI plus package inspection contributors | List generated Provider Output files with secrets redacted. |
@@ -808,6 +818,16 @@ If you omit the command in an interactive terminal, the CLI opens a prompt for r
 ```txt [Output]
 Connected to docs at http://localhost:5173
 > pnpm test
+```
+
+## Work on Workspace files in a local folder
+
+`vitehub pull` and `vitehub push` keep a folder of the project in sync with one ref of a Workspace, as `git pull` and `git push` do with a branch. Edit the files in your editor, and edit the same ref in the Console. The first pull names the folder and the ref and writes `vitehub.lock`; commit that file. See [Work on a ref in a local folder](/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
+
+```bash [Terminal]
+pnpm vitehub pull site --dir content --ref draft --url https://docs.example.com
+pnpm vitehub status --remote
+pnpm vitehub push --message "Fix the install guide"
 ```
 
 ## Read Workspace history during development

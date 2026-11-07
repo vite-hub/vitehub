@@ -208,9 +208,9 @@ fails with `WORKSPACE_R0069`.
 Work on one ref in a local folder, as with `git pull` and `git push`:
 
 ```bash
-vitehub workspace pull content --dir content --ref draft --url https://docs.example.com
-vitehub workspace status --remote   # local changes, and remote changes since the last pull
-vitehub workspace push              # pull, then commit the local changes to `draft`
+vitehub pull content --dir content --ref draft --url https://docs.example.com
+vitehub status --remote   # local changes, and remote changes since the last pull
+vitehub push              # pull, then commit the local changes to `draft`
 ```
 
 The first pull writes `vitehub.lock`: commit it. Pull merges text by line and writes

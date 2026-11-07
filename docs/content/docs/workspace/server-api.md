@@ -173,19 +173,19 @@ Retained history requires access to the complete Workspace. A facade restricted 
 
 ### Work on a ref in a local folder
 
-`vitehub workspace pull`, `push`, and `status` keep a folder of your project in sync with one ref, as `git pull` and `git push` do with a branch. Edit the files in your editor or with your Agent, and edit the same ref in the Console. The next pull merges the two.
+`vitehub pull`, `push`, and `status` keep a folder of your project in sync with one ref, as `git pull` and `git push` do with a branch. Edit the files in your editor or with your Agent, and edit the same ref in the Console. The next pull merges the two.
 
 ```bash [Terminal]
-pnpm vitehub workspace pull content --dir content --ref draft --url https://docs.example.com
-pnpm vitehub workspace status --remote
-pnpm vitehub workspace push --message "Fix the install guide"
+pnpm vitehub pull content --dir content --ref draft --url https://docs.example.com
+pnpm vitehub status --remote
+pnpm vitehub push --message "Fix the install guide"
 ```
 
-The first pull of a Workspace needs `--dir`, and `--ref` when the ref is not `main`. It writes `vitehub.lock` at the project root. Commit that file: it records the folder, the ref, the remote app, the revision that the folder matches, and the SHA-256 of each file at that revision. Later commands read it, so `pnpm vitehub workspace pull` with no arguments pulls every Workspace in it. Without `--url` and without `remote` in the lock file, the commands use the dev server of the project.
+The first pull of a Workspace needs `--dir`, and `--ref` when the ref is not `main`. It writes `vitehub.lock` at the project root. Commit that file: it records the folder, the ref, the remote app, the revision that the folder matches, and the SHA-256 of each file at that revision. Later commands read it, so `pnpm vitehub pull` with no arguments pulls every Workspace in it. Without `--url` and without `remote` in the lock file, the commands use the dev server of the project.
 
 - **Pull.** A file that only the remote changed takes the remote version. A text file that both sides changed is merged by line. Lines that both sides changed get Git conflict markers, with your lines first. A remote edit of a file that you deleted brings the file back. Your edit of a file that the remote deleted stays, and the next push restores it. `--theirs <path>` takes the remote version of one path.
 - **Push.** It pulls first, then commits every local change to the ref in one revision with `ifHead` set to the pulled head. When another save lands between the two steps, it pulls and tries again. It refuses while a file has conflict markers.
-- **Binary files.** When both sides change one, the pull keeps your file and lists the path in `conflicts` of the lock file. Run `vitehub workspace resolve <workspace> <path>` to keep your file, or pull with `--theirs <path>`.
+- **Binary files.** When both sides change one, the pull keeps your file and lists the path in `conflicts` of the lock file. Run `vitehub resolve <workspace> <path>` to keep your file, or pull with `--theirs <path>`.
 - **Status.** `status` lists added, modified, deleted, and conflicting files. `--remote` also lists what changed on the ref since the last pull. `--check` exits with `1` while a conflict is open, so a pre-commit hook can run it.
 
 The commands call two operations of the app, which the Console section `workspaces` grants:

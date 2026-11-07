@@ -317,7 +317,7 @@ function checkoutEntry(lock: WorkspaceLock, workspace: string, options: { dir?: 
     }
     return existing
   }
-  if (!options.dir) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_DIR", `Workspace "${workspace}" is not checked out yet.`, `Pass --dir <folder> on the first pull, such as \`vitehub workspace pull ${workspace} --dir content\`.`)
+  if (!options.dir) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_DIR", `Workspace "${workspace}" is not checked out yet.`, `Pass --dir <folder> on the first pull, such as \`vitehub pull ${workspace} --dir content\`.`)
   const entry: WorkspaceCheckout = { dir: options.dir, ref: options.ref ?? "main", ...(options.remote ? { remote: options.remote } : {}), head: null, files: {} }
   lock.workspaces[workspace] = entry
   return entry
@@ -367,7 +367,7 @@ async function applyRemote(folder: string, entry: WorkspaceCheckout, file: Works
   const remoteText = text(remoteBytes)
   if (baseText === undefined || localText === undefined || remoteText === undefined) {
     conflicts.add(path)
-    return { path, action: "conflict", note: "Both sides changed this binary file. Your file stays. Run `vitehub workspace resolve` to keep it, or `vitehub workspace pull --theirs` to take the remote file." }
+    return { path, action: "conflict", note: "Both sides changed this binary file. Your file stays. Run `vitehub resolve` to keep it, or `vitehub pull --theirs` to take the remote file." }
   }
   const merged = mergeText(baseText, localText, remoteText, labels)
   await put(folder, path, new TextEncoder().encode(merged.text))
@@ -377,11 +377,11 @@ async function applyRemote(folder: string, entry: WorkspaceCheckout, file: Works
 
 function selected(lock: WorkspaceLock, workspace: string | undefined): string[] {
   if (workspace) {
-    if (!lock.workspaces[workspace]) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_MISSING", `Workspace "${workspace}" is not checked out.`, `Run \`vitehub workspace pull ${workspace} --dir <folder>\` first.`)
+    if (!lock.workspaces[workspace]) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_MISSING", `Workspace "${workspace}" is not checked out.`, `Run \`vitehub pull ${workspace} --dir <folder>\` first.`)
     return [workspace]
   }
   const names = Object.keys(lock.workspaces).sort()
-  if (!names.length) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_MISSING", `${workspaceLockFile} has no checked-out Workspace.`, "Run `vitehub workspace pull <workspace> --dir <folder>` first.")
+  if (!names.length) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_MISSING", `${workspaceLockFile} has no checked-out Workspace.`, "Run `vitehub pull <workspace> --dir <folder>` first.")
   return names
 }
 
@@ -461,7 +461,7 @@ async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, e
     const files = await scan(folder)
     const local = localChanges(entry, files)
     if (local.conflicted.length) {
-      throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_CONFLICT", `Workspace "${workspace}" has unresolved conflicts: ${local.conflicted.join(", ")}.`, "Edit each file and remove the conflict markers, or run `vitehub workspace resolve` for a binary file. Then push again.")
+      throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_CONFLICT", `Workspace "${workspace}" has unresolved conflicts: ${local.conflicted.join(", ")}.`, "Edit each file and remove the conflict markers, or run `vitehub resolve` for a binary file. Then push again.")
     }
     const pushed = [...local.added, ...local.modified, ...local.deleted].sort()
     if (!pushed.length) return { workspace, ref: entry.ref, pushed, pull }

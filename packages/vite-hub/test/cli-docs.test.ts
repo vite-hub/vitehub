@@ -103,6 +103,7 @@ describe("CLI documentation contract", () => {
     ).resolves.toBe(0);
     const namespaces = helpNames(rootHelp.output(), "Available namespaces:");
     const commands: string[] = [];
+    const singleCommands: string[] = [];
 
     for (const namespace of namespaces) {
       const namespaceHelp = stream();
@@ -114,6 +115,11 @@ describe("CLI documentation contract", () => {
           stdout: namespaceHelp,
         }),
       ).resolves.toBe(0);
+      // A namespace that is one command, such as `vitehub pull`, prints the command's usage.
+      if (!namespaceHelp.output().includes("Available features:")) {
+        singleCommands.push(namespace);
+        continue;
+      }
       for (const feature of helpNames(namespaceHelp.output(), "Available features:")) {
         commands.push(`${namespace} ${feature}`);
       }
@@ -121,5 +127,7 @@ describe("CLI documentation contract", () => {
 
     expect(documentedNamespaces()).toEqual([...namespaces].sort());
     expect(documentedCommands()).toEqual(commands.sort());
+    const reference = readFileSync(cliReference, "utf8");
+    expect(singleCommands.filter((command) => !reference.includes(`| \`vitehub ${command}\` |`))).toEqual([]);
   });
 });

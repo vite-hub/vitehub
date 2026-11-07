@@ -88,16 +88,16 @@ function formatStatus(status: WorkspaceStatus): string {
   lines.push(rows.length ? "Local changes:" : "No local changes.", ...rows)
   if (status.remoteChanges) {
     if (!status.remoteChanges.length) lines.push("No remote changes.")
-    else lines.push(`Remote changes since ${status.head ?? "(empty)"} (run \`vitehub workspace pull\`):`, ...status.remoteChanges.map(change => `  ${change.change.padEnd(9)} ${change.path}`))
+    else lines.push(`Remote changes since ${status.head ?? "(empty)"} (run \`vitehub pull\`):`, ...status.remoteChanges.map(change => `  ${change.change.padEnd(9)} ${change.path}`))
   }
   return `${lines.join("\n")}\n`
 }
 
 const usage = {
-  pull: "vitehub workspace pull [workspace] [--dir <folder>] [--ref <ref>] [--url <origin>] [--theirs <path>] [--json]",
-  push: "vitehub workspace push [workspace] [--message <text>] [--url <origin>] [--json]",
-  resolve: "vitehub workspace resolve <workspace> [path...] [--json]",
-  status: "vitehub workspace status [workspace] [--remote] [--check] [--url <origin>] [--json]",
+  pull: "vitehub pull [workspace] [--dir <folder>] [--ref <ref>] [--url <origin>] [--theirs <path>] [--json]",
+  push: "vitehub push [workspace] [--message <text>] [--url <origin>] [--json]",
+  resolve: "vitehub resolve <workspace> [path...] [--json]",
+  status: "vitehub status [workspace] [--remote] [--check] [--url <origin>] [--json]",
 }
 
 const help = {
@@ -113,8 +113,9 @@ command uses \`remote\` of ${workspaceLockFile}, else the dev server of the proj
 `,
   push: `Usage: ${usage.push}
 
-Pull, then commit the local changes of each checkout folder to its ref in one revision. The push refuses while a file
-has conflict markers or a binary conflict is open. When another push lands first, it pulls and tries again.
+Pull, then commit the local changes of each checkout folder to its ref in one revision. It writes the ref only: it
+never publishes or deploys. The push refuses while a file has conflict markers or a binary conflict is open. When
+another push lands first, it pulls and tries again.
 `,
   resolve: `Usage: ${usage.resolve}
 
@@ -181,7 +182,7 @@ async function run(command: keyof typeof usage, args: readonly string[], context
   }
 }
 
-/** `vitehub workspace pull|push|status|resolve`: a local folder as a working copy of a Workspace ref. */
+/** `vitehub pull|push|status|resolve`: a local folder as a working copy of a Workspace ref. */
 export function workspaceCheckoutFeatures(): Array<{ description: string, name: string, run: (args: string[], context: WorkspaceCheckoutCliContext) => Promise<number>, usage: string }> {
   return [
     { description: "Merge the remote changes of a Workspace ref into a local folder.", name: "pull", run: async (args, context) => await run("pull", args, context), usage: usage.pull },

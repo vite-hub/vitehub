@@ -31,6 +31,7 @@ interface WorkspaceCliContext {
 
 interface WorkspaceCliContributor {
   namespaces: Array<{
+    defaultFeature?: string
     description?: string
     features: Array<{
       description?: string
@@ -388,8 +389,8 @@ export function createWorkspaceCliContributor(): WorkspaceCliContributor {
         name: "dev",
         run: async (args, context) => await runWorkspaceDevCli(args, context),
         usage: "vitehub workspace dev <workspace> [exec <command...>]",
-      }, ...workspaceCheckoutFeatures()],
+      }],
       name: "workspace",
-    }],
+    }, ...workspaceCheckoutFeatures().map(feature => ({ defaultFeature: feature.name, description: feature.description, features: [feature], name: feature.name }))],
   }
 }

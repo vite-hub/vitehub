@@ -231,7 +231,7 @@ async function commitChanges(workspace: string, request: WorkspaceCommitInput): 
   }
 }
 
-/** Lists the files that changed on a ref since a revision, with their content, for `vitehub workspace pull`. */
+/** Lists the files that changed on a ref since a revision, with their content, for `vitehub pull`. */
 export async function runWorkspaceChanges(input: WorkspaceChangesInput): Promise<WorkspaceChanges> {
   try {
     return await listChanges(input.workspace, useWorkspaceFiles(input.workspace).history, input)
@@ -241,7 +241,7 @@ export async function runWorkspaceChanges(input: WorkspaceChangesInput): Promise
   }
 }
 
-/** Commits files to a ref when its head is still `ifHead`, for `vitehub workspace push`. Write rules and validators run. */
+/** Commits files to a ref when its head is still `ifHead`, for `vitehub push`. Write rules and validators run. */
 export async function runWorkspaceCommit(input: WorkspaceCommitInput): Promise<WorkspaceCommitResult> {
   try {
     return await commitChanges(input.workspace, input)
