@@ -328,6 +328,35 @@ describe("workspace checkout on the GitHub Store", { timeout: 60_000 }, () => {
     expect(fake.requests.filter(request => request.path.startsWith("/repos/onmax/repo/compare/"))).toHaveLength(2)
   })
 
+  it("opens an old revision of a branch that shares no history with the published branch", async () => {
+    const refs = { published: "main", draft: "vitehub/content" }
+    fake.commit("main", { "content/posts/hello.md": post("Hello", "One.") })
+    // The draft branch has its own root commit, so its compare with main is "No common ancestor".
+    const old = fake.commit("vitehub/content", { "content/posts/draft.md": post("Draft", "One.") })
+    fake.commit("vitehub/content", { "content/posts/draft.md": post("Draft", "Two.") })
+
+    const view = await app({ refs }).history.open(old)
+
+    expect(view.revision).toMatchObject({ id: old, ref: "draft" })
+  })
+
+  it("fails to open an old revision when a compare fails, and does not keep the fallback ref", async () => {
+    const refs = { published: "main", draft: "vitehub/content" }
+    fake.commit("main", { "content/posts/hello.md": post("Hello", "One.") })
+    let server = app({ refs })
+    const draft = await server.edit({ put: { "posts/draft.md": post("Draft", "One.") } }, "draft")
+    await server.edit({ put: { "posts/draft.md": post("Draft", "Two.") } }, "draft")
+    let failures = 1
+    // GitHub documents 422 on compare as "Validation failed, or the endpoint has been spammed".
+    fake.respond(request => request.path.startsWith("/repos/onmax/repo/compare/") && failures-- > 0 ? Response.json({ message: "Validation Failed" }, { status: 422 }) : undefined)
+    server = app({ refs })
+
+    await expect(server.history.open(draft.id)).rejects.toThrow()
+
+    // The same instance finds the draft ref once GitHub answers.
+    expect((await server.history.open(draft.id)).revision).toMatchObject({ id: draft.id, ref: "draft" })
+  })
+
   it("reads one blob for each changed file on a pull, and none for a dry run", async () => {
     const files = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`content/posts/${index}.md`, post(`Cost ${index}`, `Unique ${index}.`)]))
     fake.commit("main", files)

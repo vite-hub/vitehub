@@ -107,6 +107,18 @@ function isNoHistoryError(error: unknown): boolean {
   return status === 404 || status === 409
 }
 
+/**
+ * GitHub answers a compare of two commits without a merge base with 404 "No common ancestor between <base> and <head>."
+ * Any other failure, such as a 422 "Validation failed, or the endpoint has been spammed", proves nothing.
+ */
+function isUnrelatedHistoryError(error: unknown): boolean {
+  for (let current = error; current instanceof Error; current = current.cause) {
+    const body = Reflect.get(current, "body")
+    if (/no common ancestor/i.test(`${current.message}\n${typeof body === "string" ? body : ""}`)) return true
+  }
+  return false
+}
+
 function cursorFor(ref: string, id: string): string {
   return `${ref}:after:${id}`
 }
@@ -456,8 +468,8 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
             return Reflect.get(Object(Reflect.get(Object(compare), "merge_base_commit")), "sha") === id
           }
           catch (error) {
-            // Unrelated histories have no merge base.
-            if (isNoHistoryError(error) || githubRequestStatus(error) === 422) return false
+            // Unrelated histories have no merge base. Another failure must not cache the commit under the fallback ref.
+            if (isUnrelatedHistoryError(error)) return false
             throw error
           }
         }, "compare")
