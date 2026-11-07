@@ -37,8 +37,6 @@ pnpm add @vite-hub/schedule
 ::tabs{sync="framework"}
 :::tabs-item{label="Nuxt"}
 ```ts [nuxt.config.ts]
-import { hubSchedule } from '@vite-hub/schedule/vite'
-
 export default defineNuxtConfig({
   modules: ['vite-hub/nuxt'],
   vitehub: {
@@ -50,11 +48,11 @@ export default defineNuxtConfig({
       driver: 'deno-kv',
     },
   },
-  vite: {
-    plugins: [hubSchedule({ providerOutput: 'standalone' })],
-  },
 })
 ```
+
+> [!WARNING]
+> In Nuxt, ViteHub does not write the `Deno.cron` output yet, so static Schedules do not run on Deno. Use the Nitro or Vite setup when you need them.
 :::
 
 :::tabs-item{label="Nitro"}
