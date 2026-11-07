@@ -4,14 +4,28 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
 
+import { createClient } from "@libsql/client"
+import { sql } from "drizzle-orm"
+import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, describe, expect, it } from "vitest"
 
+import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
+
+import { createBlobStorage } from "../../blob/src/storage.ts"
+import { createDriver } from "../../blob/src/drivers/fs.ts"
+
+import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "../src/blob-database.ts"
+import { workspaceCheckoutFeatures } from "../src/checkout-cli.ts"
+import { registerWorkspace, resetWorkspaceRegistry } from "../src/core/registry.ts"
 import { pushedBranches, workspaceHooksNamespace } from "../src/hooks-cli.ts"
+import { useWorkspace } from "../src/index.ts"
+import { workspaceOperations } from "../src/operations.ts"
 
 const exec = promisify(execFile)
 const cleanup: Array<() => Promise<void>> = []
 
 afterEach(async () => {
+  resetWorkspaceRegistry()
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
@@ -25,13 +39,40 @@ async function repository(project = "docs") {
   return { rootDir, top }
 }
 
-async function run(name: string, rootDir: string, input = "") {
+/** A deployed app with the `content` Workspace, reached through the operation RPC, as in checkout.test.ts. */
+async function app() {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-hooks-app-"))
+  cleanup.push(() => rm(root, { force: true, recursive: true }))
+  const client = createClient({ url: `file:${join(root, "history.sqlite")}` })
+  cleanup.push(async () => client.close())
+  const database = drizzle(client, { schema: workspaceHistorySchema })
+  const migration = await readFile(new URL("fixtures/history.sql", import.meta.url), "utf8")
+  for (const statement of migration.split(";").filter(statement => statement.trim())) await database.run(sql.raw(statement))
+  const store = createBlobDatabaseWorkspaceStore({ blob: createBlobStorage(createDriver({ driver: "fs", base: join(root, "objects") })), database, workspace: "content" })
+  registerWorkspace("content", { store })
+  const { history } = useWorkspace("content", { definition: { name: "content", store }, mode: "write" })
+  const registry = createOperationRegistry([{ operations: workspaceOperations }])
+  const fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+    const { input, operation } = JSON.parse(String(init!.body)) as { input: unknown, operation: string }
+    const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+    return Response.json(result, { status: result.ok ? 200 : result.status ?? 500 })
+  }
+  const edit = async (put: Record<string, string>) => {
+    const head = await history.head({ ref: "draft" })
+    return await history.commit({ ref: "draft", ifHead: head?.id ?? null, changes: { put }, message: "Console edit" })
+  }
+  return { edit, fetch: fetch as typeof globalThis.fetch, history }
+}
+
+async function run(name: string, rootDir: string, input = "", fetch?: typeof globalThis.fetch, args: string[] = []) {
   let stdout = ""
   let stderr = ""
   const namespace = workspaceHooksNamespace({ readInput: async () => input })
-  const code = await namespace.features.find(feature => feature.name === name)!.run([], {
+  const features = [...namespace.features, ...workspaceCheckoutFeatures()]
+  const code = await features.find(feature => feature.name === name)!.run(args, {
     cwd: rootDir,
     env: {},
+    ...(fetch ? { fetch } : {}),
     rootDir,
     stderr: { write: (chunk) => { stderr += String(chunk) } },
     stdout: { write: (chunk) => { stdout += String(chunk) } },
@@ -136,6 +177,27 @@ describe("vitehub hooks", () => {
     const failed = await run("pre-push", rootDir, "refs/heads/main 1 refs/heads/main 0\n")
     expect(failed.code).toBe(1)
     expect(failed.stderr).toContain("the Workspace push failed, so Git stops this push")
+  })
+
+  it("fails the Git push after a Workspace push that changes vitehub.lock or pulls files, and passes the next push", { timeout: 60_000 }, async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ "posts/hello.md": "Hello\n", "posts/other.md": "Other\n" })
+    const { rootDir } = await repository()
+    expect((await run("pull", rootDir, "", remoteApp.fetch, ["content", "--dir", "content", "--ref", "draft", "--url", "https://docs.example.test"])).code).toBe(0)
+    const lock = await readFile(join(rootDir, "vitehub.lock"), "utf8")
+
+    await remoteApp.edit({ "posts/other.md": "Other, edited in the Console\n" })
+    await writeFile(join(rootDir, "content/posts/hello.md"), "Hello, edited locally\n")
+    const pushed = await run("pre-push", rootDir, "refs/heads/main 1 refs/heads/main 0\n", remoteApp.fetch)
+
+    expect(pushed.code).toBe(1)
+    expect(pushed.stderr).toBe("vitehub: the Workspace push went through and changed these files:\n  content/posts/other.md\n  vitehub.lock\nGit stops this push because it does not contain them. Commit them, then run git push again.\n")
+    expect(await readFile(join(rootDir, "vitehub.lock"), "utf8")).not.toBe(lock)
+    expect(await readFile(join(rootDir, "content/posts/other.md"), "utf8")).toBe("Other, edited in the Console\n")
+    const head = await remoteApp.history.head({ ref: "draft" })
+    expect(await (await remoteApp.history.open(head!.id)).readFile("posts/hello.md", { encoding: "utf8" })).toBe("Hello, edited locally\n")
+
+    expect(await run("pre-push", rootDir, "refs/heads/main 1 refs/heads/main 0\n", remoteApp.fetch)).toMatchObject({ code: 0, stderr: "" })
   })
 
   it("reads the remote branches from the pre-push input", () => {

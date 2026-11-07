@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process"
-import { chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { createHash } from "node:crypto"
+import { chmod, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { join, relative, resolve, sep } from "node:path"
 import { promisify } from "node:util"
 
@@ -11,6 +12,8 @@ import type { WorkspaceCheckoutCliContext } from "./checkout-cli.ts"
 const exec = promisify(execFile)
 const marker = "# Installed by `vitehub hooks install`."
 const hookNames = ["pre-commit", "pre-push"] as const
+/** Names that `vitehub pull` and `vitehub push` skip in a checkout folder. */
+const ignoredNames = new Set([".git", ".vitehub", "node_modules", ".DS_Store"])
 type HookName = typeof hookNames[number]
 
 const usage = {
@@ -138,6 +141,40 @@ async function hasCheckouts(rootDir: string): Promise<boolean> {
   }
 }
 
+/**
+ * A digest of `vitehub.lock` and of every file in its checkout folders, by path from the project folder. The pre-push
+ * hook compares two of them to find what `vitehub push` changed.
+ */
+async function checkoutFiles(rootDir: string): Promise<Map<string, string>> {
+  const files = new Map<string, string>()
+  const digest = async (path: string) => {
+    const bytes = await readFile(join(rootDir, path)).catch(() => undefined)
+    if (bytes) files.set(path, createHash("sha256").update(bytes).digest("hex"))
+  }
+  await digest(workspaceLockFile)
+  let dirs: string[] = []
+  try {
+    const workspaces: unknown = Reflect.get(Object(JSON.parse(await readFile(join(rootDir, workspaceLockFile), "utf8"))), "workspaces")
+    dirs = Object.values(Object(workspaces)).map(entry => Reflect.get(Object(entry), "dir")).filter((dir): dir is string => typeof dir === "string")
+  }
+  catch {
+    // `vitehub push` reports a lock file that is not JSON.
+  }
+  for (const dir of dirs) {
+    const entries = await readdir(join(rootDir, dir), { recursive: true, withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      if (!entry.isFile()) continue
+      const path = relative(rootDir, join(entry.parentPath, entry.name)).split(sep).join("/")
+      if (!path.split("/").some(part => ignoredNames.has(part))) await digest(path)
+    }
+  }
+  return files
+}
+
+function changedFiles(before: Map<string, string>, after: Map<string, string>): string[] {
+  return [...new Set([...before.keys(), ...after.keys()])].filter(path => before.get(path) !== after.get(path)).sort()
+}
+
 const feature = (name: string) => workspaceCheckoutFeatures().find(candidate => candidate.name === name)!
 
 /** The branch names that a pre-push hook pushes to, read from the lines that Git writes to its standard input. */
@@ -171,9 +208,17 @@ async function prePush(context: WorkspaceCheckoutCliContext, options: WorkspaceH
     context.stdout.write(`vitehub: this push does not update ${target}, so the checkout folders stay unpushed.\n`)
     return 0
   }
+  const before = await checkoutFiles(context.rootDir)
   const code = await feature("push").run([], context)
-  if (code !== 0) context.stderr.write("vitehub: the Workspace push failed, so Git stops this push. Fix it, or push with --no-verify to skip the hook.\n")
-  return code
+  if (code !== 0) {
+    context.stderr.write("vitehub: the Workspace push failed, so Git stops this push. Fix it, or push with --no-verify to skip the hook.\n")
+    return code
+  }
+  const changed = changedFiles(before, await checkoutFiles(context.rootDir))
+  if (!changed.length) return 0
+  // Git made this push from commits that already exist, so it cannot carry the new lock file or the pulled files.
+  context.stderr.write(`vitehub: the Workspace push went through and changed these files:\n${changed.map(path => `  ${path}\n`).join("")}Git stops this push because it does not contain them. Commit them, then run git push again.\n`)
+  return 1
 }
 
 async function preCommit(context: WorkspaceCheckoutCliContext): Promise<number> {
@@ -190,7 +235,8 @@ install     Write .git/hooks/pre-commit and pre-push. With Husky, lefthook, pre-
             core.hooksPath, print the commands to add to that tool instead. An existing hook stays as it is.
 uninstall   Remove the hooks that \`install\` wrote. A hook that you changed stays.
 pre-commit  Fail while a checkout folder of ${workspaceLockFile} has conflicts. Works offline.
-pre-push    Run \`vitehub push\` when the Git push updates the default branch. Other branches push nothing.
+pre-push    Run \`vitehub push\` when the Git push updates the default branch. Other branches push nothing. When the
+            Workspace push changes ${workspaceLockFile} or pulls files, the hook fails: commit them, then push again.
 
 Without ${workspaceLockFile}, pre-commit and pre-push do nothing.
 `
