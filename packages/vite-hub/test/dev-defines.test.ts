@@ -26,16 +26,16 @@ describe("vite dev defines", () => {
     expect(await declaredRuntimeDefines()).toEqual([...viteHubRuntimeDefines].sort())
   })
 
-  it("sets the replaced values as globals and skips missing ones", async () => {
+  it.each([true, false])("sets the replaced values as globals and skips missing ones (auth dev: %s)", async (dev) => {
     // Vite replaces the names in the generated plugin. Nitro's `replace` rewrites them in strings too.
     const { code } = await transformWithOxc(renderDevDefinesNitroPlugin(), "dev-defines.mjs", {
-      define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/docs/") },
+      define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/docs/"), __VITEHUB_AUTH_DEV__: JSON.stringify(dev) },
     })
     // Nitro's `replace` works on the text, like this.
     const replaced = code.replaceAll(/\b__VITEHUB_AUTH_APP_BASE_URL__\b/g, JSON.stringify("/docs/"))
     const scope: Record<string, unknown> = {}
     new Function("globalThis", replaced.replace("export default function", "return function"))(scope)
-    expect(scope).toEqual({ __VITEHUB_APP_BASE_URL__: "/docs/", __VITEHUB_AUTH_APP_BASE_URL__: "/docs/" })
+    expect(scope).toEqual({ __VITEHUB_APP_BASE_URL__: "/docs/", __VITEHUB_AUTH_APP_BASE_URL__: "/docs/", __VITEHUB_AUTH_DEV__: dev })
   })
 
   it("runs only for the development server", () => {
