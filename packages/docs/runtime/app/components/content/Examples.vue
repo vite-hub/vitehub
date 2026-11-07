@@ -7,6 +7,8 @@ const slots = useSlots()
 const items = computed(() => (slots.default?.() ?? []).filter((node: VNode) => typeof node.type === "object"))
 const labels = computed(() => items.value.map((node, at) => String(node.props?.label ?? `Example ${at + 1}`)))
 const active = ref(0)
+// One view for every example, so Code stays on when the reader changes tabs.
+const view = ref<"preview" | "code">("preview")
 const id = useId()
 const list = useTemplateRef<HTMLElement>("list")
 const line = ref<{ left: number, width: number, slide: boolean } | null>(null)
@@ -69,7 +71,7 @@ onBeforeUnmount(() => resizes?.disconnect())
       :aria-labelledby="`${id}-tab-${at}`"
       class="vh-examples-panel"
     >
-      <component :is="item" />
+      <component :is="item" v-model:view="view" />
     </div>
   </div>
 </template>

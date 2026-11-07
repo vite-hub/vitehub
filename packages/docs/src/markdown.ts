@@ -1,4 +1,5 @@
 import { createMarkdownParser } from "comark/parse"
+import { textContent } from "comark/utils"
 import alert from "comark/plugins/alert"
 import attributes from "comark/plugins/attributes"
 import components from "comark/plugins/components"
@@ -26,6 +27,8 @@ export interface DocsDocument {
 export interface DocsParserOptions {
   /** More Comark plugins, after the built-in ones. A plugin with a built-in name replaces it. */
   plugins?: ComarkPlugin[]
+  /** The source of each Vue example that `::example{name}` shows, by name. The module fills it from `examples`. */
+  examples?: Record<string, string>
 }
 
 // Bash, JSON, JavaScript, TypeScript, Vue, and YAML are built in. Other code stays plain text.
@@ -50,14 +53,52 @@ export function createDocsParser(options: DocsParserOptions = {}): (markdown: st
   const extra = options.plugins ?? []
   // A later plugin with the same name wins: comark-ui's GitHub callouts replace Comark's alert plugin, and the site's
   // plugins replace both.
-  const ordered = [alert(), taskList(), components(), attributes(), ...docsBlocks().plugins, shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 }), ...extra]
+  const ordered = [alert(), taskList(), components(), attributes(), ...docsBlocks().plugins, shiki({ languages, themes, registerDefaultThemes: false }), toc({ depth: 3, searchDepth: 2 }), examples(markdown => docsParse(markdown), options.examples ?? {}), ...extra]
   const byName = new Map(ordered.map(plugin => [plugin.name, plugin]))
   const plugins = ordered.filter(plugin => byName.get(plugin.name) === plugin)
   const parse = createMarkdownParser({ plugins })
-  return async (markdown) => {
+  const docsParse = async (markdown: string): Promise<DocsDocument> => {
     const document = await parse(markdown)
     return { nodes: unwrapListParagraphs(document.nodes), toc: tocOf(document) }
   }
+  return docsParse
+}
+
+const markdownLanguages = new Set(["md", "markdown", "mdc"])
+
+/**
+ * `::example` shows a preview and its source, a switch apart. Around a Markdown code block, the preview is that
+ * Markdown, parsed here with the page's own plugins. With `name`, it is the Vue file of that name in the examples
+ * folder, and its source becomes the code block. Either way the page reaches the browser as nodes.
+ */
+function examples(parse: (markdown: string) => Promise<DocsDocument>, sources: Record<string, string>): ComarkPlugin {
+  const visit = async (nodes: ComarkNode[]): Promise<void> => {
+    for (const node of nodes) {
+      if (typeof node === "string" || node[0] === null) continue
+      // SAFETY: an element node is [tag, attributes, ...children].
+      const children = node.slice(2) as ComarkNode[]
+      if (node[0] !== "example") {
+        await visit(children)
+        continue
+      }
+      const name = typeof node[1].name === "string" ? node[1].name : undefined
+      if (name) {
+        const source = sources[name]
+        if (source === undefined) throw new Error(`::example names "${name}", but the examples folder has no ${name}.vue.`)
+        // A fence longer than any run of backticks in the file keeps the file whole.
+        const fence = "`".repeat(Math.max(3, ...[...source.matchAll(/`+/g)].map(run => run[0].length + 1)))
+        const { nodes: code } = await parse(`${fence}vue\n${source.trim()}\n${fence}\n`)
+        node.splice(2, node.length, ...code)
+        continue
+      }
+      const pre = children.find((child): child is Extract<ComarkNode, unknown[]> => typeof child !== "string" && child[0] === "pre")
+      const language = pre && typeof pre[1].language === "string" ? pre[1].language : ""
+      if (!pre || !markdownLanguages.has(language)) continue
+      const { nodes: preview } = await parse(typeof pre[1].code === "string" ? pre[1].code : textContent(pre))
+      node.splice(2, 0, ["example-preview", {}, ...preview])
+    }
+  }
+  return { name: "docs-examples", post: state => visit(state.tree.nodes) }
 }
 
 /**
@@ -80,6 +121,8 @@ function tocOf(document: MarkdownDocument): DocsTocLink[] {
 
 /** Blocks that only agents read. The site renders nothing for them, so search skips them too. */
 const agentOnly = new Set(["agent-only"])
+/** An example's preview repeats its source, which search already reads in the code block. */
+const repeated = new Set(["example-preview"])
 
 /** Split a page into one search entry per h2 and h3, like Nuxt UI's content search expects. */
 export function docsSearchSections(path: string, title: string, nodes: ComarkNode[]): DocsSearchSection[] {
@@ -91,7 +134,7 @@ export function docsSearchSections(path: string, title: string, nodes: ComarkNod
       return
     }
     const [tag, props, ...children] = node
-    if (tag === null || agentOnly.has(tag) || tag === "typeset-styles") return
+    if (tag === null || agentOnly.has(tag) || repeated.has(tag) || tag === "typeset-styles") return
     const level = /^h([23])$/.exec(tag)?.[1]
     if (level) {
       const depth = Number(level)

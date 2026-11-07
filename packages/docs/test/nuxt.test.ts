@@ -269,6 +269,20 @@ describe("docs Nuxt setup", () => {
     expect(nitro.alias?.["#docs/parser"]).toBe("/build/docs/parser.mjs")
   })
 
+  it("loads each Vue file of the examples folder in the page and gives its source to the parser", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "docs-examples-"))
+    writeFileSync(join(dir, "ButtonExample.vue"), "<template><UButton /></template>\n")
+    writeFileSync(join(dir, "notes.md"), "Not an example.\n")
+    await setupDocs({ examples: dir })
+    const nitro: { alias?: Record<string, string> } = {}
+    for (const hook of hooks.get("nitro:config") ?? []) await hook(nitro as never)
+
+    expect(templates.get("docs/examples.mjs")?.()).toBe(`export default {\n  "ButtonExample": () => import(${JSON.stringify(join(dir, "ButtonExample.vue"))}),\n}\n`)
+    expect(templates.get("docs/example-sources.mjs")?.()).toBe(`export default {"ButtonExample":"<template><UButton /></template>\\n"}\n`)
+    expect(nitro.alias?.["#docs/example-sources"]).toBe("/build/docs/example-sources.mjs")
+    rmSync(dir, { recursive: true, force: true })
+  })
+
   it("parses with the built-in plugins only without a parser module", async () => {
     await setupDocs({})
     expect(templates.get("docs/parser.mjs")?.()).toBe("export default {}\n")

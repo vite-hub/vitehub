@@ -82,6 +82,15 @@ describe("toRawMarkdown", () => {
     ].join('\n'))
   })
 
+  it("keeps a Markdown example's source and marks a Vue example's preview", () => {
+    const raw = convert(["::examples", ":::example{label=\"Bold\"}", "```md", "Some **bold** text.", "```", ":::", "::", "", "::example{name=\"ButtonExample\"}", "::"].join("\n"))
+
+    expect(raw).toContain("**Bold**")
+    expect(raw).toContain("```md\nSome **bold** text.\n```")
+    expect(raw).toContain("_Interactive preview available on the rendered documentation page._")
+    expect(raw).not.toContain("::example")
+  })
+
   it("keeps site-relative links relative without a site URL", () => {
     expect(toRawMarkdown("[Get started](/docs/kv/get-started)")).toBe("[Get started](/docs/kv/get-started)\n")
     expect(toRawMarkdown("[Get started](/docs/kv/get-started)", { siteUrl: "https://example.com/" })).toBe("[Get started](https://example.com/docs/kv/get-started)\n")
