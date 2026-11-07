@@ -255,6 +255,26 @@ describe("hubDb", () => {
     }
   })
 
+  it("warns when the Database Definition sets NuxtHub's D1 migration history", { timeout: 30_000 }, async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "binding: 'DB', databaseName: 'app', databaseId: 'database-id', migrationsTable: '_hub_migrations'," })
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+    const plugin = hubDb()
+    const { createNitro } = await import("nitro/builder")
+    const nitro = await createNitro({ cloudflare: { deployConfig: true }, compatibilityDate: "2026-10-01", dev: false, logLevel: 0, modules: [plugin.nitro], preset: "cloudflare-module", rootDir })
+    try {
+      await resolveConfigResolved(plugin)({ root: rootDir })
+      await nitro.hooks.callHook("compiled", nitro)
+      expect(warn.mock.calls.filter(([message]) => String(message).includes("`_hub_migrations`"))).toEqual([
+        [expect.stringContaining("or `cloudflare.migrationsTable` from the Database Definition")],
+      ])
+    }
+    finally {
+      warn.mockRestore()
+      await nitro.close()
+    }
+  })
+
   it("merges Postgres Hyperdrive bindings into Cloudflare Nitro output", async () => {
     const rootDir = await createTempProject()
     await mkdir(join(rootDir, "server/databases"), { recursive: true })

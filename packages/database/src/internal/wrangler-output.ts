@@ -30,7 +30,7 @@ export async function collapseGeneratedWranglerD1Bindings(serverDir: string, war
     specs: [d1EntrySpec],
   })
   for (const binding of await nuxtHubHistoryBindings(serverDir)) {
-    warn(`[vitehub] The D1 binding "${binding}" uses NuxtHub's \`_hub_migrations\` table as its Wrangler migration history, from the project's Wrangler config. NuxtHub records other names than Wrangler, so Wrangler treats every ViteHub migration as new. Remove \`migrations_table\` from the project's Wrangler config before you apply the first ViteHub migration. Keep it only when ViteHub migrations were already applied with it. Read https://vitehub.dev/docs/getting-started/migrate-from-nuxthub#baseline-an-existing-cloudflare-d1-database`)
+    warn(`[vitehub] The D1 binding "${binding}" uses NuxtHub's \`_hub_migrations\` table as its Wrangler migration history. NuxtHub records other names than Wrangler, so Wrangler treats every ViteHub migration as new. Before you apply the first ViteHub migration, remove \`migrations_table\` from the project's Wrangler config, or \`cloudflare.migrationsTable\` from the Database Definition, wherever it is set. Keep it only when ViteHub migrations were already applied with it. Read https://vitehub.dev/docs/getting-started/migrate-from-nuxthub#baseline-an-existing-cloudflare-d1-database`)
   }
 }
 
