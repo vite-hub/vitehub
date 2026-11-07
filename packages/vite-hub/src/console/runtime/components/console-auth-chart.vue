@@ -72,7 +72,7 @@ const dayLabel = (day: string) =>
       No sign-ins or sign-ups recorded in this period.
     </p>
     <details class="group text-xs">
-      <summary class="inline-flex cursor-pointer items-center gap-1 rounded-sm text-muted select-none hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+      <summary class="inline-flex cursor-pointer items-center gap-1 rounded-sm text-muted select-none hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--vitehub-console-focus)">
         <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
         Show data table
       </summary>
