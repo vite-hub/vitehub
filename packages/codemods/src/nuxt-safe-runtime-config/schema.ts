@@ -43,7 +43,7 @@ function zod3OptionalInput(schema: unknown): boolean {
   }
 }
 
-/** Converts a Zod 3 schema, which has no JSON Schema output of its own, to the JSON Schema of its input. */
+/** Converts supported Zod 3 inputs. Unsupported types and wrappers stay unknown for manual migration. */
 function zod3ToJsonSchema(schema: unknown): JsonObject {
   const definition = zod3Definition(schema)
   if (!definition) return {}
@@ -91,9 +91,8 @@ function zod3ToJsonSchema(schema: unknown): JsonObject {
     }
     case "ZodEffects": return zod3ToJsonSchema(definition.schema)
     case "ZodPipeline": return zod3ToJsonSchema(definition.in)
-    case "ZodBranded":
-    case "ZodReadonly":
-    case "ZodCatch": return zod3ToJsonSchema(definition.innerType ?? definition.type)
+    case "ZodBranded": return zod3ToJsonSchema(definition.type)
+    case "ZodReadonly": return zod3ToJsonSchema(definition.innerType)
     case "ZodUnion": return { anyOf: (Array.isArray(definition.options) ? definition.options : []).map(zod3ToJsonSchema) }
     case "ZodArray": return { type: "array" }
     case "ZodObject": {
@@ -240,6 +239,15 @@ function zod3Issues(schema: unknown, path: string[], issues: Map<string, string[
     else if (!zod3JsonChecks.has(check.kind)) addIssue(issues, path, `the Zod ${check.kind} check`)
   }
   const type = definition.typeName
+  // Coercion is input behavior, not a JSON Schema check. Report it for every type.
+  if (definition.coerce === true) {
+    const detail = type === "ZodBoolean"
+      ? ', which turned every non-empty value, even "false", into true (Env reads true and false)'
+      : type === "ZodNumber"
+        ? ", which accepts empty or whitespace-only input as 0 (Env rejects it)"
+        : ", whose accepted inputs differ from Env"
+    addIssue(issues, path, `z.coerce.${String(type).slice(3).toLowerCase()}()${detail}`)
+  }
   if (type === "ZodEffects") {
     const effect = isRecord(definition.effect) ? definition.effect.type : undefined
     addIssue(issues, path, effect === "refinement" ? "a Zod refinement" : effect === "preprocess" ? "a Zod preprocess" : "a Zod transform")
@@ -248,6 +256,9 @@ function zod3Issues(schema: unknown, path: string[], issues: Map<string, string[
   else if (type === "ZodPipeline") {
     addIssue(issues, path, "a Zod pipe")
     zod3Issues(definition.in, path, issues)
+  }
+  else if (type === "ZodUnion") {
+    for (const option of Array.isArray(definition.options) ? definition.options : []) zod3Issues(option, path, issues)
   }
   else if (type === "ZodObject") {
     const shape: unknown = typeof definition.shape === "function" ? Reflect.apply(definition.shape, undefined, []) : definition.shape
@@ -259,11 +270,11 @@ function zod3Issues(schema: unknown, path: string[], issues: Map<string, string[
   else if (type === "ZodBranded") {
     zod3Issues(definition.type, path, issues)
   }
-  else if (definition.innerType) {
+  else if (type === "ZodOptional" || type === "ZodNullable" || type === "ZodDefault" || type === "ZodReadonly") {
     zod3Issues(definition.innerType, path, issues)
   }
-  if ((type === "ZodBoolean") && definition.coerce === true) {
-    addIssue(issues, path, "z.coerce.boolean(), which turned every non-empty value, even \"false\", into true (Env reads true and false)")
+  else if (type === "ZodCatch") {
+    addIssue(issues, path, "a Zod catch fallback, which accepts missing or invalid input")
   }
 }
 
@@ -429,7 +440,9 @@ export function planFromJsonSchema(input: PlanInput): SchemaPlan {
       const alternative = leaf.kind === "array" || leaf.kind === "object"
         ? `, or declare it in a .env.example with @type=${leaf.kind}(...) and use envSchema()`
         : ""
-      follow(`${label} ${reason}. It stays in runtimeConfig without validation. Read it with useRuntimeConfig()${alternative}.`, { runtimeConfig: label })
+      const issues = input.issues.get(label) ?? []
+      const detail = issues.length ? ` Env cannot keep ${issues.join(", ")}.` : ""
+      follow(`${label} ${reason}.${detail} It stays in runtimeConfig without validation. Read it with useRuntimeConfig()${alternative}.`, { runtimeConfig: label })
       return
     }
     const kind = leaf.kind === "integer" ? "number" : leaf.kind
