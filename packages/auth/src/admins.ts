@@ -57,52 +57,58 @@ function adminOption(admin: BetterAuthPlugin, name: string): unknown {
   return options !== null && typeof options === "object" ? Reflect.get(options, name) : undefined
 }
 
-function firstAdminRole(admin: BetterAuthPlugin): string {
-  const roles = adminOption(admin, "adminRoles")
-  const first = Array.isArray(roles) ? roles[0] : typeof roles === "string" ? roles.split(",")[0] : undefined
-  return typeof first === "string" && first.trim() ? first.trim() : "admin"
+/** The role to give, the first of `admin({ adminRoles })`, and the default role that it replaces. */
+export interface AdminRoleGrant {
+  role: string
+  replaced: string
 }
 
-function defaultRole(admin: BetterAuthPlugin): string {
-  const role = adminOption(admin, "defaultRole")
-  return typeof role === "string" && role.trim() ? role.trim() : "user"
+/** Reads the admin role from Better Auth's `admin()` plugin, which stores it in `user.role`. */
+export function adminRoleGrant(plugins: readonly BetterAuthPlugin[], variable: string): AdminRoleGrant {
+  const admin = plugins.find(plugin => plugin.id === "admin")
+  if (!admin) {
+    throw authErrorDiagnostics.AUTH_C0051({ message: `\`${variable}\` gives the admin role, which Better Auth's \`admin()\` plugin stores in \`user.role\`. Add \`admin()\` from \`better-auth/plugins\` to the \`plugins\` of \`defineAuth()\`, or unset \`${variable}\`.` })
+  }
+  const roles = adminOption(admin, "adminRoles")
+  const first = Array.isArray(roles) ? roles[0] : typeof roles === "string" ? roles.split(",")[0] : undefined
+  const fallback = adminOption(admin, "defaultRole")
+  return {
+    role: typeof first === "string" && first.trim() ? first.trim() : "admin",
+    replaced: typeof fallback === "string" && fallback.trim() ? fallback.trim() : "user",
+  }
+}
+
+/** Adds the admin role to a user. It replaces the default role and keeps the other roles. */
+export async function grantAdminRole(context: AuthContext, userId: string, grant: AdminRoleGrant): Promise<void> {
+  const user = await context.internalAdapter.findUserById(userId)
+  if (!user) return
+  const current: unknown = Reflect.get(user, "role")
+  const roles = typeof current === "string" ? current.split(",").map(name => name.trim()).filter(Boolean) : []
+  if (roles.includes(grant.role)) return
+  await context.internalAdapter.updateUser(userId, { role: [...roles.filter(name => name !== grant.replaced), grant.role].join(",") })
 }
 
 /**
  * Gives the first admin role of Better Auth's `admin()` plugin to a user with one of `admins` as a linked account.
  * It runs when the account is linked and on each sign-in, so an entry added later also works for an existing user.
- * The admin role replaces the default role of `admin()` and joins any other role. It never removes another role.
  */
 export function createAdminsPlugin(admins: readonly AdminAccount[], plugins: readonly BetterAuthPlugin[]): BetterAuthPlugin & { options: { admins: readonly string[], role: string } } {
-  const admin = plugins.find(plugin => plugin.id === "admin")
-  if (!admin) {
-    throw authErrorDiagnostics.AUTH_C0051({ message: `\`${adminsVariable}\` gives the admin role, which Better Auth's \`admin()\` plugin stores in \`user.role\`. Add \`admin()\` from \`better-auth/plugins\` to the \`plugins\` of \`defineAuth()\`, or unset \`${adminsVariable}\`.` })
-  }
-  const role = firstAdminRole(admin)
-  const replaced = defaultRole(admin)
+  const grant = adminRoleGrant(plugins, adminsVariable)
   const listed = (account: { providerId: string, accountId: string }) => admins.some(entry => entry.providerId === account.providerId && entry.accountId === account.accountId)
   return {
     id: adminsPluginId,
-    options: { admins: admins.map(formatAdminAccount), role },
+    options: { admins: admins.map(formatAdminAccount), role: grant.role },
+    // Better Auth replaces `internalAdapter` after the plugins' `init`, so the hooks read it from `context` when they run.
     init: (context: AuthContext) => {
-      // Better Auth replaces `internalAdapter` after the plugins' `init`, so read it when a hook runs.
-      async function grant(userId: string) {
-        const user = await context.internalAdapter.findUserById(userId)
-        if (!user) return
-        const current: unknown = Reflect.get(user, "role")
-        const roles = typeof current === "string" ? current.split(",").map(name => name.trim()).filter(Boolean) : []
-        if (roles.includes(role)) return
-        await context.internalAdapter.updateUser(userId, { role: [...roles.filter(name => name !== replaced), role].join(",") })
-      }
       return {
         options: {
           databaseHooks: {
-            account: { create: { after: async (account) => { if (listed(account)) await grant(account.userId) } } },
+            account: { create: { after: async (account) => { if (listed(account)) await grantAdminRole(context, account.userId, grant) } } },
             session: {
               create: {
                 after: async (session) => {
                   const accounts = await context.internalAdapter.findAccounts(session.userId)
-                  if (accounts.some(listed)) await grant(session.userId)
+                  if (accounts.some(listed)) await grantAdminRole(context, session.userId, grant)
                 },
               },
             },

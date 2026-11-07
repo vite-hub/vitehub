@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto"
 import { mkdtemp, readFile, rm, stat, writeFile, mkdir } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { admin } from "better-auth/plugins"
 import { defineAuth } from "@vite-hub/auth"
 import type { AuthRuntimeContext } from "@vite-hub/auth"
 import { handleAuthRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
@@ -344,6 +346,58 @@ describe("independent Console Auth", () => {
     }
     finally {
       database.close()
+    }
+  })
+
+  it("lets a denied signed-in account claim the admin role with a claim code", async () => {
+    const code = "0000-1111-2222-3333"
+    vi.stubEnv("VITEHUB_ADMIN_CLAIM", `sha256:${createHash("sha256").update("0000111122223333").digest("hex")}`)
+    const database = new DatabaseSync(":memory:")
+    try {
+      const input = defineConsoleAuth({
+        auth: defineAuth(() => ({
+          baseURL: "https://example.com",
+          database,
+          emailAndPassword: { enabled: true },
+          plugins: [admin()],
+          secret: "test-secret-at-least-32-bytes-long",
+          socialProviders: { github: { clientId: "test-client", clientSecret: "test-secret" } },
+        })),
+        authorize: ({ user }) => Reflect.get(user, "role") === "admin",
+        signIn: { provider: "github" },
+      })
+      const definition = createConsoleAuthDefinition(input, "/portal/")
+      const authPath = "https://example.com/portal/api/_vitehub/console/auth"
+      const signUp = new Request(`${authPath}/sign-up/email`, {
+        body: JSON.stringify({ email: "owner@example.com", name: "Owner", password: "passwordpassword" }),
+        headers: { "content-type": "application/json", origin: "https://example.com" },
+        method: "POST",
+      })
+      await prepareConsoleAuth(input, definition, signUp)
+      const signUpResponse = await handleAuthRequest(definition, signUp)
+      expect(signUpResponse.status).toBe(200)
+      const cookie = signUpResponse.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+
+      const pageRequest = () => new Request("https://example.com/portal/_vitehub", { headers: { accept: "text/html", cookie } })
+      const denied = await requireAuthAccessRoutes(pageRequest(), [0], definition, [0])
+      expect(denied?.status).toBe(403)
+      const html = await consoleAuthPageResponse(pageRequest(), denied, "/portal/")?.text()
+      expect(html).toContain('<form id="claim" hidden>')
+      expect(html).toContain('fetch("/portal/api/_vitehub/console/auth/vitehub/admin-claim" + "/status"')
+
+      const status = await handleAuthRequest(definition, new Request(`${authPath}/vitehub/admin-claim/status`, { headers: { cookie } }))
+      expect(await status.json()).toEqual({ available: true })
+      const claim = await handleAuthRequest(definition, new Request(`${authPath}/vitehub/admin-claim`, {
+        body: JSON.stringify({ code }),
+        headers: { "content-type": "application/json", cookie, origin: "https://example.com" },
+        method: "POST",
+      }))
+      expect(claim.status).toBe(200)
+      expect(await requireAuthAccessRoutes(pageRequest(), [0], definition, [0])).toBeUndefined()
+    }
+    finally {
+      database.close()
+      vi.unstubAllEnvs()
     }
   })
 
