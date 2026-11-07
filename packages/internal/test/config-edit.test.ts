@@ -121,20 +121,20 @@ describe("editViteHubConfig", () => {
   const vite = (options: string, quote = "\"") => `import { vitehub } from ${quote}vite-hub${quote}\n\nexport default {\n  plugins: [vitehub(${options})],\n}\n`
 
   it("keeps sibling formatting", () => {
-    expect(edit("vite.config.ts", vite("{ preset: \"node\" }"), [{ op: "set", key: "kv", value: true }]))
-      .toBe(vite("{ preset: \"node\", kv: true }"))
-    expect(edit("vite.config.ts", vite("{\n    preset: \"node\"\n  }"), [{ op: "set", key: "kv", value: true }]))
-      .toBe(vite("{\n    preset: \"node\",\n    kv: true\n  }"))
-    expect(edit("vite.config.ts", vite("{\n    preset: \"node\", // host\n  }"), [{ op: "set", key: "blob", value: { driver: "fs" } }]))
-      .toBe(vite("{\n    preset: \"node\", // host\n    blob: { driver: \"fs\" },\n  }"))
-    expect(edit("vite.config.ts", vite("{ preset: 'node' }", "'"), [{ op: "set", key: "queue", value: ["jobs", "mail"] }]))
-      .toBe(vite("{ preset: 'node', queue: ['jobs', 'mail'] }", "'"))
-    const tabs = "import { vitehub } from \"vite-hub\"\n\nexport default {\n\tplugins: [\n\t\tvitehub({\n\t\t\tpreset: \"node\",\n\t\t}),\n\t],\n}\n"
+    expect(edit("vite.config.ts", vite("{ host: \"node\" }"), [{ op: "set", key: "kv", value: true }]))
+      .toBe(vite("{ host: \"node\", kv: true }"))
+    expect(edit("vite.config.ts", vite("{\n    host: \"node\"\n  }"), [{ op: "set", key: "kv", value: true }]))
+      .toBe(vite("{\n    host: \"node\",\n    kv: true\n  }"))
+    expect(edit("vite.config.ts", vite("{\n    host: \"node\", // host\n  }"), [{ op: "set", key: "blob", value: { driver: "fs" } }]))
+      .toBe(vite("{\n    host: \"node\", // host\n    blob: { driver: \"fs\" },\n  }"))
+    expect(edit("vite.config.ts", vite("{ host: 'node' }", "'"), [{ op: "set", key: "queue", value: ["jobs", "mail"] }]))
+      .toBe(vite("{ host: 'node', queue: ['jobs', 'mail'] }", "'"))
+    const tabs = "import { vitehub } from \"vite-hub\"\n\nexport default {\n\tplugins: [\n\t\tvitehub({\n\t\t\thost: \"node\",\n\t\t}),\n\t],\n}\n"
     expect(edit("vite.config.ts", tabs, [{ op: "set", key: "kv", value: true }]))
-      .toBe(tabs.replace("\t\t\tpreset: \"node\",\n", "\t\t\tpreset: \"node\",\n\t\t\tkv: true,\n"))
-    const crlf = vite("{\n    preset: \"node\",\n  }").replaceAll("\n", "\r\n")
+      .toBe(tabs.replace("\t\t\thost: \"node\",\n", "\t\t\thost: \"node\",\n\t\t\tkv: true,\n"))
+    const crlf = vite("{\n    host: \"node\",\n  }").replaceAll("\n", "\r\n")
     const added = edit("vite.config.ts", crlf, [{ op: "set", key: "kv", value: true }])
-    expect(added).toBe(vite("{\n    preset: \"node\",\n    kv: true,\n  }").replaceAll("\n", "\r\n"))
+    expect(added).toBe(vite("{\n    host: \"node\",\n    kv: true,\n  }").replaceAll("\n", "\r\n"))
     expect(edit("vite.config.ts", added, [{ op: "delete", key: "kv" }])).toBe(crlf)
   })
 
@@ -157,11 +157,11 @@ describe("editViteHubConfig", () => {
   })
 
   it("replaces a value and quotes keys that are not identifiers", () => {
-    expect(edit("vite.config.ts", vite("{ preset: \"node\", kv: true }"), [
-      { op: "set", key: "preset", value: "cloudflare" },
+    expect(edit("vite.config.ts", vite("{ host: \"node\", kv: true }"), [
+      { op: "set", key: "host", value: "cloudflare" },
       { op: "set", key: "x-key", value: null },
       { op: "delete", key: "kv" },
-    ])).toBe(vite("{ preset: \"cloudflare\", \"x-key\": null }"))
+    ])).toBe(vite("{ host: \"cloudflare\", \"x-key\": null }"))
   })
 
   it("returns manual for variable options, mergeConfig, computed keys, and two calls", () => {
@@ -195,9 +195,9 @@ describe("editViteHubConfig", () => {
   })
 
   it("deletes nothing when a spread can supply the key", () => {
-    const code = vite("{ ...shared, preset: \"node\" }")
+    const code = vite("{ ...shared, host: \"node\" }")
     expect(editViteHubConfig("vite.config.ts", code, [{ op: "delete", key: "kv" }])).toMatchObject({ ok: false, reason: "spread" })
-    expect(editViteHubConfig("vite.config.ts", code, [{ op: "delete", key: "preset" }])).toMatchObject({ ok: false, reason: "spread" })
+    expect(editViteHubConfig("vite.config.ts", code, [{ op: "delete", key: "host" }])).toMatchObject({ ok: false, reason: "spread" })
     expect(locateViteHubConfig("vite.config.ts", code)).toMatchObject({ ok: true, site: { spread: true } })
     expect(edit("vite.config.ts", vite("{ kv: false, ...shared }"), [{ op: "set", key: "kv", value: true }])).toBe(vite("{ ...shared, kv: true }"))
   })
@@ -215,20 +215,20 @@ describe("editViteHubConfig", () => {
 
   it("edits the Nuxt tuple and the vitehub key forms", () => {
     const bare = "import viteHubNuxt from \"vite-hub/nuxt\"\n\nexport default defineNuxtConfig({\n  modules: [viteHubNuxt],\n})\n"
-    const tuple = edit("nuxt.config.ts", bare, [{ op: "set", key: "preset", value: "node" }])
-    expect(tuple).toBe(bare.replace("[viteHubNuxt]", "[[viteHubNuxt, { preset: \"node\" }]]"))
-    expect(locateViteHubConfig("nuxt.config.ts", tuple)).toMatchObject({ ok: true, site: { form: "nuxt-module-tuple", keys: { preset: { kind: "literal", value: "node" } } } })
-    expect(edit("nuxt.config.ts", tuple, [{ op: "delete", key: "preset" }])).toBe(bare)
+    const tuple = edit("nuxt.config.ts", bare, [{ op: "set", key: "host", value: "node" }])
+    expect(tuple).toBe(bare.replace("[viteHubNuxt]", "[[viteHubNuxt, { host: \"node\" }]]"))
+    expect(locateViteHubConfig("nuxt.config.ts", tuple)).toMatchObject({ ok: true, site: { form: "nuxt-module-tuple", keys: { host: { kind: "literal", value: "node" } } } })
+    expect(edit("nuxt.config.ts", tuple, [{ op: "delete", key: "host" }])).toBe(bare)
 
-    const named = "export default defineNuxtConfig({\n  modules: [\"@nuxt/ui\", [\"vite-hub/nuxt\", { preset: \"node\" }]],\n})\n"
-    expect(edit("nuxt.config.ts", named, [{ op: "set", key: "kv", value: true }])).toBe(named.replace("{ preset: \"node\" }", "{ preset: \"node\", kv: true }"))
+    const named = "export default defineNuxtConfig({\n  modules: [\"@nuxt/ui\", [\"vite-hub/nuxt\", { host: \"node\" }]],\n})\n"
+    expect(edit("nuxt.config.ts", named, [{ op: "set", key: "kv", value: true }])).toBe(named.replace("{ host: \"node\" }", "{ host: \"node\", kv: true }"))
 
-    const key = "export default defineNuxtConfig({\n  modules: [\"vite-hub/nuxt\"],\n  vitehub: {\n    preset: \"node\",\n  },\n})\n"
+    const key = "export default defineNuxtConfig({\n  modules: [\"vite-hub/nuxt\"],\n  vitehub: {\n    host: \"node\",\n  },\n})\n"
     expect(locateViteHubConfig("nuxt.config.ts", key)).toMatchObject({ ok: true, site: { form: "nuxt-config-key" } })
-    expect(edit("nuxt.config.ts", key, [{ op: "set", key: "kv", value: true }])).toBe(key.replace("    preset: \"node\",\n", "    preset: \"node\",\n    kv: true,\n"))
-    expect(edit("nuxt.config.ts", key, [{ op: "delete", key: "preset" }])).toBe(key.replace("{\n    preset: \"node\",\n  }", "{}"))
+    expect(edit("nuxt.config.ts", key, [{ op: "set", key: "kv", value: true }])).toBe(key.replace("    host: \"node\",\n", "    host: \"node\",\n    kv: true,\n"))
+    expect(edit("nuxt.config.ts", key, [{ op: "delete", key: "host" }])).toBe(key.replace("{\n    host: \"node\",\n  }", "{}"))
 
-    const both = "export default defineNuxtConfig({\n  modules: [[\"vite-hub/nuxt\", { kv: true }]],\n  vitehub: { preset: \"node\" },\n})\n"
+    const both = "export default defineNuxtConfig({\n  modules: [[\"vite-hub/nuxt\", { kv: true }]],\n  vitehub: { host: \"node\" },\n})\n"
     expect(locateViteHubConfig("nuxt.config.ts", both)).toEqual({ ok: false, reason: "multiple-vitehub", line: 3 })
   })
 
@@ -248,9 +248,9 @@ describe("editViteHubConfig", () => {
   it("edits top-level Nuxt options that follow the root spread", () => {
     const code = 'export default defineNuxtConfig({ ...base, modules: ["vite-hub/nuxt"], vitehub: { kv: false } })\n'
     expect(locateViteHubConfig("nuxt.config.ts", code)).toMatchObject({ ok: true })
-    const added = edit("nuxt.config.ts", code, [{ op: "set", key: "preset", value: "node" }])
-    expect(added).toBe(code.replace("kv: false", "kv: false, preset: \"node\""))
-    expect(edit("nuxt.config.ts", added, [{ op: "delete", key: "preset" }])).toBe(code)
+    const added = edit("nuxt.config.ts", code, [{ op: "set", key: "host", value: "node" }])
+    expect(added).toBe(code.replace("kv: false", "kv: false, host: \"node\""))
+    expect(edit("nuxt.config.ts", added, [{ op: "delete", key: "host" }])).toBe(code)
   })
 
   it.each([
