@@ -1,8 +1,9 @@
 import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 
-import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { discoverChannelDefinitions } from "@vite-hub/channels/vite"
-import { discoverServerChannelModules } from "@vite-hub/internal/definition-catalog"
+import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
+import { discoverServerChannelModules, mergeDefinitions } from "@vite-hub/internal/definition-catalog"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 
@@ -18,7 +19,7 @@ export interface StandaloneChannel {
   handler: string
   /** Whether the adapter receives webhooks without an Agent, as `webhook()` and `stripe()` do. */
   inbound: boolean
-  /** The Channel name, from its path below `server/channels`. */
+  /** The Channel name from the shared discovery catalog. */
   name: string
   /** `/api/_vitehub/channels/<name>`, then the adapter's `path` and `aliases`. */
   paths: string[]
@@ -158,8 +159,9 @@ function readStandaloneChannelPaths(file: string, name: string): { inbound: bool
  * An inbound Channel that no Agent lists gets its routes without an Agent Definition. A folder with an `index` module
  * is one Channel named after the folder, and its other files are helpers.
  */
-export function discoverStandaloneChannels(serverDirs: string[]): StandaloneChannel[] {
-  return discoverServerChannelModules(serverDirs).flatMap((module) => {
+export function discoverStandaloneChannels(rootDir: string, serverDirs = [resolve(rootDir, "server")]): StandaloneChannel[] {
+  const modules = mergeDefinitions("channel", discoverServerChannelModules(serverDirs), discoverChannelDefinitions({ rootDir, serverDirs }))
+  return modules.flatMap((module) => {
     const read = readStandaloneChannelPaths(module.handler, module.name)
     return read ? [{ agent: `channel-${module.name}`, handler: module.handler, inbound: read.inbound, name: module.name, paths: read.paths }] : []
   })

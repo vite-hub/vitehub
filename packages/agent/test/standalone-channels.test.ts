@@ -81,6 +81,27 @@ describe('standalone Channel folders', () => {
     } finally { await vite.close() }
   }, 30_000)
 
+  it('serves a suffix Channel at its default route and adapter path', async () => {
+    const root = await app({ 'src/payments.channel.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
+import { defineChannelTrigger } from '@vite-hub/agent/channels'
+export default defineChannel({
+  adapter: webhook({ signature: 'bearer', secret: 'secret', path: '/hooks/payments' }),
+  on: { webhook: defineChannelTrigger({ invoke: () => Response.json({ received: true }) }) },
+})
+` })
+    const vite = await server(root)
+    try {
+      const { app, routes } = await nitroApp(vite)
+      expect(routes).toEqual(expect.arrayContaining(['/api/_vitehub/channels/payments', '/hooks/payments']))
+      for (const path of ['/api/_vitehub/channels/payments', '/hooks/payments']) {
+        expect((await app.request(path, { method: 'POST', body: '{}' })).status).toBe(401)
+        const delivered = await app.request(path, { method: 'POST', body: '{}', headers: { authorization: 'Bearer secret' } })
+        expect(delivered.status).toBe(200)
+        expect(await delivered.json()).toEqual({ received: true })
+      }
+    } finally { await vite.close() }
+  }, 30_000)
+
   it('rejects an adapter path that is not a string literal', async () => {
     const root = await app({ 'server/channels/intake/index.ts': `import { defineChannel, webhook } from '@vite-hub/channels'
 const prefix = '/api'
@@ -93,6 +114,8 @@ export default defineChannel({ adapter: webhook({ path: \`\${prefix}/intake\` })
     { name: 'direct import', binding: "import { defineAgent } from '@vite-hub/agent'", call: 'defineAgent', channels: "['hooks']" },
     { name: 'aliased import', binding: "import { defineAgent as makeAgent } from '@vite-hub/agent'", call: 'makeAgent', channels: "['hooks']" },
     { name: 'namespace import', binding: "import * as agent from '@vite-hub/agent'", call: 'agent.defineAgent', channels: "['hooks']" },
+    { name: 'const list', binding: "import { defineAgent } from '@vite-hub/agent'", call: 'defineAgent', channels: "['hooks'] as const" },
+    { name: 'satisfies list', binding: "import { defineAgent } from '@vite-hub/agent'", call: 'defineAgent', channels: "['hooks'] satisfies readonly string[]" },
     { name: 'comment before the list', binding: "import { defineAgent } from '@vite-hub/agent'", call: 'defineAgent', channels: "/* shared Channels */ ['hooks']" },
   ])('serves a named Channel through its Agent ($name)', async ({ name, binding, call, channels }) => {
     const channelName = name.replaceAll(' ', '-')
@@ -160,7 +183,7 @@ export default defineChannel({ adapter: teams() })
 export default function factory() { return defineChannel({ adapter: webhook({ path: '/api/factory' }) }) }
 `,
     })
-    expect(discoverStandaloneChannels([join(root, 'server')]).map(({ agent, handler, inbound, name, paths }) => ({ agent, handler: handler.slice(root.length), inbound, name, paths }))).toEqual([
+    expect(discoverStandaloneChannels(root).map(({ agent, handler, inbound, name, paths }) => ({ agent, handler: handler.slice(root.length), inbound, name, paths }))).toEqual([
       { agent: 'channel-flat', handler: '/server/channels/flat.ts', inbound: true, name: 'flat', paths: ['/api/_vitehub/channels/flat', '/flat/one', '/flat/old'] },
       { agent: 'channel-intake', handler: '/server/channels/intake/index.ts', inbound: true, name: 'intake', paths: ['/api/_vitehub/channels/intake', '/api/intake/webhook', '/hooks/intake'] },
       { agent: 'channel-teams', handler: '/server/channels/teams/index.ts', inbound: false, name: 'teams', paths: ['/api/_vitehub/channels/teams'] },
@@ -172,7 +195,7 @@ export default function factory() { return defineChannel({ adapter: webhook({ pa
 import { oldPath } from './paths'
 export default defineChannel({ adapter: webhook({ path: '/api/intake', aliases: [oldPath] }) })
 ` })
-    expect(() => discoverStandaloneChannels([join(root, 'server')])).toThrow(/the adapter aliases must be an array of string literals/)
+    expect(() => discoverStandaloneChannels(root)).toThrow(/the adapter aliases must be an array of string literals/)
   })
 })
 

@@ -304,6 +304,21 @@ describe("createChannel", () => {
     }
   })
 
+  it.each(["direct", "module"])("normalizes raw Channel options from a %s registry entry", async (shape) => {
+    const send = vi.fn(() => ({ id: "raw-1" }))
+    const options = { adapter: { kind: "configured", send } }
+    setChannelRuntimeRegistry({ alerts: async () => shape === "direct" ? options : { default: options } })
+    try {
+      const [error, receipt] = await useChannel("alerts" as string).send("Build finished.")
+      expect(error).toBeUndefined()
+      expect(receipt).toMatchObject({ id: "raw-1", channel: "alerts" })
+      expect(send).toHaveBeenCalledWith("Build finished.", {})
+    }
+    finally {
+      setChannelRuntimeRegistry(undefined)
+    }
+  })
+
   it("does not load inherited registry entries", async () => {
     const load = vi.fn(async () => ({ adapter: { kind: "configured", send: () => ({}) } }))
     const registry = {}

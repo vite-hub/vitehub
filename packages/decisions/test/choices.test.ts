@@ -102,6 +102,77 @@ describe("defineChoices().resolve()", () => {
   })
 })
 
+describe("defineChoices() with infer", () => {
+  const projects = [
+    { description: "General tasks: translate, explain, research, write.", label: "No project", value: "scratch" },
+    { description: "Server primitives, the Console, and the docs site.", label: "ViteHub", value: "vitehub" },
+    { description: "Thai lessons and flash card decks.", label: "Thai", value: "thai" },
+  ]
+
+  function router(calls: Parameters<typeof wordGateway>[0] = []) {
+    return defineChoices({
+      gateway: wordGateway(calls),
+      groups: { project: { infer: true, label: "Project", multiple: false, options: projects } },
+      limits: { text: 2000 },
+    })
+  }
+
+  it("chooses an option that the text does not name, from its description", async () => {
+    const [error, selection] = await router().resolve("the console crashes when I open the queue tab")
+    expect(error).toBeUndefined()
+    expect(selection?.project.value).toBe("vitehub")
+    expect(selection?.project.ranked).toHaveLength(3)
+  })
+
+  it("asks no supported check and offers no none answer", async () => {
+    const calls: Parameters<typeof wordGateway>[0] = []
+    await router(calls).resolve("translate this")
+    expect(Object.keys(calls[0]!.questions)).toEqual(["g0"])
+    expect(calls[0]!.questions.g0).toMatchObject({
+      criteria: { "No project": projects[0]!.description, "Thai": projects[2]!.description, "ViteHub": projects[1]!.description },
+      instructions: expect.stringContaining("does not have to name the option"),
+    })
+    // The description is sent once, in the criteria.
+    expect(JSON.stringify(calls[0]!.state)).not.toContain(projects[0]!.description)
+    expect(calls[0]!.state).toMatchObject({ groups: [{ infer: true, options: [{ label: "No project", value: "scratch" }, {}, {}] }] })
+  })
+
+  it("keeps a weak guess out of value but ranks it", async () => {
+    const [, selection] = await router().resolve("hello")
+    expect(selection?.project.value).toBeNull()
+    expect(selection?.project.ranked[0]).toEqual({ probability: 0.4, value: "scratch" })
+  })
+
+  it("answers a group with one option without the gateway", async () => {
+    const calls: Parameters<typeof wordGateway>[0] = []
+    const one = defineChoices({ gateway: wordGateway(calls), groups: { project: { infer: true, label: "Project", multiple: false, options: [projects[1]!] } } })
+    const [error, selection] = await one.resolve("anything")
+    expect(error).toBeUndefined()
+    expect(selection?.project).toEqual({ confidence: 1, ranked: [{ probability: 1, value: "vitehub" }], value: "vitehub" })
+    expect(calls).toHaveLength(0)
+  })
+
+  it("still checks the groups that do not infer", async () => {
+    const calls: Parameters<typeof wordGateway>[0] = []
+    const mixed = defineChoices({
+      gateway: wordGateway(calls),
+      groups: {
+        project: { infer: true, label: "Project", multiple: false, options: projects },
+        supplier: { label: "Supplier", options: suppliers },
+      },
+    })
+    expect((await mixed.resolve("unsupported thai"))[0]?.code).toBe("DECISIONS_R0004")
+    const supported = JSON.stringify(calls[0]!.questions.supported)
+    expect(supported).toContain("Judge only the \\\"Supplier\\\" group. Ignore every group with infer: true.")
+    expect(supported).toContain("Also true when the text sets no constraint for these groups.")
+    expect(supported).not.toContain("names no option at all")
+  })
+
+  it("needs multiple: false", () => {
+    expect(() => defineChoices({ gateway: wordGateway(), groups: { a: { infer: true, label: "A", options: [] } } })).toThrow(/multiple: false/)
+  })
+})
+
 describe("defineChoices() errors", () => {
   it("returns DECISIONS_R0003 for empty and too long text, and asks nothing", async () => {
     const calls: Parameters<typeof wordGateway>[0] = []
@@ -157,9 +228,9 @@ describe("defineChoices().inspect()", () => {
 })
 
 describe("toOptions()", () => {
-  it("maps items and leaves out empty aliases", () => {
-    expect(toOptions([{ id: 1, n: "A", a: ["x"] }, { id: 2, n: "B", a: [] }], { aliases: item => item.a, label: item => item.n, value: item => item.id })).toEqual([
-      { aliases: ["x"], label: "A", value: 1 },
+  it("maps items and leaves out empty aliases and descriptions", () => {
+    expect(toOptions([{ id: 1, n: "A", a: ["x"], d: "first" }, { id: 2, n: "B", a: [], d: " " }], { aliases: item => item.a, description: item => item.d, label: item => item.n, value: item => item.id })).toEqual([
+      { aliases: ["x"], description: "first", label: "A", value: 1 },
       { label: "B", value: 2 },
     ])
   })

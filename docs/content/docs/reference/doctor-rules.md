@@ -908,7 +908,9 @@ An app that uses ViteHub still has NuxtHub parts:
 
 - `@nuxthub/core` in `modules` of `nuxt.config.ts`. NuxtHub and ViteHub both register `kv`, `blob`, and database helpers.
 - A `hub` key in `nuxt.config.ts`. `vite-hub/nuxt` does not read it, so these features stay off.
-- `hub:db`, `hub:kv`, `hub:blob`, or `@nuxthub/*` imports.
+- `hub:db`, `hub:db:schema`, `hub:kv`, `hub:blob`, or `@nuxthub/*` imports.
+- Calls to NuxtHub's auto-imported `hubBlob()`, `hubKV()`, `hubDatabase()`, or `hubAI()`. ViteHub registers none of them, so the call fails at runtime.
+- `blob.delete()`. ViteHub Blob names this method `blob.del()`.
 
 ```ts [nuxt.config.ts]
 // Invalid

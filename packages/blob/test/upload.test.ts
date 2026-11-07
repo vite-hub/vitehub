@@ -2,6 +2,7 @@ import { mkdtemp, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
+import { H3Event } from "h3"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 
 import { createDriver } from "../src/drivers/fs.ts"
@@ -20,16 +21,26 @@ function ok<T>(result: Result<T, BlobErrorCode>): T {
   return value
 }
 
-function formRequest(files: File[], field = "files") {
+function formData(files: File[], field = "files"): FormData {
   const form = new FormData()
   for (const file of files) form.append(field, file)
-  return { req: new Request("http://localhost/api/files", { body: form, method: "POST" }) }
+  return form
+}
+
+function formRequest(files: File[], field = "files"): H3Event {
+  return new H3Event(new Request("http://localhost/api/files", { body: formData(files, field), method: "POST" }))
+}
+
+function multipartRequest(action: string, pathname: string, init: RequestInit & { query?: Record<string, string> } = {}): Request {
+  const url = new URL(`http://localhost/api/files/multipart/${action}/${pathname}`)
+  for (const [key, value] of Object.entries(init.query ?? {})) url.searchParams.set(key, value)
+  return new Request(url, init)
 }
 
 function multipartEvent(action: string, pathname: string, init: RequestInit & { query?: Record<string, string> } = {}): BlobMultipartEvent {
-  const url = new URL(`http://localhost/api/files/multipart/${action}/${pathname}`)
-  for (const [key, value] of Object.entries(init.query ?? {})) url.searchParams.set(key, value)
-  return { context: { params: { action, pathname } }, req: new Request(url, init) }
+  const event = new H3Event(multipartRequest(action, pathname, init))
+  event.context.params = { action, pathname }
+  return event
 }
 
 beforeEach(async () => {
@@ -58,9 +69,40 @@ describe("handleUpload", () => {
       .rejects.toThrow('Form field "files" accepts one file.')
     await expect(storage.handleUpload(formRequest([new File(["x"], "x.txt", { type: "text/plain" })]), { ensure: { types: ["image"] } }))
       .rejects.toThrow("File type is invalid, must be: image")
-    await expect(storage.handleUpload({ req: new Request("http://localhost", { body: "plain", method: "POST" }) }))
+    await expect(storage.handleUpload(new H3Event(new Request("http://localhost", { body: "plain", method: "POST" }))))
       .rejects.toThrow("Expected a multipart/form-data request body.")
     expect(ok(await storage.list()).blobs).toEqual([])
+  })
+})
+
+describe("uploads from host Standard Context events", () => {
+  const hostEvent = (req: Request, params?: Record<string, string>) => ({
+    "~standard": { vendor: "test", req, res: {} },
+    context: { params },
+  })
+
+  it("stores files from the Standard Context request", async () => {
+    const event = hostEvent(new Request("http://localhost/api/files", { body: formData([new File(["one"], "one.txt", { type: "text/plain" })]), method: "POST" }))
+
+    const objects = ok(await storage.handleUpload(event))
+
+    expect(objects.map(object => object.pathname)).toEqual(["one.txt"])
+    expect(await (ok(await storage.get("one.txt")))?.text()).toBe("one")
+  })
+
+  it("serves multipart actions from the Standard Context request", async () => {
+    const event = (action: string, init: RequestInit & { query?: Record<string, string> }) =>
+      hostEvent(multipartRequest(action, "videos/clip.bin", init), { action, pathname: "videos/clip.bin" })
+    const created = ok(await storage.handleMultipartUpload(event("create", { body: JSON.stringify({ contentType: "video/mp4" }), method: "POST" })))
+    if (created.action !== "create") throw new Error("Expected a create result.")
+    const uploaded = ok(await storage.handleMultipartUpload(event("upload", { body: "part", method: "PUT", query: { partNumber: "1", uploadId: created.uploadId } })))
+    if (uploaded.action !== "upload") throw new Error("Expected an upload result.")
+    const completed = ok(await storage.handleMultipartUpload(event("complete", { body: JSON.stringify({ parts: [uploaded.part] }), method: "POST", query: { uploadId: created.uploadId } })))
+
+    expect(completed).toMatchObject({ action: "complete", object: { pathname: "videos/clip.bin" } })
+    expect(await (ok(await storage.get("videos/clip.bin")))?.text()).toBe("part")
+    await expect(storage.handleMultipartUpload(event("upload", { body: "part", method: "POST", query: { partNumber: "1", uploadId: created.uploadId } })))
+      .rejects.toMatchObject({ statusCode: 405 })
   })
 })
 

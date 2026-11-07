@@ -1,4 +1,5 @@
 // Media records: per-object metadata stored as JSON sidecars in the same Blob Store, plus folders and image variants.
+import { getStandardContext } from "@vite-hub/runtime/h3"
 import { createError } from "h3"
 
 import { ensureBlob } from "../ensure.ts"
@@ -294,7 +295,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       if (!await driver.head(pathname)) throw error
       const status = isRecord(error) ? error.status : undefined
       const code = isRecord(error) ? error.code : undefined
-      // Vercel Blob reports a refused overwrite only in its message.
+      // provider-message-match: Vercel Blob reports a refused overwrite as a plain BlobError with only a message.
       const exists = error instanceof Error && /already exists/i.test(error.message)
       if (!exists && status !== 409 && status !== 412 && code !== "BLOB_CONFLICT" && code !== "PRECONDITION_FAILED" && code !== "CONFLICT") throw error
       await driver.delete([pathname])
@@ -552,7 +553,7 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
       const formKey = options.formKey ?? "files"
       let form: FormData
       try {
-        form = await event.req.formData()
+        form = await getStandardContext(event).req.formData()
       }
       catch {
         throw createError({ statusCode: 400, message: "Expected a multipart/form-data request body." })

@@ -3172,18 +3172,20 @@ const telegramConnectorPlatform: ChatConnectorPlatform = {
 
 /** Sends Markdown to Telegram. It builds one adapter from `env.server.telegram`. Receipts live in KV under `telegram:`. */
 function telegramConnector(options: TelegramConnectorOptions = {}): ChatConnector {
-  return chatConnector(telegramConnectorPlatform, connectorAdapter(options.adapter, async (input = {}) => {
-    const context = {}
-    const { createTelegramAdapter } = await import("@chat-adapter/telegram")
-    const adapterOptions: Parameters<typeof createTelegramAdapter>[0] = {}
-    const apiBaseUrl = cleanSecret(input.apiBaseUrl ?? await channelEnvValue("telegram", "apiBaseUrl", context))
-    const botToken = cleanSecret(input.botToken ?? await channelEnvValue("telegram", "botToken", context))
-    if (apiBaseUrl) adapterOptions.apiBaseUrl = apiBaseUrl
-    if (input.apiUrl) adapterOptions.apiUrl = input.apiUrl
-    if (botToken) adapterOptions.botToken = botToken
-    if (input.userName) adapterOptions.userName = input.userName
-    return createTelegramAdapter(adapterOptions)
-  }))
+  return chatConnector(telegramConnectorPlatform, connectorAdapter(options.adapter, createTelegramConnectorAdapterFromEnv))
+}
+
+async function createTelegramConnectorAdapterFromEnv(input: TelegramConnectorAdapterOptions = {}): Promise<Adapter> {
+  const context = {}
+  const { createTelegramAdapter } = await import("@chat-adapter/telegram")
+  const adapterOptions: Parameters<typeof createTelegramAdapter>[0] = {}
+  const apiBaseUrl = cleanSecret(input.apiBaseUrl ?? await channelEnvValue("telegram", "apiBaseUrl", context))
+  const botToken = cleanSecret(input.botToken ?? await channelEnvValue("telegram", "botToken", context))
+  if (apiBaseUrl) adapterOptions.apiBaseUrl = apiBaseUrl
+  if (input.apiUrl) adapterOptions.apiUrl = input.apiUrl
+  if (botToken) adapterOptions.botToken = botToken
+  if (input.userName) adapterOptions.userName = input.userName
+  return createTelegramAdapter(adapterOptions)
 }
 
 const discordApiBaseUrl = "https://discord.com/api/v10"
@@ -4569,11 +4571,16 @@ function telegramChannel<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntim
   }), "Write the final response for Telegram. Match the language of the user's latest message. Prefer short paragraphs or bullets and keep the answer concise. Do not use Markdown tables; express rows as bullets because Telegram fallback delivery exposes table syntax. Avoid decorative emoji, redundant restatement, and generic follow-up questions. Follow the Agent's own instructions when they require a different format."), () => telegramConnector({
     adapter: options.adapter
       ? chatSendAdapterInput<TelegramConnectorOptions["adapter"]>(options.adapter)
-      : {
-          ...(typeof options.apiBaseUrl === "string" ? { apiBaseUrl: options.apiBaseUrl } : {}),
-          ...(typeof options.apiUrl === "string" ? { apiUrl: options.apiUrl } : {}),
-          ...(typeof options.botToken === "string" || isRecord(options.botToken) ? { botToken: options.botToken as TelegramConnectorAdapterOptions["botToken"] } : {}),
-          ...(typeof options.userName === "string" ? { userName: options.userName } : {}),
+      : async () => {
+          // Outbound sends have no Agent Invocation context, as for adapter resolvers.
+          const context = {} as AgentCallbackContext<TRuntimeConfig>
+          const [apiBaseUrl, apiUrl, botToken, userName] = await Promise.all([
+            resolveRuntimeValue(options.apiBaseUrl, context),
+            resolveRuntimeValue(options.apiUrl, context),
+            resolveRuntimeValue(options.botToken, context),
+            resolveRuntimeValue(options.userName, context),
+          ])
+          return createTelegramConnectorAdapterFromEnv({ apiBaseUrl, apiUrl, botToken, userName })
         },
   }))
   const historyChannel = withAgentChannelHistoryDefinition<TRuntimeConfig, typeof channel>(channel, {
