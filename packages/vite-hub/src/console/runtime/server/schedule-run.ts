@@ -1,6 +1,5 @@
 import { hasViteHubDispatch, verifyViteHubDispatch } from "@vite-hub/internal/dispatch"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { withConsoleAccess, type ConsoleAccess } from "./access.ts"
@@ -137,7 +136,7 @@ const unsignedRunMessage = "This route takes signed dispatches only, or the Cons
 async function runScheduleWithConsoleAccess(event: H3Event, access: ConsoleAccess): Promise<Response> {
   // Only the token mode verifies a bearer token on this route. Another mode would accept the session next to it.
   if (access.mode !== "token") return failure(unsignedRunMessage, 401)
-  const request = toEventRequest(event)
+  const request = event.req
   const origin = request.headers.get("origin")
   if (origin && origin !== consoleRequestURL(event).origin && !isConsoleCrossOriginBearerCall(request, access)) {
     return failure("Schedule run origin is not allowed.", 403)
@@ -166,7 +165,7 @@ const unsignedScheduleRunHandler: (event: H3Event) => Promise<Response> = withCo
  * goes through the Console access check, as every Console data route does. Any other request gets `401`.
  */
 const scheduleRunHandler = async (event: H3Event): Promise<Response> => {
-  const request = toEventRequest(event)
+  const request = event.req
   if (hasViteHubDispatch(request.headers)) return await handleDispatchScheduleRunRequest(request, getCloudflareEnv(event, { fallback: false }))
   return /^Bearer\s+\S+/i.test(request.headers.get("authorization") ?? "") ? await consoleScheduleRunHandler(event) : await unsignedScheduleRunHandler(event)
 }

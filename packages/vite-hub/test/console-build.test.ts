@@ -21,12 +21,8 @@ const scope = globalThis as ConsoleInvocationScope
 const buildPattern = /installConsoleBuild\("[^"]+", "([0-9a-f]{16})"\)\n$/
 
 function event(): ConsoleRequestEvent {
-  const headers = new Headers({ host: "localhost" })
   return {
-    headers,
-    method: "GET",
-    node: { req: { method: "GET", socket: { remoteAddress: "127.0.0.1" }, url: "http://localhost/_vitehub" } },
-    req: { method: "GET", url: "http://localhost/_vitehub" },
+    req: { headers: new Headers({ host: "localhost" }), ip: "127.0.0.1", method: "GET", url: "http://localhost/_vitehub" },
   }
 }
 

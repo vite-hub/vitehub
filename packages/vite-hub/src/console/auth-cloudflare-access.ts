@@ -1,9 +1,8 @@
 import { SecretEnv } from "@vite-hub/env/secret"
-import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import { createRemoteJWKSet, customFetch, jwtVerify } from "jose"
 
 import type { EnvVariableDeclaration } from "@vite-hub/env"
-import { cloudflareAccessIssuer, consoleAuthMountBase, consoleEventPath } from "./auth-path.ts"
+import { cloudflareAccessIssuer, consoleAuthMountBase, consoleEventPath, consoleEventRequest } from "./auth-path.ts"
 
 /** Cloudflare Access settings for an independent Console Auth provider. */
 export interface CloudflareAccessConsoleAuth {
@@ -131,7 +130,7 @@ export async function verifyCloudflareAccessConsoleRequest(
   resolveSettings: () => { audience?: unknown, teamDomain?: unknown },
   verify: CloudflareAccessVerifier = defaultVerifier,
 ): Promise<Response | undefined> {
-  return (await checkCloudflareAccessToken(toEventRequest(event), resolveSettings, verify)).response
+  return (await checkCloudflareAccessToken(consoleEventRequest(event), resolveSettings, verify)).response
 }
 
 /**
@@ -145,7 +144,7 @@ export async function handleCloudflareAccessConsoleRequest(
   verify: CloudflareAccessVerifier = defaultVerifier,
 ): Promise<Response | undefined> {
   const mountBase = consoleAuthMountBase(mountBaseURL)
-  const request = toEventRequest(event)
+  const request = consoleEventRequest(event)
   const publicPath = consoleEventPath(event, request)
   const path = mountBase && publicPath.startsWith(`${mountBase}/`) ? publicPath.slice(mountBase.length) : publicPath
   // Page tools apply their own visitor and API authorization, independently of the Console.

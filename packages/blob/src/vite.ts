@@ -286,31 +286,18 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
     ?? (serve.authorize ? "private, no-cache" : "public, max-age=0, s-maxage=0")
   return [
-    // Nuxt 4 runs H3 1 events and Nitro 3 runs H3 2 events, but an `h3` import from `.vitehub` can resolve the other
-    // major version. Only use what both event shapes have; `serve()` reads both.
     `import { blob, parseImageVariant } from '${importBase}'`,
     `import type { BlobStorage } from '${importBase}'`,
     ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
     "",
     "type ServeEvent = Parameters<BlobStorage['serve']>[0]",
-    "type RouteEvent = ServeEvent & { context: { params?: Record<string, string | undefined> }, path: string, url?: unknown }",
+    "type RouteEvent = ServeEvent & { context: { params?: Record<string, string | undefined> }, url: URL }",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
     ...(headers
       ? [
           `const responseHeaders = ${JSON.stringify(headers)}`,
-          "",
-          "// An H3 1 event has no `url` and writes its response through `node.res`.",
-          "function eventResponseHeaders(event: RouteEvent): Pick<Headers, 'delete' | 'set'> {",
-          "  if (!isH3V1Event(event)) return event.res.headers",
-          "  const response = event.node.res",
-          "  return { delete: name => response.removeHeader(name), set: (name, value) => { response.setHeader(name, value) } }",
-          "}",
-          "",
-          "function isH3V1Event(event: RouteEvent): event is RouteEvent & Extract<ServeEvent, { node: unknown }> {",
-          "  return event.url === undefined",
-          "}",
         ]
       : []),
     "",
@@ -320,7 +307,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "  // ?w=&h=&fit=&fmt=&q=&crop= selects an image variant. Invalid values are client errors.",
     `  const options: { variant?: NonNullable<ReturnType<typeof parseImageVariant>>, cacheControl: string } = { cacheControl: ${JSON.stringify(cacheControl)} }`,
     "  try {",
-    "    const variant = parseImageVariant(new URL(event.path, 'http://localhost').searchParams)",
+    "    const variant = parseImageVariant(event.url.searchParams)",
     "    if (variant) options.variant = variant",
     "  }",
     "  catch (error) {",
@@ -328,7 +315,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "  }",
     ...(headers
       ? [
-          "  const headers = eventResponseHeaders(event)",
+          "  const headers = event.res.headers",
           "  for (const [name, value] of Object.entries(responseHeaders)) headers.set(name, value)",
           "  const clearHeaders = () => { for (const name of Object.keys(responseHeaders)) headers.delete(name) }",
         ]

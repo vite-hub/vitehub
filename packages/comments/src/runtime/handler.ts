@@ -11,7 +11,6 @@ import { commentActions, commentAnchorSchema, commentInputSchemas } from "../ope
 import { deniedForMissingPolicy } from "../operations-core/define.ts"
 import { can as policyCan, contextSchema, deniedError, mentionedPeople } from "../operations-core/service.ts"
 import { commentsRoute, normalizeCommentPage } from "../page.ts"
-import { requestOf } from "./request.ts"
 import { resolveCommentsIdentity } from "./session.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
@@ -246,7 +245,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       return [deniedForMissingPolicy(comments.options, user, { ...gate, development: (await resolveCommentsRuntime(comments))?.development === true }) ? commentsErrors.COMMENTS_POLICY_MISSING() : commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
     }
     // A user writes as itself; without one, a guest that named itself, when the policy lets anonymous people act.
-    const author = user ? authorOf(user) : guestFromHeaders(requestOf(event).headers)
+    const author = user ? authorOf(user) : guestFromHeaders(event.req.headers)
     return [undefined, { user, gate, author }]
   }
 
@@ -257,7 +256,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const identity = await identityOf(event, action)
     if (identity === false) return { denied: failure(commentsErrors.COMMENTS_FORBIDDEN({ action })) }
     const waitUntil = resolveWaitUntil(event, { preferHost: true })
-    return { who: { gate: { ...identity.gate, development: runtime.development === true }, request: requestOf(event), runtime, user: identity.user, ...(waitUntil ? { waitUntil } : {}) } }
+    return { who: { gate: { ...identity.gate, development: runtime.development === true }, request: event.req, runtime, user: identity.user, ...(waitUntil ? { waitUntil } : {}) } }
   }
 
   /** Runs a comment action for the request, and answers its diagnostics as the API's error objects. */
@@ -295,7 +294,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
   async function readJson(event: H3Event): Promise<unknown> {
     try {
-      return await requestOf(event).json()
+      return await event.req.json()
     }
     catch {
       return undefined
@@ -312,7 +311,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const user = identity === false ? false : identity.user
     const [read, comment, resolve, remove] = await Promise.all((["read", "write", "resolve", "delete"] as const).map(action => can(event, identity, action, undefined, subject)))
     const github = options.githubLogin?.configured() ? options.githubLogin : undefined
-    const pathname = new URL(requestOf(event).url).pathname
+    const pathname = new URL(event.req.url).pathname
     const route = pathname.slice(0, pathname.indexOf(commentsRoute) + commentsRoute.length)
     // People who are not signed in can sign in with GitHub, and a GitHub account that may not comment can switch.
     const signIn = user !== false && !user && !comments.options.identify && github ? { provider: "github" as const, url: `${route}/auth/github` } : undefined
@@ -471,7 +470,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   }
 
   async function handle(event: H3Event) {
-    const request = requestOf(event)
+    const request = event.req
     const response = await route(event, request).catch(diagnosticResponse)
     // A change starts its pull request sync. Hosts that end work with the response keep it running until it ends.
     if (request.method !== "GET" && comments.options.forge) resolveWaitUntil(event, { preferHost: true })?.(comments.flush())

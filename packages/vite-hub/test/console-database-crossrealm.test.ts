@@ -35,7 +35,7 @@ describe("console database cross-realm values", () => {
     }
     const db = { select: () => query } as unknown as RuntimeDatabaseEntry<Record<string, unknown>>["db"]
     installConsoleDatabase("/project", { default: { db, schema: { items } } }, ["default"])
-    const result = await handler({ method: "GET", req: { url: "http://localhost/api/_vitehub/console/database?table=items" } })
+    const result = await handler({ req: { method: "GET", url: "http://localhost/api/_vitehub/console/database?table=items" } })
     expect(result.rows[0]).toMatchObject({
       value: { kind: "date", value: "2024-01-02T03:04:05.000Z" },
       bytes: { kind: "bytes", value: "0102ff" },

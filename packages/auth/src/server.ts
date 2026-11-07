@@ -306,7 +306,7 @@ export function handleAuthRequest(
   return createAuthForRequest(definition, request, runtimeOptions, event).handler(setRequestClientAddress(toRequest(request), address))
 }
 
-/** Return the request of a Web Request or a host server event, including an H3 1 event in Nuxt 4. */
+/** Return the request of a Web Request or a host server event, such as an H3 event. */
 export function toAuthRequest(input: AuthRequestInput): AuthRequest {
   return unwrapAuthRequest(input)
 }

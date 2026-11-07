@@ -1,9 +1,8 @@
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
-import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
@@ -31,37 +30,10 @@ async function temporaryDirectory(prefix: string) {
 const execFileAsync = promisify(execFile)
 const workspaceRoot = resolve(import.meta.dirname, "../../..")
 const internalCloudflareEnv = resolve(workspaceRoot, "packages/internal/src/runtime/cloudflare-env.ts")
-const nuxtH3 = join(dirname(createRequire(import.meta.resolve("nitropack/package.json")).resolve("h3/package.json")), "dist/index.mjs")
 
-// The `h3` that a generated route resolves from the app can be another major version than the host runs. A Nuxt 4 app
-// that does not depend on `h3` resolves H3 2 while Nitro 2 runs H3 1, so resolve the other version here.
-function appRootH3(nuxt: boolean): import("esbuild").Plugin {
-  return {
-    name: "test-app-root-h3",
-    setup(build) {
-      build.onResolve({ filter: /^h3$/ }, () => ({ path: nuxt ? fileURLToPath(import.meta.resolve("h3")) : nuxtH3 }))
-    },
-  }
-}
-
-async function serveRouteRequest(artifactFile: string, nuxt: boolean, routeBase = "", priorCacheControl?: string) {
+async function serveRouteRequest(artifactFile: string, routeBase = "", priorCacheControl?: string) {
   const artifact = await import(pathToFileURL(artifactFile).href) as {
     default: (event: unknown) => Promise<Response>
-  }
-  if (nuxt) {
-    const { createApp, setResponseHeader: setHeader, toWebHandler } = await import(pathToFileURL(nuxtH3).href) as {
-      createApp: () => { use: (route: string, handler: (event: { context: { params?: { _: string } }, path: string }) => unknown) => void }
-      setResponseHeader: (event: unknown, name: string, value: string) => void
-      toWebHandler: (app: unknown) => (request: Request) => Promise<Response>
-    }
-    const app = createApp()
-    app.use("/", (event) => {
-      if (priorCacheControl) setHeader(event, "Cache-Control", priorCacheControl)
-      event.context.params = { _: event.path.slice(routeBase.length + 1).split("?")[0] }
-      return artifact.default(event)
-    })
-    const fetch = toWebHandler(app)
-    return (pathname: string, headers: Record<string, string> = {}, method = "GET") => fetch(new Request(`http://localhost${routeBase}/${pathname}`, { headers, method }))
   }
   const app = new H3()
   app.all("/**", (event) => {
@@ -730,7 +702,7 @@ describe("hubBlob", () => {
     expect(() => config(userConfig, { command: "build" })).toThrow("Cloudflare binding \"BLOB\" from blob is already assigned to an incompatible resource.")
   })
 
-  it("bundles Cloudflare middleware with Nuxt's H3 and preserves each host's event bindings", async () => {
+  it("bundles Cloudflare middleware with H3 and preserves each host's event bindings", async () => {
     const tempDir = join(workspaceRoot, ".cache/blob-middleware")
     await mkdir(tempDir, { recursive: true })
     const root = await mkdtemp(join(tempDir, "nuxt-"))
@@ -748,7 +720,7 @@ describe("hubBlob", () => {
           contents: `export { default as middleware } from ${JSON.stringify(middleware)}; export { state } from '@vite-hub/blob/runtime/state'`,
           resolveDir: root,
         },
-        alias: { nitro: nitroEntry, h3: nuxtH3 },
+        alias: { nitro: nitroEntry },
         bundle: true,
         format: "esm",
         packages: "external",
@@ -780,7 +752,6 @@ describe("hubBlob", () => {
         { context: { cloudflare: { env } } },
         { context: { _platform: { cloudflare: { env } } } },
         { req: { runtime: { cloudflare: { env } } } },
-        { node: { req: { runtime: { cloudflare: { env } } } } },
       ]) {
         expect(handle(event)).toBeUndefined()
         expect(state.env).toBe(env)
@@ -788,17 +759,13 @@ describe("hubBlob", () => {
       handle({})
       expect(state.env).toEqual({ source: "module" })
 
-      const { createApp, toWebHandler } = await import(pathToFileURL(nuxtH3).href) as {
-        createApp: () => { use: (route: string, handler: (event: unknown) => unknown) => void }
-        toWebHandler: (app: unknown) => (request: Request) => Promise<Response>
-      }
-      const app = createApp()
-      app.use("/", (event) => { Object.assign(event as object, { context: { cloudflare: { env } } }) })
+      const app = new H3()
+      app.use((event) => { event.context.cloudflare = { env } })
       const registration = config.nitro.handlers?.find(handler => handler.handler === middleware)
       expect(registration).toBeDefined()
-      app.use(registration!.route || "/", handle)
-      app.use("/ordinary-route", () => state.env)
-      const response = await toWebHandler(app)(new Request("http://localhost/ordinary-route"))
+      app.use(registration!.route || "/**", handle)
+      app.get("/ordinary-route", () => state.env)
+      const response = await app.fetch(new Request("http://localhost/ordinary-route"))
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual(env)
     }
@@ -1037,7 +1004,7 @@ describe("hubBlob", () => {
     expect(handler).not.toContain("from 'nitro/cache'")
     expect(handler).toContain("const storeName = \"media\"")
     expect(handler).toContain("const responseHeaders = {\"Cache-Control\":\"public, max-age=300\",\"X-Content-Type-Options\":\"nosniff\"}")
-    // Nuxt resolves `h3` imports from `.vitehub` to H3 2, but its Nitro 2 routes receive H3 1 events.
+    // The generated route reads only the event, so it does not depend on the `h3` that `.vitehub` resolves.
     expect(handler).not.toMatch(/from ['"]h3['"]/)
     expect(handler).toContain("for (const [name, value] of Object.entries(responseHeaders)) headers.set(name, value)")
     expect(handler).toContain("blob.store(storeName).serve(event, pathname, options)")
@@ -1074,7 +1041,7 @@ describe("hubBlob", () => {
       name: "duplicate canonical last",
     },
   ]
-  it.each(serveCacheCases.flatMap(config => [false, true].map(nuxt => ({ ...config, nuxt }))))("preserves non-text bytes with $name cache headers (Nuxt: $nuxt)", async ({ expectedCacheControl, headers, nuxt }) => {
+  it.each(serveCacheCases)("preserves non-text bytes with $name cache headers", async ({ expectedCacheControl, headers }) => {
     const root = await temporaryDirectory("vitehub-blob-cached-route-")
     try {
       const plugin = hubBlob({
@@ -1095,7 +1062,7 @@ describe("hubBlob", () => {
         nodePaths: [join(workspaceRoot, "node_modules")],
         outfile: artifactFile,
         platform: "node",
-        plugins: [appRootH3(nuxt), {
+        plugins: [{
           name: "blob-route-stub",
           setup(build) {
             build.onResolve({ filter: /^virtual:blob-test$/ }, () => ({
@@ -1127,7 +1094,7 @@ describe("hubBlob", () => {
         target: "node24",
       })
 
-      const request = await serveRouteRequest(artifactFile, nuxt)
+      const request = await serveRouteRequest(artifactFile)
       const response = await request("binary.bin")
 
       expect(response.headers.get("Cache-Control")).toBe(expectedCacheControl)
@@ -1174,7 +1141,7 @@ describe("hubBlob", () => {
     }
   })
 
-  describe.each([false, true])("serve authorization (Nuxt: %s)", (nuxt) => {
+  describe("serve authorization", () => {
     const authPlugin = { name: "@vite-hub/auth/vite", api: { getConfig: () => ({ definition: {} }) } }
 
     async function bundleServeRoute(root: string, priorCacheControl?: string, route = "/photos") {
@@ -1187,7 +1154,7 @@ describe("hubBlob", () => {
         nodePaths: [join(workspaceRoot, "node_modules")],
         outfile: artifactFile,
         platform: "node",
-        plugins: [appRootH3(nuxt), {
+        plugins: [{
           name: "blob-authorize-route-stub",
           setup(build) {
             build.onResolve({ filter: /^virtual:blob-test$/ }, args => ({
@@ -1243,7 +1210,7 @@ describe("hubBlob", () => {
         }],
         target: "node24",
       })
-      return await serveRouteRequest(artifactFile, nuxt, route, priorCacheControl)
+      return await serveRouteRequest(artifactFile, route, priorCacheControl)
     }
 
     it("requires a session before the store read and before conditional handling", async () => {

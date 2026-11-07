@@ -172,7 +172,7 @@ export function consoleAppSignIn(event: ConsoleRequestEvent): Promise<Response> 
 
 /** Whether a GET or HEAD explicitly accepts a Console HTML page with nonzero quality. */
 export function isConsolePageVisit(event: ConsoleRequestEvent): boolean {
-  const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
+  const method = (event.req?.method ?? "GET").toUpperCase()
   if (method !== "GET" && method !== "HEAD") return false
   return consoleRequest(event).headers.get("accept")?.split(",").some((range) => {
     const [type, ...parameters] = range.split(";")
@@ -233,32 +233,15 @@ async function checkPageAccess(event: ConsoleRequestEvent): Promise<ConsoleAcces
 export function consoleRequest(event: ConsoleRequestEvent): Request {
   if (isRequestLike(event.req)) return event.req
   const headers = new Headers()
-  const copyHeaders = (source: unknown, overwrite = true): void => {
-    const setHeader = (name: string, value: string): void => {
-      if (overwrite || !headers.has(name)) headers.set(name, value)
-    }
-    if (source instanceof Headers) {
-      source.forEach((value, name) => setHeader(name, value))
-      return
-    }
-    if (source !== null && typeof source === "object" && "get" in source && typeof source.get === "function") {
-      for (const name of ["accept", "authorization", "cookie", "content-type", "host", "origin", "user-agent", "x-forwarded-host", "x-forwarded-proto"]) {
-        const value = source.get(name)
-        if (typeof value === "string") setHeader(name, value)
-      }
-      return
-    }
-    if (source === null || typeof source !== "object") return
-    for (const [name, value] of Object.entries(source)) {
-      if (value !== undefined) setHeader(name, Array.isArray(value) ? value.join(", ") : String(value))
+  const source = event.req?.headers
+  if (source instanceof Headers) source.forEach((value, name) => headers.set(name, value))
+  else if (source) {
+    for (const name of ["accept", "authorization", "cookie", "content-type", "host", "origin", "user-agent", "x-forwarded-host", "x-forwarded-proto"]) {
+      const value = source.get(name)
+      if (typeof value === "string") headers.set(name, value)
     }
   }
-  // Match consoleRequestURL(): request headers take precedence per header,
-  // followed by event-level and Node request headers as fallbacks.
-  copyHeaders(event.node?.req?.headers)
-  copyHeaders(event.headers)
-  copyHeaders(event.req?.headers, true)
-  return new Request(consoleRequestURL(event), { headers, method: event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET" })
+  return new Request(consoleRequestURL(event), { headers, method: event.req?.method ?? "GET" })
 }
 
 function isRequestLike(value: unknown): value is Request {

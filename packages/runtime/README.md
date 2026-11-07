@@ -153,7 +153,7 @@ For a [Fetchable](https://fetchable.org) handler, use
 `Request`: `runtime.cloudflare`, `waitUntil`, and `ip`. `getStandardContext(request)`
 returns the Standard Context of the `Request`.
 
-For H3 1, H3 2, and Nuxt routes, use `getRuntimeContext(event, options?)` from
+For H3 and Nuxt routes, use `getRuntimeContext(event, options?)` from
 `@vite-hub/runtime/h3` or `vite-hub/runtime/h3`. This framework entry normalizes
 event bindings and lifetime methods. It reads the event by shape, so the Runtime
 owner package has no H3 dependency. In Nitro, it also puts the Standard Context of

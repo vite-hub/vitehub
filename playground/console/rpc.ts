@@ -89,6 +89,14 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
 }
 
 // Serve the Console's stateless RPC endpoint from this playground's synthetic HTTP fixtures.
+function nodeHeaders(request: IncomingMessage): Headers {
+  const headers = new Headers()
+  for (const [name, value] of Object.entries(request.headers)) {
+    for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) headers.append(name, item)
+  }
+  return headers
+}
+
 export function consoleMockRPC(): Plugin {
   return {
     name: "vitehub-console-playground-rpc",
@@ -102,7 +110,7 @@ export function consoleMockRPC(): Plugin {
           const payload = JSON.parse(await readBody(request))
           // MCP links go back to the browser, while HTTP fixtures stay on the local server.
           const origin = payload.operation.startsWith("mcp-client.")
-            ? consoleRequestURL({ node: { req: request } }).origin
+            ? consoleRequestURL({ req: { headers: nodeHeaders(request), url: request.url } }).origin
             : server.resolvedUrls?.local[0] ?? server.resolvedUrls?.network[0]
           if (!origin) throw new Error("Playground server is not listening")
           const result = await callConsoleFixture(origin, payload, request.headers.cookie)

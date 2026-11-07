@@ -2,7 +2,6 @@ import { literal, object, parse, string } from "valibot"
 
 import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
-import { createH3V1ResponseHeaders, isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 
 import { blobError, blobResult } from "./errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
@@ -25,20 +24,6 @@ import { resolveBlobImages } from "./media/transformers.ts"
 
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
-
-function normalizeServeEvent(event: Parameters<BlobStorage["serve"]>[0]): BlobServeEvent {
-  if (!isH3V1Event(event)) return event
-  // The accepted Node event type requires its writable response.
-  const response = event.node.res!
-  return {
-    req: toH3V1Request(event),
-    res: {
-      headers: createH3V1ResponseHeaders(response),
-      get status() { return response.statusCode },
-      set status(value) { if (value !== undefined) response.statusCode = value },
-    },
-  }
-}
 
 function matchesETag(condition: string | null, etag: string | undefined): boolean {
   if (!condition) return false
@@ -339,8 +324,7 @@ export function createBlobStorage(hostDriver: BlobDriverAdapter<any>, store: str
       if (options.method === "PUT") assertWritablePath(normalizedPathname)
       return blobResult("sign", store, () => driver.sign!(normalizedPathname, options))
     },
-    async serve(input, pathname: string, options = {}) {
-      const event = normalizeServeEvent(input)
+    async serve(event, pathname: string, options = {}) {
       const normalizedPath = normalizePathname(pathname)
       if (isReservedPath(normalizedPath)) return [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
       if (options.variant && !options.transform) {

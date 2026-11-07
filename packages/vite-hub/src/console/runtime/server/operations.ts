@@ -54,7 +54,6 @@ function legacyEvent(route: string, method: "GET" | "POST", request: LegacyReque
   const event: ConsoleRequestEvent = {
     env: context.env,
     context: Object.keys(params).length ? { params } : undefined,
-    method,
     req: { json: async () => request.body, method, signal: context.request?.signal, url },
     res: context.response ?? {},
   }

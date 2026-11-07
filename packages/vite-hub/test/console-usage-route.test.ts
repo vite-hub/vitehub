@@ -63,8 +63,7 @@ it.each([false, true].flatMap(invoke => pricingCases.map(pricing => ({ ...pricin
 
     for (const query of ["", "?agent=usage-agent"]) {
       expect(await usageHandler({
-        method: "GET",
-        req: { url: `http://localhost/api/_vitehub/console/usage${query}` },
+        req: { method: "GET", url: `http://localhost/api/_vitehub/console/usage${query}` },
       })).toMatchObject({ available: false, costSupported })
     }
   },
@@ -106,8 +105,7 @@ it.each([false, true])("keeps provider-recorded cost when pricing is disabled an
 
   for (const query of ["", "?agent=usage-agent"]) {
     expect(await usageHandler({
-      method: "GET",
-      req: { url: `http://localhost/api/_vitehub/console/usage${query}` },
+      req: { method: "GET", url: `http://localhost/api/_vitehub/console/usage${query}` },
     })).toMatchObject({ costSupported: true, totals: { costUsd: "0.01", costEstimated: false } })
   }
 })

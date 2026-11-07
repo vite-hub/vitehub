@@ -2021,7 +2021,7 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain(".replace(/(^|\\/):([^/]+)/g")
       expect(gatewayRoute).toContain("process.env.NODE_ENV === 'development'")
       expect(gatewayRoute).toContain("Discord Gateway route requires VITEHUB_DISCORD_GATEWAY_SECRET.")
-      expect(gatewayRoute).toContain('import { isViteHubBearerSecretEqual, toEventRequest } from "@vite-hub/agent/server/internal"')
+      expect(gatewayRoute).toContain('import { isViteHubBearerSecretEqual } from "@vite-hub/agent/server/internal"')
       expect(gatewayRoute).not.toMatch(/from\s*["']h3["']/)
       expect(gatewayRoute).not.toContain("!== secret")
       expect(gatewayRoute).toContain("runtime: 'vite'")
@@ -2029,22 +2029,18 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain("webhookUrl")
       expect(gatewayRoute).not.toContain("@vite-hub/schedule/runtime")
 
-      // Nitro 2, which Nuxt 4 runs, passes H3 1 events. H3 2's request helpers throw for them, so a set secret broke
-      // the route. Run the generated handler with the real request helpers and an H3 1 event.
+      // Run the generated handler with the real secret check and an H3 event.
       const handlerSource = gatewayRoute.slice(gatewayRoute.indexOf("export default defineEventHandler(")).replace("export default ", "return ")
       const { code } = await transform(handlerSource, { loader: "ts" })
-      const { isViteHubBearerSecretEqual, toEventRequest } = await import("../src/server/internal.ts")
-      const h3 = await import("h3")
+      const { isViteHubBearerSecretEqual } = await import("../src/server/internal.ts")
       const gatewayHandler = new Function(
-        "defineEventHandler", "createError", "getRequestHeader", "getRouterParam", "toEventRequest", "isViteHubBearerSecretEqual",
+        "defineEventHandler", "createError", "getRouterParam", "isViteHubBearerSecretEqual",
         "cloudflareFromEvent", "runtimeEnvValue", "agentNames", "handlers", "agentIdentities", "defaultDurationMs", "webhookRoute",
         "routePath", "waitUntilFromEvent", code,
       )(
         (handler: unknown) => handler,
         (input: { statusCode: number }) => Object.assign(new Error("H3 error"), input),
-        h3.getRequestHeader,
         () => "support",
-        toEventRequest,
         isViteHubBearerSecretEqual,
         () => undefined,
         (_cloudflare: unknown, key: string) => key === "VITEHUB_DISCORD_GATEWAY_SECRET" ? "gateway-secret" : undefined,
@@ -2056,16 +2052,11 @@ describe("agent Vite plugin", () => {
         () => "/api/_vitehub/agents/support/webhooks/discord",
         () => undefined,
       ) as (event: unknown) => Promise<Response>
-      const h3V1Event = (authorization: string) => ({
-        method: "POST",
-        node: { req: Object.assign((async function* () {})(), {
-          headers: { authorization, host: "app.example", "x-forwarded-proto": "https" },
-          method: "POST",
-          url: "/api/_vitehub/agents/support/discord/gateway",
-        }) },
+      const gatewayEvent = (authorization: string) => ({
+        req: new Request("https://app.example/api/_vitehub/agents/support/discord/gateway", { headers: { authorization }, method: "POST" }),
       })
-      await expect(gatewayHandler(h3V1Event("Bearer wrong"))).rejects.toMatchObject({ statusCode: 401 })
-      const accepted = await gatewayHandler(h3V1Event("Bearer gateway-secret"))
+      await expect(gatewayHandler(gatewayEvent("Bearer wrong"))).rejects.toMatchObject({ statusCode: 401 })
+      const accepted = await gatewayHandler(gatewayEvent("Bearer gateway-secret"))
       await expect(accepted.text()).resolves.toBe("POST https://app.example/api/_vitehub/agents/support/discord/gateway Bearer gateway-secret")
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -2667,12 +2658,12 @@ describe("agent Vite plugin", () => {
       expect(webhookRoute).toContain('["support"]: {"name":"support"}')
       expect(webhookRoute).not.toContain('import { createCloudflareAgentState } from "@vite-hub/agent/cloudflare"')
       expect(webhookRoute).toContain("async function toRequest(event: H3Event)")
-      expect(webhookRoute).toContain("const request = toEventRequest(event)")
+      expect(webhookRoute).toContain("const request = event.req")
       expect(webhookRoute).toContain("body: request.body ?? undefined")
       expect(webhookRoute).not.toContain("readRawBody(event)")
       expect(webhookRoute).toContain("createAgentWebhookRequest({")
-      expect(webhookRoute).toContain("node: event.node")
-      expect(webhookRoute).toContain("signal: event.req?.signal")
+      expect(webhookRoute).not.toContain("event.node")
+      expect(webhookRoute).toContain("signal: request.signal")
       expect(webhookRoute).not.toContain("return event.request")
       expect(webhookRoute).toContain("function waitUntilFromEvent(event: H3Event)")
       expect(webhookRoute).not.toContain("function chatStateFromCloudflare(cloudflare:")
@@ -2694,94 +2685,36 @@ describe("agent Vite plugin", () => {
 
       const requestHelpers = webhookRoute.slice(webhookRoute.indexOf("async function toRequest"), webhookRoute.indexOf("type ViteHubGeneratedCloudflare"))
       const { code } = await transform(requestHelpers, { loader: "ts", format: "esm" })
-      const { createAgentWebhookRequest, toEventRequest } = await import("../src/server/internal.ts")
-      const toRequest = new Function("toEventRequest", "createAgentWebhookRequest", `${code}\nreturn toRequest`)(
-        toEventRequest,
+      const { createAgentWebhookRequest } = await import("../src/server/internal.ts")
+      const toRequest = new Function("createAgentWebhookRequest", `${code}\nreturn toRequest`)(
         createAgentWebhookRequest,
       ) as (event: unknown) => Promise<Request>
-      const request = await toRequest({ method: "GET", req: new Request("https://example.com/api/agents/support/chat", { headers: { authorization: "Bearer test-token", "x-empty": "" } }) })
+      const request = await toRequest({ req: new Request("https://example.com/api/agents/support/chat", { headers: { authorization: "Bearer test-token", "x-empty": "" } }) })
       expect([...request.headers]).toEqual([["authorization", "Bearer test-token"], ["x-empty", ""]])
-      // Nitro 2, which Nuxt 4 runs, passes H3 1 events: the H3 2 helpers cannot read their Node request.
-      const nodeBody = (async function* () { yield new TextEncoder().encode('{"messages":'); yield new TextEncoder().encode("[]}") })()
-      const nodeRequest = Object.assign(nodeBody, { headers: { host: "127.0.0.1:4731", "set-cookie": ["a=1", "b=2"], "x-absent": undefined }, method: "POST", once: () => undefined, url: "/api/_vitehub/agents/support/chat?x=1" })
-      const fromNode = await toRequest({ method: "POST", node: { req: nodeRequest }, req: nodeRequest })
-      expect(fromNode.url).toBe("http://127.0.0.1:4731/api/_vitehub/agents/support/chat?x=1")
-      expect(fromNode.headers.get("set-cookie")).toBe("a=1, b=2")
-      expect(fromNode.headers.has("x-absent")).toBe(false)
-      await expect(fromNode.text()).resolves.toBe('{"messages":[]}')
-      // Behind a TLS proxy, and after a middleware already read the body with H3's readBody().
-      const proxiedRequest = Object.assign((async function* () {})(), { headers: { host: "app.example", "x-forwarded-proto": "https" }, method: "POST", once: () => undefined, url: "/api/_vitehub/agents/support/chat" })
-      const proxied = await toRequest({ _requestBody: Promise.resolve(new TextEncoder().encode('{"read":true}')), method: "POST", node: { req: proxiedRequest } })
-      expect(proxied.url).toBe("https://app.example/api/_vitehub/agents/support/chat")
-      await expect(proxied.text()).resolves.toBe('{"read":true}')
+      const posted = await toRequest({ req: new Request("http://127.0.0.1:4731/api/_vitehub/agents/support/chat?x=1", { body: '{"messages":[]}', method: "POST" }) })
+      expect(posted.url).toBe("http://127.0.0.1:4731/api/_vitehub/agents/support/chat?x=1")
+      await expect(posted.text()).resolves.toBe('{"messages":[]}')
       expect(webhookRoute).not.toContain("getRequestHeaders(event)")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
   })
 
-  it("preserves portable and Node webhook abort lifecycles", async () => {
+  it("preserves the webhook abort lifecycle", async () => {
     const { createAgentWebhookRequest } = await import("../src/server/internal.ts")
-    const portableController = new AbortController()
-    const portable = createAgentWebhookRequest({
+    const controller = new AbortController()
+    const request = createAgentWebhookRequest({
       method: "POST",
-      signal: portableController.signal,
+      signal: controller.signal,
       url: "https://example.com/webhook",
     })
-    expect(portable.signal.aborted).toBe(false)
-    portableController.abort(new Error("host stopped"))
-    expect(portable.signal.aborted).toBe(true)
-    expect(portable.signal.reason).toEqual(new Error("host stopped"))
-
-    let abortRequest!: () => void
-    let closeResponse!: () => void
-    const nodeResponse = { writableEnded: true }
-    const node = createAgentWebhookRequest({
-      method: "POST",
-      node: {
-        req: {
-          aborted: false,
-          once: vi.fn((_event, listener) => {
-            abortRequest = listener
-          }),
-        },
-        res: {
-          ...nodeResponse,
-          once: vi.fn((_event, listener) => {
-            closeResponse = listener
-          }),
-        },
-      },
-      signal: new AbortController().signal,
-      url: "https://example.com/webhook",
-    })
-    closeResponse()
-    expect(node.signal.aborted).toBe(false)
-    abortRequest()
-    expect(node.signal.aborted).toBe(true)
-    expect(node.signal.reason).toMatchObject({ name: "AbortError" })
-
-    let closeIncompleteResponse!: () => void
-    const incomplete = createAgentWebhookRequest({
-      method: "POST",
-      node: {
-        req: { aborted: false, once: vi.fn() },
-        res: {
-          writableEnded: false,
-          once: vi.fn((_event, listener) => {
-            closeIncompleteResponse = listener
-          }),
-        },
-      },
-      signal: new AbortController().signal,
-      url: "https://example.com/webhook",
-    })
-    closeIncompleteResponse()
-    expect(incomplete.signal.aborted).toBe(true)
-    expect(incomplete.signal.reason).toMatchObject({ name: "AbortError" })
+    expect(request.signal.aborted).toBe(false)
+    controller.abort(new Error("host stopped"))
+    expect(request.signal.aborted).toBe(true)
+    expect(request.signal.reason).toEqual(new Error("host stopped"))
   })
 
-  it("writes generated Nitro handlers that compile with checked indexed access for H3 v1 and v2", async () => {
+  it("writes generated Nitro handlers that compile with checked indexed access", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(import.meta.dirname, ".vitehub-agent-routes-types-"))
     try {
@@ -2811,11 +2744,10 @@ export default defineAgent({
 `,
         "utf8",
       )
-      for (const [stateProvider, command, h3] of [
-        ["cloudflare", "build", "v2"],
-        ["libsql", "build", "v2"],
-        ["libsql", "serve", "v1"],
-        ["libsql", "serve", "v2"],
+      for (const [stateProvider, command] of [
+        ["cloudflare", "build"],
+        ["libsql", "build"],
+        ["libsql", "serve"],
       ] as const) {
         await writeFile(
           join(root, "tsconfig.json"),
@@ -2825,7 +2757,7 @@ export default defineAgent({
               // Consumers check generated code against the published declarations, not package sources.
               compilerOptions: {
                 noUncheckedIndexedAccess: true,
-                paths: { h3: [resolve(import.meta.dirname, h3 === "v1" ? "../../vite-hub/node_modules/h3-v1" : "../node_modules/h3")] },
+                paths: { h3: [resolve(import.meta.dirname, "../node_modules/h3")] },
               },
               include: [".vitehub/agent/chat-webhook-route.ts", "server/agents/**/*.ts"],
             },
@@ -4295,7 +4227,7 @@ describe("server helpers", () => {
       { agentName: "support" },
     )
 
-    // H3 1, which Nuxt 4 runs, never ends a Node response whose body fails.
+    // The body ends with an error frame instead of failing.
     await expect(response.text()).resolves.toBe('data: {"type":"text-delta","text":"partial"}\n\ndata: {"errorText":"upstream failed","type":"error"}\n\ndata: [DONE]\n\n')
   })
 

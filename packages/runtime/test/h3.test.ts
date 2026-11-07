@@ -1,6 +1,5 @@
 import { H3Event } from "h3"
 import { describe, expect, it, vi } from "vitest"
-import { toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 
 import { getRuntimeContext, getStandardContext, installStandardContext } from "../src/h3.ts"
 
@@ -113,10 +112,6 @@ describe("@vite-hub/runtime/h3", () => {
     expect(h3V2(request({ runtime: { node: { req: { socket: { remoteAddress: "203.0.113.9" } } } } }))).toBe("203.0.113.9")
     expect(h3V2(request({ context: { clientAddress: "" }, ip: "203.0.113.10" }))).toBe("203.0.113.10")
     expect(h3V2(new Request("http://localhost/", { headers: { "x-forwarded-for": "198.51.100.1" } }))).toBeUndefined()
-
-    const h3V1 = { context: { clientAddress: "203.0.113.11" }, node: { req: { headers: { host: "localhost" }, socket: { remoteAddress: "127.0.0.1" }, async *[Symbol.asyncIterator]() {} }, res: { getHeader: vi.fn(), getHeaders: () => ({}), removeHeader: vi.fn(), setHeader: vi.fn(), statusCode: 200 } } }
-    installStandardContext(h3V1)
-    expect(h3V1["~standard"].runtime?.clientAddress).toBe("203.0.113.11")
   })
 
   it("keeps the Cloudflare execution context when the event has no bindings", () => {
@@ -131,33 +126,5 @@ describe("@vite-hub/runtime/h3", () => {
 
   it("does not set Standard Context on an event without a request", () => {
     expect(() => installStandardContext({ context: {} })).toThrow(expect.objectContaining({ name: "RUNTIME_R0015" }))
-  })
-
-  it("does not pull an H3 1 body until the Request is read", async () => {
-    let pulls = 0
-    const nodeRequest = {
-      headers: { host: "example.test" },
-      method: "POST",
-      url: "/",
-      async *[Symbol.asyncIterator]() {
-        pulls++
-        yield "body"
-      },
-    }
-    const request = toH3V1Request({ node: { req: nodeRequest } })
-    await Promise.resolve()
-    expect(pulls).toBe(0)
-    await expect(request.text()).resolves.toBe("body")
-    expect(pulls).toBe(1)
-  })
-
-  it("closes an empty H3 1 request body", async () => {
-    const nodeRequest = {
-      headers: { host: "example.test" },
-      method: "POST",
-      url: "/",
-      async *[Symbol.asyncIterator]() {},
-    }
-    await expect(toH3V1Request({ node: { req: nodeRequest } }).text()).resolves.toBe("")
   })
 })

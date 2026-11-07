@@ -35,7 +35,7 @@ const schema = { posts, users };
 const clients: Array<ReturnType<typeof createClient>> = [];
 
 function event(query = "", method = "GET") {
-  return { method, req: { url: `http://localhost/api/_vitehub/console/database${query}` } };
+  return { req: { method, url: `http://localhost/api/_vitehub/console/database${query}` } };
 }
 
 async function database(name = "default") {

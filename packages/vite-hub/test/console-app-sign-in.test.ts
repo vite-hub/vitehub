@@ -77,9 +77,8 @@ function proxySignInEvent(host: "fetch" | "h3", browserOrigin = origin) {
     "x-forwarded-host": "app.example.com, proxy.internal",
     "x-forwarded-proto": "https, http",
   }
-  return host === "fetch"
-    ? { req: new Request(`http://internal:3000${path}`, { method: "POST", headers }) }
-    : { node: { req: { method: "POST", headers, url: path.slice("/portal".length), originalUrl: path, async *[Symbol.asyncIterator]() {} } } }
+  const request = new Request(`http://internal:3000${path}`, { method: "POST", headers })
+  return host === "fetch" ? { req: request } : new H3Event(request)
 }
 
 describe("Console reuses app Auth sign-in", () => {

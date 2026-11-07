@@ -564,11 +564,11 @@ describe("Rate Limit core", () => {
 })
 
 describe("Rate Limit server code", () => {
-  it("never reads `typeof window`, because Nitro 2 replaces it with \"undefined\" in server bundles", () => {
+  it("never reads `typeof window`, because Nuxt replaces it with \"undefined\" in server builds", () => {
     const sourceRoot = fileURLToPath(new URL("../src", import.meta.url))
     const files = globSync("**/*.ts", { cwd: sourceRoot }).filter(file => /typeof window\b/.test(readFileSync(`${sourceRoot}/${file}`, "utf8")))
 
-    // Nuxt 4 builds turn `typeof window !== "string"` into `"undefined" !== "string"`. Rename the local variable.
+    // Nuxt server builds turn `typeof window !== "string"` into `"undefined" !== "string"`. Rename the local variable.
     expect(files).toEqual([])
   })
 })

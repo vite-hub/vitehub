@@ -1,7 +1,5 @@
 import { defineHandler } from "h3"
 import { spawnSync } from "node:child_process"
-import { createServer } from "node:http"
-import { createApp, eventHandler, toNodeListener } from "h3-v1"
 import { exportJWK, generateKeyPair, importJWK, SignJWT } from "jose"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -95,33 +93,6 @@ function install() {
 }
 
 describe("MCP endpoint", () => {
-  it("reads tool calls through the h3 1 HTTP server used by Nuxt 4", async () => {
-    install()
-    installConsoleDevelopment("/tmp/console-mcp", true)
-    const app = createApp()
-    app.use("/_vitehub/mcp", eventHandler(event => Reflect.apply(consoleMcpHandler, undefined, [event])))
-    const server = createServer(toNodeListener(app))
-    try {
-      await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
-      const address = server.address()
-      if (!address || typeof address === "string") throw new Error("The MCP test server has no TCP address.")
-      const response = await fetch(`http://127.0.0.1:${address.port}/_vitehub/mcp`, {
-        body: JSON.stringify(rpc(1, "tools/call", { arguments: { name: "Ada" }, name: "fixture_greet" })),
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      })
-      expect(response.status).toBe(200)
-      await expect(response.json()).resolves.toMatchObject({
-        id: 1,
-        jsonrpc: "2.0",
-        result: { isError: false, structuredContent: { greeting: "Hello Ada", surface: "mcp" } },
-      })
-    }
-    finally {
-      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
-    }
-  })
-
   it("answers initialize with the tools capability, and takes notifications without an answer", async () => {
     install()
     const init = await read<{ result: Record<string, unknown> }>(await post(rpc(1, "initialize", { capabilities: {}, clientInfo: { name: "test", version: "1" }, protocolVersion: "2025-06-18" })))

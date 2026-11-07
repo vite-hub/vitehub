@@ -10,7 +10,7 @@ const handler = allowed(handlerRoute)
 const request = (path?: string, query: Record<string, string> = {}) => {
   const params = new URLSearchParams(path === undefined ? query : { ...query, path })
   const search = params.toString()
-  return { method: "GET", context: { params: { id: "run" } }, req: { url: `http://localhost/api/_vitehub/console/invocations/run/workspace${search ? `?${search}` : ""}` } }
+  return { context: { params: { id: "run" } }, req: { method: "GET", url: `http://localhost/api/_vitehub/console/invocations/run/workspace${search ? `?${search}` : ""}` } }
 }
 beforeEach(() => {
   vi.resetAllMocks()

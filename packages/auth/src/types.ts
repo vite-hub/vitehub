@@ -231,25 +231,7 @@ export type AuthBetterAuthRuntimeOptions<
   AuthRuntimeOptions &
   BetterAuthOptions;
 export type AuthRequest = Pick<Request, "body" | "headers" | "method" | "signal" | "url">
-/** The Node request fields that ViteHub Auth reads from an H3 1 event, such as a Nuxt 4 server event. */
-export interface AuthNodeRequest extends AsyncIterable<unknown> {
-  body?: unknown
-  connection?: { encrypted?: boolean }
-  headers: Record<string, string | string[] | undefined>
-  method?: string
-  originalUrl?: string
-  rawBody?: unknown
-  socket?: { encrypted?: boolean }
-  url?: string
-  [key: symbol]: unknown
-}
-/** An H3 1 event. ViteHub Auth builds a Web Request from `node.req`. */
-export interface AuthNodeRequestEvent {
-  _requestBody?: unknown
-  node: { req: AuthNodeRequest }
-  web?: { request?: Request }
-}
-export type AuthRequestInput = AuthRequest | { req: AuthRequest } | AuthNodeRequestEvent
+export type AuthRequestInput = AuthRequest | { req: AuthRequest }
 export type ViteHubAuth<Options extends BetterAuthOptions = BetterAuthOptions> = Auth<Options>
 /** The Better Auth instance of an Auth Definition, with the endpoints and fields of its plugins. */
 export type AuthFor<TDefinition extends AuthDefinition> = ViteHubAuth<Extract<Omit<

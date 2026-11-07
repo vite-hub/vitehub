@@ -222,7 +222,7 @@ describe("console.origins", () => {
   it("lets Channel replay take a token call from a listed origin", async () => {
     vi.stubEnv("VITEHUB_CONSOLE_TOKEN_SHA256", tokenHash)
     install({ mode: "token" })
-    const replay = (origin: string) => channelReplayHandler({ method: "POST", req: new Request(`${app}/_vitehub/channels/replay`, {
+    const replay = (origin: string) => channelReplayHandler({ req: new Request(`${app}/_vitehub/channels/replay`, {
       body: JSON.stringify({}),
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json", origin },
       method: "POST",
