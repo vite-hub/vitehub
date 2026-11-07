@@ -15,7 +15,7 @@ interface ExecuteScheduleOptions {
   runStore?: ScheduleRunStore
   runIdSuffix?: string
   scheduleId: string
-  source?: "direct" | "manual" | "static"
+  source?: "direct" | "manual" | "started" | "static"
   scheduledAt?: Date
   target: string
   waitUntil?: (promise: PromiseLike<unknown>) => void

@@ -1,7 +1,7 @@
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 
 import { collectScheduleContributions } from "./contributions.ts"
-import { discoverScheduleDefinitions } from "./discovery.ts"
+import { discoverScheduleDefinitions, discoverStartableScheduleDefinitions } from "./discovery.ts"
 import { readRuntimeDefinitionCrons, readStaticScheduleTimeZone } from "./internal/provider-output.ts"
 import { scheduleConsoleTiming } from "./runtime/console.ts"
 
@@ -34,7 +34,7 @@ function summarizeScheduleDefinition(
   const declaredCron = crons.get(definition.name)
   const cron = Object.hasOwn(overrides, definition.name) ? overrides[definition.name] : declaredCron
   const fields: ViteHubDefinitionField[] = [
-    { label: "Kind", value: "Static schedule" },
+    { label: "Kind", value: definition.startable ? "Started by code" : "Static schedule" },
   ]
   if (cron) {
     fields.push(
@@ -42,6 +42,9 @@ function summarizeScheduleDefinition(
       ...(declaredCron && declaredCron !== cron ? [{ label: "Declared cron", value: declaredCron }] : []),
       { label: "Time zone", value: inspectTimeZone(definition.handler) },
     )
+  }
+  if (definition.startable) {
+    fields.push({ label: "Starts", value: "When code calls startSchedule(), once or on a cron" })
   }
   if (definition.manual) {
     fields.push({ label: "Manual", value: "Enabled" })
@@ -70,14 +73,17 @@ export async function inspectScheduleDefinitions(options: ScheduleInspectionOpti
     root: options.rootDir,
     serverDirs: options.serverDirs,
   })
-  const definitions = discoverScheduleDefinitions({
+  const discovery = {
     contributions,
     rootDir: options.rootDir,
     serverDirs: options.serverDirs,
     serverRootDir: options.serverRootDir,
-  })
+  }
+  const definitions = [...discoverScheduleDefinitions(discovery), ...discoverStartableScheduleDefinitions(discovery)]
+    .sort((left, right) => left.name.localeCompare(right.name))
   const crons = new Map<string, string>()
   for (const definition of definitions) {
+    if (definition.startable) continue
     try {
       for (const [name, cron] of await readRuntimeDefinitionCrons([definition])) crons.set(name, cron)
     }
@@ -92,17 +98,20 @@ function definitionRecord(summary: ViteHubDefinitionSummary): ViteHubConsoleReco
   const field = (label: string) => summary.fields.find(entry => entry.label === label)?.value
   const cron = field("Cron")
   const timeZone = field("Time zone")
+  const startable = field("Kind") === "Started by code"
   return {
     cells: {
       manual: field("Manual") === "Enabled" ? "Yes" : "No",
       schedule: summary.name,
-      timing: cron && timeZone ? scheduleConsoleTiming(cron, timeZone) : "-",
+      timing: startable ? "Started by code" : cron && timeZone ? scheduleConsoleTiming(cron, timeZone) : "-",
     },
     fields: [
       ...summary.fields,
       { label: "File", value: summary.file },
       { label: "Source", value: summary.source },
-      { label: "Runs", value: `Use \`vitehub schedule runs ${summary.name}\` to list runs that this runtime recorded.` },
+      startable
+        ? { label: "Runs", value: `Use \`vitehub schedule list ${summary.name}\` to list the Schedules that code started, and \`vitehub schedule runs <id>\` for the runs of one.` }
+        : { label: "Runs", value: `Use \`vitehub schedule runs ${summary.name}\` to list runs that this runtime recorded.` },
     ],
     id: `definition:${summary.name}`,
     runnable: field("Manual") === "Enabled",
@@ -134,6 +143,6 @@ export const scheduleConsoleSection: ViteHubConsoleRuntimeRecordTableSection<Sch
       { key: "manual", label: "Manual" },
     ],
     kind: "record-table",
-    notice: "The host runs each Schedule on its cron, in its time zone (UTC by default). Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
+    notice: "The host runs each Schedule on its cron, in its time zone (UTC by default). A Definition without cron runs when code starts it with `startSchedule()`; each started Schedule has its own row. Definitions with `manual: true` can also run from the Console or `vitehub schedule run`.",
   },
 }

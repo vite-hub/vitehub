@@ -4,6 +4,7 @@ import { createProcessWakeDriver } from "../internal/process-wake-runtime.ts"
 import { createScheduleError } from "../errors.ts"
 import { isScheduleDue } from "./due.ts"
 import { executeStaticSchedule } from "./execute.ts"
+import { runStartedSchedules } from "./started.ts"
 import { getScheduleRunStore, getScheduleRuntimeRegistry, registerProcessScheduleDefinitions, setScheduleRunStore, setScheduleRuntimeRegistry } from "./state.ts"
 
 import type { ProcessWakeContext } from "../internal/process-wake-runtime.ts"
@@ -34,8 +35,11 @@ export interface ScheduleRuntimeController {
   close(): Promise<void>
 }
 
+/** A Definition with its own cron. Definitions without `cron` run only through started Schedules. */
+type CronScheduleDefinition = ScheduleDefinition & { cron: string }
+
 interface StaticScheduleEntry {
-  definition: ScheduleDefinition
+  definition: CronScheduleDefinition
   name: string
 }
 
@@ -43,7 +47,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Object(value) === value && !Array.isArray(value)
 }
 
-function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
+function isStaticScheduleDefinition(value: unknown): value is CronScheduleDefinition {
   return isObject(value)
     && Object.hasOwn(value, "cron")
     && Object.hasOwn(value, "handler")
@@ -51,7 +55,7 @@ function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition
     && typeof value.handler === "function"
 }
 
-function unwrapDefinition(loaded: unknown): ScheduleDefinition | undefined {
+function unwrapDefinition(loaded: unknown): CronScheduleDefinition | undefined {
   if (isObject(loaded) && Object.hasOwn(loaded, "default") && isStaticScheduleDefinition(loaded.default)) return loaded.default
   return isStaticScheduleDefinition(loaded) ? loaded : undefined
 }
@@ -130,6 +134,11 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
         const entry = definitions.get(input.scheduleId)
         if (!entry || !isScheduleDue(scheduleCronRecord(entry), input.scheduledAt)) {
           throw createScheduleError("SCHEDULE_NOT_DUE")
+        }
+        if (entry.definition.handler === runStartedSchedules) {
+          // The tick of started Schedules records no run: it would add one each minute. Each started Schedule records its own.
+          await runStartedSchedules({ id: `tick_${input.scheduledAt.toISOString()}`, scheduledAt: input.scheduledAt, scheduleId: entry.name, target: entry.name, waitUntil })
+          return
         }
         await executeStaticSchedule({
           cron: entry.definition.cron,

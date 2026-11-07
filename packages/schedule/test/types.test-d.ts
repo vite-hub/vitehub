@@ -33,8 +33,10 @@ it("types the defineSchedule helper signature", () => {
   const positional = defineSchedule("0 9 * * *", async context => context.id, { manual: true })
   expectTypeOf(positional.options).toEqualTypeOf<{ manual?: boolean } | undefined>()
 
-  // @ts-expect-error cron is required.
-  defineSchedule({ handler: async () => {} })
+  // Without cron, only startSchedule() runs the Definition. The handler reads what startSchedule() stored.
+  defineSchedule({ handler: async (context) => {
+    expectTypeOf(context.payload).toEqualTypeOf<unknown>()
+  } })
 
   // @ts-expect-error handler is required.
   defineSchedule({ cron: "0 9 * * *" })

@@ -316,7 +316,7 @@ function readCloudflareEventEnv(event: CloudflareScheduledEventLike): Record<str
   return isRecord(runtimeCloudflare?.env) ? runtimeCloudflare.env : undefined
 }
 
-function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition {
+function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition & { cron: string } {
   return isRecord(value)
     && Object.hasOwn(value, "cron")
     && hasRuntimeType(value.cron, "string")
@@ -325,7 +325,7 @@ function isStaticScheduleDefinition(value: unknown): value is ScheduleDefinition
     && typeof value.handler === "function"
 }
 
-export function unwrapScheduleDefinition(loaded: unknown): ScheduleDefinition | undefined {
+export function unwrapScheduleDefinition(loaded: unknown): (ScheduleDefinition & { cron: string }) | undefined {
   const candidate = isRecord(loaded) && Object.hasOwn(loaded, "default") ? loaded.default : loaded
   return isStaticScheduleDefinition(candidate) ? candidate : undefined
 }

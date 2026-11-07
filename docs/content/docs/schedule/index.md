@@ -55,13 +55,17 @@ icon: i-lucide-calendar-clock
   On Cloudflare and Vercel, the build writes the host's own cron settings for you.
   :::
 
+  :::product-feature-item{title="Start a schedule from code" icon="i-lucide-calendar-clock" to="/docs/schedule/server-api#start-a-schedule-from-code"}
+  Leave out `cron`, then call `startSchedule()` with a time or a cron that your users pick. It survives restarts.
+  :::
+
   :::product-feature-item{title="Run on your own server" icon="i-lucide-server" to="/docs/schedule/configure#configure-the-vite-integration"}
   On Node, one long-running process checks for due schedules every minute. Do not use it on serverless hosts.
   :::
 ::
 
 ::agent-only{skill="schedule"}
-Use Schedule for recurring wakeups or static cron declarations. A scheduled run should hand off to idempotent application or Agent work.
+Use Schedule for recurring wakeups or static cron declarations. When users pick the time, such as reminders, define the Schedule without `cron` and call `startSchedule(name, { at | cron, timeZone, payload })` from `vite-hub/schedule`. A scheduled run should hand off to idempotent application or Agent work.
 
 Keep the schedule definition separate from the work it starts. Use a stable key and record the last completed run when the action must not repeat.
 
