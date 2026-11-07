@@ -500,7 +500,7 @@ export function openConsoleNewProject(): void {
 /** Why a pending link cannot link a project. */
 const pendingLinkProblems: Record<"expired" | "unknown", ConsoleProjectProblem> = {
   expired: { title: "This link expired", message: "A link works for 24 hours. Make a new link in this Console, and run the new command." },
-  unknown: { title: "This link cannot be used here", message: "This link was made in another browser or already used. Open the Console where you started the project, or relink." },
+  unknown: { title: "This link cannot be used here", message: "This link was made in another browser or already used. Open the Console in the browser where you started the project." },
 }
 
 const pendingLinkStorageProblem: ConsoleProjectProblem = {
@@ -657,7 +657,7 @@ export async function finishConsoleOAuthSignIn(search: string): Promise<void> {
   projects.gate.value = { kind: "callback" }
   const callback = parseConsoleOAuthCallback(search)
   if (callback.kind === "invalid") {
-    projects.gate.value = callbackProblem({ title: "This sign-in link is not complete", message: "The page has no code and state. Sign in again from the Console." })
+    projects.gate.value = callbackProblem({ title: "This sign-in link is not complete", message: "The app sent this page back without its sign-in answer. Sign in again from the Console." })
     return
   }
   const lookup = callback.state ? projects.oauthStates.take(callback.state) : { kind: "unknown" as const }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, shallowRef, watch } from "vue";
+import { computed, ref, shallowRef, watch } from "vue";
 
 import type { ConsoleProjectProblem } from "../client/project-link";
 import { consoleTokenRefused } from "../client/project-link";
@@ -21,11 +21,21 @@ const busy = ref(false);
 const problem = shallowRef<ConsoleProjectProblem>();
 // After the project asks for a token, the dialog shows the token step for that project.
 const tokenStep = shallowRef<{ target: ConsoleProjectTarget, rejected: boolean }>();
+// One object per answer, so the token form can tell a new answer from a render.
+const tokenProblem = computed<ConsoleProjectProblem | undefined>(() => problem.value ?? (tokenStep.value?.rejected
+  ? { title: "The token is not correct", message: consoleTokenRefused(consoleProjectHost(tokenStep.value.target)) }
+  : undefined));
 // A project with `auth: "app"` signs the Console in on its own sign-in page.
 const oauthStep = shallowRef<{ target: ConsoleProjectTarget, resourceMetadata: string }>();
-// A touch screen keeps its keyboard closed until the person taps a field, so the dialog moves focus nowhere.
+// A touch screen keeps its keyboard closed until the person taps a field. There the dialog itself takes focus, so a
+// screen reader starts inside it and no button shows a focus ring.
 const autofocus = !("ontouchstart" in window);
-const content = autofocus ? {} : { onOpenAutoFocus: (event: Event) => event.preventDefault() };
+const content = autofocus ? {} : {
+  onOpenAutoFocus: (event: Event) => {
+    event.preventDefault();
+    if (event.target instanceof HTMLElement) event.target.focus({ preventScroll: true });
+  },
+};
 
 watch(open, (value) => {
   if (value) {
@@ -78,11 +88,15 @@ function back(): void {
   <UModal
     v-model:open="open"
     :title="oauthStep ? `Sign in to ${consoleProjectHost(oauthStep.target)}` : tokenStep ? 'Enter the Console token' : 'Link project'"
-    :description="oauthStep ? 'This project uses the sign-in of the app.' : tokenStep ? `${consoleProjectHost(tokenStep.target)} uses auth: &quot;token&quot;.` : 'Open a ViteHub app in this Console. The app must list this Console in console.origins.'"
     :dismissible="!busy"
     :content="content"
-    :ui="{ content: 'sm:max-w-[440px]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere]' }"
+    :ui="{ content: 'vitehub-project-dialog sm:max-w-[440px]', title: 'pe-8 text-pretty [overflow-wrap:anywhere]', description: 'text-pretty [overflow-wrap:anywhere]' }"
   >
+    <template #description>
+      <template v-if="oauthStep">{{ consoleProjectHost(oauthStep.target) }} signs you in on its own page.</template>
+      <template v-else-if="tokenStep">{{ consoleProjectHost(tokenStep.target) }} uses <code class="font-mono text-[0.92em]">auth: "token"</code>.</template>
+      <template v-else>Open a ViteHub app in this Console. The app must list this Console in <code class="font-mono text-[0.92em]">console.origins</code>.</template>
+    </template>
     <template #body>
       <div v-if="oauthStep" class="grid gap-3">
         <ConsoleProjectOAuth :target="oauthStep.target" :resource-metadata="oauthStep.resourceMetadata" />
@@ -91,7 +105,7 @@ function back(): void {
       <div v-else-if="tokenStep" class="grid gap-3">
         <ConsoleProjectToken
           :busy="busy"
-          :problem="problem ?? (tokenStep.rejected ? { title: 'The token is not correct', message: consoleTokenRefused(consoleProjectHost(tokenStep.target)) } : undefined)"
+          :problem="tokenProblem"
           @submit="link"
         />
         <UButton color="neutral" variant="link" size="sm" class="justify-self-start px-0" icon="i-lucide-arrow-left" label="Use another URL" :disabled="busy" @click="back" />
@@ -102,7 +116,9 @@ function back(): void {
           name="url"
           description="The app origin, with its base path if it has one."
           :error="problem ? true : undefined"
+          :ui="{ error: 'mt-3' }"
         >
+          <!-- Read-only, not disabled, while the check runs, so the field keeps focus for the next try. -->
           <UInput
             v-model="url"
             type="url"
@@ -112,14 +128,31 @@ function back(): void {
             placeholder="https://app.example.com"
             class="w-full"
             :autofocus="autofocus"
-            :disabled="busy"
-            :aria-describedby="problem ? 'vitehub-project-link-problem' : undefined"
+            :readonly="busy"
           />
+          <template v-if="problem" #error>
+            <ConsoleProjectProblemAlert :problem="problem" />
+          </template>
         </UFormField>
-        <ConsoleProjectProblemAlert v-if="problem" id="vitehub-project-link-problem" :problem="problem" />
         <UButton type="submit" block :loading="busy" :label="busy ? 'Checking…' : 'Continue'" />
         <p v-if="!persistent" class="text-xs text-pretty text-muted">{{ consoleProjectsVolatileNote }}</p>
       </form>
     </template>
   </UModal>
 </template>
+
+<style>
+.vitehub-project-dialog :is(button, a[href]):focus-visible {
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .vitehub-project-dialog :is(button:not([role]), input) {
+    min-height: 44px;
+  }
+
+  .vitehub-project-dialog [data-slot="close"] {
+    min-width: 44px;
+  }
+}
+</style>

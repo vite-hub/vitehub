@@ -101,7 +101,8 @@ onMounted(() => {
         <div class="grid gap-1.5">
           <h1 class="vitehub-project-gate__title">Enter the Console token</h1>
           <p class="vitehub-project-gate__text">
-            {{ gate.rejected && !tokenError ? `The saved token no longer works for ${host}. Paste the current token.` : `${host} uses auth: "token".` }}
+            <template v-if="gate.rejected && !tokenError">The saved token no longer works for {{ host }}. Paste the current token.</template>
+            <template v-else>{{ host }} uses <code class="font-mono text-[0.92em]">auth: "token"</code>.</template>
           </p>
         </div>
         <ConsoleProjectToken :busy="busy" :problem="tokenError" @submit="signIn" />
@@ -110,7 +111,7 @@ onMounted(() => {
       <template v-else-if="gate.kind === 'oauth'">
         <div class="grid gap-1.5">
           <h1 class="vitehub-project-gate__title">Sign in to {{ consoleProjectHost(gate.target) }}</h1>
-          <p class="vitehub-project-gate__text">This project uses the sign-in of the app.</p>
+          <p class="vitehub-project-gate__text">{{ consoleProjectHost(gate.target) }} signs you in on its own page.</p>
         </div>
         <ConsoleProjectOAuth :target="gate.target" :resource-metadata="gate.resourceMetadata" :problem="gate.problem" />
       </template>
@@ -185,6 +186,16 @@ onMounted(() => {
   gap: 0.375rem;
   line-height: 1rem;
   text-wrap: pretty;
+}
+
+.vitehub-project-gate :is(button, a[href]):focus-visible {
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .vitehub-project-gate :is(button:not([role]), input) {
+    min-height: 44px;
+  }
 }
 
 .vitehub-project-gate__host {

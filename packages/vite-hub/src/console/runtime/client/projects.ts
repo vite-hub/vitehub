@@ -56,7 +56,7 @@ export function normalizeProjectUrl(input: string): { target: ConsoleProjectTarg
   const value = input.trim()
   if (!value) return { error: "Enter the URL of the app, such as https://app.example.com." }
   // The URL parser accepts a space in a host and encodes it, so `my app` would become the host `my%20app`.
-  if (/\s/.test(value)) return { error: `${value} is not a URL. Enter the URL of the app, such as https://app.example.com.` }
+  if (/\s/.test(value)) return { error: `“${value}” is not a URL. Enter the URL of the app, such as https://app.example.com.` }
   const host = value.split(/[/?#]/, 1)[0]!.replace(/:\d+$/, "")
   const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(value) ? value : `${loopbackHosts.has(host) ? "http" : "https"}://${value}`
   let url: URL
@@ -64,7 +64,7 @@ export function normalizeProjectUrl(input: string): { target: ConsoleProjectTarg
     url = new URL(withScheme)
   }
   catch {
-    return { error: `${value} is not a URL. Enter the URL of the app, such as https://app.example.com.` }
+    return { error: `“${value}” is not a URL. Enter the URL of the app, such as https://app.example.com.` }
   }
   if (url.protocol !== "https:" && url.protocol !== "http:") return { error: "Use an https:// URL, such as https://app.example.com." }
   if (url.username || url.password) return { error: "Remove the user name and password from the URL." }

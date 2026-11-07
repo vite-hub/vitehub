@@ -356,11 +356,21 @@ function leave(): void {
 </template>
 
 <style>
+/* The Console locks the page scroll, so this page scrolls itself. The padding keeps the content 72rem wide at most. */
 .vitehub-new-project {
-  margin: 0 auto;
-  max-width: 72rem;
-  min-height: 100dvh;
-  padding: 1rem 1.5rem 4rem;
+  height: 100dvh;
+  overflow-y: auto;
+  padding: 1rem max(1.5rem, calc((100% - 69rem) / 2)) 4rem;
+}
+
+.vitehub-new-project :is(button, a[href]):focus-visible {
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .vitehub-new-project :is(button:not([role]), input:not([type="checkbox"], [type="radio"])) {
+    min-height: 44px;
+  }
 }
 
 .vitehub-new-project__bar {

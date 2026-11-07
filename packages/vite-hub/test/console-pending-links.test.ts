@@ -371,7 +371,7 @@ describe("linking from a pending link", () => {
 
     const unknown = {
       title: "This link cannot be used here",
-      message: "This link was made in another browser or already used. Open the Console where you started the project, or relink.",
+      message: "This link was made in another browser or already used. Open the Console in the browser where you started the project.",
     }
     expect(module.startConsoleLink(`#p=${ticket.pendingId}&url=https://app.example.com`)).toEqual({ kind: "problem", problem: unknown })
     expect(await module.confirmConsoleLink(ticket.pendingId, app)).toEqual({ kind: "problem", problem: unknown, final: true })
