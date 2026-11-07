@@ -4,17 +4,21 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
-import { createConsoleInvocations, getConsoleInvocationsDatabase, getConsoleUsageIndex, installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
+import { createDefaultAgentInvocations } from "@vite-hub/agent/invocations/default"
+
+import { installAgentInvocations } from "../src/_internal/agent/invocations.ts"
+import { getAgentInvocationsDatabase } from "../src/agent/invocations/journal.ts"
+import { getConsoleUsageIndex } from "../src/console/runtime/server/invocations.ts"
 
 const opens = vi.hoisted(() => ({ count: 0 }))
 
-vi.mock("../src/console/runtime/server/invocations-database.ts", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../src/console/runtime/server/invocations-database.ts")>()
+vi.mock("@libsql/client", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@libsql/client")>()
   return {
     ...original,
-    openConsoleLibsqlJournal(...input: Parameters<typeof original.openConsoleLibsqlJournal>) {
+    createClient(...input: Parameters<typeof original.createClient>) {
       opens.count++
-      return original.openConsoleLibsqlJournal(...input)
+      return original.createClient(...input)
     },
   }
 })
@@ -22,20 +26,21 @@ vi.mock("../src/console/runtime/server/invocations-database.ts", async (importOr
 let directory: string
 
 beforeEach(async () => {
-  vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "")
+  vi.stubEnv("VITEHUB_AGENT_INVOCATIONS_DATABASE_URL", "")
   opens.count = 0
-  directory = await mkdtemp(join(tmpdir(), "vitehub-console-journal-open-"))
+  directory = await mkdtemp(join(tmpdir(), "vitehub-agent-journal-open-"))
 })
 
 afterEach(async () => {
+  installAgentInvocations({})
   vi.unstubAllEnvs()
   await rm(directory, { force: true, recursive: true })
 })
 
-describe("Console journal open", () => {
+describe("Default Agent journal open", () => {
   it("opens the libSQL journal on first use, once for concurrent first uses", async () => {
-    const file = join(directory, "console.sqlite")
-    const invocations = createConsoleInvocations(directory, undefined, `file:${file}`)
+    const file = join(directory, ".vitehub/data/agent-invocations.sqlite")
+    const invocations = createDefaultAgentInvocations({ projectRoot: directory })
     expect(opens.count).toBe(0)
     expect(existsSync(file)).toBe(false)
 
@@ -50,16 +55,18 @@ describe("Console journal open", () => {
   })
 
   it("shares the open journal with Drizzle", async () => {
-    const invocations = installConsoleInvocations(directory, undefined, undefined, "file:console.sqlite")
+    installAgentInvocations({ default: { databaseUrl: "file:journal.sqlite" }, journal: { projectRoot: directory } })
     expect(opens.count).toBe(0)
-    const [database, other] = await Promise.all([getConsoleInvocationsDatabase(), getConsoleInvocationsDatabase(), invocations.list()])
+    const [database, other] = await Promise.all([getAgentInvocationsDatabase(), getAgentInvocationsDatabase()])
     expect(other).toBe(database)
+    if (database?.driver !== "libsql") throw new TypeError("Expected the libSQL journal.")
     await expect(database.db.select().from(database.schema.invocations)).resolves.toEqual([])
     expect(opens.count).toBe(1)
+    expect(existsSync(join(directory, "journal.sqlite"))).toBe(true)
   })
 
   it("opens again after a failed open", async () => {
-    const invocations = createConsoleInvocations(directory, undefined, "file:console.sqlite", { maxRecords: 0 })
+    const invocations = createDefaultAgentInvocations({ databaseUrl: "file:journal.sqlite", projectRoot: directory, retention: { maxRecords: 0 } })
     await expect(invocations.list()).rejects.toThrow("SQLite Agent Invocation maxRecords must be a positive")
     await expect(invocations.list()).rejects.toThrow("SQLite Agent Invocation maxRecords must be a positive")
     expect(opens.count).toBe(2)

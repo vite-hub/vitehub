@@ -83,7 +83,7 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
           ? `The vitehub_comment_threads table misses columns of this version: ${missing.join(", ")}.`
           : "The Database has no comment tables.",
       fix: ({ state }: { state: "empty" | "live" | "outdated" }) => state === "live"
-        ? "Move the tables once in a custom migration: run vitehub db generate --custom --name comments_one_model, put the SQL of commentsMigrationSql({ from: \"live\" }) from vite-hub/comments/database in it, then run vitehub db migrate. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model"
+        ? "Move the tables once in a custom migration: run vitehub db generate --custom --schema-snapshot --name comments_one_model, put the SQL of commentsMigrationSql({ from: \"live\" }) from vite-hub/comments/database in it, then run vitehub db migrate. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model"
         : "Run vitehub db generate and vitehub db migrate, so the Database gets the comment tables of this version. See https://vitehub.dev/docs/comments/configure#upgrade-to-one-model",
     },
     COMMENTS_R0020: {
