@@ -14,8 +14,23 @@ function feature(status: SetupStatus, id: SetupFeatureStatus["id"]): SetupFeatur
 
 describe("vitehub status", () => {
   it.each([
+    '{ sqlite: { runMigrations: true } }',
+    '{ postgres: { schema: "custom" } }',
+    '{ sqlite: { path: "   " } }',
+    '{ postgres: { url: "" } }',
+  ])("keeps partial Workflow storage options on the inline provider (%s)", async (options) => {
+    const root = await createProject({ "package.json": pnpmManifest, "vite.config.ts": viteConfig(`{ preset: "node", workflow: ${options} }`) })
+    const { exitCode, json } = await runSetup<SetupStatus>(["status", "--json"], root)
+    expect(exitCode).toBe(0)
+    expect(feature(json, "workflow").missingPackages).toEqual([])
+    expect(feature(json, "workflow").fix).toBeUndefined()
+  })
+
+  it.each([
     ["workflow", '{ provider: "openworkflow" }', ["openworkflow"]],
     ["workflow", '{ sqlite: { path: ".data/workflows.db" } }', ["openworkflow"]],
+    ["workflow", '{ postgres: { url: "postgres://localhost/workflows" } }', ["openworkflow"]],
+    ["workflow", '{ postgres: { url: { kind: "env-variable", source: { kind: "env", name: "DATABASE_URL" } } } }', ["openworkflow"]],
     ["blob", '{ driver: "s3", bucket: "assets" }', ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"]],
     ["blob", '{ stores: { default: { driver: "s3", bucket: "assets" } } }', ["@aws-sdk/client-s3", "@aws-sdk/lib-storage", "@aws-sdk/s3-presigned-post", "@aws-sdk/s3-request-presigner"]],
   ] as const)("reports missing provider packages for %s: %s", async (id, options, packages) => {
@@ -252,8 +267,8 @@ describe("vitehub status", () => {
   it.each([
     ["{ agent: process.env.AGENT === '1' }", "workflow", "unknown"],
     ["{ agent: process.env.AGENT === '1', preset: 'netlify' }", "workflow", "off"],
-    ["{ console: process.env.CONSOLE === '1' }", "comments", "unknown"],
-    ["{ console: process.env.CONSOLE === '1' }", "database", "unknown"],
+    ["{ console: process.env.CONSOLE === '1' }", "comments", "off"],
+    ["{ console: process.env.CONSOLE === '1' }", "database", "off"],
     ["{ console: process.env.CONSOLE === '1', comments: false }", "database", "off"],
     ["{ console: process.env.CONSOLE === '1', database: false }", "database", "off"],
     ["{ kv: true, ...shared }", "kv", "unknown"],

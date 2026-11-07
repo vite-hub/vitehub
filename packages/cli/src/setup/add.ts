@@ -72,10 +72,12 @@ const optionChoices: Partial<Record<string, { values: readonly [string, ...strin
 }
 
 /** Option keys that select a provider or a store. A feature that sets one does not use the host default. */
-const providerKeys = ["authority", "driver", "postgres", "provider", "sqlite", "store"]
+const providerKeys = ["authority", "driver", "provider", "store"]
 
-function selectsProvider(value: JsonValue | undefined): boolean {
-  return isRecord(value) && providerKeys.some(key => value[key] !== undefined)
+function selectsProvider(id: FeatureId, value: JsonValue | undefined, host: DeploymentPreset): boolean {
+  if (!isRecord(value)) return false
+  if (id === "workflow") return value.provider !== undefined || featurePackages(id, value, host).includes("openworkflow")
+  return providerKeys.some(key => value[key] !== undefined)
 }
 
 /** How `host` supports `id`, with the override that `env` selects, such as BLOB_READ_WRITE_TOKEN for the Vercel Workspace. */
@@ -90,7 +92,7 @@ const booleanFeatures: readonly FeatureId[] = ["queue", "sandboxTask"]
 /** The value that turns a feature on, when `true` is not valid for its key. */
 const enabledValues: Partial<Record<FeatureId, JsonValue>> = { env: {} }
 /** Options without a default that the feature key needs. */
-const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { console: ["auth"], observability: ["service"] }
+const requiredOptions: Partial<Record<FeatureId, readonly string[]>> = { console: ["auth"], logs: ["source"], observability: ["service"] }
 
 /** Match the Auth package's file locations without loading application code. */
 function hasAuthDefinition(project: SetupProject): boolean {
@@ -313,7 +315,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
     return mergeValue(current?.kind === "literal" ? current.value : undefined, args.options[id])
   }
   // Implications and provider prerequisites need their inputs before any file can be written.
-  // Database is mandatory for Comments and Connections, including Console's implied Comments.
+  // Database is mandatory for Comments and Connections.
   const inputFeatures = [...args.features, ...impliedFeatures(args.features, host, keep.filter(id => id !== "database"))]
   if (inputFeatures.includes("database") && keep.includes("database")) requires.push("database")
   const requireFeature = (required: FeatureId) => {
@@ -336,6 +338,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       requireFeature("agent")
       requireFeature("console")
     }
+    if (id === "observability" && isRecord(value) && value.posthog) requireFeature("env")
+    if (id === "realtime" && args.name !== undefined) requireFeature("workspace")
     if (id === "agent" && host === "deno" && isRecord(value) && value.runtime === "deno") {
       throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The Deno preset cannot deploy the Agent Deno runtime outside its Nitro entrypoint. Use the preset's Nitro runtime instead.", feature: id, host }), setupExitCodes.conflict)
     }
@@ -397,12 +401,21 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       }
     }
     for (const key of requiredOptions[id] ?? []) {
-      if (options && key in options) continue
-      if (setsOption(project, `${id}.${key}`)) continue
+      if (id === "observability" || id === "logs") {
+        const selected = isRecord(value) ? value[key] : undefined
+        if (typeof selected === "string" && selected.trim()) continue
+      }
+      else if ((options && key in options) || setsOption(project, `${id}.${key}`)) continue
       missing.push({ field: `${id}.${key}` })
-      if (id === "console") rerunnable = false
-      else setPath(defaults[id] ??= {}, [key], basename(project.root).toLowerCase().replace(/[^a-z0-9]+/gu, "-") || "app")
+      if (id === "observability") setPath(defaults[id] ??= {}, [key], basename(project.root).toLowerCase().replace(/[^a-z0-9]+/gu, "-") || "app")
+      else rerunnable = false
     }
+  }
+  const enabledAfter = (id: FeatureId) => inputFeatures.includes(id) || status.features.find(item => item.id === id)?.enabled === "on"
+  const agent = valueFor("agent")
+  if (inputFeatures.some(id => id === "agent" || id === "observability") && enabledAfter("observability") && enabledAfter("agent")
+    && (host === "netlify" || (isRecord(agent) && agent.runtime === "deno"))) {
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Observability requires Nitro-hosted Agents. Netlify and the Agent Deno runtime are not supported.", feature: "observability", host }), setupExitCodes.conflict)
   }
   for (const id of Object.keys(args.options) as FeatureId[]) {
     if (!inputFeatures.includes(id)) throw invalid(`${id} is not requested or required by ${args.features.join(", ")}.`)
@@ -477,6 +490,8 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   const enabled = new Set([...alreadyOn, ...addedFeatures, ...implied])
   const packageFeatures = [...new Set([...addedFeatures, ...implied, ...inputFeatures])]
   const packages = packageFeatures.flatMap(id => featurePackages(id, valueFor(id), host))
+  const observability = valueFor("observability")
+  if (packageFeatures.includes("observability") && isRecord(observability) && observability.posthog) packages.push("posthog-node")
   if (enabled.has("console")) {
     if (enabled.has("agent")) packages.push(...consoleFeaturePackages.agents)
     const consoleValue = valueFor("console")
@@ -500,11 +515,11 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   }
   // Host defaults that build and run, but keep state in one process.
   for (const id of [...addedFeatures, ...implied]) {
-    if (selectsProvider(valueFor(id))) continue
+    if (selectsProvider(id, valueFor(id), host)) continue
     const support = hostSupport(id, host, env)
     if (support.level === "native" && support.guarantee === "process-local") nextSteps.push(`${features[id].title} on ${host} uses ${support.display} by default. ${support.detail}`)
   }
-  if (args.name !== undefined && args.features.includes("workflow") && host === "vercel" && !selectsProvider(valueFor("workflow"))) {
+  if (args.name !== undefined && args.features.includes("workflow") && host === "vercel" && !selectsProvider("workflow", valueFor("workflow"), host)) {
     nextSteps.push(`${join(serverDir, "workflows", `${args.name}.ts`)} has no \`native\` entry, so Vercel runs it inline. Add one for durable runs: https://vitehub.dev/docs/workflows/configure#add-a-durable-vercel-entry`)
   }
   if (args.name !== undefined && args.features.includes("realtime")) nextSteps.push(`${join(serverDir, "realtime", `${args.name}.ts`)} stores documents in the Workspace "${args.name}". Add a Workspace Definition in ${join(serverDir, "workspaces", `${args.name}.ts`)}.`)
