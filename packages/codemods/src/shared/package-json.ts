@@ -3,7 +3,6 @@ import { readFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import { CodemodError } from "../types.ts"
-import { moduleName } from "./nuxt-config.ts"
 
 import type { FileEdit } from "../types.ts"
 
@@ -25,7 +24,7 @@ export interface PackageJsonResult {
   installCommand: string
 }
 
-function installCommand(cwd: string): string {
+function detectInstallCommand(cwd: string): string {
   for (let directory = cwd, depth = 0; depth < 8; depth++) {
     if (existsSync(join(directory, "pnpm-lock.yaml"))) return "pnpm install"
     if (existsSync(join(directory, "bun.lock")) || existsSync(join(directory, "bun.lockb"))) return "bun install"
@@ -38,10 +37,20 @@ function installCommand(cwd: string): string {
   return "npm install"
 }
 
-/** Swaps `nuxt-safe-runtime-config` for `vite-hub`, and adds `@vite-hub/env` when the config imports it. */
-export async function editPackageJson(cwd: string, version: string, options: { env: boolean }): Promise<PackageJsonResult> {
+export interface PackageJsonChange {
+  /** Packages to remove from `dependencies` and `devDependencies`. */
+  remove: readonly string[]
+  /** Packages to add at `^version` when no section lists them. */
+  add: readonly string[]
+}
+
+/**
+ * Removes `change.remove` and adds `change.add`. Added packages go to the section that held a removed package,
+ * or to `dependencies`.
+ */
+export async function editPackageJson(cwd: string, version: string, change: PackageJsonChange): Promise<PackageJsonResult> {
   const path = join(cwd, "package.json")
-  const command = installCommand(cwd)
+  const command = detectInstallCommand(cwd)
   if (!existsSync(path)) return { installCommand: command }
   const before = await readFile(path, "utf8")
   let manifest: unknown
@@ -57,9 +66,9 @@ export async function editPackageJson(cwd: string, version: string, options: { e
   for (const section of sections) {
     const dependencies = manifest[section]
     if (dependencies !== undefined && !isDependencyMap(dependencies)) throw new CodemodError(`package.json ${section} must map names to version strings.`)
-    if (dependencies && moduleName in dependencies) {
+    if (dependencies && change.remove.some(name => name in dependencies)) {
       target = section
-      manifest[section] = Object.fromEntries(Object.entries(dependencies).filter(([name]) => name !== moduleName))
+      manifest[section] = Object.fromEntries(Object.entries(dependencies).filter(([name]) => !change.remove.includes(name)))
     }
   }
   const current = manifest[target]
@@ -68,8 +77,7 @@ export async function editPackageJson(cwd: string, version: string, options: { e
     const map = manifest[section]
     return isDependencyMap(map) && name in map
   })
-  if (!installed("vite-hub")) dependencies["vite-hub"] = range
-  if (options.env && !installed("@vite-hub/env")) dependencies["@vite-hub/env"] = range
+  for (const name of change.add) if (!installed(name)) dependencies[name] = range
   manifest[target] = Object.fromEntries(Object.entries(dependencies).sort(([left], [right]) => left.localeCompare(right)))
   const indent = /^[ \t]+/m.exec(before)?.[0] ?? "  "
   const after = `${JSON.stringify(manifest, null, indent)}${before.endsWith("\n") ? "\n" : ""}`
