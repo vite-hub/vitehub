@@ -5,6 +5,8 @@
 
 :root {
   --ui-radius: 0.25rem;
+  /* The corner of a frame around content: code, examples, previews, and panels. Controls keep `--ui-radius`. */
+  --vh-frame-radius: 10px;
   --ui-header-height: 3.5rem;
   --ui-container: 90rem;
   /* The rail is 3.5rem wide. The page panel sits next to it. The page uses the rest of the viewport. */
@@ -209,7 +211,7 @@ html.dark .shiki span {
 .docs-content .ck {
   margin-block: 1.25rem;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: var(--vh-frame-radius);
   background: var(--ui-bg-muted);
   box-shadow: inset 0 0 0 1px var(--ui-border);
 }
@@ -254,7 +256,7 @@ html.dark .shiki span {
 }
 
 .docs-content .code-block-wrapper {
-  border-radius: 10px;
+  border-radius: var(--vh-frame-radius);
 }
 
 /* The tabs frame the panel, so a code block inside it drops its own border and margin. */
