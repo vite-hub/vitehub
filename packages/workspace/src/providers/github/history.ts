@@ -4,7 +4,9 @@ import { forgeBlob } from "@vite-hub/forge"
 import type { Commit, Page, TreeEntry } from "@vite-hub/forge"
 import { lookup } from "mrmime"
 
-import { workspaceConflict, workspaceError } from "../../core/errors.ts"
+import { ViteHubError } from "@vite-hub/runtime"
+
+import { isWorkspaceConflict, workspaceConflict, workspaceError } from "../../core/errors.ts"
 import {
   historyConflict,
   normalizeHistoryPath,
@@ -444,14 +446,21 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     let branch = heads.find(branch => branch.name === options.branch) ?? heads[0]
     if (!branch) {
       // Prefer the default branch for shared ancestry, then look through the other branches for older draft commits.
+      // A branch holds the commit when the commit is the merge base of both. One compare request per branch, so a
+      // long history costs no more than a short one.
       const ordered = [...branches].sort((left, right) => Number(right.name === options.branch) - Number(left.name === options.branch))
       for (const candidate of ordered) {
         const contains = await githubRequest(client(), async (provider, repo) => {
-          for await (const commit of provider.commits.list(repo, { ref: candidate.name, perPage: 100 })) {
-            if (commit.sha === id) return true
+          try {
+            const compare = (await provider.request<unknown>("GET", `${repoPath(repo)}/compare/${encodeURIComponent(candidate.commit)}...${encodeURIComponent(id)}`, { query: { per_page: 1 } })).data
+            return Reflect.get(Object(Reflect.get(Object(compare), "merge_base_commit")), "sha") === id
           }
-          return false
-        }, "commit list")
+          catch (error) {
+            // Unrelated histories have no merge base.
+            if (isNoHistoryError(error) || githubRequestStatus(error) === 422) return false
+            throw error
+          }
+        }, "compare")
         if (contains) {
           branch = candidate
           break
@@ -471,7 +480,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     }
     catch (error) {
       const status = githubRequestStatus(error)
-      if (status === 404 || status === 422) throw workspaceError(`[vitehub] Workspace revision does not exist: ${id}.`)
+      if (status === 404 || status === 422) throw new ViteHubError("WORKSPACE_NOT_FOUND", `[vitehub] Workspace revision does not exist: ${id}.`, { cause: error })
       throw error
     }
     const ref = await refForCommit(commit.sha)
@@ -618,6 +627,10 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       parentSha: state.refSha,
       remoteModes: new Map([...state.files.values()].map(entry => [entry.path, entry.mode])),
       repository: client(),
+    }).catch((error: unknown) => {
+      // The branch moved after the read above, so the cached head is stale too.
+      if (isWorkspaceConflict(error)) heads.delete(branch)
+      throw error
     })
     heads.set(branch, { expires: Date.now() + githubHeadCacheMs, head: Promise.resolve(commitSha) })
     return await revision(ref, commitSha, commitOptions.metadata)

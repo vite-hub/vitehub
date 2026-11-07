@@ -397,6 +397,8 @@ export interface WorkspacePushResult {
   revision?: string
   pushed: string[]
   pull: WorkspacePullResult
+  /** The pull after the first push to a new ref that the remote started with the files of another ref. */
+  after?: WorkspacePullResult
 }
 
 export interface WorkspaceStatus {
@@ -602,8 +604,15 @@ async function pushEntry(context: WorkspaceCheckoutContext, workspace: string, e
     const { revision } = called.value as WorkspaceCommitResult
     for (const path of [...local.added, ...local.modified]) entry.files[path] = digestOf(files.get(path)!)
     for (const path of local.deleted) delete entry.files[path]
-    entry.head = revision.id
-    return { workspace, ref: entry.ref, revision: revision.id, pushed, pull }
+    const result: WorkspacePushResult = { workspace, ref: entry.ref, revision: revision.id, pushed, pull }
+    // A new ref with a parent started from another ref, as the GitHub Store starts one from the default branch.
+    // Pull every file of the new ref, so the folder also has the files that it copied.
+    if (entry.head === null && revision.parentId !== null) {
+      const after = await pullEntry(context, workspace, entry)
+      result.after = { ...after, files: after.files.filter(file => !pushed.includes(file.path)) }
+    }
+    else entry.head = revision.id
+    return result
   }
 }
 

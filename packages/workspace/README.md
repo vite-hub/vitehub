@@ -226,6 +226,12 @@ case, are excluded from pulls, status, and pushes; their remote files stay uncha
 Commands reject existing symbolic links in the checkout folder and its ancestors
 inside the project. These checks do not isolate files from another process that can
 replace paths during an operation. Use an OS or container boundary for that isolation.
+On the GitHub Store, revision ids are commit shas. An instance keeps a ref head for up to
+5 seconds, so a pull can miss a newer commit for that time. The revision `author` is the
+GitHub account of the token, and the signed-in user is only in the commit trailer. Files
+keep only their Git mode. The first push to a new ref starts it from the published or
+default branch and then pulls the copied files. A pull reads one blob per changed file
+(two when it also needs the old version), which counts against the GitHub rate limit.
 See [Work on a ref in a local folder](https://vitehub.dev/docs/workspace/server-api#work-on-a-ref-in-a-local-folder).
 
 ## JSON Collections
