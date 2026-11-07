@@ -172,6 +172,16 @@ export const cliErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Run the command on Linux or macOS, or set the variable in the host dashboard.",
       why: ({ host, reason }: { host?: unknown, reason?: unknown }) => `ViteHub cannot set the Console secret on ${String(host)} without putting it in a command argument. ${String(reason)}`,
     },
+    SETUP_DEPLOY_CHECKOUT_CONFLICT: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_checkout_conflict",
+      fix: "Edit each file and remove the conflict markers, or run `vitehub resolve` for a binary file. Then deploy again, or pass --no-push to deploy without the push.",
+      why: ({ files }: { files?: unknown }) => `A checkout folder of vitehub.lock has unresolved conflicts, so the Workspace push after the deploy would fail. Nothing was built or deployed: ${String(files)}`,
+    },
+    SETUP_DEPLOY_PUSH_FAILED: {
+      docs: "https://vitehub.dev/docs/development/cli#setup_deploy_push_failed",
+      fix: ({ fix }: { fix?: unknown, message?: unknown, url?: unknown }) => `${fix ? `${String(fix)} ` : ""}Then run \`vitehub push\`. Do not deploy again.`,
+      why: ({ message, url }: { fix?: unknown, message?: unknown, url?: unknown }) => `The app is deployed to ${String(url)}, but the Workspace push failed: ${String(message)}`,
+    },
     CLI_R0004: {
       fix: "Run it again with --yes, or check the change first with a dry run when the command has one.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
