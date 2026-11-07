@@ -18,6 +18,17 @@ In this tutorial, you write the rule for who may comment, create the database ta
 
 Add `vitehub()` and the Console to `vite.config.ts`:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { console: { auth: 'app' } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
@@ -30,6 +41,21 @@ export default defineConfig({
   ],
 })
 ```
+:::
+
+:::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({ console: { auth: 'app' } }),
+  ],
+})
+```
+:::
+::
 
 - You do not turn on the Database yourself. When `server/comments.ts` exists, `vitehub()` turns it on and adds a default Database.
 - `console` adds the Console, so you can see the threads.

@@ -36,6 +36,40 @@ portable; Vercel-specific behavior stays in the config and the generated output.
 
 Select the `vercel` preset and enable the features the application uses.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'vercel',
+    blob: true,
+    queue: true,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'vercel',
+      blob: true,
+      queue: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -50,6 +84,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 ::warning
 Vercel-hosted state needs hosted stores. Use `driver: 'vercel-blob'` with a connected store (`BLOB_STORE_ID`) for Blob, and use Upstash-backed KV with `KV_REST_API_URL` and `KV_REST_API_TOKEN` when KV runs on Vercel. Local filesystem stores are development-only in Vercel deployments.
@@ -76,6 +112,51 @@ export default defineDatabase({
 
 For sustained application traffic, Cloudflare recommends a proxy Worker because its built-in D1 REST API is intended primarily for administrative use and shares the global Cloudflare API rate limit. Set `cloudflare.http` to `{ url, authToken }` for an authenticated raw-compatible HTTP(S) proxy. Omitting `cloudflare.http` preserves the hosted libSQL selection even when the Definition includes a D1 database id.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'vercel',
+    database: {
+      connection: {
+        url: env({ source: env.source('TURSO_DATABASE_URL') }),
+        authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'vercel',
+      database: {
+        connection: {
+          url: env({ source: env.source('TURSO_DATABASE_URL') }),
+          authToken: env({ secret: true, source: env.source('TURSO_AUTH_TOKEN') }),
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -95,6 +176,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 ## Provision boundary
 

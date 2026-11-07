@@ -177,6 +177,59 @@ To only poll, stop here. For push:
 
 Declare the settings in Server Env under `gmail`. Without a Server Env declaration, the Channel reads the environment variables directly. Poll needs only the OAuth settings. The `pubsub*` settings are for push.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    env: {
+      server: {
+        gmail: {
+          clientId: env({ source: env.source('GMAIL_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GMAIL_CLIENT_SECRET') }),
+          refreshToken: env({ secret: true, source: env.source('GMAIL_REFRESH_TOKEN') }),
+          pubsubTopic: env({ source: env.source('GMAIL_PUBSUB_TOPIC') }),
+          pubsubAudience: env({ source: env.source('GMAIL_PUBSUB_AUDIENCE') }),
+          pubsubServiceAccount: env({ source: env.source('GMAIL_PUBSUB_SERVICE_ACCOUNT') }),
+          pubsubSubscription: env({ source: env.source('GMAIL_PUBSUB_SUBSCRIPTION') }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub(), nitro()],
+  env: {
+    server: {
+      gmail: {
+        clientId: env({ source: env.source('GMAIL_CLIENT_ID') }),
+        clientSecret: env({ secret: true, source: env.source('GMAIL_CLIENT_SECRET') }),
+        refreshToken: env({ secret: true, source: env.source('GMAIL_REFRESH_TOKEN') }),
+        pubsubTopic: env({ source: env.source('GMAIL_PUBSUB_TOPIC') }),
+        pubsubAudience: env({ source: env.source('GMAIL_PUBSUB_AUDIENCE') }),
+        pubsubServiceAccount: env({ source: env.source('GMAIL_PUBSUB_SERVICE_ACCOUNT') }),
+        pubsubSubscription: env({ source: env.source('GMAIL_PUBSUB_SUBSCRIPTION') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -199,6 +252,8 @@ export default defineConfig({
   },
 })
 ```
+:::
+::
 
 | Server Env key | Environment variable | Value |
 | --- | --- | --- |

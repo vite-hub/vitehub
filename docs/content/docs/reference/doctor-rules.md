@@ -12,6 +12,35 @@ icon: i-lucide-stethoscope
 
 With Vite, add the `doctor()` plugin after `vitehub()`. The `vitehub()` plugin gives its Doctor Extension to `doctor()`.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { doctor } from 'vite-doctor'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node' },
+  vite: {
+    plugins: [doctor()],
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { doctor } from 'vite-doctor'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' }), nitro(), doctor()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -21,6 +50,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node' }), doctor()],
 })
 ```
+:::
+::
 
 With Nuxt, add `vite-doctor/nuxt` after `vite-hub/nuxt`, prepare the app, and run the Nuxt Doctor Command:
 
@@ -865,6 +896,35 @@ The `vitehub()` options in `vite.config.ts`, or the `vitehub` key and inline `vi
 - `queue: { ... }` ignores its fields. The preset selects the Queue provider.
 - In Vite, `vitehub({ env: { server, public, define } })` ignores these sections. They belong to the top-level `env` key of the Vite config.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+// Invalid
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'vercel', env: { server: { token: env({ secret: true }) } } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+// Invalid
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', env: { server: { token: env({ secret: true }) } } }), nitro()],
+})
+
+// Valid
+export default defineConfig({
+  env: { server: { token: env({ secret: true }) } },
+  plugins: [vitehub({ preset: 'vercel' })],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 // Invalid
 export default defineConfig({
@@ -877,6 +937,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'vercel' })],
 })
 ```
+:::
+::
 
 Read [Config options](/docs/reference/config-options).
 

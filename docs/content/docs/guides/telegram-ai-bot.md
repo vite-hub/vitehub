@@ -36,6 +36,40 @@ Start with the Vite app from [Installation](/docs/getting-started/installation).
 
 ### Enable Agents
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    agent: true,
+    workflow: false,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      agent: true,
+      workflow: false,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -50,6 +84,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 `workflow: false` keeps each reply inline in the server process. Read [Workflow](/docs/workflows) when a reply must survive a restart.
 

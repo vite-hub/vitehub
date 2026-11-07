@@ -34,6 +34,55 @@ install the Schedule owner package first.
 pnpm add @vite-hub/schedule
 ```
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { hubSchedule } from '@vite-hub/schedule/vite'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'deno',
+    agent: true,
+    console: false,
+    workflow: false,
+    kv: {
+      driver: 'deno-kv',
+    },
+  },
+  vite: {
+    plugins: [hubSchedule({ providerOutput: 'standalone' })],
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { hubSchedule } from '@vite-hub/schedule/vite'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'deno',
+      agent: true,
+      console: false,
+      workflow: false,
+      kv: {
+        driver: 'deno-kv',
+      },
+    }),
+    nitro(),
+    hubSchedule({ providerOutput: 'standalone' }),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
@@ -54,6 +103,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 The generated Nitro server imports discovered Agent Definitions and mounts both the webhook route pattern and the conventional `/api/_vitehub/agents/[agent]/chat` dispatcher.
 Schedule output needs a project-root `main.ts` that registers the cron output before it starts the server. The build bundles this file into `.output/main.ts` and fails when the file is missing.

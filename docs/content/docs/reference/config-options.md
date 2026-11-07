@@ -75,6 +75,52 @@ Provider-specific driver fields are intentionally summarized here. Read the expo
 
 Agent Eval Runner defaults live under the Agent Package integration.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: "node",
+    agent: {
+      eval: {
+        cache: true,
+        maxConcurrency: 2,
+        scoreThreshold: 85,
+        testTimeout: 60_000,
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: "node",
+      agent: {
+        eval: {
+          cache: true,
+          maxConcurrency: 2,
+          scoreThreshold: 85,
+          testTimeout: 60_000,
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -95,12 +141,68 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 ## Env options
 
 Env separates Public Env, compile-time define values, and Server Env.
 Secret Env values belong in `env.server`, not `env.public` or `env.define`.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: "node",
+    env: {
+      diagnostics: 'summary',
+      providers: { credentials: './server/env/credentials.ts' },
+      public: {
+        appName: env({ default: 'Acme', mode: 'build' }),
+      },
+      server: {
+        apiToken: env({ secret: true, source: env.source('API_TOKEN') }),
+        githubToken: env({ secret: true, source: env.provider('credentials', 'github/token') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: "node",
+    env: {
+      diagnostics: 'summary',
+      providers: { credentials: './server/env/credentials.ts' },
+    },
+  }), nitro()],
+  env: {
+    public: {
+      appName: env({ default: 'Acme', mode: 'build' }),
+    },
+    server: {
+      apiToken: env({ secret: true, source: env.source('API_TOKEN') }),
+      githubToken: env({ secret: true, source: env.provider('credentials', 'github/token') }),
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -125,6 +227,8 @@ export default defineConfig({
   },
 })
 ```
+:::
+::
 
 ## Related
 

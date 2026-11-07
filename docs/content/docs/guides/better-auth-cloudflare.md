@@ -35,6 +35,29 @@ pnpm add -D drizzle-kit wrangler
 
 ### Enable Auth and Database
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'cloudflare', auth: true, database: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'cloudflare', auth: true, database: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -43,6 +66,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'cloudflare', auth: true, database: true })],
 })
 ```
+:::
+::
 
 On the `cloudflare` preset, `database: true` selects the D1 driver. `vitehub()` includes the Nitro Vite plugin.
 
@@ -142,6 +167,54 @@ Restrict access to the Worker while bootstrapping. Then open `/_vitehub/sign-in`
 
 For social sign-in only, skip the database. The `stateless()` preset keeps each session in an encrypted cookie, so it works across Workers when every Worker uses the same secret.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare', auth: true,
+    env: {
+      server: {
+        auth: {
+          github: {
+            clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
+            clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+          },
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'cloudflare', auth: true }), nitro()],
+  env: {
+    server: {
+      auth: {
+        github: {
+          clientId: env({ source: env.source('GITHUB_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GITHUB_CLIENT_SECRET') }),
+        },
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -161,6 +234,8 @@ export default defineConfig({
   },
 })
 ```
+:::
+::
 
 ```ts [server/auth.ts]
 import { defineAuth } from 'vite-hub/auth'

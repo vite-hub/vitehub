@@ -34,6 +34,47 @@ Netlify scheduled function. Install its owner package first.
 pnpm add @vite-hub/schedule
 ```
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { hubSchedule } from '@vite-hub/schedule/vite'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'netlify',
+    agent: true,
+    blob: true,
+  },
+  vite: {
+    plugins: [hubSchedule({ providerOutput: 'standalone' })],
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { hubSchedule } from '@vite-hub/schedule/vite'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'netlify',
+      agent: true,
+      blob: true,
+    }),
+    nitro(),
+    hubSchedule({ providerOutput: 'standalone' }),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { hubSchedule } from '@vite-hub/schedule/vite'
 import { defineConfig } from 'vite'
@@ -50,6 +91,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 The `netlify` preset selects the Netlify Blobs driver and the Agent function output. Each static Schedule Definition generates a function such as `.netlify/v1/functions/vitehub-schedule-heartbeat.mjs`.
 

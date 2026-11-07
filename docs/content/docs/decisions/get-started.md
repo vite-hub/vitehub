@@ -188,6 +188,30 @@ The browser sends the text to your route and gets a selection back. `useChoices(
 
 Add the Vue plugin to `vite.config.ts`:
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: "node" },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import vue from "@vitejs/plugin-vue"
+import { defineConfig } from "vite"
+import { nitro } from 'nitro/vite'
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [vue(), vitehub({ preset: "node" }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import vue from "@vitejs/plugin-vue"
 import { defineConfig } from "vite"
@@ -197,6 +221,8 @@ export default defineConfig({
   plugins: [vue(), vitehub({ preset: "node" })],
 })
 ```
+::::
+:::
 
 Create the page at the root of your app:
 

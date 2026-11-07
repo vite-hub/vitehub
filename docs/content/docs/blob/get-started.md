@@ -20,6 +20,30 @@ In this tutorial, you make one API route that uploads `hello.txt` and one that r
 
 Add `blob: true` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', blob: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  server: { port: 3000, strictPort: true },
+  plugins: [vitehub({ preset: 'node', blob: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -29,6 +53,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', blob: true })],
 })
 ```
+::::
+:::
 
 Did you choose Nuxt in Installation? Then add `blob: true` to the options of the `vite-hub/nuxt` module. The routes below also work in Nuxt.
 

@@ -1,0 +1,186 @@
+import { readFile, readdir } from "node:fs/promises"
+import { relative, resolve } from "node:path"
+
+import { describe, expect, it } from "vitest"
+
+const contentRoot = resolve(import.meta.dirname, "../content/docs")
+const frameworks = ["Nuxt", "Nitro", "Vite"]
+
+/**
+ * Config blocks that stay without framework tabs, with the reason. A block here shows something that exists in one
+ * framework only, so a tab for the others would show code that does not work.
+ */
+const singleFramework: Record<string, string> = {}
+
+async function markdownFiles(directory: string): Promise<string[]> {
+  const files: string[] = []
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = resolve(directory, entry.name)
+    if (entry.isDirectory()) files.push(...await markdownFiles(path))
+    else if (entry.name.endsWith(".md")) files.push(path)
+  }
+  return files
+}
+
+interface ConfigBlock { label: string, line: number, code: string, tab?: string, group?: number }
+interface TabsGroup { id: number, line: number, labels: string[], optional?: boolean }
+
+/** The config code blocks of a page, with the framework tab and tabs group each one sits in. */
+function configBlocks(source: string): { blocks: ConfigBlock[], groups: TabsGroup[] } {
+  const lines = source.replaceAll("\r\n", "\n").split("\n")
+  const blocks: ConfigBlock[] = []
+  const groups: TabsGroup[] = []
+  const stack: { colons: number, name: string, group?: number, tab?: string }[] = []
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]!
+    const fence = /^\s*(`{3,})\S*[^[]*(?:\[([^\]]+)\])?/.exec(line)
+    if (fence) {
+      const close = fence[1]!
+      const start = index
+      while (++index < lines.length && lines[index]!.trim() !== close);
+      const label = fence[2]
+      if (label && /(?:^|\/)(?:vite|nuxt)\.config\.ts$/.test(label)) {
+        const tab = stack.findLast(entry => entry.name === "tabs-item" || entry.name === "framework")?.tab
+        const group = tab === undefined ? undefined : stack.findLast(entry => entry.group !== undefined)?.group
+        blocks.push({ label, line: start + 1, code: lines.slice(start + 1, index).join("\n"), tab, group })
+      }
+      continue
+    }
+    const open = /^\s*(:{2,})([a-z][\w-]*)(\{[^}]*\})?\s*$/.exec(line)
+    if (open) {
+      const entry: { colons: number, name: string, group?: number, tab?: string } = { colons: open[1]!.length, name: open[2]! }
+      if (entry.name === "tabs" && /sync="framework"/.test(open[3] ?? "")) {
+        entry.group = groups.length
+        groups.push({ id: groups.length, line: index + 1, labels: [] })
+      }
+      // A landing hero's `::product-files` holds one `::framework{name}` block per framework instead of tabs.
+      if (entry.name === "product-files") {
+        entry.group = groups.length
+        groups.push({ id: groups.length, line: index + 1, labels: [], optional: true })
+      }
+      if (entry.name === "tabs-item" || entry.name === "framework") {
+        entry.tab = /(?:label|name)="([^"]*)"/.exec(open[3] ?? "")?.[1]
+        const group = stack.findLast(item => item.group !== undefined)?.group
+        if (group !== undefined && entry.tab) groups[group]!.labels.push(entry.tab)
+      }
+      stack.push(entry)
+      continue
+    }
+    const close = /^\s*(:{2,})\s*$/.exec(line)
+    if (close) {
+      const at = stack.findLastIndex(entry => entry.colons === close[1]!.length)
+      if (at >= 0) stack.length = at
+    }
+  }
+  return { blocks, groups }
+}
+
+/** Removes the indent that every line shares, such as the two spaces of a block inside a landing hero. */
+function dedent(code: string): string {
+  const lines = code.split("\n")
+  const indent = Math.min(...lines.filter(line => line.trim()).map(line => line.length - line.trimStart().length))
+  return lines.map(line => line.slice(Math.min(indent, line.length - line.trimStart().length))).join("\n")
+}
+
+/** Index just past the bracket that closes the one at `open`, skipping strings and line comments. */
+function closing(code: string, open: number): number {
+  let depth = 0
+  for (let at = open; at < code.length; at++) {
+    const char = code[at]!
+    if (char === "'" || char === "\"" || char === "`") at = code.indexOf(char, at + 1)
+    else if (char === "/" && code[at + 1] === "/") at = code.indexOf("\n", at)
+    else if ("{[(".includes(char)) depth++
+    else if ("}])".includes(char) && --depth === 0) return at + 1
+    if (at < 0) break
+  }
+  return code.length
+}
+
+/** The top-level `key: value` entries of the object literal at `open`, with normalized values. */
+function entries(code: string, open: number): Map<string, string> {
+  const body = code.slice(open + 1, closing(code, open) - 1).replace(/\/\/[^\n]*/g, "")
+  const out = new Map<string, string>()
+  let depth = 0
+  let from = 0
+  const add = (part: string) => {
+    const match = /^\s*([\w$]+)\s*:\s*([\s\S]*?)\s*$/.exec(part)
+    if (match) out.set(match[1]!, match[2]!.replace(/\s+/g, " ").replace(/,\s*([}\]])/g, " $1").replaceAll("\"", "'"))
+  }
+  for (let at = 0; at < body.length; at++) {
+    const char = body[at]!
+    if (char === "'" || char === "\"" || char === "`") {
+      at = body.indexOf(char, at + 1)
+      if (at < 0) break
+    }
+    else if ("{[(".includes(char)) depth++
+    else if ("}])".includes(char)) depth--
+    else if (char === "," && depth === 0) { add(body.slice(from, at)); from = at + 1 }
+  }
+  add(body.slice(from))
+  return out
+}
+
+/**
+ * The ViteHub options of a config as `key=value` lines: the argument of `vitehub(...)`, or the `vitehub` key of a
+ * Nuxt config. A Vite config declares Env at its top level and Nuxt under `vitehub.env`, so `env` compares per key.
+ */
+function vitehubOptions(source: string): string | undefined {
+  const code = dedent(source)
+  let options: Map<string, string>
+  let env = new Map<string, string>()
+  const nuxt = code.indexOf("defineNuxtConfig(")
+  if (nuxt >= 0) {
+    // Only the key of defineNuxtConfig itself, at two spaces, not a `vitehub` key of a plugin object above it.
+    const key = /^ {2}vitehub:\s*/m.exec(code.slice(nuxt))
+    if (!key) return code.includes("vite-hub/nuxt") ? "" : undefined
+    options = entries(code, nuxt + key.index + key[0].length)
+  }
+  else {
+    const call = /vitehub\(/.exec(code)
+    if (!call) return undefined
+    const open = call.index + call[0].length
+    options = code[open] === ")" ? new Map() : entries(code, open)
+    const config = /defineConfig\(\{/.exec(code)
+    const topEnv = config ? /^ {2}env:\s*/m.exec(code.slice(config.index)) : null
+    if (config && topEnv) env = entries(code, config.index + topEnv.index + topEnv[0].length)
+  }
+  const optionEnv = options.get("env")
+  if (optionEnv?.startsWith("{")) {
+    options.delete("env")
+    for (const [key, value] of entries(optionEnv, 0)) env.set(key, value)
+  }
+  for (const [key, value] of env) options.set(`env.${key}`, value)
+  return [...options].map(([key, value]) => `${key}=${value}`).sort().join("\n")
+}
+
+describe("framework tabs", async () => {
+  const pages = await Promise.all((await markdownFiles(contentRoot)).map(async path => ({
+    page: relative(contentRoot, path),
+    ...configBlocks(await readFile(path, "utf8")),
+  })))
+
+  it("shows every app config for Nuxt, Nitro, and Vite", () => {
+    const missing = pages.flatMap(({ page, blocks }) => blocks
+      .filter(block => block.group === undefined && !singleFramework[`${page} ${block.label}`])
+      .map(block => `${page}:${block.line} ${block.label}`))
+    expect(missing).toEqual([])
+  })
+
+  it("orders the tabs Nuxt, Nitro, Vite", () => {
+    const wrong = pages.flatMap(({ page, groups }) => groups
+      .filter(group => !(group.optional && group.labels.length === 0) && group.labels.join() !== frameworks.join())
+      .map(group => `${page}:${group.line} ${group.labels.join(", ")}`))
+    expect(wrong).toEqual([])
+  })
+
+  it("passes the same ViteHub options in every tab", () => {
+    const drift = pages.flatMap(({ page, blocks }) => {
+      const byGroup = Map.groupBy(blocks.filter(block => block.group !== undefined), block => block.group!)
+      return [...byGroup.values()].flatMap((group) => {
+        const options = new Set(group.map(block => vitehubOptions(block.code)).filter(option => option !== undefined))
+        return options.size > 1 ? [`${page}:${group[0]!.line} ${[...options].join(" | ")}`] : []
+      })
+    })
+    expect(drift).toEqual([])
+  })
+})

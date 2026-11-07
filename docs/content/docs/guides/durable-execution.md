@@ -66,6 +66,44 @@ On Node or Docker, ViteHub selects OpenWorkflow only when you configure its stor
 
 Enable Workflow with OpenWorkflow and SQLite on Node:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    workflow: {
+      provider: 'openworkflow',
+      sqlite: { path: '.data/workflows.sqlite' },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      workflow: {
+        provider: 'openworkflow',
+        sqlite: { path: '.data/workflows.sqlite' },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -82,6 +120,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 On Cloudflare, set `preset: 'cloudflare'` and `workflow: true`. The Workflow files stay the same.
 

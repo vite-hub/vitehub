@@ -12,6 +12,29 @@ The Babysitter preset repairs selected pull requests. It addresses review feedba
 
 Use the [Agent setup](/docs/agents/get-started) to install ViteHub and configure Nitro. Enable the Agent integration with the Node host preset:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', agent: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', agent: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -20,6 +43,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', agent: true })],
 })
 ```
+:::
+::
 
 The host needs Git, Corepack for dependency installation, and the selected provider CLI with its authentication. See [Agent Drivers](/docs/agents/agent-drivers) for provider setup. Configure GitHub and persistent SQL Agent State below before starting production work.
 
@@ -146,6 +171,43 @@ Admission only gates new work. Configure [Sandbox memory limits](/docs/agents/sa
 
 The Babysitter uses the invocation journal assigned to its discovered Agent. Set the Console journal in the ViteHub project configuration so the Console and the long-lived worker inspect the same records:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    console: {
+      auth: false,
+      authorize: './server/console-authorize.ts',
+      databaseUrl: 'file:/var/lib/babysitter/console.sqlite',
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    console: {
+      auth: false,
+      authorize: './server/console-authorize.ts',
+      databaseUrl: 'file:/var/lib/babysitter/console.sqlite',
+    },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -161,6 +223,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 Create `server/console-authorize.ts` with your host session policy as shown in [Use another authentication library](/docs/development/console#use-another-authentication-library). Every Console data route calls this function before it reads data.
 

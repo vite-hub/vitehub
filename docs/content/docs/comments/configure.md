@@ -139,6 +139,29 @@ Comments needs no email permission. When GitHub hides a person's email, Comments
 
 When the app has the [Console](/docs/development/console) and no `identify`, the people of Comments are the people that the Console lets use its **Comments** section. Visitors and app users without Console access are refused, so the toolbar never opens for them. `authorize` still runs after that check, with the Console user. With `identify`, the Console has no say: see [Use your own login](#use-your-own-login).
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { auth: true, console: { auth: 'app', authorize: './server/console-authorize.ts' } },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ auth: true, console: { auth: 'app', authorize: './server/console-authorize.ts' } }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -147,6 +170,8 @@ export default defineConfig({
   plugins: [vitehub({ auth: true, console: { auth: 'app', authorize: './server/console-authorize.ts' } })],
 })
 ```
+:::
+::
 
 See [Console sign-in](/docs/development/console) for `console-authorize.ts`. To limit Comments to some Console users, return the sections from it, such as `{ sections: ['comments', 'content'] }`.
 

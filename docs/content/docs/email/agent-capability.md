@@ -112,6 +112,51 @@ Do not pass unrestricted model output into a trusted HTML fragment.
 
 Configure one built-in Email provider in the preset. Runtime Env resolves the credential on the server for every send.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    email: {
+      driver: 'resend',
+      options: {
+        apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),
+      },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      email: {
+        driver: 'resend',
+        options: {
+          apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),
+        },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -131,6 +176,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 Follow [Configure Resend](/docs/email/get-started#configure-resend), or select the `cloudflare-email` provider through the same `driver` option.
 Keep credentials in Server Env or the deployment platform's secret store and reference them with an Env declaration without a default. Literal options and non-secret Env defaults are included in build output. ViteHub rejects defaults on declarations marked secret. The Capability never exposes runtime credentials to the model.

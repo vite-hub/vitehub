@@ -8,6 +8,62 @@ navigation.kind: Guides
 
 Configure observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    agent: true,
+    console: { auth: false },
+    publicUrl: 'https://agents.example.com',
+    observability: {
+      service: 'support-agent',
+      posthog: {
+        apiKey: env({ optional: true, secret: true, source: env.source('POSTHOG_API_KEY') }),
+        host: 'https://eu.i.posthog.com',
+      },
+      evlog: { sampling: { rates: { info: 0, warn: 100, error: 100 } } },
+      papercuts: true,
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      agent: true,
+      console: { auth: false },
+      publicUrl: 'https://agents.example.com',
+      observability: {
+        service: 'support-agent',
+        posthog: {
+          apiKey: env({ optional: true, secret: true, source: env.source('POSTHOG_API_KEY') }),
+          host: 'https://eu.i.posthog.com',
+        },
+        evlog: { sampling: { rates: { info: 0, warn: 100, error: 100 } } },
+        papercuts: true,
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
@@ -32,6 +88,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 ViteHub then:
 

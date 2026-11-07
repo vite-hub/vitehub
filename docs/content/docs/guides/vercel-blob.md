@@ -19,6 +19,29 @@ ViteHub uses the Vercel SDK inside the `vercel-blob` driver. Your code calls the
 
 ### Enable Blob with the Vercel preset
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'vercel', blob: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'vercel', blob: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -27,9 +50,43 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'vercel', blob: true })],
 })
 ```
+:::
+::
 
 `blob: true` on the `vercel` preset selects `driver: 'vercel-blob'` with `access: 'public'`. For a private store, set the driver and the access mode yourself:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'vercel',
+    blob: { driver: 'vercel-blob', access: 'private' },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'vercel',
+      blob: { driver: 'vercel-blob', access: 'private' },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -43,6 +100,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 Set `access` to the access mode of your Vercel store. Read [Vercel Blob options](/docs/blob/configure#vercel-blob) for `allowOverwrite`, `downloadTimeoutMs`, and `token`.
 
@@ -106,6 +165,46 @@ export default defineEventHandler(async (event) => {
 
 A private store has no public URL. Set `serve` to add a route that streams files through your app:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'vercel',
+    blob: {
+      driver: 'vercel-blob',
+      access: 'private',
+      serve: { route: '/files' },
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'vercel',
+      blob: {
+        driver: 'vercel-blob',
+        access: 'private',
+        serve: { route: '/files' },
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -123,6 +222,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 `/files/avatars/ada.png` now returns `avatars/ada.png` from the store. The serve route is public by default. Set `serve.authorize: true` to require a signed-in [Auth](/docs/auth) session. Read [Serve blob-backed assets](/docs/blob/configure#serve-blob-backed-assets) and [Protect served objects](/docs/blob/configure#protect-served-objects).
 

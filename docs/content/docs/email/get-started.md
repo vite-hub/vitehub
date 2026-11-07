@@ -32,6 +32,50 @@ pnpm add -D vite
 
 Add `email` to `vitehub()` in `vite.config.ts`. Keep the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    email: {
+      driver: 'resend',
+      options: {
+        apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),
+      },
+      remote: true,
+    },
+  },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    email: {
+      driver: 'resend',
+      options: {
+        apiKey: env({ secret: true, source: env.source('RESEND_API_KEY') }),
+      },
+      remote: true,
+    },
+  }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
@@ -50,6 +94,8 @@ export default defineConfig({
   })],
 })
 ```
+::::
+:::
 
 - `driver: 'resend'` sends the email through Resend.
 - `apiKey` reads the key from the `RESEND_API_KEY` environment variable when the server sends an email. Do not write the key itself in this file. Values in the config go into the build output.

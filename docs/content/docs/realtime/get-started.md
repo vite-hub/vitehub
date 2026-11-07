@@ -27,6 +27,42 @@ pnpm add -D nitro
 
 Then add `realtime` and `workspace` to `vitehub()` in `vite.config.ts`. Keep the Vue plugin and the other options of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    realtime: { authority: 'memory' },
+    workspace: true,
+  },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import vue from '@vitejs/plugin-vue'
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [
+    vue(),
+    vitehub({
+      preset: 'node',
+      realtime: { authority: 'memory' },
+      workspace: true,
+    }),
+    nitro(),
+  ],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import vue from '@vitejs/plugin-vue'
 import { vitehub } from 'vite-hub'
@@ -43,6 +79,8 @@ export default defineConfig({
   ],
 })
 ```
+::::
+:::
 
 - `authority: 'memory'` keeps the rooms in the memory of your server. Use it for local work and for one Node server. See [Configure](/docs/realtime/configure#choose-a-room-authority) for the other choices.
 - `workspace: true` turns on Workspace. A Workspace is a folder of files that your server can read and write. Realtime saves your documents there.

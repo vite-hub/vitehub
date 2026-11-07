@@ -4,6 +4,8 @@ import { resolve } from "node:path"
 import { describe, expect, it } from "vitest"
 import { array, object, parse, picklist, string } from "valibot"
 
+import { frameworkView } from "../modules/tutorials/build"
+
 const docsRoot = resolve(import.meta.dirname, "..")
 const fixturesRoot = resolve(import.meta.dirname, "../../fixtures/docs-hosts")
 
@@ -43,7 +45,7 @@ describe("launch-critical documentation snippets", () => {
     expect(contracts).toHaveLength(21)
 
     for (const page of pages) {
-      const blocks = sourceBlocks(await readFile(resolve(docsRoot, "content/docs", page), "utf8"))
+      const blocks = sourceBlocks(frameworkView(await readFile(resolve(docsRoot, "content/docs", page), "utf8"), "Vite"))
       const pageContracts = contracts.filter(contract => contract.page === page)
       const expected = await Promise.all(pageContracts.map(async contract => ({
         label: contract.label,

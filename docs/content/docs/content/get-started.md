@@ -27,6 +27,17 @@ pnpm add -D vite
 
 Add `vitehub()` and `nitro()` to `vite.config.ts`:
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node' },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
@@ -36,6 +47,19 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node' }), nitro()],
 })
 ```
+::::
+
+::::tabs-item{label="Vite"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node' })],
+})
+```
+::::
+:::
 
 - `vitehub()` finds the `server/content.ts` file that you write in the next step.
 - `nitro()` gives your app a server for its API routes.

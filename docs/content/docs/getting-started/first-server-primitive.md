@@ -29,6 +29,38 @@ option to the ViteHub module config. The route works in both frameworks.
 Enable KV with the `fs-lite` driver. It stores values under
 `.vitehub/data/kv`. Keep other features you already use in your config.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: "node",
+    kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
+  },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from "vite"
+import { nitro } from 'nitro/vite'
+import { vitehub } from "vite-hub"
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: "node",
+      kv: { driver: "fs-lite", base: ".vitehub/data/kv" },
+    }),
+    nitro(),
+  ],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
@@ -42,6 +74,8 @@ export default defineConfig({
   ],
 })
 ```
+::::
+:::
 
 ::
 

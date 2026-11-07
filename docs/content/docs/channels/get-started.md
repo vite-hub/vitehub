@@ -26,6 +26,29 @@ pnpm add vite-hub nitro h3 vite
 
 Then add `channels: true` to `vitehub()` in `vite.config.ts`. Keep the other plugins of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', channels: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', channels: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -34,6 +57,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', channels: true })],
 })
 ```
+::::
+:::
 
 ViteHub now finds each Channel file in `server/channels`.
 

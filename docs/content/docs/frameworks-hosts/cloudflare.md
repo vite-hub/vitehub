@@ -42,6 +42,40 @@ It also becomes the Worker name unless `nitro.cloudflare.wrangler.name` is set.
 
 Select the `cloudflare` preset and enable the features the application uses.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'cloudflare',
+    database: true,
+    queue: true,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'cloudflare',
+      database: true,
+      queue: true,
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -56,6 +90,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 Database D1 metadata belongs to each Database Definition because a Vite app can have multiple Named Databases.
 

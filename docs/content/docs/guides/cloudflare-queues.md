@@ -24,6 +24,29 @@ pnpm add vite-hub
 pnpm add -D wrangler
 ```
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'cloudflare', queue: true },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'cloudflare', queue: true }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -32,6 +55,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'cloudflare', queue: true })],
 })
 ```
+:::
+::
 
 The `cloudflare` preset selects the Cloudflare Queue Provider and Worker output. `vitehub()` includes the Nitro Vite plugin. You use Wrangler to run the built Worker locally and to read its logs. See [Queue configuration](/docs/queue/configure) for every option.
 

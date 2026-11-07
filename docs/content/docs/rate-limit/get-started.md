@@ -27,6 +27,29 @@ pnpm add -D vite
 
 Add `rateLimit: true` to `vitehub()` in `vite.config.ts`. Keep the other plugins of your app.
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: { preset: 'node', rateLimit: true },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', rateLimit: true }), nitro()],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
@@ -35,6 +58,8 @@ export default defineConfig({
   plugins: [vitehub({ preset: 'node', rateLimit: true })],
 })
 ```
+::::
+:::
 
 To use Rate Limit on another host, see [Hosts](/docs/rate-limit/hosts).
 

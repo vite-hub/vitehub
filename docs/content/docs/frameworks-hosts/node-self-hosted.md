@@ -16,6 +16,44 @@ hosted presets.
 Select the `node` preset and enable the features the application uses. This
 example stores KV values in local files.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    kv: {
+      driver: 'fs-lite',
+      base: '.vitehub/data/kv',
+    },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      kv: {
+        driver: 'fs-lite',
+        base: '.vitehub/data/kv',
+      },
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -32,6 +70,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 Server code calls the Runtime Helper. The store choice stays in the config.
 

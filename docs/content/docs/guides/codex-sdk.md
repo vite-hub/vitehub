@@ -29,6 +29,37 @@ pnpm add @vite-hub/agent @openai/codex@0.149.1
 
 ### Enable Agents on the Node preset
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    agent: true,
+    workflow: false,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({
+    preset: 'node',
+    agent: true,
+    workflow: false,
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -41,6 +72,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 `workflow: false` is correct here because the Agent finishes inside the HTTP request. Codex starts as a local process, so the Agent needs a Node.js host. See [Where Codex can run](#where-codex-can-run).
 

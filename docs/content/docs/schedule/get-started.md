@@ -25,8 +25,40 @@ pnpm add @vite-hub/schedule
 
 Then add `kv` and `schedule` to the ViteHub options. Keep the other options of your app.
 
-::tabs{sync="framework"}
-:::tabs-item{label="Vite"}
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node',
+    kv: true,
+    schedule: { runtime: { driver: 'process' } },
+  },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      preset: 'node',
+      kv: true,
+      schedule: { runtime: { driver: 'process' } },
+    }),
+    nitro(),
+  ],
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
 import { vitehub } from 'vite-hub'
@@ -41,24 +73,8 @@ export default defineConfig({
   ],
 })
 ```
+::::
 :::
-
-:::tabs-item{label="Nuxt"}
-```ts [nuxt.config.ts]
-import viteHubNuxt from 'vite-hub/nuxt'
-
-export default defineNuxtConfig({
-  modules: [
-    [viteHubNuxt, {
-      preset: 'node',
-      kv: true,
-      schedule: { runtime: { driver: 'process' } },
-    }],
-  ],
-})
-```
-:::
-::
 
 - `schedule` turns on Schedule. A Node server has no cron of its own, so the `process` runtime checks for due schedules once a minute while the server runs.
 - `kv` gives Schedule a place to save each run. You read those runs in the last step.

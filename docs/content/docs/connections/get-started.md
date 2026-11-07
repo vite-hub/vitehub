@@ -27,6 +27,50 @@ pnpm add -D vite
 
 Then update `vite.config.ts`:
 
+:::tabs{sync="framework"}
+::::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+import { env } from 'vite-hub/env'
+
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    preset: 'node', console: { auth: false }, connections: true,
+    env: {
+      server: {
+        google: {
+          clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+          clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+        },
+      },
+    },
+  },
+})
+```
+::::
+
+::::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { env } from 'vite-hub/env'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({ preset: 'node', console: { auth: false }, connections: true }), nitro()],
+  env: {
+    server: {
+      google: {
+        clientId: env({ source: env.source('GOOGLE_CLIENT_ID') }),
+        clientSecret: env({ secret: true, source: env.source('GOOGLE_CLIENT_SECRET') }),
+      },
+    },
+  },
+})
+```
+::::
+
+::::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { env } from 'vite-hub/env'
@@ -44,6 +88,8 @@ export default defineConfig({
   },
 })
 ```
+::::
+:::
 
 - `connections: true` turns on Connections.
 - `console: { auth: false }` turns on the [Console](/docs/development/console), the admin page of your app, without a sign-in. Use this only on your computer.

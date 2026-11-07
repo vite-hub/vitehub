@@ -87,6 +87,45 @@ The Console does not turn on [Comments](/docs/comments). Add `server/comments.ts
 
 For local development, use `auth: false`:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    agent: true,
+    blob: true,
+    console: { auth: false },
+    preset: 'cloudflare',
+    kv: true,
+    schedule: true,
+    workflow: true,
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [vitehub({
+    agent: true,
+    blob: true,
+    console: { auth: false },
+    preset: 'cloudflare',
+    kv: true,
+    schedule: true,
+    workflow: true,
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
@@ -103,9 +142,45 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 A standalone Nitro 3 app adds Nitro after ViteHub. The Console app and its UI dependencies ship inside `vite-hub`, so an existing Nitro app does not need another Console or UI package.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    agent: true,
+    console: { auth: false },
+    preset: 'node',
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
+import { nitro } from 'nitro/vite'
+
+export default defineConfig({
+  plugins: [
+    vitehub({
+      agent: true,
+      console: { auth: false },
+      preset: 'node',
+    }),
+    nitro(),
+  ],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 import { vitehub } from 'vite-hub'
 import { defineConfig } from 'vite'
@@ -120,6 +195,8 @@ export default defineConfig({
   ],
 })
 ```
+:::
+::
 
 Nuxt uses the same option. The Console is its own page with its own styles, so it does not need Nuxt UI or Tailwind in your app, and your app's theme, fonts, and layouts do not change how it looks.
 
@@ -303,6 +380,33 @@ ViteHub sends `X-Robots-Tag: noindex, nofollow` on the Console route and include
 
 Enable the Console with the app's existing server Auth Definition and access policy:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    auth: true,
+    console: true,
+    preset: 'node',
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vitehub({
+    auth: true,
+    console: true,
+    preset: 'node',
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 export default defineConfig({
   plugins: [vitehub({
@@ -312,6 +416,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 Keep the providers, database, and session configuration in `server/auth.ts`. Add access routes that decide who can use the Console:
 
@@ -364,6 +470,47 @@ The custom page receives `redirect`, such as `/sign-in?redirect=%2F_vitehub%2Fau
 
 Console Auth has its own Better Auth session. It does not require the application's Primary Auth Definition. For a Node host, the inline GitHub setup accepts only verified email addresses in `allowedEmails`:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    agent: true,
+    console: {
+      auth: {
+        provider: 'github',
+        allowedEmails: ['maintainer@example.com'],
+        databasePath: '/var/lib/app/console-auth.sqlite',
+        baseURL: 'https://agent.example.com',
+      },
+    },
+    preset: 'node',
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vitehub({
+    agent: true,
+    console: {
+      auth: {
+        provider: 'github',
+        allowedEmails: ['maintainer@example.com'],
+        databasePath: '/var/lib/app/console-auth.sqlite',
+        baseURL: 'https://agent.example.com',
+      },
+    },
+    preset: 'node',
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 export default defineConfig({
   plugins: [vitehub({
@@ -380,6 +527,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and [`VITEHUB_SECRET`](/docs/env/app-secret) in the server environment. Console Auth signs sessions with a secret derived from `VITEHUB_SECRET`; `BETTER_AUTH_SECRET` wins when it is set, and `secretEnv` names another required variable. Rotating either secret signs out every Console session. `baseURL` is the public origin used for OAuth redirects; set it when a proxy terminates TLS. The GitHub callback URL is `https://agent.example.com/api/_vitehub/console/auth/callback/github`. For Nuxt apps mounted below `/`, ViteHub includes `app.baseURL` in the callback and redirects. Put `databasePath` on persistent storage. Console Auth creates or updates its Better Auth tables before the first protected request. It refuses a missing database or secret. Application requests and channel requests keep their own authentication.
 
@@ -438,6 +587,33 @@ On Cloudflare, use `console: { auth: { provider: 'cloudflare-access' } }` with a
 
 Apps that use another authentication library set `auth: false` and give the Console an `authorize` function:
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    agent: true,
+    console: { auth: false, authorize: './server/console-authorize.ts' },
+    preset: 'node',
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vitehub({
+    agent: true,
+    console: { auth: false, authorize: './server/console-authorize.ts' },
+    preset: 'node',
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 export default defineConfig({
   plugins: [vitehub({
@@ -447,6 +623,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 ```ts [server/console-authorize.ts]
 import { defineConsoleAuthorize } from 'vite-hub/console/auth'

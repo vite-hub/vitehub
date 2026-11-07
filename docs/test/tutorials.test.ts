@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
-import { buildRunnableTutorial, createZip, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
+import { buildRunnableTutorial, createZip, frameworkView, readWorkspaceVersions, resolveManifest, tutorialStepFiles } from "../modules/tutorials/build";
 import { runnableTutorials } from "../modules/tutorials/list";
 import { restartsDevServer, tutorialWorkspaceFiles } from "../modules/tutorials/steps";
 import { parseCurl, splitTutorialDocument } from "../app/utils/runnable-tutorial";
@@ -26,7 +26,7 @@ function codeBlocks(source: string, label: string) {
 }
 
 async function expectPageToUseFixture(pagePath: string, fixture: string, labels: string[]) {
-  const page = await readFile(resolve(docsRoot, pagePath), "utf8");
+  const page = frameworkView(await readFile(resolve(docsRoot, pagePath), "utf8"), "Vite");
 
   for (const label of labels) {
     const expected = normalize(await readFile(resolve(fixturesRoot, fixture, label), "utf8"));

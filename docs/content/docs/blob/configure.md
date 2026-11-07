@@ -35,6 +35,31 @@ export default defineConfig({
 
 The serve route is public by default. Set `serve.authorize: true` to require a signed-in [Auth](/docs/auth) session before ViteHub reads the store. The app must enable Auth and define `server/auth.ts`, or the build fails with `BLOB_B0002`.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    auth: true,
+    blob: { serve: { route: '/photos', authorize: true } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vitehub({
+    auth: true,
+    blob: { serve: { route: '/photos', authorize: true } },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 export default defineConfig({
   plugins: [vitehub({
@@ -43,6 +68,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 To decide each request, export `authorize` from `server/blob.ts`. It uses the Auth access signature: it receives `{ request, session, user }` and returns `true`, `false`, or a `Response`.
 
@@ -59,6 +86,31 @@ A request without a session returns JSON `401`. A `false` result returns `403`, 
 
 Some apps share a file with anyone who has its link. Set `serve.anonymous: true` with `serve.authorize: true` to send signed-out requests to the `authorize` export too. For these requests, `session` and `user` are `null`. Type the export as `BlobServeAnonymousAuthorize` so TypeScript makes you check `user` first.
 
+::tabs{sync="framework"}
+:::tabs-item{label="Nuxt"}
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ['vite-hub/nuxt'],
+  vitehub: {
+    auth: true,
+    blob: { serve: { route: '/files', authorize: true, anonymous: true } },
+  },
+})
+```
+:::
+
+:::tabs-item{label="Nitro"}
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vitehub({
+    auth: true,
+    blob: { serve: { route: '/files', authorize: true, anonymous: true } },
+  }), nitro()],
+})
+```
+:::
+
+:::tabs-item{label="Vite"}
 ```ts [vite.config.ts]
 export default defineConfig({
   plugins: [vitehub({
@@ -67,6 +119,8 @@ export default defineConfig({
   })],
 })
 ```
+:::
+::
 
 ```ts [server/blob.ts]
 import type { BlobServeAnonymousAuthorize } from 'vite-hub/blob'
