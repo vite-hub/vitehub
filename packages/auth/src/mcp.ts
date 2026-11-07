@@ -146,8 +146,8 @@ function registrationLimits(options: McpOAuthOptions): BetterAuthPlugin {
  * access tokens for the resource, and `oauthProvider()` registers clients, shows the login and consent pages, and issues
  * the tokens. Clients register themselves with no `application_type`, and a loopback or private-use redirect makes them
  * native clients. Registration is open, so its body and its fields are bounded. Better Auth's limiter allows 5
- * registrations per minute and IP when it is on, which it is in production. DPoP-bound client registration is refused;
- * these helpers support bearer tokens.
+ * registrations per minute for each client IP. `defineAuth()` turns it on outside a development server, on every host.
+ * DPoP-bound client registration is refused; these helpers support bearer tokens.
  *
  * ```ts [server/auth.ts]
  * import { defineAuth } from "vite-hub/auth"
@@ -222,7 +222,7 @@ async function stateOf(auth: McpOAuthAuth): Promise<McpOAuthState> {
 const pathOf = (url: string) => new URL(url).pathname.replace(/\/+$/, "")
 
 // SAFETY: `getAuthForRequest()` returns the app's Better Auth, which has every member that McpOAuthAuth names once `mcpOAuth()` is installed.
-const appAuth = (request: Request) => getAuthForRequest(request) as unknown as McpOAuthAuth
+const appAuth = (request: Pick<Request, "headers" | "url">) => getAuthForRequest(request) as unknown as McpOAuthAuth
 
 /** Options of {@link serveMcpOAuthDiscovery}. */
 export interface McpOAuthDiscoveryOptions {
@@ -313,10 +313,11 @@ function banned(user: Record<string, unknown>): boolean {
  * session, that session must still exist and be unexpired, unless the person granted `offline_access`: that grant is for
  * use while they are signed out, and Better Auth's refresh grant copies the session of the first sign-in into every
  * access token it mints. Sender-constrained tokens, including DPoP-bound tokens, are rejected even when presented as
- * bearer tokens. Returns `AUTH_MCP_TOKEN_MISSING` without a bearer token and
+ * bearer tokens. It reads only the URL and the headers, so pass H3's `event.req` or any value with `url` and `headers`,
+ * and the body stays for the MCP handler. Returns `AUTH_MCP_TOKEN_MISSING` without a bearer token and
  * `AUTH_MCP_TOKEN_INVALID` for a token that fails a check. Throws `AUTH_MCP_OAUTH_MISSING` when the Auth has no `mcpOAuth()`.
  */
-export async function verifyMcpRequest(request: Request, options: VerifyMcpRequestOptions = {}): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID" | "AUTH_MCP_TOKEN_MISSING">> {
+export async function verifyMcpRequest(request: Pick<Request, "headers" | "url">, options: VerifyMcpRequestOptions = {}): Promise<Result<McpCaller, "AUTH_MCP_TOKEN_INVALID" | "AUTH_MCP_TOKEN_MISSING">> {
   const token = /^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") ?? "")?.[1]
   if (!token) return [mcpErrors.AUTH_MCP_TOKEN_MISSING(), undefined]
   const auth = options.auth ?? appAuth(request)
