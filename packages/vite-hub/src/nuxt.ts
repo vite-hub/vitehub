@@ -1105,6 +1105,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     console: consoleOptions ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
     email: "vite-hub/email/server",
+    i18n: options.i18n ? "vite-hub/i18n/server" : false,
     kv: "vite-hub/_internal/kv",
   } satisfies Record<string, false | string>
   const consoleInvocationRootState = createConsoleInvocationRootState()

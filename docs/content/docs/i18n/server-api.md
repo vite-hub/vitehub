@@ -136,12 +136,14 @@ export default async () => {
 
 | Method | Returns |
 | --- | --- |
-| `save({ locale, source, context?, translation, review?, by? })` | `[error, { id, revision }]`. `review` defaults to `edited`. |
+| `save({ locale, source, context?, translation, review?, by? })` | `[error, { id, revision }]`. `review` defaults to `edited`. A translation with broken ICU or other placeholders returns [`I18N_INVALID_TRANSLATION`](/docs/i18n/limits-and-errors#i18n_invalid_translation). |
+| `status()` | For each translated locale: `{ locale, messages, published, drafted, missing }`. |
+| `missing(locale, { limit?, cursor? })` | `[error, { items, total, cursor }]`. Each item has `id`, `source`, `context`, `origins`, and `previous`, the translation of an older version of the message. |
 | `list(locale, { ref? })` | `[error, records]` by message ID. `ref: "draft"` shows the published records with the drafts on top. |
 | `publish({ message? })` | `{ revision, published }`. With no changed drafts, `published` is `0`. |
 | `revision()` | The published revision that the server uses, or `build` before the first publish. |
 
-`save()` and `list()` return [`I18N_UNKNOWN_LOCALE`](/docs/i18n/limits-and-errors#i18n_unknown_locale) for the source locale or a locale that is not in `i18n.locales`. Without `i18n.workspace`, `useTranslations()` throws [`I18N_NO_WORKSPACE`](/docs/i18n/limits-and-errors#i18n_no_workspace). Workspace errors, such as a conflict with another save at the same time, throw.
+`save()` and `list()` return [`I18N_UNKNOWN_LOCALE`](/docs/i18n/limits-and-errors#i18n_unknown_locale) for the source locale or a locale that is not in `i18n.locales`. Without `i18n.workspace`, `useTranslations()` throws [`I18N_NO_WORKSPACE`](/docs/i18n/limits-and-errors#i18n_no_workspace). Workspace errors, such as a conflict with another save at the same time, throw. The [`i18n()` Agent Capability](/docs/i18n/agent-capability) calls the same methods.
 
 ## Vue
 

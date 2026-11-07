@@ -37,6 +37,10 @@ The app builds the server with Nitro 2. i18n needs Nitro 3, which runs each requ
 
 `t`, `plural`, `select`, `selectOrdinal`, or `msg` from `vite-hub/i18n` ran without the ViteHub build, so it has no message ID. This happens when `i18n` is not enabled, or when a file that Vite does not build, such as a script that Node.js runs directly, imports the function. Enable `i18n` in `vitehub()` or `vite-hub/nuxt`, and import the function in a file that Vite builds.
 
+### I18N_INVALID_TRANSLATION
+
+`useTranslations().save()` or the `i18n_save_translation` Agent tool got a translation that is not valid ICU MessageFormat, or that does not have the same `{placeholders}`, plural arguments, and `<0>` tags as the source text. Nothing was saved. Fix the translation and save it again. Plural forms are text, so `one {Artículo}` may differ from `one {Item}`.
+
 ### I18N_NO_WORKSPACE
 
 Server code called `useTranslations()`, and `i18n.workspace` is not set. Define a Workspace with retained history, such as `server/workspaces/translations/config.ts`, and set `i18n: { workspace: "translations" }`. Without a Workspace, translations are records in `locales/<locale>/`, and you change them with `vitehub i18n import` or a text editor.

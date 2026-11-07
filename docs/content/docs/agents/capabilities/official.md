@@ -41,6 +41,7 @@ Import the selected factory from `vite-hub/agent/capabilities`. [Attach a Capabi
 | Blob storage | [`blob()`](/docs/blob/agent-capability) | The Agent needs scoped object read or edit tools. |
 | Database | [`db()`](/docs/database/agent-capability) | The Agent needs guarded SQL query, schema, or mutation tools. |
 | Content | [`content()`](/docs/content/agent-capability) | Read, draft, publish, and schedule documents in Content collections and singletons, checked by the `authorize` policy. |
+| i18n | [`i18n()`](/docs/i18n/agent-capability) | Find missing translations, save drafts, and publish them with approval, without a deploy. |
 | Email | [`email()`](/docs/email/agent-capability) | Send authorized plain-text messages through the configured Email primitive. |
 | Channel delivery | [`channelDelivery()`](/docs/channels/agent-capability) | Send the Agent result through a Channel to a recipient that the application selects. |
 | Sandbox execution | [`sandbox()`](/docs/sandbox/agent-capability) | The Agent may run an allowlisted executable in an isolated runtime. |

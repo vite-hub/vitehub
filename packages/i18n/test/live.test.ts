@@ -166,3 +166,39 @@ describe("the browser with a Workspace", () => {
     }
   })
 })
+
+describe("missing translations for Agents", () => {
+  it("lists what a locale lacks, with the old translation of a changed message, and refuses broken translations", async () => {
+    const store = memoryWorkspace()
+    const sources = {
+      [messageId("Search all agents")]: { message: "Search all agents", origins: ["src/App.vue:4"] },
+      [deploy.id]: { message: deploy.message, origins: ["src/App.vue:3"] },
+      [messageId("{count, plural, one {Item} other {Items}}")]: { message: "{count, plural, one {Item} other {Items}}", origins: ["src/List.vue:2"] },
+    }
+    installI18nServer({ hooks: { hook: () => undefined } }, {
+      config,
+      messages: {},
+      current: () => undefined,
+      workspace: { name: "translations", open: () => store.workspace, clientIds: null, interval: 0, sources },
+    })
+    const translations = useTranslations()
+    await translations.save({ locale: "es", source: "Search agents", translation: "Buscar agentes" })
+    await translations.publish()
+    await translations.save({ locale: "es", source: deploy.message, translation: "Despliega tu agente" })
+
+    expect(await translations.status()).toEqual([{ locale: "es", messages: 3, published: 0, drafted: 1, missing: 2 }])
+    const [, page] = await translations.missing("es", { limit: 1 })
+    expect(page!.total).toBe(2)
+    const [, next] = await translations.missing("es", { cursor: page!.cursor! })
+    const items = [...page!.items, ...next!.items]
+    expect(items).toContainEqual({ id: messageId("Search all agents"), source: "Search all agents", origins: ["src/App.vue:4"], previous: { source: "Search agents", translation: "Buscar agentes" } })
+    expect(next!.cursor).toBeNull()
+
+    const plural = "{count, plural, one {Item} other {Items}}"
+    expect((await translations.save({ locale: "es", source: plural, translation: "{count, plural, one {Artículo} other {Artículos}}" }))[0]).toBeUndefined()
+    const [missingArgument] = await translations.save({ locale: "es", source: "Hello {name}", translation: "Hola" })
+    expect(missingArgument).toMatchObject({ code: "I18N_INVALID_TRANSLATION", why: expect.stringContaining("{name}") })
+    const [broken] = await translations.save({ locale: "es", source: plural, translation: "{count, plural, one {Artículo}" })
+    expect(broken).toMatchObject({ code: "I18N_INVALID_TRANSLATION", why: expect.stringContaining("not valid ICU") })
+  })
+})

@@ -1216,6 +1216,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
     email: "vite-hub/email/server",
+    i18n: options.i18n ? "vite-hub/i18n/server" : false,
     kv: `${generatedImportBase}/kv`,
   } satisfies Record<string, false | string>
 

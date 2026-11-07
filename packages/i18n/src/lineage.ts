@@ -1,3 +1,5 @@
+import { messagePlaceholders } from "./placeholders.ts"
+
 import type { SourceMessages } from "./manifest.ts"
 import type { TranslationRecord, TranslationRecords } from "./record-format.ts"
 
@@ -38,9 +40,14 @@ export function similarity(left: string, right: string): number {
   return total === 0 ? 0 : 2 * shared / total
 }
 
-/** Placeholders such as `{name}` and tags such as `<0>`. A translation with other placeholders does not fit. */
+/** Placeholders and tags. A translation with other placeholders does not fit. Invalid ICU fits nothing. */
 function placeholders(text: string): string {
-  return [...text.matchAll(/\{(\w+)|<\/?(\d+)\/?>/g)].map(match => match[1] ?? `<${match[2]}>`).sort().join(",")
+  try {
+    return messagePlaceholders(text).join()
+  }
+  catch {
+    return `invalid:${text}`
+  }
 }
 
 /**
