@@ -4,6 +4,7 @@ import { env } from "../src/core/declarations.ts"
 import { createRuntimeRegistry } from "../src/core/resolve.ts"
 import type { SecretEnv } from "../src/secret.ts"
 import { resolveServerEnv } from "../src/server.ts"
+import { cloudflareRequest } from "./cloudflare-request.ts"
 
 type Values = { api: { url: string, retries: number, token: SecretEnv } }
 
@@ -25,8 +26,8 @@ describe("resolveServerEnv reuse", () => {
   // A SecretEnv is created when a value is parsed, so the same instance means the value was reused.
   it("reuses the resolved values while the names it reads hold the same values", () => {
     const values = registry()
-    const first = resolveServerEnv<Values>(values, { env: { CACHE_API_URL: "https://one.test" } })
-    const second = resolveServerEnv<Values>(values, { env: { CACHE_API_URL: "https://one.test", UNRELATED: "changed" } })
+    const first = resolveServerEnv<Values>(values, cloudflareRequest({ CACHE_API_URL: "https://one.test" }))
+    const second = resolveServerEnv<Values>(values, cloudflareRequest({ CACHE_API_URL: "https://one.test", UNRELATED: "changed" }))
 
     expect(second.api.token).toBe(first.api.token)
     expect(second).toEqual({ api: { url: "https://one.test", retries: 2, token: first.api.token } })
@@ -34,9 +35,9 @@ describe("resolveServerEnv reuse", () => {
 
   it("resolves again when a value it reads changes", () => {
     const values = registry()
-    const first = resolveServerEnv<Values>(values, { env: { CACHE_API_URL: "https://one.test" } })
-    const changed = resolveServerEnv<Values>(values, { env: { CACHE_API_URL: "https://two.test" } })
-    const retries = resolveServerEnv<Values>(values, { env: { CACHE_API_URL: "https://two.test", CACHE_API_RETRIES: "5" } })
+    const first = resolveServerEnv<Values>(values, cloudflareRequest({ CACHE_API_URL: "https://one.test" }))
+    const changed = resolveServerEnv<Values>(values, cloudflareRequest({ CACHE_API_URL: "https://two.test" }))
+    const retries = resolveServerEnv<Values>(values, cloudflareRequest({ CACHE_API_URL: "https://two.test", CACHE_API_RETRIES: "5" }))
 
     expect(changed.api.token).not.toBe(first.api.token)
     expect(changed.api).toMatchObject({ url: "https://two.test", retries: 2 })
@@ -58,12 +59,12 @@ describe("resolveServerEnv reuse", () => {
     vi.stubEnv("CACHE_API_URL", "https://host.test")
 
     expect(resolveServerEnv<Values>(values).api.url).toBe("https://host.test")
-    expect(resolveServerEnv<Values>(values, { env: { CACHE_API_URL: "https://worker.test" } }).api.url).toBe("https://worker.test")
+    expect(resolveServerEnv<Values>(values, cloudflareRequest({ CACHE_API_URL: "https://worker.test" })).api.url).toBe("https://worker.test")
   })
 
   it("gives each call its own records", () => {
     const values = registry()
-    const event = { env: { CACHE_API_URL: "https://one.test" } }
+    const event = cloudflareRequest({ CACHE_API_URL: "https://one.test" })
     const first = resolveServerEnv<Values>(values, event)
     first.api.url = "https://changed.test"
 
@@ -72,7 +73,7 @@ describe("resolveServerEnv reuse", () => {
 
   it("keeps provider values asynchronous in a reused result", () => {
     const values = createRuntimeRegistry({ api: { url: env({ source: env.source("CACHE_API_URL") }), key: env({ source: env.provider("secrets", "key") }) } })
-    const event = { env: { CACHE_API_URL: "https://one.test" } }
+    const event = cloudflareRequest({ CACHE_API_URL: "https://one.test" })
     resolveServerEnv(values, event)
     const reused = resolveServerEnv<{ api: { url: string, key: string } }>(values, event)
 
@@ -82,9 +83,9 @@ describe("resolveServerEnv reuse", () => {
 
   it("gives each call its own copy of structured values", () => {
     const values = { settings: { required: false, default: { tags: ["first"] }, schema: { kind: "object" as const }, secret: false, source: { kind: "env" as const, label: "env:CACHE_SETTINGS", name: "CACHE_SETTINGS", serializable: true as const } } }
-    const first = resolveServerEnv<{ settings: { tags: string[] } }>(values, { env: {} })
+    const first = resolveServerEnv<{ settings: { tags: string[] } }>(values, cloudflareRequest({}))
     first.settings.tags.push("changed")
 
-    expect(resolveServerEnv<{ settings: { tags: string[] } }>(values, { env: {} }).settings).toEqual({ tags: ["first"] })
+    expect(resolveServerEnv<{ settings: { tags: string[] } }>(values, cloudflareRequest({})).settings).toEqual({ tags: ["first"] })
   })
 })

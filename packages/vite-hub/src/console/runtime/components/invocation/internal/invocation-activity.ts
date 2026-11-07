@@ -54,12 +54,65 @@ export interface InvocationActivity {
   toolDisplay?: Pick<AgentToolInspection, "icon" | "label">;
   totalTokens?: number;
   truncated?: boolean;
+  /** Displayed attributes the journal shortened. Absent when the record does not name them. */
+  truncatedAttributes?: readonly string[];
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && hasRuntimeType(value, "object") && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+const truncatedContentLabels: Readonly<Record<string, string>> = {
+  "approval.input": "Approval input",
+  "approval.reason": "Approval reason",
+  body: "Details",
+  "channel.effect.content": "Delivered text",
+  content: "Details",
+  "error.message": "Error",
+  input: "Input",
+  "input.messages": "Conversation history",
+  "input.prompt": "Conversation history",
+  "message.content": "Message",
+  output: "Output",
+  "result.text": "Message",
+  "tool.error": "Error",
+  "tool.input": "Input",
+  "tool.output": "Output",
+  "vitehub.activity.body": "Details",
+  "vitehub.activity.detail": "Details",
+  "vitehub.activity.progress": "Details",
+  "vitehub.activity.title": "Title",
+  "vitehub.payload.value": "Details",
+};
+
+/**
+ * The displayed attributes that an observation's truncation flag covers.
+ * `undefined` means the record is flagged but does not name its attributes, so any displayed value may be cut.
+ * Identity and accounting metadata are never displayed, so their truncation returns an empty list.
+ */
+function truncatedContent(observation: Pick<TraceEventLogEntry, "attributes">): readonly string[] | undefined {
+  const attributes = observation.attributes;
+  if (attributes?.["vitehub.observation.truncated"] !== true) return [];
+  const named = attributes["vitehub.observation.truncatedAttributes"];
+  if (!Array.isArray(named)) return undefined;
+  return named.filter((key): key is string => hasRuntimeType(key, "string") && key in truncatedContentLabels);
+}
+
+function cutsContent(observation: Pick<TraceEventLogEntry, "attributes">): boolean {
+  return truncatedContent(observation)?.length !== 0;
+}
+
+/** The note that says which displayed value of an activity was shortened. */
+export function invocationTruncationNotice(activity: InvocationActivity): string | undefined {
+  if (!activity.truncated) return;
+  const labels = [...new Set((activity.truncatedAttributes ?? []).map(key => truncatedContentLabels[key]!))];
+  if (!labels.length) return "Part of this activity was shortened when it was recorded.";
+  const subject = labels.length === 1
+    ? labels[0]!
+    : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)!.toLowerCase()}`;
+  return `${subject} shortened when recorded.`;
 }
 
 function messageText(value: unknown): string | undefined {
@@ -368,12 +421,14 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         ? originalAttributes["input.prompt"]
         : undefined;
     if (Array.isArray(inputMessages)) {
+      let lastInputKey: string | undefined;
       inputMessages.forEach((message, index) => {
         const value = record(message);
         const body = messageText(value) ?? (Array.isArray(value?.parts) ? "```json\n" + payloadText(value.parts) + "\n```" : undefined);
         const role = messageRole(value?.role);
         if (!body || !role) return;
         const key = `input-message:${observation.sequence}:${index}`;
+        lastInputKey = key;
         groups.set(key, [{
           ...observation,
           attributes: {
@@ -381,14 +436,19 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
             "message.origin": "invocation-input",
             "message.id": value ? stringAttribute(value, "id") ?? key : key,
             "message.role": role,
-            ...(originalAttributes["vitehub.observation.truncated"] === true
-              ? { "vitehub.observation.truncated": true }
-              : {}),
           },
           name: "agent.input.message",
           sequence: observation.sequence - (inputMessages.length - index) / (inputMessages.length + 1),
         }]);
       });
+      // One note after the history says it was shortened; repeating it on every message adds noise.
+      const historyTruncation = truncatedContent(observation) === undefined
+        ? { "vitehub.observation.truncated": true }
+        : truncatedContent(observation)!.some(key => key === "input.messages" || key === "input.prompt")
+          ? { "vitehub.observation.truncated": true, "vitehub.observation.truncatedAttributes": ["input.messages"] }
+          : undefined;
+      const lastInput = lastInputKey === undefined ? undefined : groups.get(lastInputKey)?.[0];
+      if (lastInput && historyTruncation) lastInput.attributes = { ...lastInput.attributes, ...historyTruncation };
     }
     const attributes = inputMessages === undefined
       ? originalAttributes
@@ -422,7 +482,7 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
   }
   for (const observations of groups.values()) {
     if (Math.max(...observations.map(item => item.sequence)) !== latestMessageSequence) continue;
-    if (observations.some(item => item.attributes?.["vitehub.observation.truncated"] === true)) continue;
+    if (observations.some(cutsContent)) continue;
     if (!observations.every(item => item.name.startsWith("agent.message")
       && (item.attributes?.["message.role"] === undefined || item.attributes["message.role"] === "assistant")
       && item.attributes?.["message.phase"] !== "commentary")) continue;
@@ -510,9 +570,14 @@ export function invocationActivities(invocation: AgentInvocationView): Invocatio
         ...(role ? { role } : {}),
         status: failed || approvalDenied ? "failed" : completed || !started ? "completed" : unfinishedTerminalStatus ?? "running",
         ...(Object.keys(toolDisplay).length ? { toolDisplay } : {}),
-        ...(sorted.some(item => item.attributes?.["vitehub.observation.truncated"] === true)
+        ...(sorted.some(cutsContent)
           && !(first.name === "agent.invocation.finish" && completeAssistantTexts.has(stringAttribute(attributes, "result.text") ?? ""))
-          ? { truncated: true }
+          ? {
+              truncated: true,
+              ...(sorted.every(item => truncatedContent(item) !== undefined)
+                ? { truncatedAttributes: [...new Set(sorted.flatMap(item => truncatedContent(item)!))] }
+                : {}),
+            }
           : {}),
         ...(numericAttribute(attributes, "usage.totalTokens") !== undefined
           ? { totalTokens: numericAttribute(attributes, "usage.totalTokens") }
