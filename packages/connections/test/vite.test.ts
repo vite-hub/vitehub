@@ -1,6 +1,5 @@
 import { fork } from "node:child_process";
 import { lstat, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
-import { stripTypeScriptTypes } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -273,24 +272,19 @@ describe("hubConnections", () => {
     expect(handler).toContain(
       `import actor from ${JSON.stringify(join(root, "server/connections-auth.ts"))}`,
     );
-    expect(handler).toContain('createConnectionsHandler({ actor, basePath: "/_vitehub/connections" })');
-    expect(handler).toContain("handle(event)");
+    expect(handler).toContain('export default createConnectionsHandler({ actor, basePath: "/_vitehub/connections" })');
     expect(handler).not.toContain("user:local");
   });
 
-  it("passes the request event to the handler, which reads its request through Standard Context", async () => {
+  it("exports the Fetchable handler and imports nothing from h3 or nitro", async () => {
     const root = await createTempProject();
     const config = { nitro: {}, root, [VITEHUB_NITRO_CONFIG_CONTEXT]: true };
     await (hubConnections().config as unknown as ConfigHook)(config, { command: "serve", mode: "development" });
     const handlers = (config.nitro as { handlers: Array<{ handler: string }> }).handlers;
     const source = await readFile(handlers[0]!.handler, "utf8");
-    expect(source).not.toContain("node");
-    const handle = vi.fn((event: unknown) => event);
-    const code = source.replace(/^import .*\n/gm, "").replace(/^const handle = .*\n/m, "").replace("export default", "const generated =");
-    const adapt = new Function("handle", `return (function() { ${stripTypeScriptTypes(code)} return generated })()`)(handle) as (event: unknown) => unknown;
-    const event = { node: { req: {}, res: {} } };
-    expect(adapt(event)).toBe(event);
-    expect(handle).toHaveBeenCalledWith(event);
+    expect(source).toContain('export default createConnectionsHandler({ actor: "development", basePath: "/_vitehub/connections" })');
+    expect(source).not.toMatch(/from "(h3|nitro)/);
+    expect(source).not.toContain("event");
   });
 
   it("checks every development request with the actor module, or the development policy without one", async () => {

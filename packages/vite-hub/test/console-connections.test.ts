@@ -209,14 +209,14 @@ describe("Console session user", () => {
   it("writes one actor module that checks the installed Console access policy", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-connections-actor-"))
     try {
-      // The Connections handler calls the policy with the Request first and the server event second.
+      // The Connections handler calls the policy with the Request. It carries the Standard Context of the event.
       // The access policy reads the signed-in user, so one module serves every Console access mode.
       const file = await writeConsoleConnectionsActor(root)
       expect(file).toBe(join(root, ".vitehub/nitro/console/connections-actor.mjs"))
       const actor = await readFile(file, "utf8")
       expect(actor).toContain('import { consoleConnectionsActor } from "vite-hub/console/sections"')
-      expect(actor).toContain("viteHubConsoleConnectionsActor(_request, event)")
-      expect(actor).toContain("return consoleConnectionsActor(event)")
+      expect(actor).toContain("viteHubConsoleConnectionsActor(request)")
+      expect(actor).toContain("return consoleConnectionsActor(request)")
       expect(actor).not.toContain("user:open")
     }
     finally {
@@ -283,7 +283,7 @@ describe("Console session user", () => {
       }
       const actor = await configure(["connections"])
       expect(actor).toBe(join(root, ".vitehub/nitro/console/connections-actor.mjs"))
-      expect(await readFile(actor!, "utf8")).toContain("return consoleConnectionsActor(event)")
+      expect(await readFile(actor!, "utf8")).toContain("return consoleConnectionsActor(request)")
       expect(await configure(["env"])).toBeUndefined()
     }
     finally {

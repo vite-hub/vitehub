@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createConnectionsHandler } from "../src/http.ts";
+import type { ConnectionsHandler } from "../src/http.ts";
 import { checkConnectionsAccess } from "../src/internal/http-access.ts";
 import { connectionsRoutes } from "../src/internal/http-routes.ts";
 import { ACCESS_TOKEN, createTestRuntime, REFRESH_TOKEN } from "./helpers.ts";
@@ -28,8 +29,8 @@ function tokenResponse() {
   return { body: { access_token: ACCESS_TOKEN, expires_in: 3600, id_token: "account-1", refresh_token: REFRESH_TOKEN, scope: "mail.modify" } };
 }
 
-async function start(handler: (request: Request) => Promise<Response>): Promise<string> {
-  const response = await handler(new Request(`${origin}${base}/connect/mail`));
+async function start(handler: ConnectionsHandler): Promise<string> {
+  const response = await handler.fetch(new Request(`${origin}${base}/connect/mail`));
   expect(response.status).toBe(302);
   return new URL(response.headers.get("location")!).searchParams.get("state")!;
 }
@@ -59,7 +60,7 @@ describe("Connections route guard contract", () => {
   it.each(connectionsRoutes.map((route) => [route.id, route] as const))("runs the %s route only behind the access check", async (_id, route) => {
     const runtime = vi.fn(() => createTestRuntime().runtime);
     const handler = createConnectionsHandler({ actor: () => undefined, runtime });
-    const response = await handler(routeRequests[route.id]());
+    const response = await handler.fetch(routeRequests[route.id]());
     expect(response.status).toBe(403);
     expect(runtime).not.toHaveBeenCalled();
   });
@@ -67,7 +68,7 @@ describe("Connections route guard contract", () => {
   it.each(connectionsRoutes.map((route) => [route.id, route] as const))("rejects a forged access in the %s route body", async (_id, route) => {
     const runtime = vi.fn(() => createTestRuntime().runtime);
     const request = routeRequests[route.id]();
-    const check = await checkConnectionsAccess(() => "user:owner", request, undefined, runtime);
+    const check = await checkConnectionsAccess(() => "user:owner", request, runtime);
     if (!check.access) throw new Error("Expected access.");
     expect(Object.isFrozen(check.access)).toBe(true);
     // A copy has the same shape and brand, but the check did not create it.
@@ -78,7 +79,7 @@ describe("Connections route guard contract", () => {
 
   it("adds the fix and docs of the code to a rejection", async () => {
     const runtime = vi.fn(() => createTestRuntime().runtime);
-    const response = await createConnectionsHandler({ actor: () => undefined, runtime })(routeRequests.action());
+    const response = await createConnectionsHandler({ actor: () => undefined, runtime }).fetch(routeRequests.action());
     expect(response.status).toBe(403);
     expect(await response.json()).toEqual({
       error: {
@@ -93,7 +94,7 @@ describe("Connections route guard contract", () => {
   it.each(connectionsRoutes.map((route) => [route.id] as const))("returns a Response from the actor unchanged in the %s route", async (id) => {
     const runtime = vi.fn(() => createTestRuntime().runtime);
     const rejection = Response.json({ code: "HOST_SIGN_IN", message: "Sign in at the host." }, { status: 401 });
-    const response = await createConnectionsHandler({ actor: () => rejection, runtime })(routeRequests[id]());
+    const response = await createConnectionsHandler({ actor: () => rejection, runtime }).fetch(routeRequests[id]());
     expect(response).toBe(rejection);
     expect(runtime).not.toHaveBeenCalled();
   });
@@ -103,7 +104,7 @@ describe("Connections route guard contract", () => {
     // @ts-expect-error JavaScript callers can omit the required policy.
     const handler = createConnectionsHandler({ runtime });
     for (const request of Object.values(routeRequests)) {
-      const response = await handler(request());
+      const response = await handler.fetch(request());
       expect(response.status).toBe(500);
       expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_AUTH_REQUIRED" } });
     }
@@ -115,7 +116,7 @@ describe("Connections route guard contract", () => {
     const runtime = vi.fn(() => createTestRuntime().runtime);
     const handler = createConnectionsHandler({ actor: "development", runtime });
     for (const request of Object.values(routeRequests)) {
-      const response = await handler(request());
+      const response = await handler.fetch(request());
       expect(response.status).toBe(500);
       expect(await response.json()).toMatchObject({
         error: { code: "CONNECTIONS_AUTH_REQUIRED", message: expect.stringContaining("outside local development") },
@@ -128,10 +129,10 @@ describe("Connections route guard contract", () => {
     vi.stubEnv("NODE_ENV", "development");
     const test = createTestRuntime();
     const handler = createConnectionsHandler({ actor: "development", runtime: () => test.runtime });
-    expect((await handler(routeRequests.action())).status).toBe(200);
+    expect((await handler.fetch(routeRequests.action())).status).toBe(200);
     const state = await start(handler);
     test.provider.tokenResponses.push(tokenResponse());
-    expect((await handler(callback(state))).status).toBe(200);
+    expect((await handler.fetch(callback(state))).status).toBe(200);
     const activity = await test.runtime.activity({ name: "mail" });
     expect(activity.find((entry) => entry.action === "replace")).toMatchObject({ actor: { id: "local", kind: "user" } });
   });
@@ -139,7 +140,7 @@ describe("Connections route guard contract", () => {
   it("does not start a flow for a cross-site request", async () => {
     const test = createTestRuntime();
     const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
-    const response = await handler(new Request(`${origin}${base}/connect/mail`, { headers: { "sec-fetch-site": "cross-site" } }));
+    const response = await handler.fetch(new Request(`${origin}${base}/connect/mail`, { headers: { "sec-fetch-site": "cross-site" } }));
     expect(response.status).toBe(403);
     expect(response.headers.get("set-cookie")).toBeNull();
   });
@@ -151,11 +152,11 @@ describe("Connections OAuth state binding", () => {
     const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
     const state = await start(handler);
     test.provider.tokenResponses.push(tokenResponse());
-    expect((await handler(callback(state))).status).toBe(200);
+    expect((await handler.fetch(callback(state))).status).toBe(200);
     const exchanges = test.provider.calls.length;
 
     test.provider.tokenResponses.push(tokenResponse());
-    const reused = await handler(callback(state));
+    const reused = await handler.fetch(callback(state));
     expect(reused.status).toBe(400);
     expect(await reused.text()).toContain("CONNECTIONS_AUTHORIZATION_EXPIRED");
     expect(test.provider.calls).toHaveLength(exchanges);
@@ -168,14 +169,14 @@ describe("Connections OAuth state binding", () => {
     const state = await start(owner);
     test.provider.tokenResponses.push(tokenResponse());
 
-    const foreign = await other(callback(state));
+    const foreign = await other.fetch(callback(state));
     expect(foreign.status).toBe(403);
     expect(await foreign.text()).toContain("Another user started this authorization request");
     expect(test.provider.calls).toHaveLength(0);
     expect(await test.runtime.inspect("mail")).toMatchObject({ status: "disconnected" });
 
     // The rejected attempt consumed the state, so the owner must start again.
-    expect((await owner(callback(state))).status).toBe(400);
+    expect((await owner.fetch(callback(state))).status).toBe(400);
   });
 
   it("rejects a foreign state in the JSON complete action", async () => {
@@ -183,7 +184,7 @@ describe("Connections OAuth state binding", () => {
     const owner = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
     const other = createConnectionsHandler({ actor: () => "user:other", runtime: () => test.runtime });
     const state = await start(owner);
-    const response = await other(new Request(`${origin}${base}`, {
+    const response = await other.fetch(new Request(`${origin}${base}`, {
       body: JSON.stringify({ action: "complete", code: "code-1", state }),
       headers: { "content-type": "application/json", origin },
       method: "POST",
@@ -197,7 +198,7 @@ describe("Connections OAuth state binding", () => {
     const test = createTestRuntime();
     const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
     const state = await start(handler);
-    const response = await handler(new Request(`${origin}${base}/callback?code=code-1&state=${state}`, {
+    const response = await handler.fetch(new Request(`${origin}${base}/callback?code=code-1&state=${state}`, {
       headers: { cookie: "vitehub_connection_state=other" },
     }));
     expect(response.status).toBe(400);

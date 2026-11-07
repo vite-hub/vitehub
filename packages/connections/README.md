@@ -208,7 +208,7 @@ A custom Connections store must supply the token revision as the second `bridge.
 
 The actor module default-exports one of these policies:
 
-- A function `(request, event) => string | undefined`. It authenticates the `Request` and returns `user:<id>` for an authorized manager, or `undefined` to reject the request (`403`). Relative module paths resolve from the project root.
+- A function `(request) => string | Response | undefined`. It authenticates the `Request` and returns `user:<id>` for an authorized manager, `undefined` to reject the request (`403`), or a `Response` to reject it with that response. In a ViteHub app, the `Request` carries the Standard Context of the event, so `getStandardContext(request)` and the Auth helpers accept it. Relative module paths resolve from the project root.
 - The string `"development"`. It allows every request as `user:local`, but only when `NODE_ENV` is `development`. Any other runtime returns `500` with `CONNECTIONS_AUTH_REQUIRED`.
 
 Without an actor module, the development server uses `"development"`. A production build without an actor module fails.
@@ -232,7 +232,14 @@ hubConnections({ management: { actor: "./server/connections-auth.ts" } });
 
 ### Management routes
 
-`createConnectionsHandler({ actor, basePath, runtime })` from `@vite-hub/connections/http` serves these routes. Its handler takes a Web `Request` or a request event, and reads the request of an event from `event["~standard"].req`. `actor` is required and gets `(request, event)`.
+`createConnectionsHandler({ actor, basePath, runtime })` from `@vite-hub/connections/http` serves these routes. It returns a Fetchable, `{ fetch(request) }`. `actor` is required and gets the `Request`.
+
+```ts
+import { createConnectionsHandler } from "@vite-hub/connections/http";
+
+const handler = createConnectionsHandler({ actor: "development" });
+const response = await handler.fetch(new Request("http://localhost/_vitehub/connections/connect/google"));
+```
 
 | Route | Use |
 | --- | --- |

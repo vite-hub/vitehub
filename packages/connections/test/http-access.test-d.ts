@@ -4,8 +4,6 @@ import { createConnectionsHandler } from "../src/http.ts"
 import { checkConnectionsAccess, connectionsRuntimeFor } from "../src/internal/http-access.ts"
 import { connectionsRoutes } from "../src/internal/http-routes.ts"
 
-import type { ViteHubContext } from "@vite-hub/runtime"
-
 import type { ConnectionsAccessPolicy } from "../src/http.ts"
 import type { ConnectionsAccess } from "../src/internal/http-access.ts"
 import type { ConnectionsRuntime } from "../src/runtime.ts"
@@ -23,7 +21,8 @@ describe("Connections route access types", () => {
     createConnectionsHandler({ actor: "production" })
     // @ts-expect-error A policy returns the actor id, not a boolean.
     createConnectionsHandler({ actor: () => true })
-    expectTypeOf<ConnectionsAccessPolicy>().toEqualTypeOf<"development" | ((request: Request, event?: ViteHubContext) => string | Response | undefined | Promise<string | Response | undefined>)>()
+    expectTypeOf(createConnectionsHandler({ actor: "development" }).fetch).toEqualTypeOf<(request: Request) => Promise<Response>>()
+    expectTypeOf<ConnectionsAccessPolicy>().toEqualTypeOf<"development" | ((request: Request) => string | Response | undefined | Promise<string | Response | undefined>)>()
   })
 
   it("accepts only an access from the check in a route body", async () => {
@@ -33,7 +32,7 @@ describe("Connections route access types", () => {
     // @ts-expect-error The runtime needs a checked access.
     connectionsRuntimeFor({ actor: "user:owner", request })
 
-    const check = await checkConnectionsAccess(() => "user:owner", request, undefined, runtime)
+    const check = await checkConnectionsAccess(() => "user:owner", request, runtime)
     // @ts-expect-error The check can return a rejection instead of an access.
     await route.handle(check.access, "/_vitehub/connections")
     if (check.rejection) return

@@ -226,7 +226,9 @@ async function checkPageAccess(event: ConsoleRequestEvent): Promise<ConsoleAcces
 }
 
 /** Build the standard Fetch request passed to Console authorization and runtime contexts. */
-export function consoleRequest(event: ConsoleRequestEvent): Request {
+export function consoleRequest(event: ConsoleRequestEvent | Request): Request {
+  // A Fetchable route, such as the Connections route, passes its Request.
+  if (isRequestLike(event)) return event
   if (isRequestLike(event.req)) return event.req
   const headers = new Headers()
   const copyHeaders = (source: unknown, overwrite = true): void => {
@@ -443,7 +445,7 @@ export function consoleAccessActor(user: ConsoleUser | undefined): AgentActor | 
 }
 
 export async function consoleConnectionsActor(
-  event: ConsoleRequestEvent,
+  event: ConsoleRequestEvent | Request,
   sessionActor?: () => Promise<string | undefined>,
 ): Promise<string | Response> {
   const access = await checkConsoleAccess(event, { user: true })

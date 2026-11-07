@@ -2,14 +2,14 @@ import * as v from "valibot"
 
 import { managementErrorBody } from "./http-diagnostics.ts"
 
-import type { ViteHubContext } from "@vite-hub/runtime"
 import type { ConnectionsRuntime } from "../runtime.ts"
 
 /**
  * Authenticates one management request and returns the manager as `user:<id>`.
  * Return `undefined` to deny the request with `403`, or a `Response` to deny it with that response.
+ * In a ViteHub app, the request carries the Standard Context of the event: pass it to helpers such as `getStandardContext(request)`.
  */
-export type ConnectionsActor = (request: Request, event?: ViteHubContext) => string | Response | undefined | Promise<string | Response | undefined>
+export type ConnectionsActor = (request: Request) => string | Response | undefined | Promise<string | Response | undefined>
 
 /**
  * Access policy of the Connections management routes.
@@ -62,7 +62,6 @@ export async function checkConnectionsAccess(
   // JavaScript callers can omit the policy.
   policy: ConnectionsAccessPolicy | undefined,
   request: Request,
-  event: ViteHubContext | undefined,
   runtime: () => ConnectionsRuntime,
   agentName?: string,
 ): Promise<ConnectionsAccessCheck> {
@@ -74,7 +73,7 @@ export async function checkConnectionsAccess(
     actor = "user:local"
   }
   else if (v.is(v.function(), policy)) {
-    actor = await policy(request, event)
+    actor = await policy(request)
     if (actor instanceof Response) return { rejection: actor }
   }
   else {
