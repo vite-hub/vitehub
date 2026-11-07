@@ -461,8 +461,8 @@ const detailsPanel: SplitterItem = {
   order: 2,
   class: "h-full min-h-0 min-w-0 overflow-hidden",
 };
-// The thread stays one mounted panel. Opening details adds a panel next to it, so the thread keeps its scroll
-// position and nothing in its header moves.
+// The thread stays one mounted panel. Opening details adds a panel next to it, under the session header, so the
+// thread keeps its scroll position and the header does not move.
 const splitterItems = computed<SplitterItem[]>(() => detailsOpen.value ? [threadPanel, detailsPanel] : [threadPanel]);
 
 /** Opens or closes the details panel. It opens on the tab of the URL, Invocation by default. */
@@ -484,9 +484,9 @@ function closeDetails(): void {
   detailsMaximized.value = false;
 }
 
-// On desktop, the session navbar and the inspector move to another layout when the details panel opens, closes, or
-// changes size. Vue mounts new elements there, so keyboard focus would fall to the page body. Put it back on the
-// same control, on the active inspector tab, or on the details toggle.
+// On desktop, the session navbar and the inspector move to another layout when the details panel is maximized or
+// restored. Vue mounts new elements there, so keyboard focus would fall to the page body. Put it back on the same
+// control, on the active inspector tab, or on the details toggle.
 watch([detailsOpen, detailsMaximized], () => {
   const focused = document.activeElement;
   const panel = focused instanceof HTMLElement ? focused.closest(".vitehub-console__session-panel") : null;
@@ -1366,10 +1366,10 @@ onBeforeUnmount(() => {
             @retry="refresh"
             @open-sessions="sessionsOpen = true"
           />
-          <div v-if="!connectionUnavailable || invocationView" class="min-h-0 w-full flex-1 overflow-hidden">
+          <div v-if="!connectionUnavailable || invocationView" class="flex min-h-0 w-full flex-1 flex-col overflow-hidden">
           <div
             v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"
-            class="h-full min-h-0 overflow-hidden"
+            class="min-h-0 flex-1 overflow-hidden"
           >
             <ConsoleSessionInspector
                 :workspace-base="apiBase"
@@ -1405,47 +1405,50 @@ onBeforeUnmount(() => {
               @toggle-maximized="detailsMaximized = false"
             />
           </div>
+          <!-- One header spans the thread and the details panel. The panel opens under it, so the details toggle at its
+               right end, and every other header control, keep their place when the panel opens or closes. -->
+          <template v-else>
+            <ConsoleSessionNavbar
+              :cost="selectedCost"
+              :details-open="detailsOpen"
+              :external-url="selectedExternalUrl"
+              :has-display="Boolean(selectedDisplay)"
+              :has-selection="Boolean(selectedInvocationId)"
+              :loading="refreshing"
+              :refreshable="selectedRefreshable"
+              :project="hasMultipleAgents ? selectedProject : ''"
+              :title="selectedTitle"
+              :tokens="selectedTokens"
+              @open-sessions="sessionsOpen = true"
+              @refresh="refresh"
+              @toggle-details="toggleDetails"
+            >
+              <template v-if="selectedActions || selectedCancel" #actions>
+                <ConsoleSessionActions
+                  v-if="selectedActions"
+                  v-bind="selectedActions"
+                  :agents-base="agentsBase"
+                  :api-base="apiBase"
+                  @deleted="removeDeletedInvocation"
+                  @started="selectStartedInvocation"
+                />
+                <ConsoleSessionCancel
+                  v-if="selectedCancel"
+                  v-bind="selectedCancel"
+                  :api-base="apiBase"
+                  @cancelled="refresh"
+                />
+              </template>
+            </ConsoleSessionNavbar>
           <USplitter
-            v-else-if="isDesktop && selectedInvocationId"
+            v-if="isDesktop && selectedInvocationId"
             id="agent-session-layout"
             auto-save-id="vitehub-agent-session-layout-v2"
             :items="splitterItems"
-            class="h-full min-h-0 overflow-hidden"
+            class="min-h-0 flex-1 overflow-hidden"
           >
             <template #thread>
               <div class="flex h-full min-h-0 w-full flex-col overflow-hidden">
-                <ConsoleSessionNavbar
-                  :cost="selectedCost"
-                  :details-open="detailsOpen"
-                  :external-url="selectedExternalUrl"
-                  :has-display="Boolean(selectedDisplay)"
-                  :has-selection="Boolean(selectedInvocationId)"
-                  :loading="refreshing"
-                  :refreshable="selectedRefreshable"
-                  :project="hasMultipleAgents ? selectedProject : ''"
-                  :title="selectedTitle"
-                  :tokens="selectedTokens"
-                  @open-sessions="sessionsOpen = true"
-                  @refresh="refresh"
-                  @toggle-details="toggleDetails"
-                >
-                  <template v-if="selectedActions || selectedCancel" #actions>
-                    <ConsoleSessionActions
-                      v-if="selectedActions"
-                      v-bind="selectedActions"
-                      :agents-base="agentsBase"
-                      :api-base="apiBase"
-                      @deleted="removeDeletedInvocation"
-                      @started="selectStartedInvocation"
-                    />
-                    <ConsoleSessionCancel
-                      v-if="selectedCancel"
-                      v-bind="selectedCancel"
-                      :api-base="apiBase"
-                      @cancelled="refresh"
-                    />
-                  </template>
-                </ConsoleSessionNavbar>
                 <div v-if="!connectionUnavailable && invocationView && detail.error.value" class="m-3 shrink-0">
                   <ConsoleState compact :error="detail.error.value" title="Could not refresh this session" :retry="refresh" />
                 </div>
@@ -1509,39 +1512,7 @@ onBeforeUnmount(() => {
               />
             </template>
           </USplitter>
-          <div v-else class="flex h-full min-h-0 flex-col overflow-hidden">
-            <ConsoleSessionNavbar
-              :cost="selectedCost"
-              :details-open="detailsOpen"
-              :external-url="selectedExternalUrl"
-              :has-display="Boolean(selectedDisplay)"
-              :has-selection="Boolean(selectedInvocationId)"
-              :loading="refreshing"
-              :refreshable="selectedRefreshable"
-              :project="hasMultipleAgents ? selectedProject : ''"
-              :title="selectedTitle"
-              :tokens="selectedTokens"
-              @open-sessions="sessionsOpen = true"
-              @refresh="refresh"
-              @toggle-details="toggleDetails"
-            >
-              <template v-if="selectedActions || selectedCancel" #actions>
-                <ConsoleSessionActions
-                  v-if="selectedActions"
-                  v-bind="selectedActions"
-                  :agents-base="agentsBase"
-                  :api-base="apiBase"
-                  @deleted="removeDeletedInvocation"
-                  @started="selectStartedInvocation"
-                />
-                <ConsoleSessionCancel
-                  v-if="selectedCancel"
-                  v-bind="selectedCancel"
-                  :api-base="apiBase"
-                  @cancelled="refresh"
-                />
-              </template>
-            </ConsoleSessionNavbar>
+          <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden">
             <ConsoleSessionLoading v-if="initialSessionLoading" class="min-h-0 flex-1" />
             <ConsoleState
               v-else-if="!selectedInvocationId && sessionsPanelError"
@@ -1604,6 +1575,7 @@ onBeforeUnmount(() => {
               </template>
             </USlideover>
           </div>
+          </template>
           </div>
         </div>
       </template>

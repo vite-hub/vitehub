@@ -529,7 +529,7 @@ describe("framework package contract", () => {
       consolePage.indexOf("onMounted(() =>"),
     );
     expect(consolePage).toContain(
-      'v-else-if="isDesktop && detailsOpen && selectedInvocationId"',
+      'v-if="isDesktop && selectedInvocationId"',
     );
     expect(consolePage).toContain(
       'v-if="isDesktop && detailsOpen && detailsMaximized && selectedInvocationId"',
@@ -540,7 +540,9 @@ describe("framework package contract", () => {
     expect(consoleFrame).toContain("min-height: 0");
     expect(consoleFrame).not.toContain("min-height: 32rem");
     expect(consolePage).toContain("<ConsoleSessionNavbar");
-    expect(consolePage).toMatch(/<template #thread>[\s\S]*?<ConsoleSessionNavbar/);
+    // One header spans the thread and the details panel, so the details toggle keeps its place when the panel opens.
+    expect(consolePage.split("<ConsoleSessionNavbar").length).toBe(2);
+    expect(consolePage).toMatch(/<ConsoleSessionNavbar[\s\S]*?<USplitter/);
     expect(consolePage).toContain('@inspect="inspectSession"');
     expect(consolePage).toContain("function inspectSession");
     const consoleSessionNavbar = readFileSync(
