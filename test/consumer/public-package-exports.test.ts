@@ -21,7 +21,7 @@ const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 const declarationDiagnosticsScript = join(import.meta.dirname, "declaration-diagnostics.ts")
-const optionalPeers = ["@nuxt/ui", "@upstash/redis", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+const optionalPeers = ["@json-render/core", "@json-render/vue", "@nuxt/ui", "@upstash/redis", "@vueuse/core", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
 const optionalPeerProbes = optionalPeers
 // Every fixture and export runs in its own child process. Independent fixtures
 // run side by side, bounded by the CPU count so CI runners are not overloaded.
@@ -617,8 +617,11 @@ async function addOptionalPeers(appDir: string) {
   const agentManifest = await readManifest(join(appDir, "node_modules/@vite-hub/agent/package.json"))
   const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
   const peers = {
+    "@json-render/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/core/package.json")),
+    "@json-render/vue": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@json-render/vue/package.json")),
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
+    "@vueuse/core": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/@vueuse/core/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     evlog: agentManifest.peerDependencies!.evlog!,
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),

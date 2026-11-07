@@ -79,8 +79,13 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/ui", { "vue": "both" }],
   ["vite-hub/ui/headless", { "vue": "both" }],
   ["vite-hub/ui/nuxt", { "vue": "declaration" }],
-  // The Console renders its panels with @json-render/vue, which imports Vue.
-  ["vite-hub/console/ui", { "@vite-hub/ui": "both", "vue": "both" }],
+  ["vite-hub/console/ui", {
+    "@json-render/core": "declaration",
+    "@json-render/vue": "runtime",
+    "@vite-hub/ui": "both",
+    "@vueuse/core": "runtime",
+    "vue": "both",
+  }],
   ["vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["vite-hub/workflow/runtime/openworkflow", { "openworkflow": "both" }],
   ["vite-hub/workflow/runtime/openworkflow-worker", { "openworkflow": "both" }],
