@@ -46,6 +46,10 @@ icon: i-lucide-library
   Folders are sections and files are pages. Frontmatter sets the title, the layout, and the order.
   :::
 
+  :::product-feature-item{title="Inside your Nuxt app" icon="i-lucide-square-plus" to="/docs/docs-site/nuxt-app"}
+  Pages in `content/docs/` are at `/docs`. The app keeps its own pages, its `app.vue`, and its theme.
+  :::
+
   :::product-feature-item{title="Three layouts" icon="i-lucide-layout-template" to="/docs/docs-site/configure#layouts"}
   `article` for guides, `tutorial` for numbered steps with a code panel, and `landing` for Overviews.
   :::
