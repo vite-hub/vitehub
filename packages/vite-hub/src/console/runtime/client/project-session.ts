@@ -564,13 +564,13 @@ async function confirmLockedConsoleLink(projects: ConsoleProjectsState, pendingI
  * tab, and load the authorization page of the project, where the person signs in and allows the Console. Returns why
  * it could not start. When it starts, the page leaves, and `/oauth/callback` finishes it with `finishConsoleOAuthSignIn()`.
  */
-export async function startConsoleOAuthSignIn(target: ConsoleProjectTarget, resourceMetadata?: string): Promise<ConsoleProjectProblem | undefined> {
+export async function startConsoleOAuthSignIn(target: ConsoleProjectTarget, resourceMetadata?: string, signal?: AbortSignal): Promise<ConsoleProjectProblem | undefined> {
   const projects = useState()
   const host = consoleProjectHost(target)
   if (projects.mode !== "hosted") return { title: "Sign in on the app", message: `Open the Console of ${host} at its own URL to sign in.` }
   // The verifier and the tokens must survive the redirect to the app, so memory is not enough.
   if (!projects.oauthStorage) {
-    return { title: "This browser blocks site data", message: `Allow site data for ${new URL(projects.pageOrigin).host} to sign in, or use auth: "token" in the project.` }
+    return { title: "This browser blocks site data", message: `Allow site data for ${new URL(projects.pageOrigin).host} to sign in, or use \`auth: "token"\` in the project.` }
   }
   let metadata = resourceMetadata
   if (!metadata) {
@@ -598,8 +598,11 @@ export async function startConsoleOAuthSignIn(target: ConsoleProjectTarget, reso
     verifier,
     ...(discovery.revocationEndpoint ? { revocationEndpoint: discovery.revocationEndpoint } : {}),
   }
+  const challenge = await consoleCodeChallenge(verifier)
+  // A person who closed the dialog stays on this page. Nothing awaits between this check and the redirect.
+  signal?.throwIfAborted()
   projects.oauthStates.save(signIn)
-  projects.navigate(consoleAuthorizationUrl(signIn, discovery.authorizationEndpoint, await consoleCodeChallenge(verifier)))
+  projects.navigate(consoleAuthorizationUrl(signIn, discovery.authorizationEndpoint, challenge))
   return undefined
 }
 
@@ -624,7 +627,7 @@ export async function finishConsoleOAuthSignIn(search: string): Promise<void> {
   projects.gate.value = { kind: "callback" }
   const callback = parseConsoleOAuthCallback(search)
   if (callback.kind === "invalid") {
-    projects.gate.value = callbackProblem({ title: "This sign-in link is not complete", message: "The page has no code and state. Sign in again from the Console." })
+    projects.gate.value = callbackProblem({ title: "This sign-in link is not complete", message: "The app sent this page back without its sign-in answer. Sign in again from the Console." })
     return
   }
   const lookup = callback.state ? projects.oauthStates.take(callback.state) : { kind: "unknown" as const }
@@ -659,7 +662,7 @@ export async function finishConsoleOAuthSignIn(search: string): Promise<void> {
   }
   const result = await exchangeConsoleOAuthCode(signIn, callback.code, { fetch: projects.fetch, now: projects.now })
   if (result.kind === "unreachable") {
-    projects.gate.value = callbackProblem({ title: `Cannot reach ${host}`, message: `The token request failed. ${projects.pageOrigin} must be in console.origins for ${host}. Add it, redeploy, and sign in again.` }, signIn)
+    projects.gate.value = callbackProblem({ title: `Cannot reach ${host}`, message: `${host} did not answer the token request. If the app is online, add ${projects.pageOrigin} to its \`console.origins\`, redeploy, and sign in again.` }, signIn)
     return
   }
   if (result.kind === "rejected") {

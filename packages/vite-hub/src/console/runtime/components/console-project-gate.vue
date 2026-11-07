@@ -103,7 +103,7 @@ onMounted(() => {
       <template v-else-if="gate.kind === 'oauth'">
         <div class="grid gap-1.5">
           <h1 class="vitehub-project-gate__title">Sign in to {{ consoleProjectHost(gate.target) }}</h1>
-          <p class="vitehub-project-gate__text">This project uses the sign-in of the app.</p>
+          <p class="vitehub-project-gate__text">{{ consoleProjectHost(gate.target) }} signs you in on its own page.</p>
         </div>
         <ConsoleProjectOAuth :target="gate.target" :resource-metadata="gate.resourceMetadata" :problem="gate.problem" />
       </template>

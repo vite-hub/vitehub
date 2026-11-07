@@ -269,7 +269,7 @@ describe("discovery", () => {
     expect(await loadConsoleOAuthClient(consoleOrigin, fetch)).toEqual({ client: { clientId: `${consoleOrigin}/oauth-client.json`, redirectUri: `${consoleOrigin}/oauth/callback` } })
     const built = async () => Response.json(consoleOAuthClientDocument("https://console.vitehub.dev"))
     const other = await loadConsoleOAuthClient(consoleOrigin, built)
-    expect("problem" in other && other.problem.message).toBe("Its client document names https://console.vitehub.dev, but this page runs on https://console.example.com. Build the Console again with VITEHUB_CONSOLE_ORIGIN=https://console.example.com.")
+    expect("problem" in other && other.problem.message).toBe("Its client document names https://console.vitehub.dev, but this page runs on https://console.example.com. Build the Console again with `VITEHUB_CONSOLE_ORIGIN=https://console.example.com`.")
     const missing = await loadConsoleOAuthClient(consoleOrigin, async () => new Response("Not found", { status: 404 }))
     expect("problem" in missing && missing.problem.title).toBe("This Console cannot sign in with OAuth")
   })
@@ -520,6 +520,24 @@ describe("OAuth sign-in of a hosted Console", () => {
     return { ...context, authorizationUrl, code, state }
   }
 
+  it("stays on the page when the person closed the dialog before the sign-in started", async () => {
+    const context = await hosted(fakeApp())
+    await context.session.linkConsoleProject("app.example.com")
+    const closed = new AbortController()
+    closed.abort()
+    await expect(context.session.startConsoleOAuthSignIn(app, resourceMetadata, closed.signal)).rejects.toThrow()
+    // Also when the dialog closes while the PKCE challenge is hashed, the last step before the redirect.
+    const hashing = new AbortController()
+    const digest = crypto.subtle.digest.bind(crypto.subtle)
+    const spy = vi.spyOn(crypto.subtle, "digest").mockImplementation(async (...args) => {
+      hashing.abort()
+      return digest(...args)
+    })
+    await expect(context.session.startConsoleOAuthSignIn(app, resourceMetadata, hashing.signal)).rejects.toThrow()
+    spy.mockRestore()
+    expect(context.navigate).not.toHaveBeenCalled()
+  })
+
   it("does not start a sign-in when the browser storage would not survive the redirect", async () => {
     const server = fakeApp()
     vi.stubGlobal("fetch", server.fetch)
@@ -530,7 +548,7 @@ describe("OAuth sign-in of a hosted Console", () => {
       session.startConsoleProjects({ ...options, ...blocked })
       expect(await session.startConsoleOAuthSignIn(app, resourceMetadata)).toEqual({
         title: "This browser blocks site data",
-        message: "Allow site data for console.example.com to sign in, or use auth: \"token\" in the project.",
+        message: "Allow site data for console.example.com to sign in, or use `auth: \"token\"` in the project.",
       })
     }
     expect(navigate).not.toHaveBeenCalled()

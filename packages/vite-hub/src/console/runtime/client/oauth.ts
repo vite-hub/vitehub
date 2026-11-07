@@ -142,7 +142,7 @@ export interface ConsoleOAuthClient {
 export async function loadConsoleOAuthClient(pageOrigin: string, request: ConsoleOAuthFetch): Promise<{ client: ConsoleOAuthClient } | { problem: ConsoleProjectProblem }> {
   const clientId = `${pageOrigin}${consoleOAuthClientPath}`
   const redirectUri = `${pageOrigin}${consoleOAuthCallbackPath}`
-  const missing = { title: "This Console cannot sign in with OAuth", message: `${pageOrigin} has no client document at ${consoleOAuthClientPath}. Build the Console with build:console-hosted and VITEHUB_CONSOLE_ORIGIN=${pageOrigin}, and serve the whole build output.` }
+  const missing = { title: "This Console cannot sign in with OAuth", message: `${pageOrigin} has no client document at ${consoleOAuthClientPath}. Build the Console with \`build:console-hosted\` and \`VITEHUB_CONSOLE_ORIGIN=${pageOrigin}\`, and serve the whole build output.` }
   let document: unknown
   try {
     const response = await request(clientId, { cache: "no-store", credentials: "omit" })
@@ -156,7 +156,7 @@ export async function loadConsoleOAuthClient(pageOrigin: string, request: Consol
   const redirects: unknown = field(document, "redirect_uris")
   if (named !== clientId || !Array.isArray(redirects) || !redirects.includes(redirectUri)) {
     const built = named ? new URL(named).origin : "another origin"
-    return { problem: { title: "This Console was built for another origin", message: `Its client document names ${built}, but this page runs on ${pageOrigin}. Build the Console again with VITEHUB_CONSOLE_ORIGIN=${pageOrigin}.` } }
+    return { problem: { title: "This Console was built for another origin", message: `Its client document names ${built}, but this page runs on ${pageOrigin}. Build the Console again with \`VITEHUB_CONSOLE_ORIGIN=${pageOrigin}\`.` } }
   }
   return { client: { clientId, redirectUri } }
 }
@@ -196,7 +196,7 @@ export async function discoverConsoleOAuth(
   context: { consoleOrigin: string, fetch: ConsoleOAuthFetch },
 ): Promise<{ discovery: ConsoleOAuthDiscovery } | { problem: ConsoleProjectProblem }> {
   const host = `${new URL(target.origin).host}${target.base}`
-  const unreachable = { title: `Cannot read the sign-in settings of ${host}`, message: `${context.consoleOrigin} must be in console.origins for ${host}. Add it and redeploy. The project may also be offline.` }
+  const unreachable = { title: `Cannot read the sign-in settings of ${host}`, message: `${host} did not send its sign-in settings. If the app is online, add ${context.consoleOrigin} to its \`console.origins\` and redeploy.` }
   const metadataUrl = endpoint(resourceMetadata)
   if (!metadataUrl) return { problem: { title: `${host} sent an invalid sign-in challenge`, message: "Its resource_metadata is not an https:// URL. Update vite-hub in the project." } }
   let resourceDocument: unknown
@@ -214,7 +214,7 @@ export async function discoverConsoleOAuth(
   const servers: unknown = field(resourceDocument, "authorization_servers")
   // The issuer must match the server metadata exactly (RFC 8414), so it keeps the form of the document.
   const issuer = Array.isArray(servers) ? text(servers[0]) : undefined
-  if (!issuer || !endpoint(issuer)) return { problem: { title: `${host} names no sign-in server`, message: "Its protected resource metadata has no https:// authorization server. Add consoleMcpOAuth() to the app Auth." } }
+  if (!issuer || !endpoint(issuer)) return { problem: { title: `${host} names no sign-in server`, message: "Its protected resource metadata has no https:// authorization server. Add `consoleMcpOAuth()` to the app Auth." } }
   let serverDocument: unknown
   try {
     serverDocument = await readJson(context.fetch, consoleAuthorizationServerMetadataUrl(issuer))
@@ -226,7 +226,7 @@ export async function discoverConsoleOAuth(
   const tokenEndpoint = endpoint(field(serverDocument, "token_endpoint"))
   const revocationEndpoint = endpoint(field(serverDocument, "revocation_endpoint"))
   if (text(field(serverDocument, "issuer")) !== issuer || !authorizationEndpoint || !tokenEndpoint) {
-    return { problem: { title: `The sign-in server of ${host} does not match`, message: `Its metadata does not name ${issuer} as the issuer with an authorization and a token endpoint. Check the issuer of consoleMcpOAuth().` } }
+    return { problem: { title: `The sign-in server of ${host} does not match`, message: `Its metadata does not name ${issuer} as the issuer with an authorization and a token endpoint. Check the issuer of \`consoleMcpOAuth()\`.` } }
   }
   const methods: unknown = field(serverDocument, "code_challenge_methods_supported")
   if (!Array.isArray(methods) || !methods.includes("S256")) {
