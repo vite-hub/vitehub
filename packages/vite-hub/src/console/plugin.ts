@@ -85,6 +85,8 @@ export interface ConsoleAccessBuild {
   signInPage?: string
   /** `console.origins`, for `token` mode only: the browser origins that may call the data routes with the token. */
   origins?: readonly string[]
+  /** `console.sections`: the sections that the app leaves out of its Console. */
+  hiddenSections?: readonly ConsoleSectionId[]
 }
 
 interface ConsoleRuntimeCapabilityImport {
@@ -201,6 +203,7 @@ function renderConsoleNitroPlugin(
   const accessCode = renderConsoleAccess(access)
   const operations = (catalog.operations ?? []).map(contribution => ({ ...contribution, module: consoleRuntimeReaderModule(contribution.module) }))
   const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
+    .filter(section => !access?.hiddenSections?.includes(section))
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
   const definitions = agents.map((agent, index) => {
