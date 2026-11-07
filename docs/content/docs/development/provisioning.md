@@ -164,6 +164,45 @@ An action with `update` changes an existing resource. It has `exists: true` and 
 Both commands exit with code `0` when the plan phase succeeds, also when actions are pending.
 For `provision status --json`, require `plan.checked === true` before checking `plan.pending === 0` to gate a CI step. An unchecked plan can have zero pending actions because resource lookups were skipped.
 
+## Preview deployments share data
+
+Provision creates one resource for each resource name. A preview deployment that binds the same resource reads and writes the same rows, keys, objects, and messages as production.
+
+| Host | What a preview uses by default | Source |
+| --- | --- | --- |
+| Cloudflare Version URLs | The production resources of that Worker version: the same D1 databases, KV namespaces, R2 buckets, and Queues. | [Compare workflows](https://developers.cloudflare.com/workers/previews/compare-workflows/) |
+| Cloudflare Previews | Only the bindings in the `previews` block of the Wrangler config. ViteHub does not write that block for its bindings. Two Previews bound to the same D1 `database_id`, KV `id`, R2 `bucket_name`, or queue name share its data. | [Previews configuration](https://developers.cloudflare.com/workers/previews/configuration/), [Resources and isolation](https://developers.cloudflare.com/workers/previews/resources/) |
+| Vercel preview deployments | The Blob store that is connected to the project in the Preview environment. `vitehub provision run --provider vercel` connects its store to Production, Preview, and Development. | [Connecting a store to your projects](https://vercel.com/docs/vercel-blob#connecting-a-store-to-your-projects) |
+
+How you isolate a preview depends on how you deploy it.
+
+**Cloudflare Previews.** Previews never read the top-level bindings that ViteHub writes, so changing ViteHub config or env does not move them. Declare preview resources in the `previews` block of the project Wrangler config: `previews.d1_databases`, `previews.kv_namespaces`, `previews.r2_buckets`, and `previews.queues.producers`, with the same binding names as production. Cloudflare does not accept Queue consumers in `previews`. Point them at staging or test resources, never at production ids. ViteHub does not write this block. After a build, check that the generated config still has it with `vitehub inspect provider-output --json`.
+
+For D1, apply migrations before deploying the Preview. Create `wrangler.preview-migrations.jsonc` with a top-level `d1_databases` entry whose `database_name` and `database_id` match the Preview binding. Give it the binding name `PREVIEW_DB`, set `migrations_dir` to the Definition's migration directory relative to this file, and copy `migrations_table` if configured. Run `pnpm exec wrangler d1 migrations apply PREVIEW_DB --remote --config wrangler.preview-migrations.jsonc`. ViteHub stages migrations for its generated top-level binding, so use this separate config to target the Preview database. Read [Cloudflare's D1 migration procedure](https://developers.cloudflare.com/workers/previews/resources/#d1-migrations).
+
+**A preview Worker of its own.** When a preview deploys as a separate Worker, ViteHub's top-level bindings are the ones it uses. Give that build its own resource names through env, and provision them in the same job:
+
+| Resource | Set a preview name or id with |
+| --- | --- |
+| D1 | `cloudflare.databaseName` as an Env declaration, for example `env({ source: env.source('D1_DATABASE_NAME') })` |
+| Workers KV | `KV_NAMESPACE_ID`, or a separate `namespaceName` with both `namespaceId` and `KV_NAMESPACE_ID` unset |
+| R2 | `BLOB_BUCKET_NAME` |
+| Cloudflare Queues | `queue.namePrefix` |
+
+For D1, leave `cloudflare.databaseId` unset to use the provisioned id, or set it to the preview id directly or through an Env declaration. A configured `cloudflare.databaseId` takes precedence over provision state; changing only `cloudflare.databaseName` does not override it.
+
+The env values are fallbacks: a store's configured `namespaceId` takes precedence over `KV_NAMESPACE_ID`, and its configured `bucketName` takes precedence over `BLOB_BUCKET_NAME`. Leave those config fields unset to use the fallbacks, or explicitly configure them with the preview resources instead of production resources.
+
+The [live smoke workflow](https://github.com/vite-hub/vitehub/blob/main/.github/workflows/live-smoke.yml) works this way: it sets `VITEHUB_CLOUDFLARE_WORKER_NAME`, `BLOB_BUCKET_NAME`, and `VITEHUB_KV_NAMESPACE_NAME` to scratch resource names for each run before provisioning and building its own Worker.
+
+A Version URL of the production Worker uses the bindings of that version. Do not use it to test writes.
+
+**Vercel preview deployments.** Connect one store to the project in Production and a second store in Preview, in the Vercel dashboard.
+
+`.vitehub/provision.json` keys D1 and KV ids by Definition or store name, not by stage. A preview provision run in the same checkout replaces the production ids. Run it in its own CI job or checkout, and check the recorded ids with `vitehub provision status` before you deploy.
+
+`provision run --provider vercel` expects one store connected in all three environments. After you split the stores by environment, planning fails with `BLOB_R0020`. Manage the connections in the Vercel dashboard and do not run Vercel provisioning for that project.
+
 ## Resources without provisioning
 
 Provision creates only resources that a provider requires before first use. These providers need no ViteHub Provision Step:
