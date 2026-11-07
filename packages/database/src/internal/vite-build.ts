@@ -5,13 +5,15 @@ import { readProvisionedId } from "@vite-hub/internal/provision-state"
 import { resolve } from "pathe"
 
 import { resolveConfigValue } from "../config-value.ts"
-import { isStaticD1HttpDefinition, serializeGeneratedRegistry } from "../config.ts"
+import { isImplicitDefaultDatabase, isStaticD1HttpDefinition, serializeGeneratedRegistry } from "../config.ts"
+import { implicitDefaultDatabaseContributions } from "../contributions.ts"
 import { resolveCloudflareD1Bindings } from "./cloudflare.ts"
 import { renderDatabaseRuntimeModule } from "./runtime-module.ts"
 import { renderDatabaseConfigExpression, renderPostgresDatabaseExpression, usesPostgres, usesSqlite } from "./runtime-config-expression.ts"
 
 import type { ProvisionState } from "@vite-hub/internal/provision"
-import type { DatabaseConfigValue, ResolvedDBViteConfig } from "../types.ts"
+import type { CollectedDatabaseContributions } from "../contributions.ts"
+import type { DatabaseConfigValue, ResolvedDBViteConfig, ResolvedDrizzleDatabaseConfig } from "../types.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
 export const dbPackageName = "@vite-hub/database"
@@ -155,6 +157,30 @@ function getVercelUnsupportedDatabases(runtimeConfig: ResolvedDBViteConfig) {
     return !hasD1Http
       && !isRemoteLibsqlConnectionUrl(database?.connection?.url)
   })
+}
+
+/**
+ * Fails a Cloudflare build for a SQLite Definition without `cloudflare` options. It names no D1 database, so no D1 binding
+ * is written for it and the Worker has no database to query. The implicit default Database is checked only when a
+ * contributed table or use needs it: an app can enable `database` and never query it.
+ */
+export function assertDefinitionD1Resources(runtimeConfig: ResolvedDBViteConfig, contributions: CollectedDatabaseContributions) {
+  const implicitDefaultUsed = implicitDefaultDatabaseContributions(contributions).length > 0
+  const databases = runtimeConfig.definitions.filter((definition) => {
+    const database = runtimeConfig.databases[definition.name]!
+    return (implicitDefaultUsed || !isImplicitDefaultDatabase(definition)) && database.dialect === "sqlite" && !database.cloudflare && !hasRemoteDefinitionRuntime(database)
+  }).map(definition => definition.name)
+  if (!databases.length) return
+  // The implicit default Database has no Definition file, so it takes its D1 resource from the module options.
+  const options = runtimeConfig.definitions.some(isImplicitDefaultDatabase) ? "database" : "cloudflare"
+  throw databaseErrorDiagnostics.DATABASE_MISSING_D1_RESOURCE({ databases, missing: `\`${options}.databaseName\`, and \`${options}.databaseId\` or provision state,` })
+}
+
+/** Reports whether a Definition reaches its database over the network: D1 HTTP or a remote libSQL URL. */
+export function hasRemoteDefinitionRuntime(database: ResolvedDrizzleDatabaseConfig) {
+  if (database.cloudflare?.http) return true
+  const url = resolveConfigValue(database.connection?.url)
+  return typeof url === "string" && /^(?:libsql:|https?:\/\/|wss?:\/\/)/i.test(url)
 }
 
 /** Reports whether the hosted runtime module can serve every configured database on the provider. */

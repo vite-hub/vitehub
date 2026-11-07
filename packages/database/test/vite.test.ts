@@ -193,6 +193,66 @@ describe("hubDb", () => {
     expect(vercelNitro.options.cloudflare).toBeUndefined()
   })
 
+  async function buildStartForCloudflare(plugin: ReturnType<typeof hubDb>, rootDir: string, plugins: unknown[] = [], command = "build") {
+    await resolveConfigResolved(plugin)({ build: { outDir: "dist" }, command, nitro: { preset: "cloudflare-module" }, plugins: [{ name: "nitro:main" }, ...plugins], root: rootDir })
+    // SAFETY: hubDb exposes buildStart as a callable Vite hook.
+    return () => Reflect.apply(plugin.buildStart as () => void, { environment: {} }, [])
+  }
+
+  it.each(["default", "orders"])("rejects D1 Definition %s without cloudflare options when Vite builds for Cloudflare", async (name) => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, name === "default" ? "server/databases/config.ts" : `server/databases/${name}/config.ts`)
+    // `vitehub({ preset: "cloudflare", database: true })` passes this to the Database plugin.
+    const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir)
+
+    expect(buildStart).toThrow(expect.objectContaining({
+      code: "DATABASE_MISSING_D1_RESOURCE",
+      why: expect.stringContaining("`cloudflare.databaseName`"),
+    }))
+  })
+
+  it.each([
+    { name: "a D1 binding", cloudflare: "databaseId: 'database-id', databaseName: 'database-name',", connection: undefined, provisioned: false },
+    { name: "a provisioned D1 database", cloudflare: "databaseName: 'database-name',", connection: undefined, provisioned: true },
+    { name: "D1 HTTP", cloudflare: "databaseId: 'database-id', http: true,", connection: undefined, provisioned: false },
+    { name: "remote libSQL", cloudflare: undefined, connection: "url: 'libsql://database.example',", provisioned: false },
+  ])("builds a Cloudflare D1 Definition with $name", async ({ cloudflare, connection, provisioned }) => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare, connection })
+    if (provisioned) {
+      await mkdir(join(rootDir, ".vitehub"), { recursive: true })
+      await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({ cloudflare: { d1: { default: "provisioned-database-id" } } }))
+    }
+    const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir)
+
+    expect(buildStart).not.toThrow()
+  })
+
+  it("does not check D1 resources in Vite development or on other hosts", async () => {
+    const rootDir = await createTempProject()
+    await writeDefinition(rootDir, "server/databases/config.ts")
+
+    expect(await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir, [], "serve")).not.toThrow()
+    const plugin = hubDb()
+    await resolveConfigResolved(plugin)({ build: { outDir: "dist" }, command: "build", nitro: { preset: "node-server" }, plugins: [{ name: "nitro:main" }], root: rootDir })
+    // SAFETY: hubDb exposes buildStart as a callable Vite hook.
+    expect(() => Reflect.apply(plugin.buildStart as () => void, { environment: {} }, [])).not.toThrow()
+  })
+
+  it.each([
+    ["no use", undefined],
+    ["a Database use", { name: "@vite-hub/connections/vite", vitehub: { databases: () => [{ database: "default", name: "connections", reason: "Stores Connection grants." }] } }],
+  ])("checks the implicit default D1 Database in a Vite build only when a plugin needs it: %s", async (_case, use) => {
+    const rootDir = await createTempProject()
+    const buildStart = await buildStartForCloudflare(hubDb({ driver: "d1" }), rootDir, use ? [use] : [])
+    if (!use) return expect(buildStart).not.toThrow()
+
+    expect(buildStart).toThrow(expect.objectContaining({
+      code: "DATABASE_MISSING_D1_RESOURCE",
+      why: expect.stringContaining("`database.databaseName`"),
+    }))
+  })
+
   it("keeps one D1 binding when the project's wrangler.json also declares it", { timeout: 30_000 }, async () => {
     const rootDir = await createTempProject()
     await writeDefinition(rootDir, "server/databases/config.ts", "notes", { cloudflare: "binding: 'DB', databaseName: 'app', databaseId: 'database-id'," })
