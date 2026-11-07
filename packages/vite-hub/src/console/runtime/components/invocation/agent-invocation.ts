@@ -1126,6 +1126,92 @@ function renderActivityGroup(
   ]);
 }
 
+const tokenFormat = new Intl.NumberFormat("en");
+
+/** A USD amount with cents, and up to four decimals below one dollar so a small run does not read as $0.00. */
+function formatUsd(usd: string): string {
+  const value = Number(usd);
+  return new Intl.NumberFormat("en", {
+    currency: "USD",
+    maximumFractionDigits: value > 0 && value < 1 ? 4 : 2,
+    minimumFractionDigits: 2,
+    style: "currency",
+  }).format(value);
+}
+
+/**
+ * Tokens and cost of the session. The cost shows only when the run recorded one. An estimate names where its prices
+ * come from, such as models.dev.
+ */
+function inspectorUsage(
+  usage: AgentInvocationView["usage"],
+  partition: AgentInvocationView["usage"],
+  totalTokens: number | undefined,
+) {
+  const cost = usage?.cost;
+  const usd = cost?.usd !== undefined && Number.isFinite(Number(cost.usd)) ? cost.usd : undefined;
+  // A record without a decimal amount can still carry the text that its runtime formatted, such as "~$0.02".
+  const costText = usd === undefined ? cost?.display || undefined : formatUsd(usd);
+  const rows = ([
+    ["Input", partition?.inputTokens],
+    ["Cached input", partition?.cachedInputTokens],
+    ["Cache writes", partition?.cacheWriteTokens],
+    ["Output", partition?.outputTokens],
+    ["Reasoning", partition?.reasoningTokens],
+  ] as const).flatMap(([label, value]) => value === undefined ? [] : [h("div", [h("dt", label), h("dd", tokenFormat.format(value))])]);
+  if (costText === undefined && totalTokens === undefined && !rows.length) return null;
+  const costNote = cost?.estimated === true
+    ? `Estimated${cost.source && cost.source !== "provider" ? ` from ${cost.source}` : ""}`
+    : cost?.estimated === false ? "Reported by the provider" : undefined;
+  return inspectorSection("Usage", h("div", { class: "vh-invocation-inspector__usage", "data-slot": "invocation-usage" }, [
+    h("div", { class: "vh-invocation-inspector__usage-totals" }, [
+      costText === undefined ? null : h("div", [
+        h("span", "Cost"),
+        h("strong", usd === undefined ? {} : { title: `$${usd}` }, costText),
+        costNote ? h("small", costNote) : null,
+      ]),
+      totalTokens === undefined ? null : h("div", [
+        h("span", "Tokens"),
+        h("strong", tokenFormat.format(totalTokens)),
+      ]),
+    ]),
+    rows.length ? h("dl", { class: "vh-invocation-inspector__usage-rows" }, rows) : null,
+  ]));
+}
+
+/** Skills that the harness offered the Agent. A long list starts folded. */
+function inspectorSkills(skills: readonly { description?: string; name: string; source?: string }[]) {
+  const list = h("ul", { class: "vh-invocation-inspector__entries" }, skills.map(skill => h("li", { key: skill.name, title: skill.description }, [
+    h("code", skill.name),
+    skill.source ? h("small", skill.source) : null,
+    skill.description ? h("p", skill.description) : null,
+  ])));
+  const count = `${skills.length} offered`;
+  return skills.length > 6
+    ? inspectorDisclosure("Skills", count, list)
+    : h("div", { class: "vh-invocation-inspector__group" }, [
+        h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "Skills"), h("small", count)]),
+        list,
+      ]);
+}
+
+/** MCP servers that the harness connected, with the status it recorded. */
+function inspectorMcpServers(servers: readonly { name: string; status?: string }[]) {
+  return h("div", { class: "vh-invocation-inspector__group" }, [
+    h("div", { class: "vh-invocation-inspector__group-heading" }, [h("strong", "MCP servers"), h("small", servers.length)]),
+    h("ul", { class: "vh-invocation-inspector__entries" }, servers.map(server => h("li", { key: server.name }, [
+      h("code", server.name),
+      server.status ? h("small", { "data-status": server.status }, server.status) : null,
+    ]))),
+  ]);
+}
+
+/** Recorded entries with a string `name`. The configuration is untrusted JSON. */
+function namedEntries<T extends { name: string }>(value: unknown): T[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is T => entry instanceof Object && hasRuntimeType(Reflect.get(entry, "name"), "string") && Reflect.get(entry, "name") !== "");
+}
+
 function inspectorSection(title: string, body: ReturnType<typeof h>) {
   return h("section", [h("h4", title), body]);
 }
@@ -1312,6 +1398,8 @@ function renderConfiguration(
     truncated: configuration.truncated || tools.length !== recordedTools.length || channelsCatalogMalformed
       || channels.length !== recordedChannels.length,
   };
+  const skills = namedEntries<{ description?: string; name: string; source?: string }>(configuration.skills);
+  const mcpServers = namedEntries<{ name: string; status?: string }>(configuration.mcpServers);
   const driver = driverLabel(configuration);
   const workspace = workspaceLabel(configuration);
   const setup = [
@@ -1367,6 +1455,8 @@ function renderConfiguration(
     configuration.tools?.some(tool => !showCapabilities || !configuration.capabilities?.some(capability => capability.id === tool.capabilityId))
       ? inspectorTools(configuration.tools.filter(tool => !showCapabilities || !configuration.capabilities?.some(capability => capability.id === tool.capabilityId)), invocationToolUsage(invocation), selectTool)
       : null,
+    skills.length ? inspectorSkills(skills) : null,
+    mcpServers.length ? inspectorMcpServers(mcpServers) : null,
     configuration.instructions?.length
       ? inspectorDisclosure(
           "Instructions",
@@ -1939,25 +2029,9 @@ const agentInvocationInspector = defineComponent({
                 metrics.value.changes
                   ? h("div", [h("dt", "Changes"), h("dd", metrics.value.changes)])
                   : null,
-                inspectorRow("Tokens", (props.invocation.usage?.totalTokens ?? metrics.value.tokens) === undefined
-                  ? "Unknown"
-                  : new Intl.NumberFormat("en").format((props.invocation.usage?.totalTokens ?? metrics.value.tokens)!)),
-                // The runtime display already starts with ~ when the cost is estimated, so the label carries the qualifier.
-                inspectorRow(
-                  usage?.cost?.estimated === true ? "Estimated cost" : usage?.cost?.estimated === false ? "Reported cost" : "Cost",
-                  usage?.cost?.display || "Unknown",
-                ),
-                ...([
-                  ["Input", partition?.inputTokens],
-                  ["Output", partition?.outputTokens],
-                  ["Cached", partition?.cachedInputTokens],
-                  ["Cache writes", partition?.cacheWriteTokens],
-                  ["Reasoning", partition?.reasoningTokens],
-                ] as const).flatMap(([label, value]) => value === undefined
-                  ? []
-                  : [inspectorRow(label, new Intl.NumberFormat("en").format(value))]),
               ]),
             ),
+            inspectorUsage(usage, partition, usage?.totalTokens ?? metrics.value.tokens),
             props.showTimeline
               ? traceTimeline(props.invocation, id => emit("selectActivity", id))
               : null,

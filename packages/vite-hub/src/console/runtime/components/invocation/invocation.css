@@ -2789,3 +2789,117 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
     transform: none;
   }
 }
+
+/* Usage: the cost and the token total lead as numbers, the token types follow as quiet rows. */
+.vh-invocation-inspector__usage {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.vh-invocation-inspector__usage-totals {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+}
+
+.vh-invocation-inspector__usage-totals > div {
+  align-content: start;
+  display: grid;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.vh-invocation-inspector__usage-totals span {
+  color: var(--vh-dimmed);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+.vh-invocation-inspector__usage-totals strong {
+  color: var(--vh-highlighted, var(--vh-text));
+  font-size: 1.25rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.75rem;
+}
+
+.vh-invocation-inspector__usage-totals small {
+  color: var(--vh-dimmed);
+  font-size: 0.6875rem;
+  line-height: 1.4;
+}
+
+.vh-invocation-inspector__usage-rows {
+  display: grid;
+  margin: 0;
+}
+
+.vh-invocation-inspector__usage-rows > div {
+  align-items: baseline;
+  border-block-start: 1px solid color-mix(in oklab, var(--vh-border) 60%, transparent);
+  display: flex;
+  justify-content: space-between;
+  min-height: 1.75rem;
+  padding-block: 0.3rem;
+}
+
+.vh-invocation-inspector__usage-rows dt {
+  color: var(--vh-muted);
+  font-size: 0.75rem;
+}
+
+.vh-invocation-inspector__usage-rows dd {
+  color: var(--vh-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  margin: 0;
+}
+
+/* Skills and MCP servers: one row each, the name first. */
+.vh-invocation-inspector__entries {
+  display: grid;
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+}
+
+.vh-invocation-inspector__entries > li {
+  align-items: baseline;
+  column-gap: 0.5rem;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 1.75rem;
+  padding-block: 0.25rem;
+}
+
+.vh-invocation-inspector__entries code {
+  color: var(--vh-text);
+  font-size: 0.75rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vh-invocation-inspector__entries small {
+  color: var(--vh-dimmed);
+  font-size: 0.6875rem;
+}
+
+.vh-invocation-inspector__entries small[data-status="connected"] {
+  color: var(--vh-success, var(--ui-success));
+}
+
+.vh-invocation-inspector__entries small[data-status="failed"] {
+  color: var(--vh-error);
+}
+
+.vh-invocation-inspector__entries p {
+  color: var(--vh-dimmed);
+  font-size: 0.6875rem;
+  grid-column: 1 / -1;
+  line-height: 1.4;
+  margin: 0;
+}

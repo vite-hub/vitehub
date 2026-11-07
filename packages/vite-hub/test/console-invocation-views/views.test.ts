@@ -4166,7 +4166,7 @@ describe("Agent Invocation UI", () => {
       updatedAt: "2026-09-08T00:01:00.000Z",
       usage: { totalTokens: 59222, inputTokens: 21267, outputTokens: 118, cachedInputTokens: 20352, cacheWriteTokens: 100 },
     } } });
-    const summary = wrapper.get(".vh-invocation-inspector__metrics").text();
+    const summary = wrapper.get(".vh-invocation-inspector__usage").text();
     expect(summary).toContain("Tokens59,222");
     expect(summary).not.toContain("Input");
     expect(summary).not.toContain("Output");
@@ -4187,9 +4187,9 @@ describe("Agent Invocation UI", () => {
         cost: { display: "$0.01", estimated, source: estimated ? "pricing" : "provider" },
       },
     } } });
-    const summary = wrapper.get(".vh-invocation-inspector__metrics").text();
+    const summary = wrapper.get(".vh-invocation-inspector__usage").text();
     expect(summary).toContain("Cache writes1,024");
-    expect(summary).toContain(`${estimated ? "Estimated" : "Reported"} cost$0.01`);
+    expect(summary).toContain(`Cost$0.01${estimated ? "Estimated from pricing" : "Reported by the provider"}`);
   });
 
   it("groups recorded Agent Definition details as captured setup", () => {
@@ -4236,14 +4236,15 @@ describe("Agent Invocation UI", () => {
     invocation.usage = { totalTokens: 1200, inputTokens: 1100, outputTokens: 100, cachedInputTokens: 0, cacheWriteTokens: 0 };
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
 
-    const summary = wrapper.get(".vh-invocation-inspector__metrics").text();
+    const summary = wrapper.get(".vh-invocation-inspector__usage").text();
     expect(summary).toContain("Tokens1,200");
     expect(summary).toContain("Input1,100");
     expect(summary).toContain("Output100");
-    expect(summary).toContain("Cached0");
+    expect(summary).toContain("Cached input0");
     expect(summary).toContain("Cache writes0");
     expect(summary).not.toContain("Reasoning");
-    expect(summary).toContain("CostUnknown");
+    // A run without a recorded cost shows no cost, not "Unknown".
+    expect(summary).not.toContain("Cost");
 
     expect(wrapper.get(".vh-invocation-inspector__group--execution").text()).toContain("GPT 5.6 Sol");
     expect(wrapper.get(".vh-invocation-inspector__content").text()).toContain("OpenAI");
@@ -4297,9 +4298,9 @@ describe("Agent Invocation UI", () => {
       configuration: { capabilities: [{ id: "files" }], tools: [{ capabilityId: "files", name: "read_file" }] },
     };
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(wrapper.get(".vh-invocation-inspector__metrics").text()).toContain("1,234");
-    expect(wrapper.get(".vh-invocation-inspector__metrics").text()).toContain("Estimated cost~$0.02");
-    expect(wrapper.get(".vh-invocation-inspector__metrics").text()).not.toContain("(estimated)");
+    expect(wrapper.get(".vh-invocation-inspector__usage").text()).toContain("1,234");
+    expect(wrapper.get(".vh-invocation-inspector__usage").text()).toContain("Cost~$0.02Estimated");
+    expect(wrapper.get(".vh-invocation-inspector__usage").text()).not.toContain("(estimated)");
     expect(wrapper.text()).not.toContain("Capabilities");
     expect(wrapper.get(".vh-agent-tool-list").text()).toContain("read_file");
     expect(mount(AgentInvocationInspector, { props: { invocation, showCapabilities: true } }).text()).toContain("Capabilities");
