@@ -3,7 +3,7 @@ import { isPlainObject } from "@vite-hub/internal/object"
 import { resolveConfigValue, withConfigValueFallback } from "../config-value.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
 
-import type { CloudflareD1BindingConfig, CloudflareD1Projection, DatabaseConfigValue, DBModulePublicOptions, ResolvedDBViteConfig } from "../types.ts"
+import type { CloudflareD1BindingConfig, CloudflareD1Projection, DatabaseConfigValue, DBModulePublicOptions, ResolvedDBViteConfig, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 
 export function cloudflareOptions(
   options: DBModulePublicOptions | undefined,
@@ -67,6 +67,18 @@ export function resolveRuntimeCloudflareConfig(
   if (inheritsResource || options.resource !== "opaque") config.databaseId = withConfigValueFallback(config.databaseId, options.provisionedId)
   if (options.migrationsDir) config.migrationsDir = options.migrationsDir
   return config
+}
+
+/**
+ * Applies the `vite dev` switch between local SQLite and the real D1 database. A Database is remote when its
+ * Definition sets `remote: true` or its D1 config sets `cloudflare.http`. A remote Database queries D1 over HTTP,
+ * with `http: true` unless the config names a proxy. Only modules generated for `vite dev` call this.
+ */
+export function resolveDevRemoteConfig<TConfig extends RuntimeDrizzleDatabaseConfig>(config: TConfig, remote: boolean | undefined): TConfig {
+  const http = config.cloudflare?.http
+  if (remote === false && http) throw databaseErrorDiagnostics.DATABASE_REMOTE_CONFLICT({ database: config.name })
+  if (remote !== true && !http) return config
+  return { ...config, cloudflare: { ...config.cloudflare, http: http ?? true }, remote: true }
 }
 
 interface CloudflareD1ProvisionState {

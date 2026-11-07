@@ -12,6 +12,8 @@ Enable and protect the [Console](/docs/development/console). The section id for 
 
 `console: { auth: false }` is for development. A production build with it fails. Use `auth: 'app'`, or `auth: 'token'` with `VITEHUB_CONSOLE_TOKEN_SHA256`: create a token with `openssl rand -hex 32` and store `printf %s "$TOKEN" | sha256sum`. A production build serves the Auth section pages only with `console.embed: true`. Without it, open the app in the hosted Console at `https://console.vitehub.dev`.
 
+With [`console: { auth: 'token' }`](/docs/development/console#use-a-console-token), a token caller can read the Auth section. It has no session, so it cannot make changes that need one, and it can never start or stop impersonation. Auth management also accepts a token call from an origin in [`console.origins`](/docs/development/console#call-the-console-from-another-origin). Cookies never authorize such a call.
+
 ## Pages
 
 - **Overview** is the section index. It shows users, new users in the last seven days, active sessions, and approved agents when the OAuth provider plugin is enabled. With events enabled, it adds active users in the last seven days, daily sign-ins and sign-ups for 30 UTC days, sign-in methods, and the eight latest events.
