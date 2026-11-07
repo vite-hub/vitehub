@@ -56,6 +56,13 @@ export interface ConsolePendingLinkLocks {
   request<T>(name: string, run: () => Promise<T>): Promise<T>
 }
 
+/** Pending links must stay durable across tabs and reloads, even when project storage falls back to memory. */
+export class ConsolePendingLinkStorageError extends Error {
+  constructor() {
+    super("Pending links need persistent browser storage.")
+  }
+}
+
 const pendingIdPattern = /^[\w-]{8,64}$/
 
 function base64url(bytes: Uint8Array): string {
@@ -101,17 +108,21 @@ function parseStoredLinks(raw: string | null): ConsolePendingLink[] {
 export function createConsolePendingLinkStore(storage: ConsoleProjectStorage, options: { now?: () => number } = {}): ConsolePendingLinkStore {
   const now = options.now ?? Date.now
   const isExpired = (link: ConsolePendingLink, time: number): boolean => time - link.createdAt > consolePendingLinkLifetime || link.createdAt > time + 60_000
-  const read = (): ConsolePendingLink[] => {
+  const persistent = (): boolean => storage.persistent !== false
+  const access = <T>(run: () => T): T => {
     try {
-      return parseStoredLinks(storage.getItem(consolePendingLinksStorageKey))
+      if (!persistent()) throw new ConsolePendingLinkStorageError()
+      const result = run()
+      // The browser adapter can accept a failed write only in memory. That cannot bind or consume a one-time link.
+      if (!persistent()) throw new ConsolePendingLinkStorageError()
+      return result
     }
     catch {
-      return []
+      throw new ConsolePendingLinkStorageError()
     }
   }
-  const write = (links: ConsolePendingLink[]): void => {
-    storage.setItem(consolePendingLinksStorageKey, JSON.stringify(links))
-  }
+  const read = (): ConsolePendingLink[] => access(() => parseStoredLinks(storage.getItem(consolePendingLinksStorageKey)))
+  const write = (links: ConsolePendingLink[]): void => access(() => storage.setItem(consolePendingLinksStorageKey, JSON.stringify(links)))
   return {
     async create() {
       const time = now()

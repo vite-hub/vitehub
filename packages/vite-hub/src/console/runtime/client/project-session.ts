@@ -19,7 +19,7 @@ import {
   parseConsoleOAuthCallback,
   revokeConsoleOAuthTokens,
 } from "./oauth"
-import { consolePendingLinksStorageKey, createConsolePendingLinkStore, parseConsoleLinkFragment } from "./pending-links"
+import { ConsolePendingLinkStorageError, consolePendingLinksStorageKey, createConsolePendingLinkStore, parseConsoleLinkFragment } from "./pending-links"
 import { setConsoleProject } from "./project"
 import { consoleProjectProblem, probeConsoleProject } from "./project-link"
 import { useConsoleToast } from "./toast"
@@ -471,6 +471,11 @@ const pendingLinkProblems: Record<"expired" | "unknown", ConsoleProjectProblem> 
   unknown: { title: "This link cannot be used here", message: "This link was made in another browser or already used. Open the Console where you started the project, or relink." },
 }
 
+const pendingLinkStorageProblem: ConsoleProjectProblem = {
+  title: "Allow browser storage",
+  message: "The Console could not save this link safely. Allow local storage or free space, then reopen the original link and try again.",
+}
+
 /**
  * Show the `/link` page for the fragment of its URL, such as `#p=<pendingId>&url=<appOrigin>`. It sends no request: the
  * app gets the secret only after the person confirms it with `confirmConsoleLink()`.
@@ -478,8 +483,15 @@ const pendingLinkProblems: Record<"expired" | "unknown", ConsoleProjectProblem> 
 export function startConsoleLink(hash: string): ConsoleLinkRequest {
   const projects = useState()
   const parsed = parseConsoleLinkFragment(hash)
-  const lookup = parsed.kind === "confirm" ? projects.pendingLinks.lookup(parsed.pendingId).kind : "pending"
-  const request: ConsoleLinkRequest = lookup === "pending" ? parsed : { kind: "problem", problem: pendingLinkProblems[lookup] }
+  let request = parsed
+  try {
+    const lookup = parsed.kind === "confirm" ? projects.pendingLinks.lookup(parsed.pendingId).kind : "pending"
+    if (lookup !== "pending") request = { kind: "problem", problem: pendingLinkProblems[lookup] }
+  }
+  catch (error) {
+    if (!(error instanceof ConsolePendingLinkStorageError)) throw error
+    request = { kind: "problem", problem: pendingLinkStorageProblem }
+  }
   projects.gate.value = { kind: "link", request }
   return request
 }
@@ -503,7 +515,13 @@ export async function confirmConsoleLink(pendingId: string, target: ConsoleProje
   }
   // Without Web Locks, two tabs could both send the secret, so the Console sends nothing. With them, one tab at a time
   // runs the whole claim: check, bind to the target, send, check again, save, and remove.
-  return projects.pendingLinkLocks.request(`${consolePendingLinksStorageKey}:${pendingId}`, () => confirmLockedConsoleLink(projects, pendingId, target))
+  try {
+    return await projects.pendingLinkLocks.request(`${consolePendingLinksStorageKey}:${pendingId}`, () => confirmLockedConsoleLink(projects, pendingId, target))
+  }
+  catch (error) {
+    if (!(error instanceof ConsolePendingLinkStorageError)) throw error
+    return { kind: "problem", problem: pendingLinkStorageProblem, final: false }
+  }
 }
 
 async function confirmLockedConsoleLink(projects: ConsoleProjectsState, pendingId: string, target: ConsoleProjectTarget): Promise<ConsoleLinkResult> {
