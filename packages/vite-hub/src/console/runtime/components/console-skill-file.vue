@@ -57,14 +57,14 @@ const SkillLink = defineComponent({
   <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Skill file preview">
     <header class="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-2 border-b border-default px-3 py-2 sm:px-4">
       <p class="flex min-w-0 flex-1 basis-64 items-start gap-2 font-mono text-xs leading-5 text-highlighted">
-        <UIcon name="i-ph-file-text-light" class="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" />
+        <UIcon name="i-lucide-file-text" class="mt-0.5 size-4 shrink-0 text-muted" aria-hidden="true" />
         <span class="min-w-0 [overflow-wrap:anywhere]">{{ file.path }}</span>
       </p>
       <div v-if="markdown" role="group" aria-label="File view" class="flex items-center gap-1">
         <UButton label="Preview" :aria-pressed="!raw" size="xs" color="neutral" :variant="raw ? 'ghost' : 'soft'" @click="raw = false" />
         <UButton label="Source" :aria-pressed="raw" size="xs" color="neutral" :variant="raw ? 'soft' : 'ghost'" @click="raw = true" />
       </div>
-      <UButton :label="copied ? 'Copied' : 'Copy'" :icon="copied ? 'i-ph-check-light' : 'i-ph-copy-light'" aria-label="Copy file contents" size="xs" color="neutral" variant="ghost" @click="copy" />
+      <UButton :label="copied ? 'Copied' : 'Copy'" :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'" aria-label="Copy file contents" size="xs" color="neutral" variant="ghost" @click="copy" />
     </header>
     <span role="status" class="sr-only">{{ copied ? 'File contents copied' : '' }}</span>
     <p v-if="copyError" role="alert" class="px-4 pt-2 text-xs text-error">Could not copy. Select the file text to copy it.</p>

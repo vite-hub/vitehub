@@ -9,6 +9,7 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 import { findExportNames, hasCJSSyntax } from "mlly"
 import { transform } from "esbuild"
+import { normalizeRoute } from "h3"
 import { init as initCommonJS, parse as parseCommonJS } from "cjs-module-lexer"
 import { dirname, relative, resolve } from "pathe"
 
@@ -290,7 +291,7 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
     ?? (serve.authorize ? "private, no-cache" : "public, max-age=0, s-maxage=0")
   // A `:name` segment matches any one segment, like the Nitro route.
-  const routeSegments = normalizeNitroRoute(serve.route).split("/").filter(Boolean)
+  const routeSegments = normalizeRoute(normalizeNitroRoute(serve.route)).split("/").filter(Boolean)
   return [
     `import { blob, parseImageVariant } from '${importBase}'`,
     `import type { BlobStorage } from '${importBase}'`,
@@ -298,24 +299,25 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
     "",
     "type ServeContext = Exclude<Parameters<BlobStorage['serve']>[0], Request>",
+    "type RouteRequest = Request & { context?: { params?: { _?: string } } }",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
     `const routeSegments: string[] = ${JSON.stringify(routeSegments)}`,
     "",
-    "// The raw path after the serve route. A Nitro baseURL can come before the route. `serve()` decodes the path once.",
-    "function blobPathname(url: URL): string {",
+    "// Nitro exposes its exact raw catch-all on the Request, including for root routes and a baseURL.",
+    "// A direct Fetchable call has no router context and matches the configured route at the URL root.",
+    "function blobPathname(request: RouteRequest, url: URL): string {",
+    "  if (request.context?.params) return request.context.params._ ?? ''",
     "  const segments = url.pathname.split('/').slice(1)",
-    "  for (let start = 0; start + routeSegments.length < segments.length; start++) {",
-    "    if (routeSegments.every((segment, index) => segment.startsWith(':') ? Boolean(segments[start + index]) : segment === segments[start + index])) {",
-    "      return segments.slice(start + routeSegments.length).join('/')",
-    "    }",
+    "  if (routeSegments.every((segment, index) => segment.startsWith(':') ? Boolean(segments[index]) : segment === segments[index])) {",
+    "    return segments.slice(routeSegments.length).join('/')",
     "  }",
     "  return ''",
     "}",
     "",
     "async function serveBlob(request: Request): Promise<Response> {",
     "  const url = new URL(request.url)",
-    "  const pathname = blobPathname(url)",
+    "  const pathname = blobPathname(request, url)",
     "  if (!pathname) return Response.json({ error: 'Blob not found.' }, { status: 404 })",
     "  // ?w=&h=&fit=&fmt=&q=&crop= selects an image variant. Invalid values are client errors.",
     `  const options: { variant?: NonNullable<ReturnType<typeof parseImageVariant>>, cacheControl: string, headers?: Record<string, string> } = { cacheControl: ${JSON.stringify(cacheControl)}${headers ? `, headers: ${JSON.stringify(headers)}` : ""} }`,

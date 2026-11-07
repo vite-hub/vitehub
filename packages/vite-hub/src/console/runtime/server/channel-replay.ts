@@ -4,6 +4,7 @@ import { createExecutionContext, createRuntimeWaitUntilController } from "@vite-
 import { console } from "../../server.ts"
 import { getConsoleAgentCapabilities, getConsoleAgentDefinition } from "./agents.ts"
 import { consoleAccessActor, consoleRequest, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
+import { isConsoleCrossOriginBearerCall, withConsoleCors } from "./cors.ts"
 import { consoleRequestJSON, consoleRequestURL, setConsoleResponseHeaders } from "./request.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -42,7 +43,7 @@ async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleA
   if (!header(event, "content-type")?.toLowerCase().startsWith("application/json")) return replayError("Channel replay requires application/json.", 415)
   const url = consoleRequestURL(event)
   const origin = header(event, "origin")
-  if (origin && origin !== url.origin) return replayError("Channel replay origin is not allowed.", 403)
+  if (origin && origin !== url.origin && !isConsoleCrossOriginBearerCall(consoleRequest(event), access)) return replayError("Channel replay origin is not allowed.", 403)
   let body: unknown
   try {
     body = await consoleRequestJSON(event)
@@ -79,5 +80,5 @@ async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleA
   return await handleChannelReplayRequest(agent, replay, { actor, maxLimit: maximumReplayItemsPerRequest, runtime: context })
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleAccess(channelReplayHandler, { section: "agents", user: true, write: true })
+const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleCors(withConsoleAccess(channelReplayHandler, { section: "agents", user: true, write: true }))
 export default guardedHandler

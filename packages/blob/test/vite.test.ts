@@ -31,7 +31,9 @@ async function temporaryDirectory(prefix: string) {
 const execFileAsync = promisify(execFile)
 const workspaceRoot = resolve(import.meta.dirname, "../../..")
 /** Mount the generated Fetchable route like Nitro: Standard Context first, then middleware, then the route. */
-async function serveRouteRequest(artifactFile: string, routeBase = "", priorCacheControl?: string, baseURL = "") {
+async function serveRouteRequest(artifactFile: string, routeBase = "", priorCacheControl?: string, baseURL = "", requestBase = routeBase) {
+  routeBase = routeBase.replace(/\/+$/, "").replace(/\[([^\]]+)\]/g, ":$1")
+  requestBase = requestBase.replace(/\/+$/, "")
   const artifact = await import(pathToFileURL(artifactFile).href) as {
     default: { fetch: (request: Request) => Promise<Response> }
   }
@@ -40,7 +42,7 @@ async function serveRouteRequest(artifactFile: string, routeBase = "", priorCach
     if (priorCacheControl) setResponseHeader(event, "Cache-Control", priorCacheControl)
   })
   app.all(`${baseURL}${routeBase}/**`, artifact.default)
-  return (pathname: string, headers: Record<string, string> = {}, method = "GET") => app.fetch(new Request(`http://localhost${baseURL}${routeBase}/${pathname}`, { headers, method }))
+  return (pathname: string, headers: Record<string, string> = {}, method = "GET") => app.fetch(new Request(`http://localhost${baseURL}${requestBase}/${pathname}`, { headers, method }))
 }
 
 function driverImports(source: string) {
@@ -1008,7 +1010,7 @@ describe("hubBlob", () => {
     expect(handler).toContain("export default { fetch: serveBlob }")
   })
 
-  const serveCacheCases: Array<{ expectedCacheControl: string, headers: Record<string, string> | undefined, name: string }> = [
+  const serveCacheCases: Array<{ baseURL?: string, expectedCacheControl: string, headers?: Record<string, string>, name: string, requestRoute?: string, route?: string }> = [
     {
       expectedCacheControl: "public, max-age=0, s-maxage=0",
       headers: undefined,
@@ -1034,13 +1036,22 @@ describe("hubBlob", () => {
       headers: { "cache-control": "public, max-age=300", "Cache-Control": "private, max-age=60" },
       name: "duplicate canonical last",
     },
+    ...[
+      { name: "root route behind a base URL", route: "/", baseURL: "/app" },
+      { name: "route repeated in the base URL", route: "/assets", baseURL: "/assets" },
+      { name: "overlapping route segments", route: "/api/files", baseURL: "/api/files/api" },
+      { name: "literal space in the route", route: "/my files", baseURL: "/app" },
+      { name: "encoded space in the route", route: "/my%20files", baseURL: "/app" },
+      { name: "parameterized route", route: "/files/:tenant", baseURL: "/files/acme", requestRoute: "/files/acme" },
+      { name: "bracket parameter route", route: "/files/[tenant]", baseURL: "/files/acme", requestRoute: "/files/acme" },
+    ].map(test => ({ ...test, expectedCacheControl: "public, max-age=0, s-maxage=0" })),
   ]
-  it.each(serveCacheCases)("preserves non-text bytes with $name cache headers", async ({ expectedCacheControl, headers }) => {
+  it.each(serveCacheCases)("preserves the Blob path and response with $name", async ({ expectedCacheControl, headers, route: serveRoute = "/api/_vitehub/blob", baseURL = "", requestRoute = serveRoute }) => {
     const root = await temporaryDirectory("vitehub-blob-cached-route-")
     try {
       const plugin = hubBlob({
         driver: "fs",
-        serve: { headers },
+        serve: { headers, route: serveRoute },
       }, { importBase: "virtual:blob-test" })
       await (plugin.configResolved as (config: unknown) => void | Promise<void>)({
         build: { outDir: "dist" },
@@ -1089,7 +1100,7 @@ describe("hubBlob", () => {
         target: "node24",
       })
 
-      const request = await serveRouteRequest(artifactFile, "/api/_vitehub/blob")
+      const request = await serveRouteRequest(artifactFile, serveRoute, undefined, baseURL, requestRoute)
       const response = await request("binary.bin")
 
       expect(response.headers.get("Cache-Control")).toBe(expectedCacheControl)
@@ -1131,17 +1142,17 @@ describe("hubBlob", () => {
       expect(missing.status).toBe(404)
       expect(missing.headers.get("Cache-Control")).toBeNull()
 
-      // The route reads the Blob pathname from the URL, after a Nitro baseURL, and `serve()` decodes it once.
+      // The router keeps the raw catch-all after the baseURL; `serve()` decodes it once.
       const paths: string[] = []
       Reflect.set(globalThis, "__vitehubBlobHeadPaths", paths)
-      const withBase = await serveRouteRequest(artifactFile, "/api/_vitehub/blob", undefined, "/app")
+      const withBase = await serveRouteRequest(artifactFile, serveRoute, undefined, baseURL || "/app", requestRoute)
       expect((await withBase("dir/a%20b%2Fc.bin", {}, "HEAD")).status).toBe(200)
       expect(paths).toEqual(["dir/a b/c.bin"])
       expect((await withBase("")).status).toBe(404)
 
       // Outside Nitro, the route copies the status and the headers that `serve()` sets to the Response.
       const { default: route } = await import(pathToFileURL(artifactFile).href) as { default: { fetch: (request: Request) => Promise<Response> } }
-      const direct = await route.fetch(new Request("http://localhost/api/_vitehub/blob/binary.bin", { headers: { Range: "bytes=1-2" } }))
+      const direct = await route.fetch(new Request(`http://localhost${requestRoute.replace(/\/+$/, "")}/binary.bin`, { headers: { Range: "bytes=1-2" } }))
       expect(direct.status).toBe(206)
       expect(direct.headers.get("Content-Range")).toBe("bytes 1-2/5")
       expect(direct.headers.get("Cache-Control")).toBe(expectedCacheControl)

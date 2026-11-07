@@ -1,7 +1,7 @@
 import { getCloudflareEnv, getCloudflareExecutionContext, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { createH3V1ResponseHeaders, isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
-import { createStandardRuntimeContext, firstAddress, getStandardContext as getRequestStandardContext, isHostRequest, requestAddressPaths } from "./request-context.ts"
+import { createStandardRuntimeContext, firstAddress, getStandardContext as getRequestStandardContext, installRequestStandardContext, isHostRequest, requestAddressPaths } from "./request-context.ts"
 import type { H3V1Event, H3V1NodeResponse } from "@vite-hub/internal/runtime/h3-v1-request"
 import type { EventHandlerRequest } from "h3"
 import type { StandardContext } from "standard-context"
@@ -24,13 +24,47 @@ export type H3RuntimeContext<TOptions extends H3RuntimeContextOptions = {}> = Re
 
 interface PreparedResponseTarget {
   headers: Headers
+  errHeaders?: Headers
   status?: number
 }
 
 type WaitUntil = NonNullable<ViteHubStandardProps["waitUntil"]>
 
+/** H3 2 uses separate headers for returned error Responses. Mirror only Standard Context writes to both. */
+function responseHeaders(target: PreparedResponseTarget): Headers {
+  const { headers, errHeaders } = target
+  if (!errHeaders) return headers
+  const view = new Headers()
+  const methods: Pick<Headers, "append" | "delete" | "entries" | "forEach" | "get" | "getSetCookie" | "has" | "keys" | "set" | "values" | typeof Symbol.iterator> = {
+    append(name, value) {
+      headers.append(name, value)
+      errHeaders.append(name, value)
+    },
+    delete(name) {
+      headers.delete(name)
+      errHeaders.delete(name)
+    },
+    entries: headers.entries.bind(headers),
+    forEach(callback, thisArg) {
+      headers.forEach((value, key) => callback.call(thisArg, value, key, view))
+    },
+    get: headers.get.bind(headers),
+    getSetCookie: headers.getSetCookie.bind(headers),
+    has: headers.has.bind(headers),
+    keys: headers.keys.bind(headers),
+    set(name, value) {
+      headers.set(name, value)
+      errHeaders.set(name, value)
+    },
+    values: headers.values.bind(headers),
+    [Symbol.iterator]: headers[Symbol.iterator].bind(headers),
+  }
+  return Object.assign(view, methods)
+}
+
 /** Map Standard Context response fields to the response that H3 sends. H3 sends the value the handler returns as the body. */
 function preparedResponse(target: PreparedResponseTarget): StandardContext.PreparedResponse {
+  const headers = responseHeaders(target)
   return {
     get body() {
       return undefined
@@ -39,12 +73,12 @@ function preparedResponse(target: PreparedResponseTarget): StandardContext.Prepa
       throw runtimeErrorDiagnostics.RUNTIME_R0016({ message: "[vitehub] H3 does not read `~standard.res.body`. Return the body or a Response from the handler." })
     },
     get headers() {
-      return target.headers
+      return headers
     },
     set headers(value) {
       // Copy the names first. Deleting while iterating Headers skips entries.
-      for (const name of Array.from(target.headers.keys())) target.headers.delete(name)
-      for (const [name, item] of value ?? []) target.headers.append(name, item)
+      for (const name of Array.from(headers.keys())) headers.delete(name)
+      for (const [name, item] of value ?? []) headers.append(name, item)
     },
     get status() {
       return target.status
@@ -183,8 +217,9 @@ export function installStandardContext<T extends object>(event: T): asserts even
     Object.defineProperty(event, "~standard", { configurable: true, enumerable: false, value: props })
   }
   const req: unknown = Object.hasOwn(event, "req") ? Reflect.get(event, "req") : undefined
-  if (isHostRequest(req) && !("~standard" in req) && Object.isExtensible(req)) {
-    Object.defineProperty(req, "~standard", { configurable: true, enumerable: false, value: Reflect.get(event, "~standard") })
+  if (isHostRequest(req)) {
+    // SAFETY: The event either carried Standard Context or received it above.
+    installRequestStandardContext(req, Reflect.get(event, "~standard") as ViteHubStandardProps)
   }
 }
 

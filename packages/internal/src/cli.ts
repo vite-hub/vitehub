@@ -59,7 +59,7 @@ export interface ViteHubCliCommand {
 }
 
 export interface ViteHubCliCommandNamespace {
-  /** The feature that `vitehub <name>` runs when no feature is named. */
+  /** The feature that `vitehub <name>` runs when the next argument names no other feature. It gets every argument after `<name>`. */
   defaultFeature?: string
   description?: string
   features: ViteHubCliFeature[]

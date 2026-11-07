@@ -114,7 +114,7 @@ describe("Console reuses app Auth sign-in", () => {
       socialProviders: { github: { clientId: "test-github", clientSecret: "test-secret" } },
     }))
     const pages = createConsoleAppAuthPages(request => createAuthForRequest(definition, request))
-    const event = { req: new Request(`${origin}/_vitehub/sign-in?provider=github`, { method: "POST", headers: { origin } }) }
+    const event = new H3Event(new Request(`${origin}/_vitehub/sign-in?provider=github`, { method: "POST", headers: { origin } }))
     await expect(pages.authBasePath(event)).rejects.toThrow(/same origin/)
     await expect(pages.signIn(event)).rejects.toThrow(/same origin/)
   })
@@ -129,6 +129,22 @@ describe("Console reuses app Auth sign-in", () => {
     const start = await pages.signIn(new H3Event(new Request(`${origin}/portal/_vitehub/sign-in?provider=github`, { method: "POST", headers: { origin } })))
     expect(start.status).toBe(303)
     expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe(`${origin}/portal/api/auth/callback/github`)
+  })
+
+  it.each(["request", "request-only", "h3"] as const)("provides Standard Context to app Auth for %s inputs", async (host) => {
+    const request = new Request(`${origin}/portal/_vitehub/sign-in`)
+    const event = host === "request" ? request : host === "request-only" ? { req: request } : new H3Event(request)
+    const resolveAuth = vi.fn(getAuthForRequest)
+    const pages = createConsoleAppAuthPages(resolveAuth)
+
+    await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
+    const response = await pages.signIn(event)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("Sign in with GitHub")
+    const authEvent = resolveAuth.mock.calls[0]?.[2]
+    expect(authEvent?.["~standard"].req).toBe(request)
+    expect(authEvent?.["~standard"].res.headers).toBeInstanceOf(Headers)
+    if (host === "h3") expect(authEvent).toBe(event)
   })
 
   it.each(["fetch", "h3"] as const)("uses the public proxy origin for static Auth with %s requests", async (host) => {
@@ -209,7 +225,7 @@ describe("Console reuses app Auth sign-in", () => {
   it("supplies the app Auth base path to the Console account menu", async () => {
     const { authForRequest } = await setup("/portal")
     installConsoleAccess({ mode: "auth", check: async () => undefined, ...createConsoleAppAuthPages(authForRequest) })
-    const page = await consolePage({ req: new Request(`${origin}/portal/_vitehub`) })
+    const page = await consolePage(new H3Event(new Request(`${origin}/portal/_vitehub`)))
     expect(await page.text()).toContain('<meta name="vitehub-console-auth-base" content="/portal/api/auth">')
   })
 
@@ -313,7 +329,7 @@ describe("Console reuses app Auth sign-in", () => {
   it("offers account switching when console.authorize rejects the signed-in account", async () => {
     const { authForRequest } = await setup()
     installConsoleAccess({ mode: "auth", check: async () => undefined, authorize: () => false, signInPage: "/_vitehub/sign-in", ...createConsoleAppAuthPages(authForRequest) })
-    const page = await signInMiddleware({ req: new Request(`${origin}/_vitehub`, { headers: { accept: "text/html" } }) })
+    const page = await signInMiddleware(new H3Event(new Request(`${origin}/_vitehub`, { headers: { accept: "text/html" } })))
     expect(page?.status).toBe(403)
     expect(await page?.text()).toContain("Switch account")
   })
@@ -321,7 +337,7 @@ describe("Console reuses app Auth sign-in", () => {
   it("uses the app sign-out endpoint when an account is denied", async () => {
     const { authForRequest } = await setup("/portal")
     const { signIn: handler } = createConsoleAppAuthPages(authForRequest)
-    const page = await handler({ req: new Request(`${origin}/portal/_vitehub`, { headers: { accept: "text/html" } }) }, new Response("Forbidden", { status: 403, headers: { "content-type": "text/plain" } }))
+    const page = await handler(new H3Event(new Request(`${origin}/portal/_vitehub`, { headers: { accept: "text/html" } })), new Response("Forbidden", { status: 403, headers: { "content-type": "text/plain" } }))
     expect(page.status).toBe(403)
     const html = await page.text()
     expect(html).toContain("Switch account")
