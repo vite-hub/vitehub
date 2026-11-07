@@ -370,8 +370,9 @@ jobs:
       - name: Require Node.js 22.18
         run: node -e 'if (process.version !== "v22.18.0") throw new Error("Expected Node.js v22.18.0, got " + process.version)'
       # Node 22.18 bundles Corepack 0.33, which expects pnpm's old JS entrypoint.
+      # Bootstrap the exact Corepack version independently of workspace dependencies.
       - name: Install Corepack with native pnpm support
-        run: npm install --global corepack@0.34.6
+        run: npm install --global corepack@0.34.6 # zizmor: ignore[adhoc-packages]
       - name: Build tested packages
         run: |
           for task in @vite-hub/rate-limit#build @vite-hub/sandbox#build @vite-hub/database#build @vite-hub/auth#build @vite-hub/agent#build vite-hub#build; do
