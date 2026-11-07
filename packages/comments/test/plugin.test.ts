@@ -1,4 +1,3 @@
-import { H3Event } from "h3"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
@@ -19,8 +18,8 @@ function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay
   const warn = console.warn
   console.warn = () => {}
   const session = async (event: unknown): Promise<CommentsUser | null> => {
-    const request: unknown = event !== null && typeof event === "object" ? Reflect.get(event, "req") : undefined
-    const person = request instanceof Request ? /person=(\w+)/.exec(request.headers.get("cookie") ?? "")?.[1] : undefined
+    // The page tools session passes its Request.
+    const person = event instanceof Request ? /person=(\w+)/.exec(event.headers.get("cookie") ?? "")?.[1] : undefined
     return person ? { id: person, name: person } : null
   }
   const base = commentsApiRoute(new URL(overlay, "http://localhost").href).slice(0, -"/api/_vitehub/comments".length)
@@ -30,7 +29,7 @@ function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay
 
 async function pageSession(app: object, cookie: string, page?: string) {
   const request = new Request(`http://site.test/_vitehub/page/session${page ? `?page=${encodeURIComponent(page)}` : ""}`, { headers: { cookie } })
-  const response = await respondViteHubPageSession(app, request, new H3Event(request))
+  const response = await respondViteHubPageSession(app, request)
   return { cookie: response.headers.get("set-cookie"), body: await response.json() }
 }
 

@@ -383,14 +383,13 @@ describe("installViteHubPageTools on Nitro 3", () => {
     expect(await (await app.fetch(new Request("http://site.test/"))).text()).toBe(`<body>Page${viteHubPageToolsInlineScript("", "n2")}</body>`)
   })
 
-  it("answers the session for a Nuxt 5 event, an H3 2 event with a legacy node bridge", async () => {
+  it("answers the session for the Request that the Nitro 3 app bound", async () => {
     const app = nitro3App()
     registerViteHubPageTool(app, comments)
     installViteHubPageTools(app)
     const request = new Request("http://site.test/_vitehub/page/session", { headers: { cookie: "person=ada" } })
     await app.fetch(request)
-    const event = { req: request, node: { req: { url: "/_vitehub/page/session", method: "GET", headers: { cookie: "person=ada" } } } }
-    const response = await viteHubPageSessionHandler(event)
+    const response = await viteHubPageSessionHandler.fetch(request)
     expect(response.status).toBe(200)
     expect((await response.json()).tools.map((tool: { id: string }) => tool.id)).toEqual(["comments"])
   })
@@ -704,7 +703,7 @@ describe("installViteHubPageTools on Nitro 2", () => {
 describe("GET /_vitehub/page/session", () => {
   const app = nitro2App()
   const session = async (cookie: string, headers: Record<string, string> = {}) => {
-    const response = await respondViteHubPageSession(app, new Request("http://site.test/_vitehub/page/session", { headers: { cookie, ...headers } }), {})
+    const response = await respondViteHubPageSession(app, new Request("http://site.test/_vitehub/page/session", { headers: { cookie, ...headers } }))
     return { response, body: await response.json() as { tools?: unknown[], error?: { code: string } } }
   }
 
@@ -753,21 +752,18 @@ describe("GET /_vitehub/page/session", () => {
     expect((await session("person=ada", { origin: "http://site.test", "sec-fetch-site": "same-origin" })).body.tools).toHaveLength(1)
   })
 
-  it("passes the H3 event to the checks, from H3 2 and H3 1 events", async () => {
+  it("passes the Request of the session route to the checks", async () => {
     const seen: unknown[] = []
-    registerViteHubPageTool(app, { ...comments, allowed: async ({ event, request }) => {
-      seen.push(event, new URL(request.url).pathname)
+    const app = nitro3App()
+    registerViteHubPageTool(app, { ...comments, allowed: async ({ request }) => {
+      seen.push(request)
       return true
     } })
     installViteHubPageTools(app)
-    const onRequest = app.handlers.get("request")![0] as (event: object) => void
-    const h3 = { req: new Request("http://site.test/_vitehub/page/session") }
-    onRequest(h3)
-    expect((await viteHubPageSessionHandler(h3)).status).toBe(200)
-    const h3v1 = { node: { req: { url: "/_vitehub/page/session", method: "GET", headers: { host: "site.test" }, [Symbol.asyncIterator]: async function* () {} } } }
-    onRequest(h3v1)
-    expect((await viteHubPageSessionHandler(h3v1)).status).toBe(200)
-    expect(seen).toEqual([h3, "/_vitehub/page/session", h3v1, "/_vitehub/page/session"])
+    const request = new Request("http://site.test/_vitehub/page/session")
+    await app.fetch(request)
+    expect((await viteHubPageSessionHandler.fetch(request)).status).toBe(200)
+    expect(seen).toEqual([request])
   })
 })
 
@@ -818,26 +814,22 @@ describe("page tools below an app base", () => {
   })
 
   it("gives the tool scripts the base of the session route", async () => {
-    const app = nitro2App()
+    const app = nitro3App()
     installViteHubPageTools(app)
-    const onRequest = app.handlers.get("request")![0] as (event: object) => void
     registerViteHubPageTool(app, comments)
     registerViteHubPageTool(app, { ...pill, script: "https://cdn.test/console.js" })
-    const response = await respondViteHubPageSession(app, new Request("http://site.test/portal/_vitehub/page/session", { headers: { cookie: "person=ada" } }), {})
+    const response = await respondViteHubPageSession(app, new Request("http://site.test/portal/_vitehub/page/session", { headers: { cookie: "person=ada" } }))
     expect(await response.json()).toEqual({ tools: [
       expect.objectContaining({ id: "comments", script: "/portal/comments.js" }),
       expect.objectContaining({ id: "console", script: "https://cdn.test/console.js" }),
     ] })
-    const h3v1 = { node: { req: { url: "/_vitehub/page/session", originalUrl: "/portal/_vitehub/page/session", method: "GET", headers: { host: "site.test", cookie: "person=ada" }, [Symbol.asyncIterator]: async function* () {} } } }
-    onRequest(h3v1)
-    expect(await (await viteHubPageSessionHandler(h3v1)).json()).toMatchObject({ tools: [{ id: "comments", script: "/portal/comments.js" }, { id: "console" }] })
   })
 })
 
 describe("per-app page tools", () => {
   it("isolates Nitro 3 loader injection and sessions across bundled copies, late registration and replacement", async () => {
     const makeApp = () => {
-      const h3 = new H3().get("/_vitehub/page/session", event => viteHubPageSessionHandler(event))
+      const h3 = new H3().get("/_vitehub/page/session", viteHubPageSessionHandler)
       h3.get("/", () => new Response("<body>Page</body>", { headers: { "content-type": "text/html; charset=utf-8" } }))
       return { fetch: (request: Request) => h3.fetch(request) }
     }
@@ -858,11 +850,11 @@ describe("per-app page tools", () => {
     expect(pages).toEqual([`<body>Page${loaderTag}</body>`, `<body>Page${loaderTag}</body>`, "<body>Page</body>"])
     const sessions = await Promise.all([appA, appB, empty].map(async app => (await app.fetch(new Request("http://site.test/_vitehub/page/session", { headers: { cookie: "person=ada" } }))).json()))
     expect(sessions.map(session => session.tools.map((tool: { script: string }) => tool.script))).toEqual([["/comments.js"], ["/b.js", "/console.js"], []])
-    const unbound = await otherOwner.viteHubPageSessionHandler({ req: new Request("http://site.test/_vitehub/page/session") })
+    const unbound = await otherOwner.viteHubPageSessionHandler.fetch(new Request("http://site.test/_vitehub/page/session"))
     expect(unbound.status).toBe(503)
   })
 
-  it("isolates Nitro 2 rendered and returned pages and binds sessions to each event", async () => {
+  it("isolates Nitro 2 rendered and returned pages", async () => {
     const apps = [nitro2App(), nitro2App(), nitro2App()]
     for (const app of apps) installViteHubPageTools(app)
     registerViteHubPageTool(apps[0]!, comments)
@@ -870,23 +862,17 @@ describe("per-app page tools", () => {
     const results = await Promise.all(apps.map(async (app) => {
       const render = app.handlers.get("render:html")![0] as (html: { bodyAppend: string[] }, context: unknown) => void
       const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body: Response }) => void
-      const onRequest = app.handlers.get("request")![0] as (event: object) => void
       const event = { node: { req: { url: "/?vitehub", headers: { host: "site.test", cookie: "person=ada" }, method: "GET", [Symbol.asyncIterator]: async function* () {} } } }
       const html = { bodyAppend: [] as string[] }
       render(html, { event })
       const response = { body: new Response("<body>Page</body>", { headers: { "content-type": "text/html; charset=utf-8" } }) }
       respond(event, response)
-      event.node.req.url = "/_vitehub/page/session"
-      onRequest(event)
-      vi.resetModules()
-      const otherOwner = await import("../src/runtime/page-tools.ts")
-      const session = await (await otherOwner.viteHubPageSessionHandler(event)).json()
-      return { tags: html.bodyAppend, page: await response.body.text(), scripts: session.tools.map((tool: { script: string }) => tool.script) }
+      return { tags: html.bodyAppend, page: await response.body.text() }
     }))
     expect(results).toEqual([
-      { tags: [loaderTag], page: `<body>Page${loaderTag}</body>`, scripts: ["/comments.js"] },
-      { tags: [loaderTag], page: `<body>Page${loaderTag}</body>`, scripts: ["/b.js"] },
-      { tags: [], page: "<body>Page</body>", scripts: [] },
+      { tags: [loaderTag], page: `<body>Page${loaderTag}</body>` },
+      { tags: [loaderTag], page: `<body>Page${loaderTag}</body>` },
+      { tags: [], page: "<body>Page</body>" },
     ])
   })
 })
