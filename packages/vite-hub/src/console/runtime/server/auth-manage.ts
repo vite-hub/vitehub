@@ -2,6 +2,7 @@ import * as v from "valibot";
 import type { AuthConsoleErrorCode } from "@vite-hub/auth/console-runtime";
 import type { ResultError } from "@vite-hub/runtime";
 import { getAuthConsoleForRequest } from "@vite-hub/auth/server";
+import { installStandardContext } from "@vite-hub/runtime/h3";
 import {
   consoleAccessWrites,
   consoleImpersonation,
@@ -112,6 +113,7 @@ async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promi
     throw consoleRequestError(403, "The Console request must use the same origin.");
   const input = await consoleRequestJSON(event);
   const impersonation = consoleImpersonation();
+  installStandardContext(event);
   const api = getAuthConsoleForRequest(request, event, { impersonation });
   try {
     const command = v.safeParse(read, input);
