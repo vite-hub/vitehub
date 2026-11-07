@@ -163,6 +163,38 @@ await docs.status('guide') // { locale: 'en', translations: { es: 'current' }, .
 - **URLs.** A `url` pattern without `:locale` puts `/<locale>` before the URL of every locale but the source locale: `/docs/guide` and `/es/docs/guide`. Write `:locale` in the pattern to place it yourself, such as `'/:locale/docs/:id'`. A `url()` function receives `locale`. A read in a locale without a translation carries the URL of the requested locale. `content.resolve()` returns `{ collection, id, locale }`, and resolves the URL of a missing translation too, so the page can show the fallback.
 - **Agents.** The [Agent Capability](/docs/content/agent-capability#translations) lists missing and stale translations and saves them with `locale`.
 
+#### Pages in each locale
+
+A catch-all page serves every locale with the calls a page already makes. `content.resolve(path)` gives the document and the locale of the path, and `get(id, { locale })` reads that locale:
+
+```ts [server/api/page.get.ts]
+import { defineEventHandler, getQuery, HTTPError } from 'h3'
+import { content } from '../content'
+
+export default defineEventHandler(async (event) => {
+  const page = await content.resolve(String(getQuery(event).path))
+  if (page?.collection !== 'docs') throw new HTTPError({ status: 404 })
+  return await content.collection('docs').get(page.id, { locale: page.locale })
+})
+```
+
+```vue [pages/[...slug].vue]
+<script setup lang="ts">
+import { contentHead } from 'vite-hub/content/client'
+
+const route = useRoute()
+const { data: page } = await useFetch('/api/page', { query: { path: route.path } })
+useHead(computed(() => contentHead(page.value, { site: { url: 'https://vitehub.dev' } })))
+</script>
+
+<template>
+  <p v-if="page?.fallback">This page is not translated yet. It shows the English version.</p>
+  <h1>{{ page?.data.title }}</h1>
+</template>
+```
+
+`/es/docs/guide` shows the Spanish document, and `/docs/guide` the English one. Before a translation exists, `/es/docs/guide` shows the English document with `fallback: true`. In a collection with `url`, `get()` also returns `alternates`: the URL of each locale that has its own version, source locale first, such as `[{ locale: 'en', url: '/docs/guide' }, { locale: 'es', url: '/es/docs/guide' }]`. Use it for a language switcher. [`contentHead()`](/docs/content/seo#pages-in-several-locales) turns `locale` and `alternates` into `<html lang>`, `hreflang` links, and the canonical link.
+
 The Console editor and live editing work on the source locale. Edit leases and live rooms belong to the source locale document, so a translation save does not wait for the person who edits the source.
 
 ### Fields
@@ -413,7 +445,7 @@ import { defineHandler, getRouterParam } from 'h3'
 import { renderContentHtml } from 'vite-hub/content'
 import { content } from '../../content'
 
-export default defineHandler(async (event) => {
+export default defineEventHandler(async (event) => {
   const guide = await content.get(`/guides/${getRouterParam(event, 'slug')}`)
   if (!guide) return new Response('Not found', { status: 404 })
   return new Response(`<article>${await renderContentHtml(guide)}</article>`, { headers: { 'content-type': 'text/html; charset=utf-8' } })

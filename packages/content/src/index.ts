@@ -136,6 +136,7 @@ export type {
 } from "./documents.ts"
 export type {
   AnyContentCollection,
+  ContentAlternate,
   ContentCollection,
   ContentDerivedFrom,
   ContentDocument,

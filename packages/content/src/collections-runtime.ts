@@ -114,6 +114,17 @@ export interface ContentDocument<TData = Record<string, unknown>> {
   fallback?: true
   /** The source version that this document was made from, such as the source locale version of a translation. */
   derivedFrom?: ContentDerivedFrom
+  /**
+   * The page of this document in each locale that has its own version, in the order of `locales`, so the source locale
+   * comes first. `get()` sets it in a collection with `locales` and `url`. `contentHead()` turns it into `hreflang` links.
+   */
+  alternates?: ContentAlternate[]
+}
+
+/** The page of a document in one locale. */
+export interface ContentAlternate {
+  locale: string
+  url: string
 }
 
 /**
@@ -1551,14 +1562,36 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const locale = localeOf(options.locale)
       const path = pathFor(id, locale)
       const target = framed(options)
-      if (target?.path === path) return await frameDraft(target)
+      if (target?.path === path) return await withAlternates(await frameDraft(target), (await refState("draft")).opened)
       const opened = await openFor("get", options)
       if (!opened) return null
-      if (opened.files.has(path)) return await read(opened, id, locale)
+      if (opened.files.has(path)) return await withAlternates(await read(opened, id, locale), opened)
       // A locale without a translation reads the source locale version.
       if (locale === sourceLocale) return null
       const source = await read(opened, id, sourceLocale)
-      return source && fallbackOf(source, locale)
+      return await withAlternates(source && fallbackOf(source, locale), opened)
+    }
+
+    /** Adds the page of the document in each locale that has its own version on the same revision. */
+    async function withAlternates(document: IndexedDocument | null, opened: OpenedRevision | undefined): Promise<IndexedDocument | null> {
+      const url = definition.url
+      if (!document || !opened || !locales || url === undefined) return document
+      const alternates: ContentAlternate[] = []
+      for (const locale of locales) {
+        const path = pathFor(document.id, locale)
+        const digest = opened.files.get(path)
+        if (digest === undefined) continue
+        let data: Record<string, unknown> = {}
+        if (!contentUrlNeedsOnlyId(url, true)) {
+          const parsed = await parseEntry(opened, { path, digest })
+          if (!listable(opened, parsed)) continue
+          data = parsed.data
+        }
+        const page = contentDocumentUrl(url, { id: document.id, data, locale }, sourceLocale)
+        if (page !== null) alternates.push({ locale, url: page })
+      }
+      document.alternates = alternates
+      return document
     }
 
     async function read(opened: OpenedRevision, id: string, locale: string | undefined): Promise<IndexedDocument | null> {

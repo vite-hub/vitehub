@@ -5,6 +5,7 @@ import { useWorkspace } from "@vite-hub/workspace"
 import { lineageDigest, staleDerivedFiles } from "@vite-hub/workspace/lineage"
 
 import { documents } from "../src/collections.ts"
+import { contentHead } from "../src/head.ts"
 import { defineContent } from "../src/index.ts"
 import { historyWorkspace } from "./history-workspace.ts"
 
@@ -178,6 +179,44 @@ describe("documents() with locales", () => {
       { loc: "https://example.com/docs/intro", locale: "en" },
       { loc: "https://example.com/es/docs/guide", locale: "es" },
     ])
+  })
+
+  it("gives the page of each locale its document and head", async () => {
+    const { content, docs } = await setup({ url: "/docs/:id" })
+    await docs.save("guide", { data: { title: "Guide" } })
+    await docs.save("intro", { data: { title: "Intro" } })
+    await docs.save("guide", { data: { title: "Guía" } }, { locale: "es" })
+    await content.publish({ collection: "docs" })
+    // What a catch-all page does: find the document of the path, read it in the locale of the path, and build the head.
+    const page = async (path: string) => {
+      const route = await content.resolve(path)
+      const document = await docs.get(route!.id, { locale: route!.locale })
+      return { document, head: contentHead(document, { site: { url: "https://example.com" }, collection: docs }) }
+    }
+    const alternates = [
+      { rel: "alternate", hreflang: "en", href: "https://example.com/docs/guide" },
+      { rel: "alternate", hreflang: "es", href: "https://example.com/es/docs/guide" },
+      { rel: "alternate", hreflang: "x-default", href: "https://example.com/docs/guide" },
+    ]
+
+    const spanish = await page("/es/docs/guide")
+    expect(spanish.document).toMatchObject({
+      locale: "es",
+      data: { title: "Guía" },
+      alternates: [{ locale: "en", url: "/docs/guide" }, { locale: "es", url: "/es/docs/guide" }],
+    })
+    expect(spanish.head.htmlAttrs).toEqual({ lang: "es" })
+    expect(spanish.head.link).toEqual([{ rel: "canonical", href: "https://example.com/es/docs/guide" }, ...alternates])
+
+    const english = await page("/docs/guide")
+    expect(english.head.htmlAttrs).toEqual({ lang: "en" })
+    expect(english.head.link).toEqual([{ rel: "canonical", href: "https://example.com/docs/guide" }, ...alternates])
+
+    // Without a translation, the Spanish page shows English, says so in lang, and is canonical to the English page.
+    const fallback = await page("/es/docs/intro")
+    expect(fallback.document).toMatchObject({ locale: "en", fallback: true, url: "/es/docs/intro", alternates: [{ locale: "en", url: "/docs/intro" }] })
+    expect(fallback.head.htmlAttrs).toEqual({ lang: "en" })
+    expect(fallback.head.link).toEqual([{ rel: "canonical", href: "https://example.com/docs/intro" }])
   })
 
   it("puts :locale where the url pattern says", async () => {
