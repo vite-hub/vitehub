@@ -146,6 +146,8 @@ export interface LocalQueueEngine {
 
 export interface LocalQueueEngineOptions {
   base: string
+  /** `vite dev` sets this. A stored job error then keeps the message and stack of a plain `Error`. */
+  development?: boolean
   load: (queue: string) => Promise<QueueDefinition | undefined>
   missing: (queue: string) => Error
   /** Milliseconds before the next delivery after `attempts` failed deliveries. Defaults to the delay of `rules`. */
@@ -411,7 +413,7 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         handled = true
       }
       catch (error) {
-        const context = { attempts: job.attempts, id: job.id, provider: "local", queue: job.queue } as const
+        const context = { attempts: job.attempts, development: options.development, id: job.id, provider: "local", queue: job.queue } as const
         reportQueueDeliveryError(error, context)
         if (isNonRetryableQueueError(error) || job.attempts >= rules.maxAttempts) {
           await markDead(job, createQueueDeliveryErrorReport(error, context).error)
@@ -451,6 +453,11 @@ export function createLocalQueueEngine(options: LocalQueueEngineOptions): LocalQ
         if (job.state === "done") {
           await unlink(job).catch(() => {})
           continue
+        }
+        // A production server can reopen the directory used by `vite dev`.
+        if (options.development !== true && job.error && !job.error.code) {
+          job.error = { message: "[vitehub] Queue Delivery failed.", name: "Error" }
+          await persist(job)
         }
         if (job.state === "dead") delete job.payload
         recovered.push(job)

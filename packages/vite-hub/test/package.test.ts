@@ -182,6 +182,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/email/operations",
   "@vite-hub/email/runtime/console",
   "@vite-hub/kv/runtime/cloudflare-kv",
+  "@vite-hub/kv/runtime/cloudflare-request-env",
   "@vite-hub/kv/runtime/nitro-cache",
   "@vite-hub/kv/operations",
   "@vite-hub/kv/runtime/upstash-driver",
