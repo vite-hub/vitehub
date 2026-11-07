@@ -580,11 +580,12 @@ describe("comments() without vite-hub", () => {
     expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([])
   })
 
-  it("steps aside, with its Nitro, when vitehub() runs Comments", () => {
+  it("fails next to vitehub() and names vitehub({ comments }), and adds no second Nitro", () => {
     const [plugin, ...nitro] = comments() as Plugin[]
     const config: UserConfig = { plugins: [[{ name: "@vite-hub/comments/vite" }]] }
     const env: ConfigEnv = { command: "serve", mode: "development" }
-    expect((plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)(config, env)).toBe(false)
+    expect(() => (plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)(config, env))
+      .toThrow(expect.objectContaining({ code: "COMMENTS_B0003", fix: expect.stringContaining("vitehub({ comments: true })") }))
     expect(nitro.length).toBeGreaterThan(0)
     for (const part of nitro) expect(typeof part.apply === "function" ? part.apply(config, env) : true).toBe(false)
     expect((plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)({ plugins: [] }, env)).toBe(true)

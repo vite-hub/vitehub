@@ -16,6 +16,7 @@ import { parseJSONC, parseTOML } from "confbox"
 
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
+import { commentsErrorDiagnostics } from "./operations-core/errors.ts"
 import { commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from "./page.ts"
 import { commentsTableNames } from "./table-names.ts"
 
@@ -510,7 +511,7 @@ async function addD1Binding(projectRoot: string, nitro: NitroOptions, where: str
   nitro.cloudflare = { ...cloudflare, wrangler: { ...wrangler, d1_databases: [...bindings, { binding, database_name: "comments" }] } }
 }
 
-/** Whether `vite-hub` is in the app, so it runs Comments and `comments()` steps aside. */
+/** Whether `vite-hub` is in the app, so Comments runs through `vitehub()` and not `comments()`. */
 function hasViteHubComments(config: UserConfig): boolean {
   const find = (value: unknown): boolean => Array.isArray(value)
     ? value.some(find)
@@ -520,12 +521,15 @@ function hasViteHubComments(config: UserConfig): boolean {
 
 /**
  * Comments for any Vite app, without `vite-hub`: the comment overlay on every page with `?vitehub`, threads in a
- * SQLite file, and Sign in with GitHub. It adds Nitro, the server, unless the app has it. With `vite-hub`, it does
- * nothing, because `vitehub()` runs Comments.
+ * SQLite file, and Sign in with GitHub. It adds Nitro, the server, unless the app has it. Next to `vitehub()` it fails
+ * with `COMMENTS_B0003`, because `vitehub({ comments })` and `server/comments.ts` turn Comments on there.
  */
 export function comments(options: CommentsOptions = {}): PluginOption[] {
   const plugin = hubComments({ standalone: options })
-  plugin.apply = config => !hasViteHubComments(config)
+  plugin.apply = (config) => {
+    if (hasViteHubComments(config)) throw commentsErrorDiagnostics.COMMENTS_B0003()
+    return true
+  }
   return [plugin, ...includedNitro({ unless: hasViteHubComments })]
 }
 
