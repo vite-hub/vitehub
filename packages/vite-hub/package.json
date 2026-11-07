@@ -1351,6 +1351,7 @@
     "@aws-sdk/s3-request-presigner": "catalog:storage",
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
+    "@better-auth/cimd": "catalog:auth",
     "@better-auth/oauth-provider": "catalog:auth",
     "@cloudflare/sandbox": "catalog:sandbox",
     "@fontsource-variable/geist": "catalog:ui",
@@ -1434,6 +1435,7 @@
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "@azure/identity": "catalog:storage",
     "@azure/storage-blob": "catalog:storage",
+    "@better-auth/cimd": "catalog:auth",
     "@better-auth/oauth-provider": "catalog:auth",
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
@@ -1490,6 +1492,9 @@
       "optional": true
     },
     "@azure/storage-blob": {
+      "optional": true
+    },
+    "@better-auth/cimd": {
       "optional": true
     },
     "@better-auth/oauth-provider": {

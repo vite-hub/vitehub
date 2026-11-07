@@ -10,7 +10,7 @@ The Auth section is at `/_vitehub/auth` on your app's origin. It appears when th
 
 Enable and protect the [Console](/docs/development/console). The section id for `console.authorize` is `auth`. That scope covers every Auth page and management request. Console access permits inspection. Changes also need a signed-in session from the primary Auth Definition and the matching Better Auth permissions. A separate Console login does not grant app admin rights.
 
-With [`console: { auth: 'token' }`](/docs/development/console#use-a-console-token), a token caller can read the Auth section. It has no session, so it cannot make changes that need one, and it can never start or stop impersonation. Auth management also accepts a token call from an origin in [`console.origins`](/docs/development/console#call-the-console-from-another-origin). Cookies never authorize such a call.
+With [`console: { auth: 'token' }`](/docs/development/console#use-a-console-token), a token caller can read the Auth section. It has no session, so it cannot make changes that need one, and it can never start or stop impersonation. Auth management also accepts a token call from an origin in [`console.origins`](/docs/development/console#call-the-console-from-another-origin). Cookies never authorize such a call. An [OAuth access token](/docs/development/console#sign-a-console-in-with-oauth) for the Console resource names the signed-in user. Reads need the `vitehub:read` scope, and changes need `vitehub:write`. A bearer call cannot start or stop impersonation, because impersonation changes the session cookie on the app origin.
 
 ## Pages
 

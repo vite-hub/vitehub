@@ -1,6 +1,7 @@
 import { consoleDiagnosticBody } from "../diagnostics.ts"
 import { consoleRequest, installedConsoleOAuth } from "./access.ts"
 import { resolveConsoleOAuth } from "./bearer.ts"
+import { withListedConsoleOrigin } from "./cors.ts"
 import { isConsoleDevelopmentRuntime } from "./request.ts"
 
 import type { H3Event } from "h3"
@@ -11,13 +12,18 @@ const prefix = "/.well-known/oauth-authorization-server"
  * OAuth 2.0 authorization server metadata (RFC 8414) of the Better Auth that signs MCP clients in, at the origin root
  * where clients look: `/.well-known/oauth-authorization-server` and, for an issuer with a path such as
  * `https://app.example.com/api/auth`, `/.well-known/oauth-authorization-server/api/auth`. Better Auth serves the same
- * document below its own base path only, which a client that starts from the MCP endpoint never asks.
+ * document below its own base path only, which a client that starts from the MCP endpoint never asks. A Console on an
+ * origin in `console.origins` can read it.
  */
 const consoleMcpAuthorizationServerHandler: (event: H3Event) => Promise<Response> = async (event) => {
+  const request = consoleRequest(event)
+  return withListedConsoleOrigin(await serverMetadata(event, request), request)
+}
+
+async function serverMetadata(event: H3Event, request: Request): Promise<Response> {
   const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff" }
   const oauth = installedConsoleOAuth()
   if (!oauth) return Response.json({ code: "CONSOLE_NOT_FOUND", message: "This Console does not use OAuth sign-in for MCP." }, { headers, status: 404 })
-  const request = consoleRequest(event)
   const state = await resolveConsoleOAuth(oauth, event, request, isConsoleDevelopmentRuntime())
   if (!state.ready) return Response.json({ ...consoleDiagnosticBody(state.code, state.message), ok: false, status: 503 }, { headers, status: 503 })
   const suffix = new URL(request.url).pathname.slice(prefix.length).replace(/\/+$/, "")
