@@ -105,7 +105,10 @@ it("shows one rail item per group and lists every section of the group in its si
       expect(currentRailLabels(html)).toEqual(["Start"])
     }
     // Ungrouped excluded sections keep the existing start-section fallback.
-    expect(currentRailLabels(await page("docs/glossary"))).toEqual(["Start"])
+    const glossary = await page("docs/glossary")
+    expect(currentRailLabels(glossary)).toEqual(["Start"])
+    // Glossary has one page, so its sidebar lists its category instead of a single link to itself.
+    expect(text(/<nav[^>]*aria-label="Reference pages"[\s\S]*?<\/nav>/.exec(glossary)?.[0] ?? "")).toBe("Reference API Glossary")
   }
   finally {
     await nuxt?.close()

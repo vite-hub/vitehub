@@ -14,6 +14,7 @@ import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
 import { createImpersonationPlugin, withImpersonationExpiry } from "./impersonation-plugin.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
+import { clientAddressHeader } from "./client-address.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
@@ -68,6 +69,44 @@ function sharedMemoryDatabase(definition: AuthDefinition): NonNullable<BetterAut
   }
 }
 
+declare const __VITEHUB_AUTH_DEV__: boolean | undefined
+
+/**
+ * True on a development server. The Auth Vite plugin sets `__VITEHUB_AUTH_DEV__` in the server bundle: `true` for
+ * `vite dev` and a Nitro dev server, `false` for a build. A Cloudflare Worker has no `NODE_ENV`, so the flag decides there.
+ */
+function isDevelopmentServer(): boolean {
+  if (typeof __VITEHUB_AUTH_DEV__ === "boolean") return __VITEHUB_AUTH_DEV__
+  // Code that a ViteHub build did not bundle, such as a test runner, has no flag.
+  const mode = globalThis.process?.env?.NODE_ENV
+  return mode === "development" || mode === "test"
+}
+
+/**
+ * Better Auth turns its limiter on only when `NODE_ENV` is `production`, and keeps its counters in the memory of the
+ * process unless a `secondaryStorage` is set. Auth turns it on outside a development server, and keeps the counters in
+ * the app Database of `authDatabase()`, where every instance and every Auth built for a request sees them.
+ */
+function withRateLimitDefaults(
+  options: Pick<BetterAuthOptions, "rateLimit" | "secondaryStorage">,
+  ownsDatabase: boolean,
+): NonNullable<BetterAuthOptions["rateLimit"]> {
+  const rateLimit = options.rateLimit
+  const database = ownsDatabase && !rateLimit?.storage && !rateLimit?.customStorage && !options.secondaryStorage
+  return { ...rateLimit, enabled: rateLimit?.enabled ?? !isDevelopmentServer(), ...(database ? { storage: "database" } : {}) }
+}
+
+/**
+ * Better Auth reads the client IP from `X-Forwarded-For` by default, which a client can set and Cloudflare does not
+ * send. Auth gives it the address that the host reports instead. With `trustedProxyHeaders`, the proxy address is the
+ * peer, so `X-Forwarded-For` comes first.
+ */
+function withClientAddressHeaders(advanced: BetterAuthOptions["advanced"]): NonNullable<BetterAuthOptions["advanced"]> {
+  if (advanced?.ipAddress?.ipAddressHeaders) return advanced
+  const ipAddressHeaders = advanced?.trustedProxyHeaders ? ["x-forwarded-for", clientAddressHeader] : [clientAddressHeader]
+  return { ...advanced, ipAddress: { ...advanced?.ipAddress, ipAddressHeaders } }
+}
+
 function stripViteHubOptions(
   definition: AuthDefinition,
   options: AuthRuntimeOptions & Record<string, unknown>,
@@ -109,6 +148,7 @@ function stripViteHubOptions(
   ]
   const databaseHooks = impersonation ? withImpersonationExpiry(rest.databaseHooks) : rest.databaseHooks
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
+  const rateLimit = withRateLimitDefaults({ rateLimit: rest.rateLimit, secondaryStorage: storage.secondaryStorage }, authDatabaseName(database) !== undefined)
   if (eventPlugin && storage.secondaryStorage && !rest.session?.storeSessionInDatabase) storage.secondaryStorage = eventPlugin.wrapStorage(storage.secondaryStorage)
   const after = rest.hooks?.after ?? createAuthMiddleware(async () => {})
   // SAFETY: `rest` and the retained metadata fields are the Better Auth runtime option shape after ViteHub-only fields are removed.
@@ -118,6 +158,8 @@ function stripViteHubOptions(
     ...sessionRefresh,
     ...(databaseHooks ? { databaseHooks: adminEmailsPlugin ? withAdminEmails(databaseHooks, adminEmailsPlugin) : databaseHooks } : {}),
     plugins: eventPlugin ? [...plugins, eventPlugin] : plugins,
+    advanced: withClientAddressHeaders(rest.advanced),
+    rateLimit,
     ...(eventPlugin ? {
       hooks: { ...rest.hooks, after: Object.assign(async (...args: Parameters<typeof after>) => {
         // Capture the endpoint outcome before application/plugin after-hooks replace it.

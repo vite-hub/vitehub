@@ -194,10 +194,9 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
   }
   if (access.impersonation) fields.push("impersonation: true")
   if (access.signInPage) fields.push(`signInPage: ${JSON.stringify(access.signInPage)}`)
-  if (access.origins?.length) {
-    imports.push('import { installConsoleOrigins as vitehubInstallConsoleOrigins } from "vite-hub/console/sections"')
-    afterInstall.push(`vitehubInstallConsoleOrigins(${JSON.stringify(access.origins)})`)
-  }
+  // Install the list even when it is empty, so a reload in the same process revokes origins that were removed.
+  imports.push('import { installConsoleOrigins as vitehubInstallConsoleOrigins } from "vite-hub/console/sections"')
+  afterInstall.push(`vitehubInstallConsoleOrigins(${JSON.stringify(access.origins ?? [])})`)
   return {
     imports,
     install: [
