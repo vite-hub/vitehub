@@ -33,7 +33,7 @@ The provider did not grant access.
 
 ### CONNECTIONS_AUTH_REQUIRED
 
-Management needs Auth outside local dev.
+Management needs Auth outside local dev. A host that calls `createConnectionsHandler()` itself also gets this code when it passes no actor policy.
 
 ### CONNECTIONS_CONTENT_TYPE_REJECTED
 
@@ -49,7 +49,7 @@ The provider may have done the write. Check before you retry.
 
 ### CONNECTIONS_FORBIDDEN
 
-No allowed manager is signed in.
+No allowed manager is signed in, or the authorization belongs to another actor. A ChatGPT credential export or import also gets this code over HTTP on a host that is not loopback: use HTTPS.
 
 ### CONNECTIONS_INVALID_ACTOR
 
@@ -101,7 +101,7 @@ Connect the Connection again.
 
 ### CONNECTIONS_NOT_CONFIGURED
 
-`VITEHUB_CONNECTIONS_KEY` or the Database is missing.
+`VITEHUB_CONNECTIONS_KEY` or the Database is missing. A custom store without atomic refresh leases or token revisions also gets this code on refresh and revoke.
 
 ### CONNECTIONS_NOT_CONNECTED
 

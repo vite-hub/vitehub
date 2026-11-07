@@ -7,7 +7,7 @@ navigation.order: 1
 icon: i-lucide-list-ordered
 ---
 
-::product-hero{tagline="Send slow work to a queue so your route replies at once, and the work runs later." hosts="Cloudflare, Vercel"}
+::product-hero{tagline="Send slow work to a queue so your route replies at once, and the work runs later." hosts="Node, Docker, Cloudflare, Vercel"}
   :::product-files
   ```ts [server/api/signup.post.ts]
   import { defineEventHandler, readBody } from 'h3'
@@ -109,8 +109,8 @@ icon: i-lucide-list-ordered
   A failed job can run again, so make a second run safe.
   :::
 
-  :::product-feature-item{title="Cloudflare or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#providers"}
-  Jobs run on Cloudflare Queues or Vercel Queues, not on your own machine.
+  :::product-feature-item{title="Node, Cloudflare, or Vercel" icon="i-lucide-cloud-cog" to="/docs/queue/configure#providers"}
+  On Node, jobs run in the server process. On Cloudflare and Vercel, they run on Cloudflare Queues or Vercel Queues.
   :::
 ::
 
