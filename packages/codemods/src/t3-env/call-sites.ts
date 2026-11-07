@@ -7,6 +7,8 @@ import { parse as parseSfc } from "@vue/compiler-sfc"
 import MagicString from "magic-string"
 import { glob } from "tinyglobby"
 
+import { blockBindings } from "../shared/bindings.ts"
+
 import type { File, ImportDeclaration } from "@babel/types"
 import type { Node } from "@vite-hub/internal/ast"
 import type { FileEdit, FollowUp } from "../types.ts"
@@ -132,11 +134,18 @@ export async function rewriteT3CallSites(cwd: string, module: EnvModule, fields:
         keepsImport = true
         continue
       }
+      const bindings = blockBindings(program)
       const locals = new Map<string, Node>()
       for (const statement of imports) {
         for (const specifier of statement.specifiers) {
           const imported = specifier.type === "ImportSpecifier" ? keyName(specifier.imported) : undefined
-          if (imported === module.exportName) locals.set(specifier.local.name, specifier)
+          if (imported === module.exportName) {
+            if (bindings.get(specifier.local.name)?.some(binding => binding !== specifier.local)) {
+              follow(specifier, `Another binding named ${specifier.local.name} shadows the env import. The codemod kept its reads unchanged. Rewrite them by hand with aliased Env imports.`)
+              keepsImport = true
+            }
+            else locals.set(specifier.local.name, specifier)
+          }
           else {
             follow(specifier, `This import of ${module.file} is not the createEnv() result. Move it out of ${module.file} before deleting the file.`)
             keepsImport = true
@@ -145,9 +154,23 @@ export async function rewriteT3CallSites(cwd: string, module: EnvModule, fields:
       }
       let needsServer = false
       let needsPublic = false
+      const identifiers = new Set<string>()
+      walk(program, (node) => {
+        if (node.type === "Identifier") identifiers.add(node.name)
+      })
+      const accessorName = (name: string, alias: string): string => {
+        if (!identifiers.has(name)) return name
+        let candidate = alias
+        let suffix = 2
+        while (identifiers.has(candidate)) candidate = `${alias}${suffix++}`
+        return candidate
+      }
+      const serverName = accessorName("useServerEnv", "viteHubServerEnv")
+      const publicName = accessorName("usePublicEnv", "viteHubPublicEnv")
       const remaining = new Set<string>()
       for (const [local, specifier] of locals) {
-        if (template && new RegExp(`\\b${local}\\.`).test(template)) {
+        const escaped = local.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        if (template && new RegExp(`(?:^|[^\\w$])${escaped}(?![\\w$])`).test(template)) {
           follow(specifier, `The template reads ${local}.KEY, which the codemod does not rewrite, so this import stays. Read the values in the script with useServerEnv() or usePublicEnv(), then use them in the template.`)
           remaining.add(local)
         }
@@ -169,14 +192,14 @@ export async function rewriteT3CallSites(cwd: string, module: EnvModule, fields:
         const { field } = entry
         let replacement: string
         if (field.section === "public") {
-          replacement = `usePublicEnv().${field.envPath[0]}`
+          replacement = `${publicName}().${field.envPath[0]}`
           needsPublic = true
         }
         else if (context === "app") {
           return keep(`${key} is a server variable, and this file runs in the browser. Move the read to server code.`)
         }
         else {
-          replacement = `useServerEnv().${field.envPath[0]}${field.secret ? ".unseal()" : ""}`
+          replacement = `${serverName}().${field.envPath[0]}${field.secret ? ".unseal()" : ""}`
           needsServer = true
           if (context === "shared") follow(node, `${key} is Server Env, and this file is outside server/. Import this file only from server code: Server Env is not available in the browser.`)
         }
@@ -186,8 +209,8 @@ export async function rewriteT3CallSites(cwd: string, module: EnvModule, fields:
       const style = detectStyle(block.code, program)
       const semicolon = style.semicolons ? ";" : ""
       const lines: string[] = []
-      if (needsServer) lines.push(`import { useServerEnv } from ${quoteString(serverImport, style)}${semicolon}`)
-      if (needsPublic) lines.push(`import { usePublicEnv } from ${quoteString(publicImport, style)}${semicolon}`)
+      if (needsServer) lines.push(`import { ${serverName === "useServerEnv" ? serverName : `useServerEnv as ${serverName}`} } from ${quoteString(serverImport, style)}${semicolon}`)
+      if (needsPublic) lines.push(`import { ${publicName === "usePublicEnv" ? publicName : `usePublicEnv as ${publicName}`} } from ${quoteString(publicImport, style)}${semicolon}`)
       let placed = false
       for (const statement of imports) {
         const keptSpecifiers = statement.specifiers.filter(specifier => !locals.has(specifier.local.name) || remaining.has(specifier.local.name))

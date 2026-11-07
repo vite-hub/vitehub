@@ -21,7 +21,7 @@ import type { Codemod, CodemodContext, CodemodResult, FileEdit, FollowUp } from 
 
 export const packageName = "@t3-oss/env-nuxt"
 
-const sourceGlobs = ["**/*.{ts,mts,cts,js,mjs,cjs}"]
+const sourceGlobs = ["**/*.{ts,mts,cts,js,mjs,cjs,tsx,jsx}"]
 const ignored = ["**/node_modules/**", "**/.nuxt/**", "**/.output/**", "**/dist/**"]
 
 /** Files that import `createEnv` from `@t3-oss/env-nuxt`. */
