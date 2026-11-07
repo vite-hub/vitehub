@@ -178,7 +178,7 @@ it.each([
   await writeFile(authorizeFile, 'export default globalThis[Symbol.for("test.console.mcp.section-policy")]')
   const generated = resolve(root, "plugin.ts")
   const modulePath = resolve(root, "plugin.mjs")
-  await writeConsoleNitroPlugin(generated, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, undefined, () => true, undefined, false, undefined, {
+  await writeConsoleNitroPlugin(generated, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, () => true, false, {
     authorize: authorizeFile,
     check: { appRoutes: routes.map((route, index) => ({ ...route, index })) },
     mode: "auth",
