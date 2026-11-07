@@ -566,7 +566,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       }
       if (options.seoAudit && building) {
         // Only what the check needs stays in memory, not the HTML of every page.
-        const origin = `${config.site.url}${config.appBase.replace(/\/+$/, "")}`
+        const origin = `${config.site.url || "http://docs.invalid"}${config.appBase.replace(/\/+$/, "")}`
         const pages: DocsSeoPage[] = []
         let sitemap: string[] = []
         nitro.hooks?.hook("prerender:generate", (route) => {

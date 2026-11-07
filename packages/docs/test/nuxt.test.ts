@@ -368,9 +368,9 @@ describe("docs Nuxt setup", () => {
 
 describe("docs search checks", () => {
   /** Runs the prerender hooks that the docs module adds to Nitro over these routes. */
-  async function prerender(docs: DocsModuleOptions, routes: Array<{ route: string, contents: string }>) {
+  async function prerender(docs: DocsModuleOptions, routes: Array<{ route: string, contents: string }>, appBase = "/") {
     hooks.clear()
-    await setupDocs(docs)
+    await setupDocs(docs, appBase)
     const nitroHooks = new Map<string, Hook[]>()
     const nitro = { options: {}, hooks: { hook: (name: string, hook: Hook) => nitroHooks.set(name, [...nitroHooks.get(name) ?? [], hook]) } }
     for (const hook of hooks.get("nitro:init") ?? []) await hook(nitro as never)
@@ -392,6 +392,21 @@ describe("docs search checks", () => {
       problems: ["/guides is in the sitemap, but it redirects. List the page that it redirects to instead."],
     })
     expect([...(await prerender({}, routes)).keys()].filter(name => name.startsWith("prerender:"))).toEqual([])
+  })
+
+  it.each(["/", "/portal/"])("audits ordinary pages without site.url under %s", async (appBase) => {
+    const pages = ["guides", "learn"].map((name, index, names) => ({
+      route: `/${name}`,
+      contents: `<html><head><title>Docs ${name} overview</title>
+        <meta name="description" content="Read the ${name} overview for practical steps to build, configure, and publish your documentation site.">
+        <link rel="canonical" href="http://docs.invalid${appBase}${name}"></head>
+        <body><h1>${name}</h1><p>${"Useful documentation content. ".repeat(60)}</p>
+        <a href="${appBase}${names[1 - index]}">Related page</a></body></html>`,
+    }))
+    await expect(prerender({ seoAudit: true }, [
+      ...pages,
+      { route: "/sitemap.xml", contents: `<urlset>${pages.map(page => `<url><loc>http://docs.invalid${appBase}${page.route.slice(1)}</loc></url>`).join("")}</urlset>` },
+    ], appBase)).resolves.toBeInstanceOf(Map)
   })
 })
 
