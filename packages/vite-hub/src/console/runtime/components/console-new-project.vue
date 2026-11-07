@@ -9,17 +9,23 @@ import {
   newProjectCommandParts,
   newProjectHostFeatureCount,
   newProjectHosts,
+  newProjectPrompt,
   newProjectQuery,
   planNewProject,
   readNewProjectQuery,
   withNewProjectDefaults,
 } from "../client/new-project";
+import { addNewProjectHostIcons, newProjectFeatureIcons, newProjectHostIcons } from "../client/new-project-icons";
 import { createConsolePendingLink, useConsoleProjects } from "../client/project-session";
+import ConsoleCodeText from "./console-code-text.vue";
 import ConsoleMark from "./console-mark.vue";
+
+addNewProjectHostIcons();
 
 /**
  * The `/new` page of a hosted Console. The stack lives in the URL query, so the page is shareable and survives a reload.
- * The one-time link is made only on "Create command", and its id and verifier stay out of the URL.
+ * It prints the `vite-hub init` command, or a prompt that asks a coding agent to run it and build the app. The one-time
+ * link is made only on "Create command" or "Create prompt", and its id and verifier stay out of the URL.
  */
 const projects = useConsoleProjects();
 
@@ -28,6 +34,27 @@ const plan = computed(() => planNewProject(stack.value));
 const ticket = shallowRef<ConsolePendingLinkTicket>();
 const commandParts = computed(() => ticket.value ? newProjectCommandParts(stack.value, ticket.value, plan.value) : undefined);
 const command = computed(() => commandParts.value?.join(" "));
+
+// How the person starts the project: the command in a terminal, or a prompt for a coding agent with what the app does.
+const mode = ref<"command" | "prompt">("command");
+const modeItems = [
+  { label: "Terminal", value: "command", icon: "i-lucide-terminal" },
+  { label: "Agent prompt", value: "prompt", icon: "i-lucide-sparkles" },
+];
+const idea = ref("");
+const prompt = computed(() => ticket.value ? newProjectPrompt(stack.value, ticket.value, idea.value, plan.value) : undefined);
+const output = computed(() => mode.value === "prompt" ? prompt.value : command.value);
+
+// The search filters the feature cards only. A feature that it hides stays in the stack.
+const query = ref("");
+const shownFeatures = computed(() => {
+  const words = query.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return plan.value.features;
+  return plan.value.features.filter((row) => {
+    const text = `${row.id} ${row.title} ${row.summary}`.toLowerCase();
+    return words.every(word => text.includes(word));
+  });
+});
 
 // Errors show after the first "Create command", and the folder error also after the field loses focus.
 const submitted = ref(false);
@@ -42,6 +69,11 @@ const hostItems = newProjectHosts.map((host) => {
   const count = newProjectHostFeatureCount(host.id);
   return { value: host.id, label: host.label, description: count === featureIds.length ? "Every feature" : `${count} of ${featureIds.length} features` };
 });
+
+function hostIcon(value: unknown): string | undefined {
+  const host = newProjectHosts.find(entry => entry.id === value);
+  return host && newProjectHostIcons[host.id];
+}
 const turnedOn = computed(() => plan.value.features.filter(row => row.state.kind === "on" || row.state.kind === "implied"));
 
 function problem(field: "dir" | "host"): string | undefined {
@@ -96,11 +128,6 @@ function note(row: NewProjectFeature): string | undefined {
   return undefined;
 }
 
-/** Text with `code` spans from the catalog, split so the template renders the code parts in `<code>`. */
-function codeParts(text: string): { text: string, code: boolean }[] {
-  return text.split("`").map((part, index) => ({ code: index % 2 === 1, text: part })).filter(part => part.text);
-}
-
 // Replace, not push: each change is not a page of its own, and Back leaves the page.
 watch(stack, (value) => {
   const url = `${window.location.pathname}${newProjectQuery(value, planNewProject(value))}`;
@@ -111,6 +138,11 @@ async function focusFirstProblem(): Promise<void> {
   await nextTick();
   const first = plan.value.problems[0];
   if (!first) return;
+  // The search may hide the feature card with the problem.
+  if (first.field === "features" && query.value) {
+    query.value = "";
+    await nextTick();
+  }
   const id = first.field === "dir"
     ? "new-project-dir"
     : first.field === "host"
@@ -141,9 +173,9 @@ async function create(): Promise<void> {
 }
 
 async function copy(): Promise<void> {
-  if (!command.value) return;
+  if (!output.value) return;
   try {
-    await navigator.clipboard.writeText(command.value);
+    await navigator.clipboard.writeText(output.value);
     copied.value = true;
     clearTimeout(copiedTimer);
     copiedTimer = setTimeout(() => (copied.value = false), 1500);
@@ -154,6 +186,7 @@ async function copy(): Promise<void> {
 }
 
 onBeforeUnmount(() => clearTimeout(copiedTimer));
+watch(mode, () => (copied.value = false));
 
 function leave(): void {
   projects.navigate(projects.home);
@@ -180,7 +213,7 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
         <div class="grid gap-1.5">
           <h1 ref="heading" class="vitehub-new-project__title" tabindex="-1">New project</h1>
           <p class="vitehub-new-project__text">
-            Pick a host and the features. The Console prints the <code>vite-hub init</code> command for this stack. The address of this page holds the stack, so you can share it.
+            Pick a host and the features. The Console prints the <code class="vitehub-new-project__code">vite-hub init</code> command for this stack, or a prompt for your coding agent. The address of this page holds the stack, so you can share it.
           </p>
         </div>
 
@@ -215,11 +248,22 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
             size="sm"
             orientation="horizontal"
             aria-labelledby="new-project-host-heading"
+            indicator="end"
             :ui="{ fieldset: 'grid gap-2 grid-cols-2 sm:grid-cols-3', item: 'items-start' }"
             @update:model-value="setHost"
-          />
+          >
+            <template #label="{ item }">
+              <span class="flex items-center gap-2">
+                <UIcon v-if="hostIcon(item.value)" :name="hostIcon(item.value)!" class="size-4 shrink-0 text-highlighted" aria-hidden="true" />
+                {{ item.label }}
+              </span>
+            </template>
+            <template #description="{ item }">
+              <span class="block ps-6">{{ item.description }}</span>
+            </template>
+          </URadioGroup>
           <p v-if="hostError" role="alert" class="vitehub-new-project__error">
-            <UIcon name="i-lucide-circle-alert" class="size-4 shrink-0" aria-hidden="true" />
+            <UIcon name="i-lucide-circle-alert" class="vitehub-new-project__error-icon" aria-hidden="true" />
             {{ hostError }}
           </p>
         </section>
@@ -231,41 +275,57 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
               {{ hostLabel ? `Features that ${hostLabel} cannot run are greyed out and say why.` : "Pick a host to see which features it runs." }} Some features turn on others, and the list marks them.
             </p>
           </div>
-          <ul class="grid gap-2 sm:grid-cols-2">
-            <li v-for="row in plan.features" :id="`new-project-feature-${row.id}`" :key="row.id" class="grid gap-1">
+          <UInput
+            v-model="query"
+            type="search"
+            icon="i-lucide-search"
+            placeholder="Search features"
+            aria-label="Search features"
+            aria-controls="new-project-feature-list"
+            autocomplete="off"
+            spellcheck="false"
+            data-1p-ignore
+            data-lpignore="true"
+            class="w-full sm:max-w-xs"
+            @keydown.esc="query && ($event.preventDefault(), query = '')"
+          />
+          <span class="sr-only" aria-live="polite">{{ query.trim() ? `${shownFeatures.length} ${shownFeatures.length === 1 ? "feature" : "features"}` : "" }}</span>
+          <ul id="new-project-feature-list" class="grid gap-2 sm:grid-cols-2">
+            <li v-for="row in shownFeatures" :id="`new-project-feature-${row.id}`" :key="row.id" class="grid">
               <UCheckbox
                 variant="card"
                 size="sm"
+                indicator="end"
                 :model-value="row.state.kind !== 'off'"
                 :disabled="locked(row)"
                 :ui="{
-                  root: ['h-full items-start', row.support?.level === 'unsupported' && row.state.kind === 'off' ? 'opacity-60' : '', featureError(row.id) ? 'border-error' : ''],
+                  root: ['h-full items-start', row.support?.level === 'unsupported' && row.state.kind === 'off' ? 'opacity-60' : '', featureError(row.id) ? 'border-error has-data-[state=checked]:border-error' : ''],
                   wrapper: 'grid gap-1',
                 }"
                 :aria-invalid="Boolean(featureError(row.id))"
                 @update:model-value="(value) => toggle(row.id, value === true)"
               >
                 <template #label>
-                  <span class="flex flex-wrap items-baseline gap-x-2">
+                  <span class="flex flex-wrap items-center gap-x-2">
+                    <UIcon :name="newProjectFeatureIcons[row.id]" class="size-4 shrink-0 text-muted" aria-hidden="true" />
                     {{ row.title }}
                     <span v-if="note(row)" class="text-xs font-normal text-dimmed">{{ note(row) }}</span>
                   </span>
                 </template>
                 <template #description>
-                  <span class="text-pretty">
-                    <template v-for="(part, index) in codeParts(row.support?.level === 'unsupported' ? row.support.detail : row.summary)" :key="index">
-                      <code v-if="part.code" class="vitehub-new-project__code">{{ part.text }}</code>
-                      <template v-else>{{ part.text }}</template>
-                    </template>
+                  <span class="block ps-6 text-pretty"><ConsoleCodeText :text="row.support?.level === 'unsupported' ? row.support.detail : row.summary" /></span>
+                  <span v-if="featureError(row.id)" role="alert" class="vitehub-new-project__error mt-2 ps-6">
+                    <UIcon name="i-lucide-circle-alert" class="vitehub-new-project__error-icon" aria-hidden="true" />
+                    {{ featureError(row.id) }}
                   </span>
                 </template>
               </UCheckbox>
-              <p v-if="featureError(row.id)" role="alert" class="vitehub-new-project__error">
-                <UIcon name="i-lucide-circle-alert" class="size-4 shrink-0" aria-hidden="true" />
-                {{ featureError(row.id) }}
-              </p>
             </li>
           </ul>
+          <p v-if="!shownFeatures.length" class="vitehub-new-project__text">
+            No feature matches “{{ query.trim() }}”.
+            <button type="button" class="font-medium text-highlighted underline underline-offset-2" @click="query = ''">Clear the search</button>
+          </p>
         </section>
 
         <section v-if="plan.options.length" class="grid gap-4" aria-labelledby="new-project-options-heading">
@@ -284,7 +344,7 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
                 <code class="font-mono">{{ input.path }}</code>
               </template>
               <template #description>
-                <span class="text-pretty">{{ features[input.feature].title }}: <template v-for="(part, index) in codeParts(input.detail)" :key="index"><code v-if="part.code" class="vitehub-new-project__code">{{ part.text }}</code><template v-else>{{ part.text }}</template></template></span>
+                <span class="text-pretty">{{ features[input.feature].title }}: <ConsoleCodeText :text="input.detail" /></span>
               </template>
               <USelect
                 v-if="input.choices"
@@ -314,22 +374,37 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
 
       <aside class="vitehub-new-project__aside" aria-labelledby="new-project-command-heading">
         <div class="grid gap-1">
-          <h2 id="new-project-command-heading" class="vitehub-new-project__heading">Command</h2>
+          <h2 id="new-project-command-heading" class="vitehub-new-project__heading">Start the project</h2>
           <p class="vitehub-new-project__text">
             <span class="font-mono text-highlighted">{{ stack.dir || "…" }}</span>
             on {{ hostLabel ?? "no host yet" }}<template v-if="turnedOn.length">, with {{ turnedOn.map(row => row.title).join(", ") }}</template>.
           </p>
         </div>
 
+        <UTabs v-model="mode" :items="modeItems" :content="false" size="xs" class="w-full" :ui="{ trigger: 'flex-1 justify-center' }" />
+
+        <UFormField v-if="mode === 'prompt'" label="What should the app do?" hint="Optional" name="idea">
+          <UTextarea
+            v-model="idea"
+            :rows="3"
+            autoresize
+            :maxrows="8"
+            placeholder="A Slack bot that sums up long threads"
+            class="w-full"
+            @keydown.enter.meta.prevent="create"
+            @keydown.enter.ctrl.prevent="create"
+          />
+        </UFormField>
+
         <template v-if="!ticket">
-          <p class="vitehub-new-project__text">The command carries a one-time link to this Console. This browser keeps its key.</p>
-          <UButton type="submit" block :loading="creating" :label="creating ? 'Creating…' : 'Create command'" />
+          <p class="vitehub-new-project__text">The {{ mode === "prompt" ? "prompt" : "command" }} carries a one-time link to this Console. This browser keeps its key.</p>
+          <UButton type="submit" block :loading="creating" :label="creating ? 'Creating…' : mode === 'prompt' ? 'Create prompt' : 'Create command'" />
           <p v-if="submitted && plan.problems.length" class="vitehub-new-project__error">
-            <UIcon name="i-lucide-circle-alert" class="size-4 shrink-0" aria-hidden="true" />
+            <UIcon name="i-lucide-circle-alert" class="vitehub-new-project__error-icon" aria-hidden="true" />
             Fix the marked fields first.
           </p>
           <p v-if="createError" role="alert" class="vitehub-new-project__error">
-            <UIcon name="i-lucide-circle-alert" class="size-4 shrink-0" aria-hidden="true" />
+            <UIcon name="i-lucide-circle-alert" class="vitehub-new-project__error-icon" aria-hidden="true" />
             {{ createError }}
           </p>
         </template>
@@ -337,24 +412,26 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
         <template v-else>
           <div class="overflow-hidden rounded-lg border border-default">
             <div class="flex items-center justify-between gap-3 border-b border-default py-1.5 pr-1.5 pl-3">
-              <span class="text-xs text-muted">Terminal</span>
+              <span class="text-xs text-muted">{{ mode === "prompt" ? "Prompt" : "Terminal" }}</span>
               <UButton
                 color="neutral"
                 variant="ghost"
                 size="xs"
                 :icon="copied ? 'i-lucide-check' : 'i-lucide-copy'"
                 :label="copied ? 'Copied' : 'Copy'"
-                :disabled="!command"
+                :disabled="!output"
                 @click="copy"
               />
             </div>
+            <pre v-if="mode === 'prompt' && prompt" class="vitehub-new-project__command vitehub-new-project__prompt"><code>{{ prompt }}</code></pre>
             <!-- Each flag with its value is one box, so lines wrap between flags and not inside `--option`. -->
-            <pre v-if="commandParts" class="vitehub-new-project__command"><code><template v-for="(part, index) in commandParts" :key="index"><span>{{ part }}</span>{{ index < commandParts.length - 1 ? " " : "" }}</template></code></pre>
-            <p v-else class="p-3 text-sm text-muted">Fix the marked fields to update the command.</p>
+            <pre v-else-if="mode === 'command' && commandParts" class="vitehub-new-project__command"><code><template v-for="(part, index) in commandParts" :key="index"><span>{{ part }}</span>{{ index < commandParts.length - 1 ? " " : "" }}</template></code></pre>
+            <p v-else class="p-3 text-sm text-muted">Fix the marked fields to update the {{ mode === "prompt" ? "prompt" : "command" }}.</p>
           </div>
-          <span class="sr-only" aria-live="polite">{{ copied ? "Command copied" : "" }}</span>
-          <p class="vitehub-new-project__text text-default">Run it in your terminal, deploy the app, then open the link that the CLI prints in this browser.</p>
-          <p class="vitehub-new-project__text">The link works once, for 24 hours, in this browser profile. A change above updates the command and keeps the same link.</p>
+          <span class="sr-only" aria-live="polite">{{ copied ? `${mode === "prompt" ? "Prompt" : "Command"} copied` : "" }}</span>
+          <p v-if="mode === 'prompt'" class="vitehub-new-project__text text-default">Paste it into your coding agent, such as Claude Code or Codex. Open the link that it gives you in this browser.</p>
+          <p v-else class="vitehub-new-project__text text-default">Run it in your terminal, deploy the app, then open the link that the CLI prints in this browser.</p>
+          <p class="vitehub-new-project__text">The link works once, for 24 hours, in this browser profile. A change above updates the {{ mode === "prompt" ? "prompt" : "command" }} and keeps the same link.</p>
         </template>
       </aside>
     </form>
@@ -439,18 +516,28 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
   text-wrap: pretty;
 }
 
+/* One error style on the page: small red text that starts at the text column of its field or card. */
 .vitehub-new-project__error {
-  align-items: center;
+  align-items: flex-start;
   color: var(--ui-error);
   display: flex;
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
+  font-weight: 400;
   gap: 0.375rem;
-  line-height: 1.25rem;
+  line-height: 1rem;
+  text-wrap: pretty;
+}
+
+.vitehub-new-project__error-icon {
+  flex-shrink: 0;
+  height: 0.875rem;
+  margin-top: 0.0625rem;
+  width: 0.875rem;
 }
 
 .vitehub-new-project__code {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.75rem;
+  font-size: 0.9em;
 }
 
 .vitehub-new-project__command {
@@ -459,6 +546,11 @@ onMounted(() => heading.value?.focus({ preventScroll: true }));
   line-height: 1.25rem;
   padding: 0.75rem;
   white-space: pre-wrap;
+}
+
+.vitehub-new-project__prompt {
+  max-height: 20rem;
+  overflow-y: auto;
 }
 
 .vitehub-new-project__command span {

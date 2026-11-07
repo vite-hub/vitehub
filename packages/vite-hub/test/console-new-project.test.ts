@@ -6,6 +6,7 @@ import {
   newProjectDirProblem,
   newProjectHosts,
   newProjectImplied,
+  newProjectPrompt,
   newProjectQuery,
   planNewProject,
   readNewProjectQuery,
@@ -202,5 +203,21 @@ describe("newProjectCommand", () => {
 
   it("lists every feature title from the catalog", () => {
     expect(planNewProject(stack({})).features.map(row => row.title)).toEqual(featureIds.map(id => features[id].title))
+  })
+})
+
+describe("newProjectPrompt", () => {
+  it("asks an agent to run the command, build the idea, deploy, and hand back the link", () => {
+    const value = stack({ host: "cloudflare", features: ["kv"] })
+    const prompt = newProjectPrompt(value, ticket, "  A Slack bot that sums up long threads.  ")!
+    expect(prompt.split("\n")[0]).toBe("Create a ViteHub app in the folder my-app. The app: A Slack bot that sums up long threads.")
+    expect(prompt).toContain(`\n\n${newProjectCommand(value, ticket)}\n\n`)
+    expect(prompt).toContain("2. Build the app with ViteHub. The docs are at https://vitehub.dev/llms.txt.")
+    expect(prompt).toMatch(/give me the link that the command printed/)
+  })
+
+  it("works without an idea, and not for a stack with problems", () => {
+    expect(newProjectPrompt(stack({ host: "node" }), ticket, " ")!.split("\n")[0]).toBe("Create a ViteHub app in the folder my-app.")
+    expect(newProjectPrompt(stack({ features: ["kv"] }), ticket, "x")).toBeUndefined()
   })
 })
