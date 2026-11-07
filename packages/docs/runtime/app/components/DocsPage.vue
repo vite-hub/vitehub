@@ -27,11 +27,14 @@ const isStandalone = !response.section && !isRoot && page.layout !== "home"
 // Agents can fetch the Markdown twin of the page instead of the HTML.
 useHead({ link: [{ rel: "alternate", type: "text/markdown", href: `${site.url}${docsAppPath(docsRawPath(page.path), appBase)}` }] })
 const section = manifest.sections.find(candidate => candidate.id === response.section)
+// A page that search engines must not index gets no share image either: the build does not prerender it.
+const indexed = page.seo?.index !== false
+if (!indexed) useSeoMeta({ robots: "noindex, follow" })
 useDocsSeo({
   title: page.seo?.title ?? page.sourceTitle,
   description: page.seo?.description ?? page.description,
   section: section && { title: section.title, path: docsAppPath(section.path, appBase) },
-  image: page.seo?.image,
+  image: indexed ? page.seo?.image : false,
   type: isRoot || page.layout === "landing" || page.layout === "home" ? "page" : "article",
 })
 </script>
