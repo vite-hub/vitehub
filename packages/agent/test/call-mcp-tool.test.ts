@@ -110,9 +110,8 @@ describe("callMcpTool", () => {
         },
       }
       const [error, value] = await callMcpTool(() => stage === "resolution" ? fail() : client, "lookup")
-      expect(value).toBeNull()
-      expect(error).toBeInstanceOf(Error)
-      expect(error?.message).toBe("[vitehub] MCP tool call failed.")
+      expect(value).toBeUndefined()
+      expect(error?.code).toBe("MCP_SERVER_FAILED")
       expect(error?.cause).toBe(thrown)
       expect(client.close).toHaveBeenCalledTimes(stage === "resolution" ? 0 : 1)
     }
@@ -120,10 +119,11 @@ describe("callMcpTool", () => {
 
   it("preserves Error instances and converts ordinary thrown values", async () => {
     const original = new Error("original")
-    await expect(callMcpTool(() => { throw original }, "lookup")).resolves.toEqual([original, null])
+    const [originalError] = await callMcpTool(() => { throw original }, "lookup")
+    expect(originalError).toMatchObject({ cause: original, code: "MCP_SERVER_FAILED" })
     const [error, value] = await callMcpTool(() => { throw "plain failure" }, "lookup")
-    expect(value).toBeNull()
-    expect(error).toMatchObject({ message: "plain failure", cause: "plain failure" })
+    expect(value).toBeUndefined()
+    expect(error).toMatchObject({ cause: "plain failure", code: "MCP_SERVER_FAILED", why: "The MCP server could not run tool \"lookup\"." })
   })
 
   it.each(["json", "sse"] as const)("calls a Streamable HTTP tool that answers with %s", async (response) => {
@@ -133,7 +133,7 @@ describe("callMcpTool", () => {
 
     const [error, value] = await callMcpTool(productlane, "threads_get", { id: "thread-1" })
 
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(value).toEqual({ thread })
     expect(calls).toEqual([{ arguments: { id: "thread-1" }, authorization: "Bearer token", name: "threads_get" }])
   })
@@ -141,7 +141,7 @@ describe("callMcpTool", () => {
   it("discovers modern HTTP tool parameter headers before calling", async () => {
     const { calls, url } = await startMcpServer("json", { content: [{ text: "ok", type: "text" }] }, { parameterHeader: true })
 
-    await expect(callMcpTool({ protocolVersionDiscovery: true, transport: { type: "http", url } }, "threads_get", { id: "thread-1" })).resolves.toEqual([null, "ok"])
+    await expect(callMcpTool({ protocolVersionDiscovery: true, transport: { type: "http", url } }, "threads_get", { id: "thread-1" })).resolves.toEqual([undefined, "ok"])
     expect(calls).toEqual([{ arguments: { id: "thread-1" }, authorization: undefined, name: "threads_get", parameterHeader: "thread-1" }])
   })
 
@@ -149,8 +149,8 @@ describe("callMcpTool", () => {
     const { url } = await startMcpServer("json", {}, { stall })
     const [error, value] = await callMcpTool({ transport: { type: "http", url } }, "threads_get", {}, { timeout: 50 })
 
-    expect(error).toMatchObject({ name: "TimeoutError" })
-    expect(value).toBeNull()
+    expect(error).toMatchObject({ cause: expect.objectContaining({ name: "TimeoutError" }), code: "MCP_TOOL_TIMEOUT" })
+    expect(value).toBeUndefined()
   })
 
   it.each(["discovery", "execution"] as const)("bounds fallback %s even when the client ignores cancellation", async (stage) => {
@@ -159,8 +159,8 @@ describe("callMcpTool", () => {
     const client = { close: vi.fn(async () => undefined), tools }
     const [error, value] = await callMcpTool(() => client, "lookup", {}, { timeout: 10 })
 
-    expect(error).toMatchObject({ name: "TimeoutError" })
-    expect(value).toBeNull()
+    expect(error).toMatchObject({ cause: expect.objectContaining({ name: "TimeoutError" }), code: "MCP_TOOL_TIMEOUT" })
+    expect(value).toBeUndefined()
     expect(client.close).toHaveBeenCalledOnce()
     if (stage === "discovery") expect(execute).not.toHaveBeenCalled()
     else expect(execute.mock.calls[0]?.[1]).toMatchObject({ abortSignal: expect.objectContaining({ aborted: true }) })
@@ -175,8 +175,8 @@ describe("callMcpTool", () => {
     const client = { close: vi.fn(async () => undefined), tools: async () => ({ lookup: { execute } }) }
 
     const [error, value] = await callMcpTool(client, "lookup", {}, { signal: controller.signal, timeout: 10_000 })
-    expect(error?.message).toBe("Cancelled by caller")
-    expect(value).toBeNull()
+    expect(error).toMatchObject({ cause: expect.objectContaining({ message: "Cancelled by caller" }), code: "MCP_TOOL_CANCELLED" })
+    expect(value).toBeUndefined()
     expect(client.close).not.toHaveBeenCalled()
   })
 
@@ -198,8 +198,8 @@ describe("callMcpTool", () => {
     controller.abort(new Error("Connection cancelled"))
     const [error, value] = await connecting
 
-    expect(error?.message).toContain("initialization was aborted")
-    expect(value).toBeNull()
+    expect(error?.cause).toHaveProperty("message", expect.stringContaining("initialization was aborted"))
+    expect(value).toBeUndefined()
     expect(transport.close).toHaveBeenCalledOnce()
   })
 
@@ -213,7 +213,9 @@ describe("callMcpTool", () => {
       start: vi.fn(async () => undefined),
     }
 
-    await expect(callMcpTool({ transport }, "lookup", {}, { signal: controller.signal })).resolves.toEqual([reason, null])
+    const [error, value] = await callMcpTool({ transport }, "lookup", {}, { signal: controller.signal })
+    expect(error).toMatchObject({ cause: reason, code: "MCP_TOOL_CANCELLED" })
+    expect(value).toBeUndefined()
     expect(transport.start).not.toHaveBeenCalled()
   })
 
@@ -223,34 +225,38 @@ describe("callMcpTool", () => {
       structuredContent: { id: "thread-1" },
     })
 
-    await expect(callMcpTool({ transport: { type: "http", url } }, "threads_get")).resolves.toEqual([null, { id: "thread-1" }])
+    await expect(callMcpTool({ transport: { type: "http", url } }, "threads_get")).resolves.toEqual([undefined, { id: "thread-1" }])
   })
 
   it("returns plain text content that is not JSON", async () => {
     const { url } = await startMcpServer("sse", { content: [{ text: "No thread found.", type: "text" }] })
 
-    await expect(callMcpTool({ transport: { type: "http", url } }, "threads_get")).resolves.toEqual([null, "No thread found."])
+    await expect(callMcpTool({ transport: { type: "http", url } }, "threads_get")).resolves.toEqual([undefined, "No thread found."])
   })
 
   it("returns tool errors and unreachable servers as error tuples", async () => {
     const { url } = await startMcpServer("json", { content: [{ text: "Unknown thread", type: "text" }], isError: true })
 
     const [toolError, toolValue] = await callMcpTool({ transport: { type: "http", url } }, "threads_get")
-    expect(toolValue).toBeNull()
-    expect(toolError).toMatchObject({ code: "MCP_TOOL_CALL_FAILED", message: "[vitehub] MCP tool \"threads_get\" failed: Unknown thread" })
+    expect(toolValue).toBeUndefined()
+    expect(toolError).toMatchObject({
+      code: "MCP_TOOL_CALL_FAILED",
+      docs: "https://vitehub.dev/docs/agents/capabilities/mcp#mcp_tool_call_failed",
+      why: "MCP tool \"threads_get\" reported an error: Unknown thread",
+    })
 
     const [connectionError, connectionValue] = await callMcpTool({ transport: { type: "http", url: "http://127.0.0.1:9/mcp" } }, "threads_get")
-    expect(connectionValue).toBeNull()
-    expect(connectionError).toBeInstanceOf(Error)
+    expect(connectionValue).toBeUndefined()
+    expect(connectionError?.code).toBe("MCP_SERVER_FAILED")
   })
 
   it("closes clients from server functions and keeps borrowed clients open", async () => {
     const execute = vi.fn(async () => ({ content: [{ text: "{\"ok\":true}", type: "text" }] }))
     const client = { close: vi.fn(async () => undefined), tools: vi.fn(async () => ({ lookup: { execute } })) }
 
-    await expect(callMcpTool(client, "lookup", { query: "x" })).resolves.toEqual([null, { ok: true }])
+    await expect(callMcpTool(client, "lookup", { query: "x" })).resolves.toEqual([undefined, { ok: true }])
     expect(client.close).not.toHaveBeenCalled()
-    await expect(callMcpTool(() => client, "lookup")).resolves.toEqual([null, { ok: true }])
+    await expect(callMcpTool(() => client, "lookup")).resolves.toEqual([undefined, { ok: true }])
     expect(client.close).toHaveBeenCalledTimes(1)
     expect(execute).toHaveBeenCalledWith({ query: "x" }, expect.objectContaining({ toolCallId: expect.any(String) }))
 
@@ -265,7 +271,7 @@ describe("callMcpTool", () => {
     await runtime.setKey({ key: "crm-key", name: "crm" })
     connectionsServer.runtime = runtime
 
-    await expect(callMcpTool({ connection: "crm" }, "threads_get", { id: "thread-1" })).resolves.toEqual([null, "ok"])
+    await expect(callMcpTool({ connection: "crm" }, "threads_get", { id: "thread-1" })).resolves.toEqual([undefined, "ok"])
     expect(calls).toEqual([{ arguments: { id: "thread-1" }, authorization: "Bearer crm-key", name: "threads_get" }])
     const activity = await runtime.activity({ name: "crm" })
     expect(activity.filter(entry => entry.action === "use").map(entry => entry.actor)).toContainEqual({ id: "server", kind: "service" })
@@ -274,10 +280,10 @@ describe("callMcpTool", () => {
   it("rejects a tool outside the server tools allowlist", async () => {
     const { calls, url } = await startMcpServer("json", { content: [{ text: "ok", type: "text" }] })
     const [error, value] = await callMcpTool({ tools: ["other"], transport: { type: "http", url } }, "threads_get")
-    expect(value).toBeNull()
+    expect(value).toBeUndefined()
     expect(error).toMatchObject({ code: "MCP_TOOL_NOT_FOUND" })
     expect(calls).toEqual([])
-    await expect(callMcpTool({ tools: ["threads_get"], transport: { type: "http", url } }, "threads_get")).resolves.toEqual([null, "ok"])
+    await expect(callMcpTool({ tools: ["threads_get"], transport: { type: "http", url } }, "threads_get")).resolves.toEqual([undefined, "ok"])
   })
 
   it("repeats a failed call with backoff and stops on abort", async () => {
@@ -298,7 +304,7 @@ describe("callMcpTool", () => {
       await vi.advanceTimersByTimeAsync(1)
       expect(attempts).toBe(2)
       await vi.advanceTimersByTimeAsync(200)
-      await expect(call).resolves.toEqual([null, "done"])
+      await expect(call).resolves.toEqual([undefined, "done"])
       expect(attempts).toBe(3)
 
       const controller = new AbortController()

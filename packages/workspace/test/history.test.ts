@@ -217,7 +217,7 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     expect(await (await other.history.open(otherRevision.id)).readFile("a.txt")).toBe("same")
     await store.delete()
     const [error, remaining] = await blob.list()
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(remaining?.blobs).toHaveLength(1)
   })
 
@@ -284,7 +284,7 @@ describe.each(["libsql", "d1", "d1-http"] as const)("retained history on %s", { 
     await expect(fresh().history.commit({ ifHead: null, files: {} })).rejects.toMatchObject({ code: "WORKSPACE_NOT_FOUND" })
     // Simulate an upload accepted by Blob whose client stopped before its final deletion check.
     const [catalog] = await blob.list()
-    expect(catalog).toBeNull()
+    expect(catalog).toBeUndefined()
     const key = vi.mocked(blob.put).mock.calls[0]![0]
     await originalPut(key, "abandoned late upload", { addRandomSuffix: false })
     await fresh().delete()
@@ -816,7 +816,7 @@ describe("retained history Blob prefix", () => {
     expect(keys).toHaveLength(1)
     expect(keys[0]).toMatch(/^_vitehub\/workspace-history\/handbook\/[a-f0-9]{64}\/sha256\/[a-f0-9]{64}$/)
     const [error, listed] = await blob.list()
-    expect(error).toBeNull()
+    expect(error).toBeUndefined()
     expect(listed?.blobs.map(object => object.pathname)).toEqual(keys)
   })
 

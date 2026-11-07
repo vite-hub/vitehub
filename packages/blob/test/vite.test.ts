@@ -1564,7 +1564,7 @@ describe("hubBlob in vite dev", () => {
 
       const [error] = await runtime.blob.put("hello.txt", "hello")
 
-      expect(error).toBeNull()
+      expect(error).toBeUndefined()
       expect(await readFile(join(base, "hello.txt"), "utf8")).toBe("hello")
     }
     finally {
