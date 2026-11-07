@@ -19,7 +19,6 @@ export {
   setAgentChannelDeliveryWorkflowStateResolver,
 } from "./route-handlers.ts"
 export { isViteHubBearerSecretEqual } from "@vite-hub/internal/secret"
-export { toEventRequest } from "@vite-hub/internal/runtime/event-request"
 export { observabilityStatus } from "../internal/observability-host.ts"
 export { handleChannelReplayRequest } from "../channel-replay.ts"
 export type { ChannelReplayRequestOptions } from "../channel-replay.ts"

@@ -4,7 +4,6 @@ import agentRegistry from "#vitehub/agent/registry"
 import { assertViteHubDevRequestGrant, validateViteHubNitroDevRequest } from "@vite-hub/internal/dev-endpoint"
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-import { toEventRequest } from "@vite-hub/internal/runtime/event-request"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 
 import * as v from "valibot"
@@ -78,8 +77,8 @@ async function cancelInJournals(request: Request, grant: ViteHubDevRequestGrant,
  * registry. The handler exists only in `vite dev`. The request must carry the Workspace dev token of `serverId`.
  * Without a `serverId`, every request is rejected. `input` is a Request or the H3 event of Nitro.
  */
-export async function handleAgentInvocationsDevRequest(input: object, options: { rootDir?: string, serverId?: string } = {}): Promise<Response> {
-  const request = toEventRequest(input)
+export async function handleAgentInvocationsDevRequest(input: Request | { req: Request }, options: { rootDir?: string, serverId?: string } = {}): Promise<Response> {
+  const request = "req" in input ? input.req : input
   const { grant, rejection } = await validateViteHubNitroDevRequest(request, {
     ...agentInvocationsDevGuard,
     authorize: async (request) => {

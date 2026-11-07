@@ -1,13 +1,12 @@
 // The Console sign-in pages and the app Auth access check. The Console plugin imports this module when the server starts,
 // so it must not import Better Auth. Auth instances come from the resolver that the caller passes.
-import { toEventRequest } from "@vite-hub/internal/runtime/event-request"
 import * as v from "valibot"
 import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
 import { consoleDocumentMetadata } from "./document-metadata.ts"
 import { consoleStandaloneHeader, consoleStandaloneStyles } from "./standalone-page.ts"
 import { consoleMountBase } from "./runtime/console-route.ts"
 import { consoleRequestURL } from "./runtime/server/request.ts"
-import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
+import { consoleAuthPath, consoleEventPath, consoleEventRequest } from "./auth-path.ts"
 import { isConsoleDevelopmentBuild } from "./runtime/server/development.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection } from "./runtime/diagnostics.ts"
 
@@ -316,7 +315,7 @@ export function createConsoleAppAuthPages(resolveAuth: ConsoleAppAuthResolver): 
   authBasePath: (event: object) => Promise<string>
 } {
   async function requestAuth(event: object) {
-    const request = toEventRequest(event)
+    const request = consoleEventRequest(event)
     const url = consoleRequestURL({ req: request })
     const authRequest = { headers: request.headers, url: url.href }
     // SAFETY: Nitro installs Standard Context; Auth also adapts standalone H3 events on first use.
@@ -515,7 +514,7 @@ export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions)
   function readSession(event: object): Promise<unknown> {
     let session = sessions.get(event)
     if (!session) {
-      const request = toEventRequest(event)
+      const request = consoleEventRequest(event)
       session = Promise.resolve(options.getAuthForRequest(request, undefined, event)).then(auth => auth.api.getSession({ headers: request.headers })).catch((error: unknown) => {
         // Better Auth answers 401 when a refresh ends the session, for example from `session.onRefresh`. The access
         // routes then send the browser to sign in.
@@ -534,7 +533,7 @@ export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions)
           status: 403,
         })
       }
-      const request = toEventRequest(event)
+      const request = consoleEventRequest(event)
       const path = consoleEventPath(event, request)
       const method = request.method.toUpperCase()
       const matched = options.routes.filter((route) => {

@@ -148,11 +148,6 @@
       "import": "./dist/runtime/cloudflare-hosted.js",
       "default": "./dist/runtime/cloudflare-hosted.js"
     },
-    "./runtime/event-request": {
-      "types": "./dist/runtime/event-request.d.ts",
-      "import": "./dist/runtime/event-request.js",
-      "default": "./dist/runtime/event-request.js"
-    },
     "./runtime/vercel-hosted": {
       "types": "./dist/runtime/vercel-hosted.d.ts",
       "import": "./dist/runtime/vercel-hosted.js",

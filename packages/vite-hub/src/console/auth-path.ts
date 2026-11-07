@@ -25,6 +25,26 @@ export function cloudflareAccessIssuer(teamDomain: string): string | undefined {
   return url.origin
 }
 
+function isWebRequest(value: unknown): value is Request {
+  if (value === null || typeof value !== "object") return false
+  const headers: unknown = Reflect.get(value, "headers")
+  return typeof Reflect.get(value, "url") === "string"
+    && typeof Reflect.get(value, "method") === "string"
+    && headers !== null && typeof headers === "object"
+    && typeof Reflect.get(headers, "get") === "function"
+}
+
+/**
+ * The Web Request of a Console call: a Request, or the H3 event of a Nitro route, which carries it as `req`. The
+ * checks read the shape, so a Request from another realm also passes. Throws a `TypeError` for any other value.
+ */
+export function consoleEventRequest(event: object): Request {
+  if (isWebRequest(event)) return event
+  const request: unknown = Reflect.get(event, "req")
+  if (isWebRequest(request)) return request
+  throw new TypeError("[vitehub] Expected a Request or an H3 event with a Web Request.")
+}
+
 /** Match guards against H3's routed path, while retaining the original request for Auth. */
 export function consoleEventPath(event: object, request: Request): string {
   if ("url" in event && event.url instanceof URL) return event.url.pathname
