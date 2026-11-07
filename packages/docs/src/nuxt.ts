@@ -19,6 +19,7 @@ import {
 } from "@nuxt/kit"
 import { findContentEntry } from "@vite-hub/source/vite"
 import { defu } from "defu"
+import { addRoute, createRouter, findAllRoutes, routeToRegExp } from "rou3"
 
 import { setupDocsAssistant } from "./assistant-nuxt.ts"
 import { docsCommentsDependencies, type DocsCommentsOptions } from "./comments-nuxt.ts"
@@ -102,11 +103,11 @@ export interface DocsModuleOptions {
   /**
    * Checks links on prerendered pages with `nuxt-link-checker` and fails the build on detected errors.
    * Also checks cross-page fragments against the final HTML output.
-   * Remote URLs are not fetched. A link to an exact `redirect` route rule passes, and the build checks instead that the
-   * rule leads to a docs page and hides none. Set the app's own `linkChecker` options to change that. `false` turns the
-   * check off.
+   * Remote URLs are not fetched. Routes excluded by Nitro's prerender policy may be served at request time. A link to
+   * an exact `redirect` route rule passes, and the build checks instead that the rule leads to a docs page and hides
+   * none. Exclusion lists accept public paths, globs, or regular expressions. `false` turns the check off.
    */
-  linkChecker?: false | Pick<DocsLinkCheckOptions, "excludePages" | "ignoreFragments" | "redirect">
+  linkChecker?: false | Pick<DocsLinkCheckOptions, "excludeLinks" | "excludePages" | "ignoreFragments" | "redirect">
   /** The docs assistant: an Agent that answers from these pages. `true` uses the Agent named `docs`. */
   assistant?: boolean | { agent?: string }
   /**
@@ -168,11 +169,11 @@ interface DiscoveryRuntime {
 
 interface NitroOptions {
   runtimeConfig?: DiscoveryRuntime
-  routeRules?: Record<string, DocsRouteRule & { headers?: Record<string, string> }>
+  routeRules?: Record<string, DocsRouteRule & { headers?: Record<string, string>, prerender?: boolean }>
   alias?: Record<string, string>
   serverAssets?: Array<{ baseName: string, dir: string, pattern?: string }>
   publicAssets?: Array<{ baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }>
-  prerender?: { crawlLinks?: boolean, autoSubfolderIndex?: boolean, routes?: string[] }
+  prerender?: { crawlLinks?: boolean, autoSubfolderIndex?: boolean, routes?: string[], ignore?: Array<string | RegExp | ((path: string) => boolean | null | undefined)> }
   experimental?: { asyncContext?: boolean }
   externals?: { inline?: Array<string | RegExp> | boolean }
 }
@@ -300,7 +301,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     // from the live site. The Markdown copies are neither, so it is told that every page has one.
     if (options.linkChecker !== false) {
       const linkChecker = (moduleOptions.linkChecker ??= {})
-      linkChecker.excludeLinks = [...linkChecker.excludeLinks ?? [], ...docsManifestPages(manifest).map(page => docsAppPath(docsRawPath(page.path), config.appBase))]
+      linkChecker.excludeLinks = [...linkChecker.excludeLinks ?? [], ...options.linkChecker?.excludeLinks ?? [], ...docsManifestPages(manifest).map(page => docsAppPath(docsRawPath(page.path), config.appBase))]
     }
 
     // Nuxt UI prose headings read the heading anchor settings of @nuxtjs/mdc, which this site does not install.
@@ -309,7 +310,6 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
 
     // The error page replaces `app.vue`, so the head that every page needs is part of the app's head config.
     const head = nuxt.options.app.head
-    head.link = [...head.link ?? [], { rel: "stylesheet", href: docsAppPath(`/_docs/${comarkCssFile}`, nuxt.options.app.baseURL) }]
     const meta = head.meta ??= []
     const viewport = meta.find(tag => tag.name === "viewport")
     // Content may use the area around a notch, and `100dvh` shrinks when the phone keyboard opens. A viewport that
@@ -365,6 +365,8 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     nuxt.options.alias["#docs/manifest"] = manifestFile
     addTemplate({ filename: "docs/manifest.d.mts", getContents: () => `import type { DocsManifest } from "@vite-hub/docs"\ndeclare const manifest: DocsManifest\nexport default manifest\n`, write: true })
     nuxt.options.alias["#docs/navigation"] = resolver.resolve("./navigation.js")
+    nuxt.options.alias["#docs/comark-css"] = addTemplate({ filename: "docs/comark-css.mjs", write: true, getContents: () => `export default ${JSON.stringify(comarkCssFile)}\n` }).dst
+    addTemplate({ filename: "docs/comark-css.d.mts", write: true, getContents: () => "declare const file: string\nexport default file\n" })
     // The page route reads drafts through the app's Content runtime, the module that ViteHub's Content routes import.
     // Without `server/content.ts` the route imports `undefined` and bundles nothing more.
     const contentEntry = await findContentEntry({ projectRoot: nuxt.options.rootDir, serverDirs: [nuxt.options.serverDir] })
@@ -490,6 +492,7 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
       }
     })
     addPlugin({ src: join(runtime, "app/plugins/theme-color.ts"), mode: "all" })
+    addPlugin({ src: join(runtime, "app/plugins/comark-css.ts"), mode: "all" })
     addRouteMiddleware({ name: "docs-layout", path: join(runtime, "app/middleware/docs-layout.ts"), global: true })
     extendPages((pages) => {
       // A catch-all of the app, such as `pages/[...slug].vue`, can replace the docs page. One that leaves docs pages
@@ -543,8 +546,9 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
           if (!nitro.options.output) return
           const redirects = docsRedirects(nitro.options.routeRules ?? {})
           const settings = options.linkChecker || {}
-          const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, excludeLinks: [
+          const result = checkDocsLinks({ dir: nitro.options.output.publicDir, siteUrl: config.site.url || "https://docs.local", appBase: config.appBase, ...settings, isRuntimePath: docsRuntimePath(nitro.options, config.appBase), excludeLinks: [
             ...moduleOptions.linkChecker?.excludeLinks ?? [],
+            ...settings.excludeLinks ?? [],
             ...redirects.map(redirect => docsAppPath(redirect.from, config.appBase)),
             // The MCP endpoint is a server route, so the built output has no file for it.
             ...config.mcp ? [docsAppPath("/mcp", config.appBase)] : [],
@@ -584,6 +588,28 @@ const docsNuxtModule: DocsNuxtModule = defineNuxtModule<DocsModuleOptions>({
     }])
   },
 })
+
+/** Match Nitro's prerender policy, including the Console exclusions installed by vite-hub/nuxt. */
+function docsRuntimePath(nitro: NitroOptions, appBase: string): (pathname: string) => boolean {
+  const routes = createRouter<{ prerender?: boolean }>()
+  for (const [path, rule] of Object.entries(nitro.routeRules ?? {})) addRoute(routes, undefined, path, rule)
+  const ignored = (nitro.prerender?.ignore ?? []).map(pattern => typeof pattern === "string"
+    ? /[*:]/.test(pattern) ? routeToRegExp(pattern) : (path: string) => path.startsWith(pattern)
+    : pattern)
+  const base = appBase.replace(/\/+$/, "")
+  return (pathname) => {
+    const appPath = pathname === base ? "/" : pathname.startsWith(`${base}/`) ? pathname.slice(base.length) : undefined
+    // Nitro can hand ignore filters either the public path or the path with app.baseURL removed.
+    if ([...new Set([pathname, appPath])].some(path => path !== undefined && ignored.some(pattern => {
+      if (typeof pattern === "function") return pattern(path) === true
+      pattern.lastIndex = 0
+      return pattern.test(path)
+    }))) return true
+    if (appPath === undefined) return false
+    // Match Nitro's precedence: a more specific explicit true overrides a broader false.
+    return findAllRoutes(routes, undefined, appPath).reverse().find(route => route.data.prerender !== undefined)?.data.prerender === false
+  }
+}
 
 /** Icons of the shell components and the theme. */
 const shellIcons = [
