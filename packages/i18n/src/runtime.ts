@@ -21,6 +21,7 @@ interface I18nState {
   config?: I18nRuntimeConfig
   app?: I18n
   scope?: () => I18n | undefined
+  appScope?: () => I18n | undefined
   /** Keep overlapping selections ordered per page or server request, including across linked package copies. */
   selections?: WeakMap<I18n, symbol>
   /** Set by the Vue plugin. A message read inside `computed` or a render then re-runs after a locale change. */
@@ -54,10 +55,15 @@ export function setI18nScope(scope: (() => I18n | undefined) | undefined): void 
   state().scope = scope
 }
 
-/** The i18n instance of the current request on the server, or of the page in the browser. */
+/** The Vue integration supplies the instance of the current app without replacing the server request scope. */
+export function setI18nAppScope(scope: () => I18n | undefined): void {
+  state().appScope = scope
+}
+
+/** The i18n instance of the current Vue app, server request, or browser page. */
 export function getI18n(): I18n {
   const current = state()
-  const scoped = current.scope?.()
+  const scoped = current.appScope?.() ?? current.scope?.()
   if (scoped) return scoped
   if (!current.app) {
     const locale = current.config?.sourceLocale ?? "en"

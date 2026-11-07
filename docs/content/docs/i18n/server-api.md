@@ -128,9 +128,12 @@ Import the Vue API from `vite-hub/i18n/vue`. Nuxt 5 apps get the plugin from `vi
 | Export | Meaning |
 | --- | --- |
 | `createI18n()` | Picks the browser locale, loads its catalog, and returns the Vue plugin: `createApp(App).use(await createI18n())`. |
+| `i18nPlugin({ i18n })` | Installs a supplied instance. Messages and `useLocale().setLocale()` use the same instance. |
 | `useLocale()` | Returns `{ locale, locales, setLocale }`. `locale` is a read-only ref. Templates that read it re-render when it changes. |
 | `t` in templates | ``{{ t`Save` }}`` and `:placeholder="t`Search`"`, with no import. |
 | `<Trans>` | A message with markup: `<Trans>Read the <a href="/docs">docs</a>.</Trans>`. The component is global, with no import. |
+
+Message macros in component setup keep the app's instance, including in computed values and callbacks. Shared module functions called during Vue setup or render use the current app. Outside Vue and server request contexts, runtime functions use the default instance.
 
 ## Types
 

@@ -45,14 +45,48 @@ function importedName(node: BabelTypes.Identifier | BabelTypes.StringLiteral): s
 }
 
 /**
- * In `<script setup>`, Vue binds template ``t`...` `` to the `t` macro import. Lingui removes that import, but the
- * compiled template still calls `t(descriptor)`, so this binds the name to the template translator again.
+ * Bind component macros to their app during setup. Restore the template `t` binding that Lingui removes
+ * with the macro import, so compiled templates can still call `t(descriptor)`.
  */
-function bindTemplateT(importBase: string, tNames: ReadonlySet<string>) {
+function bindVueMessages(importBase: string, tNames: ReadonlySet<string>) {
   return ({ types: t }: { types: typeof BabelTypes }): PluginObj => ({
-    name: "vite-hub-i18n-template-t",
+    name: "vite-hub-i18n-vue-messages",
     visitor: {
       Program(path) {
+        // Vue has compiled the SFC before this pass. Bind runtime calls inside setup once, so nested
+        // computed values and event handlers keep the app instance even when no injection context is active.
+        const useI18n = path.scope.generateUidIdentifier("useI18n")
+        let bound = false
+        for (const statement of path.get("body")) {
+          if (!statement.isImportDeclaration() || statement.node.source.value !== `${importBase}/runtime`) continue
+          for (const specifier of statement.node.specifiers) {
+            if (!t.isImportSpecifier(specifier) || importedName(specifier.imported) !== "i18n") continue
+            const binding = path.scope.getBinding(specifier.local.name)
+            const instances = new Map<BabelTypes.Node, BabelTypes.Identifier>()
+            for (const reference of binding?.referencePaths ?? []) {
+              const setup = reference.findParent(parent => {
+                if (parent.isObjectMethod()) return t.isIdentifier(parent.node.key, { name: "setup" })
+                return (parent.isFunctionExpression() || parent.isArrowFunctionExpression())
+                  && parent.parentPath.isObjectProperty() && t.isIdentifier(parent.parentPath.node.key, { name: "setup" })
+              })
+              if (!setup || !(setup.isObjectMethod() || setup.isFunctionExpression() || setup.isArrowFunctionExpression())) continue
+              const body = setup.get("body")
+              if (!body.isBlockStatement()) continue
+              let instance = instances.get(setup.node)
+              if (!instance) {
+                instance = setup.scope.generateUidIdentifier("componentI18n")
+                instances.set(setup.node, instance)
+                body.unshiftContainer("body", t.variableDeclaration("const", [t.variableDeclarator(instance, t.callExpression(useI18n, []))]))
+                bound = true
+              }
+              reference.replaceWith(t.cloneNode(instance))
+            }
+          }
+        }
+        if (bound) path.unshiftContainer("body", t.importDeclaration(
+          [t.importSpecifier(useI18n, t.identifier("useI18n"))],
+          t.stringLiteral(`${importBase}/vue`),
+        ))
         for (const name of tNames) {
           if (path.scope.hasBinding(name) || !path.scope.hasGlobal(name)) continue
           path.unshiftContainer("body", t.importDeclaration(
@@ -90,14 +124,14 @@ export async function transformMacros(
     ],
   })
   if (!result?.code) return undefined
-  if (!filename.endsWith(".vue") || tNames.size === 0 || !result.ast) return { code: result.code, map: result.map ?? null }
+  if (!filename.endsWith(".vue") || !result.ast) return { code: result.code, map: result.map ?? null }
   const bound = await transformFromAstAsync(result.ast, result.code, {
     filename,
     babelrc: false,
     configFile: false,
     sourceMaps: true,
     inputSourceMap: result.map ?? undefined,
-    plugins: [bindTemplateT(importBase, tNames)],
+    plugins: [bindVueMessages(importBase, tNames)],
   })
   if (!bound?.code) return undefined
   return { code: bound.code, map: bound.map ?? null }
