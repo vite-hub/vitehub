@@ -296,6 +296,59 @@ async function writeWorkspaceLock(rootDir: string, lock: WorkspaceLock): Promise
   await writeAtomic(join(rootDir, workspaceLockFile), `${JSON.stringify(sorted, null, 2)}\n`)
 }
 
+// A command holds this file only while it reads, merges, and writes the lock file, for milliseconds. A file older than
+// `lockStaleMs` is left by a command that stopped, and the next command removes it.
+const lockMutexFile = `${workspaceLockFile}.lock`
+const lockWaitMs = 10_000
+const lockStaleMs = 30_000
+
+async function withLockMutex<T>(rootDir: string, work: () => Promise<T>): Promise<T> {
+  const path = join(rootDir, lockMutexFile)
+  const started = Date.now()
+  for (;;) {
+    try {
+      await writeFile(path, `${process.pid}\n`, { flag: "wx" })
+      break
+    }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+      const stat = await lstat(path).catch(() => undefined)
+      if (stat && Date.now() - stat.mtimeMs > lockStaleMs) {
+        await rm(path, { force: true })
+        continue
+      }
+      if (Date.now() - started > lockWaitMs) {
+        throw new WorkspaceCheckoutError("WORKSPACE_LOCK_BUSY", `Another vitehub command is writing ${workspaceLockFile}: ${lockMutexFile} exists.`, `Wait for that command to finish and try again. If no vitehub command runs, delete ${lockMutexFile}.`)
+      }
+      await new Promise(resolve => setTimeout(resolve, 20))
+    }
+  }
+  try {
+    return await work()
+  }
+  finally {
+    await rm(path, { force: true })
+  }
+}
+
+/**
+ * Writes the entries of `names` from `lock` into the lock file as it is now, and keeps the other entries. Another
+ * command can have changed them since this command read the lock, such as a concurrent pull of another Workspace.
+ * A name without an entry in `lock` is removed.
+ */
+async function saveWorkspaceLock(rootDir: string, lock: WorkspaceLock, names: readonly string[]): Promise<void> {
+  await withLockMutex(rootDir, async () => {
+    const current = await readWorkspaceLock(rootDir)
+    for (const name of names) {
+      const entry = lock.workspaces[name]
+      if (entry) current.workspaces[name] = entry
+      else delete current.workspaces[name]
+    }
+    validateCheckoutFolders(rootDir, current)
+    if (Object.keys(current.workspaces).length || await lstat(join(rootDir, workspaceLockFile)).then(() => true, () => false)) await writeWorkspaceLock(rootDir, current)
+  })
+}
+
 function folderOf(rootDir: string, dir: string): string {
   const folder = resolve(rootDir, dir)
   const inside = relative(rootDir, folder)
@@ -555,8 +608,10 @@ export async function pullWorkspaces(context: WorkspaceCheckoutContext, options:
   const created = options.workspace !== undefined && !lock.workspaces[options.workspace]
   if (options.workspace) checkoutEntry(context.rootDir, lock, options.workspace, options)
   const results: WorkspacePullResult[] = []
+  const touched = created ? [options.workspace!] : []
   try {
     for (const name of selected(lock, options.workspace)) {
+      if (!touched.includes(name)) touched.push(name)
       const entry = lock.workspaces[name]!
       const result = await pullEntry(context, name, entry)
       if (options.theirs?.length) await takeTheirs(context, name, entry, options.theirs, result)
@@ -570,7 +625,7 @@ export async function pullWorkspaces(context: WorkspaceCheckoutContext, options:
     throw error
   }
   finally {
-    if (Object.keys(lock.workspaces).length || await lstat(join(context.rootDir, workspaceLockFile)).then(() => true, () => false)) await writeWorkspaceLock(context.rootDir, lock)
+    await saveWorkspaceLock(context.rootDir, lock, touched)
   }
   return results
 }
@@ -606,11 +661,15 @@ interface WorkspacePushOptions {
 export async function pushWorkspaces(context: WorkspaceCheckoutContext, options: WorkspacePushOptions = {}): Promise<WorkspacePushResult[]> {
   const lock = await readWorkspaceLock(context.rootDir)
   const results: WorkspacePushResult[] = []
+  const touched: string[] = []
   try {
-    for (const name of selected(lock, options.workspace)) results.push(await pushEntry(context, name, lock.workspaces[name]!, options.message))
+    for (const name of selected(lock, options.workspace)) {
+      touched.push(name)
+      results.push(await pushEntry(context, name, lock.workspaces[name]!, options.message))
+    }
   }
   finally {
-    await writeWorkspaceLock(context.rootDir, lock)
+    await saveWorkspaceLock(context.rootDir, lock, touched)
   }
   return results
 }
@@ -720,6 +779,6 @@ export async function resolveWorkspaceConflicts(rootDir: string, workspace: stri
   if (!entry) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_MISSING", `Workspace "${workspace}" is not checked out.`)
   const resolved = (entry.conflicts ?? []).filter(path => !paths.length || paths.includes(path))
   entry.conflicts = (entry.conflicts ?? []).filter(path => !resolved.includes(path))
-  await writeWorkspaceLock(rootDir, lock)
+  await saveWorkspaceLock(rootDir, lock, [workspace])
   return resolved
 }

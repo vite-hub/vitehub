@@ -1,4 +1,4 @@
-import { link, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { link, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -49,6 +49,10 @@ async function app(user: OperationUser | null = null) {
   const definition: WorkspaceDefinition = { name: "content", store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "content" }) }
   registerWorkspace("content", { store: definition.store })
   const { history } = useWorkspace("content", { definition, mode: "write" })
+  // A second Workspace of the same app.
+  const notesDefinition: WorkspaceDefinition = { name: "notes", store: createBlobDatabaseWorkspaceStore({ blob, database, workspace: "notes" }) }
+  registerWorkspace("notes", { store: notesDefinition.store })
+  const notes = useWorkspace("notes", { definition: notesDefinition, mode: "write" }).history
   const calls: string[] = []
   const fetch = async (url: string | URL | Request, init?: RequestInit) => {
     expect(String(url)).toBe(`${remote}/_vitehub/rpc/__call`)
@@ -66,7 +70,7 @@ async function app(user: OperationUser | null = null) {
     const head = await history.head({ ref: "draft" })
     return await (await history.open(head!.id)).readFile(path, { encoding: "utf8" })
   }
-  return { calls, edit, fetch: fetch as typeof globalThis.fetch, history, read }
+  return { calls, edit, fetch: fetch as typeof globalThis.fetch, history, notes, read }
 }
 
 /** Runs `work` as if Node ran on `platform`. */
@@ -674,4 +678,26 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect((await local.run("pull", "--theirs", "node_modules /pkg/index.js")).stderr).toContain("WORKSPACE_CHECKOUT_PATH")
   })
 
+  it("keeps the lock entries of concurrent first pulls of two Workspaces", async () => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const notes = await remoteApp.notes.head({ ref: "draft" })
+    await remoteApp.notes.commit({ ref: "draft", ifHead: notes?.id ?? null, changes: { put: { "todo.md": "Write.\n" } } })
+    const local = await project(remoteApp.fetch, "concurrent")
+
+    const results = await Promise.all([
+      local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote),
+      local.run("pull", "notes", "--dir", "notes", "--ref", "draft", "--url", remote),
+    ])
+
+    expect(results.map(result => result.code)).toEqual([0, 0])
+    expect(Object.keys((await local.lock()).workspaces)).toEqual(["content", "notes"])
+    expect((await readdir(local.rootDir)).sort()).toEqual(["content", "notes", "vitehub.lock"])
+
+    // A command that stopped while it wrote the lock left vitehub.lock.lock. After 30 seconds, the next command removes it.
+    await writeFile(join(local.rootDir, "vitehub.lock.lock"), "1\n")
+    await utimes(join(local.rootDir, "vitehub.lock.lock"), new Date(Date.now() - 60_000), new Date(Date.now() - 60_000))
+    expect((await local.run("pull")).code).toBe(0)
+    expect((await readdir(local.rootDir)).sort()).toEqual(["content", "notes", "vitehub.lock"])
+  })
 })
