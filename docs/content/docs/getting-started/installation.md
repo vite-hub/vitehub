@@ -168,6 +168,7 @@ the Vite and the Nuxt path.
 | `server/comments.ts` | `@vite-hub/comments` |
 | Console with Agents | `@libsql/client drizzle-orm` |
 | Console sign-in with Better Auth | `@vite-hub/auth better-auth @better-auth/oauth-provider` |
+| `vite-hub/forge` | `@vite-hub/forge` |
 | `vite-hub/ui` | `@vite-hub/ui` |
 | `vite-hub/docs/*` | `@vite-hub/docs` |
 | `vite-hub/presets/*` | `@vite-hub/presets` |

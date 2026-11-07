@@ -46,6 +46,10 @@ in ViteHub and call the server API from application code.
 - [Use Cloudflare Queues](/docs/guides/cloudflare-queues).
 - [Use Vercel Cron Jobs](/docs/guides/vercel-cron-jobs).
 
+## Call GitHub, GitLab, or Forgejo
+
+- [Call GitHub as your GitHub App with useForge()](/docs/guides/forge).
+
 ## Add sign-in
 
 - [Run Better Auth on Cloudflare Workers and D1](/docs/guides/better-auth-cloudflare).

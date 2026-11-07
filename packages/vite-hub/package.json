@@ -778,6 +778,11 @@
       "import": "./dist/env/server.js",
       "default": "./dist/env/server.js"
     },
+    "./forge": {
+      "types": "./dist/forge.d.ts",
+      "import": "./dist/forge.js",
+      "default": "./dist/forge.js"
+    },
     "./gateways": {
       "types": "./dist/gateways.d.ts",
       "import": "./dist/gateways.js",
@@ -1384,6 +1389,7 @@
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/docs": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/icons": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/presets": "workspace:*",
@@ -1448,6 +1454,7 @@
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/docs": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/presets": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
@@ -1532,6 +1539,9 @@
       "optional": true
     },
     "@vite-hub/docs": {
+      "optional": true
+    },
+    "@vite-hub/forge": {
       "optional": true
     },
     "@vite-hub/presets": {

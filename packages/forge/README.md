@@ -5,9 +5,34 @@
 [![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
 [![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
 
-`@vite-hub/forge` is the one Forge client of ViteHub. Channels, Capabilities, Workspaces and Sources use it to reach GitHub, GitLab and Forgejo. It is built on [`forges`](https://forges.link).
+`@vite-hub/forge` is the one Forge identity of ViteHub. Apps call `useForge()` to act as their GitHub App, or with their GitLab or Forgejo token. Channels, Capabilities, Workspaces and Sources read the same env names. It is built on [`forges`](https://forges.link).
 
-Applications do not install this package. They set Server Env, and the `vite-hub` packages that need a Forge read it. This README is the contract for ViteHub packages that depend on it.
+## Use it in an app
+
+```bash
+pnpm add @vite-hub/forge
+```
+
+Import it from `vite-hub/forge`, which re-exports this package:
+
+```ts
+import { useForge } from "vite-hub/forge"
+
+const forge = useForge()
+const [error, github] = await forge.provider({ repository: "acme/web" })
+if (error) throw error
+await github.request("POST", "/repos/acme/web/issues", { json: { title: "Nightly build failed" } })
+```
+
+| Call | Returns |
+| --- | --- |
+| `useForge({ forge, baseUrl, env, fetch, userAgent })` | The Forge of this deployment. `forge` defaults to `"github"`. `env` defaults to the active Cloudflare bindings, then `process.env`. Throws `FORGE_MISSING_ENV` or `FORGE_INVALID_ENV` when the env cannot work. |
+| `forge.kind`, `forge.auth`, `forge.baseUrl` | The Forge, `"app"` or `"token"`, and the API base. |
+| `forge.token({ repository, refresh, signal })` | `[error, { token, expiresAt }]`. With a GitHub App, an installation token for `repository`, or for `VITEHUB_GITHUB_INSTALLATION_ID`. Cached until one minute before it expires. |
+| `forge.provider({ repository, refresh, signal })` | `[error, provider]`, a `forges` provider that sends `token()`. A GitHub provider has `graphql()`. |
+| `forge.app({ signal })` | `[error, { id, slug, login }]` of the GitHub App. Throws `FORGE_NOT_APP` with a token. |
+
+GitHub uses the App when `VITEHUB_GITHUB_APP_ID` is set, and `VITEHUB_GITHUB_TOKEN` otherwise. Runtime errors are `FORGE_APP_NOT_INSTALLED` and `FORGE_REQUEST_FAILED`. A cancelled call rejects with the abort reason. The codes are documented at [vitehub.dev/docs/guides/forge](https://vitehub.dev/docs/guides/forge).
 
 ## Server Env
 
@@ -30,8 +55,11 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 
 ## Public imports
 
+`useForge()` is the app API. The other exports are the building blocks that ViteHub packages use.
+
 | Import | Use |
 | --- | --- |
+| `useForge(options)` | The Forge identity of the app, as above. |
 | `forgeEnv` | The Server Env table above. |
 | `readForgeEnv(field, env)` | The first value set for one `forgeEnv` field, from an env record or a lookup function. |
 | `forgeProvider(connection)` | A `forges` provider for one Forge. Return it from a public API only where that API owns the Forge credentials. A GitHub provider has `graphql()`. |

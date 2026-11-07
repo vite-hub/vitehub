@@ -92,17 +92,17 @@ export function commentsOffPlugin(): Plugin {
   }
 }
 
-const ownerFacade = /^vite-hub\/(ui|presets|shell)(?:\/|$)/
+const ownerFacade = /^vite-hub\/(forge|ui|presets|shell)(?:\/|$)/
 
-/** The feature of a `vite-hub` subpath that re-exports `@vite-hub/ui`, `@vite-hub/presets`, or `@vite-hub/shell`. */
-export function ownerFacadeFeature(specifier: string): "presets" | "shell" | "ui" | undefined {
+/** The feature of a `vite-hub` subpath that re-exports `@vite-hub/forge`, `@vite-hub/ui`, `@vite-hub/presets`, or `@vite-hub/shell`. */
+export function ownerFacadeFeature(specifier: string): "forge" | "presets" | "shell" | "ui" | undefined {
   const feature = ownerFacade.exec(specifier)?.[1]
-  return feature === "ui" || feature === "presets" || feature === "shell" ? feature : undefined
+  return feature === "forge" || feature === "ui" || feature === "presets" || feature === "shell" ? feature : undefined
 }
 
 /**
- * `vite-hub/ui`, `vite-hub/presets/*`, and `vite-hub/shell` re-export optional owner packages. This plugin fails an
- * import of one of them with the install command when the app did not install its package.
+ * `vite-hub/forge`, `vite-hub/ui`, `vite-hub/presets/*`, and `vite-hub/shell` re-export optional owner packages. This
+ * plugin fails an import of one of them with the install command when the app did not install its package.
  */
 export function optionalOwnerImportsPlugin(): Plugin {
   return {

@@ -113,6 +113,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/env/presets` and `vite-hub/env/schema` | Reusable Env presets and schema helpers. |
 | `vite-hub/env/secret` and `vite-hub/env/server` | Secret declarations and server-only Env access. |
 | `vite-hub/env/seal` | AES-GCM `seal`, `unseal`, `importSealKey`, and `sealKeyId` in the Env Bridge database store format. |
+| `vite-hub/forge` | `useForge()`: GitHub App installation tokens and GitHub, GitLab, and Forgejo clients. Needs `@vite-hub/forge`. |
 | `vite-hub/kv` | KV Runtime Helper. |
 | `vite-hub/markdown-template` | Portable Markdown rendering from template strings. |
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
@@ -234,6 +235,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/env/seal` | Env Package | AES-GCM helpers in the Env Bridge database store format. |
 | `#vitehub/env/public` | Env Package | Generated Public Env access. |
 | `#vitehub/env/server` | Env Package | Generated Server Env access. |
+| `@vite-hub/forge` | Forge Package | `useForge()` and the Forge helpers that Channels, Workspaces, and Sources use. |
 | `@vite-hub/kv` | KV Package | KV Runtime Helper. |
 | `@vite-hub/markdown-template` | Markdown Template Package | Portable Markdown rendering from template strings. |
 | `@vite-hub/markdown-template/file` | Markdown Template Package | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |

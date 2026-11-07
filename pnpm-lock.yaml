@@ -2153,6 +2153,9 @@ importers:
 
   packages/forge:
     dependencies:
+      '@vite-hub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
@@ -3482,6 +3485,9 @@ importers:
       '@vite-hub/docs':
         specifier: workspace:*
         version: link:../docs
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/icons':
         specifier: workspace:*
         version: link:../icons

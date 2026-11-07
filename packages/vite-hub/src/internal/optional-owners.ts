@@ -17,6 +17,7 @@ export type OptionalOwnerPackage
     | "@vite-hub/comments"
     | "@vite-hub/content"
     | "@vite-hub/database"
+    | "@vite-hub/forge"
     | "@vite-hub/presets"
     | "@vite-hub/realtime"
     | "@vite-hub/schedule"
@@ -42,6 +43,8 @@ export const optionalFeaturePackages = {
   "content": ["@vite-hub/content"],
   // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
   "database": features.database.packages,
+  // `vite-hub/forge`: `useForge()` and the Forge helpers.
+  "forge": ["@vite-hub/forge"],
   "presets": ["@vite-hub/presets", "@vite-hub/agent"],
   "realtime": features.realtime.packages,
   "schedule": features.schedule.packages,
