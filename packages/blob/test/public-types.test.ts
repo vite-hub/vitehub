@@ -3,7 +3,7 @@ import { resolve } from "node:path"
 import ts from "typescript"
 import { expect, it } from "vitest"
 
-it("accepts H3 and host Standard Context events from the public Blob entry", () => {
+it("accepts H3 and host Standard Context events, and a Request for serve(), from the public Blob entry", () => {
   // Compile only this consumer: the package's other tests import the H3 augmentation themselves.
   const filename = resolve(import.meta.dirname, "blob-consumer.mts")
   const source = `
@@ -15,9 +15,10 @@ it("accepts H3 and host Standard Context events from the public Blob entry", () 
       "~standard": { vendor: "test", req: new Request("https://example.test/upload"), res: {} },
       context: { params: { action: "create", pathname: "photo.jpg" } },
     }
+    const served: Promise<Response> = blob.serve(h3.req, "photo.jpg")
+    void served
+    void blob.store("default", { mode: "read" }).serve(new Request("https://example.test/photo.jpg"), "photo.jpg")
     for (const event of [h3, host]) {
-      void blob.serve(event, "photo.jpg")
-      void blob.store("default", { mode: "read" }).serve(event, "photo.jpg")
       void blob.handleUpload(event)
       void blob.media.handleUpload(event)
       event.context.params = { action: "create", pathname: "photo.jpg" }

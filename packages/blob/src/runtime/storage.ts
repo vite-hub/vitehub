@@ -213,9 +213,10 @@ function createRuntimeBlobStorage(name = "default"): BlobStorage {
       const [error, storage] = await resolveStorageResult("sign", name)
       return error ? [error, undefined] : storage.sign(pathname, options)
     },
-    async serve(event, pathname, options) {
+    async serve(request, pathname, options) {
       const [error, storage] = await resolveStorageResult("serve", name)
-      return error ? [error, undefined] : storage.serve(event, pathname, options)
+      if (error) throw error
+      return storage.serve(request, pathname, options)
     },
     store: selectRuntimeBlobStore,
   }

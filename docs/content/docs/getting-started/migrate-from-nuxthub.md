@@ -105,8 +105,9 @@ driver. Read [KV](/docs/kv) for named stores and paginated
 
 Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `del`, and
 `serve` keep their names, and `put` accepts the same `contentType`, `prefix`,
-`addRandomSuffix`, and `customMetadata` options. Each method returns an
-`[error, value]` tuple.
+`addRandomSuffix`, and `customMetadata` options. Each method except `serve`
+returns an `[error, value]` tuple. `serve` takes the `Request` and returns a
+`Response`, with `404` for a missing file.
 
 ```diff [server/routes/files/[...pathname].get.ts]
 +import { blob } from "vite-hub/blob"
@@ -114,12 +115,7 @@ Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `del`, and
  export default defineEventHandler(async (event) => {
    const { pathname } = getRouterParams(event)
 -  return blob.serve(event, pathname)
-+  const [error, stream] = await blob.serve(event, pathname)
-+  if (error?.code === "BLOB_NOT_FOUND") {
-+    throw createError({ statusCode: 404, statusMessage: "File not found" })
-+  }
-+  if (error) throw error
-+  return stream
++  return blob.serve(event.req, pathname)
  })
 ```
 

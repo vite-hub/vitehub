@@ -293,11 +293,8 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const routeSegments = normalizeNitroRoute(serve.route).split("/").filter(Boolean)
   return [
     `import { blob, parseImageVariant } from '${importBase}'`,
-    `import type { BlobStorage } from '${importBase}'`,
     ...(serve.authorize ? [`import { ${serve.anonymous ? "withAnonymousAuthorization" : "withAuthorization"} } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
-    "",
-    "type ServeContext = Exclude<Parameters<BlobStorage['serve']>[0], Request>",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
     `const routeSegments: string[] = ${JSON.stringify(routeSegments)}`,
@@ -326,18 +323,16 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
     "  catch (error) {",
     "    return Response.json({ error: error instanceof Error ? error.message : 'Invalid image variant' }, { status: 400 })",
     "  }",
-    // `serve()` sets the configured headers and removes them again when it does not serve the object.
-    "  const [error, body] = await blob.store(storeName).serve(request, pathname, options)",
-    "  if (error) {",
-    "    if (error.code !== 'BLOB_NOT_FOUND') throw error",
-    "    return Response.json({ error: 'Blob not found.' }, { status: 404 })",
-    "  }",
-    "  // `serve()` writes the status and the headers to the Standard Context of the request. Move them to the Response,",
-    "  // so the host does not add them a second time. `body` is null only for a 304.",
-    "  const { res } = (request as Request & ServeContext)['~standard']",
-    "  const responseHeaders = new Headers(res.headers)",
-    "  for (const name of Array.from(responseHeaders.keys())) res.headers?.delete(name)",
-    "  return new Response(body, { headers: responseHeaders, status: body ? res.status ?? 200 : 304 })",
+    ...(serve.authorize
+      ? [
+          "  // H3 adds the headers that middleware set before this route over the returned Response. An authorized object",
+          "  // belongs to one user, so drop an earlier Cache-Control and keep the private policy of this route.",
+          "  const { res } = (request as Request & { '~standard'?: { res: { headers?: Headers } } })['~standard'] ?? {}",
+          "  res?.headers?.delete('cache-control')",
+        ]
+      : []),
+    // The Response of `serve()` has the final status and headers, also for a 304, a range, or a bad pathname.
+    "  return blob.store(storeName).serve(request, pathname, options)",
     "}",
     "",
     ...(serve.authorize

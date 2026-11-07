@@ -3,7 +3,6 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { H3Event } from "h3"
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest"
 
 import { ensureBlob } from "../src/ensure.ts"
@@ -20,12 +19,13 @@ import {
 import type { BlobEnsureOptions, BlobResult, ResolvedBlobModuleOptions } from "../src/types.ts"
 
 it("forwards response options through the runtime Blob helper", async () => {
-  const storage = { serve: vi.fn(async () => [null, null] as const) }
+  const response = new Response(null, { status: 304 })
+  const storage = { serve: vi.fn(async () => response) }
   setBlobRuntimeStorage(storage as unknown as ReturnType<typeof createBlobStorage>)
-  const event = new H3Event(new Request("https://example.test/photo"))
+  const request = new Request("https://example.test/photo")
   const options = { cacheControl: "public, max-age=300", transform: { key: "v1", run: (original: Blob) => original } }
-  expect(await blob.serve(event, "original", options)).toEqual([null, null])
-  expect(storage.serve).toHaveBeenCalledWith(event, "original", options)
+  expect(await blob.serve(request, "original", options)).toBe(response)
+  expect(storage.serve).toHaveBeenCalledWith(request, "original", options)
 })
 
 /** Runs one request the way the Nitro Cloudflare middleware does: the request env is active for the whole handler. */
@@ -801,11 +801,10 @@ describe("blob runtime", () => {
       },
     })
 
-    const event = new H3Event(new Request("https://example.test/video.mp4", { headers: { range: "bytes=4-6" } }))
-    const body = expectBlobSuccess(await blob.serve(event, "video.mp4"))
+    const response = await blob.serve(new Request("https://example.test/video.mp4", { headers: { range: "bytes=4-6" } }), "video.mp4")
 
-    expect(event.res.status).toBe(206)
-    expect(await new Response(body).text()).toBe("456")
+    expect(response.status).toBe(206)
+    expect(await response.text()).toBe("456")
     expect(reads).toEqual([{ onlyIf: undefined, range: { offset: 4, length: 3 } }])
   })
 

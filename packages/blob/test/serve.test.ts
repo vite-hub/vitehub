@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { H3, H3Event } from "h3"
+import { H3 } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDriver as createR2Driver } from "../src/drivers/cloudflare.ts"
@@ -16,8 +16,8 @@ describe("Blob response transforms", () => {
   let driver: ReturnType<typeof createDriver>
   let storage: BlobStorage
 
-  function event(headers?: Record<string, string>, method = "GET") {
-    return new H3Event(new Request("https://example.test/photo", { headers, method }))
+  function request(headers?: Record<string, string>, method = "GET") {
+    return new Request("https://example.test/photo", { headers, method })
   }
 
   const run = vi.fn(async (original: Blob) => new Blob([
@@ -39,32 +39,41 @@ describe("Blob response transforms", () => {
   })
 
   it("serves normal objects with private cache headers and their stored content type", async () => {
-    const request = event()
-    const [error, body] = await storage.serve(request, "private/original")
-    expect(error).toBeNull()
-    expect(await new Response(body).text()).toBe("public:private-camera-data")
-    expect(request.res.headers.get("content-type")).toBe("text/plain")
-    expect(request.res.headers.get("cache-control")).toBe("private, no-cache")
+    const response = await storage.serve(request(), "private/original")
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("public:private-camera-data")
+    expect(response.headers.get("content-type")).toBe("text/plain")
+    expect(response.headers.get("cache-control")).toBe("private, no-cache")
   })
 
-  it("sets the headers option and removes it when the object is not served", async () => {
-    const served = event()
-    const [error] = await storage.serve(served, "private/original", { headers: { "X-Frame-Options": "DENY" } })
-    expect(error).toBeNull()
-    expect(served.res.headers.get("x-frame-options")).toBe("DENY")
+  it("reads Cache-Control from the headers option when cacheControl is not set", async () => {
+    const response = await storage.serve(request(), "private/original", { headers: { "cache-control": "public, max-age=60" } })
+    expect(response.headers.get("cache-control")).toBe("public, max-age=60")
+    await response.body?.cancel()
+  })
 
-    const missing = event()
-    const [notFound] = await storage.serve(missing, "private/missing", { headers: { "X-Frame-Options": "DENY" } })
-    expect(notFound?.code).toBe("BLOB_NOT_FOUND")
-    expect(missing.res.headers.has("x-frame-options")).toBe(false)
+  it("adds the headers option only to responses that serve the object", async () => {
+    const headers = { "X-Frame-Options": "DENY", "Content-Type": "text/html" }
+    const served = await storage.serve(request(), "private/original", { headers })
+    expect(served.headers.get("x-frame-options")).toBe("DENY")
+    // The headers that serve() sets replace the option.
+    expect(served.headers.get("content-type")).toBe("text/plain")
+    await served.body?.cancel()
+
+    const etag = served.headers.get("etag")!
+    const conditional = await storage.serve(request({ "if-none-match": etag }), "private/original", { headers })
+    expect(conditional.status).toBe(304)
+    expect(conditional.headers.get("x-frame-options")).toBe("DENY")
+    expect(conditional.headers.get("content-type")).toBeNull()
+
+    const missing = await storage.serve(request(), "private/missing", { headers })
+    expect(missing.status).toBe(404)
+    expect(await missing.json()).toEqual({ error: "Blob not found." })
+    expect(missing.headers.has("x-frame-options")).toBe(false)
   })
 
   it("serves H3 requests with cache validators, HEAD, and byte ranges", async () => {
-    const app = new H3().all("/photo", async (event) => {
-      const [error, body] = await storage.serve(event, "private/original")
-      if (error) throw error
-      return body ?? new Response(null, { status: 304 })
-    })
+    const app = new H3().all("/photo", event => storage.serve(event.req, "private/original"))
     const fetch = (request: Request) => app.fetch(request)
     const response = await fetch(new Request("https://example.test/photo"))
     expect(response.status).toBe(200)
@@ -90,12 +99,23 @@ describe("Blob response transforms", () => {
     expect(await invalid.text()).toBe("")
   })
 
+  it("adds the headers that H3 middleware sets once", async () => {
+    const app = new H3()
+      .use((event) => {
+        event.res.headers.append("set-cookie", "a=1; Path=/")
+        event.res.headers.append("set-cookie", "b=2; Path=/")
+        event.res.headers.set("x-middleware", "yes")
+      })
+      .all("/photo", event => storage.serve(event.req, "private/original"))
+    const response = await app.fetch(new Request("https://example.test/photo"))
+    expect(response.status).toBe(200)
+    expect(response.headers.getSetCookie()).toEqual(["a=1; Path=/", "b=2; Path=/"])
+    expect(response.headers.get("x-middleware")).toBe("yes")
+    expect(await response.text()).toBe("public:private-camera-data")
+  })
+
   it.each([undefined, "bytes=0-9", "bytes=999-"])("serves HEAD from metadata with Range %s", async (range) => {
-    const app = new H3().all("/photo", async (request) => {
-      const [error, body] = await storage.serve(request, "private/original")
-      if (error) throw error
-      return body
-    })
+    const app = new H3().all("/photo", event => storage.serve(event.req, "private/original"))
     const full = await app.fetch(new Request("https://example.test/photo"))
     await full.text()
     const get = vi.spyOn(driver, "get")
@@ -121,34 +141,31 @@ describe("Blob response transforms", () => {
     expect(get).not.toHaveBeenCalled()
   })
 
-  it("reads the request and writes the response through a host's Standard Context without an H3 event", async () => {
-    const host = (req: Request) => ({ "~standard": { vendor: "host", req, res: { headers: new Headers(), status: 200 } } })
-    const request = host(new Request("https://example.test/photo"))
-    const [error, body] = await storage.serve(request, "private/original", options)
-    expect(error).toBeNull()
-    expect(await new Response(body).text()).toBe("public")
-    const conditional = host(new Request("https://example.test/photo", { headers: { "if-none-match": request["~standard"].res.headers.get("etag")! } }))
-    const [, response] = await storage.serve(conditional, "private/original", options)
-    expect(response).toBeNull()
-    expect(conditional["~standard"].res.status).toBe(304)
+  it("leaves the Standard Context of the request unchanged", async () => {
+    const res = { headers: new Headers({ "x-caller": "kept" }), status: 200 }
+    const withContext = Object.assign(new Request("https://example.test/photo", { headers: { range: "bytes=0-5" } }), {
+      "~standard": { vendor: "host", req: new Request("https://example.test/photo"), res },
+    })
+    const response = await storage.serve(withContext, "private/original", options)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("public")
+    expect(res.status).toBe(200)
+    expect([...res.headers]).toEqual([["x-caller", "kept"]])
   })
 
-  it.each(["missing", "read failure", "invalid pathname"])("restores caller headers after a failed serve: %s", async (failure) => {
-    const request = event()
-    request.res.headers.set("x-frame-options", "DENY")
-    request.res.headers.set("x-empty", "")
-    request.res.headers.set("x-caller", "preserved")
-    const cookies = ["session=original; Path=/; HttpOnly", "theme=dark; Expires=Wed, 01 Jan 2031 00:00:00 GMT; Path=/"]
-    for (const cookie of cookies) request.res.headers.append("set-cookie", cookie)
-    const previous = [...request.res.headers]
+  it.each(["missing", "read failure", "invalid pathname"])("does not add the headers option after a failed serve: %s", async (failure) => {
     if (failure === "read failure") vi.spyOn(driver, "get").mockRejectedValue(new Error("storage unavailable"))
-    const result = storage.serve(request, failure === "missing" ? "missing.txt" : failure === "invalid pathname" ? "../private/original" : "private/original", {
-      headers: { "X-Frame-Options": "SAMEORIGIN", "x-frame-options": "SAMEORIGIN", "X-Empty": "configured", "X-Blob": "temporary", "Set-Cookie": "session=temporary; Path=/" },
+    const result = storage.serve(request(), failure === "missing" ? "missing.txt" : failure === "invalid pathname" ? "../private/original" : "private/original", {
+      headers: { "X-Frame-Options": "SAMEORIGIN", "Set-Cookie": "session=temporary; Path=/" },
     })
-    if (failure === "invalid pathname") await expect(result).rejects.toThrow()
-    else expect((await result)[0]?.code).toBe(failure === "missing" ? "BLOB_NOT_FOUND" : "BLOB_OPERATION_FAILED")
-    expect([...request.res.headers]).toEqual(previous)
-    expect(request.res.headers.getSetCookie()).toEqual(cookies)
+    if (failure === "read failure") {
+      await expect(result).rejects.toMatchObject({ code: "BLOB_OPERATION_FAILED" })
+      return
+    }
+    const response = await result
+    expect(response.status).toBe(failure === "missing" ? 404 : 400)
+    expect(response.headers.get("x-frame-options")).toBeNull()
+    expect(response.headers.getSetCookie()).toEqual([])
   })
 
   it.each(["size", "contentType"] as const)("reads the body for HEAD when metadata lacks %s", async (field) => {
@@ -158,22 +175,20 @@ describe("Blob response transforms", () => {
       return meta ? { ...meta, [field]: undefined } : null
     })
     const get = vi.spyOn(driver, "get")
-    const request = event(undefined, "HEAD")
-    const [error, body] = await storage.serve(request, "private/original")
-    expect(error).toBeNull()
-    await body?.cancel()
-    expect(request.res.headers.get("content-length")).toBe("26")
-    expect(request.res.headers.get("content-type")).toBe("text/plain")
+    const response = await storage.serve(request(undefined, "HEAD"), "private/original")
+    expect(response.status).toBe(200)
+    expect(response.body).toBeNull()
+    expect(response.headers.get("content-length")).toBe("26")
+    expect(response.headers.get("content-type")).toBe("text/plain")
     expect(get).toHaveBeenCalledOnce()
   })
 
   it("uses the derived size and type for transformed HEAD responses", async () => {
-    const request = event(undefined, "HEAD")
-    const [error, body] = await storage.serve(request, "private/original", options)
-    expect(error).toBeNull()
-    await body?.cancel()
-    expect(request.res.headers.get("content-length")).toBe("6")
-    expect(request.res.headers.get("content-type")).toBe("text/plain")
+    const response = await storage.serve(request(undefined, "HEAD"), "private/original", options)
+    expect(response.status).toBe(200)
+    expect(response.body).toBeNull()
+    expect(response.headers.get("content-length")).toBe("6")
+    expect(response.headers.get("content-type")).toBe("text/plain")
     expect(run).toHaveBeenCalledOnce()
   })
 
@@ -187,37 +202,34 @@ describe("Blob response transforms", () => {
       }
       return get(path)
     })
-    const request = event()
-    const [, body] = await storage.serve(request, "private/original")
-    expect(await new Response(body).text()).toBe("updated")
-    expect(request.res.headers.get("content-type")).toBe("text/html")
-    const fresh = event()
-    await storage.serve(fresh, "private/original")
-    expect(request.res.headers.get("etag")).toBe(fresh.res.headers.get("etag"))
+    const response = await storage.serve(request(), "private/original")
+    expect(await response.text()).toBe("updated")
+    expect(response.headers.get("content-type")).toBe("text/html")
+    const fresh = await storage.serve(request(), "private/original")
+    await fresh.body?.cancel()
+    expect(response.headers.get("etag")).toBe(fresh.headers.get("etag"))
   })
 
   it("invalidates normal HTTP validators when identical bytes get a different content type", async () => {
-    const first = event()
-    await storage.serve(first, "private/original")
+    const first = await storage.serve(request(), "private/original")
+    await first.body?.cancel()
     await storage.put("private/original", "public:private-camera-data", { contentType: "text/html" })
-    const second = event({ "if-none-match": first.res.headers.get("etag")! })
-    const [, body] = await storage.serve(second, "private/original")
-    expect(second.res.status).not.toBe(304)
-    expect(second.res.headers.get("content-type")).toBe("text/html")
-    expect(second.res.headers.get("etag")).not.toBe(first.res.headers.get("etag"))
-    expect(await new Response(body).text()).toBe("public:private-camera-data")
+    const second = await storage.serve(request({ "if-none-match": first.headers.get("etag")! }), "private/original")
+    expect(second.status).toBe(200)
+    expect(second.headers.get("content-type")).toBe("text/html")
+    expect(second.headers.get("etag")).not.toBe(first.headers.get("etag"))
+    expect(await second.text()).toBe("public:private-camera-data")
   })
 
   it("caches only the derived body and keeps the original unchanged", async () => {
     for (let count = 0; count < 2; count++) {
-      const request = event()
-      const [error, body] = await storage.serve(request, "private/original", options)
-      expect(error).toBeNull()
-      expect(await new Response(body).text()).toBe("public")
-      expect(request.res.headers.get("content-length")).toBe("6")
-      expect(request.res.headers.get("content-type")).toBe("text/plain")
-      expect(request.res.headers.get("cache-control")).toBe("public, max-age=300")
-      expect(request.res.headers.get("x-content-type-options")).toBe("nosniff")
+      const response = await storage.serve(request(), "private/original", options)
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe("public")
+      expect(response.headers.get("content-length")).toBe("6")
+      expect(response.headers.get("content-type")).toBe("text/plain")
+      expect(response.headers.get("cache-control")).toBe("public, max-age=300")
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff")
     }
     expect(run).toHaveBeenCalledTimes(1)
     const [, original] = await storage.get("private/original")
@@ -228,11 +240,7 @@ describe("Blob response transforms", () => {
 
   it.each(["x".repeat(8192), "€".repeat(3000)])("reuses and inspects cached transforms with long keys (%#)", async (key) => {
     const settings = { transform: { key, run } }
-    const app = new H3().all("/photo", async (request) => {
-      const [error, body] = await storage.serve(request, "private/original", settings)
-      if (error) throw error
-      return body
-    })
+    const app = new H3().all("/photo", event => storage.serve(event.req, "private/original", settings))
     for (let count = 0; count < 2; count++) {
       const response = await app.fetch(new Request("https://example.test/photo"))
       expect(response.status).toBe(200)
@@ -249,16 +257,16 @@ describe("Blob response transforms", () => {
   })
 
   it.each(["not-json\npayload", '{"type":"text/plain"}'])("regenerates damaged cache headers (%#)", async (damaged) => {
-    const [, first] = await storage.serve(event(), "private/original", options)
-    await first?.cancel()
+    const first = await storage.serve(request(), "private/original", options)
+    await first.body?.cancel()
     const cache = await driver.list({ prefix: "_vitehub/derived/" })
     await driver.put(cache.blobs[0]!.pathname, damaged)
 
     const [, variants] = await storage.media.variants("private/original")
     expect(variants?.[0]?.size).toBe(new TextEncoder().encode(damaged).length)
-    const [error, body] = await storage.serve(event(), "private/original", options)
-    expect(error).toBeNull()
-    expect(await new Response(body).text()).toBe("public")
+    const response = await storage.serve(request(), "private/original", options)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("public")
     expect(run).toHaveBeenCalledTimes(2)
   })
 
@@ -269,8 +277,8 @@ describe("Blob response transforms", () => {
       return put(path, body, settings)
     })
     for (let count = 0; count < 2; count++) {
-      const [, body] = await storage.serve(event(), "private/original", options)
-      expect(await new Response(body).text()).toBe("public")
+      const response = await storage.serve(request(), "private/original", options)
+      expect(await response.text()).toBe("public")
     }
     expect(run).toHaveBeenCalledTimes(1)
   })
@@ -282,8 +290,8 @@ describe("Blob response transforms", () => {
       return put(path, body, settings)
     })
     for (let count = 0; count < 2; count++) {
-      const [, body] = await storage.serve(event(), "private/original", options)
-      expect(await new Response(body).text()).toBe("public")
+      const response = await storage.serve(request(), "private/original", options)
+      expect(await response.text()).toBe("public")
     }
     expect(run).toHaveBeenCalledTimes(1)
   })
@@ -294,12 +302,12 @@ describe("Blob response transforms", () => {
       if (path.startsWith("_vitehub/derived/") && await driver.head(path)) throw new Error("overwrite forbidden")
       return put(path, body, settings)
     })
-    await storage.serve(event(), "private/original", options)
+    await (await storage.serve(request(), "private/original", options)).body?.cancel()
     await driver.delete("private/original")
     await storage.put("private/original", "updated:private")
     for (let count = 0; count < 2; count++) {
-      const [, body] = await storage.serve(event(), "private/original", options)
-      expect(await new Response(body).text()).toBe("updated")
+      const response = await storage.serve(request(), "private/original", options)
+      expect(await response.text()).toBe("updated")
     }
     expect(run).toHaveBeenCalledTimes(2)
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
@@ -328,16 +336,15 @@ describe("Blob response transforms", () => {
   })
 
   it("invalidates the derivative when source bytes or the transform key change", async () => {
-    const first = event()
-    await storage.serve(first, "private/original", options)
+    const first = await storage.serve(request(), "private/original", options)
+    await first.body?.cancel()
     await storage.put("private/original", "updated:private-camera-data")
-    const second = event()
-    const [, updated] = await storage.serve(second, "private/original", options)
-    expect(await new Response(updated).text()).toBe("updated")
-    expect(second.res.headers.get("etag")).not.toBe(first.res.headers.get("etag"))
-    const third = event()
-    await storage.serve(third, "private/original", { ...options, transform: { ...options.transform, key: "public-v2" } })
-    expect(third.res.headers.get("etag")).not.toBe(second.res.headers.get("etag"))
+    const second = await storage.serve(request(), "private/original", options)
+    expect(await second.text()).toBe("updated")
+    expect(second.headers.get("etag")).not.toBe(first.headers.get("etag"))
+    const third = await storage.serve(request(), "private/original", { ...options, transform: { ...options.transform, key: "public-v2" } })
+    await third.body?.cancel()
+    expect(third.headers.get("etag")).not.toBe(second.headers.get("etag"))
     expect(run).toHaveBeenCalledTimes(3)
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
     // Source changes replace a variant; distinct transform keys keep distinct variants.
@@ -345,45 +352,40 @@ describe("Blob response transforms", () => {
   })
 
   it("handles conditional GET and HEAD without returning a body", async () => {
-    const first = event()
-    await storage.serve(first, "private/original", options)
-    const etag = first.res.headers.get("etag")!
+    const first = await storage.serve(request(), "private/original", options)
+    await first.body?.cancel()
+    const etag = first.headers.get("etag")!
     for (const method of ["GET", "HEAD"]) {
-      const request = event({ "if-none-match": `"other", W/${etag}` }, method)
-      const [error, body] = await storage.serve(request, "private/original", options)
-      expect(error).toBeNull()
-      expect(body).toBeNull()
-      expect(request.res.status).toBe(304)
+      const response = await storage.serve(request({ "if-none-match": `"other", W/${etag}` }, method), "private/original", options)
+      expect(response.status).toBe(304)
+      expect(response.body).toBeNull()
     }
     expect(run).toHaveBeenCalledTimes(1)
   })
 
-  it("answers 404 when a route rethrows a missing object", async () => {
-    const app = new H3().get("/files/**", async (event) => {
-      const [error, body] = await storage.serve(event, "missing.txt")
-      if (error) throw error
-      return body
-    })
+  it("answers 404 with a JSON body for a missing object", async () => {
+    const app = new H3().get("/files/**", event => storage.serve(event.req, "missing.txt"))
     const response = await app.fetch(new Request("https://example.test/files/missing.txt"))
     expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: "Blob not found." })
   })
 
   it("does not serve a cached derivative after the source is deleted", async () => {
-    const first = event()
-    await storage.serve(first, "private/original", options)
+    const first = await storage.serve(request(), "private/original", options)
+    await first.body?.cancel()
     await storage.del("private/original")
-    const [error] = await storage.serve(event({ "if-none-match": first.res.headers.get("etag")! }), "private/original", options)
-    expect(error?.code).toBe("BLOB_NOT_FOUND")
+    const response = await storage.serve(request({ "if-none-match": first.headers.get("etag")! }), "private/original", options)
+    expect(response.status).toBe(404)
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
     expect(cache?.blobs).toHaveLength(0)
   })
 
   it("shares and removes filesystem derivatives across pathname aliases", async () => {
-    const first = event()
-    await storage.serve(first, "private//original", options)
-    const second = event()
-    await storage.serve(second, "private/original", options)
-    expect(second.res.headers.get("etag")).toBe(first.res.headers.get("etag"))
+    const first = await storage.serve(request(), "private//original", options)
+    await first.body?.cancel()
+    const second = await storage.serve(request(), "private/original", options)
+    await second.body?.cancel()
+    expect(second.headers.get("etag")).toBe(first.headers.get("etag"))
     expect(run).toHaveBeenCalledTimes(1)
     await storage.del("private/original")
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
@@ -391,7 +393,7 @@ describe("Blob response transforms", () => {
   })
 
   it("rejects public writes and multipart uploads into the derived cache", async () => {
-    await storage.serve(event(), "private/original", options)
+    await (await storage.serve(request(), "private/original", options)).body?.cancel()
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
     const path = cache!.blobs[0]!.pathname
     for (const pathname of ["_vitehub", "_VITEHUB/", "%5Fvitehub", "_vitehub/media/records/forged", path, path.replace("_", "%5F"), path.replaceAll("/", "\\")]) {
@@ -405,8 +407,8 @@ describe("Blob response transforms", () => {
       await expect(storage.resumeMultipartUpload(pathname, "forged-upload")).rejects.toMatchObject({ code: "BLOB_R0034" })
     }
     await expect(storage.put("forged", "body", { prefix: "_vitehub/derived" })).rejects.toThrow("reserved ViteHub namespace")
-    const [, body] = await storage.serve(event(), "private/original", options)
-    expect(await new Response(body).text()).toBe("public")
+    const response = await storage.serve(request(), "private/original", options)
+    expect(await response.text()).toBe("public")
     expect(run).toHaveBeenCalledTimes(1)
   })
 
@@ -414,9 +416,9 @@ describe("Blob response transforms", () => {
     await driver.put(pathname, "legacy data")
     const warning = vi.spyOn(console, "error").mockImplementation(() => {})
     for (let count = 0; count < 2; count++) {
-      const [error, body] = await storage.serve(event(), "private/original", options)
-      expect(error).toBeNull()
-      expect(await new Response(body).text()).toBe("public")
+      const response = await storage.serve(request(), "private/original", options)
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe("public")
     }
     expect(run).toHaveBeenCalledTimes(2)
     expect(warning).toHaveBeenCalledTimes(2)
@@ -430,15 +432,14 @@ describe("Blob response transforms", () => {
     const date = new Date("2026-01-01T00:00:00.000Z")
     await writeFile(path, "first:private")
     await utimes(path, date, date)
-    const first = event()
-    await storage.serve(first, "private/original", options)
+    const first = await storage.serve(request(), "private/original", options)
+    await first.body?.cancel()
     await writeFile(path, "later:private")
     await utimes(path, date, date)
-    const second = event({ "if-none-match": first.res.headers.get("etag")! })
-    const [, body] = await storage.serve(second, "private/original", options)
-    expect(second.res.status).not.toBe(304)
-    expect(await new Response(body).text()).toBe("later")
-    expect(second.res.headers.get("etag")).not.toBe(first.res.headers.get("etag"))
+    const second = await storage.serve(request({ "if-none-match": first.headers.get("etag")! }), "private/original", options)
+    expect(second.status).toBe(200)
+    expect(await second.text()).toBe("later")
+    expect(second.headers.get("etag")).not.toBe(first.headers.get("etag"))
   })
 
   it("hashes source bytes when the driver has no ETag", async () => {
@@ -447,13 +448,12 @@ describe("Blob response transforms", () => {
       const meta = await head(path)
       return meta ? { ...meta, httpEtag: undefined, uploadedAt: new Date(0) } : null
     })
-    const first = event()
-    await storage.serve(first, "private/original", options)
+    const first = await storage.serve(request(), "private/original", options)
+    await first.body?.cancel()
     await storage.put("private/original", "updated:private-camera-data")
-    const second = event({ "if-none-match": first.res.headers.get("etag")! })
-    const [, body] = await storage.serve(second, "private/original", options)
-    expect(second.res.status).not.toBe(304)
-    expect(await new Response(body).text()).toBe("updated")
+    const second = await storage.serve(request({ "if-none-match": first.headers.get("etag")! }), "private/original", options)
+    expect(second.status).toBe(200)
+    expect(await second.text()).toBe("updated")
   })
 
   it("uses stable ETags when a provider synthesizes upload timestamps", async () => {
@@ -464,8 +464,8 @@ describe("Blob response transforms", () => {
       return meta ? { ...meta, uploadedAt: new Date(time++) } : null
     })
     for (let count = 0; count < 2; count++) {
-      const [, body] = await storage.serve(event(), "private/original", options)
-      expect(await new Response(body).text()).toBe("public")
+      const response = await storage.serve(request(), "private/original", options)
+      expect(await response.text()).toBe("public")
     }
     expect(run).toHaveBeenCalledTimes(1)
   })
@@ -480,13 +480,11 @@ describe("Blob response transforms", () => {
       }
       return get(path)
     })
-    const first = event()
-    const [, body] = await storage.serve(first, "private/original", options)
-    expect(await new Response(body).text()).toBe("updated")
-    const second = event()
-    const [, cached] = await storage.serve(second, "private/original", options)
-    expect(await new Response(cached).text()).toBe("updated")
-    expect(first.res.headers.get("etag")).toBe(second.res.headers.get("etag"))
+    const first = await storage.serve(request(), "private/original", options)
+    expect(await first.text()).toBe("updated")
+    const second = await storage.serve(request(), "private/original", options)
+    expect(await second.text()).toBe("updated")
+    expect(first.headers.get("etag")).toBe(second.headers.get("etag"))
     expect(run).toHaveBeenCalledTimes(1)
   })
 
@@ -494,7 +492,7 @@ describe("Blob response transforms", () => {
     let started!: () => void
     let finish!: () => void
     const ready = new Promise<void>(resolve => { started = resolve })
-    const pending = storage.serve(event(), "private/original", {
+    const pending = storage.serve(request(), "private/original", {
       transform: { key: "slow", async run() {
         started()
         await new Promise<void>(resolve => { finish = resolve })
@@ -519,7 +517,7 @@ describe("Blob response transforms", () => {
       await new Promise<void>(resolve => { finish = resolve })
       return put(...args)
     })
-    const pending = storage.serve(event(), "private/original", options)
+    const pending = storage.serve(request(), "private/original", options)
     await ready
     await storage.del("private/original")
     finish()
@@ -529,10 +527,10 @@ describe("Blob response transforms", () => {
   })
 
   it("shares an in-flight transformation between concurrent requests", async () => {
-    const results = await Promise.all(Array.from({ length: 4 }, () => storage.serve(event(), "private/original", options)))
-    for (const [error, body] of results) {
-      expect(error).toBeNull()
-      expect(await new Response(body).text()).toBe("public")
+    const responses = await Promise.all(Array.from({ length: 4 }, () => storage.serve(request(), "private/original", options)))
+    for (const response of responses) {
+      expect(response.status).toBe(200)
+      expect(await response.text()).toBe("public")
     }
     expect(run).toHaveBeenCalledTimes(1)
   })
@@ -549,19 +547,19 @@ describe("Blob response transforms", () => {
       }
       return new Blob([text.split(":")[0]])
     } }
-    const older = storage.serve(event(), "private/original", { transform })
+    const older = storage.serve(request(), "private/original", { transform })
     await ready
     await storage.put("private/original", "updated:private")
-    const [, newer] = await storage.serve(event(), "private/original", { transform })
-    expect(await new Response(newer).text()).toBe("updated")
+    const newer = await storage.serve(request(), "private/original", { transform })
+    expect(await newer.text()).toBe("updated")
     finish()
-    await older
-    const [, cached] = await storage.serve(event(), "private/original", { transform })
-    expect(await new Response(cached).text()).toBe("updated")
+    await (await older).body?.cancel()
+    const cached = await storage.serve(request(), "private/original", { transform })
+    expect(await cached.text()).toBe("updated")
   })
 
   it("recomputes the current version after a cross-runtime cache replacement race", async () => {
-    await storage.serve(event(), "private/original", options)
+    await (await storage.serve(request(), "private/original", options)).body?.cancel()
     await storage.put("private/original", "older:private")
     const otherRuntime = createBlobStorage(driver)
     const remove = driver.delete.bind(driver)
@@ -573,40 +571,32 @@ describe("Blob response transforms", () => {
       await new Promise<void>(resolve => { finish = resolve })
       return remove(paths)
     })
-    const older = storage.serve(event(), "private/original", options)
+    const older = storage.serve(request(), "private/original", options)
     await ready
     await otherRuntime.put("private/original", "newer:private")
-    const [, newer] = await otherRuntime.serve(event(), "private/original", options)
-    expect(await new Response(newer).text()).toBe("newer")
+    const newer = await otherRuntime.serve(request(), "private/original", options)
+    expect(await newer.text()).toBe("newer")
     finish()
-    await older
-    const [, fresh] = await otherRuntime.serve(event(), "private/original", options)
-    expect(await new Response(fresh).text()).toBe("newer")
+    await (await older).body?.cancel()
+    const fresh = await otherRuntime.serve(request(), "private/original", options)
+    expect(await fresh.text()).toBe("newer")
     expect(run).toHaveBeenCalledTimes(4)
     const [, cache] = await storage.list({ prefix: "_vitehub/derived/" })
     expect(cache?.blobs).toHaveLength(1)
   })
 
-  it("returns transformation failures through the Blob error contract", async () => {
-    const request = event()
-    const [error] = await storage.serve(request, "private/original", {
+  it("throws transformation failures as Blob errors without their detail", async () => {
+    const result = storage.serve(request(), "private/original", {
       cacheControl: "public, max-age=300",
       transform: { key: "failing", run() { throw new Error("private transform detail") } },
     })
-    expect(error).toMatchObject({ code: "BLOB_OPERATION_FAILED", details: { operation: "serve" } })
-    expect(error?.message).not.toContain("private transform detail")
-    expect(request.res.headers.get("cache-control")).toBeNull()
-    expect(request.res.headers.get("etag")).toBeNull()
+    await expect(result).rejects.toMatchObject({ code: "BLOB_OPERATION_FAILED", details: { operation: "serve" } })
+    await expect(result).rejects.not.toThrow("private transform detail")
   })
 
-  it("leaves caller headers unchanged when a source read fails", async () => {
+  it("throws a source read failure as a Blob error", async () => {
     vi.spyOn(driver, "get").mockRejectedValue(new Error("storage unavailable"))
-    const request = event()
-    request.res.headers.set("cache-control", "private, no-store")
-    const [error] = await storage.serve(request, "private/original", options)
-    expect(error?.code).toBe("BLOB_OPERATION_FAILED")
-    expect(request.res.headers.get("cache-control")).toBe("private, no-store")
-    expect(request.res.headers.get("etag")).toBeNull()
+    await expect(storage.serve(request(), "private/original", options)).rejects.toMatchObject({ code: "BLOB_OPERATION_FAILED" })
   })
 
   it("validates content headers before committing the public cache policy", async () => {
@@ -615,11 +605,7 @@ describe("Blob response transforms", () => {
       const meta = await head(path)
       return meta ? { ...meta, contentType: "text/plain\ninvalid" } : null
     })
-    const request = event()
-    const [error] = await storage.serve(request, "private/original", { cacheControl: "public, max-age=300" })
-    expect(error?.code).toBe("BLOB_OPERATION_FAILED")
-    expect(request.res.headers.get("cache-control")).toBeNull()
-    expect(request.res.headers.get("etag")).toBeNull()
+    await expect(storage.serve(request(), "private/original", { cacheControl: "public, max-age=300" })).rejects.toMatchObject({ code: "BLOB_OPERATION_FAILED" })
   })
 
   it("serves a fresh derivative when reading the cache fails", async () => {
@@ -631,26 +617,25 @@ describe("Blob response transforms", () => {
       return get(pathname)
     })
 
-    const request = event()
-    const [error, body] = await storage.serve(request, "private/original", options)
-    expect(error).toBeNull()
-    expect(await new Response(body).text()).toBe("public")
+    const response = await storage.serve(request(), "private/original", options)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("public")
     expect(run).toHaveBeenCalledTimes(1)
-    expect(request.res.headers.get("cache-control")).toBe(options.cacheControl)
+    expect(response.headers.get("cache-control")).toBe(options.cacheControl)
     expect(log).toHaveBeenCalledWith("[vitehub/blob] Transform cache read failed", failure)
   })
 
   it("serves the fresh derivative even when caching fails", async () => {
     const warning = vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(driver, "put").mockRejectedValue(new Error("storage unavailable"))
-    const [error, body] = await storage.serve(event(), "private/original", options)
-    expect(error).toBeNull()
-    expect(await new Response(body).text()).toBe("public")
+    const response = await storage.serve(request(), "private/original", options)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("public")
     expect(warning).toHaveBeenCalledOnce()
   })
 
   it("keeps the original deleted when derived-cache cleanup fails", async () => {
-    await storage.serve(event(), "private/original", options)
+    await (await storage.serve(request(), "private/original", options)).body?.cancel()
     const warning = vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(driver, "list").mockRejectedValue(new Error("cache listing unavailable"))
     const [error] = await storage.del("private/original")
@@ -665,15 +650,9 @@ describe("Blob byte ranges", () => {
   let storage: BlobStorage
   const content = "0123456789abcdefghij"
 
-  function event(headers?: Record<string, string>, method = "GET") {
-    return new H3Event(new Request("https://example.test/video", { headers, method }))
-  }
-
-  async function serve(headers?: Record<string, string>, method?: string, options?: Parameters<BlobStorage["serve"]>[2]) {
-    const request = event(headers, method)
-    const [error, body] = await storage.serve(request, "media/video.mp4", options)
-    expect(error).toBeNull()
-    return { request, text: await new Response(body).text() }
+  async function serve(headers?: Record<string, string>, method = "GET", options?: Parameters<BlobStorage["serve"]>[2]) {
+    const response = await storage.serve(new Request("https://example.test/video", { headers, method }), "media/video.mp4", options)
+    return { response, text: await response.text() }
   }
 
   beforeEach(async () => {
@@ -687,99 +666,99 @@ describe("Blob byte ranges", () => {
   })
 
   it("advertises byte ranges and sends the whole body without a Range header", async () => {
-    const { request, text } = await serve()
+    const { response, text } = await serve()
     expect(text).toBe(content)
-    expect(request.res.status).not.toBe(206)
-    expect(request.res.headers.get("accept-ranges")).toBe("bytes")
-    expect(request.res.headers.get("content-range")).toBeNull()
+    expect(response.status).toBe(200)
+    expect(response.headers.get("accept-ranges")).toBe("bytes")
+    expect(response.headers.get("content-range")).toBeNull()
   })
 
   it("returns 206 with the requested bytes", async () => {
-    const { request, text } = await serve({ range: "bytes=2-5" })
-    expect(request.res.status).toBe(206)
+    const { response, text } = await serve({ range: "bytes=2-5" })
+    expect(response.status).toBe(206)
     expect(text).toBe("2345")
-    expect(request.res.headers.get("content-range")).toBe("bytes 2-5/20")
-    expect(request.res.headers.get("content-length")).toBe("4")
-    expect(request.res.headers.get("content-type")).toBe("video/mp4")
+    expect(response.headers.get("content-range")).toBe("bytes 2-5/20")
+    expect(response.headers.get("content-length")).toBe("4")
+    expect(response.headers.get("content-type")).toBe("video/mp4")
   })
 
   it("accepts a case-insensitive range unit", async () => {
-    const { request, text } = await serve({ range: "Bytes=0-1" })
-    expect(request.res.status).toBe(206)
+    const { response, text } = await serve({ range: "Bytes=0-1" })
+    expect(response.status).toBe(206)
     expect(text).toBe("01")
-    expect(request.res.headers.get("content-range")).toBe("bytes 0-1/20")
+    expect(response.headers.get("content-range")).toBe("bytes 0-1/20")
   })
 
   it("serves open-ended ranges and clamps the end to the body size", async () => {
     const open = await serve({ range: "bytes=15-" })
-    expect(open.request.res.status).toBe(206)
+    expect(open.response.status).toBe(206)
     expect(open.text).toBe("fghij")
-    expect(open.request.res.headers.get("content-range")).toBe("bytes 15-19/20")
+    expect(open.response.headers.get("content-range")).toBe("bytes 15-19/20")
     const clamped = await serve({ range: "bytes=18-100" })
     expect(clamped.text).toBe("ij")
-    expect(clamped.request.res.headers.get("content-range")).toBe("bytes 18-19/20")
+    expect(clamped.response.headers.get("content-range")).toBe("bytes 18-19/20")
   })
 
   it("serves suffix ranges", async () => {
-    const { request, text } = await serve({ range: "bytes=-3" })
-    expect(request.res.status).toBe(206)
+    const { response, text } = await serve({ range: "bytes=-3" })
+    expect(response.status).toBe(206)
     expect(text).toBe("hij")
-    expect(request.res.headers.get("content-range")).toBe("bytes 17-19/20")
+    expect(response.headers.get("content-range")).toBe("bytes 17-19/20")
     const longer = await serve({ range: "bytes=-50" })
     expect(longer.text).toBe(content)
-    expect(longer.request.res.headers.get("content-range")).toBe("bytes 0-19/20")
+    expect(longer.response.headers.get("content-range")).toBe("bytes 0-19/20")
   })
 
   it("returns 416 when the range starts past the end", async () => {
     for (const range of ["bytes=20-", "bytes=25-30", "bytes=-0"]) {
-      const { request, text } = await serve({ range })
-      expect(request.res.status).toBe(416)
+      const { response, text } = await serve({ range })
+      expect(response.status).toBe(416)
       expect(text).toBe("")
-      expect(request.res.headers.get("content-range")).toBe("bytes */20")
-      expect(request.res.headers.get("content-length")).toBe("0")
+      expect(response.headers.get("content-range")).toBe("bytes */20")
+      expect(response.headers.get("content-length")).toBe("0")
     }
   })
 
   it("sends the whole body for malformed or multiple ranges", async () => {
     for (const range of ["bytes=5-2", "bytes=0-1,4-5", "items=0-1", "bytes=-"]) {
-      const { request, text } = await serve({ range })
-      expect(request.res.status).not.toBe(206)
+      const { response, text } = await serve({ range })
+      expect(response.status).toBe(200)
       expect(text).toBe(content)
-      expect(request.res.headers.get("content-range")).toBeNull()
+      expect(response.headers.get("content-range")).toBeNull()
     }
   })
 
   it("honors If-Range only when it matches the current ETag", async () => {
-    const { request } = await serve()
-    const etag = request.res.headers.get("etag")!
+    const { response } = await serve()
+    const etag = response.headers.get("etag")!
     expect(etag).toBeTruthy()
     const matching = await serve({ range: "bytes=0-1", "if-range": etag })
-    expect(matching.request.res.status).toBe(206)
+    expect(matching.response.status).toBe(206)
     expect(matching.text).toBe("01")
     for (const ifRange of ['"stale"', "Wed, 21 Oct 2026 07:28:00 GMT"]) {
       const stale = await serve({ range: "bytes=0-1", "if-range": ifRange })
-      expect(stale.request.res.status).not.toBe(206)
+      expect(stale.response.status).not.toBe(206)
       expect(stale.text).toBe(content)
-      expect(stale.request.res.headers.get("content-range")).toBeNull()
+      expect(stale.response.headers.get("content-range")).toBeNull()
     }
   })
 
   it.each(["bytes=0-9", "bytes=25-30"])("ignores Range %s for HEAD", async (range) => {
-    const { request: whole } = await serve(undefined, "HEAD")
-    const { request } = await serve({ range }, "HEAD")
-    expect(request.res.status).toBe(whole.res.status)
-    expect(request.res.headers.get("content-range")).toBeNull()
-    expect(request.res.headers.get("content-length")).toBe("20")
-    expect(request.res.headers.get("accept-ranges")).toBe("bytes")
+    const { response: whole } = await serve(undefined, "HEAD")
+    const { response } = await serve({ range }, "HEAD")
+    expect(response.status).toBe(whole.status)
+    expect(response.headers.get("content-range")).toBeNull()
+    expect(response.headers.get("content-length")).toBe("20")
+    expect(response.headers.get("accept-ranges")).toBe("bytes")
   })
 
   it("ignores Range for transformed responses", async () => {
     const transform = { key: "upper-v1", run: async (original: Blob) => new Blob([(await original.text()).toUpperCase()], { type: "text/plain" }) }
-    const { request, text } = await serve({ range: "bytes=0-1" }, "GET", { transform })
-    expect(request.res.status).not.toBe(206)
+    const { response, text } = await serve({ range: "bytes=0-1" }, "GET", { transform })
+    expect(response.status).toBe(200)
     expect(text).toBe(content.toUpperCase())
-    expect(request.res.headers.get("accept-ranges")).toBeNull()
-    expect(request.res.headers.get("content-range")).toBeNull()
+    expect(response.headers.get("accept-ranges")).toBeNull()
+    expect(response.headers.get("content-range")).toBeNull()
   })
 })
 
@@ -839,63 +818,61 @@ describe("Blob streams on an R2 binding", () => {
 
   async function serve(headers?: Record<string, string>) {
     const storage = createBlobStorage(createR2Driver({ binding: "BLOB", driver: "cloudflare-r2" }))
-    const event = new H3Event(new Request("https://example.test/video", { headers }))
-    const [error, body] = await storage.serve(event, "media/video.mp4")
-    expect(error).toBeNull()
-    return { event, text: await new Response(body).text() }
+    const response = await storage.serve(new Request("https://example.test/video", { headers }), "media/video.mp4")
+    return { response, text: await response.text() }
   }
 
   it("streams the whole object and its metadata from one read", async () => {
-    const { event, text } = await serve()
-    expect(event.res.status).not.toBe(206)
+    const { response, text } = await serve()
+    expect(response.status).not.toBe(206)
     expect(text).toBe("0123456789abcdefghij")
-    expect(event.res.headers.get("content-length")).toBe("20")
-    expect(event.res.headers.get("content-type")).toBe("video/mp4")
-    expect(event.res.headers.get("etag")).toMatch(/^"[^"]+"$/)
+    expect(response.headers.get("content-length")).toBe("20")
+    expect(response.headers.get("content-type")).toBe("video/mp4")
+    expect(response.headers.get("etag")).toMatch(/^"[^"]+"$/)
     expect(calls).toEqual([["get", { onlyIf: undefined, range: undefined }]])
   })
 
   it("reads only the requested bytes in one read", async () => {
-    const { event, text } = await serve({ range: "bytes=15-" })
-    expect(event.res.status).toBe(206)
+    const { response, text } = await serve({ range: "bytes=15-" })
+    expect(response.status).toBe(206)
     expect(text).toBe("fghij")
-    expect(event.res.headers.get("content-range")).toBe("bytes 15-19/20")
-    expect(event.res.headers.get("content-length")).toBe("5")
-    expect(event.res.headers.get("content-type")).toBe("video/mp4")
-    expect(event.res.headers.get("accept-ranges")).toBe("bytes")
+    expect(response.headers.get("content-range")).toBe("bytes 15-19/20")
+    expect(response.headers.get("content-length")).toBe("5")
+    expect(response.headers.get("content-type")).toBe("video/mp4")
+    expect(response.headers.get("accept-ranges")).toBe("bytes")
     expect(calls).toEqual([["get", { onlyIf: undefined, range: { offset: 15 } }]])
   })
 
   it("reads bounded and suffix ranges in one read", async () => {
     const bounded = await serve({ range: "bytes=2-4" })
     expect(bounded.text).toBe("234")
-    expect(bounded.event.res.headers.get("content-range")).toBe("bytes 2-4/20")
+    expect(bounded.response.headers.get("content-range")).toBe("bytes 2-4/20")
     const suffix = await serve({ range: "bytes=-3" })
     expect(suffix.text).toBe("hij")
-    expect(suffix.event.res.headers.get("content-range")).toBe("bytes 17-19/20")
+    expect(suffix.response.headers.get("content-range")).toBe("bytes 17-19/20")
     expect(calls.map(call => call[1]?.range)).toEqual([{ offset: 2, length: 3 }, { suffix: 3 }])
   })
 
   it("answers a matching If-None-Match with 304 from one read", async () => {
-    const etag = (await serve()).event.res.headers.get("etag")!
+    const etag = (await serve()).response.headers.get("etag")!
     calls = []
-    const { event, text } = await serve({ "if-none-match": etag })
-    expect(event.res.status).toBe(304)
+    const { response, text } = await serve({ "if-none-match": etag })
+    expect(response.status).toBe(304)
     expect(text).toBe("")
     expect(calls).toHaveLength(1)
   })
 
   it("answers an unsatisfiable range with 416 and the size", async () => {
-    const { event, text } = await serve({ range: "bytes=20-" })
-    expect(event.res.status).toBe(416)
+    const { response, text } = await serve({ range: "bytes=20-" })
+    expect(response.status).toBe(416)
     expect(text).toBe("")
-    expect(event.res.headers.get("content-range")).toBe("bytes */20")
+    expect(response.headers.get("content-range")).toBe("bytes */20")
     expect(calls).toEqual([["get", { onlyIf: undefined, range: { offset: 20 } }], ["head"]])
   })
 
   it("sends the whole body of the same version for a stale If-Range", async () => {
-    const { event, text } = await serve({ "if-range": "\"old\"", range: "bytes=0-1" })
-    expect(event.res.status).not.toBe(206)
+    const { response, text } = await serve({ "if-range": "\"old\"", range: "bytes=0-1" })
+    expect(response.status).not.toBe(206)
     expect(text).toBe("0123456789abcdefghij")
     // R2 rejects a quoted ETag in onlyIf.
     expect(calls).toEqual([["get", { onlyIf: undefined, range: { offset: 0, length: 2 } }], ["get", { onlyIf: { etagMatches: "v1" }, range: undefined }]])
@@ -905,28 +882,28 @@ describe("Blob streams on an R2 binding", () => {
     changeAfterGet = () => {
       object = { body: encode("ABCDEFGHIJ"), etag: "v2" }
     }
-    const { event, text } = await serve({ "if-range": "\"old\"", range: "bytes=0-1" })
+    const { response, text } = await serve({ "if-range": "\"old\"", range: "bytes=0-1" })
     expect(text).toBe("ABCDEFGHIJ")
-    expect(event.res.headers.get("content-length")).toBe("10")
+    expect(response.headers.get("content-length")).toBe("10")
   })
 
   it("reads again when the object grows to fit a range that R2 rejected", async () => {
     changeAfterGet = () => {
       object = { body: encode("0123456789abcdefghijKLMNO"), etag: "v2" }
     }
-    const { event, text } = await serve({ range: "bytes=20-" })
-    expect(event.res.status).toBe(206)
+    const { response, text } = await serve({ range: "bytes=20-" })
+    expect(response.status).toBe(206)
     expect(text).toBe("KLMNO")
-    expect(event.res.headers.get("content-range")).toBe("bytes 20-24/25")
+    expect(response.headers.get("content-range")).toBe("bytes 20-24/25")
   })
 
   it("reads again when a stale If-Range whole read finds another content type", async () => {
     changeAfterGet = () => {
       contentType = "video/webm"
     }
-    const { event, text } = await serve({ "if-range": "\"old\"", range: "bytes=0-1" })
+    const { response, text } = await serve({ "if-range": "\"old\"", range: "bytes=0-1" })
     expect(text).toBe("0123456789abcdefghij")
-    expect(event.res.headers.get("content-type")).toBe("video/webm")
+    expect(response.headers.get("content-type")).toBe("video/webm")
     expect(calls).toHaveLength(4)
   })
 })

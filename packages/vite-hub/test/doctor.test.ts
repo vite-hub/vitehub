@@ -358,7 +358,7 @@ describe("vitehub/destructure-result-tuples beyond KV and Blob", () => {
         '  if ((await kv.get("a")) === null) return',
         '  for (const key of await kv.keys()) console.log(key)',
         '  console.log(`${await kv.get("b")}`)',
-        '  return blob.serve(event, "a.txt")',
+        '  return blob.get("a.txt")',
         "})",
       ].join("\n"),
     })).toEqual(Array(4).fill("VHUB0003"))
