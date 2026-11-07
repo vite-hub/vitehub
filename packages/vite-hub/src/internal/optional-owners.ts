@@ -38,7 +38,11 @@ export const optionalFeaturePackages = {
   "connections": features.connections.packages,
   // The Console journal of Agent Invocations.
   "console agents": ["@libsql/client", "drizzle-orm"],
+  // `console: { mcpClient: true }` connects the Console to MCP servers.
+  "console mcp-client": ["@modelcontextprotocol/sdk"],
   "console sign-in": ["@vite-hub/auth", "better-auth", "@better-auth/oauth-provider"],
+  // The Agent Invocation components of `vite-hub/console/ui`.
+  "console ui": ["@vite-hub/ui", "@json-render/core", "@json-render/vue", "@vueuse/core"],
   "content": ["@vite-hub/content"],
   // Database also needs `drizzle-kit` as a development dependency, which `@vite-hub/database` declares.
   "database": features.database.packages,
