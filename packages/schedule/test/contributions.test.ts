@@ -398,6 +398,8 @@ describe("contributed Schedule inspection", () => {
 
     expect(record("brief").cells.timing).toBe("15 6 * * 1-5 (Europe/Madrid)")
     expect(record("brief").fields).toContainEqual({ label: "Time zone", value: "Europe/Madrid" })
+    expect(record("brief").fields).toContainEqual({ label: "Host cron (UTC)", value: "15 4,5 * * 1-5" })
+    expect(record("utc").fields.map(field => field.label)).not.toContain("Host cron (UTC)")
     expect(record("dynamic").fields).toContainEqual({ label: "Time zone", value: "Not a static string" })
     expect(record("utc").cells.timing).toBe("0 9 * * *")
     expect(record("utc").fields).toContainEqual({ label: "Time zone", value: "UTC" })

@@ -1,6 +1,11 @@
 export interface ScheduleRunContext {
   id: string
   attemptId?: string
+  /**
+   * Stable key of this occurrence: `schedule:<name>:<scheduledAt ISO>`. A host that delivers one cron wake twice gives
+   * both runs the same key. Pass it as `idempotencyKey` to Queue, Email, or a Channel so the work happens once.
+   */
+  idempotencyKey: string
   runId?: string
   scheduleId?: string
   scheduledAt: Date
@@ -20,8 +25,9 @@ export interface ScheduleDefinitionInput<TResult = unknown> {
   cron: string
   handler: ScheduleHandler<TResult>
   /**
-   * IANA time zone of `cron`, such as `"Europe/Madrid"`. Defaults to `"UTC"`. The process driver follows daylight
-   * saving time. Provider cron output (Cloudflare, Vercel, Netlify, Deno) supports only UTC.
+   * IANA time zone of `cron`, such as `"Europe/Madrid"`. Defaults to `"UTC"`. Every host follows daylight saving time:
+   * a skipped local time runs once, shifted by the gap, and a repeated local time runs once. For host cron output
+   * (Cloudflare, Vercel, Netlify, Deno), write it as a string literal so the build can read it.
    */
   timeZone?: string
 }

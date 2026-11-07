@@ -86,10 +86,46 @@ function isRepeatedFixedLocalTime(cron: ScheduleCron, fields: ScheduleDateFields
   return sameLocalMinute(scheduleDateFields(firstOccurrence, timeZone), fields)
 }
 
+/**
+ * Detect a local time that the clock skipped on a spring-forward day, read with the offset from before the gap, as
+ * RFC 5545 and `Temporal` do. `02:30` in a gap from `02:00` to `03:00` maps to `03:30`, so it runs once that day.
+ */
+function matchesSkippedLocalTime(cron: ScheduleCron, fields: ScheduleDateFields, scheduledAt: Date, timeZone: string | undefined): boolean {
+  if (!timeZone || timeZone === "UTC") return false
+  const currentOffset = localEpochMs(fields) - scheduledAt.getTime()
+  const previous = new Date(scheduledAt.getTime() - dayMinutes * minuteMs)
+  const previousOffset = localEpochMs(scheduleDateFields(previous, timeZone)) - previous.getTime()
+  if (previousOffset >= currentOffset) return false
+  const beforeGap = new Date(scheduledAt.getTime() - (currentOffset - previousOffset))
+  if (localEpochMs(scheduleDateFields(beforeGap, timeZone)) - beforeGap.getTime() !== previousOffset) return false
+  const skipped = scheduleDateFields(new Date(scheduledAt.getTime() + previousOffset), undefined)
+  return cron.minutes.includes(skipped.minute) && matchesCronHour(cron, skipped)
+}
+
 /** Returns `true` when `schedule` is due at the exact minute `scheduledAt`. */
 export function isScheduleDue(schedule: ScheduleCronRecord, scheduledAt: Date): boolean {
   if (scheduledAt.getUTCSeconds() !== 0 || scheduledAt.getUTCMilliseconds() !== 0) return false
   const cron = parseScheduleCron(schedule)
   const fields = scheduleDateFields(scheduledAt, schedule.timeZone)
-  return cron.minutes.includes(fields.minute) && matchesCronHour(cron, fields) && !isRepeatedFixedLocalTime(cron, fields, scheduledAt, schedule.timeZone)
+  if (cron.minutes.includes(fields.minute) && matchesCronHour(cron, fields)) return !isRepeatedFixedLocalTime(cron, fields, scheduledAt, schedule.timeZone)
+  return matchesSkippedLocalTime(cron, fields, scheduledAt, schedule.timeZone)
+}
+
+/** Minutes east of UTC that `timeZone` uses at `at`, such as `120` for Madrid in summer. */
+export function timeZoneOffsetMinutes(at: Date, timeZone: string): number {
+  const minute = new Date(Math.floor(at.getTime() / minuteMs) * minuteMs)
+  return Math.round((localEpochMs(scheduleDateFields(minute, timeZone)) - minute.getTime()) / minuteMs)
+}
+
+/**
+ * Returns the newest minute at or before `at` that the UTC `cron` matches, within one day. Hosts such as Vercel call a
+ * cron route some seconds or minutes late and send no scheduled time, so this gives each wake its planned minute.
+ */
+export function latestCronMinute(cron: string, at: Date): Date {
+  const record: ScheduleCronRecord = { cron, id: cron }
+  const latest = Math.floor(at.getTime() / minuteMs) * minuteMs
+  for (let time = latest; time > latest - dayMinutes * minuteMs; time -= minuteMs) {
+    if (isScheduleDue(record, new Date(time))) return new Date(time)
+  }
+  return new Date(latest)
 }
