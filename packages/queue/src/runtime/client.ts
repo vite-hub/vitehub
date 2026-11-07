@@ -9,7 +9,8 @@ import { getVercelQueueTopicName } from "../integrations/vercel.ts"
 import { getOrCreateQueueClient, getQueueRuntimeClientFactory, getQueueRuntimeConfig, getQueueRuntimeEvent, loadQueueDefinition, runWithQueueRuntimeEvent } from "../internal/runtime/state.ts"
 
 import type { Result } from "@vite-hub/runtime"
-import type { CloudflareQueueClient, CloudflareQueueProviderOptions, LocalQueueProviderOptions, QueueClient, QueueEnqueueOptions, QueueErrorCode, QueueName, QueuePayload, QueueProvider, QueueProviderOptions, QueueSendResult, ResolvedQueueOptions, VercelQueueProviderOptions } from "../types.ts"
+import type { CloudflareQueueClient, CloudflareQueueProviderOptions, LocalQueueProviderOptions, QueueClient, QueueEnqueueOptions, QueueErrorCode, QueueName, QueuePayload, QueueProvider, QueueSendResult, VercelQueueProviderOptions } from "../types.ts"
+import type { QueueRuntimeOptions, QueueRuntimeProviderOptions } from "../internal/runtime/types.ts"
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 
 async function loadNamedQueueDefinition(name: string) {
@@ -32,7 +33,7 @@ function resolveCloudflareBinding(binding: string | CloudflareQueueClient["bindi
   return resolved || bindingName
 }
 
-function toProviderOptions(name: string, config: ResolvedQueueOptions): QueueProviderOptions {
+function toProviderOptions(name: string, config: QueueRuntimeOptions): QueueRuntimeProviderOptions {
   if (config.provider === "cloudflare") {
     return {
       ...config,
@@ -50,7 +51,7 @@ function toProviderOptions(name: string, config: ResolvedQueueOptions): QueuePro
   } satisfies VercelQueueProviderOptions
 }
 
-function getActiveQueueConfig(): false | ResolvedQueueOptions {
+function getActiveQueueConfig(): false | QueueRuntimeOptions {
   const config = getQueueRuntimeConfig()
   if (config === false) {
     return false

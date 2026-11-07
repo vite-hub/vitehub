@@ -27,7 +27,11 @@ it("types the portable Rate Limit contract", async () => {
 
   // @ts-expect-error a managed Rate Limit requires a window.
   requireRateLimit(event, "uploads", { limit: 10 })
-  // @ts-expect-error the guard requires an event with Standard Context properties.
+  expectTypeOf(await requireRateLimit(new Request("https://example.com"), "uploads", { key: "user", limit: 10, window: "1m" })).toEqualTypeOf<void>()
+  // SAFETY: This type-only fixture is never evaluated. Auth passes the fields of a Request that it reads.
+  const authRequest = {} as Pick<Request, "body" | "headers" | "method" | "signal" | "url">
+  expectTypeOf(await checkRateLimit(authRequest, "uploads", { key: "user", limit: 10, window: "1m" })).toEqualTypeOf<RateLimitDecision>()
+  // @ts-expect-error the guard requires a Request or an event with Standard Context properties.
   requireRateLimit({}, "uploads", { limit: 10, window: "1m" })
   // @ts-expect-error check is not a portable atomic operation.
   limiter.check({ key: "user" })
