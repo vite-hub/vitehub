@@ -819,7 +819,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         })),
       ])
       await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
-      expect(existsSync(join(appDir, "node_modules/@vite-hub"))).toBe(false)
+      // Markdown Template is the only feature package that this app installs.
+      expect(await readdir(join(appDir, "node_modules/@vite-hub"))).toEqual(["markdown-template"])
       await run("pnpm", ["run", "typecheck"], appDir)
       await run("pnpm", ["run", "build"], appDir)
       await mkdir(join(appDir, ".output/server/templates"), { recursive: true })
