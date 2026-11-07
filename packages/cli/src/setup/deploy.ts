@@ -13,7 +13,7 @@ import { cloudflareAdapter } from "./deploy/cloudflare.ts"
 import { denoAdapter } from "./deploy/deno.ts"
 import { createDeployRun, isRecord, optionalString, readDeployCommit } from "./deploy/host.ts"
 import { netlifyAdapter } from "./deploy/netlify.ts"
-import { vercelAdapter } from "./deploy/vercel.ts"
+import { hasVercelLogin, vercelAdapter } from "./deploy/vercel.ts"
 import { SetupFailure, setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
 import { ensureViteHubGitignore, readSetupConsoleLink, readSetupLink, writeSetupLinkFile } from "./link.ts"
 import { readSetupProject } from "./project.ts"
@@ -82,7 +82,11 @@ function rerunCommand(args: SetupDeployArgs, extra: { temporary?: boolean } = {}
 }
 
 function deployHost(project: SetupProject, link: SetupLink | undefined, env: NodeJS.ProcessEnv): DeployHost {
-  const host = link?.host ?? setupStatus(project, env).host.name
+  const configured = setupStatus(project, env).host
+  if (link && configured.source === "config" && configured.name !== "unknown" && configured.name !== link.host) {
+    throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_MISMATCH({ built: configured.name, host: link.host }), setupExitCodes.conflict)
+  }
+  const host = link?.host ?? configured.name
   const found = deployHosts.find(item => item === host)
   if (!found) throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_HOST_UNSUPPORTED({ host }), setupExitCodes.conflict)
   return found
@@ -228,8 +232,10 @@ async function runDeploy(args: SetupDeployArgs, context: ViteHubCliContext): Pro
   const host = deployHost(project, link, context.env)
   if (args.preview && host === "deno") throw new SetupFailure(cliErrorDiagnostics.SETUP_DEPLOY_PREVIEW_UNSUPPORTED({ host }), setupExitCodes.conflict)
   const credentials = await resolveHostCredentials(host, { cwd: project.root, env: context.env, ...(context.runHostCli ? { run: context.runHostCli } : {}) })
+  const vercelLogin = host === "vercel" && !credentials.ok && await hasVercelLogin(project.root, context)
+  if (args.temporary && vercelLogin) throw temporaryUnsupported("It is for a machine without a vercel login, and a saved CLI login was found.")
   if (args.temporary) assertTemporary(host, args, credentials, project, context.env)
-  else if (!credentials.ok) throw credentialsMissing(host, credentials, args)
+  else if (!credentials.ok && !vercelLogin) throw credentialsMissing(host, credentials, args)
 
   const interactive = !args.json && !!process.stdin.isTTY && !!process.stderr.isTTY
   if (!args.yes) {
@@ -302,4 +308,3 @@ export const deployCommand: ViteHubCliCommand = {
   },
   usage,
 }
-

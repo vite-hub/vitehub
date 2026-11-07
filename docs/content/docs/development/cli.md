@@ -347,7 +347,7 @@ The command runs each host CLI with an argument array and no shell. It runs only
 | Netlify | `netlify deploy --no-build --dir dist --prod`, with `--message` for the commit | The environment variables API, with the value in the JSON request body |
 | Deno | `node .output/deploy.mjs` with `DENO_DEPLOY_ORG` and `DENO_DEPLOY_APP` | `deno deploy env load /dev/stdin`, then `deno deploy env list` |
 
-The credentials are the ones that `vitehub link` reads, and the host CLIs read them from the environment. Deno also needs `DENO_DEPLOY_ORG`, or a link with `--account <org>`.
+The credentials are the ones that `vitehub link` reads, and the host CLIs read them from the environment. Vercel deploys also accept a saved `vercel login` session, checked with `vercel whoami`, without requiring `VERCEL_TOKEN`. Deno also needs `DENO_DEPLOY_ORG`, or a link with `--account <org>`.
 
 When `vitehub init --console` left a pending Console link, `deploy` sets `VITEHUB_CONSOLE_TOKEN_SHA256` on the host before the deploy and checks that the host lists it. A host project that does not exist yet gets a first deploy, then the secret, then a second deploy. The value never goes into a command argument or the output. After the deploy, the command prints the Console link, and opens it in a terminal. `--json` returns it in `console.linkUrl`:
 
@@ -396,7 +396,7 @@ The build output has no `deployment.json` or no deploy command for the host. Bui
 
 ### `SETUP_DEPLOY_HOST_MISMATCH`
 
-The build output is for another host than the link or the config. The command exits with `3`.
+The configured host conflicts with the link, or the build output is for another host. A configured host conflict is rejected before building or uploading existing output. The command exits with `3`.
 
 ### `SETUP_DEPLOY_COMMAND_REJECTED`
 
