@@ -22,8 +22,9 @@ import {
 } from "./vite-config.ts"
 
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
-import type { BlobModuleOptions, BlobServeConfig, ResolvedBlobModuleOptions } from "./types.ts"
+import type { BlobModuleOptions, BlobServeConfig, ResolvedBlobModuleOptions, ResolvedBlobStoreConfig } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
+import type { ViteHubDefinitionSummary, ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
 import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { findMissingFilesSdkPeers } from "./internal/files-sdk-peers.ts"
@@ -48,6 +49,7 @@ export interface BlobVitePluginAPI {
 interface BlobProvisionContributingPlugin {
   vitehub?: {
     cli?: () => Promise<ViteHubCliContributor>
+    inspect?: () => ViteHubInspectionContributor
   }
 }
 
@@ -55,9 +57,31 @@ export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: B
 
 interface InternalBlobModuleOptions {
   importBase?: string
+  /** Whether the effective options still use a preset driver after application config hooks. */
+  presetDriver?: boolean | ((options: BlobModuleOptions | undefined) => boolean)
 }
 
 const mergeNoExternal = createNoExternalAddition(blobPackageName)
+
+function describeDevelopmentStore(store: ResolvedBlobStoreConfig): string {
+  if (store.remote) return "Remote. `vite dev` uses the real store, so writes change real data."
+  if (store.driver === "fs") return `Local. \`vite dev\` uses the \`fs\` driver in ${store.base}.`
+  if (store.driver === "cloudflare-r2" && store.localFallback) {
+    return `Local. \`vite dev\` uses the R2 binding of the dev runner, or the \`fs\` driver in ${store.localFallback.base} when the runner has none.`
+  }
+  return `\`vite dev\` uses the configured \`${store.driver}\` driver.`
+}
+
+/** Lists the Blob stores with what `vite dev` uses for each, for `vitehub inspect definitions --kind blob`. */
+function inspectBlobStores(blob: BlobViteRuntimeConfig["blob"], file: string): ViteHubDefinitionSummary[] {
+  if (!blob) return []
+  return Object.entries(blob.stores ?? { default: blob.store }).map(([name, store]) => ({
+    fields: [{ label: "Development", value: describeDevelopmentStore(store) }],
+    file,
+    name,
+    source: "blob config",
+  }))
+}
 
 function serializeVirtualConfig(config: BlobViteRuntimeConfig): string {
   return [
@@ -436,6 +460,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
   let command: string | undefined
   let resolved: ResolvedConfig | undefined
   let siblingRuntime: BlobRuntimeContribution | undefined
+  const presetDriver = () => typeof internalOptions.presetDriver === "function" ? internalOptions.presetDriver(blob) : internalOptions.presetDriver
   const siblingRuntimeGenerations = createProviderDeploymentOutputGenerationState()
   const getConfig = () => runtimeConfig ??= resolveBlobViteConfig(options)
 
@@ -452,6 +477,16 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
           provision: [createBlobCloudflareProvisionStep(() => blob), createBlobVercelProvisionStep(() => blob)],
         }
       },
+      inspect: () => ({
+        definitions: [{
+          kind: "blob",
+          label: "Blob stores",
+          list: () => inspectBlobStores(
+            resolveBlobViteConfig(blob, { dev: true, presetDriver: presetDriver(), hosting: resolved ? devServerHost(resolved) : undefined }).blob,
+            resolved?.configFile ? relative(rootDir, resolved.configFile) : "vite.config",
+          ),
+        }],
+      }),
     },
     config: {
       order: "pre",
@@ -478,7 +513,9 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       blob = config.blob ?? blob
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const cloudflare = isNitroCloudflareHost(configuredNitro)
-      const blobConfig = resolveBlobViteConfig(blob, cloudflare ? { hosting: "cloudflare" } : undefined)
+      const development = (config.command ?? command) === "serve"
+      // In `vite dev`, a store stays local unless it sets `remote: true`.
+      const blobConfig = resolveBlobViteConfig(blob, { dev: development, presetDriver: presetDriver(), hosting: development ? devServerHost(config) : cloudflare ? "cloudflare" : undefined })
       const nitro = mergeNitroBlobConfig(
         configuredNitro,
         blobConfig.blob ? blobConfig.blob.serve : undefined,
@@ -504,8 +541,8 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         importBase,
         provider,
         await resolveBlobServeAuthorizeModule(config, rootDir, runtimeConfig.blob ? runtimeConfig.blob.serve : undefined),
-        (config.command ?? command) === "serve",
-        (config.command ?? command) === "serve" && devServerHost(config) === "vercel" ? vercelFunctionRequestBodyBytes : undefined,
+        development,
+        development && devServerHost(config) === "vercel" ? vercelFunctionRequestBodyBytes : undefined,
       )
     },
     configureServer(server) {
