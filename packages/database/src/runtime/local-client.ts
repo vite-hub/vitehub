@@ -1,7 +1,7 @@
 import { isWebContainer } from "@vite-hub/web-container/env"
-import { construct } from "drizzle-orm/libsql/driver-core"
 
 import { deferLibsqlClient } from "./deferred-libsql-client.ts"
+import { createLibsqlDrizzle } from "./libsql-drizzle.ts"
 
 import type { Client, Config } from "@libsql/client"
 import type { LibsqlClientFactory } from "./drizzle-adapter.ts"
@@ -33,4 +33,4 @@ export function createLocalSqliteClient(config: Config): Client {
 }
 
 /** The libSQL factory for `createDrizzleSqliteAdapter()` on a local SQLite database. */
-export const localLibsql: LibsqlClientFactory = { createClient: createLocalSqliteClient, drizzle: construct }
+export const localLibsql: LibsqlClientFactory = { createClient: createLocalSqliteClient, drizzle: createLibsqlDrizzle }

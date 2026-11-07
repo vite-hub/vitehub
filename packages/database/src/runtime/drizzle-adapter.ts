@@ -27,7 +27,7 @@ interface D1DatabaseLike {
 
 export interface LibsqlClientFactory {
   createClient: (options: { authToken?: string, url: string }) => Client
-  /** Drizzle's libSQL `construct()` from `drizzle-orm/libsql/driver-core`, which imports no libSQL client. */
+  /** Builds Drizzle's libSQL database on the client, as `createLibsqlDrizzle()` does. It must import no libSQL client. */
   drizzle: (client: Client, config: { casing?: "snake_case" | "camelCase", schema: Record<string, unknown> }) => unknown
 }
 
