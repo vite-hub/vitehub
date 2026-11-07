@@ -3,6 +3,7 @@ import type { Plugin } from "vite"
 /** Remove disabled operation loaders before server bundlers follow their optional imports. */
 export function transformConsoleOperationFeatures(code: string, sections: readonly string[]): string | undefined {
   const transformed = code
+    .replaceAll("import.meta.viteHubConsoleOperationSections", JSON.stringify(sections))
     .replaceAll("import.meta.viteHubConsoleAgents", String(sections.includes("agents")))
     .replaceAll("import.meta.viteHubConsoleDatabase", String(sections.includes("databases")))
   return transformed === code ? undefined : transformed
