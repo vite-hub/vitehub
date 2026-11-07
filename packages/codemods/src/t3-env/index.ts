@@ -11,7 +11,7 @@ import { readDependencies } from "../shared/detect.ts"
 import { readNuxtConfig } from "../shared/nuxt-config.ts"
 import { editPackageJson } from "../shared/package-json.ts"
 import { CodemodError } from "../types.ts"
-import { importsFile, localSpecifiersNaming, rewriteT3CallSites } from "./call-sites.ts"
+import { classify, importsFile, localSpecifiersNaming, rewriteT3CallSites } from "./call-sites.ts"
 import { loadT3EnvOptions } from "./load.ts"
 import { planT3Env } from "./plan.ts"
 
@@ -103,12 +103,15 @@ async function migrate({ cwd }: CodemodContext): Promise<CodemodResult> {
   const rewritten = new Map(calls.edits.map(edit => [edit.path, edit.after ?? ""]))
   const unresolved: string[] = []
   for (const file of (await glob([...sourceGlobs, "**/*.vue"], { cwd, ignore: ignored })).sort()) {
-    if (file === envFile || file === config.fileName || calls.remainingImporters.includes(file)) continue
-    const code = rewritten.get(file) ?? await readFile(join(cwd, file), "utf8")
+    if (file === envFile || (file === config.fileName && configKeepsModule) || calls.remainingImporters.includes(file)) continue
+    const code = file === config.fileName ? configCode : rewritten.get(file) ?? await readFile(join(cwd, file), "utf8")
     if (localSpecifiersNaming(code, envFile).length) unresolved.push(file)
   }
   for (const file of unresolved) {
-    calls.followUps.push({ file, message: `This file imports a module named like ${envFile}, and the codemod could not tell whether it is ${envFile}. Its reads were not migrated, so ${envFile} stays. Rewrite them with useServerEnv() or usePublicEnv().` })
+    const action = classify(file) === "outside"
+      ? "Read process.env here because this file runs outside the Nuxt app or server runtime."
+      : "Rewrite them with useServerEnv() or usePublicEnv()."
+    calls.followUps.push({ file, message: `This file imports a module named like ${envFile}, and the codemod could not tell whether it is ${envFile}. Its reads were not migrated, so ${envFile} stays. ${action}` })
   }
   const deleteModule = !calls.remainingImporters.length && !configKeepsModule && !unresolved.length
   const otherDependencies = await readDependencies(cwd)
