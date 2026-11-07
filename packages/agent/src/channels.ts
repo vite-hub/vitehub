@@ -77,7 +77,7 @@ import { chatFinalReplyIntent, chatFinalReplyText, chatFinishDeliveryRegistrarKe
 import type { ChatFinishDeliveryRegistrar } from "./internal/chat-finish-delivery.ts"
 import { withAgentChannelStatusDefinition } from "./internal/channel-status.ts"
 import { withAgentChannelSyncDefinition } from "./internal/channel-sync.ts"
-import { channelDeliveryHandlers } from "./internal/channel-delivery-handlers.ts"
+import { channelDeliveryHandlers, channelHandlerTriggerName } from "./internal/channel-delivery-handlers.ts"
 import { withAgentChannelHistoryDefinition } from "./internal/channel-history.ts"
 import { createTelegramChannelSyncProvider } from "./internal/telegram-channel-sync.ts"
 import { channelMessageRunId } from "./internal/channel-run-id.ts"
@@ -3749,8 +3749,7 @@ export function defineChannelTrigger<TDefinition>(definition: TDefinition): TDef
 }
 
 const channelDefinitionBrand = Symbol.for("vitehub.channel.definition")
-/** The trigger that routes the `on` handlers of a Channel. */
-const handlerTriggerName = "on"
+const handlerTriggerName = channelHandlerTriggerName
 
 function isChannelDefinitionValue(value: unknown): value is ChannelDefinition {
   return isRecord(value) && (value as Record<PropertyKey, unknown>)[channelDefinitionBrand] === true
@@ -3789,6 +3788,8 @@ function webhookAdapterRegistration<TRuntimeConfig extends AgentRuntimeConfig>(w
 
 interface ChannelWebhookTriggerInput {
   body?: string
+  /** Set by `sendChannelTrigger()`, which names the event instead of the adapter. */
+  event?: string
   payload?: unknown
   request?: { headers?: Record<string, string>, method?: string, url?: string }
 }
@@ -3825,7 +3826,7 @@ function channelHandlerTrigger<TRuntimeConfig extends AgentRuntimeConfig>(
       // SAFETY: The webhook route passes the trigger input that createAgentWebhookTriggerInput() builds.
       const input = (isRecord(value) ? value : {}) as ChannelWebhookTriggerInput
       const request = { headers: input.request?.headers ?? {}, method: input.request?.method ?? "POST", url: input.request?.url ?? "" }
-      const name = webhook.event?.(input.payload, request) ?? "webhook"
+      const name = input.event ?? webhook.event?.(input.payload, request) ?? "webhook"
       if (!Object.hasOwn(handlers, name)) return ignored(`no target for event "${name}"`)
       const id = webhook.id?.(input.payload, request) || createHash("sha256").update(input.body ?? JSON.stringify(input.payload ?? null)).digest("hex")
       const { agentChannelDeliveryMode } = await import("./trigger-runtime.ts")

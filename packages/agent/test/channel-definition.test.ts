@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { defineChannel, stripe, webhook } from "@vite-hub/channels"
+import { defineChannel, sendChannelTrigger, stripe, webhook } from "@vite-hub/channels"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineChannelTrigger, ignored, slack, teams } from "../src/channels.ts"
@@ -161,4 +161,34 @@ describe("defineChannel() on the Agent webhook route", () => {
     expect(() => namedChannelHosts({ a: agent, b: defineAgent({ name: "b", channels: ["support"], driver: { run: () => "ok" } }) })).toThrow('both list the Channel "support"')
     expect(() => defineAgent({ channels: ["missing"], driver: { run: () => "ok" } })).toThrow('lists the Channel "missing", which is not registered')
   })
+
+  it("starts an on handler and a trigger from code with sendChannelTrigger()", async () => {
+    const handler = vi.fn()
+    const run = vi.fn()
+    const agent = hostAgent(defineChannel({
+      adapter: stripe({ secret }),
+      on: {
+        "checkout.session.completed": handler,
+        record: defineChannelTrigger({
+          durableState: true,
+          webhooks: [],
+          tasks: { sync: { run: (_context, { input }) => run(input.data) } },
+          invoke: (_context, item: { id: string }) => ({ task: "sync", input: { data: item }, webhook: { deliveryId: `record:${item.id}`, serialize: `record:${item.id}` } }),
+        }),
+      },
+    }))
+    await routeFor(agent)
+
+    const event = JSON.parse(stripeEvent("evt_code"))
+    await expect(sendChannelTrigger("payments", "checkout.session.completed", event)).resolves.toEqual([undefined, { deliveryId: "evt_code", queued: true }])
+    await expect(sendChannelTrigger("payments", "checkout.session.completed", event)).resolves.toEqual([undefined, { deliveryId: "evt_code", queued: false }])
+    await expect(sendChannelTrigger("payments", "record", { id: "r1" })).resolves.toEqual([undefined, { deliveryId: "record:r1", queued: true }])
+    await until(() => handler.mock.calls.length === 1 && run.mock.calls.length === 1, 15_000)
+    expect(handler.mock.calls[0]![0]).toEqual({ name: "checkout.session.completed", id: "evt_code", data: event })
+    expect(run).toHaveBeenCalledWith({ id: "r1" })
+
+    const [error] = await sendChannelTrigger("payments", "missing", {})
+    expect(error).toMatchObject({ code: "CHANNEL_TRIGGER_FAILED" })
+    expect(error?.cause).toHaveProperty("message", expect.stringContaining('has no trigger or `on` handler "missing"'))
+  }, 30_000)
 })
