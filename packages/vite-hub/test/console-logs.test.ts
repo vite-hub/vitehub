@@ -122,9 +122,10 @@ describe("Console Logs", () => {
     try {
       const signal = await started;
       expect(signal?.aborted).toBe(false);
-      controller.abort();
+      const reason = new Error("Log request cancelled");
+      controller.abort(reason);
       expect(signal?.aborted).toBe(true);
-      expect(signal?.reason).toBe(req.signal.reason);
+      expect(signal?.reason).toBe(reason);
       expect(aborted).toBe(true);
     } finally {
       finish({ entries: [] });

@@ -85,6 +85,9 @@ const runtimeEntries = [
   "src/console/runtime/client/operation-view.ts",
   "src/console/runtime/client/problem.ts",
   "src/console/runtime/client/project.ts",
+  "src/console/runtime/client/project-link.ts",
+  "src/console/runtime/client/project-session.ts",
+  "src/console/runtime/client/projects.ts",
   "src/console/runtime/client/rate-limit.ts",
   "src/console/runtime/client/read-only.ts",
   "src/console/runtime/client/route-query.ts",
@@ -242,6 +245,22 @@ export default defineConfig({
           to: "dist/console/runtime/components",
         },
         {
+          from: "src/console/runtime/components/console-project-link.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-project-problem.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-project-switcher.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-project-token.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
           from: "src/console/runtime/components/console-search.vue",
           to: "dist/console/runtime/components",
         },
@@ -355,6 +374,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-code-text.vue", to: "dist/console/runtime/components" },
         ...["console-mcp-client.vue", "console-mcp-callback.vue", "console-mcp-connect.vue", "console-mcp-connection.vue", "console-mcp-content.vue", "console-mcp-items.vue"].map(file => ({ from: `src/console/runtime/components/${file}`, to: "dist/console/runtime/components" })),
         { from: "src/console/runtime/components/console-skills.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-skill-tree.vue", to: "dist/console/runtime/components" },
@@ -471,6 +491,9 @@ export default defineConfig({
           delete exports["./console/runtime/client/publish"];
           delete exports["./console/runtime/client/problem"];
           delete exports["./console/runtime/client/project"];
+          delete exports["./console/runtime/client/project-link"];
+          delete exports["./console/runtime/client/project-session"];
+          delete exports["./console/runtime/client/projects"];
           delete exports["./console/runtime/client/rate-limit"];
           delete exports["./console/runtime/client/read-only"];
           delete exports["./console/runtime/client/route-query"];

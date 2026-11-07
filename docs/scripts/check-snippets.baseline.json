@@ -40,11 +40,6 @@
     "error": "TS2571 Object is of type 'unknown'.\nTS2571 Object is of type 'unknown'."
   },
   {
-    "id": "docs/content/docs/agents/capabilities/input-commands.md#748af2836fda",
-    "label": "server/agents/support.ts",
-    "error": "TS2554 Expected 0 arguments, but got 1."
-  },
-  {
     "id": "docs/content/docs/agents/capabilities/mcp.md#4a5c462e1230",
     "label": "server/agents/support.ts",
     "error": "TS18004 No value exists in scope for the shorthand property 'model'. Either declare one or provide an initializer.\nTS2339 Property 'unseal' does not exist on type '{}'."
