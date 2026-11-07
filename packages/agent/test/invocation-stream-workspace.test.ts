@@ -518,8 +518,8 @@ describe("Agent Invocation Stream write workspace finish lifecycle", () => {
     expect(workspaceStartSession).toHaveBeenCalled()
   })
 
-  it("installs hosted workspace runtime for Agent Workspace commands with env-default Vercel Blob storage", async () => {
-    vi.stubEnv("BLOB_READ_WRITE_TOKEN", "runtime-token")
+  it.each(["BLOB_READ_WRITE_TOKEN", "BLOB_STORE_ID"])("installs hosted workspace runtime for Agent Workspace commands with env-default Vercel Blob storage from %s", async (envName) => {
+    vi.stubEnv(envName, "runtime-value")
 
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-workspace-command-env-hosted-"))
     await mkdir(join(root, "server", "agents"), { recursive: true })

@@ -195,7 +195,11 @@ The command sets `<feature>: true`, or the object from `--option`. A feature tha
 
 The host decides what `add` accepts. A feature that the host does not support exits with `3`. A host that needs an explicit provider, such as Email on Vercel, exits with `2` and lists the option in `missing` with its `choices`. When ViteHub can choose the values, `rerun` is a command that succeeds as it is, including any provider prerequisites. Node Schedules require `--option schedule.runtime.driver=process`, or `--option schedule.providerOutput=false` when you will wake them yourself.
 
-Console requires an explicit access choice with `--option console.auth=false` for no sign-in, `--option console.auth=app` for an app with an Auth Definition and Console authorization, or nested `console.auth` options for Console Auth. ViteHub does not choose an access policy for you. When running a pkg.pr.new preview of the CLI, added ViteHub packages use the same preview reference.
+Console requires an explicit access choice with `--option console.auth=false` for no sign-in, `--option console.auth=app --option console.authorize=server/console-authorize.ts` for an app with enabled Auth, an Auth Definition, and an existing Console authorization file, or nested `console.auth` options for Console Auth. The CLI requires the authorization file because it does not evaluate app Auth access callbacks. To use Auth access routes alone, configure Console by hand. ViteHub does not choose an access policy for you.
+
+Connections management requires Console; Observability papercut reports require Agent and Console. The command collects Console access and their provider inputs before applying these options.
+
+When running a pkg.pr.new preview of the CLI, added ViteHub packages use the same preview reference.
 
 ### `SETUP_FEATURE_UNSUPPORTED`
 
@@ -643,7 +647,7 @@ The generated commands need the Console RPC. `vitehub()` installs it, and standa
 
 An operation that runs code of the app, `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, and `schedule.run`, is registered only when `console.invoke` is on. That is the default in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
 
-The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|del`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub search query`, `vitehub sections list`, `vitehub usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
+The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|del`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub project info`, `vitehub search query`, `vitehub sections list`, `vitehub usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
 
 | Option | Use it for |
 | --- | --- |

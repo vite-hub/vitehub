@@ -95,6 +95,39 @@ describe("authDatabase()", () => {
     expect((await client.execute("select count(*) as count from jwks")).rows[0]?.count).toBe(1)
   })
 
+  it("keeps the limiter counters of every Auth instance in the rate_limit table", async () => {
+    // A Worker build: the Auth Vite plugin marks it as a build, and there is no NODE_ENV.
+    vi.stubGlobal("__VITEHUB_AUTH_DEV__", false)
+    vi.stubEnv("NODE_ENV", "")
+    try {
+      const definition = defineAuth({ database: authDatabase(), emailAndPassword: { enabled: true } })
+      const signIn = async (address: string) => {
+        const request = new Request(`${app}/api/auth/sign-in/email`, {
+          body: JSON.stringify({ email: "nobody@example.com", password: "wrong-password" }),
+          headers: { "cf-connecting-ip": address, "content-type": "application/json", "origin": app, "x-forwarded-for": "203.0.113.1" },
+          method: "POST",
+        })
+        // srvx adds the Cloudflare client address to the Request as `ip`.
+        Object.defineProperty(request, "ip", { value: address })
+        // Each request builds its own Auth, as an Auth that follows `requestOrigin` does.
+        return (await createAuthForRequest(definition, request).handler(request)).status
+      }
+
+      const first = [await signIn("198.51.100.7"), await signIn("198.51.100.7"), await signIn("198.51.100.7"), await signIn("198.51.100.7")]
+      expect(first).toEqual([401, 401, 401, 429])
+      expect(await signIn("198.51.100.8")).toBe(401)
+      const rows = await client.execute("select key, count from rate_limit order by key")
+      expect(rows.rows).toEqual([
+        expect.objectContaining({ count: 3, key: "198.51.100.7|/sign-in/email" }),
+        expect.objectContaining({ count: 1, key: "198.51.100.8|/sign-in/email" }),
+      ])
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.unstubAllEnvs()
+    }
+  })
+
   it("names the missing tables instead of keeping users in memory", () => {
     const auth = createAuthForRequest(defineAuth({ database: authDatabase("accounts"), emailAndPassword: { enabled: true } }), new Request(app))
     return expect(auth.$context).rejects.toThrow(/found no Better Auth tables in the "accounts" Database/)

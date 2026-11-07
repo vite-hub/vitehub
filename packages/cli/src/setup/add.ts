@@ -6,7 +6,7 @@ import { createInterface } from "node:readline/promises"
 import { editViteHubConfig } from "@vite-hub/internal/config-edit"
 import { consoleFeaturePackages, featureIds, features, featureSupport, impliedFeatures } from "@vite-hub/internal/features"
 import { createTwoFilesPatch } from "diff"
-import { basename, dirname, join, relative } from "pathe"
+import { basename, dirname, join, relative, resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "../error-diagnostics.ts"
 import { setupExitCodes, writeSetupError, writeSetupJson } from "./envelope.ts"
@@ -295,11 +295,26 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
   // Database is mandatory for Comments and Connections, including Console's implied Comments.
   const inputFeatures = [...args.features, ...impliedFeatures(args.features, host, keep.filter(id => id !== "database"))]
   if (inputFeatures.includes("database") && keep.includes("database")) requires.push("database")
+  const requireFeature = (required: FeatureId) => {
+    for (const id of [required, ...impliedFeatures([required], host, keep.filter(id => id !== "database"))]) {
+      if (!inputFeatures.includes(id)) inputFeatures.push(id)
+      if ((id === required || keep.includes(id)) && !args.features.includes(id) && !requires.includes(id) && status.features.find(item => item.id === id)?.enabled !== "on") requires.push(id)
+    }
+  }
   for (const id of inputFeatures) {
     const support = featureSupport(id, host)
     const options = args.options[id]
     const current = project.config?.ok ? project.config.site.keys[id] : undefined
     const value = valueFor(id)
+    if (id === "connections" && isRecord(value) && value.management) requireFeature("console")
+    if (id === "observability" && isRecord(value) && value.papercuts) {
+      const agent = valueFor("agent")
+      if (host === "netlify" || (isRecord(agent) && agent.runtime === "deno")) {
+        throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "observability.papercuts requires Nitro-hosted Agents. Netlify and the Agent Deno runtime are not supported.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+      }
+      requireFeature("agent")
+      requireFeature("console")
+    }
     if (id === "agent" && host === "deno" && isRecord(value) && value.runtime === "deno") {
       throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "The Deno preset cannot deploy the Agent Deno runtime outside its Nitro entrypoint. Use the preset's Nitro runtime instead.", feature: id, host }), { exitCode: setupExitCodes.conflict })
     }
@@ -326,9 +341,13 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       && ((!args.features.includes("auth") && status.features.find(item => item.id === "auth")?.enabled !== "on") || !hasAuthDefinition(project))) {
       throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "console.auth=app requires enabled app Auth and a discovered Auth Definition. Set auth: true and add an Auth Definition in the application server directory, or choose console.auth=false or a Console Auth Definition.", feature: id, host }), { exitCode: setupExitCodes.conflict })
     }
+    // Setup never evaluates Auth callbacks. Delegate production access to an explicit server file.
+    if (id === "console" && isRecord(value) && value.auth === "app"
+      && (typeof value.authorize !== "string" || !value.authorize.trim() || !existsSync(resolve(project.root, value.authorize)))) {
+      throw new SetupAddError(cliErrorDiagnostics.SETUP_FEATURE_UNSUPPORTED({ detail: "Adding console.auth=app requires console.authorize to name an existing server file. Create a Console authorization file and pass --option console.authorize=server/console-authorize.ts, or configure app Auth access routes and Console by hand.", feature: id, host }), { exitCode: setupExitCodes.conflict })
+    }
     if (invocations === "database" || (isRecord(invocations) && invocations.store === "database")) {
-      if (!inputFeatures.includes("database")) inputFeatures.push("database")
-      if (!args.features.includes("database") && !requires.includes("database") && status.features.find(item => item.id === "database")?.enabled !== "on") requires.push("database")
+      requireFeature("database")
     }
     if (support.level === "explicit") {
       const key = support.option.slice(id.length + 1)
@@ -344,8 +363,7 @@ export async function planSetupAdd(project: SetupProject, args: SetupAddArgs, en
       const key = field.slice(id.length + 1)
       const selected = (isRecord(value) ? value[key] : undefined) ?? defaults[id]?.[key]
       if (typeof selected !== "string" || !choice.values.includes(selected)) continue
-      if (!inputFeatures.includes(choice.requires)) inputFeatures.push(choice.requires)
-      if (!args.features.includes(choice.requires) && !requires.includes(choice.requires) && status.features.find(item => item.id === choice.requires)?.enabled !== "on") requires.push(choice.requires)
+      requireFeature(choice.requires)
     }
     if (id === "schedule" && host === "node" && current?.kind !== "expression" && !(isRecord(value) && value.providerOutput === false)) {
       if (isRecord(value) && (value.providerOutput === "nitro" || value.providerOutput === "standalone")) {
