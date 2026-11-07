@@ -20,7 +20,14 @@ interface Parsed {
 
 const valueFlags = new Set(["dir", "message", "ref", "theirs", "timeout", "url"])
 
-function parse(args: readonly string[]): Parsed {
+/** The flags of each command. Any other flag fails before a call, so `push --dry-run` cannot commit. */
+const commandFlags = {
+  pull: new Set(["dir", "dry-run", "help", "json", "ref", "theirs", "timeout", "url"]),
+  push: new Set(["help", "json", "message", "timeout", "url"]),
+  resolve: new Set(["help", "json"]),
+}
+
+function parse(args: readonly string[], allowed: ReadonlySet<string>): Parsed {
   const parsed: Parsed = { flags: new Map(), positional: [] }
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]!
@@ -33,6 +40,7 @@ function parse(args: readonly string[]): Parsed {
       continue
     }
     const [name, inline] = arg.slice(2).split(/=(.*)/s, 2) as [string, string | undefined]
+    if (!allowed.has(name)) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_USAGE", `Unknown flag --${name}.`)
     const values = parsed.flags.get(name) ?? []
     if (valueFlags.has(name)) {
       const value = inline ?? args[++index]
@@ -112,7 +120,7 @@ no command: remove the markers from the file.
 async function run(command: keyof typeof usage, args: readonly string[], context: WorkspaceCheckoutCliContext): Promise<number> {
   let parsed: Parsed
   try {
-    parsed = parse(args)
+    parsed = parse(args, commandFlags[command])
   }
   catch (error) {
     context.stderr.write(`${(error as Error).message}\nUsage: ${usage[command]}\n`)

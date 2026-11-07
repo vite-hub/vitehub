@@ -197,6 +197,8 @@ The commands call two operations of the app, which the Console section `workspac
 
 The folder holds the Workspace root. Checkout folders must be separate: they cannot share a folder or contain one another. Paths with `.git`, `.vitehub`, `node_modules`, or `.DS_Store` components are excluded from pulls, status, and pushes; their remote files stay unchanged, and `--theirs` cannot select them.
 
+Each command fails on a flag that it does not know, before it calls the app. `vitehub push --dry-run` fails and commits nothing: use `vitehub pull --dry-run` or `vitehub status` to see the changes first.
+
 Commands reject existing symbolic links in the checkout folder and its ancestors inside the project. These checks do not isolate files from another process that can replace paths during an operation. Use an OS or container boundary for that isolation.
 
 A push sends whole files and the operation call has a timeout of two minutes, so keep a checkout to text and media of a docs site or a translation catalog, not to large binaries.

@@ -481,6 +481,28 @@ describe("workspace checkout", { timeout: 60_000 }, () => {
     expect((await anonymous.history.head({ ref: "draft" }))!.metadata).toEqual({ source: "cli" })
   })
 
+  it.each([
+    { command: "push", flag: "--dry-run", args: ["--dry-run"] },
+    { command: "push", flag: "--mesage", args: ["--mesage", "Typo"] },
+    { command: "pull", flag: "--theirs-all", args: ["--theirs-all"] },
+    { command: "resolve", flag: "--dir", args: ["content", "--dir", "content"] },
+  ])("fails on unknown flag $flag of $command before it calls the app", async ({ command, flag, args }) => {
+    const remoteApp = await app()
+    await remoteApp.edit({ put: { "posts/hello.md": post("Hello", "One.") } })
+    const local = await project(remoteApp.fetch, "flags")
+    await local.run("pull", "content", "--dir", "content", "--ref", "draft", "--url", remote)
+    await local.write("posts/hello.md", post("Hello", "Local."))
+    const head = await remoteApp.history.head({ ref: "draft" })
+    const calls = remoteApp.calls.length
+
+    const result = await local.run(command, ...args)
+
+    expect(result.code).toBe(1)
+    expect(result.stderr).toMatch(new RegExp(`^Unknown flag ${flag}\\.\nUsage: vitehub ${command} `))
+    expect(remoteApp.calls).toHaveLength(calls)
+    expect((await remoteApp.history.head({ ref: "draft" }))?.id).toBe(head!.id)
+  })
+
   it("asks for --dir on the first pull and refuses a folder outside the project", async () => {
     const remoteApp = await app()
     const local = await project(remoteApp.fetch, "options")
