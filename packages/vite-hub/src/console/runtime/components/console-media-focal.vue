@@ -127,7 +127,7 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
 }
 
 .vitehub-media-focal__marker:focus-visible {
-  outline: 2px solid var(--ui-primary);
+  outline: 2px solid var(--vitehub-console-focus);
   outline-offset: 3px;
 }
 
