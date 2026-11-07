@@ -34,9 +34,9 @@ export interface LlmRouteOptions<TChoices extends LlmDecisionChoiceMap = LlmDeci
   choices: TChoices
   history?: boolean | number
   id?: string
-  /** Gateway of a Jev decision on a `driver.ask` Agent: `typesafe()`, `vercel()`, or `cloudflare()`. Default: `typesafe()`. */
+  /** Gateway of the Jev decision: `typesafe()`, `vercel()`, or `cloudflare()`. Default: `typesafe()`. Ignored when `model` is set. */
   gateway?: AiGateway<{ ask: true }>
-  /** Chat model for the decision. Default: the Agent model, or TypeSafe Jev when the Agent uses `driver.ask`. */
+  /** A chat model that decides instead of TypeSafe Jev, such as the Agent model. Default: none, so Jev decides through `gateway`. */
   model?: AgentModelResolver
   prompt?: string
 }
@@ -73,7 +73,7 @@ export function llmRoute<
         throw agentDiagnostics.AGENT_R0112({ message: `[vitehub] Invocation context value "${id}" is already set.` })
       }
       const task = "Select exactly one route for the user request."
-      const jev = await jevDecision(context, options, { choices, task })
+      const jev = await jevDecision(context, options, { choices, label: "Route", task })
       const output = jev
         ? toDecision(jev.choice, { confidence: jev.confidence, probabilities: jev.probabilities })
         : await generateDecision<LlmRouteDecision<Extract<keyof TChoices, string>>>({

@@ -52,9 +52,9 @@ export interface LlmGateOptions<
   message?: string | ((
     decision: Extract<LlmGateDecision<Extract<keyof TAllow, string>, Extract<keyof TReject, string>>, { allowed: false }>,
   ) => string)
-  /** Gateway of a Jev decision on a `driver.ask` Agent: `typesafe()`, `vercel()`, or `cloudflare()`. Default: `typesafe()`. */
+  /** Gateway of the Jev decision: `typesafe()`, `vercel()`, or `cloudflare()`. Default: `typesafe()`. Ignored when `model` is set. */
   gateway?: AiGateway<{ ask: true }>
-  /** Chat model for the decision. Default: the Agent model, or TypeSafe Jev when the Agent uses `driver.ask`. */
+  /** A chat model that decides instead of TypeSafe Jev, such as the Agent model. Default: none, so Jev decides through `gateway`. */
   model?: AgentModelResolver
   prompt?: string
   reject: TReject
@@ -112,7 +112,7 @@ export function llmGate<
         ...reject.map(choice => ({ ...choice, description: `REJECT: ${choice.description}` })),
       ]
       const task = "Classify whether the user request is allowed before the main agent runs."
-      const jev = await jevDecision(context, options, { choices, task })
+      const jev = await jevDecision(context, options, { choices, label: "Category", task })
       const output = jev
         ? toDecision(jev.choice, { confidence: jev.confidence, probabilities: jev.probabilities })
         : await generateDecision<Decision>({

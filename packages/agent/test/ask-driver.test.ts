@@ -271,7 +271,7 @@ describe("ask Driver", () => {
   })
 })
 
-describe("Jev decisions for ask Driver Agents", () => {
+describe("Jev decisions", () => {
   it("records the only route without a Jev decision request", async () => {
     const agent = defineAgent({
       capabilities: [llmRoute({ choices: { only: "All requests." }, id: "route" })],
@@ -323,13 +323,36 @@ describe("Jev decisions for ask Driver Agents", () => {
 
     await expect(runAgent(agent, runtime(), { messages: [createMessage({ role: "user", text: "Invoice 42" })] })).resolves.toEqual({ spam: true })
     expect(askJev).toHaveBeenCalledTimes(2)
-    expect(askJev).toHaveBeenNthCalledWith(1, { request: "Invoice 42" }, {
-      decision: {
-        criteria: { billing: "Invoices and payments.", support: "Other help." },
-        instructions: "Route the email.\n\nSelect exactly one route for the user request.",
-        type: "choice",
-      },
-    }, expect.objectContaining({ apiKey: "ts-key" }))
+    const [state, questions, options] = askJev.mock.calls[0]!
+    expect(state).toMatchObject({ groups: [{ infer: true, options: [{ label: "billing" }, { label: "support" }] }], query: "User request:\nInvoice 42" })
+    expect(Object.keys(questions)).toEqual(["g0"])
+    expect(questions.g0).toMatchObject({ criteria: { billing: "Invoices and payments.", support: "Other help." }, type: "choice" })
+    expect(JSON.stringify(questions.g0)).toContain("Select exactly one route for the user request. Route the email.")
+    expect(options).toEqual(expect.objectContaining({ apiKey: "ts-key" }))
+  })
+
+  it("routes with Jev on a model Driver Agent when llmRoute has no model", async () => {
+    const agent = defineAgent({
+      capabilities: [llmRoute({ choices: { billing: "Invoices and payments.", support: "Other help." }, id: "route" })],
+      driver: { run: context => context.context.get("route") },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "Invoice 42" })).resolves.toEqual({ choice: "billing", confidence: 0.8, probabilities: { billing: 0.9, support: 0.1 } })
+    expect(askJev).toHaveBeenCalledOnce()
+  })
+
+  it("keeps the end of non-ASCII request text within the Jev byte budget", async () => {
+    const agent = defineAgent({
+      capabilities: [llmRoute({ choices: { billing: "Invoices and payments.", support: "Other help." }, id: "route" })],
+      driver: { run: context => context.context.get("route") },
+    })
+
+    await runAgent(agent, runtime(), { prompt: `${"😀".repeat(12_000)}end` })
+    const [state] = askJev.mock.calls[0]!
+    const query = (state as { query: string }).query
+    expect(new TextEncoder().encode(JSON.stringify(query)).byteLength).toBeLessThanOrEqual(16_002)
+    expect(query.endsWith("😀end")).toBe(true)
+    expect(query).not.toMatch(/^[\uDC00-\uDFFF]/)
   })
 
   it("splits large question sets into bounded requests and preserves key order", async () => {
@@ -367,7 +390,7 @@ describe("Jev decisions for ask Driver Agents", () => {
   })
 
   it("rejects with a Jev gate decision", async () => {
-    askJev.mockResolvedValueOnce({ decision: { choice: "unsafe", confidence: 0.6, probabilities: { safe: 0.2, unsafe: 0.8 }, type: "choice" } })
+    askJev.mockResolvedValueOnce({ g0: { choice: "unsafe", confidence: 0.6, probabilities: { safe: 0.2, unsafe: 0.8 }, type: "choice" } })
     const agent = defineAgent({
       capabilities: [llmGate({ allow: { safe: "Normal email." }, history: true, id: "gate", reject: { unsafe: "Phishing." } })],
       driver: { ask: { spam: ask.if("Is it spam?") } },
@@ -379,10 +402,10 @@ describe("Jev decisions for ask Driver Agents", () => {
       details: { capabilityId: "gate", category: "unsafe", confidence: 0.6 },
     })
     expect(askJev).toHaveBeenCalledOnce()
-    expect(askJev.mock.calls[0]?.[1]).toEqual({
-      decision: {
+    expect(askJev.mock.calls[0]?.[1]).toMatchObject({
+      g0: {
         criteria: { safe: "ALLOW: Normal email.", unsafe: "REJECT: Phishing." },
-        instructions: "Classify whether the user request is allowed before the main agent runs.",
+        instructions: expect.stringContaining("Classify whether the user request is allowed before the main agent runs."),
         type: "choice",
       },
     })
