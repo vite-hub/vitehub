@@ -103,6 +103,15 @@ describe("public package export contracts", () => {
     expect(plugin?.optionalDeclarationPeers).toEqual(["vite"])
   })
 
+  it("classifies MarkdownEditor's eager editor peers", () => {
+    const manifest = readPackageManifest("ui")
+    const contract = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/ui/markdown-editor")
+    for (const peer of Object.keys(manifest.peerDependencies || {}).filter(name => name === "@nuxt/ui" || name.startsWith("@tiptap/"))) {
+      expect(contract?.optionalRuntimePeers, `${peer} is needed to import the editor`).toContain(peer)
+      expect(contract?.optionalDeclarationPeers, `${peer} is needed to typecheck the editor`).toContain(peer)
+    }
+  })
+
   it("keeps Schedule KV adapter declarations independent from its runtime peer", () => {
     const adapter = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/schedule/runtime/kv")
     expect(adapter?.optionalDeclarationPeers).toEqual([])
@@ -219,6 +228,12 @@ describe("public package export contracts", () => {
     const source = readFileSync(join(packageDir("realtime"), "src/server.ts"), "utf8")
     expect(source).toMatch(/createRealtimeHandler\(registry: RealtimeRegistry\): RealtimeHandler/)
     expect(source).toMatch(/fetch\(input: Request \| URL \| string\): Promise<Response>/)
+  })
+
+  it("reads Sandbox Task payloads through Standard Context", () => {
+    const source = readFileSync(join(packageDir("sandbox"), "src/task/internal/shared/request-payload.ts"), "utf8")
+    expect(source).toMatch(/event: ViteHubContext/)
+    expect(source).toContain("getStandardContext(event).req.json()")
   })
 
   it("points every contract at a built artifact", () => {

@@ -2,7 +2,6 @@ import {
   addComponent,
   createResolver,
   defineNuxtModule,
-  installModule,
 } from "@nuxt/kit";
 import { icons as viteHubIcons } from "@vite-hub/icons";
 import type { ViteHubUIOptions } from "./config.ts";
@@ -44,14 +43,15 @@ export { viteHubUIIcons };
 const viteHubUINuxtModule: ViteHubUINuxtModule = defineNuxtModule<ViteHubUINuxtOptions>({
   meta: { configKey: "viteHubUI", name: "@vite-hub/ui" },
   defaults: {},
-  // The `vitehub` Iconify collection, so `i-vitehub-kv` resolves in the app like the icons of an `@iconify-json/*` package.
-  // @nuxt/ui installs @nuxt/icon, so this only adds options and does not install it a second time.
   moduleDependencies: {
+    // A module dependency, not `installModule()`, so Nuxt also installs the dependencies of @nuxt/ui, such as @nuxt/icon.
+    "@nuxt/ui": {},
+    // The `vitehub` Iconify collection, so `i-vitehub-kv` resolves in the app like the icons of an `@iconify-json/*` package.
+    // @nuxt/ui installs @nuxt/icon, so this only adds options and does not install it a second time.
     "@nuxt/icon": { optional: true, defaults: { customCollections: [viteHubIcons] } },
   },
   async setup({ prefix = "", ...options }, nuxt) {
     const resolver = createResolver(import.meta.url);
-    await installModule("@nuxt/ui", {}, nuxt);
     nuxt.options.css.push(resolver.resolve("./styles.css"));
     nuxt.options.runtimeConfig.public.viteHubUI = options;
     addViteHubUIRuntime(nuxt);

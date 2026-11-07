@@ -809,7 +809,7 @@ The rule skips a definition with a spread, and runtimes from variables. Read [Sa
 
 **Import `defineAgent` from `vite-hub/agent`.** Rule `vitehub/define-agent-from-vite-hub`.
 
-An app that depends on `vite-hub` imports `defineAgent` from the owner package `@vite-hub/agent`. That version does not apply the app-wide `agent.invocations` journal or the Console journal, so ViteHub does not record Invocations of the Agent. A string `invocations` setting, such as `'database'`, also fails when the module loads.
+An app that depends on `vite-hub` imports `defineAgent` from the owner package `@vite-hub/agent`. That version does not apply the app-wide `agent.invocations` journal or the default journal, so ViteHub does not record Invocations of the Agent. A string `invocations` setting, such as `'database'`, also fails when the module loads.
 
 ```ts [server/agents/support.ts] fragment
 // Invalid
@@ -903,7 +903,9 @@ An app that uses ViteHub still has NuxtHub parts:
 
 - `@nuxthub/core` in `modules` of `nuxt.config.ts`. NuxtHub and ViteHub both register `kv`, `blob`, and database helpers.
 - A `hub` key in `nuxt.config.ts`. `vite-hub/nuxt` does not read it, so these features stay off.
-- `hub:db`, `hub:kv`, `hub:blob`, or `@nuxthub/*` imports.
+- `hub:db`, `hub:db:schema`, `hub:kv`, `hub:blob`, or `@nuxthub/*` imports.
+- Calls to NuxtHub's auto-imported `hubBlob()`, `hubKV()`, `hubDatabase()`, or `hubAI()`. ViteHub registers none of them, so the call fails at runtime.
+- `blob.delete()`. ViteHub Blob names this method `blob.del()`.
 
 ```ts [nuxt.config.ts]
 // Invalid
