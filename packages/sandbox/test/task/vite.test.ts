@@ -1552,6 +1552,64 @@ describe("hubSandboxTask", () => {
     await expect(readFile(sandboxTaskAlias, "utf8")).resolves.toContain("setSandboxTaskRuntimeConfig")
   })
 
+  it("reloads server environments that still import a previous runtime generation", async () => {
+    const rootDir = await createViteRoot()
+    const { hubSandboxTask } = await import("../../src/task/vite.ts")
+    const plugin = hubSandboxTask({ provider: "vercel" })
+    const configHook = plugin.config as (config: Record<string, unknown>, env: { command: "serve" | "build", mode: string }) => unknown | Promise<unknown>
+    const configResolved = plugin.configResolved as unknown as (config: { root: string, resolve: { alias: [] } }) => unknown | Promise<unknown>
+    await configHook({ root: rootDir }, { command: "serve", mode: "development" })
+    await configResolved({ root: rootDir, resolve: { alias: [] } })
+
+    const configEnvironment = plugin.configEnvironment as (name: string, environment: { consumer: "client" | "server" }) => unknown
+    const sandboxTaskAlias = readAlias((configEnvironment("nitro", { consumer: "server" }) as { resolve: { alias: AliasOptions } }).resolve.alias, "@vite-hub/sandbox/task")!
+    const staleFacade = await realpath(sandboxTaskAlias)
+    type TestModule = { id: string, importers: Set<TestModule> }
+    const importer: TestModule = { id: join(rootDir, "server/api/image.post.ts"), importers: new Set() }
+    const facadeModule: TestModule = { id: staleFacade, importers: new Set([importer]) }
+    const createEnvironment = (consumer: "client" | "server") => {
+      const invalidated: unknown[][] = []
+      const sent: unknown[] = []
+      return {
+        invalidated,
+        sent,
+        environment: {
+          config: { consumer },
+          hot: { send: (payload: unknown) => sent.push(payload) },
+          moduleGraph: {
+            idToModuleMap: new Map([[importer.id, importer], [facadeModule.id, facadeModule]]),
+            invalidateModule: (module: TestModule, ...args: unknown[]) => invalidated.push([module.id, ...args]),
+          },
+        },
+      }
+    }
+    const nitro = createEnvironment("server")
+    const client = createEnvironment("client")
+    const handleHotUpdate = plugin.handleHotUpdate as unknown as (context: {
+      file: string
+      server: {
+        environments: Record<string, ReturnType<typeof createEnvironment>["environment"]>
+        moduleGraph: { getModuleById: () => undefined, invalidateModule: () => void }
+      }
+    }) => Promise<void>
+
+    const definition = join(rootDir, "src/tools/release-notes.sandbox-task.ts")
+    await writeFile(definition, "export default { run: async () => ({ message: 'updated' }) }\n")
+    await handleHotUpdate({
+      file: definition,
+      server: {
+        environments: { client: client.environment, nitro: nitro.environment },
+        moduleGraph: { getModuleById: () => undefined, invalidateModule: () => {} },
+      },
+    })
+
+    expect(await realpath(sandboxTaskAlias)).not.toBe(staleFacade)
+    expect(nitro.invalidated).toEqual([[staleFacade], [importer.id]])
+    expect(nitro.sent).toEqual([{ type: "full-reload", triggeredBy: staleFacade }])
+    expect(client.invalidated).toEqual([])
+    expect(client.sent).toEqual([])
+  })
+
   it.each(["cloudflare", "vercel"] as const)("bundles the generated %s runtime through stable paths with provider aliases", async (provider) => {
     const rootDir = await createViteRoot()
     const { hubSandboxTask } = await import("../../src/task/vite.ts")
