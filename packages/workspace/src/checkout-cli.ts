@@ -43,8 +43,9 @@ function parse(args: readonly string[], allowed: ReadonlySet<string>): Parsed {
     if (!allowed.has(name)) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_USAGE", `Unknown flag --${name}.`)
     const values = parsed.flags.get(name) ?? []
     if (valueFlags.has(name)) {
+      // The next flag is not a value: `push --message --dry-run` must not push. Write `--message=--text` for such a value.
       const value = inline ?? args[++index]
-      if (value === undefined) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_USAGE", `--${name} needs a value.`)
+      if (value === undefined || (inline === undefined && value.startsWith("--"))) throw new WorkspaceCheckoutError("WORKSPACE_CHECKOUT_USAGE", `--${name} needs a value.`)
       values.push(value)
     }
     else values.push("")
