@@ -32,8 +32,9 @@ import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
 // Page shells, static assets, and OAuth discovery carry no protected project data.
-// The Schedule run route runs a signed dispatch and nothing else; it does not read Console data.
-const shellRoutes = new Set(["client.get.ts", "mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "page.get.ts", "schedule-run.ts", "sign-in.ts", "page-session.ts"])
+// The Schedule run route checks Console access only for a bearer call. Signed dispatches and other requests read no
+// Console data. The preflight plugin answers only CORS preflights.
+const shellRoutes = new Set(["client.get.ts", "mcp-authorization-server.ts", "mcp-discovery.ts", "mcp-metadata.ts", "console-preflight.ts", "page.get.ts", "schedule-run.ts", "sign-in.ts", "page-session.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return { method: "GET", req: new Request("http://vitehub.local/api/_vitehub/console/data", { headers }) }
@@ -454,6 +455,12 @@ describe("generated Console access", () => {
 
   it("installs the local policy for the development shorthand", async () => {
     await expect(generatedPlugin({}, "serve")).resolves.toContain('installConsoleAccess({ mode: "local" })')
+  })
+
+  it("installs the Console origins even when the list is empty, so a reload revokes removed origins", async () => {
+    await expect(generatedPlugin({ console: { auth: "token", origins: [] } }, "build")).resolves.toContain("vitehubInstallConsoleOrigins([])")
+    await expect(generatedPlugin({ console: { auth: "token" } }, "build")).resolves.toContain('vitehubInstallConsoleOrigins(["https://console.vitehub.dev"])')
+    await expect(generatedPlugin({}, "serve")).resolves.toContain("vitehubInstallConsoleOrigins([])")
   })
 
   it("serves development operations without Console pages or assets", async () => {
