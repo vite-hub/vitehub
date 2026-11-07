@@ -23,6 +23,8 @@ let directory: string
 
 beforeEach(async () => {
   vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "")
+  // Load libSQL and Drizzle outside the store operation deadline. The journal still opens on first use.
+  await import("../src/console/runtime/server/invocations-database.ts")
   opens.count = 0
   directory = await mkdtemp(join(tmpdir(), "vitehub-console-journal-open-"))
 })
