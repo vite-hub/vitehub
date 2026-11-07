@@ -94,7 +94,8 @@ describe("discoverServerWorkspaceDefinitions", () => {
   it("preserves explicit sourceRootDir values in workspace modules", async () => {
     const root = await createRoot()
     const registryFile = join(root, ".vitehub", "workspace", "registry.mjs")
-    await writeFile(join(root, "server", "workspaces", "docs.ts"), "export default { sourceRootDir: '/custom/docs' }\n", "utf8")
+    await mkdir(join(root, "server", "workspaces", "docs"), { recursive: true })
+    await writeFile(join(root, "server", "workspaces", "docs", "config.ts"), "export default { sourceRootDir: '/custom/docs' }\n", "utf8")
 
     const contents = createWorkspaceRegistryContents(registryFile, discoverServerWorkspaceDefinitions(root))
 
@@ -129,6 +130,16 @@ describe("discoverServerWorkspaceDefinitions", () => {
         sourceRootDir: directory,
       }),
     ])
+  })
+
+  it("leaves the Source root of flat Workspace files to the project root", async () => {
+    const root = await createRoot()
+    await writeFile(join(root, "server", "workspaces", "docs.ts"), "export default {}\n", "utf8")
+
+    const [definition] = discoverServerWorkspaceDefinitions(root)
+
+    expect(definition).toMatchObject({ name: "docs", source: "server-workspaces" })
+    expect(definition).not.toHaveProperty("sourceRootDir")
   })
 
   it("discovers workspace definitions colocated with directory agents", async () => {

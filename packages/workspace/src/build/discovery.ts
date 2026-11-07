@@ -93,6 +93,8 @@ function resolveWorkspaceSourceRoot(file: string) {
 }
 
 function createWorkspaceDefinition(source: string, file: string, name: string): DiscoveredWorkspaceDefinition {
+  // Flat files share `server/workspaces/`, so their Sources resolve from the project root.
+  if (source === "server-workspaces") return { handler: file, name, path: file, source }
   return { handler: file, name, path: file, source, sourceRootDir: resolveWorkspaceSourceRoot(file) }
 }
 
