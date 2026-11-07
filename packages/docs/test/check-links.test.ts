@@ -107,6 +107,24 @@ describe("built docs links", () => {
     );
   });
 
+  it.each(["/", "/portal/"])("matches glob exclusions without hiding neighboring paths under %s", (appBase) => {
+    output(
+      { "index.html": `<a href="${appBase}blog/post#intro">Post</a><img src="${appBase}media/icon.svg">` },
+      (dir) => {
+        const options = { dir, siteUrl: "https://docs.test", appBase, excludeLinks: [`${appBase}blog/**`, `${appBase}media/*.svg`] };
+        expect(checkDocsLinks(options).pages).toBe(1);
+        writeFileSync(join(dir, "index.html"), `<a href="${appBase}blogger/post">Missing</a>`);
+        expect(() => checkDocsLinks(options)).toThrow(/no page or file/);
+      },
+    );
+  });
+
+  it("matches an exclusion with glob characters as written too", () => {
+    output({ "index.html": '<a href="/files/[id].json">Template</a>' }, (dir) => {
+      expect(checkDocsLinks({ dir, siteUrl: "https://docs.test", excludeLinks: ["/files/[id].json"] }).pages).toBe(1);
+    });
+  });
+
   it("reports missing files, malformed fragments and app redirects instead of following obsolete links", () => {
     output(
       { "index.html": '<a href="/old">Old</a><img src="/missing.png"><a href="/#%ZZ">Invalid</a>' },
